@@ -1,0 +1,138 @@
+#pragma once
+
+#include "artifact.h"
+#include <memory>
+#include <vector>
+#include <map>
+#include <string>
+#include <functional>
+#include <stdexcept>
+
+namespace orc {
+
+/**
+ * @brief Exception thrown during DAG execution
+ */
+class DAGExecutionError : public std::runtime_error {
+public:
+    explicit DAGExecutionError(const std::string& msg) : std::runtime_error(msg) {}
+};
+
+/**
+ * @brief Represents a processing stage in the DAG
+ * 
+ * Stages transform input artifacts into output artifacts.
+ * They are pure functions of their inputs and parameters.
+ */
+class DAGStage {
+public:
+    virtual ~DAGStage() = default;
+    
+    // Stage metadata
+    virtual std::string name() const = 0;
+    virtual std::string version() const = 0;
+    
+    // Execution
+    virtual std::vector<ArtifactPtr> execute(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, std::string>& parameters
+    ) = 0;
+    
+    // Dependency declaration (input artifact requirements)
+    virtual size_t required_input_count() const = 0;
+    virtual size_t output_count() const = 0;
+};
+
+using DAGStagePtr = std::shared_ptr<DAGStage>;
+
+/**
+ * @brief Represents a node in the processing DAG
+ */
+struct DAGNode {
+    std::string node_id;              // Unique within DAG
+    DAGStagePtr stage;                // Processing stage
+    std::map<std::string, std::string> parameters;  // Stage parameters
+    std::vector<std::string> input_node_ids;        // Dependencies
+    std::vector<size_t> input_indices;              // Which output from each input node
+};
+
+/**
+ * @brief A complete processing DAG
+ * 
+ * The DAG is static and declarative. Execution order is derived from dependencies.
+ * No dynamic mutation during execution.
+ */
+class DAG {
+public:
+    DAG() = default;
+    
+    // DAG construction
+    void add_node(DAGNode node);
+    void set_root_inputs(const std::vector<ArtifactPtr>& inputs);
+    void set_output_nodes(const std::vector<std::string>& node_ids);
+    
+    // DAG validation
+    bool validate() const;
+    std::vector<std::string> get_validation_errors() const;
+    
+    // Accessors
+    const std::vector<DAGNode>& nodes() const { return nodes_; }
+    const std::vector<ArtifactPtr>& root_inputs() const { return root_inputs_; }
+    const std::vector<std::string>& output_nodes() const { return output_node_ids_; }
+    
+    // Helper for validation (needs to be public for DAGExecutor)
+    std::map<std::string, size_t> build_node_index() const;
+    
+private:
+    std::vector<DAGNode> nodes_;
+    std::vector<ArtifactPtr> root_inputs_;
+    std::vector<std::string> output_node_ids_;
+    
+    // Helper for validation
+    bool has_cycle() const;
+};
+
+/**
+ * @brief Executes a DAG, producing output artifacts
+ * 
+ * Handles:
+ * - Topological sorting
+ * - Caching (by artifact ID)
+ * - Partial re-execution
+ */
+class DAGExecutor {
+public:
+    DAGExecutor() = default;
+    
+    // Execution
+    std::vector<ArtifactPtr> execute(const DAG& dag);
+    
+    // Cache management
+    void set_cache_enabled(bool enabled) { cache_enabled_ = enabled; }
+    bool is_cache_enabled() const { return cache_enabled_; }
+    
+    void clear_cache();
+    size_t cache_size() const { return artifact_cache_.size(); }
+    
+    // Progress callback (optional)
+    using ProgressCallback = std::function<void(const std::string& node_id, size_t current, size_t total)>;
+    void set_progress_callback(ProgressCallback callback) { progress_callback_ = callback; }
+    
+private:
+    bool cache_enabled_ = true;
+    std::map<ArtifactID, ArtifactPtr> artifact_cache_;
+    ProgressCallback progress_callback_;
+    
+    // Execution helpers
+    std::vector<std::string> topological_sort(const DAG& dag) const;
+    ArtifactPtr get_cached_or_execute(
+        const DAGNode& node,
+        const std::vector<ArtifactPtr>& inputs
+    );
+    ArtifactID compute_expected_artifact_id(
+        const DAGNode& node,
+        const std::vector<ArtifactPtr>& inputs
+    ) const;
+};
+
+} // namespace orc

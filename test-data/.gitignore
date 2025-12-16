@@ -1,0 +1,20 @@
+# Ignore all TBC files (they're large binary files)
+*.tbc
+*.lds
+*.ldf
+
+# Ignore metadata databases (can be regenerated)
+*.db
+*.db-journal
+
+# Ignore JSON metadata (unless explicitly added)
+*.json
+
+# Keep README and catalog files
+!README.md
+!catalog.json
+!*/README.md
+
+# Keep example/tiny test files if explicitly tracked
+!*.example.tbc
+!*.tiny.tbc

@@ -39,3 +39,18 @@
 
 # debug information files
 *.dwo
+
+# Build directories
+build/
+*/build/
+
+# TBC and LD files (large binary files)
+*.tbc
+*.lds
+*.ldf
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

@@ -41,10 +41,13 @@ orc/
 
 ### Phase 1: Foundations ✅
 
-- [x] FieldID model (`field_id.h`)
-- [x] Video field representation abstraction (`video_field_representation.h`)
-- [x] Artifact identity and provenance (`artifact.h`)
-- [x] Minimal DAG executor (`dag_executor.h`)
+- [x] FieldID model ([field_id.h](core/include/field_id.h))
+- [x] Video field representation abstraction ([video_field_representation.h](core/include/video_field_representation.h))
+- [x] Artifact identity and provenance ([artifact.h](core/include/artifact.h))
+- [x] Minimal DAG executor ([dag_executor.h](core/include/dag_executor.h))
+- [x] **TBC file reader** ([tbc_reader.h](core/include/tbc_reader.h))
+- [x] **TBC metadata reader (SQLite)** ([tbc_metadata.h](core/include/tbc_metadata.h))
+- [x] **TBC VideoFieldRepresentation implementation** ([tbc_video_field_representation.h](core/include/tbc_video_field_representation.h))
 
 ### Phase 2: Observers (Not Started)
 
@@ -80,6 +83,7 @@ This implementation adheres to the architectural principles in `/docs/DESIGN.md`
 
 - C++17 or later
 - CMake 3.20+
+- SQLite3
 - Qt6 (optional, for GUI)
 
 ## License

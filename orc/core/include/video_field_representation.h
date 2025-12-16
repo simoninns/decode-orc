@@ -1,3 +1,12 @@
+/******************************************************************************
+ * video_field_representation.h
+ *
+ * Abstract interface for video field sample access
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ ******************************************************************************/
+
 #pragma once
 
 #include "field_id.h"

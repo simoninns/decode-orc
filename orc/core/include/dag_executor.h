@@ -1,3 +1,12 @@
+/******************************************************************************
+ * dag_executor.h
+ *
+ * DAG (Directed Acyclic Graph) executor for processing pipeline
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ ******************************************************************************/
+
 #pragma once
 
 #include "artifact.h"

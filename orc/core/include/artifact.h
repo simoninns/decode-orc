@@ -1,3 +1,12 @@
+/******************************************************************************
+ * artifact.h
+ *
+ * Artifact identity, provenance, and base class for processing results
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ ******************************************************************************/
+
 #pragma once
 
 #include <cstdint>

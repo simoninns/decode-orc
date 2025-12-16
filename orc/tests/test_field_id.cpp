@@ -1,3 +1,12 @@
+/******************************************************************************
+ * test_field_id.cpp
+ *
+ * Unit tests for FieldID implementation
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ ******************************************************************************/
+
 #include "field_id.h"
 #include <cassert>
 #include <iostream>

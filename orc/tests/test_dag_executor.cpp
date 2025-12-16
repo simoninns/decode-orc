@@ -1,3 +1,12 @@
+/******************************************************************************
+ * test_dag_executor.cpp
+ *
+ * Unit tests for DAG executor implementation
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ ******************************************************************************/
+
 #include "dag_executor.h"
 #include <cassert>
 #include <iostream>

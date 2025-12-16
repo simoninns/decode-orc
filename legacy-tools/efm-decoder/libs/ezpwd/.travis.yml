@@ -1,0 +1,94 @@
+sudo: false
+dist: trusty
+language: cpp
+
+perl:
+  - 5.18
+
+matrix:
+  include:
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-4.9
+      env:
+        - CXX_COMPILER=g++-4.9
+        - CC_COMPILER=gcc-4.9
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-5
+      env:
+        CXX_COMPILER=g++-5
+        CC_COMPILER=gcc-5
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-6
+      env:
+        CXX_COMPILER=g++-6
+        CC_COMPILER=gcc-6
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-7
+      env:
+        CXX_COMPILER=g++-7
+        CC_COMPILER=gcc-7
+    - compiler: gcc
+      addons:
+        apt:
+          sources:
+            - ubuntu-toolchain-r-test
+          packages:
+            - g++-8
+      env:
+        CXX_COMPILER=g++-8
+        CC_COMPILER=gcc-8
+    - compiler: clang
+      addons:
+        apt:
+          sources:
+            - llvm-toolchain-trusty-3.9
+          packages:
+            - clang-3.9
+      env:
+        CXX_COMPILER=clang++-3.9
+        CC_COMPILER=clang-3.9
+    - compiler: clang
+      addons:
+        apt:
+          sources:
+            - llvm-toolchain-trusty-4.0
+          packages:
+            - clang-4.0
+      env:
+        CXX_COMPILER=clang++-4.0
+        CC_COMPILER=clang-4.0
+    - compiler: clang
+      addons:
+        apt:
+          sources:
+            - llvm-toolchain-trusty-5.0
+          packages:
+            - clang-5.0
+      env:
+        CXX_COMPILER=clang++-5.0
+        CC_COMPILER=clang-5.0
+
+script: 
+  - $CXX_COMPILER --version
+  - $CC_COMPILER --version
+  - make CXX=$CXX_COMPILER CC=$CC_COMPILER testex

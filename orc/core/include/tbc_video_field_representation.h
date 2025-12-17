@@ -57,6 +57,9 @@ public:
     const VideoParameters& video_parameters() const { return video_params_; }
     std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
     
+    // Access to metadata reader for additional metadata queries
+    const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
+    
 private:
     std::shared_ptr<TBCReader> tbc_reader_;
     std::shared_ptr<TBCMetadataReader> metadata_reader_;

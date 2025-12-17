@@ -1,9 +1,10 @@
 # Test Data Inventory
 
-This document provides a comprehensive inventory of all test data files in this directory and the VBI (Vertical Blanking Interval) data types they contain.
+This document provides a comprehensive inventory of all test data files in this directory and the VBI (Vertical Blanking Interval) and VITS (Vertical Interval Test Signal) data types they contain.
 
 **Last Updated**: December 17, 2025  
-**Validation Tool**: Compared against legacy `ld-process-vbi` using all 7 test files
+**Validation Tool**: Processed with `orc-process` using all 17 test files  
+**Observers**: All 7 observers (Biphase, VITC, ClosedCaption, VideoId, FmCode, WhiteFlag, VITS)
 
 ---
 

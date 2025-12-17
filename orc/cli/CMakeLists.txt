@@ -1,6 +1,7 @@
-# CLI tools placeholder
-# Will be populated as stages are implemented
+# CLI tools
 
-# Example: main CLI tool
-# add_executable(orc-cli main.cpp)
-# target_link_libraries(orc-cli PRIVATE orc-core)
+# orc-process: Execute DAG pipelines on TBC files
+add_executable(orc-process orc_process.cpp)
+target_link_libraries(orc-process PRIVATE orc-core)
+target_include_directories(orc-process PRIVATE ${CMAKE_SOURCE_DIR}/core/include)
+

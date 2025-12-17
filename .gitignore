@@ -54,3 +54,6 @@ build/
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Test output directory
+test-output/

@@ -92,7 +92,7 @@ std::vector<std::shared_ptr<Observation>> VITSQualityObserver::process_field(
         double white_mean = calc_mean(white_slice);
         if (white_mean >= white_ire_min_ && white_mean <= white_ire_max_) {
             double wsnr = calculate_psnr(white_slice);
-            obs->white_snr = round_to_decimal_places(wsnr, 1);
+            obs->white_snr = wsnr;
             break;
         }
     }
@@ -105,7 +105,7 @@ std::vector<std::shared_ptr<Observation>> VITSQualityObserver::process_field(
         
         if (!black_slice.empty()) {
             double bpsnr = calculate_psnr(black_slice);
-            obs->black_psnr = round_to_decimal_places(bpsnr, 1);
+            obs->black_psnr = bpsnr;
         }
     }
     

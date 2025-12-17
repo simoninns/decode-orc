@@ -49,13 +49,24 @@ orc/
 - [x] **TBC metadata reader (SQLite)** ([tbc_metadata.h](core/include/tbc_metadata.h))
 - [x] **TBC VideoFieldRepresentation implementation** ([tbc_video_field_representation.h](core/include/tbc_video_field_representation.h))
 
-### Phase 2: Observers (Not Started)
+### Phase 2: Observers ✅
 
-- [ ] Observer framework
+- [x] Observer framework ([observer.h](core/include/observer.h))
+- [x] VBI observers (6 types):
+  - [x] BiphaseObserver ([biphase_observer.h](core/include/biphase_observer.h))
+  - [x] VitcObserver ([vitc_observer.h](core/include/vitc_observer.h))
+  - [x] ClosedCaptionObserver ([closed_caption_observer.h](core/include/closed_caption_observer.h))
+  - [x] VideoIdObserver ([video_id_observer.h](core/include/video_id_observer.h))
+  - [x] FmCodeObserver ([fm_code_observer.h](core/include/fm_code_observer.h))
+  - [x] WhiteFlagObserver ([white_flag_observer.h](core/include/white_flag_observer.h))
+- [x] VITS Quality Observer ([vits_observer.h](core/include/vits_observer.h))
+- [x] orc-process CLI tool with YAML pipeline support
+
+### Phase 3: Dropout Detection and Correction (Not Started)
+
 - [ ] Dropout observer
-- [ ] VBI observer
-- [ ] VITS observer
 - [ ] Hint ingestion
+- [ ] Dropout correction stage
 
 ### Phase 3+: To Be Implemented
 

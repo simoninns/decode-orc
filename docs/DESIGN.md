@@ -303,16 +303,16 @@ The GUI never mutates signal data directly.
 
 ## 9. Legacy Tool Mapping
 
-| Legacy Tool | New Role |
-|------------|----------|
-| ld-process-vbi | 6 VBI Observers (Biphase, VITC, ClosedCaption, VideoId, FmCode, WhiteFlag) |
-| ld-process-vits | VITS Quality Observer |
-| ld-dropout-detect | Dropout Observer |
-| ld-dropout-correct | Dropout Correction Stage |
-| ld-process-efm | EFM Signal Transformer |
-| ld-discmap | Disc Interpretation Stage |
-| ld-disc-stacker | Stacking Stage |
-| ld-export-metadata | Export Stage |
+| Legacy Tool | New Role | Status |
+|------------|----------|--------|
+| ld-process-vbi | 6 VBI Observers (Biphase, VITC, ClosedCaption, VideoId, FmCode, WhiteFlag) | ✅ Implemented |
+| ld-process-vits | VITS Quality Observer | ✅ Implemented |
+| ld-dropout-detect | Dropout Observer | Planned |
+| ld-dropout-correct | Dropout Correction Stage | Planned |
+| ld-process-efm | EFM Signal Transformer | Planned |
+| ld-discmap | Disc Interpretation Stage | Planned |
+| ld-disc-stacker | Stacking Stage | Planned |
+| ld-export-metadata | Export Stage | Planned |
 
 ---
 
@@ -348,6 +348,41 @@ The GUI never mutates signal data directly.
   - DAGExecutor with artifact caching
   - Progress callback support
   - Comprehensive validation with error reporting
+
+### Phase 2 – Observers ✅ COMPLETED
+
+**Status**: Implemented and tested (December 2025)
+
+**Components**:
+- **Observer framework** (`orc/core/include/observer.h`)
+  - Abstract Observer base class with observe() method
+  - Observation base class with FieldID and confidence level
+  - ConfidenceLevel enum (NONE, LOW, MEDIUM, HIGH)
+  - Per-field observation pattern
+
+- **VBI Observers** (6 observers)
+  - BiphaseObserver - Decodes bi-phase encoded VBI data
+  - VitcObserver - Extracts VITC timecode
+  - ClosedCaptionObserver - Decodes closed caption data
+  - VideoIdObserver - Extracts NTSC video ID information
+  - FmCodeObserver - Decodes NTSC FM code data
+  - WhiteFlagObserver - Detects NTSC white flag
+
+- **VITS Quality Observer**
+  - VITSQualityObserver - Analyzes VITS test signals
+  - Calculates white SNR (Signal-to-Noise Ratio) in dB
+  - Calculates black PSNR (Peak Signal-to-Noise Ratio) in dB
+  - Configurable via YAML (line numbers, time windows, IRE thresholds)
+  - Full precision calculation with configurable output rounding
+
+- **orc-process CLI tool** (`orc/cli/orc_process.cpp`)
+  - YAML pipeline configuration support
+  - Executes observers on TBC field representations
+  - Regenerates complete SQLite metadata from scratch
+  - Database schema: capture, field_record, pcm_audio_parameters, vbi, vitc, closed_caption, vits_metrics
+  - Observer results written with configured precision (4 decimal places for VITS)
+  - Progress tracking and statistics output
+  - Compatible with ld-analyse for metadata viewing
 
 **TBC I/O Infrastructure** (added to Phase 1):
 - **TBCReader** (`orc/core/include/tbc_reader.h`)

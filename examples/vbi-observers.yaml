@@ -1,0 +1,24 @@
+# VBI Observer Pipeline
+# Runs all VBI observers on TBC data
+
+dag:
+  name: "VBI Observer Pipeline"
+  version: "1.0"
+
+observers:
+  - type: biphase
+    enabled: true
+  - type: vitc
+    enabled: true
+  - type: closed_caption
+    enabled: true
+  - type: video_id
+    enabled: true
+  - type: fm_code
+    enabled: true
+  - type: white_flag
+    enabled: true
+  - type: vits
+    enabled: true
+
+stages: []  # Future: chroma decoding, dropout correction, etc

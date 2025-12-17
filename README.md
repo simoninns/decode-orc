@@ -35,10 +35,22 @@ This project is under active development.
 - Complete metadata regeneration (SQLite)
 - Tested with 17 reference TBC files (9 PAL, 8 NTSC)
 
-### 🚧 Phase 3: Dropout Detection (In Progress)
-- Dropout observer
-- Hint ingestion
-- Dropout correction stage
+### ✅ Phase 3: Dropout Detection and Correction (Completed)
+- User decision framework (ADD/REMOVE/MODIFY dropouts)
+- Dropout correction stage with intra/interfield options
+- Uses TBC metadata hints directly (no separate observer needed)
+- Quality-based replacement line selection
+- Multiple corrections per line support
+- **orc-process** stage execution with TBC regeneration
+- Legacy-compatible correction parameters
+- Metadata tracking (dropout table reflects correction state)
+- Tested with 400-field PAL capture (286 fields corrected, 550 dropouts)
+- Processing time: ~0.5 seconds for 400 fields
+
+### 🚧 Phase 4: Multi-source and Export (Planned)
+- Field fingerprinting and alignment
+- Multi-source stacking stage
+- Export stage (video/metadata/audio)
 
 ## Quick Start
 
@@ -51,12 +63,12 @@ cmake ../orc
 make -j$(nproc)
 ```
 
-### Process a TBC File
+### Process a TBC File with VBI Extraction
 
 ```bash
 build/bin/orc-process --dag examples/vbi-observers.yaml \
-  test-data/ntsc/reference/cinder/9000-9210/cinder_ntsc_clv_9000-9210.tbc \
-  output/cinder_processed.tbc
+  test-data/pal/reference/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc \
+  output/ggv1011_processed.tbc
 ```
 
 This will:
@@ -64,6 +76,41 @@ This will:
 2. Execute all 7 observers on each field
 3. Generate new SQLite metadata with all observations
 4. Output a processed TBC compatible with `ld-analyse`
+
+### Correct Dropouts
+
+```bash
+build/bin/orc-process --dag examples/dropout-correct.yaml \
+  input.tbc \
+  output/corrected.tbc
+```
+
+This will:
+1. Load dropout hints from input TBC metadata
+2. Correct dropouts using intra/interfield line replacement
+3. Extract VBI metadata from corrected fields
+4. Generate corrected TBC and metadata (0 dropouts)
+
+**Performance**: ~0.5 seconds for 400 PAL fields
+
+### Correct Dropouts with Manual Decisions
+
+```bash
+build/bin/orc-process --dag examples/dropout-correct-with-decisions.yaml \
+  input.tbc \
+  output/corrected.tbc
+```
+
+The YAML file can include manual dropout decisions:
+```yaml
+dropout_decisions:
+  - field_id: 42
+    action: ADD
+    line: 198
+    start_sample: 100
+    end_sample: 150
+    notes: "Missed by detector"
+```
 
 ### View Results
 

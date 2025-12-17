@@ -121,8 +121,8 @@ void test_pal_cav_file(const TestFile& test_file) {
         auto dropouts = metadata_reader.read_dropouts(FieldID(0));
         std::cout << "  Dropouts: " << dropouts.size() << "\n";
         if (!dropouts.empty()) {
-            std::cout << "    First dropout: line " << dropouts[0].field_line 
-                      << ", x=" << dropouts[0].start_x << "-" << dropouts[0].end_x << "\n";
+            std::cout << "    First dropout: line " << dropouts[0].line
+                      << ", x=" << dropouts[0].start_sample << "-" << dropouts[0].end_sample << "\n";
         }
     }
     

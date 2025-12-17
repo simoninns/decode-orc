@@ -1,0 +1,45 @@
+# Conservative Intrafield-Only Correction
+# Use this for high-quality sources where you want to avoid any field blending
+# Only corrects dropouts using data from the same field
+
+name: "Conservative Intrafield Correction"
+version: "1.0"
+
+observers:
+  - type: biphase
+    enabled: true
+
+# Example: Remove false positives from TBC hints
+dropout_decisions:
+  # The amplitude detector may flag rapid legitimate changes as dropouts
+  - field_id: 500
+    line: 150
+    start_sample: 1200
+    end_sample: 1240
+    action: "remove"
+    notes: "Scene transition, not a dropout"
+  
+  - field_id: 501
+    line: 150
+    start_sample: 1200
+    end_sample: 1240
+    action: "remove"
+    notes: "Scene transition, not a dropout"
+
+stages:
+  - type: dropout_correct
+    enabled: true
+    
+    # No extension - trust the detector
+    overcorrect_extension: 0
+    
+    # INTRAFIELD ONLY: Never use opposite field for correction
+    # Preserves progressive-like quality, avoids field blend artifacts
+    intrafield_only: true
+    
+    reverse_field_order: false
+    
+    # Conservative search distance
+    max_replacement_distance: 5
+    
+    match_chroma_phase: true

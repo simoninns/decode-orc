@@ -134,9 +134,16 @@ struct VitsMetrics {
  * @brief Dropout information for a field
  */
 struct DropoutInfo {
-    int32_t start_x = -1;  // Sample position
-    int32_t end_x = -1;
-    int32_t field_line = -1;
+    uint32_t line = 0;           ///< Line number (0-based)
+    uint32_t start_sample = 0;   ///< Start sample within line
+    uint32_t end_sample = 0;     ///< End sample within line (exclusive)
+};
+
+/**
+ * @brief Collection of dropout information for a field
+ */
+struct DropoutData {
+    std::vector<DropoutInfo> dropouts;
 };
 
 /**
@@ -212,7 +219,8 @@ public:
     std::optional<VbiData> read_vbi(FieldID field_id);
     std::optional<VitcData> read_vitc(FieldID field_id);
     std::optional<ClosedCaptionData> read_closed_caption(FieldID field_id);
-    std::vector<DropoutInfo> read_dropouts(FieldID field_id);
+    std::optional<DropoutData> read_dropout(FieldID field_id) const;
+    std::vector<DropoutInfo> read_dropouts(FieldID field_id) const;  // Legacy compatibility
     
 private:
     class Impl;  // Forward declaration for pimpl

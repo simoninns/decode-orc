@@ -1,0 +1,59 @@
+# Complete Pipeline: VBI Extraction + Dropout Correction
+# Standard configuration for typical LaserDisc restoration workflow
+
+name: "Full VBI and Dropout Pipeline"
+version: "1.0"
+
+# Run all VBI observers
+observers:
+  # VBI metadata extraction
+  - type: biphase
+    enabled: true
+  
+  - type: vitc
+    enabled: true
+  
+  - type: closed_caption
+    enabled: true
+  
+  - type: video_id
+    enabled: true
+  
+  - type: fm_code
+    enabled: true
+  
+  - type: white_flag
+    enabled: true
+  
+  # VITS quality metrics
+  - type: vits
+    enabled: true
+
+# Example: Typical user corrections discovered during playback review
+dropout_decisions:
+  # Color burst dropouts are especially problematic
+  - field_id: 42
+    line: 20
+    start_sample: 50
+    end_sample: 120
+    action: "add"
+    notes: "Color burst dropout causing chroma phase shift"
+  
+  # Remove detector noise in solid black areas
+  - field_id: 1500
+    line: 300
+    start_sample: 500
+    end_sample: 520
+    action: "remove"
+    notes: "False positive in black level area"
+
+stages:
+  - type: dropout_correct
+    enabled: true
+    
+    # Balanced settings for typical use
+    overcorrect_extension: 0
+    intrafield_only: false
+    reverse_field_order: false
+    max_replacement_distance: 10
+    match_chroma_phase: true

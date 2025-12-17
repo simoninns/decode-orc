@@ -1,0 +1,93 @@
+# Dropout Detection and Correction Pipeline with User Decisions
+# This example demonstrates:
+# 1. Detecting dropouts using the dropout observer
+# 2. Manual user corrections to dropout locations
+# 3. Applying dropout correction with configurable parameters
+
+name: "Dropout Correction with Manual Adjustments"
+version: "1.0"
+
+# Extract VBI metadata for reference
+observers:
+  - type: biphase
+    enabled: true
+  
+  - type: vits
+    enabled: true
+
+# User decisions modify the TBC hint dropouts
+# Actions: "add" (new dropout), "remove" (false positive), "modify" (adjust boundaries)
+dropout_decisions:
+  # Add a dropout that the observer missed on field 100, line 50
+  - field_id: 100
+    line: 50
+    start_sample: 500
+    end_sample: 550
+    action: "add"
+    notes: "Visible corruption in active video area"
+  
+  # Remove a false positive detected on field 150, line 100
+  - field_id: 150
+    line: 100
+    start_sample: 800
+    end_sample: 850
+    action: "remove"
+    notes: "Normal signal variation, not a dropout"
+  
+  # Modify the boundaries of a dropout on field 200, line 75
+  # Observer detected 1200-1250, but visual inspection shows it extends further
+  - field_id: 200
+    line: 75
+    start_sample: 1200
+    end_sample: 1300
+    action: "modify"
+    notes: "Extended dropout boundary based on visual inspection"
+  
+  # Add multiple dropouts on consecutive lines (tape damage)
+  - field_id: 250
+    line: 120
+    start_sample: 300
+    end_sample: 400
+    action: "add"
+    notes: "Tape damage - line 1 of 3"
+  
+  - field_id: 250
+    line: 121
+    start_sample: 300
+    end_sample: 400
+    action: "add"
+    notes: "Tape damage - line 2 of 3"
+  
+  - field_id: 250
+    line: 122
+    start_sample: 300
+    end_sample: 400
+    action: "add"
+    notes: "Tape damage - line 3 of 3"
+
+# Stages transform video signals (produce new representations)
+stages:
+  - type: dropout_correct
+    enabled: true
+    
+    # Correction parameters (compatible with ld-dropout-correct)
+    
+    # Extend detected dropouts by N samples (0-24)
+    # Use 24 for heavily damaged sources (overcorrect mode)
+    overcorrect_extension: 0
+    
+    # Only use lines from the same field for correction
+    # Set to true to avoid field blending artifacts
+    intrafield_only: false
+    
+    # Use second field first instead of first field first
+    # Rarely needed, for non-standard field ordering
+    reverse_field_order: false
+    
+    # Maximum number of lines to search for replacement (1-10)
+    # Larger values find better matches but are slower
+    max_replacement_distance: 10
+    
+    # Match chroma phase when selecting replacement lines
+    # Set to false for B&W content or when color isn't critical
+    match_chroma_phase: true

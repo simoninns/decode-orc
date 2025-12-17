@@ -1,0 +1,19 @@
+# Basic Dropout Correction Pipeline
+# Detects and corrects dropouts using default parameters
+# No user decisions - fully automatic correction
+
+name: "Basic Dropout Correction"
+version: "1.0"
+
+# No observers needed - uses TBC hints directly
+
+stages:
+  - type: dropout_correct
+    enabled: true
+    
+    # Default parameters (balanced for typical LaserDisc content)
+    overcorrect_extension: 0
+    intrafield_only: false
+    reverse_field_order: false
+    max_replacement_distance: 10
+    match_chroma_phase: true

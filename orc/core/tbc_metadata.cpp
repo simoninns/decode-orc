@@ -333,7 +333,7 @@ std::optional<ClosedCaptionData> TBCMetadataReader::read_closed_caption(FieldID 
     return std::nullopt;
 }
 
-std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) {
+std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) const {
     std::vector<DropoutInfo> dropouts;
     
     if (!is_open_ || !field_id.is_valid()) {
@@ -356,14 +356,25 @@ std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) {
     
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         DropoutInfo dropout;
-        dropout.start_x = impl_->get_int(stmt, 0);
-        dropout.end_x = impl_->get_int(stmt, 1);
-        dropout.field_line = impl_->get_int(stmt, 2);
+        dropout.start_sample = static_cast<uint32_t>(impl_->get_int(stmt, 0));
+        dropout.end_sample = static_cast<uint32_t>(impl_->get_int(stmt, 1));
+        dropout.line = static_cast<uint32_t>(impl_->get_int(stmt, 2));
         dropouts.push_back(dropout);
     }
     
     sqlite3_finalize(stmt);
     return dropouts;
+}
+
+std::optional<DropoutData> TBCMetadataReader::read_dropout(FieldID field_id) const {
+    auto dropouts = read_dropouts(field_id);
+    if (dropouts.empty()) {
+        return std::nullopt;
+    }
+    
+    DropoutData data;
+    data.dropouts = dropouts;
+    return data;
 }
 
 } // namespace orc

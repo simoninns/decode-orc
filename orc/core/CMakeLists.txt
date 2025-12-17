@@ -22,6 +22,10 @@ add_library(orc-core STATIC
     video_id_observer.cpp
     fm_code_observer.cpp
     white_flag_observer.cpp
+    
+    # Phase 3: Dropout Correction
+    dropout_decision.cpp
+    dropout_correct_stage.cpp
 )
 
 target_include_directories(orc-core PUBLIC

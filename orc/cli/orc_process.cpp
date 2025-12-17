@@ -11,6 +11,8 @@
 #include "fm_code_observer.h"
 #include "white_flag_observer.h"
 #include "vits_observer.h"
+#include "dropout_correct_stage.h"
+#include "dropout_decision.h"
 #include "observer.h"
 
 #include <iostream>
@@ -27,16 +29,32 @@
 
 namespace fs = std::filesystem;
 using namespace orc;
-
 struct ObserverConfig {
     std::string type;
     bool enabled;
+};
+
+struct StageConfig {
+    std::string type;
+    bool enabled;
+    std::map<std::string, std::string> parameters;
+};
+
+struct DropoutDecisionConfig {
+    uint64_t field_id;
+    uint32_t line;
+    uint32_t start_sample;
+    uint32_t end_sample;
+    std::string action;  // "add", "remove", or "modify"
+    std::string notes;
 };
 
 struct DAGConfig {
     std::string name;
     std::string version;
     std::vector<ObserverConfig> observers;
+    std::vector<StageConfig> stages;
+    std::vector<DropoutDecisionConfig> dropout_decisions;
 };
 
 // Simple YAML parser for our specific format
@@ -49,8 +67,14 @@ DAGConfig parse_dag_yaml(const std::string& filename) {
     DAGConfig config;
     std::string line;
     bool in_observers = false;
+    bool in_stages = false;
+    bool in_decisions = false;
     ObserverConfig current_observer;
-    bool has_type = false;
+    StageConfig current_stage;
+    DropoutDecisionConfig current_decision;
+    bool has_observer_type = false;
+    bool has_stage_type = false;
+    bool has_decision_field = false;
     
     while (std::getline(file, line)) {
         // Trim whitespace
@@ -75,11 +99,44 @@ DAGConfig parse_dag_yaml(const std::string& filename) {
                 config.version = line.substr(quote1 + 1, quote2 - quote1 - 1);
             }
         } else if (line.find("observers:") == 0) {
+            // Save previous stage if exists
+            if (has_stage_type) {
+                config.stages.push_back(current_stage);
+                has_stage_type = false;
+            }
             in_observers = true;
+            in_stages = false;
+        } else if (line.find("stages:") == 0) {
+            // Save previous observer if exists
+            if (has_observer_type) {
+                config.observers.push_back(current_observer);
+                has_observer_type = false;
+            }
+            // Save previous decision if exists
+            if (has_decision_field) {
+                config.dropout_decisions.push_back(current_decision);
+                has_decision_field = false;
+            }
+            in_observers = false;
+            in_stages = true;
+            in_decisions = false;
+        } else if (line.find("dropout_decisions:") == 0) {
+            // Save previous observer/stage if exists
+            if (has_observer_type) {
+                config.observers.push_back(current_observer);
+                has_observer_type = false;
+            }
+            if (has_stage_type) {
+                config.stages.push_back(current_stage);
+                has_stage_type = false;
+            }
+            in_observers = false;
+            in_stages = false;
+            in_decisions = true;
         } else if (in_observers) {
             if (line.find("- type:") == 0) {
                 // Save previous observer if exists
-                if (has_type) {
+                if (has_observer_type) {
                     config.observers.push_back(current_observer);
                 }
                 // Start new observer
@@ -90,27 +147,102 @@ DAGConfig parse_dag_yaml(const std::string& filename) {
                 size_t t_start = current_observer.type.find_first_not_of(" \t");
                 current_observer.type = current_observer.type.substr(t_start);
                 current_observer.enabled = true; // default
-                has_type = true;
+                has_observer_type = true;
             } else if (line.find("enabled:") == 0) {
                 size_t colon = line.find(':');
                 std::string value = line.substr(colon + 1);
                 size_t v_start = value.find_first_not_of(" \t");
                 value = value.substr(v_start);
                 current_observer.enabled = (value == "true");
-            } else if (line.find("stages:") == 0) {
-                // End of observers section
-                if (has_type) {
-                    config.observers.push_back(current_observer);
-                    has_type = false;
+            }
+        } else if (in_stages) {
+            if (line.find("- type:") == 0) {
+                // Save previous stage if exists
+                if (has_stage_type) {
+                    config.stages.push_back(current_stage);
                 }
-                in_observers = false;
+                // Start new stage
+                current_stage = StageConfig();
+                size_t colon = line.find(':');
+                current_stage.type = line.substr(colon + 1);
+                // Trim whitespace
+                size_t t_start = current_stage.type.find_first_not_of(" \t");
+                current_stage.type = current_stage.type.substr(t_start);
+                current_stage.enabled = true; // default
+                has_stage_type = true;
+            } else if (line.find("enabled:") == 0) {
+                size_t colon = line.find(':');
+                std::string value = line.substr(colon + 1);
+                size_t v_start = value.find_first_not_of(" \t");
+                value = value.substr(v_start);
+                current_stage.enabled = (value == "true");
+            } else if (has_stage_type && line.find(':') != std::string::npos) {
+                // Parse parameter
+                size_t colon = line.find(':');
+                std::string key = line.substr(0, colon);
+                std::string value = line.substr(colon + 1);
+                // Trim whitespace
+                size_t k_start = key.find_first_not_of(" \t");
+                size_t v_start = value.find_first_not_of(" \t");
+                if (k_start != std::string::npos && v_start != std::string::npos) {
+                    key = key.substr(k_start);
+                    value = value.substr(v_start);
+                    current_stage.parameters[key] = value;
+                }
+            }
+        } else if (in_decisions) {
+            if (line.find("- field_id:") == 0) {
+                // Save previous decision if exists
+                if (has_decision_field) {
+                    config.dropout_decisions.push_back(current_decision);
+                }
+                // Start new decision
+                current_decision = DropoutDecisionConfig();
+                size_t colon = line.find(':');
+                std::string value = line.substr(colon + 1);
+                size_t v_start = value.find_first_not_of(" \t");
+                value = value.substr(v_start);
+                current_decision.field_id = std::stoull(value);
+                has_decision_field = true;
+            } else if (has_decision_field) {
+                size_t colon = line.find(':');
+                if (colon != std::string::npos) {
+                    std::string key = line.substr(0, colon);
+                    std::string value = line.substr(colon + 1);
+                    // Trim whitespace
+                    size_t k_start = key.find_first_not_of(" \t");
+                    size_t v_start = value.find_first_not_of(" \t");
+                    if (k_start != std::string::npos && v_start != std::string::npos) {
+                        key = key.substr(k_start);
+                        value = value.substr(v_start);
+                        // Remove quotes if present
+                        if (!value.empty() && value[0] == '"') {
+                            size_t end_quote = value.find('"', 1);
+                            if (end_quote != std::string::npos) {
+                                value = value.substr(1, end_quote - 1);
+                            }
+                        }
+                        
+                        if (key == "line") current_decision.line = std::stoul(value);
+                        else if (key == "start_sample") current_decision.start_sample = std::stoul(value);
+                        else if (key == "end_sample") current_decision.end_sample = std::stoul(value);
+                        else if (key == "action") current_decision.action = value;
+                        else if (key == "notes") current_decision.notes = value;
+                    }
+                }
             }
         }
     }
     
-    // Save last observer if exists
-    if (has_type) {
+    // Save last observer/stage/decision if exists
+    if (has_observer_type) {
         config.observers.push_back(current_observer);
+    }
+    if (has_stage_type) {
+        config.stages.push_back(current_stage);
+    }
+    if (has_decision_field) {
+        config.dropout_decisions.push_back(current_decision);
     }
     
     return config;
@@ -126,6 +258,40 @@ std::unique_ptr<Observer> create_observer(const std::string& type) {
     if (type == "vits") return std::make_unique<VITSQualityObserver>();
     
     throw std::runtime_error("Unknown observer type: " + type);
+}
+
+std::shared_ptr<DropoutCorrectStage> create_dropout_correct_stage(
+    const std::map<std::string, std::string>& parameters) {
+    
+    DropoutCorrectionConfig config;
+    
+    // Parse parameters
+    auto it = parameters.find("overcorrect_extension");
+    if (it != parameters.end()) {
+        config.overcorrect_extension = std::stoi(it->second);
+    }
+    
+    it = parameters.find("intrafield_only");
+    if (it != parameters.end()) {
+        config.intrafield_only = (it->second == "true" || it->second == "1");
+    }
+    
+    it = parameters.find("reverse_field_order");
+    if (it != parameters.end()) {
+        config.reverse_field_order = (it->second == "true" || it->second == "1");
+    }
+    
+    it = parameters.find("max_replacement_distance");
+    if (it != parameters.end()) {
+        config.max_replacement_distance = std::stoi(it->second);
+    }
+    
+    it = parameters.find("match_chroma_phase");
+    if (it != parameters.end()) {
+        config.match_chroma_phase = (it->second == "true" || it->second == "1");
+    }
+    
+    return std::make_shared<DropoutCorrectStage>(config);
 }
 
 void copy_tbc_file(const std::string& input, const std::string& output) {
@@ -303,7 +469,8 @@ void write_base_metadata(sqlite3* db, TBCVideoFieldRepresentation& representatio
 
 void write_observations_to_db(const std::string& db_path,
                               TBCVideoFieldRepresentation& representation,
-                              const std::vector<std::unique_ptr<Observer>>& observers) {
+                              const std::vector<std::unique_ptr<Observer>>& observers,
+                              bool dropout_corrected) {
     
     // Statistics
     size_t vbi_count = 0;
@@ -367,10 +534,49 @@ void write_observations_to_db(const std::string& db_path,
         "PRIMARY KEY (capture_id, field_id)"
         ");";
     
+    const char* create_dropout_table =
+        "CREATE TABLE IF NOT EXISTS drop_outs ("
+        "capture_id INTEGER NOT NULL,"
+        "field_id INTEGER NOT NULL,"
+        "field_line INTEGER,"
+        "startx INTEGER,"
+        "endx INTEGER"
+        ");";
+    
     sqlite3_exec(db, create_vbi_table, nullptr, nullptr, nullptr);
     sqlite3_exec(db, create_vitc_table, nullptr, nullptr, nullptr);
     sqlite3_exec(db, create_cc_table, nullptr, nullptr, nullptr);
     sqlite3_exec(db, create_vits_table, nullptr, nullptr, nullptr);
+    sqlite3_exec(db, create_dropout_table, nullptr, nullptr, nullptr);
+    
+    // Handle dropout metadata based on correction state
+    if (!dropout_corrected) {
+        // No correction stage - copy original dropouts
+        const auto* metadata = representation.metadata_reader();
+        if (metadata) {
+            sqlite3_stmt* dropout_stmt;
+            sqlite3_prepare_v2(db, "INSERT INTO drop_outs (capture_id, field_id, field_line, startx, endx) VALUES (1, ?, ?, ?, ?);",
+                              -1, &dropout_stmt, nullptr);
+            
+            auto field_range = representation.field_range();
+            for (size_t i = 0; i < field_range.size(); ++i) {
+                FieldID field_id = field_range.start + i;
+                auto dropout_data = metadata->read_dropout(field_id);
+                if (dropout_data) {
+                    for (const auto& dropout : dropout_data->dropouts) {
+                        sqlite3_bind_int(dropout_stmt, 1, static_cast<int>(i));
+                        sqlite3_bind_int(dropout_stmt, 2, dropout.line);
+                        sqlite3_bind_int(dropout_stmt, 3, dropout.start_sample);
+                        sqlite3_bind_int(dropout_stmt, 4, dropout.end_sample);
+                        sqlite3_step(dropout_stmt);
+                        sqlite3_reset(dropout_stmt);
+                    }
+                }
+            }
+            sqlite3_finalize(dropout_stmt);
+        }
+    }
+    // If dropout_corrected == true, leave table empty (all dropouts corrected)
     
     // Prepare statements
     sqlite3_stmt* vbi_stmt;
@@ -578,17 +784,152 @@ int main(int argc, char* argv[]) {
             std::cout << "\nWarning: No observers enabled in DAG\n";
         }
         
-        // Copy TBC file
-        std::cout << "\nCopying video data..." << std::endl;
-        copy_tbc_file(input_tbc, output_tbc);
+        // Load dropout decisions if present
+        DropoutDecisions dropout_decisions;
+        if (!config.dropout_decisions.empty()) {
+            std::cout << "  Loading " << config.dropout_decisions.size() << " dropout decisions" << std::endl;
+            for (const auto& dec : config.dropout_decisions) {
+                DropoutDecision::Action action;
+                if (dec.action == "add") action = DropoutDecision::Action::ADD;
+                else if (dec.action == "remove") action = DropoutDecision::Action::REMOVE;
+                else if (dec.action == "modify") action = DropoutDecision::Action::MODIFY;
+                else {
+                    std::cerr << "Warning: Unknown action '" << dec.action << "', skipping decision" << std::endl;
+                    continue;
+                }
+                dropout_decisions.add_decision(
+                    DropoutDecision(FieldID(dec.field_id), dec.line, 
+                                   dec.start_sample, dec.end_sample, 
+                                   action, dec.notes));
+            }
+        }
+        
+        // Check if we have stages that transform video data
+        bool has_video_transform_stages = false;
+        std::shared_ptr<DropoutCorrectStage> dropout_stage;
+        
+        for (const auto& stage_config : config.stages) {
+            if (stage_config.enabled && stage_config.type == "dropout_correct") {
+                has_video_transform_stages = true;
+                std::cout << "  Enabling stage: dropout_correct" << std::endl;
+                dropout_stage = create_dropout_correct_stage(stage_config.parameters);
+                break;
+            }
+        }
         
         // Load representation
-        std::cout << "Loading TBC representation..." << std::endl;
+        std::cout << "\nLoading TBC representation..." << std::endl;
         auto representation = create_tbc_representation(input_tbc, input_db);
         
-        // Execute pipeline
-        std::cout << "\nExecuting pipeline..." << std::endl;
-        write_observations_to_db(output_db, *representation, observers);
+        // Execute stages if present to build final representation
+        std::shared_ptr<VideoFieldRepresentation> final_representation = representation;
+        
+        if (dropout_stage) {
+            std::cout << "\nExecuting dropout correction stage..." << std::endl;
+            
+            auto field_range = representation->field_range();
+            size_t total_fields = field_range.size();
+            size_t corrected_fields = 0;
+            size_t total_dropouts = 0;
+            
+            std::cout << "  Loading dropout hints and applying corrections..." << std::endl;
+            
+            // Build corrected representation by processing all fields
+            std::map<FieldID, std::shared_ptr<CorrectedVideoFieldRepresentation>> corrected_fields_map;
+            
+            for (size_t i = 0; i < total_fields; ++i) {
+                FieldID field_id = field_range.start + i;
+                
+                // Load dropout hints directly from TBC metadata
+                std::vector<DropoutRegion> dropout_regions;
+                
+                const auto* metadata = representation->metadata_reader();
+                if (metadata) {
+                    auto dropout_data = metadata->read_dropout(field_id);
+                    if (dropout_data) {
+                        for (const auto& dropout : dropout_data->dropouts) {
+                            DropoutRegion region;
+                            // Database uses 1-indexed line numbers, convert to 0-indexed
+                            region.line = (dropout.line > 0) ? dropout.line - 1 : 0;
+                            region.start_sample = dropout.start_sample;
+                            region.end_sample = dropout.end_sample;
+                            region.basis = DropoutRegion::DetectionBasis::HINT_DERIVED;
+                            dropout_regions.push_back(region);
+                        }
+                    }
+                }
+                
+                // Apply user decisions
+                dropout_regions = dropout_decisions.apply_decisions(field_id, dropout_regions);
+                
+                // Correct field if it has dropouts
+                if (!dropout_regions.empty()) {
+                    total_dropouts += dropout_regions.size();
+                    auto corrected = dropout_stage->correct_field(representation, field_id, dropout_regions);
+                    if (corrected) {
+                        corrected_fields_map[field_id] = corrected;
+                        corrected_fields++;
+                    }
+                }
+                
+                if ((i + 1) % 100 == 0 || (i + 1) == total_fields) {
+                    std::cout << "\r    Progress: " << (i + 1) << "/" << total_fields 
+                             << " (" << (100 * (i + 1) / total_fields) << "%) - "
+                             << corrected_fields << " fields corrected, "
+                             << total_dropouts << " dropouts" << std::flush;
+                }
+            }
+            
+            std::cout << "\n  Corrected " << corrected_fields << " fields (" 
+                     << total_dropouts << " dropout regions)" << std::endl;
+            
+            // Write output TBC by requesting fields from appropriate representation
+            std::cout << "\nWriting output TBC..." << std::endl;
+            std::ofstream tbc_out(output_tbc, std::ios::binary);
+            if (!tbc_out) {
+                throw std::runtime_error("Cannot open output TBC file for writing");
+            }
+            
+            for (size_t i = 0; i < total_fields; ++i) {
+                FieldID field_id = field_range.start + i;
+                
+                // Use corrected representation if available, otherwise original
+                if (corrected_fields_map.count(field_id)) {
+                    auto field_data = corrected_fields_map[field_id]->get_field(field_id);
+                    tbc_out.write(reinterpret_cast<const char*>(field_data.data()), 
+                                 field_data.size() * sizeof(uint16_t));
+                } else {
+                    auto field_data = representation->get_field(field_id);
+                    tbc_out.write(reinterpret_cast<const char*>(field_data.data()), 
+                                 field_data.size() * sizeof(uint16_t));
+                }
+            }
+            
+            tbc_out.close();
+            std::cout << "  TBC file written" << std::endl;
+        } else {
+            // No stages - write original TBC data
+            std::cout << "\nWriting output TBC..." << std::endl;
+            std::ofstream tbc_out(output_tbc, std::ios::binary);
+            if (!tbc_out) {
+                throw std::runtime_error("Cannot open output TBC file for writing");
+            }
+            
+            auto field_range = representation->field_range();
+            for (size_t i = 0; i < field_range.size(); ++i) {
+                FieldID field_id = field_range.start + i;
+                auto field_data = representation->get_field(field_id);
+                tbc_out.write(reinterpret_cast<const char*>(field_data.data()), 
+                             field_data.size() * sizeof(uint16_t));
+            }
+            
+            tbc_out.close();
+            std::cout << "  TBC file written" << std::endl;
+        }
+        
+        // Execute observers (always use original TBC representation for now)
+        std::cout << "\nExecuting observers..." << std::endl;
+        write_observations_to_db(output_db, *representation, observers, dropout_stage != nullptr);
         std::cout << "\nDone! Output written to:\n";
         std::cout << "  " << output_tbc << "\n";
         std::cout << "  " << output_db << "\n";

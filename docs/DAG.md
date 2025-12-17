@@ -1,12 +1,12 @@
-# DAG.md
+# ld-decode-orc - Directed Acyclic Graph Design
 
 DRAFT
-
-## ld-decode Next-Generation Tool Chain
 
 ## Status
 
 **Normative – implementation reference**
+
+**Phase 1 DAG executor implemented and tested** (December 2025)
 
 This document defines how processing DAGs are represented, validated, executed, cached, and partially re-executed in the ld-decode next-generation tool chain.
 
@@ -59,18 +59,22 @@ Observers are explicitly **not** stages.
 An **Artifact** is an immutable, versioned data object.
 
 Artifacts include:
-- Video field representations
-- Decision artifacts
-- Derived signal representations (e.g. corrected or stacked fields)
-- Export outputs
+- Video field representations (e.g., `TBCVideoFieldRepresentation`)
+- Decision artifacts (planned)
+- Derived signal representations (e.g. corrected or stacked fields - planned)
+- Export outputs (planned)
 
 Artifacts are identified by an `ArtifactID` and tracked via provenance.
+
+**See**: `DATA MODEL.md` Section 3 for complete API specification and implementation details.
 
 ---
 
 ### 2.4 Representation
 
-A **Video Field Representation** is a specific artifact providing access to video field samples and descriptors (see `DATA_MODEL.md`).
+A **Video Field Representation** is a specific artifact providing access to video field samples and descriptors.
+
+**See**: `DATA MODEL.md` Section 4 for complete specification.
 
 ---
 
@@ -234,6 +238,8 @@ Each node execution produces a **Run Key** derived from:
 
 If an artifact exists for the same Run Key, execution MUST be skipped and the cached artifact reused.
 
+**Implementation Note**: The Phase 1 `DAGExecutor` maintains an artifact cache using node names as keys. Full Run Key computation will be implemented as stages are added in Phase 2 and beyond.
+
 ---
 
 ### 6.2 Parameter Canonicalization
@@ -280,6 +286,8 @@ Before execution, the DAG executor MUST validate:
 
 Execution MUST NOT begin if validation fails.
 
+**Implementation Note**: The Phase 1 implementation in `orc/core/include/dag_executor.h` performs validation via `DAG::validate()`, including topological sorting with cycle detection. When a cycle is detected, an error is returned with the cyclic path.
+
 ---
 
 ### 7.2 Scheduling
@@ -293,6 +301,8 @@ Parallel execution is permitted when:
 * Resource constraints allow
 
 Parallel execution MUST NOT affect results.
+
+**Implementation Note**: The Phase 1 implementation executes stages sequentially in dependency order. Parallel execution is planned for future phases.
 
 ---
 
@@ -312,6 +322,10 @@ For each produced artifact, provenance MUST include:
 * Input artifact IDs
 * Canonical parameters
 * Optional execution metadata (warnings, timing)
+
+**See**: `DATA MODEL.md` Section 3.2 for the Provenance data structure specification.
+
+**Implementation Note**: The Phase 1 implementation provides the `Provenance` struct with all required fields. Full integration with stage execution is planned for Phase 2.
 
 ---
 

@@ -1,10 +1,12 @@
-# ld-decode-orc Design
+# ld-decode-orc - Design
 
 DRAFT
 
 ## Status
 
 **Design document – implementation-oriented**
+
+**Phase 1 implementation complete** (December 2025)
 
 This document defines the architecture for a next-generation ld-decode tool chain.  
 It is intended to guide implementation and future contribution, not to describe UI or UX in detail.
@@ -59,6 +61,8 @@ Properties:
 
 All time-varying data (video, PCM, EFM, metadata) is associated with one or more FieldIDs.
 
+**See**: `DATA MODEL.md` Section 2.1 for complete API specification and implementation details.
+
 ---
 
 ### 2.3 Three-Class Processing Model
@@ -82,18 +86,20 @@ This separation is strict and intentional.
 A **Video Field Representation** is any immutable artifact that provides access to video field samples.
 
 Examples:
-- Raw TBC fields
-- Dropout-corrected fields
-- Stacked or filtered fields
+- Raw TBC fields (implemented as `TBCVideoFieldRepresentation` in Phase 1)
+- Dropout-corrected fields (planned)
+- Stacked or filtered fields (planned)
 
 Each representation includes:
 
 - FieldID sequence
 - Field descriptors (parity, PAL/NTSC)
-- Sample access API
+- Sample access API (line-level and field-level)
 - Provenance information
 
 All further analysis and processing references a specific representation.
+
+**See**: `DATA MODEL.md` Section 4 for complete API specification and implementation details.
 
 ---
 
@@ -312,11 +318,81 @@ The GUI never mutates signal data directly.
 
 ## 10. Implementation Roadmap
 
-### Phase 1 – Foundations
-- FieldID model
-- Video field representation abstraction
-- Artifact identity and provenance
-- Minimal DAG executor
+### Phase 1 – Foundations ✅ COMPLETED
+
+**Status**: Implemented and tested (December 2025)
+
+**Components**:
+- **FieldID model** (`orc/core/include/field_id.h`)
+  - FieldID class with monotonic uint64_t value
+  - FieldIDRange for representing field sequences
+  - Full comparison, arithmetic, and hash support
+  - Validated with comprehensive unit tests
+
+- **Video field representation abstraction** (`orc/core/include/video_field_representation.h`)
+  - Abstract `VideoFieldRepresentation` base class
+  - FieldDescriptor with parity, line count, samples per line
+  - VideoFormat enum (PAL, NTSC)
+  - Zero-copy line access via `get_line()`
+  - Full-field access via `get_field()`
+
+- **Artifact identity and provenance** (`orc/core/include/artifact.h`)
+  - ArtifactID for content-addressed identification
+  - Provenance struct tracking stage, parameters, inputs, timestamps
+  - Base Artifact class with type identification
+  - std::shared_ptr usage pattern for immutability
+
+- **Minimal DAG executor** (`orc/core/include/dag_executor.h`)
+  - DAG class with node/edge management
+  - Topological sort with cycle detection
+  - DAGExecutor with artifact caching
+  - Progress callback support
+  - Comprehensive validation with error reporting
+
+**TBC I/O Infrastructure** (added to Phase 1):
+- **TBCReader** (`orc/core/include/tbc_reader.h`)
+  - Binary TBC file reader with LRU caching (max 100 fields)
+  - Line-level and field-level access
+  - 16-bit unsigned sample format
+  - Cache statistics tracking
+
+- **TBCMetadataReader** (`orc/core/include/tbc_metadata.h`)
+  - SQLite metadata database reader
+  - VideoParameters (format, lines, samples, sample rate, color, aspect)
+  - FieldMetadata (parity, confidence, pad)
+  - Dropout records with line/sample ranges
+  - VBI data (line 16, 17, 18, picture numbers, CLV timecodes)
+  - VITC (timecode and field count)
+  - PCM audio parameters
+  - VITS metrics
+  - Closed captions
+  - Pimpl pattern with sqlite3 C API
+
+- **TBCVideoFieldRepresentation** (`orc/core/include/tbc_video_field_representation.h`)
+  - Concrete VideoFieldRepresentation backed by TBC files
+  - Factory function `create_tbc_representation()`
+  - Bridges TBC binary data to abstract interface
+  - Field-level caching for zero-copy access
+
+**Testing and Validation**:
+- Unit tests for FieldID operations
+- Unit tests for DAG construction, validation, and execution
+- Unit tests for TBC file I/O and metadata reading
+- Integration tests with real LaserDisc captures:
+  - 6 test files (4 PAL, 2 NTSC)
+  - 2,444 fields processed
+  - ~914 MB test data
+  - PAL CAV (GGV1011), PAL CLV (AMAWAAB, GPBlank)
+  - NTSC CAV (GGV1069)
+  - All metadata types validated (video params, field records, dropouts, VBI, VITC, audio)
+
+**Build System**:
+- CMake 3.20+ with out-of-source builds
+- C++17 standard
+- SQLite3 dependency integration
+- Separate targets: core library, CLI tools, GUI, tests
+- Test data organized by format (PAL/NTSC) and type
+- SPDX license headers (GPL-3.0-or-later) on all source files
 
 ### Phase 2 – Observers
 - Observer framework

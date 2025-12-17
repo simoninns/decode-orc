@@ -2,11 +2,11 @@
 
 **ld-decode-orc** is a cross-platform orchestration and processing framework for LaserDisc decoding workflows.
 
-![](./docs/ld-decode-orc-icon.png)
+![](./assets/ld-decode-orc-icon-small.png)
 
 It aims to brings structure and consistency to complex LaserDisc decoding processes, making them easier to run, repeat, and understand.
 
-`ld-decode-orc` is a direct replacment for the existing ld-deocde-tools, coordinating each step of the process and keeping track of inputs, outputs, and results.
+`ld-decode-orc` is a direct replacement for the existing ld-decode-tools, coordinating each step of the process and keeping track of inputs, outputs, and results.
 
 The project aims to:
 - Make advanced LaserDisc workflows (from TBC to chroma) easier to manage

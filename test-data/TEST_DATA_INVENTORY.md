@@ -104,9 +104,89 @@ This document provides a comprehensive inventory of all test data files in this 
 
 ---
 
+### 6. Domesday National CAV (frames 8100-8200)
+**Path**: `pal/reference/domesday/8100-8200/domesdaynat4_cav_pal-8100-8200.tbc`  
+**Total Fields**: 400  
+**Format**: PAL 625-line, CAV  
+**Dimensions**: 1135 × 313
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - BBC Domesday Project data
+  - CAV frame numbers
+- ❌ **VITC Timecode**: Not present
+- ❌ **Closed Captions**: Not applicable (PAL)
+- ❌ **Video ID**: Not applicable (PAL)
+- ❌ **FM Code**: Not applicable (PAL)
+- ❌ **White Flag**: Not applicable (PAL)
+
+**Note**: Historic BBC Domesday Project disc
+
+---
+
+### 7. Domesday South CAV (frames 3100-3200)
+**Path**: `pal/reference/domesday/3100-3200/domesdaycs4_cav_pal-3100-3200.tbc`  
+**Total Fields**: 400  
+**Format**: PAL 625-line, CAV  
+**Dimensions**: 1135 × 313
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - BBC Domesday Project data
+  - CAV frame numbers
+- ❌ **VITC Timecode**: Not present
+- ❌ **Closed Captions**: Not applicable (PAL)
+- ❌ **Video ID**: Not applicable (PAL)
+- ❌ **FM Code**: Not applicable (PAL)
+- ❌ **White Flag**: Not applicable (PAL)
+
+**Note**: Historic BBC Domesday Project disc
+
+---
+
+### 8. Domesday North CAV (frames 11000-11200)
+**Path**: `pal/reference/domesday/11000-11200/domesdaycn4_cav_pal-11000-11200.tbc`  
+**Total Fields**: 400  
+**Format**: PAL 625-line, CAV  
+**Dimensions**: 1135 × 313
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - BBC Domesday Project data
+  - CAV frame numbers
+- ❌ **VITC Timecode**: Not present
+- ❌ **Closed Captions**: Not applicable (PAL)
+- ❌ **Video ID**: Not applicable (PAL)
+- ❌ **FM Code**: Not applicable (PAL)
+- ❌ **White Flag**: Not applicable (PAL)
+
+**Note**: Historic BBC Domesday Project disc
+
+---
+
+### 9. Domesday National CLV (frames 14100-14300)
+**Path**: `pal/reference/domesday/14100-14300/domesdaynat4_clv_pal-14100-14300.tbc`  
+**Total Fields**: 400  
+**Format**: PAL 625-line, CLV  
+**Dimensions**: 1135 × 313
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - BBC Domesday Project data
+  - CLV timecode
+- ❌ **VITC Timecode**: Not present
+- ❌ **Closed Captions**: Not applicable (PAL)
+- ❌ **Video ID**: Not applicable (PAL)
+- ❌ **FM Code**: Not applicable (PAL)
+- ❌ **White Flag**: Not applicable (PAL)
+
+**Note**: Historic BBC Domesday Project disc
+
+---
+
 ## NTSC Test Files
 
-### 6. GGV1069 NTSC CAV (frames 716-914)
+### 10. GGV1069 NTSC CAV (frames 716-914)
 **Path**: `ntsc/reference/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc`  
 **Total Fields**: 400  
 **Format**: NTSC 525-line, CAV  
@@ -125,7 +205,7 @@ This document provides a comprehensive inventory of all test data files in this 
 
 ---
 
-### 7. GGV1069 NTSC CAV (frames 7946-8158)
+### 11. GGV1069 NTSC CAV (frames 7946-8158)
 **Path**: `ntsc/reference/ggv1069/7946-8158/ggv1069_ntsc_cav_7946-8158.tbc`  
 **Total Fields**: 424  
 **Format**: NTSC 525-line, CAV  
@@ -144,7 +224,7 @@ This document provides a comprehensive inventory of all test data files in this 
 
 ---
 
-### 8. Bambi NTSC CLV (frames 8000-8200)
+### 12. Bambi NTSC CLV (frames 8000-8200)
 **Path**: `ntsc/reference/bambi/8000-8200/bambi_ntsc_clv_8000-8200.tbc`  
 **Total Fields**: 400  
 **Format**: NTSC 525-line, CLV  
@@ -165,7 +245,7 @@ This document provides a comprehensive inventory of all test data files in this 
 
 ---
 
-### 9. Bambi NTSC CLV (frames 18100-18306)
+### 13. Bambi NTSC CLV (frames 18100-18306)
 **Path**: `ntsc/reference/bambi/18100-18306/bambi_ntsc_clv_18100-18306.tbc`  
 **Total Fields**: 412  
 **Format**: NTSC 525-line, CLV  
@@ -186,12 +266,91 @@ This document provides a comprehensive inventory of all test data files in this 
 
 ---
 
+### 14. Cinderella NTSC CLV (frames 9000-9210)
+**Path**: `ntsc/reference/cinder/9000-9210/cinder_ntsc_clv_9000-9210.tbc`  
+**Total Fields**: 420  
+**Format**: NTSC 525-line, CLV  
+**Dimensions**: 910 × 263
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - CLV timecode data
+- ❌ **VITC Timecode** (lines 10-20): Not present
+- ⚠️ **Closed Captions** (line 21): Present but not validated
+  - CEA-608 format captions likely present
+- ❌ **Video ID** (line 20): Not present
+- ❌ **FM Code** (line 10): Not present
+- ⚠️ **White Flag** (line 11): Not validated
+
+**Note**: Disney animated feature on LaserDisc
+
+---
+
+### 15. Cinderella NTSC CLV (frames 21200-21410)
+**Path**: `ntsc/reference/cinder/21200-21410/cinder_ntsc_clv_21200-21410.tbc`  
+**Total Fields**: 420  
+**Format**: NTSC 525-line, CLV  
+**Dimensions**: 910 × 263
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - CLV timecode data
+- ❌ **VITC Timecode** (lines 10-20): Not present
+- ⚠️ **Closed Captions** (line 21): Present but not validated
+  - CEA-608 format captions likely present
+- ❌ **Video ID** (line 20): Not present
+- ❌ **FM Code** (line 10): Not present
+- ⚠️ **White Flag** (line 11): Not validated
+
+**Note**: Disney animated feature on LaserDisc
+
+---
+
+### 16. Apple Video Adventures CAV (frames 2000-2200)
+**Path**: `ntsc/reference/appleva/2000-2200/appleva_cav_ntsc-2000-2200.tbc`  
+**Total Fields**: 400  
+**Format**: NTSC 525-line, CAV  
+**Dimensions**: 910 × 263
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - CAV frame numbers
+- ❌ **VITC Timecode** (lines 10-20): Not present
+- ⚠️ **Closed Captions** (line 21): Present but not validated
+- ❌ **Video ID** (line 20): Not present
+- ❌ **FM Code** (line 10): Not present
+- ⚠️ **White Flag** (line 11): Not validated
+
+**Note**: Educational interactive LaserDisc for Apple IIgs
+
+---
+
+### 17. Apple Video Adventures CAV (frames 18000-18200)
+**Path**: `ntsc/reference/appleva/18000-18200/appleva_cav_ntsc-18000-18200.tbc`  
+**Total Fields**: 400  
+**Format**: NTSC 525-line, CAV  
+**Dimensions**: 910 × 263
+
+**VBI Data Present**:
+- ⚠️ **Biphase/Manchester** (lines 16-18): Present but not validated
+  - CAV frame numbers
+- ❌ **VITC Timecode** (lines 10-20): Not present
+- ⚠️ **Closed Captions** (line 21): Present but not validated
+- ❌ **Video ID** (line 20): Not present
+- ❌ **FM Code** (line 10): Not present
+- ⚠️ **White Flag** (line 11): Not validated
+
+**Note**: Educational interactive LaserDisc for Apple IIgs
+
+---
+
 ## Summary Statistics
 
 ### Total Coverage
-- **Total Test Files**: 9 (5 PAL, 4 NTSC)
-- **Total Fields**: 3,256 fields across all files
+- **Total Test Files**: 17 (9 PAL, 8 NTSC)
+- **Total Fields**: 7,056 fields across all files
 - **Validated Fields**: 2,854 fields (7 files fully validated)
+- **Additional Test Files**: 10 files with VBI data present but not yet validated
 
 ### VBI Data Type Availability
 

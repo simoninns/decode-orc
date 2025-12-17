@@ -394,7 +394,49 @@ The GUI never mutates signal data directly.
 - Test data organized by format (PAL/NTSC) and type
 - SPDX license headers (GPL-3.0-or-later) on all source files
 
-### Phase 2 – Observers
+### Phase 2 – Observers (IN PROGRESS)
+
+**Status**: Implemented and tested (December 2025)
+
+**Components**:
+- **Observer framework** (`orc/core/include/observer.h`)
+  - `Observer` base class with `process_field()` method
+  - `Observation` base class with field_id, confidence, detection_basis
+  - `DetectionBasis` enum (SAMPLE_DERIVED, HINT_DERIVED, CORROBORATED)
+  - `ConfidenceLevel` enum (NONE, LOW, MEDIUM, HIGH)
+  - Parameter and hint support
+
+- **VITS Quality Observer** (`orc/core/include/vits_observer.h`)
+  - Extracts white flag SNR and black level PSNR from VITS lines
+  - PAL configuration: Line 19 (white), Line 22 (black)
+  - NTSC configuration: Lines 20/13 (white), Line 1 (black)
+  - IRE conversion and validation (90-110 IRE range for white)
+  - PSNR calculation: `20 * log10(100 / std_deviation)`
+  - Configurable line positions and validation ranges
+
+**Testing**:
+- Unit tests for observer framework and metadata
+- Integration tests with real PAL CAV data (404 fields processed)
+- Validated SNR calculations showing 33-36 dB for test data
+- All tests passing (5/5 test suites)
+
+**Design Notes**:
+- Observers do not appear in the DAG (consistent with design)
+- Observations are deterministic and cacheable
+- TBC metadata VITS values available as future hints
+- Single observer produces two related metrics (as designed)
+
+#### Phase 2b – VBI Observer (Planned)
+
+**To Be Implemented**:
+- VBI Observer framework
+- VBI line extraction and decoding
+- Picture number extraction (CAV)
+- CLV timecode extraction
+- VITC timecode extraction
+- Hint ingestion from TBC metadata
+
+### Phase 3 – Decisions and Correction
 - Observer framework
 - Dropout observer
 - VBI observer

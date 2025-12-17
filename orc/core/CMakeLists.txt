@@ -9,6 +9,10 @@ add_library(orc-core STATIC
     tbc_reader.cpp
     tbc_metadata.cpp
     tbc_video_field_representation.cpp
+    
+    # Phase 2: Observers
+    observer.cpp
+    vits_observer.cpp
 )
 
 target_include_directories(orc-core PUBLIC

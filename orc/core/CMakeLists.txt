@@ -26,6 +26,15 @@ add_library(orc-core STATIC
     # Phase 3: Dropout Correction
     dropout_decision.cpp
     dropout_correct_stage.cpp
+    
+    # Utility stages
+    passthrough_stage.cpp
+    
+    # Stage parameters
+    stage_parameter.cpp
+    
+    # DAG serialization
+    dag_serialization.cpp
 )
 
 target_include_directories(orc-core PUBLIC

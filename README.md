@@ -47,7 +47,23 @@ This project is under active development.
 - Tested with 400-field PAL capture (286 fields corrected, 550 dropouts)
 - Processing time: ~0.5 seconds for 400 fields
 
-### 🚧 Phase 4: Multi-source and Export (Planned)
+### 🚧 Phase 4: GUI Development (In Progress)
+- Qt6-based graphical interface (**orc-gui**)
+- Interactive DAG editor with visual pipeline builder
+- Drag-to-connect edge creation
+- Node addition, deletion, and repositioning
+- Edge selection and deletion (Del key / right-click)
+- Parameter autodiscovery system using ParameterizedStage interface
+- Dynamic parameter dialog generation
+- Context menu with "Change Node Type" and "Edit Parameters"
+- Parameter persistence (values stored with nodes)
+- DAG serialization to/from YAML with positions and parameters
+- File menu (Open TBC, Quit) and DAG menu (Load/Save with Ctrl+L/S)
+- Field/frame preview in vertical split layout
+- All 7 example YAML files converted to GUI-compatible format
+- **Known Issues**: Memory management being refined, some edge cases may cause crashes
+
+### 🔮 Phase 5: Multi-source and Export (Planned)
 - Field fingerprinting and alignment
 - Multi-source stacking stage
 - Export stage (video/metadata/audio)
@@ -66,7 +82,7 @@ make -j$(nproc)
 ### Process a TBC File with VBI Extraction
 
 ```bash
-build/bin/orc-process --dag examples/vbi-observers.yaml \
+build/bin/orc-process --dag dag-examples/vbi-observers.yaml \
   test-data/pal/reference/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc \
   output/ggv1011_processed.tbc
 ```
@@ -80,7 +96,7 @@ This will:
 ### Correct Dropouts
 
 ```bash
-build/bin/orc-process --dag examples/dropout-correct.yaml \
+build/bin/orc-process --dag dag-examples/dropout-correct.yaml \
   input.tbc \
   output/corrected.tbc
 ```
@@ -96,7 +112,7 @@ This will:
 ### Correct Dropouts with Manual Decisions
 
 ```bash
-build/bin/orc-process --dag examples/dropout-correct-with-decisions.yaml \
+build/bin/orc-process --dag dag-examples/dropout-correct-with-decisions.yaml \
   input.tbc \
   output/corrected.tbc
 ```
@@ -118,11 +134,27 @@ dropout_decisions:
 ld-analyse output/cinder_processed.tbc
 ```
 
+### Use the GUI
+
+```bash
+build/bin/orc-gui
+```
+
+The GUI provides:
+- Visual DAG pipeline editor with drag-to-connect nodes
+- Load/save DAG configurations (Ctrl+L / Ctrl+S)
+- Edit stage parameters with auto-generated dialogs
+- Add/delete nodes and edges (right-click or Del key)
+- Field/frame preview (TBC file loading in progress)
+
+**Note**: GUI is under active development with stability improvements ongoing.
+
 ## Documentation
 
 - [Design Overview](docs/DESIGN.md) - Architecture and principles
 - [Data Model](docs/DATA-MODEL.md) - FieldID, artifacts, representations
 - [DAG Format](docs/DAG.md) - Pipeline definition specification
+- [GUI Design](docs/GUI-DESIGN.md) - Qt6 interface design and implementation
 - [orc-process Tool](orc/cli/README.md) - CLI tool documentation
 - [Test Data Inventory](test-data/TEST_DATA_INVENTORY.md) - Available test files
 
@@ -135,11 +167,14 @@ ld-decode-orc/
 │   │   ├── include/        # Public API headers
 │   │   └── *.cpp           # Implementation
 │   ├── cli/                # Command-line tools
-│   │   └── orc-process     # Observer pipeline executor
+│   │   └── orc-process     # Pipeline executor
+│   ├── gui/                # Qt6 graphical interface
+│   │   └── orc-gui         # Interactive DAG editor
 │   └── tests/              # Unit tests
-├── examples/               # Example pipelines
+├── dag-examples/           # Example DAG pipelines
 │   ├── vbi-observers.yaml  # All 7 observers
-│   └── biphase-only.yaml   # Minimal example
+│   ├── dropout-correct.yaml # Basic dropout correction
+│   └── complete-pipeline.yaml # Multi-stage example
 ├── test-data/              # Test TBC files
 │   ├── pal/                # PAL test files
 │   └── ntsc/               # NTSC test files

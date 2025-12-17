@@ -373,4 +373,144 @@ double DropoutCorrectStage::calculate_line_quality(
     return 1.0 / (variance + 1.0);
 }
 
+// Parameter interface implementation
+
+std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors() const
+{
+    std::vector<ParameterDescriptor> descriptors;
+    
+    // Overcorrect extension parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "overcorrect_extension";
+        desc.display_name = "Overcorrect Extension";
+        desc.description = "Extend dropout regions by this many samples (useful for heavily damaged sources)";
+        desc.type = ParameterType::UINT32;
+        desc.constraints.min_value = static_cast<uint32_t>(0);
+        desc.constraints.max_value = static_cast<uint32_t>(48);
+        desc.constraints.default_value = static_cast<uint32_t>(0);
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
+    // Intrafield only parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "intrafield_only";
+        desc.display_name = "Intrafield Only";
+        desc.description = "Force intrafield correction only (don't use data from opposite field)";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
+    // Reverse field order parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "reverse_field_order";
+        desc.display_name = "Reverse Field Order";
+        desc.description = "Use second/first field order instead of first/second";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
+    // Max replacement distance parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "max_replacement_distance";
+        desc.display_name = "Max Replacement Distance";
+        desc.description = "Maximum distance (in lines) to search for replacement data";
+        desc.type = ParameterType::UINT32;
+        desc.constraints.min_value = static_cast<uint32_t>(1);
+        desc.constraints.max_value = static_cast<uint32_t>(50);
+        desc.constraints.default_value = static_cast<uint32_t>(10);
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
+    // Match chroma phase parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "match_chroma_phase";
+        desc.display_name = "Match Chroma Phase";
+        desc.description = "Match chroma phase when selecting replacement lines (PAL only)";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = true;
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
+    return descriptors;
+}
+
+std::map<std::string, ParameterValue> DropoutCorrectStage::get_parameters() const
+{
+    std::map<std::string, ParameterValue> params;
+    params["overcorrect_extension"] = config_.overcorrect_extension;
+    params["intrafield_only"] = config_.intrafield_only;
+    params["reverse_field_order"] = config_.reverse_field_order;
+    params["max_replacement_distance"] = config_.max_replacement_distance;
+    params["match_chroma_phase"] = config_.match_chroma_phase;
+    return params;
+}
+
+bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterValue>& params)
+{
+    // Validate and apply parameters
+    for (const auto& [name, value] : params) {
+        if (name == "overcorrect_extension") {
+            if (auto* val = std::get_if<uint32_t>(&value)) {
+                if (*val <= 48) {
+                    config_.overcorrect_extension = *val;
+                } else {
+                    return false;  // Invalid value
+                }
+            } else {
+                return false;  // Wrong type
+            }
+        }
+        else if (name == "intrafield_only") {
+            if (auto* val = std::get_if<bool>(&value)) {
+                config_.intrafield_only = *val;
+            } else {
+                return false;
+            }
+        }
+        else if (name == "reverse_field_order") {
+            if (auto* val = std::get_if<bool>(&value)) {
+                config_.reverse_field_order = *val;
+            } else {
+                return false;
+            }
+        }
+        else if (name == "max_replacement_distance") {
+            if (auto* val = std::get_if<uint32_t>(&value)) {
+                if (*val >= 1 && *val <= 50) {
+                    config_.max_replacement_distance = *val;
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        else if (name == "match_chroma_phase") {
+            if (auto* val = std::get_if<bool>(&value)) {
+                config_.match_chroma_phase = *val;
+            } else {
+                return false;
+            }
+        }
+        else {
+            // Unknown parameter
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 } // namespace orc

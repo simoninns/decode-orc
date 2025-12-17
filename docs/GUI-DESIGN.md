@@ -1,4 +1,104 @@
-# orc-gui - Design document
+# orc-gui - Design and Implementation Status
+
+## Implementation Status (December 2025)
+
+### ✅ Completed Features
+
+**Core GUI Framework**
+- Qt6-based application with QMainWindow
+- Vertical split layout: DAG editor above, field/frame preview below
+- Menu bar with File (Open TBC, Quit) and DAG (Load DAG, Save DAG) menus
+
+**Interactive DAG Editor**
+- QGraphicsView-based DAG visualization
+- Visual node representation with input/output connection points
+- Drag-to-connect edge creation (drag from output → input)
+- Node movement and repositioning
+- START node positioned on left side (-450, 0) for natural left-to-right flow
+- Selectable nodes and edges (edges highlighted when selected)
+
+**Node Management**
+- Add nodes via context menu or keyboard
+- Delete nodes via context menu or Del/Backspace key
+- Change node type (stage) via context menu
+- Nodes deleted automatically remove connected edges
+
+**Edge Management**
+- Edges are selectable graphics items
+- Delete edges via context menu "Delete Edge" or Del/Backspace key
+- Curved Bezier edges with arrow heads
+- Visual feedback (thicker, blue highlight) when selected
+
+**Parameter System**
+- `ParameterizedStage` interface for stages to expose parameters
+- `ParameterValue` variant supporting int32, uint32, double, bool, string
+- `ParameterDescriptor` with type, constraints, display name, description
+- `StageParameterDialog` auto-generates UI from descriptors:
+  - QSpinBox for integers
+  - QDoubleSpinBox for floats
+  - QCheckBox for booleans
+  - QComboBox for string choices
+- Parameter persistence: values stored in DAGNodeItem and survive editing
+- "Edit Parameters" grayed out for stages without parameters
+
+**DAG Serialization**
+- YAML format with `nodes` (id, stage, x/y position, parameters) and `edges`
+- `dag_serialization::load_dag_from_yaml()` - parse YAML into GUIDAG
+- `dag_serialization::save_dag_to_yaml()` - write formatted YAML
+- Menu shortcuts: Ctrl+L (Load), Ctrl+S (Save)
+- 7 example DAG files in dag-examples/ folder
+
+**Error Handling**
+- Methods return bool with optional error strings
+- QMessageBox warnings for failed operations
+- Null pointer validation throughout
+- Try-catch blocks for exception safety
+
+### 🚧 Known Issues
+
+**Memory Management (Critical)**
+- Segfaults occur in some deletion scenarios
+- Race conditions between Qt's scene management and manual deletion
+- Edge invalidation and cleanup needs refinement
+- `QApplication::processEvents()` added but not fully resolving issues
+- Needs comprehensive review and possible refactoring to use Qt's object ownership
+
+**Missing Features**
+- Field/frame preview not yet wired to TBC loading
+- DAG execution not implemented (visual only)
+- No undo/redo for DAG editing
+- No zoom/pan controls for DAG canvas
+- No multi-selection with rubber band
+- No grid snapping for node positioning
+
+### 🔮 Planned Features
+
+**DAG Execution Integration**
+- Wire DAG nodes to actual video processing
+- Show node execution progress and state
+- Preview selected node's output in preview pane
+- Real-time field processing visualization
+
+**Enhanced UX**
+- Undo/redo command pattern
+- Grid snapping and alignment tools
+- Node groups and collapsing
+- Zoom and pan controls
+- Rubber band multi-selection
+- Keyboard shortcuts for common operations
+
+**Multi-source Support**
+- Multiple START nodes for different sources
+- Source alignment visualization
+- Field fingerprinting UI
+
+**Advanced Parameters**
+- Parameter groups and categories
+- Conditional parameters (visibility depends on other values)
+- Parameter validation with real-time feedback
+- Parameter presets and templates
+
+---
 
 ## Purpose
 

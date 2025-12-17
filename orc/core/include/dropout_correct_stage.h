@@ -5,6 +5,7 @@
 
 #include "video_field_representation.h"
 #include "dropout_decision.h"
+#include "stage_parameter.h"
 #include <memory>
 #include <vector>
 #include <cstdint>
@@ -69,7 +70,7 @@ private:
 /// 
 /// Signal-transforming stage that corrects dropouts by replacing
 /// corrupted samples with data from other lines/fields.
-class DropoutCorrectStage {
+class DropoutCorrectStage : public ParameterizedStage {
 public:
     explicit DropoutCorrectStage(const DropoutCorrectionConfig& config = DropoutCorrectionConfig())
         : config_(config) {}
@@ -99,6 +100,11 @@ public:
         FieldID field_id,
         const std::vector<std::vector<DropoutRegion>>& all_dropouts,
         const DropoutDecisions& decisions = DropoutDecisions());
+    
+    // ParameterizedStage interface
+    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::map<std::string, ParameterValue> get_parameters() const override;
+    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     
 private:
     DropoutCorrectionConfig config_;

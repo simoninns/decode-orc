@@ -1,0 +1,39 @@
+# Complete Pipeline: Multiple Processing Stages
+# Standard configuration for LaserDisc restoration workflow
+# Demonstrates a multi-stage processing chain
+
+name: "Full Processing Pipeline"
+version: "1.0"
+
+nodes:
+  - node_id: "START"
+    stage_name: "START"
+    x_position: -450.00
+    y_position: 0.00
+  - node_id: "node_1"
+    stage_name: "Dropout Correct"
+    x_position: 250.00
+    y_position: 100.00
+    overcorrect_extension: 0
+    intrafield_only: false
+    reverse_field_order: false
+    max_replacement_distance: 10
+    match_chroma_phase: true
+  - node_id: "node_2"
+    stage_name: "Passthrough"
+    x_position: 250.00
+    y_position: 200.00
+  - node_id: "node_3"
+    stage_name: "Passthrough"
+    x_position: 450.00
+    y_position: 150.00
+
+edges:
+  - source: "START"
+    target: "node_1"
+  - source: "START"
+    target: "node_2"
+  - source: "node_1"
+    target: "node_3"
+  - source: "node_2"
+    target: "node_3"

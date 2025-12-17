@@ -1,0 +1,25 @@
+# Heavily Damaged Source - Overcorrect Mode
+# Use this configuration for LaserDiscs with severe dropout issues
+# Extends all detected dropouts aggressively for better visual quality
+
+name: "Overcorrect Mode for Damaged Sources"
+version: "1.0"
+
+nodes:
+  - node_id: "START"
+    stage_name: "START"
+    x_position: -450.00
+    y_position: 0.00
+  - node_id: "node_1"
+    stage_name: "Dropout Correct"
+    x_position: 300.00
+    y_position: 150.00
+    overcorrect_extension: 24
+    intrafield_only: false
+    reverse_field_order: false
+    max_replacement_distance: 10
+    match_chroma_phase: true
+
+edges:
+  - source: "START"
+    target: "node_1"

@@ -13,6 +13,15 @@ add_library(orc-core STATIC
     # Phase 2: Observers
     observer.cpp
     vits_observer.cpp
+    
+    # Phase 2b: VBI Observers
+    vbi_utilities.cpp
+    biphase_observer.cpp
+    vitc_observer.cpp
+    closed_caption_observer.cpp
+    video_id_observer.cpp
+    fm_code_observer.cpp
+    white_flag_observer.cpp
 )
 
 target_include_directories(orc-core PUBLIC

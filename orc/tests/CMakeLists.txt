@@ -32,9 +32,16 @@ target_include_directories(test-vits-observer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../core/include
 )
 
+add_executable(test-vbi-observers test_vbi_observers.cpp)
+target_link_libraries(test-vbi-observers PRIVATE orc-core)
+target_include_directories(test-vbi-observers PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../core/include
+)
+
 # Register tests
 add_test(NAME FieldIDTests COMMAND test-field-id)
 add_test(NAME DAGExecutorTests COMMAND test-dag-executor)
 add_test(NAME TBCIOTests COMMAND test-tbc-io)
 add_test(NAME RealTBCDataTests COMMAND test-real-tbc-data)
 add_test(NAME VITSObserverTests COMMAND test-vits-observer)
+add_test(NAME VBIObserverTests COMMAND test-vbi-observers)

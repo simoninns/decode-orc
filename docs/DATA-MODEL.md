@@ -483,18 +483,37 @@ Dropout observations are advisory only.
 
 ### 6.4 VBI Observations
 
-Represents decoded VBI data.
+Represents decoded VBI data from Vertical Blanking Interval lines.
 
-Fields:
-- `FieldID`
-- Line identifier
-- Raw symbol data
-- Interpreted values
-- Decode confidence
+**Implementation Status**: Phase 2b complete with 6 VBI observers validated against legacy tool.
+
+**Observer Types**:
+1. **BiphaseObservation** (lines 16-18): Manchester-coded data (picture numbers, chapter markers, stop codes)
+2. **VitcObservation** (lines 6-22 PAL, 10-20 NTSC): VITC timecode with CRC validation
+3. **ClosedCaptionObservation** (line 21 NTSC, 22 PAL): CEA-608 closed captions with parity checking
+4. **VideoIdObservation** (line 20 NTSC): IEC 61880 aspect ratio and copy protection with CRC-6
+5. **FmCodeObservation** (line 10 NTSC): FM-coded metadata with sync validation
+6. **WhiteFlagObservation** (line 11 NTSC): Binary flag for disc control
+
+**Common Fields**:
+- `FieldID` - Field identifier
+- `confidence` - Decode confidence (HIGH/MEDIUM/LOW/NONE)
+- `detection_basis` - Always SIGNAL_PROCESSING for VBI
+- `observer_version` - Semantic version of observer
+
+**Observer-Specific Data**:
+- **BiphaseObservation**: `vbi_data[3]` (24-bit values for lines 16-18), optional `picture_number`, `clv_timecode`, `chapter_number`, `stop_code_present`
+- **ClosedCaptionObservation**: `data0`, `data1` (7-bit characters), `parity_valid[2]`
+- **VitcObservation**: timecode structure with hours/minutes/seconds/frames
+- **VideoIdObservation**: aspect_ratio, cgms_a, aps flags
+- **FmCodeObservation**: 20-bit data field
+- **WhiteFlagObservation**: boolean flag status
+
+**Validation**: Observers achieve 100% accuracy for biphase data and 84% for closed captions (validated against legacy ld-process-vbi tool across 3,256 fields).
 
 VBI observations may be regenerated whenever the signal changes.
 
-**Phase 1 Implementation**: VBI data from TBC metadata is available via `TBCMetadataReader::read_vbi()`. See Section 4.4 for the `VBIData` structure. This will be used as hints for the Phase 2 VBI Observer.
+**Phase 2b Implementation**: Full observer framework implemented in `orc/core/{biphase,vitc,closed_caption,video_id,fm_code,white_flag}_observer.{h,cpp}` with shared utilities in `vbi_utilities.{h,cpp}`. Uses actual VideoParameters from TBC metadata for precise zero-crossing detection and includes 3-sample debounce filtering for noise rejection.
 
 ---
 

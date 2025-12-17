@@ -2,6 +2,8 @@
 
 This directory contains test TBC (Time Base Corrected) files and their associated metadata for testing ld-decode-orc components.
 
+> **📋 For a complete inventory of all test files and their VBI data content, see [TEST_DATA_INVENTORY.md](TEST_DATA_INVENTORY.md)**
+
 ## Structure
 
 Each test case should include:

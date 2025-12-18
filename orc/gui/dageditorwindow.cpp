@@ -56,6 +56,13 @@ void DAGEditorWindow::setupMenus()
     auto* close_action = file_menu->addAction("&Close");
     close_action->setShortcut(QKeySequence::Close);
     connect(close_action, &QAction::triggered, this, &QWidget::close);
+    
+    // Edit menu
+    auto* edit_menu = menuBar()->addMenu("&Edit");
+    
+    auto* arrange_action = edit_menu->addAction("&Arrange to Grid");
+    arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
+    connect(arrange_action, &QAction::triggered, dag_viewer_, &DAGViewerWidget::arrangeToGrid);
 }
 
 void DAGEditorWindow::onLoadDAG()

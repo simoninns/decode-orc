@@ -451,6 +451,125 @@ std::map<std::string, orc::ParameterValue> DAGViewerWidget::getNodeParameters(co
     return {};
 }
 
+void DAGViewerWidget::arrangeToGrid()
+{
+    if (node_items_.empty()) return;
+    
+    // Disable scene indexing during bulk repositioning to avoid BSP tree issues
+    QGraphicsScene::ItemIndexMethod old_index_method = QGraphicsScene::BspTreeIndex;
+    if (scene_) {
+        old_index_method = scene_->itemIndexMethod();
+        scene_->setItemIndexMethod(QGraphicsScene::NoIndex);
+    }
+    
+    // Build adjacency list from current edges
+    std::map<std::string, std::vector<std::string>> adj_list;  // node_id -> output nodes
+    std::map<std::string, int> in_degree;
+    
+    // Initialize all nodes
+    for (const auto& [node_id, node_item] : node_items_) {
+        adj_list[node_id] = {};
+        in_degree[node_id] = 0;
+    }
+    
+    // Build graph from edges
+    for (const auto* edge : edge_items_) {
+        if (!edge || !isEdgeValid(edge)) continue;
+        
+        std::string source_id = edge->source()->nodeId();
+        std::string target_id = edge->target()->nodeId();
+        
+        adj_list[source_id].push_back(target_id);
+        in_degree[target_id]++;
+    }
+    
+    // Topological sort using BFS (Kahn's algorithm)
+    std::queue<std::string> queue;
+    for (const auto& [node_id, degree] : in_degree) {
+        if (degree == 0) {
+            queue.push(node_id);
+        }
+    }
+    
+    std::vector<std::string> sorted_nodes;
+    while (!queue.empty()) {
+        std::string node_id = queue.front();
+        queue.pop();
+        sorted_nodes.push_back(node_id);
+        
+        for (const auto& neighbor : adj_list[node_id]) {
+            in_degree[neighbor]--;
+            if (in_degree[neighbor] == 0) {
+                queue.push(neighbor);
+            }
+        }
+    }
+    
+    // Calculate levels (column positions) based on longest path from source
+    std::map<std::string, int> node_levels;
+    for (const auto& node_id : sorted_nodes) {
+        int level = 0;
+        
+        // Find maximum level of all input nodes
+        for (const auto* edge : edge_items_) {
+            if (!edge || !isEdgeValid(edge)) continue;
+            if (edge->target()->nodeId() == node_id) {
+                std::string source_id = edge->source()->nodeId();
+                if (node_levels.count(source_id)) {
+                    level = std::max(level, node_levels[source_id] + 1);
+                }
+            }
+        }
+        
+        node_levels[node_id] = level;
+    }
+    
+    // Group nodes by level (column)
+    std::map<int, std::vector<std::string>> columns;
+    for (const auto& [node_id, level] : node_levels) {
+        columns[level].push_back(node_id);
+    }
+    
+    // Layout parameters
+    constexpr double COLUMN_SPACING = 250.0;  // Horizontal distance between columns
+    constexpr double ROW_SPACING = 120.0;     // Vertical distance between nodes
+    constexpr double START_X = -450.0;        // Left-justified starting position
+    constexpr double START_Y = 0.0;           // Vertical center
+    
+    // Position nodes column by column
+    for (const auto& [level, node_ids] : columns) {
+        double x = START_X + level * COLUMN_SPACING;
+        
+        // Center nodes vertically in this column
+        double total_height = (node_ids.size() - 1) * ROW_SPACING;
+        double start_y = START_Y - total_height / 2.0;
+        
+        for (size_t i = 0; i < node_ids.size(); ++i) {
+            const auto& node_id = node_ids[i];
+            auto* node_item = findNodeById(node_id);
+            
+            if (node_item) {
+                double y = start_y + i * ROW_SPACING;
+                node_item->setPos(x, y);
+            }
+        }
+    }
+    
+    // Update all edges after repositioning
+    for (auto* edge : edge_items_) {
+        if (edge && isEdgeValid(edge)) {
+            edge->updatePosition();
+        }
+    }
+    
+    // Re-enable scene indexing
+    if (scene_) {
+        scene_->setItemIndexMethod(old_index_method);
+    }
+    
+    // Scene will update automatically - do not force immediate update
+}
+
 orc::GUIDAG DAGViewerWidget::exportDAG() const
 {
     orc::GUIDAG dag;
@@ -616,12 +735,12 @@ bool DAGViewerWidget::isNodeValid(DAGNodeItem* node) const
     return scene_->items().contains(node);
 }
 
-bool DAGViewerWidget::isEdgeValid(DAGEdgeItem* edge) const
+bool DAGViewerWidget::isEdgeValid(const DAGEdgeItem* edge) const
 {
     if (!edge || !scene_) return false;
     
     // Check if edge is still in scene and has valid endpoints
-    return scene_->items().contains(edge) && edge->isValid();
+    return scene_->items().contains(const_cast<DAGEdgeItem*>(edge)) && edge->isValid();
 }
 
 DAGNodeItem* DAGViewerWidget::findNodeById(const std::string& node_id) const
@@ -803,9 +922,6 @@ bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
         }
     }
     
-    // Process events after all edges are deleted
-    QApplication::processEvents();
-    
     // Deselect node if selected
     if (node_to_delete->isSelected()) {
         node_to_delete->setSelected(false);
@@ -817,17 +933,13 @@ bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
     // Remove from scene first
     if (scene_) {
         scene_->removeItem(node_to_delete);
-        scene_->update();
     }
     
     // Delete the node
     delete node_to_delete;
     node_to_delete = nullptr;
     
-    // Critical: Process all pending events to ensure Qt internal state is updated
-    QApplication::processEvents();
-    
-    // Clean up any stale pointers
+    // Clean up any stale pointers (without processing events)
     cleanupStalePointers();
     
     return true;
@@ -840,47 +952,45 @@ bool DAGViewerWidget::deleteEdge(DAGEdgeItem* edge, std::string* error)
         return false;
     }
     
-    // Find and remove the edge
-    bool found = false;
-    for (size_t i = 0; i < edge_items_.size(); ++i) {
-        if (edge_items_[i] == edge) {
-            // Deselect if selected BEFORE removing from scene
-            if (edge->isSelected()) {
-                edge->setSelected(false);
-            }
-            
-            // Remove from scene FIRST (before invalidating)
-            if (scene_) {
-                scene_->removeItem(edge);
-            }
-            
-            // Remove from our list
-            edge_items_.erase(edge_items_.begin() + i);
-            
-            // Mark as invalid (but don't call update() since it's no longer in scene)
-            edge->invalidate();
-            
-            // Delete the object
-            delete edge;
-            edge = nullptr;
-            
-            // Update scene after deletion
-            if (scene_) {
-                scene_->update();
-            }
-            
-            // Process events to ensure Qt's internal state is consistent
-            QApplication::processEvents();
-            
-            // Clean up any stale pointers
-            cleanupStalePointers();
-            
-            found = true;
-            break;
-        }
+    // Validate edge is still in our tracking list
+    auto it = std::find(edge_items_.begin(), edge_items_.end(), edge);
+    if (it == edge_items_.end()) {
+        // Edge already deleted
+        return true;
     }
     
-    // If not found, it's already deleted - not an error
+    // Validate edge is still in scene
+    if (scene_ && !scene_->items().contains(edge)) {
+        // Edge was removed from scene but still in our list - clean up
+        edge_items_.erase(it);
+        return true;
+    }
+    
+    // Clear any focus or selection on the edge
+    if (edge->isSelected()) {
+        edge->setSelected(false);
+    }
+    if (scene_ && scene_->focusItem() == edge) {
+        scene_->setFocusItem(nullptr);
+    }
+    
+    // Remove from scene FIRST
+    if (scene_) {
+        scene_->removeItem(edge);
+    }
+    
+    // Remove from our tracking list
+    edge_items_.erase(it);
+    
+    // Mark as invalid
+    edge->invalidate();
+    
+    // Delete the object
+    delete edge;
+    
+    // Clean up any stale pointers (without processing events)
+    cleanupStalePointers();
+    
     return true;
 }
 

@@ -142,6 +142,9 @@ public:
     orc::GUIDAG exportDAG() const;
     void importDAG(const orc::GUIDAG& dag);
     
+    // Layout operations
+    void arrangeToGrid();
+    
 signals:
     void nodeSelected(const std::string& node_id);
     void nodeDoubleClicked(const std::string& node_id);
@@ -171,7 +174,7 @@ private:
     
     // Safety validation helpers
     bool isNodeValid(DAGNodeItem* node) const;
-    bool isEdgeValid(DAGEdgeItem* edge) const;
+    bool isEdgeValid(const DAGEdgeItem* edge) const;
     DAGNodeItem* findNodeById(const std::string& node_id) const;
     void cleanupStalePointers();
     

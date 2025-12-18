@@ -12,6 +12,7 @@
 #include <QGraphicsView>
 #include <QGraphicsScene>
 #include <QGraphicsItem>
+#include <QPointer>
 #include <memory>
 #include "../core/include/dag_executor.h"
 #include "../core/include/stage_parameter.h"
@@ -163,9 +164,17 @@ private:
     std::string generateNodeId();
     bool addNode(const std::string& node_id, const std::string& stage_name, const QPointF& pos, std::string* error = nullptr);
     void addNodeAtPosition(const QPointF& pos);
+    bool hasNodeConnections(const std::string& node_id) const;
     bool deleteNode(const std::string& node_id, std::string* error = nullptr);
     bool deleteEdge(DAGEdgeItem* edge, std::string* error = nullptr);
     void deleteSelectedItems();
+    
+    // Safety validation helpers
+    bool isNodeValid(DAGNodeItem* node) const;
+    bool isEdgeValid(DAGEdgeItem* edge) const;
+    DAGNodeItem* findNodeById(const std::string& node_id) const;
+    void cleanupStalePointers();
+    
     void createEdge(const std::string& source_id, const std::string& target_id);
     void cleanupInvalidEdges();
     void startEdgeDrag(DAGNodeItem* source_node, const QPointF& start_pos);
@@ -188,7 +197,7 @@ protected:
     
     // Edge creation state
     bool is_creating_edge_;
-    DAGNodeItem* edge_source_node_;
+    DAGNodeItem* edge_source_node_;  // Not QPointer - QGraphicsItem doesn't inherit QObject
     TemporaryEdgeLine* temp_edge_line_;
     
     // Auto-ID generation

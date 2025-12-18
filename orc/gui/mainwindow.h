@@ -15,7 +15,7 @@ namespace orc {
 }
 
 class FieldPreviewWidget;
-class DAGViewerWidget;
+class DAGEditorWindow;
 class QLabel;
 class QSlider;
 class QToolBar;
@@ -42,17 +42,10 @@ protected:
 
 private slots:
     void onOpenTBC();
+    void onOpenDAGEditor();
     void onFieldChanged(int field_index);
     void onNavigateField(int delta);
     void onPreviewModeChanged(int index);
-    void onLoadDAG();
-    void onSaveDAG();
-    void onNodeSelected(const std::string& node_id);
-    void onNodeDoubleClicked(const std::string& node_id);
-    void onChangeNodeType(const std::string& node_id);
-    void onEditParameters(const std::string& node_id);
-    void onAddNodeRequested(const std::string& after_node_id);
-    void onDeleteNodeRequested(const std::string& node_id);
 
 private:
     void setupUI();
@@ -67,7 +60,7 @@ private:
     
     // UI components
     FieldPreviewWidget* preview_widget_;
-    DAGViewerWidget* dag_viewer_;
+    DAGEditorWindow* dag_editor_window_;
     QSlider* field_slider_;
     QLabel* field_info_label_;
     QToolBar* toolbar_;

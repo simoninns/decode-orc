@@ -3,12 +3,8 @@
 
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
-#include "dagviewerwidget.h"
-#include "dagnodeeditdialog.h"
-#include "stageparameterdialog.h"
+#include "dageditorwindow.h"
 #include "tbc_video_field_representation.h"
-#include "passthrough_stage.h"
-#include "dropout_correct_stage.h"
 #include "../core/include/dag_executor.h"
 
 #include <QFileDialog>
@@ -30,7 +26,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_widget_(nullptr)
-    , dag_viewer_(nullptr)
+    , dag_editor_window_(nullptr)
     , field_slider_(nullptr)
     , field_info_label_(nullptr)
     , toolbar_(nullptr)
@@ -53,39 +49,13 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
-    // Central widget with vertical layout
+    // Central widget with field preview
     auto* central = new QWidget(this);
     auto* layout = new QVBoxLayout(central);
     
-    // Vertical splitter: DAG viewer on top, field preview on bottom
-    auto* splitter = new QSplitter(Qt::Vertical, this);
-    
-    // DAG viewer
-    dag_viewer_ = new DAGViewerWidget(this);
-    connect(dag_viewer_, &DAGViewerWidget::nodeSelected,
-            this, &MainWindow::onNodeSelected);
-    connect(dag_viewer_, &DAGViewerWidget::nodeDoubleClicked,
-            this, &MainWindow::onNodeDoubleClicked);
-    connect(dag_viewer_, &DAGViewerWidget::changeNodeTypeRequested,
-            this, &MainWindow::onChangeNodeType);
-    connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
-            this, &MainWindow::onEditParameters);
-    connect(dag_viewer_, &DAGViewerWidget::addNodeRequested,
-            this, &MainWindow::onAddNodeRequested);
-    connect(dag_viewer_, &DAGViewerWidget::deleteNodeRequested,
-            this, &MainWindow::onDeleteNodeRequested);
-    
-    splitter->addWidget(dag_viewer_);
-    
     // Field preview widget
     preview_widget_ = new FieldPreviewWidget(this);
-    splitter->addWidget(preview_widget_);
-    
-    // Set initial sizes (40% DAG, 60% preview)
-    splitter->setStretchFactor(0, 2);
-    splitter->setStretchFactor(1, 3);
-    
-    layout->addWidget(splitter, 1);
+    layout->addWidget(preview_widget_, 1);
     
     // Navigation controls at bottom
     auto* nav_layout = new QHBoxLayout();
@@ -154,16 +124,12 @@ void MainWindow::setupMenus()
     quit_action->setShortcut(QKeySequence::Quit);
     connect(quit_action, &QAction::triggered, this, &QWidget::close);
     
-    // DAG menu
-    auto* dag_menu = menuBar()->addMenu("&DAG");
+    // Tools menu
+    auto* tools_menu = menuBar()->addMenu("&Tools");
     
-    auto* load_dag_action = dag_menu->addAction("&Load DAG...");
-    load_dag_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
-    connect(load_dag_action, &QAction::triggered, this, &MainWindow::onLoadDAG);
-    
-    auto* save_dag_action = dag_menu->addAction("&Save DAG...");
-    save_dag_action->setShortcut(QKeySequence::Save);
-    connect(save_dag_action, &QAction::triggered, this, &MainWindow::onSaveDAG);
+    auto* dag_editor_action = tools_menu->addAction("&DAG Editor...");
+    dag_editor_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    connect(dag_editor_action, &QAction::triggered, this, &MainWindow::onOpenDAGEditor);
 }
 
 void MainWindow::setupToolbar()
@@ -357,200 +323,15 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
     }
 }
 
-void MainWindow::onLoadDAG()
+void MainWindow::onOpenDAGEditor()
 {
-    QString filename = QFileDialog::getOpenFileName(
-        this,
-        "Load DAG",
-        "",
-        "YAML Files (*.yaml *.yml);;All Files (*)"
-    );
-    
-    if (filename.isEmpty()) {
-        return;
+    // Create DAG editor window if it doesn't exist
+    if (!dag_editor_window_) {
+        dag_editor_window_ = new DAGEditorWindow(this);
     }
     
-    try {
-        auto dag = orc::dag_serialization::load_dag_from_yaml(filename.toStdString());
-        dag_viewer_->importDAG(dag);
-        statusBar()->showMessage(QString("Loaded DAG: %1").arg(filename));
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error Loading DAG",
-            QString("Failed to load DAG: %1").arg(e.what()));
-    }
-}
-
-void MainWindow::onSaveDAG()
-{
-    QString filename = QFileDialog::getSaveFileName(
-        this,
-        "Save DAG",
-        "",
-        "YAML Files (*.yaml *.yml);;All Files (*)"
-    );
-    
-    if (filename.isEmpty()) {
-        return;
-    }
-    
-    // Ensure .yaml extension
-    if (!filename.endsWith(".yaml", Qt::CaseInsensitive) && 
-        !filename.endsWith(".yml", Qt::CaseInsensitive)) {
-        filename += ".yaml";
-    }
-    
-    try {
-        auto dag = dag_viewer_->exportDAG();
-        orc::dag_serialization::save_dag_to_yaml(dag, filename.toStdString());
-        statusBar()->showMessage(QString("Saved DAG: %1").arg(filename));
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error Saving DAG",
-            QString("Failed to save DAG: %1").arg(e.what()));
-    }
-}
-
-void MainWindow::onNodeSelected(const std::string& node_id)
-{
-    statusBar()->showMessage(QString("Selected node: %1").arg(QString::fromStdString(node_id)));
-    
-    // Update preview to show output from selected node
-    // For now, we show the original TBC since DAG execution isn't implemented yet
-    // TODO: When DAG execution is implemented:
-    //   - If node_id == "START", show original TBC
-    //   - Otherwise, execute DAG up to selected node and show its output
-    
-    // Currently just showing status - actual preview update would go here
-    if (node_id == "START") {
-        statusBar()->showMessage("Selected START node - showing original TBC");
-    } else {
-        statusBar()->showMessage(
-            QString("Selected node: %1 - showing output (DAG execution not yet implemented)")
-                .arg(QString::fromStdString(node_id))
-        );
-    }
-}
-
-void MainWindow::onNodeDoubleClicked(const std::string& node_id)
-{
-    // Double-click now just selects the node
-    // Use context menu for editing
-    statusBar()->showMessage(
-        QString("Node selected: %1 (right-click for options)")
-            .arg(QString::fromStdString(node_id))
-    );
-}
-
-void MainWindow::onChangeNodeType(const std::string& node_id)
-{
-    // Get available stage types
-    std::vector<std::string> available_stages = {
-        "Passthrough",
-        "Dropout Correct"
-    };
-    
-    // Get current stage type from viewer
-    std::string current_stage = dag_viewer_->getNodeStageType(node_id);
-    
-    // For now, use empty parameters
-    std::map<std::string, std::string> parameters;
-    
-    // Open stage selection dialog
-    DAGNodeEditDialog dialog(
-        node_id,
-        current_stage,
-        parameters,
-        available_stages,
-        this
-    );
-    
-    if (dialog.exec() == QDialog::Accepted) {
-        std::string new_stage = dialog.getSelectedStage();
-        
-        // Update node stage type in viewer
-        if (new_stage != current_stage) {
-            dag_viewer_->setNodeStageType(node_id, new_stage);
-            statusBar()->showMessage(
-                QString("Changed node %1 to stage type: %2")
-                    .arg(QString::fromStdString(node_id))
-                    .arg(QString::fromStdString(new_stage))
-            );
-        }
-    }
-}
-
-void MainWindow::onEditParameters(const std::string& node_id)
-{
-    // Get current stage type
-    std::string stage_name = dag_viewer_->getNodeStageType(node_id);
-    
-    // Create temporary stage instance to get parameter info
-    if (stage_name == "Dropout Correct") {
-        orc::DropoutCorrectStage temp_stage;
-        auto descriptors = temp_stage.get_parameter_descriptors();
-        
-        // Get stored parameters for this node, or use defaults
-        auto stored_params = dag_viewer_->getNodeParameters(node_id);
-        auto current_params = stored_params.empty() ? temp_stage.get_parameters() : stored_params;
-        
-        // Show parameter dialog
-        StageParameterDialog param_dialog(
-            stage_name,
-            descriptors,
-            current_params,
-            this
-        );
-        
-        if (param_dialog.exec() == QDialog::Accepted) {
-            auto new_params = param_dialog.get_values();
-            
-            // Store parameters with the node
-            dag_viewer_->setNodeParameters(node_id, new_params);
-            
-            statusBar()->showMessage(
-                QString("Updated parameters for node %1")
-                    .arg(QString::fromStdString(node_id))
-            );
-        }
-    } else if (stage_name == "Passthrough") {
-        // Passthrough has no parameters - shouldn't get here due to menu being disabled
-        QMessageBox::information(this, "No Parameters",
-            "Passthrough stage has no configurable parameters.");
-    }
-}
-
-void MainWindow::onAddNodeRequested(const std::string& after_node_id)
-{
-    // Get available stages
-    std::vector<std::string> available_stages = {
-        "dropout_correct",
-        "chroma_decode",
-        "filter",
-        "transform"
-    };
-    
-    DAGNodeAddDialog dialog(available_stages, this);
-    
-    if (dialog.exec() == QDialog::Accepted) {
-        std::string new_node_id = dialog.getNodeId();
-        std::string stage_name = dialog.getSelectedStage();
-        
-        // TODO: Add node to DAG and refresh view
-        QMessageBox::information(this, "Node Added",
-            QString("Added node '%1' with stage '%2'")
-                .arg(QString::fromStdString(new_node_id))
-                .arg(QString::fromStdString(stage_name)));
-    }
-}
-
-void MainWindow::onDeleteNodeRequested(const std::string& node_id)
-{
-    auto reply = QMessageBox::question(this, "Delete Node",
-        QString("Delete node '%1'?").arg(QString::fromStdString(node_id)),
-        QMessageBox::Yes | QMessageBox::No);
-    
-    if (reply == QMessageBox::Yes) {
-        // TODO: Remove node from DAG and refresh view
-        QMessageBox::information(this, "Node Deleted",
-            QString("Deleted node: %1").arg(QString::fromStdString(node_id)));
-    }
+    // Show the window
+    dag_editor_window_->show();
+    dag_editor_window_->raise();
+    dag_editor_window_->activateWindow();
 }

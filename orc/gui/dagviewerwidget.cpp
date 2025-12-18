@@ -203,10 +203,12 @@ void DAGNodeItem::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
 QVariant DAGNodeItem::itemChange(GraphicsItemChange change, const QVariant& value)
 {
     if (change == ItemPositionHasChanged && scene()) {
-        // Update connected edges
+        // Update only connected edges for better performance
         for (QGraphicsItem* item : scene()->items()) {
             if (auto* edge = dynamic_cast<DAGEdgeItem*>(item)) {
-                edge->updatePosition();
+                if (edge->source() == this || edge->target() == this) {
+                    edge->updatePosition();
+                }
             }
         }
     }
@@ -234,8 +236,20 @@ QRectF DAGEdgeItem::boundingRect() const
     QPointF p1 = source_->outputConnectionPoint();
     QPointF p2 = target_->inputConnectionPoint();
     
-    qreal extra = 10;
-    return QRectF(p1, p2).normalized().adjusted(-extra, -extra, extra, extra);
+    // Calculate control points for bezier curve (same as in paint())
+    qreal control_offset = std::abs(p2.x() - p1.x()) * 0.4;
+    QPointF c1(p1.x() + control_offset, p1.y());
+    QPointF c2(p2.x() - control_offset, p2.y());
+    
+    // Find min/max x and y that includes all points (p1, p2, c1, c2)
+    qreal minX = std::min({p1.x(), p2.x(), c1.x(), c2.x()});
+    qreal maxX = std::max({p1.x(), p2.x(), c1.x(), c2.x()});
+    qreal minY = std::min({p1.y(), p2.y(), c1.y(), c2.y()});
+    qreal maxY = std::max({p1.y(), p2.y(), c1.y(), c2.y()});
+    
+    // Add padding for arrow head and line width
+    qreal extra = 15;
+    return QRectF(QPointF(minX, minY), QPointF(maxX, maxY)).adjusted(-extra, -extra, extra, extra);
 }
 
 void DAGEdgeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget)
@@ -282,8 +296,25 @@ void DAGEdgeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
 
 void DAGEdgeItem::updatePosition()
 {
+    if (!scene() || !isValid()) return;
+    
+    // Cache the old bounding rect in scene coordinates
+    QRectF oldRect = sceneBoundingRect();
+    
+    // Notify Qt that geometry is changing
     prepareGeometryChange();
-    update();
+    
+    // Update the scene for both old and new regions
+    if (scene()) {
+        // Invalidate old region
+        scene()->update(oldRect);
+        
+        // Update item itself
+        update();
+        
+        // Invalidate new region
+        scene()->update(sceneBoundingRect());
+    }
 }
 
 void DAGEdgeItem::invalidate()
@@ -292,7 +323,7 @@ void DAGEdgeItem::invalidate()
     source_ = nullptr;
     target_ = nullptr;
     setVisible(false);  // Hide immediately
-    update();  // Force redraw to clear from view
+    // Don't call update() - item should be removed from scene before this is called
 }
 
 // ============================================================================
@@ -380,42 +411,42 @@ void DAGViewerWidget::clearDAG()
 
 void DAGViewerWidget::setNodeState(const std::string& node_id, NodeState state)
 {
-    auto it = node_items_.find(node_id);
-    if (it != node_items_.end()) {
-        it->second->setState(state);
+    DAGNodeItem* node = findNodeById(node_id);
+    if (node) {
+        node->setState(state);
     }
 }
 
 void DAGViewerWidget::setNodeStageType(const std::string& node_id, const std::string& stage_name)
 {
-    auto it = node_items_.find(node_id);
-    if (it != node_items_.end()) {
-        it->second->setStageName(stage_name);
+    DAGNodeItem* node = findNodeById(node_id);
+    if (node) {
+        node->setStageName(stage_name);
     }
 }
 
 std::string DAGViewerWidget::getNodeStageType(const std::string& node_id) const
 {
-    auto it = node_items_.find(node_id);
-    if (it != node_items_.end()) {
-        return it->second->stageName();
+    DAGNodeItem* node = findNodeById(node_id);
+    if (node) {
+        return node->stageName();
     }
     return "";
 }
 
 void DAGViewerWidget::setNodeParameters(const std::string& node_id, const std::map<std::string, orc::ParameterValue>& params)
 {
-    auto it = node_items_.find(node_id);
-    if (it != node_items_.end()) {
-        it->second->setParameters(params);
+    DAGNodeItem* node = findNodeById(node_id);
+    if (node) {
+        node->setParameters(params);
     }
 }
 
 std::map<std::string, orc::ParameterValue> DAGViewerWidget::getNodeParameters(const std::string& node_id) const
 {
-    auto it = node_items_.find(node_id);
-    if (it != node_items_.end()) {
-        return it->second->getParameters();
+    DAGNodeItem* node = findNodeById(node_id);
+    if (node) {
+        return node->getParameters();
     }
     return {};
 }
@@ -501,19 +532,24 @@ void DAGViewerWidget::showContextMenu(const QPoint& pos)
     
     QMenu menu;
     
-    if (edge_item) {
+    if (edge_item && isEdgeValid(edge_item)) {
         // Edge-specific actions
+        // Capture edge pointer and validate before use
         menu.addAction("Delete Edge", [this, edge_item]() {
-            deleteEdge(edge_item);
+            if (isEdgeValid(edge_item)) {
+                deleteEdge(edge_item);
+            }
         });
-    } else if (node_item && !node_item->isStartNode()) {
+    } else if (node_item && isNodeValid(node_item) && !node_item->isStartNode()) {
         // Node-specific actions (not for start node)
         // Capture node_id by value to avoid accessing deleted pointer
         std::string node_id = node_item->nodeId();
         std::string stage_name = node_item->stageName();
         
         menu.addAction("Change Node Type...", [this, node_id]() {
-            emit changeNodeTypeRequested(node_id);
+            if (findNodeById(node_id)) {
+                emit changeNodeTypeRequested(node_id);
+            }
         });
         
         // Check if stage has parameters
@@ -523,14 +559,25 @@ void DAGViewerWidget::showContextMenu(const QPoint& pos)
         }
         
         auto* edit_params_action = menu.addAction("Edit Parameters...", [this, node_id]() {
-            emit editParametersRequested(node_id);
+            if (findNodeById(node_id)) {
+                emit editParametersRequested(node_id);
+            }
         });
         edit_params_action->setEnabled(has_parameters);
         
         menu.addSeparator();
-        menu.addAction("Delete Node", [this, node_id]() {
-            deleteNode(node_id);
+        
+        // Check if node has connections
+        bool has_connections = hasNodeConnections(node_id);
+        auto* delete_action = menu.addAction("Delete Node", [this, node_id]() {
+            if (findNodeById(node_id)) {
+                deleteNode(node_id);
+            }
         });
+        delete_action->setEnabled(!has_connections);
+        if (has_connections) {
+            delete_action->setToolTip("Cannot delete node with connections. Delete edges first.");
+        }
         menu.addSeparator();
     }
     
@@ -542,6 +589,74 @@ void DAGViewerWidget::showContextMenu(const QPoint& pos)
     });
     
     menu.exec(global_pos);
+}
+
+bool DAGViewerWidget::hasNodeConnections(const std::string& node_id) const
+{
+    // Check if the node has any incoming or outgoing edges
+    for (const auto* edge : edge_items_) {
+        if (!edge || !edge->isValid()) {
+            continue;
+        }
+        if (edge->source() && edge->source()->nodeId() == node_id) {
+            return true;  // Has outgoing edge
+        }
+        if (edge->target() && edge->target()->nodeId() == node_id) {
+            return true;  // Has incoming edge
+        }
+    }
+    return false;
+}
+
+bool DAGViewerWidget::isNodeValid(DAGNodeItem* node) const
+{
+    if (!node || !scene_) return false;
+    
+    // Check if node is still in the scene
+    return scene_->items().contains(node);
+}
+
+bool DAGViewerWidget::isEdgeValid(DAGEdgeItem* edge) const
+{
+    if (!edge || !scene_) return false;
+    
+    // Check if edge is still in scene and has valid endpoints
+    return scene_->items().contains(edge) && edge->isValid();
+}
+
+DAGNodeItem* DAGViewerWidget::findNodeById(const std::string& node_id) const
+{
+    auto it = node_items_.find(node_id);
+    if (it != node_items_.end() && isNodeValid(it->second)) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void DAGViewerWidget::cleanupStalePointers()
+{
+    // Remove nodes that are no longer in scene
+    std::vector<std::string> invalid_nodes;
+    for (const auto& pair : node_items_) {
+        if (!isNodeValid(pair.second)) {
+            invalid_nodes.push_back(pair.first);
+        }
+    }
+    for (const auto& node_id : invalid_nodes) {
+        node_items_.erase(node_id);
+    }
+    
+    // Remove edges that are no longer valid
+    edge_items_.erase(
+        std::remove_if(edge_items_.begin(), edge_items_.end(),
+            [this](DAGEdgeItem* edge) { return !isEdgeValid(edge); }),
+        edge_items_.end()
+    );
+    
+    // Clear edge creation state if source node is invalid
+    if (is_creating_edge_ && !isNodeValid(edge_source_node_)) {
+        cancelEdgeDrag();
+    }
 }
 
 std::string DAGViewerWidget::generateNodeId()
@@ -712,6 +827,9 @@ bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
     // Critical: Process all pending events to ensure Qt internal state is updated
     QApplication::processEvents();
     
+    // Clean up any stale pointers
+    cleanupStalePointers();
+    
     return true;
 }
 
@@ -726,28 +844,36 @@ bool DAGViewerWidget::deleteEdge(DAGEdgeItem* edge, std::string* error)
     bool found = false;
     for (size_t i = 0; i < edge_items_.size(); ++i) {
         if (edge_items_[i] == edge) {
-            // Mark as being deleted
-            edge->invalidate();
-            
-            // Deselect if selected
+            // Deselect if selected BEFORE removing from scene
             if (edge->isSelected()) {
                 edge->setSelected(false);
             }
             
-            // Remove from list
-            edge_items_.erase(edge_items_.begin() + i);
-            
-            // Remove from scene
+            // Remove from scene FIRST (before invalidating)
             if (scene_) {
                 scene_->removeItem(edge);
-                scene_->update();
             }
+            
+            // Remove from our list
+            edge_items_.erase(edge_items_.begin() + i);
+            
+            // Mark as invalid (but don't call update() since it's no longer in scene)
+            edge->invalidate();
             
             // Delete the object
             delete edge;
+            edge = nullptr;
             
-            // Process events to update Qt's internal state
+            // Update scene after deletion
+            if (scene_) {
+                scene_->update();
+            }
+            
+            // Process events to ensure Qt's internal state is consistent
             QApplication::processEvents();
+            
+            // Clean up any stale pointers
+            cleanupStalePointers();
             
             found = true;
             break;
@@ -812,10 +938,10 @@ void DAGViewerWidget::deleteSelectedItems()
 
 void DAGViewerWidget::createEdge(const std::string& source_id, const std::string& target_id)
 {
-    auto source_it = node_items_.find(source_id);
-    auto target_it = node_items_.find(target_id);
+    DAGNodeItem* source_node = findNodeById(source_id);
+    DAGNodeItem* target_node = findNodeById(target_id);
     
-    if (source_it == node_items_.end() || target_it == node_items_.end()) {
+    if (!source_node || !target_node) {
         return;
     }
     
@@ -851,7 +977,7 @@ void DAGViewerWidget::createEdge(const std::string& source_id, const std::string
         return;  // Edge already exists
     }
     
-    auto* edge = new DAGEdgeItem(source_it->second, target_it->second);
+    auto* edge = new DAGEdgeItem(source_node, target_node);
     scene_->addItem(edge);
     edge_items_.push_back(edge);
     
@@ -960,6 +1086,8 @@ void DAGViewerWidget::keyPressEvent(QKeyEvent* event)
 
 void DAGViewerWidget::startEdgeDrag(DAGNodeItem* source_node, const QPointF& start_pos)
 {
+    if (!isNodeValid(source_node)) return;
+    
     is_creating_edge_ = true;
     edge_source_node_ = source_node;
     
@@ -970,7 +1098,10 @@ void DAGViewerWidget::startEdgeDrag(DAGNodeItem* source_node, const QPointF& sta
 
 void DAGViewerWidget::updateEdgeDrag(const QPointF& current_pos)
 {
-    if (!temp_edge_line_ || !edge_source_node_) return;
+    if (!temp_edge_line_ || !isNodeValid(edge_source_node_)) {
+        cancelEdgeDrag();
+        return;
+    }
     
     QPointF start = edge_source_node_->outputConnectionPoint();
     temp_edge_line_->setLine(QLineF(start, current_pos));
@@ -978,7 +1109,7 @@ void DAGViewerWidget::updateEdgeDrag(const QPointF& current_pos)
 
 void DAGViewerWidget::finishEdgeDrag(const QPointF& end_pos)
 {
-    if (!edge_source_node_) {
+    if (!isNodeValid(edge_source_node_)) {
         cancelEdgeDrag();
         return;
     }

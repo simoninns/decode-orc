@@ -34,6 +34,7 @@ DAGNodeItem::DAGNodeItem(const std::string& node_id,
     , state_(NodeState::Pending)
     , is_start_node_(is_start_node)
     , is_dragging_connection_(false)
+    , source_number_(-1)
 {
     setFlag(QGraphicsItem::ItemIsMovable);
     setFlag(QGraphicsItem::ItemIsSelectable);
@@ -94,14 +95,22 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     QRectF text_rect(5, 10, WIDTH - 10, 25);
     painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(stage_name_));
     
-    // Draw node ID
+    // Draw node ID or source info
     font.setBold(false);
     font.setPointSize(8);
     painter->setFont(font);
     painter->setPen(QColor(80, 80, 80));
     
     QRectF id_rect(5, 40, WIDTH - 10, 30);
-    painter->drawText(id_rect, Qt::AlignCenter, QString::fromStdString(node_id_));
+    if (is_start_node_ && source_number_ >= 0) {
+        // Show source number and name for START nodes
+        QString source_text = QString("Source %1\n%2")
+            .arg(source_number_)
+            .arg(source_name_);
+        painter->drawText(id_rect, Qt::AlignCenter, source_text);
+    } else {
+        painter->drawText(id_rect, Qt::AlignCenter, QString::fromStdString(node_id_));
+    }
     
     // Draw connection points
     painter->setPen(QPen(Qt::darkGray, 2));
@@ -128,6 +137,13 @@ void DAGNodeItem::setStageName(const std::string& stage_name)
 {
     stage_name_ = stage_name;
     update();  // Redraw with new name
+}
+
+void DAGNodeItem::setSourceInfo(int source_number, const QString& source_name)
+{
+    source_number_ = source_number;
+    source_name_ = source_name;
+    update();  // Redraw with source info
 }
 
 void DAGNodeItem::setParameters(const std::map<std::string, orc::ParameterValue>& params)
@@ -449,6 +465,15 @@ std::map<std::string, orc::ParameterValue> DAGViewerWidget::getNodeParameters(co
         return node->getParameters();
     }
     return {};
+}
+
+void DAGViewerWidget::setSourceInfo(int source_number, const QString& source_name)
+{
+    // Find START node and update its source info
+    auto it = node_items_.find("START");
+    if (it != node_items_.end() && it->second) {
+        it->second->setSourceInfo(source_number, source_name);
+    }
 }
 
 void DAGViewerWidget::arrangeToGrid()

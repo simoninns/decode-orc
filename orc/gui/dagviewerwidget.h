@@ -50,6 +50,9 @@ public:
     std::string stageName() const { return stage_name_; }
     void setStageName(const std::string& stage_name);
     
+    // Source info for START nodes
+    void setSourceInfo(int source_number, const QString& source_name);
+    
     // Parameter storage
     void setParameters(const std::map<std::string, orc::ParameterValue>& params);
     std::map<std::string, orc::ParameterValue> getParameters() const { return parameters_; }
@@ -76,6 +79,10 @@ private:
     bool is_start_node_;
     bool is_dragging_connection_;
     std::map<std::string, orc::ParameterValue> parameters_;  // Stage parameters
+    
+    // Source info for START nodes
+    int source_number_;
+    QString source_name_;
     
     static constexpr double WIDTH = 150.0;
     static constexpr double HEIGHT = 80.0;
@@ -145,6 +152,8 @@ public:
     // Layout operations
     void arrangeToGrid();
     
+    void setSourceInfo(int source_number, const QString& source_name);
+
 signals:
     void nodeSelected(const std::string& node_id);
     void nodeDoubleClicked(const std::string& node_id);

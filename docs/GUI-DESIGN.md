@@ -6,8 +6,10 @@
 
 **Core GUI Framework**
 - Qt6-based application with QMainWindow
-- Vertical split layout: DAG editor above, field/frame preview below
-- Menu bar with File (Open TBC, Quit) and DAG (Load DAG, Save DAG) menus
+- Command-line argument support for loading TBC sources at startup
+- DAG editor menu disabled until TBC source is loaded
+- Menu bar with File (Open TBC, Quit) and Tools (DAG Editor) menus
+- Field/frame preview with mode-aware navigation (moves by 1 field in field view, 2 fields in frame view)
 
 **Interactive DAG Editor**
 - QGraphicsView-based DAG visualization
@@ -15,7 +17,9 @@
 - Drag-to-connect edge creation (drag from output → input)
 - Node movement and repositioning
 - START node positioned on left side (-450, 0) for natural left-to-right flow
+- START node displays source number and source name when TBC is loaded
 - Selectable nodes and edges (edges highlighted when selected)
+- DAG editor only available after loading a TBC source
 
 **Node Management**
 - Add nodes via context menu or keyboard

@@ -22,6 +22,8 @@ public:
     ~DAGEditorWindow() = default;
     
     DAGViewerWidget* dagViewer() { return dag_viewer_; }
+    
+    void setSourceInfo(int source_number, const QString& source_name);
 
 private slots:
     void onLoadDAG();

@@ -189,3 +189,10 @@ void DAGEditorWindow::onEditParameters(const std::string& node_id)
         );
     }
 }
+
+void DAGEditorWindow::setSourceInfo(int source_number, const QString& source_name)
+{
+    if (dag_viewer_) {
+        dag_viewer_->setSourceInfo(source_number, source_name);
+    }
+}

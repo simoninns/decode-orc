@@ -31,8 +31,12 @@ MainWindow::MainWindow(QWidget *parent)
     , field_info_label_(nullptr)
     , toolbar_(nullptr)
     , preview_mode_combo_(nullptr)
+    , dag_editor_action_(nullptr)
+    , current_source_number_(0)
+    , source_loaded_(false)
     , current_field_index_(0)
     , total_fields_(0)
+    , current_preview_mode_(PreviewMode::SingleField)
     , current_dag_(nullptr)
 {
     setupUI();
@@ -127,9 +131,10 @@ void MainWindow::setupMenus()
     // Tools menu
     auto* tools_menu = menuBar()->addMenu("&Tools");
     
-    auto* dag_editor_action = tools_menu->addAction("&DAG Editor...");
-    dag_editor_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
-    connect(dag_editor_action, &QAction::triggered, this, &MainWindow::onOpenDAGEditor);
+    dag_editor_action_ = tools_menu->addAction("&DAG Editor...");
+    dag_editor_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
+    dag_editor_action_->setEnabled(false);  // Disabled until source is loaded
+    connect(dag_editor_action_, &QAction::triggered, this, &MainWindow::onOpenDAGEditor);
 }
 
 void MainWindow::setupToolbar()
@@ -151,11 +156,16 @@ void MainWindow::onOpenTBC()
         return;
     }
     
+    loadSource(filename);
+}
+
+void MainWindow::loadSource(const QString& tbc_path)
+{
     try {
         // Load TBC using the core library
         auto repr = orc::create_tbc_representation(
-            filename.toStdString(),
-            filename.toStdString() + ".db"
+            tbc_path.toStdString(),
+            tbc_path.toStdString() + ".db"
         );
         
         if (!repr) {
@@ -164,7 +174,13 @@ void MainWindow::onOpenTBC()
         }
         
         representation_ = repr;
-        current_tbc_path_ = filename;
+        current_tbc_path_ = tbc_path;
+        
+        // Extract source name from filename
+        QFileInfo file_info(tbc_path);
+        current_source_name_ = file_info.baseName();
+        current_source_number_ = 0;  // Always 0 for now
+        source_loaded_ = true;
         
         // Get field range
         auto range = representation_->field_range();
@@ -176,6 +192,16 @@ void MainWindow::onOpenTBC()
         field_slider_->setRange(0, total_fields_ - 1);
         field_slider_->setValue(0);
         
+        // Enable DAG editor now that source is loaded
+        if (dag_editor_action_) {
+            dag_editor_action_->setEnabled(true);
+        }
+        
+        // Update DAG editor if already open
+        if (dag_editor_window_) {
+            dag_editor_window_->setSourceInfo(current_source_number_, current_source_name_);
+        }
+        
         // Set representation in preview widget
         preview_widget_->setRepresentation(representation_);
         preview_widget_->setFieldIndex(range.start.value());
@@ -183,7 +209,8 @@ void MainWindow::onOpenTBC()
         updateWindowTitle();
         updateFieldInfo();
         
-        statusBar()->showMessage(QString("Loaded: %1 fields").arg(total_fields_));
+        statusBar()->showMessage(QString("Loaded: %1 fields from source \"%2\"")
+            .arg(total_fields_).arg(current_source_name_));
         
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
@@ -212,7 +239,11 @@ void MainWindow::onNavigateField(int delta)
         return;
     }
     
-    int new_index = current_field_index_ + delta;
+    // In frame view modes, move by 2 fields at a time
+    int step = (current_preview_mode_ == PreviewMode::Frame_EvenOdd ||
+                current_preview_mode_ == PreviewMode::Frame_OddEven) ? 2 : 1;
+    
+    int new_index = current_field_index_ + (delta * step);
     if (new_index >= 0 && new_index < total_fields_) {
         field_slider_->setValue(new_index);
     }
@@ -233,6 +264,18 @@ void MainWindow::onPreviewModeChanged(int index)
             break;
         default:
             mode = PreviewMode::SingleField;
+    }
+    
+    current_preview_mode_ = mode;
+    
+    // Set slider step size based on preview mode
+    // In frame modes, slider moves by 2 fields at a time
+    if (mode == PreviewMode::Frame_EvenOdd || mode == PreviewMode::Frame_OddEven) {
+        field_slider_->setSingleStep(2);
+        field_slider_->setPageStep(10);  // 5 frames
+    } else {
+        field_slider_->setSingleStep(1);
+        field_slider_->setPageStep(10);
     }
     
     preview_widget_->setPreviewMode(mode);
@@ -328,6 +371,11 @@ void MainWindow::onOpenDAGEditor()
     // Create DAG editor window if it doesn't exist
     if (!dag_editor_window_) {
         dag_editor_window_ = new DAGEditorWindow(this);
+        
+        // Set source info if loaded
+        if (source_loaded_) {
+            dag_editor_window_->setSourceInfo(current_source_number_, current_source_name_);
+        }
     }
     
     // Show the window

@@ -8,6 +8,7 @@
 #include <QString>
 #include <QTabWidget>
 #include <memory>
+#include "fieldpreviewwidget.h"  // For PreviewMode enum
 
 namespace orc {
     class VideoFieldRepresentation;
@@ -36,6 +37,8 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+    
+    void loadSource(const QString& tbc_path);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
@@ -56,6 +59,9 @@ private:
     
     // Source management (single source for now)
     QString current_tbc_path_;
+    QString current_source_name_;  // Display name for source
+    int current_source_number_;     // Always 0 for now
+    bool source_loaded_;
     std::shared_ptr<const orc::VideoFieldRepresentation> representation_;
     
     // UI components
@@ -65,10 +71,12 @@ private:
     QLabel* field_info_label_;
     QToolBar* toolbar_;
     QComboBox* preview_mode_combo_;
+    QAction* dag_editor_action_;  // Track to enable/disable
     
     // Navigation state
     int current_field_index_;
     int total_fields_;
+    PreviewMode current_preview_mode_;
     
     // DAG state
     std::shared_ptr<orc::DAG> current_dag_;

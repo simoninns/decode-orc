@@ -4,8 +4,11 @@
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
 #include "dageditorwindow.h"
+#include "dagviewerwidget.h"
 #include "tbc_video_field_representation.h"
 #include "../core/include/dag_executor.h"
+#include "../core/include/dag_field_renderer.h"
+#include "../core/include/field_id.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -15,6 +18,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <iostream>
 #include <QSlider>
 #include <QPushButton>
 #include <QMessageBox>
@@ -36,6 +40,8 @@ MainWindow::MainWindow(QWidget *parent)
     , dag_editor_action_(nullptr)
     , save_project_action_(nullptr)
     , save_project_as_action_(nullptr)
+    , field_renderer_(nullptr)
+    , current_view_node_id_()
     , current_field_index_(0)
     , total_fields_(0)
     , current_preview_mode_(PreviewMode::SingleField)
@@ -84,7 +90,7 @@ void MainWindow::setupUI()
     auto* prev_button = new QPushButton("<", this);
     prev_button->setMaximumWidth(50);
     prev_button->setAutoRepeat(true);
-    prev_button->setAutoRepeatDelay(100);  // 100ms initial delay
+    prev_button->setAutoRepeatDelay(250);  // 250ms initial delay
     prev_button->setAutoRepeatInterval(10);  // 10ms repeat interval (very fast)
     connect(prev_button, &QPushButton::clicked, this, [this]() { onNavigateField(-1); });
     nav_layout->addWidget(prev_button);
@@ -93,7 +99,7 @@ void MainWindow::setupUI()
     auto* next_button = new QPushButton(">", this);
     next_button->setMaximumWidth(50);
     next_button->setAutoRepeat(true);
-    next_button->setAutoRepeatDelay(100);  // 100ms initial delay
+    next_button->setAutoRepeatDelay(250);  // 250ms initial delay
     next_button->setAutoRepeatInterval(10);  // 10ms repeat interval (very fast)
     connect(next_button, &QPushButton::clicked, this, [this]() { onNavigateField(1); });
     nav_layout->addWidget(next_button);
@@ -197,10 +203,10 @@ void MainWindow::onRemoveSource()
         return;
     }
     
-    // Get the first source ID (single source workflow for now)
-    int source_id = project_.getSourceId();
+    // Get the first source node ID (single source workflow for now)
+    QString source_node_id = project_.getSourceNodeId();
     QString error;
-    if (!project_.removeSource(source_id, &error)) {
+    if (!project_.removeSource(source_node_id, &error)) {
         QMessageBox::critical(this, "Error", error);
         return;
     }
@@ -416,6 +422,9 @@ void MainWindow::openProject(const QString& filename)
     
     updateWindowTitle();
     updateUIState();
+    
+    // Initialize field renderer with project DAG
+    updateDAGRenderer();
     
     statusBar()->showMessage(QString("Opened project: %1").arg(project_.projectName()));
 }
@@ -675,6 +684,14 @@ void MainWindow::onOpenDAGEditor()
         connect(dag_editor_window_, &DAGEditorWindow::projectModified,
                 this, &MainWindow::updateUIState);
         
+        // Connect DAG modification signal to update renderer
+        connect(dag_editor_window_, &DAGEditorWindow::projectModified,
+                this, &MainWindow::onDAGModified);
+        
+        // Connect node selection signal for field rendering
+        connect(dag_editor_window_->dagViewer(), &DAGViewerWidget::nodeSelected,
+                this, &MainWindow::onNodeSelectedForView);
+        
         // Set source info if project has source
         if (project_.hasSource()) {
             dag_editor_window_->setSourceInfo(project_.getSourceId(), project_.getSourceName());
@@ -689,5 +706,156 @@ void MainWindow::onOpenDAGEditor()
         dag_editor_window_->show();
         dag_editor_window_->raise();
         dag_editor_window_->activateWindow();
+    }
+}
+
+void MainWindow::onNodeSelectedForView(const std::string& node_id)
+{
+    // Update which node is being viewed
+    current_view_node_id_ = node_id;
+    
+    // Update status bar to show which node is being viewed
+    QString node_display = QString::fromStdString(node_id);
+    statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
+    
+    // Re-render current field at the new node
+    updateFieldView();
+}
+
+void MainWindow::onDAGModified()
+{
+    // Export DAG from viewer and save back to project
+    if (dag_editor_window_ && dag_editor_window_->dagViewer()) {
+        auto gui_dag = dag_editor_window_->dagViewer()->exportDAG();
+        
+        // Convert GUIDAG nodes back to ProjectDAGNodes
+        std::vector<orc::ProjectDAGNode> nodes;
+        for (const auto& gui_node : gui_dag.nodes) {
+            orc::ProjectDAGNode node;
+            node.node_id = gui_node.node_id;
+            node.stage_name = gui_node.stage_name;
+            node.node_type = gui_node.node_type;
+            node.display_name = gui_node.display_name;
+            node.x_position = gui_node.x_position;
+            node.y_position = gui_node.y_position;
+            node.parameters = gui_node.parameters;
+            nodes.push_back(node);
+        }
+        
+        // Convert GUIDAG edges back to ProjectDAGEdges
+        std::vector<orc::ProjectDAGEdge> edges;
+        for (const auto& gui_edge : gui_dag.edges) {
+            orc::ProjectDAGEdge edge;
+            edge.source_node_id = gui_edge.source_node_id;
+            edge.target_node_id = gui_edge.target_node_id;
+            edges.push_back(edge);
+        }
+        
+        // Update project with new DAG
+        orc::project_io::update_project_dag(project_.coreProject(), nodes, edges);
+        
+        // Rebuild the DAG from the updated project structure
+        project_.rebuildDAG();
+    }
+    
+    // Update renderer to use the project's DAG
+    updateDAGRenderer();
+    
+    // Re-render current field with updated DAG
+    updateFieldView();
+}
+
+void MainWindow::updateFieldView()
+{
+    if (!representation_) {
+        return;
+    }
+    
+    auto range = representation_->field_range();
+    if (current_field_index_ >= static_cast<int>(range.size())) {
+        return;
+    }
+    
+    orc::FieldID field_id = range.start + current_field_index_;
+    
+    // If we have a field renderer and a selected node, render at that node
+    if (field_renderer_ && !current_view_node_id_.empty()) {
+        auto result = field_renderer_->render_field_at_node(current_view_node_id_, field_id);
+        
+        if (result.is_valid && result.representation) {
+            preview_widget_->setRepresentation(result.representation);
+            preview_widget_->setFieldIndex(field_id.value());
+            
+            if (result.from_cache) {
+                statusBar()->showMessage("(from cache)", 1000);
+            }
+        } else {
+            // Rendering failed - log detailed error
+            std::cerr << "ERROR: render_field_at_node failed!" << std::endl;
+            std::cerr << "  node_id: " << current_view_node_id_ << std::endl;
+            std::cerr << "  field_id: " << field_id.value() << std::endl;
+            std::cerr << "  error: " << result.error_message << std::endl;
+            std::cerr << "  is_valid: " << result.is_valid << std::endl;
+            std::cerr << "  representation: " << (result.representation ? "exists" : "null") << std::endl;
+            
+            statusBar()->showMessage(
+                QString("Render ERROR at node %1: %2")
+                    .arg(QString::fromStdString(current_view_node_id_))
+                    .arg(QString::fromStdString(result.error_message)),
+                5000
+            );
+            // Fall back to source representation
+            preview_widget_->setRepresentation(representation_);
+            preview_widget_->setFieldIndex(field_id.value());
+        }
+    } else {
+        // No renderer or no node selected - show source
+        preview_widget_->setRepresentation(representation_);
+        preview_widget_->setFieldIndex(field_id.value());
+    }
+}
+
+void MainWindow::updateDAGRenderer()
+{
+    if (!project_.hasSource()) {
+        field_renderer_.reset();
+        current_view_node_id_.clear();
+        return;
+    }
+    
+    // Get the project's owned DAG (single instance)
+    auto dag = project_.getDAG();
+    if (!dag) {
+        field_renderer_.reset();
+        current_view_node_id_.clear();
+        statusBar()->showMessage("Failed to build executable DAG", 5000);
+        return;
+    }
+    
+    // Create or update field renderer with the project's DAG
+    try {
+        if (field_renderer_) {
+            field_renderer_->update_dag(dag);
+        } else {
+            field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(dag);
+            
+            // Default to viewing first source node
+            auto nodes = field_renderer_->get_renderable_nodes();
+            if (!nodes.empty()) {
+                current_view_node_id_ = nodes[0];
+                statusBar()->showMessage(
+                    QString("Viewing output from node: %1")
+                        .arg(QString::fromStdString(current_view_node_id_)),
+                    3000
+                );
+            }
+        }
+    } catch (const std::exception& e) {
+        statusBar()->showMessage(
+            QString("Error creating renderer: %1").arg(e.what()),
+            5000
+        );
+        field_renderer_.reset();
+        current_view_node_id_.clear();
     }
 }

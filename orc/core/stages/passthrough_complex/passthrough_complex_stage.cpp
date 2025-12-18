@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2025
 
-#include "include/passthrough_complex_stage.h"
+#include <passthrough_complex_stage.h>
+#include <stage_registry.h>
 
 namespace orc {
+
+// Register the stage
+static StageRegistration complex_registration([]() {
+    return std::make_shared<PassthroughComplexStage>();
+});
+
+std::vector<ArtifactPtr> PassthroughComplexStage::execute(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, std::string>&)
+{
+    if (inputs.size() < 3) {
+        throw DAGExecutionError("PassthroughComplexStage requires 3 inputs");
+    }
+    
+    // Return first two inputs
+    return {inputs[0], inputs[1]};
+}
 
 std::vector<std::shared_ptr<const VideoFieldRepresentation>> 
 PassthroughComplexStage::process(

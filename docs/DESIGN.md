@@ -61,6 +61,16 @@ Properties:
 
 All time-varying data (video, PCM, EFM, metadata) is associated with one or more FieldIDs.
 
+**Single Field Execution Model:**
+
+For GUI preview and inspection, the system operates on individual fields:
+- GUI requests a specific FieldID at a specific DAG node
+- orc-core executes the DAG chain for ONLY that single field
+- No iteration through the entire source
+- This keeps the structure simple and responsive
+
+For final output (batch processing to sink), the system iterates through all available fields as a separate operation.
+
 **See**: `DATA MODEL.md` Section 2.1 for complete API specification and implementation details.
 
 ---

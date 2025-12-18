@@ -41,6 +41,14 @@ public:
     
     ~TBCVideoFieldRepresentation() override = default;
     
+    // Prevent copying - represents large video data, share via shared_ptr instead
+    TBCVideoFieldRepresentation(const TBCVideoFieldRepresentation&) = delete;
+    TBCVideoFieldRepresentation& operator=(const TBCVideoFieldRepresentation&) = delete;
+    
+    // Prevent moving - instances should be managed via shared_ptr
+    TBCVideoFieldRepresentation(TBCVideoFieldRepresentation&&) = delete;
+    TBCVideoFieldRepresentation& operator=(TBCVideoFieldRepresentation&&) = delete;
+    
     // VideoFieldRepresentation interface
     FieldIDRange field_range() const override;
     size_t field_count() const override;

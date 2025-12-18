@@ -20,8 +20,24 @@ public:
         : name_(std::move(name)), version_(std::move(version)), 
           input_count_(inputs), output_count_(outputs) {}
     
-    std::string name() const override { return name_; }
     std::string version() const override { return version_; }
+    
+    NodeTypeInfo get_node_type_info() const override {
+        NodeType type = NodeType::TRANSFORM;
+        if (input_count_ == 0) type = NodeType::SOURCE;
+        else if (output_count_ == 0) type = NodeType::SINK;
+        else if (output_count_ > 1) type = NodeType::SPLITTER;
+        
+        return NodeTypeInfo{
+            type,
+            name_,
+            name_,
+            "Mock stage for testing",
+            static_cast<uint32_t>(input_count_), static_cast<uint32_t>(input_count_),
+            static_cast<uint32_t>(output_count_), static_cast<uint32_t>(output_count_),
+            true
+        };
+    }
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,

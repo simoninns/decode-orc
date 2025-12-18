@@ -9,6 +9,10 @@
 #include "project.h"
 #include "video_field_representation.h"
 
+namespace orc {
+    class DAG;
+}
+
 /**
  * GUI wrapper around orc::Project
  * 
@@ -35,7 +39,7 @@ public:
     // Project operations
     bool newEmptyProject(const QString& project_name, QString* error = nullptr);
     bool addSource(const QString& tbc_path, QString* error = nullptr);
-    bool removeSource(int source_id, QString* error = nullptr);
+    bool removeSource(const QString& node_id, QString* error = nullptr);
     bool saveToFile(const QString& path, QString* error = nullptr);
     bool loadFromFile(const QString& path, QString* error = nullptr);
     void clear();
@@ -45,7 +49,8 @@ public:
     
     // Source access (single source for now)
     bool hasSource() const;
-    int getSourceId() const;  // Returns 0 for single source, -1 if none
+    QString getSourceNodeId() const;  // Returns first SOURCE node ID, empty if none
+    int getSourceId() const;  // Legacy compatibility - returns 0 or -1
     QString getSourcePath() const;
     QString getSourceName() const;
     std::shared_ptr<const orc::VideoFieldRepresentation> getSourceRepresentation() const;
@@ -54,12 +59,20 @@ public:
     orc::Project& coreProject() { return core_project_; }
     const orc::Project& coreProject() const { return core_project_; }
     
+    // DAG access - single owned instance
+    std::shared_ptr<orc::DAG> getDAG() const { return dag_; }
+    
+    // Rebuild DAG from current project structure
+    // Call this whenever the DAG structure changes (nodes/edges added/removed)
+    void rebuildDAG();
+    
 private:
     void loadSourceRepresentations();
     
     QString project_path_;                                      // Path to .orc-project file
     orc::Project core_project_;                                 // Core project structure
     std::shared_ptr<const orc::VideoFieldRepresentation> source_representation_;  // Loaded TBC
+    mutable std::shared_ptr<orc::DAG> dag_;                     // Built DAG (single instance)
 };
 
 #endif // ORC_GUI_PROJECT_H

@@ -6,6 +6,7 @@
 #include "video_field_representation.h"
 #include "dropout_decision.h"
 #include "stage_parameter.h"
+#include "dag_executor.h"
 #include <memory>
 #include <vector>
 #include <cstdint>
@@ -70,10 +71,31 @@ private:
 /// 
 /// Signal-transforming stage that corrects dropouts by replacing
 /// corrupted samples with data from other lines/fields.
-class DropoutCorrectStage : public ParameterizedStage {
+class DropoutCorrectStage : public DAGStage, public ParameterizedStage {
 public:
     explicit DropoutCorrectStage(const DropoutCorrectionConfig& config = DropoutCorrectionConfig())
         : config_(config) {}
+    
+    // DAGStage interface
+
+    std::string version() const override { return "1.0"; }    
+    NodeTypeInfo get_node_type_info() const override {
+        return NodeTypeInfo{
+            NodeType::TRANSFORM,
+            "dropout_correct",
+            "Dropout Correction",
+            "Correct dropouts by replacing corrupted samples with data from other lines/fields",
+            1, 1,  // Exactly one input
+            1, 1,  // Exactly one output
+            true   // User can add
+        };
+    }    
+    std::vector<ArtifactPtr> execute(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, std::string>& parameters) override;
+    
+    size_t required_input_count() const override { return 1; }
+    size_t output_count() const override { return 1; }
     
     /// Process a single field and apply dropout corrections
     /// 

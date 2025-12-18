@@ -66,17 +66,6 @@ Project load_project(const std::string& filename) {
         project.version = root["project"]["version"].as<std::string>("1.0");
     }
     
-    // Load sources
-    if (root["sources"] && root["sources"].IsSequence()) {
-        for (const auto& source_node : root["sources"]) {
-            ProjectSource source;
-            source.source_id = source_node["id"].as<int>(-1);
-            source.tbc_path = source_node["path"].as<std::string>("");
-            source.display_name = source_node["name"].as<std::string>("");
-            project.sources.push_back(source);
-        }
-    }
-    
     // Load DAG nodes
     if (root["dag"] && root["dag"]["nodes"] && root["dag"]["nodes"].IsSequence()) {
         for (const auto& node_yaml : root["dag"]["nodes"]) {
@@ -86,20 +75,39 @@ Project load_project(const std::string& filename) {
             node.display_name = node_yaml["display_name"].as<std::string>("");
             node.x_position = node_yaml["x"].as<double>(0.0);
             node.y_position = node_yaml["y"].as<double>(0.0);
-            node.source_id = node_yaml["source_id"].as<int>(-1);
             
             // Parse node_type if present
             if (node_yaml["node_type"]) {
                 node.node_type = string_to_node_type(node_yaml["node_type"].as<std::string>("TRANSFORM"));
             } else {
-                // Backward compatibility: infer from stage_name
-                node.node_type = NodeType::TRANSFORM;
-                if (node.stage_name == "Source") {
+                // Infer from stage_name if not specified
+                if (node.stage_name == "TBCSource") {
                     node.node_type = NodeType::SOURCE;
+                } else {
+                    node.node_type = NodeType::TRANSFORM;
                 }
             }
             
-            // TODO: Parse parameters if needed
+            // Load parameters
+            if (node_yaml["parameters"]) {
+                for (const auto& param : node_yaml["parameters"]) {
+                    std::string param_name = param.first.as<std::string>();
+                    auto param_map = param.second;
+                    std::string type = param_map["type"].as<std::string>("string");
+                    
+                    if (type == "int32" || type == "int") {
+                        node.parameters[param_name] = param_map["value"].as<int>();
+                    } else if (type == "uint32") {
+                        node.parameters[param_name] = param_map["value"].as<uint32_t>();
+                    } else if (type == "double") {
+                        node.parameters[param_name] = param_map["value"].as<double>();
+                    } else if (type == "bool") {
+                        node.parameters[param_name] = param_map["value"].as<bool>();
+                    } else {
+                        node.parameters[param_name] = param_map["value"].as<std::string>();
+                    }
+                }
+            }
             
             project.nodes.push_back(node);
         }
@@ -132,18 +140,6 @@ void save_project(const Project& project, const std::string& filename) {
     out << YAML::Key << "version" << YAML::Value << project.version;
     out << YAML::EndMap;
     
-    // Sources
-    out << YAML::Key << "sources";
-    out << YAML::Value << YAML::BeginSeq;
-    for (const auto& source : project.sources) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "id" << YAML::Value << source.source_id;
-        out << YAML::Key << "path" << YAML::Value << source.tbc_path;
-        out << YAML::Key << "name" << YAML::Value << source.display_name;
-        out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
-    
     // DAG
     out << YAML::Key << "dag";
     out << YAML::Value << YAML::BeginMap;
@@ -161,9 +157,6 @@ void save_project(const Project& project, const std::string& filename) {
         }
         out << YAML::Key << "x" << YAML::Value << node.x_position;
         out << YAML::Key << "y" << YAML::Value << node.y_position;
-        if (node.source_id >= 0) {
-            out << YAML::Key << "source_id" << YAML::Value << node.source_id;
-        }
         
         // Parameters (if any)
         if (!node.parameters.empty()) {
@@ -237,23 +230,20 @@ Project create_single_source_project(const std::string& tbc_path, const std::str
     }
     project.version = "1.0";
     
-    // Add single source with ID 0
-    ProjectSource source;
-    source.source_id = 0;
-    source.tbc_path = tbc_path;
-    source.display_name = extract_display_name(tbc_path);
-    project.sources.push_back(source);
+    // Create SOURCE node with TBCSourceStage
+    ProjectDAGNode source_node;
+    source_node.node_id = "source_0";
+    source_node.stage_name = "TBCSource";
+    source_node.node_type = NodeType::SOURCE;
+    source_node.display_name = "Source: " + extract_display_name(tbc_path);
+    source_node.x_position = 100.0;
+    source_node.y_position = 100.0;
     
-    // Create START node for this source
-    ProjectDAGNode start_node;
-    start_node.node_id = "start_0";
-    start_node.stage_name = "Source";
-    start_node.node_type = NodeType::SOURCE;
-    start_node.display_name = "Source: " + source.display_name;
-    start_node.x_position = -450.0;
-    start_node.y_position = 0.0;
-    start_node.source_id = 0;
-    project.nodes.push_back(start_node);
+    // Set tbc_path as parameter
+    source_node.parameters["tbc_path"] = tbc_path;
+    source_node.parameters["db_path"] = tbc_path + ".db";
+    
+    project.nodes.push_back(source_node);
     
     return project;
 }
@@ -267,85 +257,79 @@ Project create_empty_project(const std::string& project_name) {
 }
 
 void add_source_to_project(Project& project, const std::string& tbc_path) {
-    // Check for duplicate paths
-    for (const auto& existing_source : project.sources) {
-        if (existing_source.tbc_path == tbc_path) {
-            throw std::runtime_error("Source already exists in project: " + tbc_path);
+    // Check for duplicate paths in existing SOURCE nodes
+    for (const auto& node : project.nodes) {
+        if (node.node_type == NodeType::SOURCE) {
+            auto it = node.parameters.find("tbc_path");
+            if (it != node.parameters.end() && 
+                std::holds_alternative<std::string>(it->second) &&
+                std::get<std::string>(it->second) == tbc_path) {
+                throw std::runtime_error("Source already exists in project: " + tbc_path);
+            }
         }
     }
     
     // Find next available source ID
     int next_id = 0;
-    for (const auto& source : project.sources) {
-        if (source.source_id >= next_id) {
-            next_id = source.source_id + 1;
+    for (const auto& node : project.nodes) {
+        if (node.node_type == NodeType::SOURCE) {
+            std::string node_suffix = node.node_id.substr(node.node_id.find_last_of('_') + 1);
+            try {
+                int id = std::stoi(node_suffix);
+                if (id >= next_id) {
+                    next_id = id + 1;
+                }
+            } catch (...) {
+                // Ignore non-numeric suffixes
+            }
         }
     }
     
-    // Create new source
-    ProjectSource source;
-    source.source_id = next_id;
-    source.tbc_path = tbc_path;
-    source.display_name = extract_display_name(tbc_path);
-    project.sources.push_back(source);
+    // Create new SOURCE node
+    ProjectDAGNode source_node;
+    source_node.node_id = "source_" + std::to_string(next_id);
+    source_node.stage_name = "TBCSource";
+    source_node.node_type = NodeType::SOURCE;
+    source_node.display_name = "Source: " + extract_display_name(tbc_path);
+    source_node.x_position = 100.0;
+    source_node.y_position = next_id * 150.0;  // Offset Y position for multiple sources
+    source_node.parameters["tbc_path"] = tbc_path;
+    source_node.parameters["db_path"] = tbc_path + ".db";
     
-    // Create START node for this source
-    ProjectDAGNode start_node;
-    start_node.node_id = "start_" + std::to_string(next_id);
-    start_node.stage_name = "Source";
-    start_node.node_type = NodeType::SOURCE;
-    start_node.display_name = "Source: " + source.display_name;
-    start_node.source_id = next_id;
-    start_node.x_position = -450.0;
-    start_node.y_position = next_id * 100.0;  // Offset Y position for multiple sources
-    project.nodes.push_back(start_node);
+    project.nodes.push_back(source_node);
     project.is_modified = true;
 }
 
-void remove_source_from_project(Project& project, int source_id) {
-    // Find and remove the source
-    auto source_it = std::find_if(
-        project.sources.begin(),
-        project.sources.end(),
-        [source_id](const ProjectSource& s) { return s.source_id == source_id; }
+void remove_source_node(Project& project, const std::string& node_id) {
+    // Find and verify it's a SOURCE node
+    auto node_it = std::find_if(
+        project.nodes.begin(),
+        project.nodes.end(),
+        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; }
     );
     
-    if (source_it == project.sources.end()) {
-        throw std::runtime_error("Source ID not found: " + std::to_string(source_id));
+    if (node_it == project.nodes.end()) {
+        throw std::runtime_error("Node ID not found: " + node_id);
     }
     
-    project.sources.erase(source_it);
+    if (node_it->node_type != NodeType::SOURCE) {
+        throw std::runtime_error("Node is not a SOURCE node: " + node_id);
+    }
     
-    // Remove the START node for this source
-    std::string start_node_id = "start_" + std::to_string(source_id);
-    project.nodes.erase(
-        std::remove_if(
-            project.nodes.begin(),
-            project.nodes.end(),
-            [&start_node_id](const ProjectDAGNode& n) { 
-                return n.node_id == start_node_id; 
-            }
-        ),
-        project.nodes.end()
-    );
+    // Remove the node
+    project.nodes.erase(node_it);
     
-    // Remove any edges connected to the START node
+    // Remove any edges connected to this node
     project.edges.erase(
         std::remove_if(
             project.edges.begin(),
             project.edges.end(),
-            [&start_node_id](const ProjectDAGEdge& e) {
-                return e.source_node_id == start_node_id || e.target_node_id == start_node_id;
+            [&node_id](const ProjectDAGEdge& e) {
+                return e.source_node_id == node_id || e.target_node_id == node_id;
             }
         ),
         project.edges.end()
     );
-    
-    // If no sources remain, clear the entire DAG
-    if (project.sources.empty()) {
-        project.nodes.clear();
-        project.edges.clear();
-    }
     
     project.is_modified = true;
 }
@@ -355,11 +339,11 @@ void update_project_dag(
     const std::vector<ProjectDAGNode>& nodes,
     const std::vector<ProjectDAGEdge>& edges
 ) {
-    // Preserve START nodes (they belong to sources)
-    std::vector<ProjectDAGNode> start_nodes;
+    // Preserve SOURCE nodes
+    std::vector<ProjectDAGNode> source_nodes;
     for (const auto& node : project.nodes) {
-        if (node.stage_name == "Source") {
-            start_nodes.push_back(node);
+        if (node.node_type == NodeType::SOURCE) {
+            source_nodes.push_back(node);
         }
     }
     
@@ -367,24 +351,24 @@ void update_project_dag(
     project.nodes.clear();
     project.edges.clear();
     
-    // Restore START nodes
-    for (const auto& start_node : start_nodes) {
-        project.nodes.push_back(start_node);
+    // Restore SOURCE nodes
+    for (const auto& source_node : source_nodes) {
+        project.nodes.push_back(source_node);
     }
     
-    // Add new nodes (should not include START nodes)
+    // Add new nodes (should not include SOURCE nodes - those are managed separately)
     for (const auto& node : nodes) {
-        if (node.stage_name != "Source") {
+        if (node.node_type != NodeType::SOURCE) {
             project.nodes.push_back(node);
         }
     }
     
     // Add new edges
     for (const auto& edge : edges) {
-    
-    project.is_modified = true;
         project.edges.push_back(edge);
     }
+    
+    project.is_modified = true;
 }
 
 std::string generate_unique_node_id(const Project& project) {
@@ -432,7 +416,6 @@ std::string add_node(Project& project, const std::string& stage_name, double x_p
     node.display_name = type_info->display_name;
     node.x_position = x_position;
     node.y_position = y_position;
-    node.source_id = -1;
     
     project.nodes.push_back(node);
     project.is_modified = true;
@@ -637,7 +620,6 @@ void remove_edge(Project& project, const std::string& source_node_id, const std:
 void clear_project(Project& project) {
     project.name.clear();
     project.version.clear();
-    project.sources.clear();
     project.nodes.clear();
     project.edges.clear();
     project.clear_modified_flag();

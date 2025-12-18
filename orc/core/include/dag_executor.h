@@ -10,6 +10,7 @@
 #pragma once
 
 #include "artifact.h"
+#include "node_type.h"
 #include <memory>
 #include <vector>
 #include <map>
@@ -38,8 +39,10 @@ public:
     virtual ~DAGStage() = default;
     
     // Stage metadata
-    virtual std::string name() const = 0;
     virtual std::string version() const = 0;
+    
+    // Node type information for GUI and validation
+    virtual NodeTypeInfo get_node_type_info() const = 0;
     
     // Execution
     virtual std::vector<ArtifactPtr> execute(
@@ -74,6 +77,14 @@ struct DAGNode {
 class DAG {
 public:
     DAG() = default;
+    
+    // Prevent copying - DAG instances should be owned and referenced via shared_ptr
+    DAG(const DAG&) = delete;
+    DAG& operator=(const DAG&) = delete;
+    
+    // Allow moving for construction/initialization
+    DAG(DAG&&) = default;
+    DAG& operator=(DAG&&) = default;
     
     // DAG construction
     void add_node(DAGNode node);
@@ -113,8 +124,33 @@ class DAGExecutor {
 public:
     DAGExecutor() = default;
     
+    // Prevent copying - executors have state (cache) that shouldn't be duplicated
+    DAGExecutor(const DAGExecutor&) = delete;
+    DAGExecutor& operator=(const DAGExecutor&) = delete;
+    
+    // Allow moving for efficiency
+    DAGExecutor(DAGExecutor&&) = default;
+    DAGExecutor& operator=(DAGExecutor&&) = default;
+    
     // Execution
     std::vector<ArtifactPtr> execute(const DAG& dag);
+    
+    /**
+     * @brief Execute DAG up to and including a specific node
+     * 
+     * Executes only the portion of the DAG needed to produce the output
+     * of the specified node. Returns a map of all node outputs produced
+     * during execution.
+     * 
+     * @param dag The DAG to execute
+     * @param target_node_id The node to execute up to (inclusive)
+     * @return Map of node_id -> list of output artifacts
+     * @throws DAGExecutionError if target_node_id doesn't exist
+     */
+    std::map<std::string, std::vector<ArtifactPtr>> execute_to_node(
+        const DAG& dag,
+        const std::string& target_node_id
+    );
     
     // Cache management
     void set_cache_enabled(bool enabled) { cache_enabled_ = enabled; }
@@ -134,6 +170,10 @@ private:
     
     // Execution helpers
     std::vector<std::string> topological_sort(const DAG& dag) const;
+    std::vector<std::string> topological_sort_to_node(
+        const DAG& dag,
+        const std::string& target_node_id
+    ) const;
     ArtifactPtr get_cached_or_execute(
         const DAGNode& node,
         const std::vector<ArtifactPtr>& inputs

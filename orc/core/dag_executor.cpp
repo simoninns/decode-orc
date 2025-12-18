@@ -151,8 +151,9 @@ std::vector<ArtifactPtr> DAGExecutor::execute(const DAG& dag) {
         std::vector<ArtifactPtr> inputs;
         
         if (node.input_node_ids.empty()) {
-            // Root node: use dag root inputs
-            inputs = dag.root_inputs();
+            // Root node with no dependencies (e.g., SOURCE nodes)
+            // No inputs needed - stage generates output
+            inputs = {};
         } else {
             for (size_t i = 0; i < node.input_node_ids.size(); ++i) {
                 const auto& input_node_id = node.input_node_ids[i];
@@ -246,7 +247,7 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
     auto outputs = node.stage->execute(inputs, node.parameters);
     
     if (outputs.empty()) {
-        throw DAGExecutionError("Stage '" + node.stage->name() + "' produced no outputs");
+        throw DAGExecutionError("Stage '" + node.stage->get_node_type_info().stage_name + "' produced no outputs");
     }
     
     // Cache result
@@ -264,9 +265,12 @@ ArtifactID DAGExecutor::compute_expected_artifact_id(
     // Simple hash-based ID computation (placeholder)
     // In production, this would use proper content-addressing
     std::ostringstream oss;
-    oss << node.stage->name() << ":" << node.stage->version();
+    oss << node.stage->get_node_type_info().stage_name << ":" << node.stage->version();
     
     for (const auto& input : inputs) {
+        if (!input) {
+            throw DAGExecutionError("Null input artifact in compute_expected_artifact_id");
+        }
         oss << ":" << input->id().value();
     }
     
@@ -279,6 +283,156 @@ ArtifactID DAGExecutor::compute_expected_artifact_id(
 
 void DAGExecutor::clear_cache() {
     artifact_cache_.clear();
+}
+
+std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
+    const DAG& dag,
+    const std::string& target_node_id
+) {
+    if (!dag.validate()) {
+        auto errors = dag.get_validation_errors();
+        std::ostringstream oss;
+        oss << "DAG validation failed:\n";
+        for (const auto& error : errors) {
+            oss << "  - " << error << "\n";
+        }
+        throw DAGExecutionError(oss.str());
+    }
+    
+    // Check that target node exists
+    auto node_index = dag.build_node_index();
+    if (node_index.find(target_node_id) == node_index.end()) {
+        throw DAGExecutionError("Target node '" + target_node_id + "' does not exist in DAG");
+    }
+    
+    // Topological sort up to target node
+    auto execution_order = topological_sort_to_node(dag, target_node_id);
+    
+    // Execute nodes in order
+    std::map<std::string, std::vector<ArtifactPtr>> node_outputs;
+    
+    // Initialize with root inputs (virtual node)
+    node_outputs["__root__"] = dag.root_inputs();
+    
+    size_t total_nodes = execution_order.size();
+    size_t current_node = 0;
+    
+    for (const auto& node_id : execution_order) {
+        ++current_node;
+        
+        if (progress_callback_) {
+            progress_callback_(node_id, current_node, total_nodes);
+        }
+        
+        const auto& node = dag.nodes()[node_index[node_id]];
+        
+        // Gather inputs
+        std::vector<ArtifactPtr> inputs;
+        
+        if (node.input_node_ids.empty()) {
+            // Root node with no dependencies (e.g., SOURCE nodes)
+            // No inputs needed - stage generates output
+            inputs = {};
+        } else {
+            for (size_t i = 0; i < node.input_node_ids.size(); ++i) {
+                const auto& input_node_id = node.input_node_ids[i];
+                size_t output_index = i < node.input_indices.size() ? node.input_indices[i] : 0;
+                
+                auto it = node_outputs.find(input_node_id);
+                if (it == node_outputs.end() || output_index >= it->second.size()) {
+                    throw DAGExecutionError("Missing input for node '" + node_id + "' from '" + input_node_id + "'");
+                }
+                
+                inputs.push_back(it->second[output_index]);
+            }
+        }
+        
+        // Execute or retrieve from cache
+        auto outputs = get_cached_or_execute(node, inputs);
+        node_outputs[node_id] = {outputs};
+    }
+    
+    return node_outputs;
+}
+
+std::vector<std::string> DAGExecutor::topological_sort_to_node(
+    const DAG& dag,
+    const std::string& target_node_id
+) const {
+    // Build dependency graph and find all nodes needed to compute target
+    auto node_index = dag.build_node_index();
+    std::set<std::string> required_nodes;
+    
+    // Recursive DFS to find all dependencies
+    std::function<void(const std::string&)> collect_dependencies = 
+        [&](const std::string& node_id) {
+            if (required_nodes.find(node_id) != required_nodes.end()) {
+                return;  // Already visited
+            }
+            
+            required_nodes.insert(node_id);
+            
+            auto it = node_index.find(node_id);
+            if (it != node_index.end()) {
+                const auto& node = dag.nodes()[it->second];
+                for (const auto& input_id : node.input_node_ids) {
+                    collect_dependencies(input_id);
+                }
+            }
+        };
+    
+    collect_dependencies(target_node_id);
+    
+    // Now do topological sort on only the required nodes
+    std::map<std::string, size_t> in_degree;
+    for (const auto& node_id : required_nodes) {
+        in_degree[node_id] = 0;
+    }
+    
+    for (const auto& node_id : required_nodes) {
+        auto it = node_index.find(node_id);
+        if (it != node_index.end()) {
+            const auto& node = dag.nodes()[it->second];
+            for (const auto& input_id : node.input_node_ids) {
+                if (required_nodes.find(input_id) != required_nodes.end()) {
+                    in_degree[input_id]++;
+                }
+            }
+        }
+    }
+    
+    // Kahn's algorithm on required nodes only
+    std::queue<std::string> queue;
+    for (const auto& [node_id, degree] : in_degree) {
+        if (degree == 0) {
+            queue.push(node_id);
+        }
+    }
+    
+    std::vector<std::string> result;
+    while (!queue.empty()) {
+        std::string node_id = queue.front();
+        queue.pop();
+        result.push_back(node_id);
+        
+        auto it = node_index.find(node_id);
+        if (it != node_index.end()) {
+            const auto& node = dag.nodes()[it->second];
+            for (const auto& input_id : node.input_node_ids) {
+                if (required_nodes.find(input_id) != required_nodes.end()) {
+                    in_degree[input_id]--;
+                    if (in_degree[input_id] == 0) {
+                        queue.push(input_id);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Reverse for execution order (dependencies first)
+    std::reverse(result.begin(), result.end());
+    
+    return result;
 }
 
 } // namespace orc

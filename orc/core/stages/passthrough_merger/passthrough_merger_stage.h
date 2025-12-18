@@ -11,6 +11,7 @@
 
 #include "video_field_representation.h"
 #include "stage_parameter.h"
+#include "dag_executor.h"
 #include <memory>
 #include <vector>
 
@@ -27,9 +28,29 @@ namespace orc {
  * - Testing multi-source DAG patterns
  * - Demonstrating stacking/blending node structure
  */
-class PassthroughMergerStage : public ParameterizedStage {
+class PassthroughMergerStage : public DAGStage, public ParameterizedStage {
 public:
     PassthroughMergerStage() = default;
+    
+    // DAGStage interface
+    std::string version() const override { return "1.0"; }    
+    NodeTypeInfo get_node_type_info() const override {
+        return NodeTypeInfo{
+            NodeType::MERGER,
+            "passthrough_merger",
+            "Pass-through Merger",
+            "Select first input from multiple inputs (test stage for merge patterns)",
+            2, 8,  // 2 to 8 inputs
+            1, 1,  // Exactly one output
+            true   // User can add
+        };
+    }    
+    std::vector<ArtifactPtr> execute(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, std::string>& parameters) override;
+    
+    size_t required_input_count() const override { return 2; }  // At least 2 inputs
+    size_t output_count() const override { return 1; }
     
     /**
      * @brief Process multiple fields (returns first input unchanged)
@@ -40,16 +61,7 @@ public:
     std::shared_ptr<const VideoFieldRepresentation> process(
         const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources) const;
     
-    /**
-     * @brief Get stage name
-     */
-    static const char* name() { return "PassthroughMerger"; }
-    
-    /**
-     * @brief Get stage version
-     */
-    static const char* version() { return "1.0"; }
-    
+
     /**
      * @brief Get minimum number of inputs required
      */

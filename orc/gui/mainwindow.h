@@ -15,6 +15,7 @@
 namespace orc {
     class VideoFieldRepresentation;
     class DAG;
+    class DAGFieldRenderer;
 }
 
 class FieldPreviewWidget;
@@ -61,6 +62,8 @@ private slots:
     void onFieldChanged(int field_index);
     void onNavigateField(int delta);
     void onPreviewModeChanged(int index);
+    void onNodeSelectedForView(const std::string& node_id);
+    void onDAGModified();
 
 private:
     void setupUI();
@@ -69,10 +72,14 @@ private:
     void updateWindowTitle();
     void updateFieldInfo();
     void updateUIState();
+    void updateFieldView();
+    void updateDAGRenderer();
     
     // Project management
     GUIProject project_;
     std::shared_ptr<const orc::VideoFieldRepresentation> representation_;
+    std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
+    std::string current_view_node_id_;  // Which node is being viewed
     
     // UI components
     FieldPreviewWidget* preview_widget_;

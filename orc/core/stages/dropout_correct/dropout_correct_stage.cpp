@@ -1,13 +1,57 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2025
 
-#include "dropout_correct_stage.h"
+#include <dropout_correct_stage.h>
 #include "tbc_metadata.h"
+#include "stage_registry.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
 
 namespace orc {
+
+// Register the stage
+static StageRegistration dropout_correct_registration([]() {
+    return std::make_shared<DropoutCorrectStage>();
+});
+
+// DAGStage::execute() implementation
+std::vector<ArtifactPtr> DropoutCorrectStage::execute(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, std::string>& parameters)
+{
+    if (inputs.empty()) {
+        throw DAGExecutionError("DropoutCorrectStage requires at least one input");
+    }
+    
+    // First input should be a VideoFieldRepresentation
+    auto source = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+    if (!source) {
+        throw DAGExecutionError("DropoutCorrectStage input must be VideoFieldRepresentation");
+    }
+    
+    // Apply parameters if provided
+    if (!parameters.empty()) {
+        std::map<std::string, ParameterValue> param_values;
+        for (const auto& [key, value] : parameters) {
+            // Convert string parameters to appropriate types
+            // For now, store as strings (stages can parse them)
+            param_values[key] = value;
+        }
+        const_cast<DropoutCorrectStage*>(this)->set_parameters(param_values);
+    }
+    
+    // TODO: For now, return input unchanged since we need dropout metadata
+    // Full implementation requires:
+    // 1. Access to dropout metadata (from observer)
+    // 2. Access to dropout decisions (from user)
+    // 3. Call correct_field() with proper inputs
+    
+    // Placeholder: pass through unchanged
+    std::vector<ArtifactPtr> outputs;
+    outputs.push_back(std::const_pointer_cast<VideoFieldRepresentation>(source));
+    return outputs;
+}
 
 // CorrectedVideoFieldRepresentation implementation
 

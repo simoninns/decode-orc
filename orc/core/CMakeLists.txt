@@ -4,6 +4,7 @@ add_library(orc-core STATIC
     video_field_representation.cpp
     artifact.cpp
     dag_executor.cpp
+    dag_field_renderer.cpp
     
     # TBC file I/O
     tbc_reader.cpp
@@ -23,15 +24,17 @@ add_library(orc-core STATIC
     fm_code_observer.cpp
     white_flag_observer.cpp
     
-    # Phase 3: Dropout Correction
-    dropout_decision.cpp
-    dropout_correct_stage.cpp
+    # Stages (organized in subdirectories)
+    stages/tbc_source/tbc_source_stage.cpp
+    stages/dropout_correct/dropout_correct_stage.cpp
+    stages/passthrough/passthrough_stage.cpp
+    stages/passthrough_splitter/passthrough_splitter_stage.cpp
+    stages/passthrough_merger/passthrough_merger_stage.cpp
+    stages/passthrough_complex/passthrough_complex_stage.cpp
+    stages/overwrite/overwrite_stage.cpp
     
-    # Utility stages
-    passthrough_stage.cpp
-    passthrough_splitter_stage.cpp
-    passthrough_merger_stage.cpp
-    passthrough_complex_stage.cpp
+    # Dropout decision utilities
+    dropout_decision.cpp
     
     # Node type system
     node_type.cpp
@@ -39,15 +42,28 @@ add_library(orc-core STATIC
     # Stage parameters
     stage_parameter.cpp
     
+    # Stage registration force-link
+    stage_init.cpp
+    
     # DAG serialization
     dag_serialization.cpp
     
     # Project file I/O
     project.cpp
+    
+    # Project to DAG conversion
+    stage_registry.cpp
+    project_to_dag.cpp
 )
 
 target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/tbc_source
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_correct
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_splitter
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_merger
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_complex
 )
 
 target_compile_options(orc-core PRIVATE

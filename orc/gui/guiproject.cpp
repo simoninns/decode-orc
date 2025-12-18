@@ -3,6 +3,7 @@
 
 #include "guiproject.h"
 #include "tbc_video_field_representation.h"
+#include "../core/include/project_to_dag.h"
 #include <QFileInfo>
 #include <algorithm>
 
@@ -43,6 +44,7 @@ bool GUIProject::addSource(const QString& tbc_path, QString* error)
         
         // Load TBC representation
         loadSourceRepresentations();
+        rebuildDAG();  // Rebuild DAG after adding source
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -52,14 +54,15 @@ bool GUIProject::addSource(const QString& tbc_path, QString* error)
     }
 }
 
-bool GUIProject::removeSource(int source_id, QString* error)
+bool GUIProject::removeSource(const QString& node_id, QString* error)
 {
     try {
-        // Use core function to remove source (removes START node and edges automatically)
-        orc::project_io::remove_source_from_project(core_project_, source_id);
+        // Use core function to remove source node (removes node and edges automatically)
+        orc::project_io::remove_source_node(core_project_, node_id.toStdString());
         
         // Reload representations
         loadSourceRepresentations();
+        rebuildDAG();  // Rebuild DAG after removing source
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -98,6 +101,7 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
         core_project_ = orc::project_io::load_project(path.toStdString());
         project_path_ = path;
         loadSourceRepresentations();
+        rebuildDAG();  // Build DAG after loading project
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -111,36 +115,59 @@ void GUIProject::clear()
 {
     orc::project_io::clear_project(core_project_);
     source_representation_.reset();
+    dag_.reset();
     project_path_.clear();
 }
 
 bool GUIProject::hasSource() const
 {
-    return !core_project_.sources.empty();
+    // Check if project has any SOURCE nodes
+    return std::any_of(core_project_.nodes.begin(), core_project_.nodes.end(),
+        [](const orc::ProjectDAGNode& node) {
+            return node.node_type == orc::NodeType::SOURCE;
+        });
+}
+
+QString GUIProject::getSourceNodeId() const
+{
+    // Return the first SOURCE node ID, empty if none
+    for (const auto& node : core_project_.nodes) {
+        if (node.node_type == orc::NodeType::SOURCE) {
+            return QString::fromStdString(node.node_id);
+        }
+    }
+    return QString();
 }
 
 int GUIProject::getSourceId() const
 {
-    if (core_project_.sources.empty()) {
-        return -1;
-    }
-    return core_project_.sources[0].source_id;
+    // Legacy compatibility - return 0 if we have a source, -1 if not
+    return hasSource() ? 0 : -1;
 }
 
 QString GUIProject::getSourcePath() const
 {
-    if (core_project_.sources.empty()) {
-        return QString();
+    // Find first SOURCE node and get tbc_path parameter
+    for (const auto& node : core_project_.nodes) {
+        if (node.node_type == orc::NodeType::SOURCE) {
+            auto it = node.parameters.find("tbc_path");
+            if (it != node.parameters.end() && std::holds_alternative<std::string>(it->second)) {
+                return QString::fromStdString(std::get<std::string>(it->second));
+            }
+        }
     }
-    return QString::fromStdString(core_project_.sources[0].tbc_path);
+    return QString();
 }
 
 QString GUIProject::getSourceName() const
 {
-    if (core_project_.sources.empty()) {
-        return QString();
+    // Find first SOURCE node and get display name
+    for (const auto& node : core_project_.nodes) {
+        if (node.node_type == orc::NodeType::SOURCE) {
+            return QString::fromStdString(node.display_name);
+        }
     }
-    return QString::fromStdString(core_project_.sources[0].display_name);
+    return QString();
 }
 
 std::shared_ptr<const orc::VideoFieldRepresentation> GUIProject::getSourceRepresentation() const
@@ -148,18 +175,48 @@ std::shared_ptr<const orc::VideoFieldRepresentation> GUIProject::getSourceRepres
     return source_representation_;
 }
 
+void GUIProject::rebuildDAG()
+{
+    dag_.reset();
+    
+    if (!hasSource()) {
+        return;
+    }
+    
+    // Project-to-DAG conversion
+    // SOURCE nodes use TBCSourceStage which loads TBC files directly
+    try {
+        dag_ = orc::project_to_dag(core_project_);
+    } catch (const std::exception& e) {
+        // Conversion failed - leave null
+        // GUI will handle the error
+        dag_.reset();
+    }
+}
+
 void GUIProject::loadSourceRepresentations()
 {
     source_representation_.reset();
     
-    if (core_project_.sources.empty()) {
-        return;
+    // Find first SOURCE node
+    for (const auto& node : core_project_.nodes) {
+        if (node.node_type == orc::NodeType::SOURCE) {
+            // Get tbc_path from parameters
+            auto it = node.parameters.find("tbc_path");
+            if (it != node.parameters.end() && std::holds_alternative<std::string>(it->second)) {
+                std::string tbc_path = std::get<std::string>(it->second);
+                std::string db_path = tbc_path + ".db";
+                
+                // Check for db_path parameter
+                auto db_it = node.parameters.find("db_path");
+                if (db_it != node.parameters.end() && std::holds_alternative<std::string>(db_it->second)) {
+                    db_path = std::get<std::string>(db_it->second);
+                }
+                
+                // Load representation
+                source_representation_ = orc::create_tbc_representation(tbc_path, db_path);
+                break;  // Only load first source for now
+            }
+        }
     }
-    
-    // Load the single source (for now)
-    const auto& source = core_project_.sources[0];
-    source_representation_ = orc::create_tbc_representation(
-        source.tbc_path,
-        source.tbc_path + ".db"
-    );
 }

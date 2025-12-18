@@ -158,7 +158,7 @@ public:
     void setProject(orc::Project* project);
     
     // DAG management
-    void setDAG(const orc::DAG& dag);
+    // Note: setDAG() removed - viewer works with GUIDAG, not executable DAG
     void clearDAG();
     
     // Node state updates
@@ -239,7 +239,7 @@ protected:
     std::map<std::string, DAGNodeItem*> node_items_;
     std::vector<DAGEdgeItem*> edge_items_;
     
-    orc::DAG current_dag_;
+    // Note: No local DAG copy - DAG is owned by GUIProject
     bool has_dag_;
     
     // Project pointer for CRUD operations

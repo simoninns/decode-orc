@@ -1,9 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // SPDX-FileCopyrightText: 2025
 
-#include "include/passthrough_splitter_stage.h"
+#include <passthrough_splitter_stage.h>
+#include <stage_registry.h>
 
 namespace orc {
+
+// Register the stage
+static StageRegistration splitter_registration([]() {
+    return std::make_shared<PassthroughSplitterStage>();
+});
+
+std::vector<ArtifactPtr> PassthroughSplitterStage::execute(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, std::string>&)
+{
+    if (inputs.empty()) {
+        throw DAGExecutionError("PassthroughSplitterStage requires one input");
+    }
+    
+    // Return input duplicated 3 times
+    return {inputs[0], inputs[0], inputs[0]};
+}
 
 std::vector<std::shared_ptr<const VideoFieldRepresentation>> 
 PassthroughSplitterStage::process(std::shared_ptr<const VideoFieldRepresentation> source) const

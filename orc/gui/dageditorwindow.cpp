@@ -6,11 +6,7 @@
 #include "guiproject.h"
 #include "stageparameterdialog.h"
 #include "../core/include/dag_serialization.h"
-#include "../core/include/dropout_correct_stage.h"
-#include "../core/include/passthrough_stage.h"
-#include "../core/include/passthrough_splitter_stage.h"
-#include "../core/include/passthrough_merger_stage.h"
-#include "../core/include/passthrough_complex_stage.h"
+#include "../core/include/stage_registry.h"
 
 #include <QMenuBar>
 #include <QStatusBar>
@@ -210,20 +206,34 @@ void DAGEditorWindow::onEditParameters(const std::string& node_id)
         return;
     }
     
-    // Get parameters from the appropriate stage
-    std::unique_ptr<orc::ParameterizedStage> stage;
+    // Create stage instance using the registry
+    auto& registry = orc::StageRegistry::instance();
+    if (!registry.has_stage(stage_name)) {
+        QMessageBox::warning(this, "Edit Parameters",
+            QString("Unknown stage type '%1'").arg(QString::fromStdString(stage_name)));
+        return;
+    }
     
-    if (stage_name == "Dropout Correct") {
-        stage = std::make_unique<orc::DropoutCorrectStage>();
-    } else if (stage_name == "Passthrough") {
-        stage = std::make_unique<orc::PassthroughStage>();
-    } else if (stage_name == "PassthroughSplitter") {
-        stage = std::make_unique<orc::PassthroughSplitterStage>();
-    } else if (stage_name == "PassthroughMerger") {
-        stage = std::make_unique<orc::PassthroughMergerStage>();
-    } else if (stage_name == "PassthroughComplex") {
-        stage = std::make_unique<orc::PassthroughComplexStage>();
-    } else {
+    auto stage = registry.create_stage(stage_name);
+    if (!stage) {
+        QMessageBox::warning(this, "Edit Parameters",
+            QString("Failed to create stage '%1'").arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    // Check if stage supports parameters (using dynamic_cast)
+    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+    if (!param_stage) {
+        QMessageBox::information(this, "Edit Parameters",
+            QString("Stage '%1' does not have configurable parameters")
+                .arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    // Get parameter descriptors
+    auto param_descriptors = param_stage->get_parameter_descriptors();
+    
+    if (param_descriptors.empty()) {
         QMessageBox::information(this, "Edit Parameters",
             QString("Stage '%1' does not have configurable parameters")
                 .arg(QString::fromStdString(stage_name)));
@@ -234,7 +244,7 @@ void DAGEditorWindow::onEditParameters(const std::string& node_id)
     auto current_values = dag_viewer_->getNodeParameters(node_id);
     
     // Show parameter dialog
-    StageParameterDialog dialog(stage_name, stage->get_parameter_descriptors(), current_values, this);
+    StageParameterDialog dialog(stage_name, param_descriptors, current_values, this);
     
     if (dialog.exec() == QDialog::Accepted) {
         auto new_values = dialog.get_values();

@@ -3,6 +3,7 @@
 
 #include "node_type_helper.h"
 #include <algorithm>
+#include <iostream>
 
 namespace NodeTypeHelper {
 
@@ -11,7 +12,9 @@ NodeVisualInfo getVisualInfo(const std::string& stage_name)
     const orc::NodeTypeInfo* info = orc::get_node_type_info(stage_name);
     
     if (!info) {
-        // Default: assume TRANSFORM (1 in, 1 out)
+        // ERROR: Stage not registered - this should not happen!
+        std::cerr << "ERROR: getVisualInfo() called with unknown stage '" << stage_name << "'" << std::endl;
+        std::cerr << "  Falling back to default TRANSFORM (1 in, 1 out) - node will render incorrectly!" << std::endl;
         return NodeVisualInfo{true, true, false, false};
     }
     

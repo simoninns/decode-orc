@@ -8,8 +8,26 @@
  ******************************************************************************/
 
 #include "passthrough_stage.h"
+#include "stage_registry.h"
 
 namespace orc {
+
+// Register the stage
+static StageRegistration passthrough_registration([]() {
+    return std::make_shared<PassthroughStage>();
+});
+
+std::vector<ArtifactPtr> PassthroughStage::execute(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, std::string>&)
+{
+    if (inputs.empty()) {
+        throw DAGExecutionError("PassthroughStage requires one input");
+    }
+    
+    // Return input unchanged
+    return {inputs[0]};
+}
 
 std::shared_ptr<const VideoFieldRepresentation> PassthroughStage::process(
     std::shared_ptr<const VideoFieldRepresentation> source) const

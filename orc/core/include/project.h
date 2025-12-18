@@ -12,27 +12,17 @@
 namespace orc {
 
 /**
- * Represents a source (TBC file) within a project
- */
-struct ProjectSource {
-    int source_id;              // Unique ID within project (0, 1, 2, ...)
-    std::string tbc_path;       // Absolute or relative path to TBC file
-    std::string display_name;   // Display name (extracted from filename or user-provided)
-};
-
-/**
  * Node in a project DAG
- * Similar to GUIDAGNode but includes source_id for START nodes
+ * All nodes are uniform - SOURCE nodes just use TBCSourceStage with tbc_path parameter
  */
 struct ProjectDAGNode {
     std::string node_id;
-    std::string stage_name;
-    NodeType node_type;        // Node type (SOURCE, SINK, TRANSFORM, etc.)
-    std::string display_name;  // Display name for GUI (e.g., "Source: video.tbc", "Noise Filter")
-    double x_position;  // Position for GUI layout
+    std::string stage_name;     // e.g., "TBCSource", "DropoutCorrect", etc.
+    NodeType node_type;         // Node type (SOURCE, SINK, TRANSFORM, etc.)
+    std::string display_name;   // Display name for GUI (e.g., "Source: video.tbc", "Noise Filter")
+    double x_position;          // Position for GUI layout
     double y_position;
-    std::map<std::string, ParameterValue> parameters;
-    int source_id;      // For START nodes: which source this represents (-1 for non-START nodes)
+    std::map<std::string, ParameterValue> parameters;  // Stage parameters (e.g., tbc_path for TBCSource)
 };
 
 /**
@@ -44,13 +34,12 @@ struct ProjectDAGEdge {
 };
 
 /**
- * Project - encapsulates sources and their processing DAG
+ * Project - encapsulates processing DAG
  * 
  * A project file (.orc-project) is a YAML file containing:
  * - Project metadata (name, version)
- * - List of source TBC files with unique source IDs
  * - DAG structure (nodes, edges, parameters)
- * - Each START node references a source by source_id
+ * - SOURCE nodes use TBCSourceStage with tbc_path in parameters
  * 
  * The project file format is shared between orc-gui and orc-process.
  * Both tools can load and save projects in the same format.
@@ -58,8 +47,7 @@ struct ProjectDAGEdge {
 struct Project {
     std::string name;                       // Project name
     std::string version;                    // Project format version (e.g., "1.0")
-    std::vector<ProjectSource> sources;     // All sources in the project
-    std::vector<ProjectDAGNode> nodes;      // DAG nodes (including START nodes)
+    std::vector<ProjectDAGNode> nodes;      // DAG nodes (including SOURCE nodes)
     std::vector<ProjectDAGEdge> edges;      // DAG edges
     
     // Modification tracking (not persisted to file)
@@ -93,10 +81,10 @@ namespace project_io {
     void save_project(const Project& project, const std::string& filename);
     
     /**
-     * Create a new empty project with a single source
+     * Create a new empty project with a single TBC source
      * @param tbc_path Path to TBC file
      * @param project_name Name for the project (optional, derived from TBC if empty)
-     * @return Project with one source and a START node
+     * @return Project with one SOURCE node using TBCSourceStage
      */
     Project create_single_source_project(const std::string& tbc_path, const std::string& project_name = "");
     
@@ -115,8 +103,8 @@ namespace project_io {
     std::string extract_display_name(const std::string& tbc_path);
     
     /**
-     * Add a source to an existing project
-     * Automatically assigns source ID, creates START node, and positions it
+     * Add a TBC source to an existing project
+     * Creates a SOURCE node with TBCSourceStage and positions it
      * @param project Project to modify
      * @param tbc_path Path to TBC file to add
      * @throws std::runtime_error if source path already exists in project
@@ -124,13 +112,13 @@ namespace project_io {
     void add_source_to_project(Project& project, const std::string& tbc_path);
     
     /**
-     * Remove a source from a project
-     * Removes source, START node, and connected edges
+     * Remove a SOURCE node from a project
+     * Removes the node and connected edges
      * @param project Project to modify
-     * @param source_id ID of source to remove
-     * @throws std::runtime_error if source ID not found
+     * @param node_id ID of SOURCE node to remove
+     * @throws std::runtime_error if node ID not found
      */
-    void remove_source_from_project(Project& project, int source_id);
+    void remove_source_node(Project& project, const std::string& node_id);
     
     /**
      * Update project DAG nodes and edges

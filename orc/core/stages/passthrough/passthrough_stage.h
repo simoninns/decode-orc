@@ -11,6 +11,7 @@
 
 #include "video_field_representation.h"
 #include "stage_parameter.h"
+#include "dag_executor.h"
 #include <memory>
 
 namespace orc {
@@ -27,9 +28,29 @@ namespace orc {
  * - Testing DAG execution flow
  * - Benchmarking overhead of stage infrastructure
  */
-class PassthroughStage : public ParameterizedStage {
+class PassthroughStage : public DAGStage, public ParameterizedStage {
 public:
     PassthroughStage() = default;
+    
+    // DAGStage interface
+    std::string version() const override { return "1.0"; }    
+    NodeTypeInfo get_node_type_info() const override {
+        return NodeTypeInfo{
+            NodeType::TRANSFORM,
+            "passthrough",
+            "Pass-through Simple",
+            "Pass input to output unchanged (no-op stage for testing)",
+            1, 1,  // Exactly one input
+            1, 1,  // Exactly one output
+            true   // User can add
+        };
+    }    
+    std::vector<ArtifactPtr> execute(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, std::string>& parameters) override;
+    
+    size_t required_input_count() const override { return 1; }
+    size_t output_count() const override { return 1; }
     
     /**
      * @brief Process a field (returns input unchanged)
@@ -39,16 +60,6 @@ public:
      */
     std::shared_ptr<const VideoFieldRepresentation> process(
         std::shared_ptr<const VideoFieldRepresentation> source) const;
-    
-    /**
-     * @brief Get stage name
-     */
-    static const char* name() { return "Passthrough"; }
-    
-    /**
-     * @brief Get stage version
-     */
-    static const char* version() { return "1.0"; }
     
     // ParameterizedStage interface
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;

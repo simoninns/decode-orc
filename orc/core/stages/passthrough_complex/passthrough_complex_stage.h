@@ -11,6 +11,7 @@
 
 #include "video_field_representation.h"
 #include "stage_parameter.h"
+#include "dag_executor.h"
 #include <memory>
 #include <vector>
 
@@ -27,9 +28,29 @@ namespace orc {
  * - Testing advanced DAG patterns
  * - Demonstrating multi-input/multi-output processing
  */
-class PassthroughComplexStage : public ParameterizedStage {
+class PassthroughComplexStage : public DAGStage, public ParameterizedStage {
 public:
     PassthroughComplexStage() = default;
+    
+    // DAGStage interface
+    std::string version() const override { return "1.0"; }    
+    NodeTypeInfo get_node_type_info() const override {
+        return NodeTypeInfo{
+            NodeType::COMPLEX,
+            "passthrough_complex",
+            "Pass-through Complex",
+            "Multiple inputs to multiple outputs (test stage for complex patterns)",
+            2, 4,  // 2 to 4 inputs
+            2, 4,  // 2 to 4 outputs
+            true   // User can add
+        };
+    }    
+    std::vector<ArtifactPtr> execute(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, std::string>& parameters) override;
+    
+    size_t required_input_count() const override { return 3; }  // 3 inputs
+    size_t output_count() const override { return 2; }  // 2 outputs
     
     /**
      * @brief Process multiple fields (returns each input as separate output)
@@ -39,26 +60,6 @@ public:
      */
     std::vector<std::shared_ptr<const VideoFieldRepresentation>> process(
         const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources) const;
-    
-    /**
-     * @brief Get stage name
-     */
-    static const char* name() { return "PassthroughComplex"; }
-    
-    /**
-     * @brief Get stage version
-     */
-    static const char* version() { return "1.0"; }
-    
-    /**
-     * @brief Get minimum number of inputs required
-     */
-    static size_t min_input_count() { return 2; }
-    
-    /**
-     * @brief Get maximum number of inputs allowed
-     */
-    static size_t max_input_count() { return 4; }
     
     // ParameterizedStage interface
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;

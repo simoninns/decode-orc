@@ -11,6 +11,7 @@
 
 #include "video_field_representation.h"
 #include "stage_parameter.h"
+#include "dag_executor.h"
 #include <memory>
 
 namespace orc {
@@ -26,9 +27,29 @@ namespace orc {
  * - Testing parallel processing paths in DAG
  * - Demonstrating fanout patterns
  */
-class PassthroughSplitterStage : public ParameterizedStage {
+class PassthroughSplitterStage : public DAGStage, public ParameterizedStage {
 public:
     PassthroughSplitterStage() = default;
+    
+    // DAGStage interface
+    std::string version() const override { return "1.0"; }    
+    NodeTypeInfo get_node_type_info() const override {
+        return NodeTypeInfo{
+            NodeType::SPLITTER,
+            "passthrough_splitter",
+            "Pass-through Splitter",
+            "Duplicate input to multiple outputs (test stage for fanout patterns)",
+            1, 1,  // Exactly one input
+            3, 3,  // Exactly three outputs
+            true   // User can add
+        };
+    }    
+    std::vector<ArtifactPtr> execute(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, std::string>& parameters) override;
+    
+    size_t required_input_count() const override { return 1; }
+    size_t output_count() const override { return 3; }  // Fixed at 3 outputs
     
     /**
      * @brief Process a field (returns input duplicated to multiple outputs)
@@ -38,21 +59,6 @@ public:
      */
     std::vector<std::shared_ptr<const VideoFieldRepresentation>> process(
         std::shared_ptr<const VideoFieldRepresentation> source) const;
-    
-    /**
-     * @brief Get stage name
-     */
-    static const char* name() { return "PassthroughSplitter"; }
-    
-    /**
-     * @brief Get stage version
-     */
-    static const char* version() { return "1.0"; }
-    
-    /**
-     * @brief Get number of outputs this stage produces
-     */
-    static size_t output_count() { return 3; }  // Fixed at 3 outputs for testing
     
     // ParameterizedStage interface
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;

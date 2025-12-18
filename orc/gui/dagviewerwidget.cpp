@@ -9,6 +9,8 @@
 
 #include "dagviewerwidget.h"
 #include "node_type_helper.h"
+#include "../core/include/stage_registry.h"
+#include "../core/include/stage_parameter.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QKeyEvent>
@@ -21,6 +23,7 @@
 #include <algorithm>
 #include <queue>
 #include <set>
+#include <iostream>
 
 // ============================================================================
 // DAGNodeItem Implementation
@@ -496,9 +499,11 @@ void DAGViewerWidget::initializeWithStartNode()
     clearDAG();
     
     // Create permanent start node near left edge of workspace
-    auto* start_node = new DAGNodeItem("start_0", "Source", true);
+    // Use default source stage from core
+    std::string source_stage = orc::StageRegistry::get_default_source_stage();
+    auto* start_node = new DAGNodeItem("start_0", source_stage, true);
     start_node->setViewer(this);
-    start_node->setDisplayName("Source");
+    start_node->setDisplayName("TBC Source");
     start_node->setPos(-450, 0);  // Position near left edge (50 pixels from edge)
     scene_->addItem(start_node);
     node_items_["start_0"] = start_node;
@@ -506,19 +511,8 @@ void DAGViewerWidget::initializeWithStartNode()
     scene_->setSceneRect(-500, -500, 1000, 1000);
 }
 
-void DAGViewerWidget::setDAG(const orc::DAG& dag)
-{
-    clearDAG();
-    current_dag_ = dag;
-    has_dag_ = true;
-    
-    buildGraphicsItems(dag);
-    layoutNodes(dag);
-    
-    // Fit in view
-    scene_->setSceneRect(scene_->itemsBoundingRect().adjusted(-50, -50, 50, 50));
-    fitInView(scene_->sceneRect(), Qt::KeepAspectRatio);
-}
+// Note: setDAG() removed - viewer works with GUIDAG from project, not executable DAG
+// The executable DAG is owned by GUIProject and accessed only for field rendering
 
 void DAGViewerWidget::clearDAG()
 {
@@ -910,10 +904,23 @@ void DAGViewerWidget::showContextMenu(const QPoint& pos)
             change_type_action->setToolTip(QString::fromStdString(change_type_reason));
         }
         
-        // Check if stage has parameters
+        // Check if stage has parameters (by checking if it implements ParameterizedStage)
         bool has_parameters = false;
-        if (stage_name == "Dropout Correct") {
-            has_parameters = true;
+        auto& registry = orc::StageRegistry::instance();
+        if (registry.has_stage(stage_name)) {
+            try {
+                auto stage = registry.create_stage(stage_name);
+                if (stage) {
+                    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+                    if (param_stage) {
+                        auto descriptors = param_stage->get_parameter_descriptors();
+                        has_parameters = !descriptors.empty();
+                    }
+                }
+            } catch (...) {
+                // Failed to check - assume no parameters
+                has_parameters = false;
+            }
         }
         
         auto* edit_params_action = menu.addAction("Edit Parameters...", [this, node_id]() {
@@ -1054,6 +1061,14 @@ bool DAGViewerWidget::addNode(const std::string& node_id, const std::string& sta
     }
     
     try {
+        // Validate that stage exists
+        const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
+        if (!type_info) {
+            if (error) *error = "Stage '" + stage_name + "' is not registered";
+            std::cerr << "ERROR: Attempt to create node with unknown stage '" << stage_name << "'" << std::endl;
+            return false;
+        }
+        
         // Ensure scene is in a good state
         scene_->clearSelection();
         scene_->update();
@@ -1067,10 +1082,7 @@ bool DAGViewerWidget::addNode(const std::string& node_id, const std::string& sta
         node->setViewer(this);
         
         // Set proper display name from node type info
-        const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
-        if (type_info) {
-            node->setDisplayName(type_info->display_name);
-        }
+        node->setDisplayName(type_info->display_name);
         
         scene_->addItem(node);  // Add to scene BEFORE setPos to avoid crash
         node->setPos(pos);
@@ -1117,9 +1129,9 @@ void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
     // Process events again after scene clearing
     QApplication::processEvents();
     
-    // Create a passthrough (dummy) node by default using Project API
+    // Create a default node using the default transform stage from core
     // User can later edit to select a different stage type
-    std::string stage_name = "Passthrough";
+    std::string stage_name = orc::StageRegistry::get_default_transform_stage();
     
     try {
         std::string node_id = orc::project_io::add_node(*project_, stage_name, pos.x(), pos.y());
@@ -1611,7 +1623,7 @@ void DAGViewerWidget::buildGraphicsItems(const orc::DAG& dag)
 {
     // Create node items
     for (const auto& node : dag.nodes()) {
-        auto* item = new DAGNodeItem(node.node_id, node.stage->name());
+        auto* item = new DAGNodeItem(node.node_id, node.stage->get_node_type_info().stage_name);
         scene_->addItem(item);
         node_items_[node.node_id] = item;
     }

@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Build options
 option(BUILD_TESTS "Build unit tests" ON)
-option(BUILD_GUI "Build Qt6 GUI applications" OFF)
+option(BUILD_GUI "Build Qt6 GUI applications" ON)
 
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

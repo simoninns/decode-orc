@@ -55,6 +55,9 @@ build/
 *.db-wal
 *.db-shm
 
+# Test data directory
+test-data/
+
 # Test output directory
 test-output/
 

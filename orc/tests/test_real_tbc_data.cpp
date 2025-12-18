@@ -269,45 +269,45 @@ int main() {
         // PAL CAV
         {
             "GGV1011 PAL CAV (frames 1005-1205)",
-            TEST_DATA_ROOT + "/pal/reference/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc",
-            TEST_DATA_ROOT + "/pal/reference/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc.db",
+            TEST_DATA_ROOT + "/laserdisc/pal/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc",
+            TEST_DATA_ROOT + "/laserdisc/pal/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc.db",
             VideoSystem::PAL,
             "CAV"
         },
         {
             "GGV1011 PAL CAV (frames 16770-16973)",
-            TEST_DATA_ROOT + "/pal/reference/ggv1011/16770-16973/ggv1011_pal_cav_16770-16973.tbc",
-            TEST_DATA_ROOT + "/pal/reference/ggv1011/16770-16973/ggv1011_pal_cav_16770-16973.tbc.db",
+            TEST_DATA_ROOT + "/laserdisc/pal/ggv1011/16770-16973/ggv1011_pal_cav_16770-16973.tbc",
+            TEST_DATA_ROOT + "/laserdisc/pal/ggv1011/16770-16973/ggv1011_pal_cav_16770-16973.tbc.db",
             VideoSystem::PAL,
             "CAV"
         },
         // PAL CLV
         {
             "AMAWAAB PAL CLV (frames 6001-6205)",
-            TEST_DATA_ROOT + "/pal/reference/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc",
-            TEST_DATA_ROOT + "/pal/reference/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc.db",
+            TEST_DATA_ROOT + "/laserdisc/pal/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc",
+            TEST_DATA_ROOT + "/laserdisc/pal/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc.db",
             VideoSystem::PAL,
             "CLV"
         },
         {
             "GPBlank PAL CLV (frames 14005-14206)",
-            TEST_DATA_ROOT + "/pal/reference/gpblank/14005-14206/gpb_pal_clv_14005-14206.tbc",
-            TEST_DATA_ROOT + "/pal/reference/gpblank/14005-14206/gpb_pal_clv_14005-14206.tbc.db",
+            TEST_DATA_ROOT + "/laserdisc/pal/gpblank/14005-14206/gpb_pal_clv_14005-14206.tbc",
+            TEST_DATA_ROOT + "/laserdisc/pal/gpblank/14005-14206/gpb_pal_clv_14005-14206.tbc.db",
             VideoSystem::PAL,
             "CLV"
         },
         // NTSC CAV
         {
             "GGV1069 NTSC CAV (frames 716-914)",
-            TEST_DATA_ROOT + "/ntsc/reference/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc",
-            TEST_DATA_ROOT + "/ntsc/reference/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc.db",
+            TEST_DATA_ROOT + "/laserdisc/ntsc/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc",
+            TEST_DATA_ROOT + "/laserdisc/ntsc/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc.db",
             VideoSystem::NTSC,
             "CAV"
         },
         {
             "GGV1069 NTSC CAV (frames 7946-8158)",
-            TEST_DATA_ROOT + "/ntsc/reference/ggv1069/7946-8158/ggv1069_ntsc_cav_7946-8158.tbc",
-            TEST_DATA_ROOT + "/ntsc/reference/ggv1069/7946-8158/ggv1069_ntsc_cav_7946-8158.tbc.db",
+            TEST_DATA_ROOT + "/laserdisc/ntsc/ggv1069/7946-8158/ggv1069_ntsc_cav_7946-8158.tbc",
+            TEST_DATA_ROOT + "/laserdisc/ntsc/ggv1069/7946-8158/ggv1069_ntsc_cav_7946-8158.tbc.db",
             VideoSystem::NTSC,
             "CAV"
         }

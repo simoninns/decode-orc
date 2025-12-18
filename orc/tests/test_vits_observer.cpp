@@ -21,7 +21,7 @@ void test_vits_observer_with_real_data() {
     std::cout << "=== Testing VITS Observer with Real TBC Files ===" << std::endl;
     
     // Test with PAL CAV file
-    std::string pal_tbc = "../test-data/pal/reference/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc";
+    std::string pal_tbc = "/home/sdi/Coding/github/decode-orc/test-data/laserdisc/pal/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc";
     std::string pal_db = pal_tbc + ".db";
     
     if (!fs::exists(pal_tbc) || !fs::exists(pal_db)) {
@@ -91,7 +91,7 @@ void test_vits_observer_with_real_data() {
     std::cout << "  Fields with Black PSNR: " << fields_with_black << std::endl;
     
     // Test with NTSC file if available
-    std::string ntsc_tbc = "../test-data/ntsc/reference/ggv1069/5m/ggv1069_ntsc_cav_5m.tbc";
+    std::string ntsc_tbc = "/home/sdi/Coding/github/decode-orc/test-data/laserdisc/ntsc/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc";
     std::string ntsc_db = ntsc_tbc + ".db";
     
     if (fs::exists(ntsc_tbc) && fs::exists(ntsc_db)) {

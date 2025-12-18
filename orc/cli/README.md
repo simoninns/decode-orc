@@ -58,7 +58,7 @@ observers:
 
 ```bash
 orc-process --dag examples/vbi-observers.yaml \
-  test-data/ntsc/reference/cinder/9000-9210/cinder_ntsc_clv_9000-9210.tbc \
+  test-data/laserdisc/ntsc/cinder/9000-9210/cinder_ntsc_clv_9000-9210.tbc \
   output/cinder_processed.tbc
 ```
 

@@ -44,6 +44,9 @@
 build/
 */build/
 
+# CTest temporary files
+Testing/
+
 # TBC and LD files (large binary files)
 *.tbc
 *.lds

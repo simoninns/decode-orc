@@ -19,7 +19,7 @@ using namespace orc;
 namespace fs = std::filesystem;
 
 // Test data paths
-const std::string TEST_DATA_ROOT = "/home/sdi/Coding/github/ld-decode-orc/test-data";
+const std::string TEST_DATA_ROOT = "/home/sdi/Coding/github/decode-orc/test-data";
 
 struct TestFile {
     std::string name;
@@ -260,7 +260,7 @@ void test_clv_file(const TestFile& test_file) {
 int main() {
     std::cout << "\n";
     print_separator();
-    std::cout << "  TESTING ld-decode-orc TBC I/O WITH REAL TEST DATA\n";
+    std::cout << "  TESTING decode-orc TBC I/O WITH REAL TEST DATA\n";
     print_separator();
     std::cout << "\n";
     

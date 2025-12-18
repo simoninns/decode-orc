@@ -1,4 +1,4 @@
-# ld-decode-orc - Data Model
+# decode-orc - Data Model
 
 DRAFT
 

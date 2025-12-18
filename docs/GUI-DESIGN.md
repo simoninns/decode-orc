@@ -150,7 +150,7 @@
 
 ## Purpose
 
-This document defines the GUI design for **ld-decode-orc**, implemented in **Qt6 / C++**. It consolidates all GUI-related design decisions into a single reference suitable for beginning implementation.
+This document defines the GUI design for **decode-orc**, implemented in **Qt6 / C++**. It consolidates all GUI-related design decisions into a single reference suitable for beginning implementation.
 
 The GUI is designed to:
 * Support complex, long-running decode workflows

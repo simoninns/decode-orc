@@ -1,4 +1,4 @@
-# ld-decode-orc - Directed Acyclic Graph Design
+# decode-orc - Directed Acyclic Graph Design
 
 DRAFT
 

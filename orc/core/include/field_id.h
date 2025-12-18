@@ -17,7 +17,7 @@
 namespace orc {
 
 /**
- * @brief FieldID - The fundamental coordinate system for ld-decode-orc
+ * @brief FieldID - The fundamental coordinate system for decode-orc
  * 
  * Represents a monotonic sequence derived from input TBC capture order.
  * Properties:

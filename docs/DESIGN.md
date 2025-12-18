@@ -1,4 +1,4 @@
-# ld-decode-orc - Design
+# decode-orc - Design
 
 DRAFT
 

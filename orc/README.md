@@ -1,6 +1,6 @@
-# ld-decode-orc Core Implementation
+# decode-orc Core Implementation
 
-This directory contains the C++ implementation of ld-decode-orc, following the design specified in `/docs/DESIGN.md`.
+This directory contains the C++ implementation of decode-orc, following the design specified in `/docs/DESIGN.md`.
 
 ## Build Instructions
 

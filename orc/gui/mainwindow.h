@@ -9,6 +9,7 @@
 #include <QTabWidget>
 #include <memory>
 #include "fieldpreviewwidget.h"  // For PreviewMode enum
+#include "guiproject.h"
 
 namespace orc {
     class VideoFieldRepresentation;
@@ -38,13 +39,23 @@ public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
     
-    void loadSource(const QString& tbc_path);
+    // Project operations
+    void newProject();
+    void openProject(const QString& filename);
+    void saveProject();
+    void saveProjectAs();
+    void addSourceToProject();
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
-    void onOpenTBC();
+    void onNewProject();
+    void onOpenProject();
+    void onSaveProject();
+    void onSaveProjectAs();
+    void onAddSource();
+    void onRemoveSource();
     void onOpenDAGEditor();
     void onFieldChanged(int field_index);
     void onNavigateField(int delta);
@@ -56,12 +67,10 @@ private:
     void setupToolbar();
     void updateWindowTitle();
     void updateFieldInfo();
+    void updateUIState();
     
-    // Source management (single source for now)
-    QString current_tbc_path_;
-    QString current_source_name_;  // Display name for source
-    int current_source_number_;     // Always 0 for now
-    bool source_loaded_;
+    // Project management
+    GUIProject project_;
     std::shared_ptr<const orc::VideoFieldRepresentation> representation_;
     
     // UI components
@@ -72,14 +81,15 @@ private:
     QToolBar* toolbar_;
     QComboBox* preview_mode_combo_;
     QAction* dag_editor_action_;  // Track to enable/disable
+    QAction* save_project_action_;
+    QAction* save_project_as_action_;
+    QAction* add_source_action_;
+    QAction* remove_source_action_;
     
     // Navigation state
     int current_field_index_;
     int total_fields_;
     PreviewMode current_preview_mode_;
-    
-    // DAG state
-    std::shared_ptr<orc::DAG> current_dag_;
 };
 
 #endif // MAINWINDOW_H

@@ -26,13 +26,14 @@
 
 DAGNodeItem::DAGNodeItem(const std::string& node_id, 
                          const std::string& stage_name,
-                         bool is_start_node,
+                         bool is_source_node,
                          QGraphicsItem* parent)
     : QGraphicsItem(parent)
     , node_id_(node_id)
     , stage_name_(stage_name)
+    , display_name_(stage_name)  // Default to stage_name if not set
     , state_(NodeState::Pending)
-    , is_start_node_(is_start_node)
+    , is_source_node_(is_source_node)
     , is_dragging_connection_(false)
     , source_number_(-1)
 {
@@ -58,10 +59,10 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     Q_UNUSED(option);
     Q_UNUSED(widget);
     
-    // Background color based on state or start node
+    // Background color based on state or source node
     QColor bg_color;
-    if (is_start_node_) {
-        bg_color = QColor(180, 200, 255);  // Light blue for start node
+    if (is_source_node_) {
+        bg_color = QColor(180, 200, 255);  // Light blue for source node
     } else {
         switch (state_) {
             case NodeState::Pending:
@@ -93,31 +94,23 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     painter->setFont(font);
     
     QRectF text_rect(5, 10, WIDTH - 10, 25);
-    painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(stage_name_));
+    painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(display_name_));
     
-    // Draw node ID or source info
+    // Draw node ID
     font.setBold(false);
     font.setPointSize(8);
     painter->setFont(font);
     painter->setPen(QColor(80, 80, 80));
     
     QRectF id_rect(5, 40, WIDTH - 10, 30);
-    if (is_start_node_ && source_number_ >= 0) {
-        // Show source number and name for START nodes
-        QString source_text = QString("Source %1\n%2")
-            .arg(source_number_)
-            .arg(source_name_);
-        painter->drawText(id_rect, Qt::AlignCenter, source_text);
-    } else {
-        painter->drawText(id_rect, Qt::AlignCenter, QString::fromStdString(node_id_));
-    }
+    painter->drawText(id_rect, Qt::AlignCenter, QString::fromStdString(node_id_));
     
     // Draw connection points
     painter->setPen(QPen(Qt::darkGray, 2));
     painter->setBrush(Qt::white);
     
-    // Input point (left edge) - only if not start node
-    if (!is_start_node_) {
+    // Input point (left edge) - only if not source node
+    if (!is_source_node_) {
         QPointF input_pt(0, HEIGHT / 2);
         painter->drawEllipse(input_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
     }
@@ -136,6 +129,12 @@ void DAGNodeItem::setState(NodeState state)
 void DAGNodeItem::setStageName(const std::string& stage_name)
 {
     stage_name_ = stage_name;
+    update();  // Redraw with new name
+}
+
+void DAGNodeItem::setDisplayName(const std::string& display_name)
+{
+    display_name_ = display_name;
     update();  // Redraw with new name
 }
 
@@ -163,7 +162,7 @@ QPointF DAGNodeItem::outputConnectionPoint() const
 
 bool DAGNodeItem::isNearInputPoint(const QPointF& scene_pos) const
 {
-    if (is_start_node_) return false;  // Start node has no input
+    if (is_source_node_) return false;  // Source node has no input
     QPointF input = inputConnectionPoint();
     return (scene_pos - input).manhattanLength() < CONNECTION_POINT_RADIUS * 3;
 }
@@ -469,10 +468,11 @@ std::map<std::string, orc::ParameterValue> DAGViewerWidget::getNodeParameters(co
 
 void DAGViewerWidget::setSourceInfo(int source_number, const QString& source_name)
 {
-    // Find START node and update its source info
-    auto it = node_items_.find("START");
-    if (it != node_items_.end() && it->second) {
-        it->second->setSourceInfo(source_number, source_name);
+    // Find START nodes and update their source info
+    for (auto& [node_id, node_item] : node_items_) {
+        if (node_item && node_item->isStartNode()) {
+            node_item->setSourceInfo(source_number, source_name);
+        }
     }
 }
 
@@ -606,6 +606,7 @@ orc::GUIDAG DAGViewerWidget::exportDAG() const
         orc::GUIDAGNode node;
         node.node_id = node_id;
         node.stage_name = node_item->stageName();
+        node.display_name = node_item->displayName();
         node.x_position = node_item->pos().x();
         node.y_position = node_item->pos().y();
         node.parameters = node_item->getParameters();
@@ -633,8 +634,14 @@ void DAGViewerWidget::importDAG(const orc::GUIDAG& dag)
         auto* node_item = new DAGNodeItem(
             node.node_id,
             node.stage_name,
-            node.node_id == "START"  // START node check
+            node.stage_name == "START"  // START node check based on stage name
         );
+        
+        // Set display name from DAG (provided by core)
+        if (!node.display_name.empty()) {
+            node_item->setDisplayName(node.display_name);
+        }
+        
         node_item->setParameters(node.parameters);
         
         scene_->addItem(node_item);

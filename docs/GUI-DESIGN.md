@@ -6,9 +6,12 @@
 
 **Core GUI Framework**
 - Qt6-based application with QMainWindow
-- Command-line argument support for loading TBC sources at startup
-- DAG editor menu disabled until TBC source is loaded
-- Menu bar with File (Open TBC, Quit) and Tools (DAG Editor) menus
+- Project-based workflow: all work happens within a project context
+- Project files (.orc-project) are YAML files managed by orc-core
+- Projects contain one or more TBC sources (currently single source supported)
+- Projects contain the DAG that defines how to process the sources
+- Command-line argument support for quick TBC loading (creates temporary project)
+- Menu structure: File (New Project, Open Project, Save Project, Open TBC Quick), Tools (DAG Editor)
 - Field/frame preview with mode-aware navigation (moves by 1 field in field view, 2 fields in frame view)
 
 **Interactive DAG Editor**
@@ -16,16 +19,22 @@
 - Visual node representation with input/output connection points
 - Drag-to-connect edge creation (drag from output → input)
 - Node movement and repositioning
-- START node positioned on left side (-450, 0) for natural left-to-right flow
-- START node displays source number and source name when TBC is loaded
+- Source node for each source in the project (SOURCE type: no inputs, one output)
+- Source nodes display source name from orc-core (e.g., "Source: video.tbc")
+- Source nodes positioned on left side (-450 + offset_y) for natural left-to-right flow
 - Selectable nodes and edges (edges highlighted when selected)
-- DAG editor only available after loading a TBC source
+- DAG editor available when project has at least one source
+- DAG editor automatically closes when last source is removed
+- DAG is part of the project and saved/loaded with the project file
+- Node rendering driven by orc-core node type metadata (NodeType enum: SOURCE, SINK, TRANSFORM, SPLITTER, MERGER, COMPLEX)
+- Connection validation enforced by orc-core (e.g., can't connect to SOURCE node input)
 
 **Node Management**
-- Add nodes via context menu or keyboard
-- Delete nodes via context menu or Del/Backspace key
+- Add nodes via context menu or keyboard (only user-creatable types shown)
+- Delete nodes via context menu or Del/Backspace key (Source nodes cannot be deleted directly)
 - Change node type (stage) via context menu
 - Nodes deleted automatically remove connected edges
+- Node display names provided by orc-core (unique node_id + display_name architecture)
 
 **Edge Management**
 - Edges are selectable graphics items
@@ -51,6 +60,20 @@
 - `dag_serialization::save_dag_to_yaml()` - write formatted YAML
 - Menu shortcuts: Ctrl+L (Load), Ctrl+S (Save)
 - 7 example DAG files in dag-examples/ folder
+
+**Project System**
+- Project files (.orc-project) are YAML format
+- Project file structure:
+  - Project metadata (name, version)
+  - Sources list (source_id, path, display_name)
+  - DAG nodes (including Source nodes with source_id reference)
+  - DAG edges
+- Project file I/O handled by orc-core (orc::project_io namespace)
+- Shared format between orc-gui and orc-process (CLI tool)
+- GUIProject class wraps orc::Project and manages TBC representation loading
+- Project name derived from filename (e.g., "my_project.orc-project" → name: "my_project")
+- Supports multiple sources with automatic source ID management
+- Modified indicator (*) in window title when project has unsaved changes
 
 **Error Handling**
 - Methods return bool with optional error strings
@@ -92,7 +115,7 @@
 - Keyboard shortcuts for common operations
 
 **Multi-source Support**
-- Multiple START nodes for different sources
+- Multiple Source nodes for different sources
 - Source alignment visualization
 - Field fingerprinting UI
 
@@ -454,7 +477,110 @@ This allows source swapping without pipeline mutation.
 
 ---
 
-## 18. Incremental Implementation Order
+## 18. Project Integration
+
+### 18.1 Project Files
+
+The GUI uses the project file system defined in the core architecture (see `DESIGN.md` Section 8).
+
+**Key points**:
+
+- Project files (`.orc-project`) are YAML format managed by `orc-core`
+- Format is shared between `orc-gui` and `orc-process`
+- Projects contain sources list and DAG structure
+- Source nodes in DAG reference sources by `source_id`
+
+### 18.2 GUIProject Wrapper
+
+The GUI wraps `orc::Project` with `GUIProject` class:
+
+```cpp
+class GUIProject {
+    // Project operations
+    bool newEmptyProject(const QString& project_name, QString* error = nullptr);
+    bool addSource(const QString& tbc_path, QString* error = nullptr);
+    bool removeSource(int source_id, QString* error = nullptr);
+    bool saveToFile(const QString& path, QString* error = nullptr);
+    bool loadFromFile(const QString& path, QString* error = nullptr);
+    void clear();
+    
+    // Source access (supports multiple sources)
+    bool hasSource() const;
+    int getSourceId() const;  // Returns first source ID, -1 if none
+    QString getSourcePath() const;  // Returns first source path
+    QString getSourceName() const;  // Returns first source name
+    std::shared_ptr<const orc::VideoFieldRepresentation> getSourceRepresentation() const;
+    
+    // Core project access
+    orc::Project& coreProject();
+};
+```
+
+**Responsibilities**:
+
+- Qt-friendly interface (QString instead of std::string)
+- Manages TBC representation loading for preview
+- Tracks modified state for UI updates
+- Provides convenient accessors for GUI components
+- Delegates source lifecycle to orc-core (add/remove with automatic Source node creation)
+- Prevents duplicate source paths (enforced by core)
+
+### 18.3 Workflow
+
+1. **New Project**: User creates empty project (File → New Project)
+   - File dialog to specify project location and filename
+   - Project name automatically derived from filename
+   - Project immediately saved to disk as empty .orc-project file
+   - Enables "Add Source" and "Save Project" menu actions
+
+2. **Add Source**: User adds TBC file(s) to project (File → Add Source)
+   - File dialog to select TBC file
+   - `GUIProject::addSource()` calls `orc::project_io::add_source_to_project()`
+   - Core adds source to project with auto-generated source ID
+   - Core creates Source node for the source in DAG (positioned vertically for multiple sources)
+   - Core checks for duplicate paths (prevents adding same TBC twice)
+   - GUI loads TBC representation for preview
+   - Marks project as modified
+
+3. **Remove Source**: User removes a source (File → Remove Source)
+   - Confirmation dialog prompts user
+   - `GUIProject::removeSource()` calls `orc::project_io::remove_source_from_project()`
+   - Core removes source and Source node
+   - Core removes all edges connected to that Source node
+   - Core clears entire DAG if no sources remain
+   - GUI closes DAG editor if open
+   - Marks project as modified
+
+4. **Edit DAG**: User opens DAG editor (Tools → DAG Editor)
+   - Only enabled when project has at least one source
+   - DAG editor receives project reference via `setProject()`
+   - Loads project's DAG nodes and edges into visual editor
+   - User adds processing nodes and connects them
+   - Changes sync back to project via `syncDAGToProject()`
+   - Marks project as modified
+
+5. **Save Project**: User saves project file (File → Save Project)
+   - Saves to current file location (Ctrl+S)
+   - Serializes entire project (sources + DAG) to `.orc-project` YAML file
+   - Clears modified flag
+
+6. **Save As**: User saves project to new location (File → Save Project As)
+   - Prompts for new file location
+   - Updates project path
+   - Saves and clears modified flag
+
+7. **Open Project**: User opens existing project (File → Open Project)
+   - File dialog to select .orc-project file
+   - Loads project from YAML file
+   - Loads all TBC representations for preview
+   - Restores DAG structure
+   - Updates UI to reflect project state
+
+**Quick Load** (backward compatibility): File → Open TBC (Quick) creates a temporary project with single source for rapid inspection without saving.
+
+---
+
+## 19. Incremental Implementation Order
 
 1. Main window skeleton
 2. SourceSet + Source models
@@ -469,11 +595,13 @@ This allows source swapping without pipeline mutation.
 
 ---
 
-## 19. Key Design Rules
+## 20. Key Design Rules
 
 * Files are implementation details; **sources are first-class**
 * Navigation operates on **logical time**, not files
 * Rendering operates on **fields**, not frames
 * GUI never owns core processing logic
+* Projects are the unit of work; all processing happens within a project context
+* Project files are portable and tool-agnostic (shared between GUI and CLI)
 
 ---

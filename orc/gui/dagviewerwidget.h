@@ -35,7 +35,7 @@ class DAGNodeItem : public QGraphicsItem {
 public:
     DAGNodeItem(const std::string& node_id, 
                 const std::string& stage_name,
-                bool is_start_node = false,
+                bool is_source_node = false,
                 QGraphicsItem* parent = nullptr);
     
     QRectF boundingRect() const override;
@@ -45,10 +45,13 @@ public:
     NodeState state() const { return state_; }
     
     std::string nodeId() const { return node_id_; }
-    bool isStartNode() const { return is_start_node_; }
+    bool isSourceNode() const { return is_source_node_; }
     
     std::string stageName() const { return stage_name_; }
     void setStageName(const std::string& stage_name);
+    
+    std::string displayName() const { return display_name_; }
+    void setDisplayName(const std::string& display_name);
     
     // Source info for START nodes
     void setSourceInfo(int source_number, const QString& source_name);
@@ -75,8 +78,9 @@ protected:
 private:
     std::string node_id_;
     std::string stage_name_;
+    std::string display_name_;  // Display name from core
     NodeState state_;
-    bool is_start_node_;
+    bool is_source_node_;
     bool is_dragging_connection_;
     std::map<std::string, orc::ParameterValue> parameters_;  // Stage parameters
     

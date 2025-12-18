@@ -274,12 +274,160 @@ Existing ld-decode metadata schemas may be reused or extended as required, but a
 
 ---
 
-## 8. CLI and GUI Model
+## 8. Project Files
 
-### 8.1 CLI
+### 8.1 Purpose
+
+A **project** encapsulates all information needed to process one or more TBC sources:
+
+- Source TBC file paths with unique source IDs
+- DAG structure (nodes, edges, parameters)
+- Each Source node in the DAG references a specific source by source_id
+
+Projects are the unit of work for both CLI and GUI tools.
+
+---
+
+### 8.2 File Format
+
+Projects are stored as `.orc-project` files in YAML format.
+
+**Structure**:
+
+```yaml
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: my_capture
+  version: "1.0"
+
+sources:
+  - id: 0
+    path: /path/to/capture.tbc
+    name: capture
+  - id: 1
+    path: /path/to/capture2.tbc
+    name: capture2
+
+dag:
+  nodes:
+    - id: start_0
+      stage: Source
+      display_name: "Source: capture"
+      x: -450.0
+      y: 0.0
+      source_id: 0
+    - id: start_1
+      stage: Source
+      display_name: "Source: capture2"
+      x: -450.0
+      y: 200.0
+      source_id: 1
+    - id: dropout_correct
+      stage: DropoutCorrect
+      display_name: "Dropout Correction"
+      x: -200.0
+      y: 0.0
+      parameters:
+        max_dropout_length:
+          type: uint32
+          value: 10
+  edges:
+    - from: start_0
+      to: dropout_correct
+```
+
+**Key properties**:
+
+- `sources`: Array of source definitions
+  - `id`: Unique integer identifier within project
+  - `path`: Path to TBC file (may be relative to project file)
+  - `name`: Display name for source
+- `dag.nodes`: Array of DAG nodes
+  - Source nodes include `source_id` to reference a source
+  - Source nodes include `display_name` (e.g., "Source: capture")
+  - Non-Source nodes have `source_id: -1` (or omitted)
+  - All nodes have `stage` field identifying node type (Source, DropoutCorrect, etc.)
+  - `parameters`: Stage-specific parameters with type information
+- `dag.edges`: Array of edges
+  - `from`: Source node ID
+  - `to`: Target node ID
+
+---
+
+### 8.3 Implementation
+
+Project file I/O is handled by `orc-core` in the `orc::project_io` namespace:
+
+```cpp
+namespace orc::project_io {
+    Project load_project(const std::string& filename);
+    void save_project(const Project& project, const std::string& filename);
+    Project create_single_source_project(const std::string& tbc_path, 
+                                          const std::string& project_name = "");
+}
+```
+
+**Design constraints**:
+
+- Format is tool-agnostic (shared between `orc-gui` and `orc-process`)
+- Self-contained and portable
+- Human-readable for version control
+- Extensible for future metadata
+
+---
+
+### 8.4 Multi-Source Support
+
+While the initial implementation supports a single source, the format is designed for multiple sources:
+
+- Each source has a unique `source_id`
+- Each Source node references exactly one source
+- Multiple Source nodes enable multi-source processing (e.g., stacking)
+- Source alignment and fingerprinting metadata will be added in future versions
+
+### 8.5 Node Type System
+
+Nodes in the DAG are classified by connectivity pattern:
+
+**Node Types** (defined in `orc-core`):
+- **SOURCE**: No inputs, produces outputs (e.g., Source nodes for TBC input)
+- **SINK**: Consumes inputs, no outputs (e.g., export to file)
+- **TRANSFORM**: One input, one output (e.g., DropoutCorrect, Passthrough)
+- **SPLITTER**: One input, multiple outputs (e.g., fanout for parallel processing)
+- **MERGER**: Multiple inputs, one output (e.g., stacking, blending)
+- **COMPLEX**: Multiple inputs, multiple outputs (e.g., advanced processing)
+
+**Node Type Metadata** (`orc::NodeTypeInfo`):
+- `stage_name`: Type identifier ("Source", "DropoutCorrect", etc.)
+- `display_name`: Human-readable name ("Source", "Dropout Correction", etc.)
+- `min_inputs`, `max_inputs`: Input port constraints
+- `min_outputs`, `max_outputs`: Output port constraints
+- `user_creatable`: Whether users can add this node type via GUI
+
+**Current Implemented Stages**:
+- `Source` (SOURCE): TBC input - auto-created by core, not user-creatable
+- `Passthrough` (TRANSFORM): No-op for testing - 1 input, 1 output
+- `DropoutCorrect` (TRANSFORM): Dropout correction - 1 input, 1 output
+- `PassthroughSplitter` (SPLITTER): Test fanout - 1 input, 3 outputs
+- `PassthroughMerger` (MERGER): Test merge - 2-8 inputs, 1 output
+- `PassthroughComplex` (COMPLEX): Test multi-path - 2-4 inputs, 2-4 outputs
+
+**GUI Integration**:
+- GUI queries `orc::get_node_type_info()` to determine rendering
+- Connection validation via `orc::is_connection_valid()`
+- "Add Node" menu filters by `user_creatable` flag
+
+---
+
+## 9. CLI and GUI Model
+
+### 9.1 CLI
 
 The CLI:
-- Loads a DAG definition
+- Loads a project file
+- Loads a DAG definition (standalone or from project)
 - Executes the DAG
 - Inspects artifacts and observations
 - Imports and exports decision artifacts
@@ -288,20 +436,23 @@ No processing logic exists in the CLI itself.
 
 ---
 
-### 8.2 GUI
+### 9.2 GUI
 
 The GUI:
-- Edits the DAG
+- Creates and manages projects
+- Adds/removes sources to/from projects
+- Edits the DAG visually
 - Visualizes video fields
 - Displays observer outputs
 - Allows manual decision editing
 - Triggers partial re-execution
+- Saves project state (sources + DAG)
 
 The GUI never mutates signal data directly.
 
 ---
 
-## 9. Legacy Tool Mapping
+## 10. Legacy Tool Mapping
 
 | Legacy Tool | New Role | Status |
 |------------|----------|--------|

@@ -18,6 +18,8 @@ add_executable(orc-gui
     main.cpp
     mainwindow.cpp
     mainwindow.h
+    guiproject.cpp
+    guiproject.h
     dageditorwindow.cpp
     dageditorwindow.h
     fieldpreviewwidget.cpp

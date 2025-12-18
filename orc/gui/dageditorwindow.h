@@ -9,9 +9,14 @@
 #include <memory>
 
 class DAGViewerWidget;
+class GUIProject;
 
 /**
- * @brief Separate window for DAG editing with its own menubar
+ * @brief Separate window for DAG editing
+ * 
+ * Edits the DAG within a GUIProject. All modifications update the project
+ * and mark it as modified. The parent window is responsible for saving
+ * the project (which includes the DAG).
  */
 class DAGEditorWindow : public QMainWindow
 {
@@ -23,19 +28,22 @@ public:
     
     DAGViewerWidget* dagViewer() { return dag_viewer_; }
     
+    void setProject(GUIProject* project);
     void setSourceInfo(int source_number, const QString& source_name);
+    void loadProjectDAG();
 
 private slots:
-    void onLoadDAG();
-    void onSaveDAG();
     void onNodeSelected(const std::string& node_id);
     void onChangeNodeType(const std::string& node_id);
     void onEditParameters(const std::string& node_id);
+    void onDAGModified();
 
 private:
     void setupMenus();
+    void syncDAGToProject();
     
     DAGViewerWidget* dag_viewer_;
+    GUIProject* project_;  // Not owned
 };
 
 #endif // DAGEDITORWINDOW_H

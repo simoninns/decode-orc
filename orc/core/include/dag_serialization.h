@@ -14,6 +14,7 @@ namespace orc {
 struct GUIDAGNode {
     std::string node_id;
     std::string stage_name;
+    std::string display_name;  // Display name for GUI
     double x_position;  // Position for GUI layout
     double y_position;
     std::map<std::string, ParameterValue> parameters;

@@ -62,7 +62,7 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     if (!representation_) {
         painter.fillRect(rect(), Qt::black);
         painter.setPen(Qt::white);
-        painter.drawText(rect(), Qt::AlignCenter, "No TBC loaded");
+        painter.drawText(rect(), Qt::AlignCenter, "No source loaded");
         return;
     }
     

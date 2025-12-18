@@ -32,19 +32,20 @@ MainWindow::MainWindow(QWidget *parent)
     , toolbar_(nullptr)
     , preview_mode_combo_(nullptr)
     , dag_editor_action_(nullptr)
-    , current_source_number_(0)
-    , source_loaded_(false)
+    , save_project_action_(nullptr)
+    , save_project_as_action_(nullptr)
     , current_field_index_(0)
     , total_fields_(0)
     , current_preview_mode_(PreviewMode::SingleField)
-    , current_dag_(nullptr)
 {
     setupUI();
     setupMenus();
     setupToolbar();
     
-    setWindowTitle("orc-gui");
+    updateWindowTitle();
     resize(1280, 720);
+    
+    updateUIState();
 }
 
 MainWindow::~MainWindow()
@@ -102,7 +103,7 @@ void MainWindow::setupUI()
     nav_layout->addWidget(field_slider_, 1);
     
     // Field info label
-    field_info_label_ = new QLabel("No TBC loaded", this);
+    field_info_label_ = new QLabel("No source loaded", this);
     field_info_label_->setMinimumWidth(200);
     nav_layout->addWidget(field_info_label_);
     
@@ -118,9 +119,33 @@ void MainWindow::setupMenus()
 {
     auto* file_menu = menuBar()->addMenu("&File");
     
-    auto* open_action = file_menu->addAction("&Open TBC...");
-    open_action->setShortcut(QKeySequence::Open);
-    connect(open_action, &QAction::triggered, this, &MainWindow::onOpenTBC);
+    auto* new_project_action = file_menu->addAction("&New Project...");
+    new_project_action->setShortcut(QKeySequence::New);
+    connect(new_project_action, &QAction::triggered, this, &MainWindow::onNewProject);
+    
+    auto* open_project_action = file_menu->addAction("&Open Project...");
+    open_project_action->setShortcut(QKeySequence::Open);
+    connect(open_project_action, &QAction::triggered, this, &MainWindow::onOpenProject);
+    
+    file_menu->addSeparator();
+    
+    save_project_action_ = file_menu->addAction("&Save Project");
+    save_project_action_->setShortcut(QKeySequence::Save);
+    save_project_action_->setEnabled(false);
+    connect(save_project_action_, &QAction::triggered, this, &MainWindow::onSaveProject);
+    
+    save_project_as_action_ = file_menu->addAction("Save Project &As...");
+    save_project_as_action_->setShortcut(QKeySequence::SaveAs);
+    save_project_as_action_->setEnabled(false);
+    connect(save_project_as_action_, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
+    
+    file_menu->addSeparator();
+    add_source_action_ = file_menu->addAction("&Add Source...");
+    add_source_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
+    connect(add_source_action_, &QAction::triggered, this, &MainWindow::onAddSource);
+    
+    remove_source_action_ = file_menu->addAction("&Remove Source...");
+    connect(remove_source_action_, &QAction::triggered, this, &MainWindow::onRemoveSource);
     
     file_menu->addSeparator();
     
@@ -133,7 +158,7 @@ void MainWindow::setupMenus()
     
     dag_editor_action_ = tools_menu->addAction("&DAG Editor...");
     dag_editor_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
-    dag_editor_action_->setEnabled(false);  // Disabled until source is loaded
+    dag_editor_action_->setEnabled(false);  // Disabled until project has source
     connect(dag_editor_action_, &QAction::triggered, this, &MainWindow::onOpenDAGEditor);
 }
 
@@ -143,11 +168,145 @@ void MainWindow::setupToolbar()
     // Toolbar can be used for other controls later
 }
 
-void MainWindow::onOpenTBC()
+void MainWindow::onRemoveSource()
+{
+    if (project_.projectName().isEmpty()) {
+        QMessageBox::information(this, "No Project", "No project is open.");
+        return;
+    }
+    
+    if (!project_.hasSource()) {
+        QMessageBox::information(this, "No Source", "No source is currently loaded in the project.");
+        return;
+    }
+    
+    // Get current source info
+    QString source_name = project_.getSourceName();
+    
+    // Confirm removal
+    auto reply = QMessageBox::question(
+        this,
+        "Remove Source",
+        QString("Remove source '%1' from the project?").arg(source_name),
+        QMessageBox::Yes | QMessageBox::No
+    );
+    
+    if (reply != QMessageBox::Yes) {
+        return;
+    }
+    
+    // Get the first source ID (single source workflow for now)
+    int source_id = project_.getSourceId();
+    QString error;
+    if (!project_.removeSource(source_id, &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    // Clear UI
+    representation_ = nullptr;
+    preview_widget_->setRepresentation(nullptr);
+    field_slider_->setEnabled(false);
+    current_field_index_ = 0;
+    total_fields_ = 0;
+    
+    // Close DAG editor if open (no valid DAG to edit without sources)
+    if (dag_editor_window_) {
+        dag_editor_window_->close();
+    }
+    
+    updateWindowTitle();
+    updateFieldInfo();
+    updateUIState();
+    
+    statusBar()->showMessage(QString("Removed source: %1").arg(source_name));
+}
+
+void MainWindow::onNewProject()
+{
+    newProject();
+}
+
+void MainWindow::onOpenProject()
 {
     QString filename = QFileDialog::getOpenFileName(
         this,
-        "Open TBC File",
+        "Open Project",
+        QString(),
+        "ORC Project Files (*.orc-project);;All Files (*)"
+    );
+    
+    if (filename.isEmpty()) {
+        return;
+    }
+    
+    openProject(filename);
+}
+
+void MainWindow::onSaveProject()
+{
+    if (project_.projectPath().isEmpty()) {
+        onSaveProjectAs();
+        return;
+    }
+    
+    saveProject();
+}
+
+void MainWindow::onSaveProjectAs()
+{
+    saveProjectAs();
+}
+
+void MainWindow::onAddSource()
+{
+    addSourceToProject();
+}
+
+void MainWindow::newProject()
+{
+    QString filename = QFileDialog::getSaveFileName(
+        this,
+        "New Project",
+        QString(),
+        "ORC Project Files (*.orc-project);;All Files (*)"
+    );
+    
+    if (filename.isEmpty()) {
+        return;
+    }
+    
+    // Ensure .orc-project extension
+    if (!filename.endsWith(".orc-project", Qt::CaseInsensitive)) {
+        filename += ".orc-project";
+    }
+    
+    // Derive project name from filename
+    QString project_name = QFileInfo(filename).completeBaseName();
+    
+    QString error;
+    if (!project_.newEmptyProject(project_name, &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    // Save immediately to the specified location
+    if (!project_.saveToFile(filename, &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    updateWindowTitle();
+    updateUIState();
+    
+    statusBar()->showMessage(QString("Created new project: %1").arg(project_name));
+}
+
+void MainWindow::addSourceToProject()
+{
+    QString filename = QFileDialog::getOpenFileName(
+        this,
+        "Add TBC Source",
         QString(),
         "TBC Files (*.tbc);;All Files (*)"
     );
@@ -156,65 +315,147 @@ void MainWindow::onOpenTBC()
         return;
     }
     
-    loadSource(filename);
+    QString error;
+    if (!project_.addSource(filename, &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    // Load the representation
+    representation_ = project_.getSourceRepresentation();
+    if (!representation_) {
+        QMessageBox::critical(this, "Error", "Failed to load TBC representation");
+        return;
+    }
+    
+    // Get field range
+    auto range = representation_->field_range();
+    total_fields_ = range.size();
+    current_field_index_ = 0;
+    
+    // Update UI
+    field_slider_->setEnabled(true);
+    field_slider_->setRange(0, total_fields_ - 1);
+    field_slider_->setValue(0);
+    
+    // Set representation in preview widget
+    preview_widget_->setRepresentation(representation_);
+    preview_widget_->setFieldIndex(range.start.value());
+    
+    updateWindowTitle();
+    updateFieldInfo();
+    updateUIState();
+    
+    statusBar()->showMessage(QString("Added source: %1")
+        .arg(project_.getSourceName()));
 }
 
-void MainWindow::loadSource(const QString& tbc_path)
+void MainWindow::openProject(const QString& filename)
 {
-    try {
-        // Load TBC using the core library
-        auto repr = orc::create_tbc_representation(
-            tbc_path.toStdString(),
-            tbc_path.toStdString() + ".db"
-        );
-        
-        if (!repr) {
-            QMessageBox::critical(this, "Error", "Failed to load TBC file");
-            return;
+    QString error;
+    if (!project_.loadFromFile(filename, &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    // Load representation if source exists
+    if (project_.hasSource()) {
+        representation_ = project_.getSourceRepresentation();
+        if (!representation_) {
+            QMessageBox::warning(this, "Warning", "Failed to load TBC representation");
+        } else {
+            // Get field range
+            auto range = representation_->field_range();
+            total_fields_ = range.size();
+            current_field_index_ = 0;
+            
+            // Update UI
+            field_slider_->setEnabled(true);
+            field_slider_->setRange(0, total_fields_ - 1);
+            field_slider_->setValue(0);
+            
+            // Set representation in preview widget
+            preview_widget_->setRepresentation(representation_);
+            preview_widget_->setFieldIndex(range.start.value());
+            
+            updateFieldInfo();
         }
-        
-        representation_ = repr;
-        current_tbc_path_ = tbc_path;
-        
-        // Extract source name from filename
-        QFileInfo file_info(tbc_path);
-        current_source_name_ = file_info.baseName();
-        current_source_number_ = 0;  // Always 0 for now
-        source_loaded_ = true;
-        
-        // Get field range
-        auto range = representation_->field_range();
-        total_fields_ = range.size();
-        current_field_index_ = 0;
-        
-        // Update UI
-        field_slider_->setEnabled(true);
-        field_slider_->setRange(0, total_fields_ - 1);
-        field_slider_->setValue(0);
-        
-        // Enable DAG editor now that source is loaded
-        if (dag_editor_action_) {
-            dag_editor_action_->setEnabled(true);
-        }
-        
-        // Update DAG editor if already open
-        if (dag_editor_window_) {
-            dag_editor_window_->setSourceInfo(current_source_number_, current_source_name_);
-        }
-        
-        // Set representation in preview widget
-        preview_widget_->setRepresentation(representation_);
-        preview_widget_->setFieldIndex(range.start.value());
-        
-        updateWindowTitle();
-        updateFieldInfo();
-        
-        statusBar()->showMessage(QString("Loaded: %1 fields from source \"%2\"")
-            .arg(total_fields_).arg(current_source_name_));
-        
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to load TBC: %1").arg(e.what()));
+    }
+    
+    updateWindowTitle();
+    updateUIState();
+    
+    statusBar()->showMessage(QString("Opened project: %1").arg(project_.projectName()));
+}
+
+void MainWindow::saveProject()
+{
+    if (project_.projectPath().isEmpty()) {
+        saveProjectAs();
+        return;
+    }
+    
+    QString error;
+    if (!project_.saveToFile(project_.projectPath(), &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    updateWindowTitle();
+    statusBar()->showMessage("Project saved");
+}
+
+void MainWindow::saveProjectAs()
+{
+    QString filename = QFileDialog::getSaveFileName(
+        this,
+        "Save Project As",
+        QString(),
+        "ORC Project Files (*.orc-project);;All Files (*)"
+    );
+    
+    if (filename.isEmpty()) {
+        return;
+    }
+    
+    // Ensure .orc-project extension
+    if (!filename.endsWith(".orc-project", Qt::CaseInsensitive)) {
+        filename += ".orc-project";
+    }
+    
+    QString error;
+    if (!project_.saveToFile(filename, &error)) {
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    updateWindowTitle();
+    updateUIState();
+    statusBar()->showMessage("Project saved as " + filename);
+}
+
+
+
+void MainWindow::updateUIState()
+{
+    bool has_project = !project_.projectName().isEmpty();
+    bool has_source = project_.hasSource();
+    
+    // Enable/disable actions based on project state
+    if (add_source_action_) {
+        add_source_action_->setEnabled(has_project);
+    }
+    if (remove_source_action_) {
+        remove_source_action_->setEnabled(has_project && has_source);
+    }
+    if (save_project_action_) {
+        save_project_action_->setEnabled(has_project && project_.isModified());
+    }
+    if (save_project_as_action_) {
+        save_project_as_action_->setEnabled(has_project);
+    }
+    if (dag_editor_action_) {
+        dag_editor_action_->setEnabled(has_source);
     }
 }
 
@@ -283,18 +524,33 @@ void MainWindow::onPreviewModeChanged(int index)
 
 void MainWindow::updateWindowTitle()
 {
-    if (current_tbc_path_.isEmpty()) {
-        setWindowTitle("orc-gui");
-    } else {
-        QFileInfo info(current_tbc_path_);
-        setWindowTitle(QString("orc-gui - %1").arg(info.fileName()));
+    QString title = "Orc GUI";
+    
+    QString project_name = project_.projectName();
+    if (!project_name.isEmpty()) {
+        title = project_name;
+        
+        // Add source name if available
+        if (project_.hasSource()) {
+            QString source_name = project_.getSourceName();
+            if (!source_name.isEmpty()) {
+                title += " - " + source_name;
+            }
+        }
+        
+        // Add modified indicator
+        if (project_.isModified()) {
+            title += " *";
+        }
     }
+    
+    setWindowTitle(title);
 }
 
 void MainWindow::updateFieldInfo()
 {
     if (!representation_ || total_fields_ == 0) {
-        field_info_label_->setText("No TBC loaded");
+        field_info_label_->setText("No source loaded");
         return;
     }
     
@@ -372,10 +628,16 @@ void MainWindow::onOpenDAGEditor()
     if (!dag_editor_window_) {
         dag_editor_window_ = new DAGEditorWindow(this);
         
-        // Set source info if loaded
-        if (source_loaded_) {
-            dag_editor_window_->setSourceInfo(current_source_number_, current_source_name_);
+        // Connect project to DAG editor
+        dag_editor_window_->setProject(&project_);
+        
+        // Set source info if project has source
+        if (project_.hasSource()) {
+            dag_editor_window_->setSourceInfo(project_.getSourceId(), project_.getSourceName());
         }
+        
+        // Load the project's DAG into the editor
+        dag_editor_window_->loadProjectDAG();
     }
     
     // Show the window

@@ -1,0 +1,20 @@
+# ORC Project File
+# Version: 
+
+project:
+  name: 
+  version: 
+
+sources:
+  - id: 0
+    path: /home/sdi/Coding/github/ld-decode-orc/test-data/pal/reference/gpblank/18500-18700/gpb_pal_clv_18500-18700.tbc
+    name: gpb_pal_clv_18500-18700
+
+dag:
+  nodes:
+    - id: start_0
+      stage: START
+      x: -450
+      y: 0
+      source_id: 0
+  edges:

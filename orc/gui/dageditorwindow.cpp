@@ -3,6 +3,7 @@
 
 #include "dageditorwindow.h"
 #include "dagviewerwidget.h"
+#include "guiproject.h"
 #include "stageparameterdialog.h"
 #include "../core/include/dag_serialization.h"
 #include "../core/include/dropout_correct_stage.h"
@@ -18,6 +19,7 @@
 DAGEditorWindow::DAGEditorWindow(QWidget *parent)
     : QMainWindow(parent)
     , dag_viewer_(nullptr)
+    , project_(nullptr)
 {
     setWindowTitle("DAG Editor - orc-gui");
     resize(1000, 800);
@@ -34,6 +36,14 @@ DAGEditorWindow::DAGEditorWindow(QWidget *parent)
     connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
             this, &DAGEditorWindow::onEditParameters);
     
+    // Connect modification signals to sync with project
+    connect(dag_viewer_, &DAGViewerWidget::edgeCreated,
+            this, &DAGEditorWindow::onDAGModified);
+    connect(dag_viewer_, &DAGViewerWidget::addNodeRequested,
+            this, &DAGEditorWindow::onDAGModified);
+    connect(dag_viewer_, &DAGViewerWidget::deleteNodeRequested,
+            this, &DAGEditorWindow::onDAGModified);
+    
     setupMenus();
     
     statusBar()->showMessage("DAG Editor Ready");
@@ -42,16 +52,6 @@ DAGEditorWindow::DAGEditorWindow(QWidget *parent)
 void DAGEditorWindow::setupMenus()
 {
     auto* file_menu = menuBar()->addMenu("&File");
-    
-    auto* load_dag_action = file_menu->addAction("&Load DAG...");
-    load_dag_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
-    connect(load_dag_action, &QAction::triggered, this, &DAGEditorWindow::onLoadDAG);
-    
-    auto* save_dag_action = file_menu->addAction("&Save DAG...");
-    save_dag_action->setShortcut(QKeySequence::Save);
-    connect(save_dag_action, &QAction::triggered, this, &DAGEditorWindow::onSaveDAG);
-    
-    file_menu->addSeparator();
     
     auto* close_action = file_menu->addAction("&Close");
     close_action->setShortcut(QKeySequence::Close);
@@ -63,58 +63,119 @@ void DAGEditorWindow::setupMenus()
     auto* arrange_action = edit_menu->addAction("&Arrange to Grid");
     arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
     connect(arrange_action, &QAction::triggered, dag_viewer_, &DAGViewerWidget::arrangeToGrid);
+    
+    // Note: DAG is saved as part of the project via File → Save Project in main window
 }
 
-void DAGEditorWindow::onLoadDAG()
+void DAGEditorWindow::setProject(GUIProject* project)
 {
-    QString filename = QFileDialog::getOpenFileName(
-        this,
-        "Load DAG",
-        QString(),
-        "YAML Files (*.yaml *.yml);;All Files (*)"
-    );
-    
-    if (filename.isEmpty()) {
-        return;
-    }
-    
-    try {
-        auto dag = orc::dag_serialization::load_dag_from_yaml(filename.toStdString());
-        dag_viewer_->importDAG(dag);
-        statusBar()->showMessage(QString("Loaded DAG from %1").arg(filename), 3000);
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error Loading DAG",
-            QString("Failed to load DAG: %1").arg(e.what()));
+    project_ = project;
+    if (project_) {
+        loadProjectDAG();
     }
 }
 
-void DAGEditorWindow::onSaveDAG()
+void DAGEditorWindow::loadProjectDAG()
 {
-    QString filename = QFileDialog::getSaveFileName(
-        this,
-        "Save DAG",
-        QString(),
-        "YAML Files (*.yaml);;All Files (*)"
-    );
-    
-    if (filename.isEmpty()) {
+    if (!project_) {
         return;
     }
     
-    // Add .yaml extension if not present
-    if (!filename.endsWith(".yaml", Qt::CaseInsensitive) && 
-        !filename.endsWith(".yml", Qt::CaseInsensitive)) {
-        filename += ".yaml";
+    // Convert project DAG to GUIDAG for visualization
+    orc::GUIDAG gui_dag;
+    gui_dag.name = project_->projectName().toStdString();
+    gui_dag.version = "1.0";
+    
+    auto& core_project = project_->coreProject();
+    
+    // Convert nodes
+    for (const auto& node : core_project.nodes) {
+        orc::GUIDAGNode gui_node;
+        gui_node.node_id = node.node_id;
+        gui_node.stage_name = node.stage_name;
+        gui_node.display_name = node.display_name;
+        gui_node.x_position = node.x_position;
+        gui_node.y_position = node.y_position;
+        gui_node.parameters = node.parameters;
+        gui_dag.nodes.push_back(gui_node);
     }
     
-    try {
-        auto dag = dag_viewer_->exportDAG();
-        orc::dag_serialization::save_dag_to_yaml(dag, filename.toStdString());
-        statusBar()->showMessage(QString("Saved DAG to %1").arg(filename), 3000);
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error Saving DAG",
-            QString("Failed to save DAG: %1").arg(e.what()));
+    // Convert edges
+    for (const auto& edge : core_project.edges) {
+        orc::GUIDAGEdge gui_edge;
+        gui_edge.source_node_id = edge.source_node_id;
+        gui_edge.target_node_id = edge.target_node_id;
+        gui_dag.edges.push_back(gui_edge);
     }
+    
+    dag_viewer_->importDAG(gui_dag);
+    
+    // Set source info for START nodes
+    if (project_->hasSource()) {
+        // For now, set the same source info for all START nodes (single source workflow)
+        dag_viewer_->setSourceInfo(project_->getSourceId(), project_->getSourceName());
+    }
+    
+    statusBar()->showMessage("Loaded DAG from project", 2000);
+}
+
+void DAGEditorWindow::onDAGModified()
+{
+    // Sync changes back to project
+    syncDAGToProject();
+}
+
+void DAGEditorWindow::syncDAGToProject()
+{
+    if (!project_) {
+        return;
+    }
+    
+    // Export current DAG state
+    auto gui_dag = dag_viewer_->exportDAG();
+    
+    // Convert nodes to project format
+    std::vector<orc::ProjectDAGNode> nodes;
+    for (const auto& gui_node : gui_dag.nodes) {
+        orc::ProjectDAGNode node;
+        node.node_id = gui_node.node_id;
+        node.stage_name = gui_node.stage_name;
+        node.display_name = gui_node.display_name;
+        node.x_position = gui_node.x_position;
+        node.y_position = gui_node.y_position;
+        node.parameters = gui_node.parameters;
+        
+        // Extract source_id if this is a Source node
+        node.source_id = -1;
+        if (gui_node.stage_name == "Source") {
+            // Parse node_id like "start_0" to get source_id
+            std::string id_str = gui_node.node_id;
+            if (id_str.find("start_") == 0) {
+                try {
+                    node.source_id = std::stoi(id_str.substr(6));
+                } catch (...) {
+                    node.source_id = -1;
+                }
+            }
+        }
+        
+        nodes.push_back(node);
+    }
+    
+    // Convert edges to project format
+    std::vector<orc::ProjectDAGEdge> edges;
+    for (const auto& gui_edge : gui_dag.edges) {
+        orc::ProjectDAGEdge edge;
+        edge.source_node_id = gui_edge.source_node_id;
+        edge.target_node_id = gui_edge.target_node_id;
+        edges.push_back(edge);
+    }
+    
+    // Use core function to update project DAG (preserves START nodes)
+    orc::project_io::update_project_dag(project_->coreProject(), nodes, edges);
+    
+    // Mark project as modified
+    project_->setModified(true);
 }
 
 void DAGEditorWindow::onNodeSelected(const std::string& node_id)

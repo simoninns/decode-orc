@@ -19,17 +19,17 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addVersionOption();
     
-    // Add TBC source argument
-    parser.addPositionalArgument("source", "TBC source file to load (optional)");
+    // Add project file argument
+    parser.addPositionalArgument("project", "Project file to open (optional)");
     
     parser.process(app);
     
     MainWindow window;
     
-    // Load source if provided
+    // Open project if provided
     const QStringList args = parser.positionalArguments();
     if (!args.isEmpty()) {
-        window.loadSource(args.first());
+        window.openProject(args.first());
     }
     
     window.show();

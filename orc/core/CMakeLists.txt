@@ -35,6 +35,9 @@ add_library(orc-core STATIC
     
     # DAG serialization
     dag_serialization.cpp
+    
+    # Project file I/O
+    project.cpp
 )
 
 target_include_directories(orc-core PUBLIC

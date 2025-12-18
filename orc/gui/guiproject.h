@@ -23,8 +23,14 @@ public:
     void setProjectPath(const QString& path) { project_path_ = path; }
     QString projectPath() const { return project_path_; }
     QString projectName() const;
-    bool isModified() const { return modified_; }
-    void setModified(bool modified) { modified_ = modified; }
+    bool isModified() const { return core_project_.has_unsaved_changes(); }
+    void setModified(bool modified) { 
+        if (modified) {
+            core_project_.is_modified = true;
+        } else {
+            core_project_.clear_modified_flag();
+        }
+    }
     
     // Project operations
     bool newEmptyProject(const QString& project_name, QString* error = nullptr);
@@ -54,7 +60,6 @@ private:
     QString project_path_;                                      // Path to .orc-project file
     orc::Project core_project_;                                 // Core project structure
     std::shared_ptr<const orc::VideoFieldRepresentation> source_representation_;  // Loaded TBC
-    bool modified_;                                             // Has project been modified since last save?
 };
 
 #endif // ORC_GUI_PROJECT_H

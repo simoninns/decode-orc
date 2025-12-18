@@ -7,7 +7,6 @@
 #include <algorithm>
 
 GUIProject::GUIProject()
-    : modified_(false)
 {
 }
 
@@ -27,7 +26,6 @@ bool GUIProject::newEmptyProject(const QString& project_name, QString* error)
         // Use core function to create empty project
         core_project_ = orc::project_io::create_empty_project(project_name.toStdString());
         source_representation_.reset();
-        modified_ = true;
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -45,7 +43,6 @@ bool GUIProject::addSource(const QString& tbc_path, QString* error)
         
         // Load TBC representation
         loadSourceRepresentations();
-        modified_ = true;
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -63,7 +60,6 @@ bool GUIProject::removeSource(int source_id, QString* error)
         
         // Reload representations
         loadSourceRepresentations();
-        modified_ = true;
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -87,7 +83,6 @@ bool GUIProject::saveToFile(const QString& path, QString* error)
     try {
         orc::project_io::save_project(core_project_, path.toStdString());
         project_path_ = path;
-        modified_ = false;
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -103,7 +98,6 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
         core_project_ = orc::project_io::load_project(path.toStdString());
         project_path_ = path;
         loadSourceRepresentations();
-        modified_ = false;
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -115,10 +109,9 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
 
 void GUIProject::clear()
 {
-    core_project_ = orc::Project();
+    orc::project_io::clear_project(core_project_);
     source_representation_.reset();
     project_path_.clear();
-    modified_ = false;
 }
 
 bool GUIProject::hasSource() const

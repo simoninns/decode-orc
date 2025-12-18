@@ -17,6 +17,7 @@
 #include "../core/include/dag_executor.h"
 #include "../core/include/stage_parameter.h"
 #include "../core/include/dag_serialization.h"
+#include "../core/include/project.h"
 
 /**
  * @brief Node state for visualization
@@ -31,6 +32,8 @@ enum class NodeState {
 /**
  * @brief Graphics item representing a DAG node
  */
+class DAGViewerWidget;  // Forward declaration
+
 class DAGNodeItem : public QGraphicsItem {
 public:
     DAGNodeItem(const std::string& node_id, 
@@ -53,6 +56,9 @@ public:
     std::string displayName() const { return display_name_; }
     void setDisplayName(const std::string& display_name);
     
+    // Viewer connection for position updates
+    void setViewer(DAGViewerWidget* viewer) { viewer_ = viewer; }
+    
     // Source info for START nodes
     void setSourceInfo(int source_number, const QString& source_name);
     
@@ -60,13 +66,17 @@ public:
     void setParameters(const std::map<std::string, orc::ParameterValue>& params);
     std::map<std::string, orc::ParameterValue> getParameters() const { return parameters_; }
     
-    // Connection points
-    QPointF inputConnectionPoint() const;
-    QPointF outputConnectionPoint() const;
+    // Connection points - multi-port support
+    QPointF inputConnectionPoint(int port_index = 0) const;
+    QPointF outputConnectionPoint(int port_index = 0) const;
+    int getInputPortCount() const { return input_port_positions_.size(); }
+    int getOutputPortCount() const { return output_port_positions_.size(); }
     
-    // Check if point is near a connection point
-    bool isNearInputPoint(const QPointF& scene_pos) const;
-    bool isNearOutputPoint(const QPointF& scene_pos) const;
+    // Check if point is near a connection point (returns port index or -1)
+    int findNearestInputPort(const QPointF& scene_pos) const;
+    int findNearestOutputPort(const QPointF& scene_pos) const;
+    bool isNearInputPoint(const QPointF& scene_pos) const;  // Legacy compatibility
+    bool isNearOutputPoint(const QPointF& scene_pos) const;  // Legacy compatibility
     
 protected:
     void mousePressEvent(QGraphicsSceneMouseEvent* event) override;
@@ -84,9 +94,18 @@ private:
     bool is_dragging_connection_;
     std::map<std::string, orc::ParameterValue> parameters_;  // Stage parameters
     
+    DAGViewerWidget* viewer_;  // For notifying position changes
+    
     // Source info for START nodes
     int source_number_;
     QString source_name_;
+    
+    // Multi-port support
+    std::vector<QPointF> input_port_positions_;   // Positions relative to node origin
+    std::vector<QPointF> output_port_positions_;  // Positions relative to node origin
+    
+    // Helper to recalculate port positions
+    void updatePortPositions();
     
     static constexpr double WIDTH = 150.0;
     static constexpr double HEIGHT = 80.0;
@@ -133,6 +152,10 @@ class DAGViewerWidget : public QGraphicsView {
 
 public:
     explicit DAGViewerWidget(QWidget* parent = nullptr);
+    ~DAGViewerWidget() override;
+    
+    // Project connection
+    void setProject(orc::Project* project);
     
     // DAG management
     void setDAG(const orc::DAG& dag);
@@ -156,6 +179,9 @@ public:
     // Layout operations
     void arrangeToGrid();
     
+    // Called by DAGNodeItem when position changes
+    void onNodePositionChanged(const std::string& node_id, double x, double y);
+    
     void setSourceInfo(int source_number, const QString& source_name);
 
 signals:
@@ -166,6 +192,7 @@ signals:
     void addNodeRequested(const std::string& after_node_id);
     void deleteNodeRequested(const std::string& node_id);
     void edgeCreated(const std::string& source_id, const std::string& target_id);
+    void dagModified();  // Emitted whenever DAG is modified
     
 private slots:
     void onSceneSelectionChanged();
@@ -191,6 +218,10 @@ private:
     DAGNodeItem* findNodeById(const std::string& node_id) const;
     void cleanupStalePointers();
     
+    // Connection counting for validation
+    int countInputConnections(const std::string& node_id) const;
+    int countOutputConnections(const std::string& node_id) const;
+    
     void createEdge(const std::string& source_id, const std::string& target_id);
     void cleanupInvalidEdges();
     void startEdgeDrag(DAGNodeItem* source_node, const QPointF& start_pos);
@@ -211,11 +242,11 @@ protected:
     orc::DAG current_dag_;
     bool has_dag_;
     
+    // Project pointer for CRUD operations
+    orc::Project* project_;
+    
     // Edge creation state
     bool is_creating_edge_;
     DAGNodeItem* edge_source_node_;  // Not QPointer - QGraphicsItem doesn't inherit QObject
     TemporaryEdgeLine* temp_edge_line_;
-    
-    // Auto-ID generation
-    int next_node_id_;
 };

@@ -27,7 +27,7 @@ const std::vector<NodeTypeInfo> NODE_TYPE_REGISTRY = {
     {
         NodeType::TRANSFORM,
         "Passthrough",
-        "Passthrough",
+        "Pass-through Simple",
         "Pass input to output unchanged (no-op stage for testing)",
         1, 1,  // Exactly one input
         1, 1,  // Exactly one output
@@ -50,7 +50,7 @@ const std::vector<NodeTypeInfo> NODE_TYPE_REGISTRY = {
     {
         NodeType::SPLITTER,
         "PassthroughSplitter",
-        "Passthrough Splitter",
+        "Pass-through Splitter",
         "Duplicate input to multiple outputs (test stage for fanout patterns)",
         1, 1,  // Exactly one input
         3, 3,  // Exactly three outputs
@@ -61,7 +61,7 @@ const std::vector<NodeTypeInfo> NODE_TYPE_REGISTRY = {
     {
         NodeType::MERGER,
         "PassthroughMerger",
-        "Passthrough Merger",
+        "Pass-through Merger",
         "Select first input from multiple inputs (test stage for merge patterns)",
         2, 8,  // 2 to 8 inputs
         1, 1,  // Exactly one output
@@ -72,7 +72,7 @@ const std::vector<NodeTypeInfo> NODE_TYPE_REGISTRY = {
     {
         NodeType::COMPLEX,
         "PassthroughComplex",
-        "Passthrough Complex",
+        "Pass-through Complex",
         "Multiple inputs to multiple outputs (test stage for complex patterns)",
         2, 4,  // 2 to 4 inputs
         2, 4,  // 2 to 4 outputs (same as inputs)

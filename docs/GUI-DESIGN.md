@@ -16,8 +16,13 @@
 
 **Interactive DAG Editor**
 - QGraphicsView-based DAG visualization
-- Visual node representation with input/output connection points
+- Visual node representation with connection point indicators
+- Node rendering adapts to node type (SOURCE: 0 inputs; TRANSFORM: 1 in/1 out; SPLITTER: 1 in/multiple out; MERGER: multiple in/1 out; COMPLEX: multiple in/multiple out)
+- Single input port on left edge (simple circle for single input, concentric circles for multiple inputs)
+- Single output port on right edge (simple circle for single output, concentric circles for multiple outputs)
+- Connection point visualization: ○ = single connection, ⊙ = multiple connections supported
 - Drag-to-connect edge creation (drag from output → input)
+- Connection validation enforces node type constraints (prevents connecting to full ports)
 - Node movement and repositioning
 - Source node for each source in the project (SOURCE type: no inputs, one output)
 - Source nodes display source name from orc-core (e.g., "Source: video.tbc")
@@ -28,6 +33,7 @@
 - DAG is part of the project and saved/loaded with the project file
 - Node rendering driven by orc-core node type metadata (NodeType enum: SOURCE, SINK, TRANSFORM, SPLITTER, MERGER, COMPLEX)
 - Connection validation enforced by orc-core (e.g., can't connect to SOURCE node input)
+- Edge creation prevented when target port already has maximum connections
 
 **Node Management**
 - Add nodes via context menu or keyboard (only user-creatable types shown)
@@ -66,20 +72,35 @@
 - Project file structure:
   - Project metadata (name, version)
   - Sources list (source_id, path, display_name)
-  - DAG nodes (including Source nodes with source_id reference)
+  - DAG nodes (including Source nodes with source_id reference, with x/y positions)
   - DAG edges
 - Project file I/O handled by orc-core (orc::project_io namespace)
 - Shared format between orc-gui and orc-process (CLI tool)
 - GUIProject class wraps orc::Project and manages TBC representation loading
 - Project name derived from filename (e.g., "my_project.orc-project" → name: "my_project")
 - Supports multiple sources with automatic source ID management
-- Modified indicator (*) in window title when project has unsaved changes
+- Complete CRUD API in orc-core for all DAG operations (add_node, remove_node, add_edge, remove_edge, set_node_parameters, set_node_position, change_node_type)
+- Modification tracking entirely in orc-core (is_modified flag, automatically set by all CRUD operations, cleared on save/load)
+- Modified indicator (*) appears in both MainWindow and DAG Editor window titles when project has unsaved changes
+- Signal chain: DAG changes → dagModified signal → projectModified signal → updateUIState → updateWindowTitle
+- Clear project functionality (clear_project) resets all project data
+- Node positions persist in project file and are restored when loading
+- DAG editor window automatically closes when all sources are removed
 
 **Error Handling**
 - Methods return bool with optional error strings
 - QMessageBox warnings for failed operations
 - Null pointer validation throughout
 - Try-catch blocks for exception safety
+
+**Architecture**
+- Complete separation of concerns: GUI handles presentation and input, core handles all business logic
+- No business logic in GUI layer (no validation, no data manipulation beyond calling core APIs)
+- All DAG operations go through orc-core CRUD API (project_io namespace)
+- Modification tracking managed entirely by core (mutable is_modified flag)
+- GUI queries core for validation decisions (e.g., can_change_node_type)
+- Signal-based communication for UI updates (dagModified → projectModified → updateUIState)
+- GUIProject is a thin Qt wrapper providing QString conversion and TBC representation loading
 
 ### 🚧 Known Issues
 
@@ -513,6 +534,9 @@ class GUIProject {
     
     // Core project access
     orc::Project& coreProject();
+    
+    // Modification tracking (delegates to core)
+    bool isModified() const { return core_project_.has_unsaved_changes(); }
 };
 ```
 
@@ -520,10 +544,12 @@ class GUIProject {
 
 - Qt-friendly interface (QString instead of std::string)
 - Manages TBC representation loading for preview
-- Tracks modified state for UI updates
 - Provides convenient accessors for GUI components
+- Delegates all project operations to orc-core (add/remove sources, save/load, clear)
 - Delegates source lifecycle to orc-core (add/remove with automatic Source node creation)
 - Prevents duplicate source paths (enforced by core)
+- Modification tracking entirely delegated to core (no GUI-side modified flag)
+- Pure wrapper with no business logic
 
 ### 18.3 Workflow
 
@@ -549,32 +575,53 @@ class GUIProject {
    - Core removes all edges connected to that Source node
    - Core clears entire DAG if no sources remain
    - GUI closes DAG editor if open
-   - Marks project as modified
+   - Core marks project as modified (is_modified flag set automatically)
 
 4. **Edit DAG**: User opens DAG editor (Tools → DAG Editor)
    - Only enabled when project has at least one source
    - DAG editor receives project reference via `setProject()`
    - Loads project's DAG nodes and edges into visual editor
-   - User adds processing nodes and connects them
-   - Changes sync back to project via `syncDAGToProject()`
-   - Marks project as modified
+   - User adds processing nodes, changes node types, sets parameters, and connects them
+   - All operations go through orc-core CRUD API:
+     - `add_node()` - Create new node at position
+     - `remove_node()` - Delete node and connected edges
+     - `change_node_type()` - Change node's stage type (validated by core)
+     - `set_node_parameters()` - Update node parameters
+     - `set_node_position()` - Update node x/y position
+     - `add_edge()` - Connect two nodes
+     - `remove_edge()` - Disconnect edge
+   - Each operation automatically marks project as modified in core
+   - DAG changes emit dagModified signal → projectModified signal → updateUIState
+   - Window titles update immediately to show modified state (*)
+   - Node positions persist and are saved with project
 
 5. **Save Project**: User saves project file (File → Save Project)
    - Saves to current file location (Ctrl+S)
-   - Serializes entire project (sources + DAG) to `.orc-project` YAML file
-   - Clears modified flag
+   - `orc::project_io::save_project()` serializes entire project (sources + DAG + positions) to `.orc-project` YAML file
+   - Core clears modified flag automatically after successful save
+   - Window titles update to remove asterisk (*)
 
 6. **Save As**: User saves project to new location (File → Save Project As)
    - Prompts for new file location
    - Updates project path
-   - Saves and clears modified flag
+   - Saves and core clears modified flag
+   - Window titles update to remove asterisk (*)
 
 7. **Open Project**: User opens existing project (File → Open Project)
    - File dialog to select .orc-project file
-   - Loads project from YAML file
+   - `orc::project_io::load_project()` loads project from YAML file
+   - Core clears modified flag after successful load
+   - GUI closes any open DAG editor window first
+   - GUI clears existing project state (representations, preview, UI state)
    - Loads all TBC representations for preview
-   - Restores DAG structure
+   - Restores DAG structure with node positions
    - Updates UI to reflect project state
+
+8. **New Project**: User creates new project while existing project is loaded
+   - GUI closes any open DAG editor window first
+   - GUI clears existing project state via `clear_project()`
+   - Creates fresh empty project
+   - Updates window titles
 
 **Quick Load** (backward compatibility): File → Open TBC (Quick) creates a temporary project with single source for rapid inspection without saving.
 

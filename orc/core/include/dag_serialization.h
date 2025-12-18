@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include "stage_parameter.h"
+#include "node_type.h"
 
 namespace orc {
 
@@ -14,6 +15,7 @@ namespace orc {
 struct GUIDAGNode {
     std::string node_id;
     std::string stage_name;
+    NodeType node_type;        // Node type (SOURCE, SINK, TRANSFORM, etc.)
     std::string display_name;  // Display name for GUI
     double x_position;  // Position for GUI layout
     double y_position;

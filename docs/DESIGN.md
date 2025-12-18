@@ -362,12 +362,50 @@ Project file I/O is handled by `orc-core` in the `orc::project_io` namespace:
 
 ```cpp
 namespace orc::project_io {
+    // Project file I/O
     Project load_project(const std::string& filename);
     void save_project(const Project& project, const std::string& filename);
     Project create_single_source_project(const std::string& tbc_path, 
                                           const std::string& project_name = "");
+    
+    // Project state management
+    void clear_project(Project& project);  // Reset to empty state
+    
+    // Source management
+    int32_t add_source_to_project(Project& project, const std::string& path, 
+                                   const std::string& display_name);
+    bool remove_source_from_project(Project& project, int32_t source_id);
+    
+    // DAG node operations
+    std::string add_node(Project& project, const std::string& stage_name,
+                         const std::string& display_name, double x, double y,
+                         int32_t source_id = -1);
+    bool remove_node(Project& project, const std::string& node_id);
+    bool change_node_type(Project& project, const std::string& node_id,
+                          const std::string& new_stage_name);
+    bool can_change_node_type(const Project& project, const std::string& node_id,
+                              const std::string& new_stage_name);
+    bool set_node_parameters(Project& project, const std::string& node_id,
+                             const std::map<std::string, ParameterValue>& parameters);
+    bool set_node_position(Project& project, const std::string& node_id,
+                           double x, double y);
+    
+    // DAG edge operations
+    bool add_edge(Project& project, const std::string& from_node_id,
+                  const std::string& to_node_id);
+    bool remove_edge(Project& project, const std::string& from_node_id,
+                     const std::string& to_node_id);
 }
 ```
+
+**Modification Tracking**:
+
+The `Project` struct includes a `is_modified` flag (mutable, not persisted) to track unsaved changes:
+
+- Automatically set by all CRUD operations (add/remove nodes/edges, parameter/position changes)
+- Cleared by `save_project()` and `load_project()`
+- Queried via `has_unsaved_changes()`
+- Cleared explicitly via `clear_modified_flag()`
 
 **Design constraints**:
 
@@ -375,6 +413,7 @@ namespace orc::project_io {
 - Self-contained and portable
 - Human-readable for version control
 - Extensible for future metadata
+- All validation in core (no GUI business logic)
 
 ---
 
@@ -441,7 +480,7 @@ No processing logic exists in the CLI itself.
 The GUI:
 - Creates and manages projects
 - Adds/removes sources to/from projects
-- Edits the DAG visually
+- Edits the DAG visually (add/remove/connect nodes, change parameters, set positions)
 - Visualizes video fields
 - Displays observer outputs
 - Allows manual decision editing
@@ -449,6 +488,19 @@ The GUI:
 - Saves project state (sources + DAG)
 
 The GUI never mutates signal data directly.
+
+**Architecture**: Complete separation of concerns
+- **Core layer** (`orc-core`): All business logic, validation, and data structures
+- **GUI layer** (`orc-gui`): Pure presentation, Qt widgets, signals/slots
+- All DAG operations go through core CRUD API:
+  - `add_node()`, `remove_node()`, `change_node_type()`
+  - `set_node_parameters()`, `set_node_position()`
+  - `add_edge()`, `remove_edge()`
+  - `can_change_node_type()` for validation
+- Automatic modification tracking in core (is_modified flag)
+- Signal-based UI updates (dagModified → projectModified → updateUIState)
+
+**See**: `docs/GUI-DESIGN.md` for complete GUI architecture documentation.
 
 ---
 
@@ -720,8 +772,56 @@ Each observer implements specific VBI standard with proper validation:
 ### Phase 5 – Aggregation and Interpretation (PLANNED)
 **Status**: Not started
 
-### Phase 6 – Tooling (PLANNED)
-**Status**: Not started
+### Phase 6 – Tooling (IN PROGRESS)
+**Status**: Partial implementation (December 2025)
+
+**Delivered Components**:
+
+#### GUI Foundation
+- **MainWindow** ([orc/gui/mainwindow.cpp](orc/gui/mainwindow.cpp))
+  - Project lifecycle: New, Open, Save, Save As
+  - Modification tracking with window title indicator (asterisk)
+  - Recent projects list
+  - Source management via GUI dialog
+  - Launches DAG Editor window
+  - State clearing when switching/creating projects
+
+- **DAGEditorWindow** ([orc/gui/dageditorwindow.cpp](orc/gui/dageditorwindow.cpp))
+  - Visual DAG editing interface
+  - Node creation via context menu (filtered by user_creatable flag)
+  - Node deletion and type changing
+  - Edge creation via drag-and-drop
+  - Node positioning with mouse
+  - Modification status in window title
+  - Signal chain: dagModified → projectModified → main window update
+
+- **DAGViewerWidget** ([orc/gui/dagviewerwidget.cpp](orc/gui/dagviewerwidget.cpp))
+  - Custom QGraphicsView for DAG visualization
+  - Node rendering with type-specific colors
+  - Edge rendering with bezier curves
+  - Interactive node dragging
+  - Context menus for add/delete/change operations
+  - Connection validation via core API
+
+- **GUIProject** ([orc/gui/guiproject.cpp](orc/gui/guiproject.cpp))
+  - Pure wrapper around `orc::Project`
+  - No business logic (all delegated to core)
+  - Signal emissions for Qt integration
+  - CRUD operations call `orc::project_io` functions
+
+**Architecture Principles**:
+- Complete separation: GUI is purely presentational
+- All validation in core layer
+- Signal-based UI updates (no polling)
+- Automatic modification tracking
+- State management via core APIs
+
+**Planned Components**:
+- Field visualization widget
+- Observer output display
+- Manual decision editing UI
+- Pipeline execution controls
+- Migration utilities from legacy tools
 
 ---
 

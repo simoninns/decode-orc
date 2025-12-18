@@ -8,6 +8,9 @@
 #include "../core/include/dag_serialization.h"
 #include "../core/include/dropout_correct_stage.h"
 #include "../core/include/passthrough_stage.h"
+#include "../core/include/passthrough_splitter_stage.h"
+#include "../core/include/passthrough_merger_stage.h"
+#include "../core/include/passthrough_complex_stage.h"
 
 #include <QMenuBar>
 #include <QStatusBar>
@@ -15,6 +18,7 @@
 #include <QMessageBox>
 #include <QInputDialog>
 #include <QVBoxLayout>
+#include <QCloseEvent>
 
 DAGEditorWindow::DAGEditorWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -36,17 +40,39 @@ DAGEditorWindow::DAGEditorWindow(QWidget *parent)
     connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
             this, &DAGEditorWindow::onEditParameters);
     
-    // Connect modification signals to sync with project
-    connect(dag_viewer_, &DAGViewerWidget::edgeCreated,
-            this, &DAGEditorWindow::onDAGModified);
-    connect(dag_viewer_, &DAGViewerWidget::addNodeRequested,
-            this, &DAGEditorWindow::onDAGModified);
-    connect(dag_viewer_, &DAGViewerWidget::deleteNodeRequested,
-            this, &DAGEditorWindow::onDAGModified);
+    // Forward dagModified signal to notify parent window
+    connect(dag_viewer_, &DAGViewerWidget::dagModified,
+            this, &DAGEditorWindow::projectModified);
+    
+    // Update DAG editor window title when project is modified
+    connect(dag_viewer_, &DAGViewerWidget::dagModified,
+            this, &DAGEditorWindow::updateWindowTitle);
     
     setupMenus();
     
     statusBar()->showMessage("DAG Editor Ready");
+}
+
+DAGEditorWindow::~DAGEditorWindow()
+{
+    // Disconnect all signals before destruction to avoid "object is not of correct type" errors
+    if (dag_viewer_) {
+        disconnect(dag_viewer_, nullptr, this, nullptr);
+    }
+}
+
+void DAGEditorWindow::closeEvent(QCloseEvent* event)
+{
+    // Accept the close event
+    event->accept();
+    
+    // Disconnect signals immediately to prevent issues during destruction
+    if (dag_viewer_) {
+        disconnect(dag_viewer_, nullptr, this, nullptr);
+    }
+    
+    // Schedule deletion for later (after all events are processed)
+    deleteLater();
 }
 
 void DAGEditorWindow::setupMenus()
@@ -71,7 +97,12 @@ void DAGEditorWindow::setProject(GUIProject* project)
 {
     project_ = project;
     if (project_) {
+        // Connect DAG viewer to the core project for CRUD operations
+        if (dag_viewer_) {
+            dag_viewer_->setProject(&project_->coreProject());
+        }
         loadProjectDAG();
+        updateWindowTitle();
     }
 }
 
@@ -93,6 +124,7 @@ void DAGEditorWindow::loadProjectDAG()
         orc::GUIDAGNode gui_node;
         gui_node.node_id = node.node_id;
         gui_node.stage_name = node.stage_name;
+        gui_node.node_type = node.node_type;
         gui_node.display_name = node.display_name;
         gui_node.x_position = node.x_position;
         gui_node.y_position = node.y_position;
@@ -119,64 +151,6 @@ void DAGEditorWindow::loadProjectDAG()
     statusBar()->showMessage("Loaded DAG from project", 2000);
 }
 
-void DAGEditorWindow::onDAGModified()
-{
-    // Sync changes back to project
-    syncDAGToProject();
-}
-
-void DAGEditorWindow::syncDAGToProject()
-{
-    if (!project_) {
-        return;
-    }
-    
-    // Export current DAG state
-    auto gui_dag = dag_viewer_->exportDAG();
-    
-    // Convert nodes to project format
-    std::vector<orc::ProjectDAGNode> nodes;
-    for (const auto& gui_node : gui_dag.nodes) {
-        orc::ProjectDAGNode node;
-        node.node_id = gui_node.node_id;
-        node.stage_name = gui_node.stage_name;
-        node.display_name = gui_node.display_name;
-        node.x_position = gui_node.x_position;
-        node.y_position = gui_node.y_position;
-        node.parameters = gui_node.parameters;
-        
-        // Extract source_id if this is a Source node
-        node.source_id = -1;
-        if (gui_node.stage_name == "Source") {
-            // Parse node_id like "start_0" to get source_id
-            std::string id_str = gui_node.node_id;
-            if (id_str.find("start_") == 0) {
-                try {
-                    node.source_id = std::stoi(id_str.substr(6));
-                } catch (...) {
-                    node.source_id = -1;
-                }
-            }
-        }
-        
-        nodes.push_back(node);
-    }
-    
-    // Convert edges to project format
-    std::vector<orc::ProjectDAGEdge> edges;
-    for (const auto& gui_edge : gui_dag.edges) {
-        orc::ProjectDAGEdge edge;
-        edge.source_node_id = gui_edge.source_node_id;
-        edge.target_node_id = gui_edge.target_node_id;
-        edges.push_back(edge);
-    }
-    
-    // Use core function to update project DAG (preserves START nodes)
-    orc::project_io::update_project_dag(project_->coreProject(), nodes, edges);
-    
-    // Mark project as modified
-    project_->setModified(true);
-}
 
 void DAGEditorWindow::onNodeSelected(const std::string& node_id)
 {
@@ -185,28 +159,44 @@ void DAGEditorWindow::onNodeSelected(const std::string& node_id)
 
 void DAGEditorWindow::onChangeNodeType(const std::string& node_id)
 {
-    QStringList stage_types;
-    stage_types << "Passthrough" << "Dropout Correct";
+    // Get all available node types from the registry
+    const auto& all_types = orc::get_all_node_types();
+    
+    QStringList stage_display_names;
+    std::vector<std::string> stage_names;  // Parallel array to map display names to stage names
+    
+    for (const auto& type_info : all_types) {
+        // Only include user-creatable types
+        if (type_info.user_creatable) {
+            stage_display_names << QString::fromStdString(type_info.display_name);
+            stage_names.push_back(type_info.stage_name);
+        }
+    }
     
     bool ok;
-    QString selected = QInputDialog::getItem(
+    QString selected_display_name = QInputDialog::getItem(
         this,
         "Change Node Type",
         QString("Select new stage type for node '%1':").arg(QString::fromStdString(node_id)),
-        stage_types,
+        stage_display_names,
         0,
         false,
         &ok
     );
     
-    if (ok && !selected.isEmpty()) {
-        dag_viewer_->setNodeStageType(node_id, selected.toStdString());
-        statusBar()->showMessage(
-            QString("Changed node '%1' to %2")
-                .arg(QString::fromStdString(node_id))
-                .arg(selected),
-            3000
-        );
+    if (ok && !selected_display_name.isEmpty()) {
+        // Find the stage_name corresponding to the selected display_name
+        int index = stage_display_names.indexOf(selected_display_name);
+        if (index >= 0 && index < static_cast<int>(stage_names.size())) {
+            std::string stage_name = stage_names[index];
+            dag_viewer_->setNodeStageType(node_id, stage_name);
+            statusBar()->showMessage(
+                QString("Changed node '%1' to %2")
+                    .arg(QString::fromStdString(node_id))
+                    .arg(selected_display_name),
+                3000
+            );
+        }
     }
 }
 
@@ -227,6 +217,12 @@ void DAGEditorWindow::onEditParameters(const std::string& node_id)
         stage = std::make_unique<orc::DropoutCorrectStage>();
     } else if (stage_name == "Passthrough") {
         stage = std::make_unique<orc::PassthroughStage>();
+    } else if (stage_name == "PassthroughSplitter") {
+        stage = std::make_unique<orc::PassthroughSplitterStage>();
+    } else if (stage_name == "PassthroughMerger") {
+        stage = std::make_unique<orc::PassthroughMergerStage>();
+    } else if (stage_name == "PassthroughComplex") {
+        stage = std::make_unique<orc::PassthroughComplexStage>();
     } else {
         QMessageBox::information(this, "Edit Parameters",
             QString("Stage '%1' does not have configurable parameters")
@@ -256,4 +252,23 @@ void DAGEditorWindow::setSourceInfo(int source_number, const QString& source_nam
     if (dag_viewer_) {
         dag_viewer_->setSourceInfo(source_number, source_name);
     }
+}
+
+void DAGEditorWindow::updateWindowTitle()
+{
+    QString title = "DAG Editor";
+    
+    if (project_) {
+        QString project_name = project_->projectName();
+        if (!project_name.isEmpty()) {
+            title = "DAG Editor - " + project_name;
+            
+            // Add modified indicator
+            if (project_->isModified()) {
+                title += " *";
+            }
+        }
+    }
+    
+    setWindowTitle(title);
 }

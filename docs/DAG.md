@@ -416,7 +416,144 @@ Observer outputs MUST NOT:
 
 ---
 
-## 12. Deferred Topics
+## 12. Project Integration
+
+### 12.1 Project File Format
+
+DAGs are stored in project files (`.orc-project`) using YAML format.
+
+**Structure**:
+```yaml
+project:
+  name: "project_name"
+  version: "1.0"
+
+sources:
+  - id: 0
+    path: "/path/to/file.tbc"
+    name: "file"
+
+dag:
+  nodes:
+    - id: "start_0"
+      stage: "START"
+      node_type: "SOURCE"
+      display_name: "Source: file"
+      x: -450
+      y: 0
+      source_id: 0
+    - id: "node_1"
+      stage: "Passthrough"
+      node_type: "TRANSFORM"
+      display_name: "Passthrough"
+      x: 100
+      y: 50
+      parameters:
+        param_name:
+          type: "int32"
+          value: 42
+  edges:
+    - from: "start_0"
+      to: "node_1"
+```
+
+Project files are managed by the `orc::project_io` namespace and shared between `orc-gui` and `orc-process`.
+
+### 12.2 CRUD Operations
+
+The project system provides a complete CRUD API for DAG manipulation:
+
+**Node Operations**:
+```cpp
+namespace orc::project_io {
+    // Create
+    std::string add_node(Project& project, const std::string& stage_name, 
+                        double x_position, double y_position);
+    
+    // Read (via Project struct)
+    // project.nodes vector contains all nodes
+    
+    // Update
+    void change_node_type(Project& project, const std::string& node_id, 
+                         const std::string& new_stage_name);
+    void set_node_parameters(Project& project, const std::string& node_id,
+                            const std::map<std::string, ParameterValue>& parameters);
+    void set_node_position(Project& project, const std::string& node_id,
+                          double x_position, double y_position);
+    
+    // Delete
+    void remove_node(Project& project, const std::string& node_id);
+    
+    // Validation
+    bool can_change_node_type(const Project& project, const std::string& node_id,
+                             std::string* reason = nullptr);
+}
+```
+
+**Edge Operations**:
+```cpp
+namespace orc::project_io {
+    // Create
+    void add_edge(Project& project, const std::string& source_node_id,
+                 const std::string& target_node_id);
+    
+    // Delete
+    void remove_edge(Project& project, const std::string& source_node_id,
+                    const std::string& target_node_id);
+}
+```
+
+**Source Operations** (create/remove START nodes automatically):
+```cpp
+namespace orc::project_io {
+    void add_source_to_project(Project& project, const std::string& tbc_path);
+    void remove_source_from_project(Project& project, int source_id);
+}
+```
+
+### 12.3 Modification Tracking
+
+All CRUD operations automatically mark the project as modified:
+
+```cpp
+struct Project {
+    mutable bool is_modified = false;  // Not persisted to file
+    
+    void clear_modified_flag() const { is_modified = false; }
+    bool has_unsaved_changes() const { return is_modified; }
+};
+```
+
+The flag is automatically:
+- Set to `true` by all CRUD operations
+- Cleared by `load_project()` and `save_project()`
+- Cleared by `clear_project()`
+
+This enables GUI indicators (window title asterisks) and prevents accidental data loss.
+
+### 12.4 Node Type Constraints
+
+Nodes have types that determine connection rules:
+
+```cpp
+enum class NodeType {
+    SOURCE,     // 0 inputs, 1+ outputs (START nodes)
+    SINK,       // 1+ inputs, 0 outputs
+    TRANSFORM,  // 1 input, 1 output
+    SPLITTER,   // 1 input, multiple outputs
+    MERGER,     // Multiple inputs, 1 output
+    COMPLEX     // Multiple inputs, multiple outputs
+};
+```
+
+Type changes are validated to prevent breaking existing connections:
+- Cannot change type if node has any connected edges
+- SOURCE nodes (START nodes) cannot be changed at all
+- `can_change_node_type()` provides validation before UI attempts
+
+---
+
+## 13. Deferred Topics
 
 The following are explicitly deferred:
 

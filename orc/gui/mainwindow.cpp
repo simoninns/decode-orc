@@ -18,10 +18,12 @@
 #include <QSlider>
 #include <QPushButton>
 #include <QMessageBox>
+#include <QDebug>
 #include <QKeyEvent>
 #include <QComboBox>
 #include <QTabWidget>
 #include <QSplitter>
+#include <QApplication>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -281,6 +283,21 @@ void MainWindow::newProject()
         filename += ".orc-project";
     }
     
+    // Close DAG editor if open
+    if (dag_editor_window_) {
+        dag_editor_window_->close();
+        dag_editor_window_ = nullptr;
+    }
+    
+    // Clear existing project state
+    project_.clear();
+    representation_.reset();
+    preview_widget_->setRepresentation(nullptr);
+    field_slider_->setEnabled(false);
+    field_slider_->setValue(0);
+    current_field_index_ = 0;
+    total_fields_ = 0;
+    
     // Derive project name from filename
     QString project_name = QFileInfo(filename).completeBaseName();
     
@@ -352,6 +369,21 @@ void MainWindow::addSourceToProject()
 
 void MainWindow::openProject(const QString& filename)
 {
+    // Close DAG editor if open
+    if (dag_editor_window_) {
+        dag_editor_window_->close();
+        dag_editor_window_ = nullptr;
+    }
+    
+    // Clear existing project state
+    project_.clear();
+    representation_.reset();
+    preview_widget_->setRepresentation(nullptr);
+    field_slider_->setEnabled(false);
+    field_slider_->setValue(0);
+    current_field_index_ = 0;
+    total_fields_ = 0;
+    
     QString error;
     if (!project_.loadFromFile(filename, &error)) {
         QMessageBox::critical(this, "Error", error);
@@ -457,6 +489,9 @@ void MainWindow::updateUIState()
     if (dag_editor_action_) {
         dag_editor_action_->setEnabled(has_source);
     }
+    
+    // Update window title to reflect modified state
+    updateWindowTitle();
 }
 
 void MainWindow::onFieldChanged(int field_index)
@@ -545,6 +580,10 @@ void MainWindow::updateWindowTitle()
     }
     
     setWindowTitle(title);
+    
+    // Force window manager to update the title bar immediately
+    // This ensures the title updates even when the DAG editor window is active
+    QApplication::processEvents();
 }
 
 void MainWindow::updateFieldInfo()
@@ -624,12 +663,17 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
 
 void MainWindow::onOpenDAGEditor()
 {
-    // Create DAG editor window if it doesn't exist
+    // QPointer automatically becomes null when window is deleted (WA_DeleteOnClose)
     if (!dag_editor_window_) {
+        // Create new window
         dag_editor_window_ = new DAGEditorWindow(this);
         
         // Connect project to DAG editor
         dag_editor_window_->setProject(&project_);
+        
+        // Connect modification signal to update UI state
+        connect(dag_editor_window_, &DAGEditorWindow::projectModified,
+                this, &MainWindow::updateUIState);
         
         // Set source info if project has source
         if (project_.hasSource()) {
@@ -640,8 +684,10 @@ void MainWindow::onOpenDAGEditor()
         dag_editor_window_->loadProjectDAG();
     }
     
-    // Show the window
-    dag_editor_window_->show();
-    dag_editor_window_->raise();
-    dag_editor_window_->activateWindow();
+    // Show the window (safe even if it was just created or already exists)
+    if (dag_editor_window_) {
+        dag_editor_window_->show();
+        dag_editor_window_->raise();
+        dag_editor_window_->activateWindow();
+    }
 }

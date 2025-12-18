@@ -8,6 +8,7 @@
  ******************************************************************************/
 
 #include "dagviewerwidget.h"
+#include "node_type_helper.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QKeyEvent>
@@ -15,6 +16,7 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QWidget>
+#include <QDebug>
 #include <cmath>
 #include <algorithm>
 #include <queue>
@@ -35,12 +37,16 @@ DAGNodeItem::DAGNodeItem(const std::string& node_id,
     , state_(NodeState::Pending)
     , is_source_node_(is_source_node)
     , is_dragging_connection_(false)
+    , viewer_(nullptr)
     , source_number_(-1)
 {
     setFlag(QGraphicsItem::ItemIsMovable);
     setFlag(QGraphicsItem::ItemIsSelectable);
     setFlag(QGraphicsItem::ItemSendsGeometryChanges);
     setAcceptHoverEvents(true);
+    
+    // Initialize port positions based on node type
+    updatePortPositions();
 }
 
 QRectF DAGNodeItem::boundingRect() const
@@ -94,30 +100,65 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     painter->setFont(font);
     
     QRectF text_rect(5, 10, WIDTH - 10, 25);
-    painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(display_name_));
     
-    // Draw node ID
+    // Top line: For source nodes show stage name ("Source"), for others show display name
+    if (is_source_node_) {
+        painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(stage_name_));
+    } else {
+        painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(display_name_));
+    }
+    
+    // Draw bottom text (source name for source nodes, nothing for others)
     font.setBold(false);
     font.setPointSize(8);
     painter->setFont(font);
     painter->setPen(QColor(80, 80, 80));
     
     QRectF id_rect(5, 40, WIDTH - 10, 30);
-    painter->drawText(id_rect, Qt::AlignCenter, QString::fromStdString(node_id_));
+    
+    // Bottom line: For source nodes show source filename, for others show nothing
+    if (is_source_node_ && !source_name_.isEmpty()) {
+        painter->drawText(id_rect, Qt::AlignCenter, source_name_);
+    }
     
     // Draw connection points
     painter->setPen(QPen(Qt::darkGray, 2));
     painter->setBrush(Qt::white);
     
-    // Input point (left edge) - only if not source node
-    if (!is_source_node_) {
-        QPointF input_pt(0, HEIGHT / 2);
-        painter->drawEllipse(input_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
+    // Get node type info
+    NodeTypeHelper::NodeVisualInfo visual_info = NodeTypeHelper::getVisualInfo(stage_name_);
+    
+    // Input port (left edge) - single circle or concentric circles
+    if (visual_info.has_input) {
+        QPointF input_pt = NodeTypeHelper::getInputPortPosition(WIDTH, HEIGHT);
+        
+        if (visual_info.input_is_many) {
+            // Draw concentric circles (outer circle with inner dot)
+            painter->drawEllipse(input_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
+            painter->setBrush(Qt::darkGray);
+            painter->drawEllipse(input_pt, CONNECTION_POINT_RADIUS / 3, CONNECTION_POINT_RADIUS / 3);
+            painter->setBrush(Qt::white);
+        } else {
+            // Draw simple circle
+            painter->drawEllipse(input_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
+        }
     }
     
-    // Output point (right edge)
-    QPointF output_pt(WIDTH, HEIGHT / 2);
-    painter->drawEllipse(output_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
+    // Output port (right edge) - single circle or concentric circles
+    if (visual_info.has_output) {
+        QPointF output_pt = NodeTypeHelper::getOutputPortPosition(WIDTH, HEIGHT);
+        
+        if (visual_info.output_is_many) {
+            // Draw concentric circles (outer circle with inner dot)
+            painter->drawEllipse(output_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
+            painter->setBrush(Qt::darkGray);
+            painter->drawEllipse(output_pt, CONNECTION_POINT_RADIUS / 3, CONNECTION_POINT_RADIUS / 3);
+            painter->setBrush(Qt::white);
+        } else {
+            // Draw simple circle
+            painter->drawEllipse(output_pt, CONNECTION_POINT_RADIUS, CONNECTION_POINT_RADIUS);
+        }
+    }
 }
 
 void DAGNodeItem::setState(NodeState state)
@@ -129,7 +170,8 @@ void DAGNodeItem::setState(NodeState state)
 void DAGNodeItem::setStageName(const std::string& stage_name)
 {
     stage_name_ = stage_name;
-    update();  // Redraw with new name
+    updatePortPositions();  // Recalculate ports for new stage type
+    update();  // Redraw with new name and ports
 }
 
 void DAGNodeItem::setDisplayName(const std::string& display_name)
@@ -150,27 +192,73 @@ void DAGNodeItem::setParameters(const std::map<std::string, orc::ParameterValue>
     parameters_ = params;
 }
 
-QPointF DAGNodeItem::inputConnectionPoint() const
+void DAGNodeItem::updatePortPositions()
 {
-    return pos() + QPointF(0, HEIGHT / 2);  // Left edge
+    // Simplified - we just store single positions
+    input_port_positions_.clear();
+    output_port_positions_.clear();
+    
+    NodeTypeHelper::NodeVisualInfo visual_info = NodeTypeHelper::getVisualInfo(stage_name_);
+    
+    if (visual_info.has_input) {
+        input_port_positions_.push_back(NodeTypeHelper::getInputPortPosition(WIDTH, HEIGHT));
+    }
+    
+    if (visual_info.has_output) {
+        output_port_positions_.push_back(NodeTypeHelper::getOutputPortPosition(WIDTH, HEIGHT));
+    }
 }
 
-QPointF DAGNodeItem::outputConnectionPoint() const
+QPointF DAGNodeItem::inputConnectionPoint(int port_index) const
 {
-    return pos() + QPointF(WIDTH, HEIGHT / 2);  // Right edge
+    Q_UNUSED(port_index);
+    // Always return center-left
+    return pos() + QPointF(0, HEIGHT / 2);
+}
+
+QPointF DAGNodeItem::outputConnectionPoint(int port_index) const
+{
+    Q_UNUSED(port_index);
+    // Always return center-right
+    return pos() + QPointF(WIDTH, HEIGHT / 2);
+}
+
+int DAGNodeItem::findNearestInputPort(const QPointF& scene_pos) const
+{
+    if (input_port_positions_.empty()) return -1;
+    
+    QPointF input_pt = pos() + QPointF(0, HEIGHT / 2);
+    qreal distance = (scene_pos - input_pt).manhattanLength();
+    
+    if (distance < CONNECTION_POINT_RADIUS * 3) {
+        return 0;  // Always return port 0 if within range
+    }
+    
+    return -1;
+}
+
+int DAGNodeItem::findNearestOutputPort(const QPointF& scene_pos) const
+{
+    if (output_port_positions_.empty()) return -1;
+    
+    QPointF output_pt = pos() + QPointF(WIDTH, HEIGHT / 2);
+    qreal distance = (scene_pos - output_pt).manhattanLength();
+    
+    if (distance < CONNECTION_POINT_RADIUS * 3) {
+        return 0;  // Always return port 0 if within range
+    }
+    
+    return -1;
 }
 
 bool DAGNodeItem::isNearInputPoint(const QPointF& scene_pos) const
 {
-    if (is_source_node_) return false;  // Source node has no input
-    QPointF input = inputConnectionPoint();
-    return (scene_pos - input).manhattanLength() < CONNECTION_POINT_RADIUS * 3;
+    return findNearestInputPort(scene_pos) >= 0;
 }
 
 bool DAGNodeItem::isNearOutputPoint(const QPointF& scene_pos) const
 {
-    QPointF output = outputConnectionPoint();
-    return (scene_pos - output).manhattanLength() < CONNECTION_POINT_RADIUS * 3;
+    return findNearestOutputPort(scene_pos) >= 0;
 }
 
 void DAGNodeItem::mousePressEvent(QGraphicsSceneMouseEvent* event)
@@ -225,6 +313,12 @@ QVariant DAGNodeItem::itemChange(GraphicsItemChange change, const QVariant& valu
                     edge->updatePosition();
                 }
             }
+        }
+        
+        // Notify viewer of position change to save to project
+        if (viewer_) {
+            QPointF new_pos = pos();
+            viewer_->onNodePositionChanged(node_id_, new_pos.x(), new_pos.y());
         }
     }
     return QGraphicsItem::itemChange(change, value);
@@ -311,25 +405,14 @@ void DAGEdgeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
 
 void DAGEdgeItem::updatePosition()
 {
-    if (!scene() || !isValid()) return;
+    if (!isValid()) return;
     
-    // Cache the old bounding rect in scene coordinates
-    QRectF oldRect = sceneBoundingRect();
-    
-    // Notify Qt that geometry is changing
+    // Call prepareGeometryChange() first, before the geometry actually changes
+    // This is required by Qt to properly update the BSP tree
     prepareGeometryChange();
     
-    // Update the scene for both old and new regions
-    if (scene()) {
-        // Invalidate old region
-        scene()->update(oldRect);
-        
-        // Update item itself
-        update();
-        
-        // Invalidate new region
-        scene()->update(sceneBoundingRect());
-    }
+    // Just trigger a repaint - boundingRect() will be recalculated automatically
+    update();
 }
 
 void DAGEdgeItem::invalidate()
@@ -360,12 +443,18 @@ DAGViewerWidget::DAGViewerWidget(QWidget* parent)
     : QGraphicsView(parent)
     , scene_(new QGraphicsScene(this))
     , has_dag_(false)
+    , project_(nullptr)
     , is_creating_edge_(false)
     , edge_source_node_(nullptr)
     , temp_edge_line_(nullptr)
-    , next_node_id_(1)
 {
     setScene(scene_);
+    
+    // Disable BSP tree indexing to avoid crashes during geometry changes
+    // This makes item lookups slightly slower but prevents BSP tree corruption
+    // when items are moved/updated during paint events
+    scene_->setItemIndexMethod(QGraphicsScene::NoIndex);
+    
     setRenderHint(QPainter::Antialiasing);
     setDragMode(QGraphicsView::NoDrag);  // Handle dragging manually
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
@@ -386,15 +475,33 @@ DAGViewerWidget::DAGViewerWidget(QWidget* parent)
     initializeWithStartNode();
 }
 
+DAGViewerWidget::~DAGViewerWidget()
+{
+    // Disconnect from scene to prevent signals during destruction
+    if (scene_) {
+        disconnect(scene_, nullptr, this, nullptr);
+    }
+    
+    // Clear the DAG to properly clean up all items
+    clearDAG();
+}
+
+void DAGViewerWidget::setProject(orc::Project* project)
+{
+    project_ = project;
+}
+
 void DAGViewerWidget::initializeWithStartNode()
 {
     clearDAG();
     
     // Create permanent start node near left edge of workspace
-    auto* start_node = new DAGNodeItem("START", "Source Input", true);
+    auto* start_node = new DAGNodeItem("start_0", "Source", true);
+    start_node->setViewer(this);
+    start_node->setDisplayName("Source");
     start_node->setPos(-450, 0);  // Position near left edge (50 pixels from edge)
     scene_->addItem(start_node);
-    node_items_["START"] = start_node;
+    node_items_["start_0"] = start_node;
     
     scene_->setSceneRect(-500, -500, 1000, 1000);
 }
@@ -415,13 +522,36 @@ void DAGViewerWidget::setDAG(const orc::DAG& dag)
 
 void DAGViewerWidget::clearDAG()
 {
-    scene_->clear();
-    node_items_.clear();
-    edge_items_.clear();
-    has_dag_ = false;
+    // Cancel any ongoing edge creation
     is_creating_edge_ = false;
     edge_source_node_ = nullptr;
-    temp_edge_line_ = nullptr;
+    
+    // Delete temp edge line if it exists
+    if (temp_edge_line_ && scene_) {
+        scene_->removeItem(temp_edge_line_);
+        delete temp_edge_line_;
+        temp_edge_line_ = nullptr;
+    }
+    
+    // First, delete all edges (which reference nodes)
+    for (auto* edge : edge_items_) {
+        if (edge) {
+            if (scene_) scene_->removeItem(edge);
+            delete edge;
+        }
+    }
+    edge_items_.clear();
+    
+    // Then delete all nodes
+    for (auto& pair : node_items_) {
+        if (pair.second) {
+            if (scene_) scene_->removeItem(pair.second);
+            delete pair.second;
+        }
+    }
+    node_items_.clear();
+    
+    has_dag_ = false;
 }
 
 void DAGViewerWidget::setNodeState(const std::string& node_id, NodeState state)
@@ -434,10 +564,35 @@ void DAGViewerWidget::setNodeState(const std::string& node_id, NodeState state)
 
 void DAGViewerWidget::setNodeStageType(const std::string& node_id, const std::string& stage_name)
 {
-    DAGNodeItem* node = findNodeById(node_id);
-    if (node) {
-        node->setStageName(stage_name);
+    if (!project_) {
+        return;
     }
+    
+    DAGNodeItem* node = findNodeById(node_id);
+    if (!node) {
+        return;
+    }
+    
+    // Update in project first
+    try {
+        orc::project_io::change_node_type(*project_, node_id, stage_name);
+    } catch (const std::exception& e) {
+        QMessageBox::warning(nullptr, "Change Node Type Failed",
+            QString("Failed to change node type: %1").arg(e.what()));
+        return;
+    }
+    
+    // Update GUI representation
+    node->setStageName(stage_name);
+    
+    // Update display name from node type info
+    const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
+    if (type_info) {
+        node->setDisplayName(type_info->display_name);
+    }
+    
+    // Notify that DAG was modified
+    emit dagModified();
 }
 
 std::string DAGViewerWidget::getNodeStageType(const std::string& node_id) const
@@ -451,10 +606,29 @@ std::string DAGViewerWidget::getNodeStageType(const std::string& node_id) const
 
 void DAGViewerWidget::setNodeParameters(const std::string& node_id, const std::map<std::string, orc::ParameterValue>& params)
 {
-    DAGNodeItem* node = findNodeById(node_id);
-    if (node) {
-        node->setParameters(params);
+    if (!project_) {
+        return;
     }
+    
+    DAGNodeItem* node = findNodeById(node_id);
+    if (!node) {
+        return;
+    }
+    
+    // Update in project first
+    try {
+        orc::project_io::set_node_parameters(*project_, node_id, params);
+    } catch (const std::exception& e) {
+        QMessageBox::warning(nullptr, "Set Parameters Failed",
+            QString("Failed to set node parameters: %1").arg(e.what()));
+        return;
+    }
+    
+    // Update GUI representation
+    node->setParameters(params);
+    
+    // Notify that DAG was modified
+    emit dagModified();
 }
 
 std::map<std::string, orc::ParameterValue> DAGViewerWidget::getNodeParameters(const std::string& node_id) const
@@ -470,7 +644,7 @@ void DAGViewerWidget::setSourceInfo(int source_number, const QString& source_nam
 {
     // Find START nodes and update their source info
     for (auto& [node_id, node_item] : node_items_) {
-        if (node_item && node_item->isStartNode()) {
+        if (node_item && node_item->isSourceNode()) {
             node_item->setSourceInfo(source_number, source_name);
         }
     }
@@ -595,6 +769,22 @@ void DAGViewerWidget::arrangeToGrid()
     // Scene will update automatically - do not force immediate update
 }
 
+void DAGViewerWidget::onNodePositionChanged(const std::string& node_id, double x, double y)
+{
+    if (!project_) {
+        return;
+    }
+    
+    // Update position in project
+    try {
+        orc::project_io::set_node_position(*project_, node_id, x, y);
+        // Position changes mark project as modified, and we emit signal
+        emit dagModified();
+    } catch (const std::exception& e) {
+        // Silently ignore errors - position updates shouldn't block UI
+    }
+}
+
 orc::GUIDAG DAGViewerWidget::exportDAG() const
 {
     orc::GUIDAG dag;
@@ -606,6 +796,11 @@ orc::GUIDAG DAGViewerWidget::exportDAG() const
         orc::GUIDAGNode node;
         node.node_id = node_id;
         node.stage_name = node_item->stageName();
+        
+        // Get node type from stage name
+        auto* type_info = orc::get_node_type_info(node.stage_name);
+        node.node_type = type_info ? type_info->type : orc::NodeType::TRANSFORM;
+        
         node.display_name = node_item->displayName();
         node.x_position = node_item->pos().x();
         node.y_position = node_item->pos().y();
@@ -634,8 +829,9 @@ void DAGViewerWidget::importDAG(const orc::GUIDAG& dag)
         auto* node_item = new DAGNodeItem(
             node.node_id,
             node.stage_name,
-            node.stage_name == "START"  // START node check based on stage name
+            node.node_type == orc::NodeType::SOURCE  // Check node type, not stage name
         );
+        node_item->setViewer(this);
         
         // Set display name from DAG (provided by core)
         if (!node.display_name.empty()) {
@@ -691,17 +887,28 @@ void DAGViewerWidget::showContextMenu(const QPoint& pos)
                 deleteEdge(edge_item);
             }
         });
-    } else if (node_item && isNodeValid(node_item) && !node_item->isStartNode()) {
+    } else if (node_item && isNodeValid(node_item) && !node_item->isSourceNode()) {
         // Node-specific actions (not for start node)
         // Capture node_id by value to avoid accessing deleted pointer
         std::string node_id = node_item->nodeId();
         std::string stage_name = node_item->stageName();
         
-        menu.addAction("Change Node Type...", [this, node_id]() {
+        // Check if node type can be changed (requires project connection)
+        bool can_change_type = false;
+        std::string change_type_reason;
+        if (project_) {
+            can_change_type = orc::project_io::can_change_node_type(*project_, node_id, &change_type_reason);
+        }
+        
+        auto* change_type_action = menu.addAction("Change Node Type...", [this, node_id]() {
             if (findNodeById(node_id)) {
                 emit changeNodeTypeRequested(node_id);
             }
         });
+        change_type_action->setEnabled(can_change_type);
+        if (!can_change_type && !change_type_reason.empty()) {
+            change_type_action->setToolTip(QString::fromStdString(change_type_reason));
+        }
         
         // Check if stage has parameters
         bool has_parameters = false;
@@ -812,9 +1019,25 @@ void DAGViewerWidget::cleanupStalePointers()
 
 std::string DAGViewerWidget::generateNodeId()
 {
-    std::string id = "node_" + std::to_string(next_node_id_);
-    next_node_id_++;
-    return id;
+    // Generate unique ID by checking existing nodes
+    int max_id = 0;
+    
+    for (const auto& [node_id, node_item] : node_items_) {
+        // Check if node_id follows "node_N" pattern
+        if (node_id.find("node_") == 0) {
+            try {
+                int id_num = std::stoi(node_id.substr(5));
+                if (id_num > max_id) {
+                    max_id = id_num;
+                }
+            } catch (...) {
+                // Not a valid node_N format, skip
+            }
+        }
+    }
+    
+    // Return next available ID
+    return "node_" + std::to_string(max_id + 1);
 }
 
 bool DAGViewerWidget::addNode(const std::string& node_id, const std::string& stage_name, const QPointF& pos, std::string* error)
@@ -840,6 +1063,14 @@ bool DAGViewerWidget::addNode(const std::string& node_id, const std::string& sta
             if (error) *error = "Failed to allocate node";
             return false;
         }
+        node->setViewer(this);
+        node->setViewer(this);
+        
+        // Set proper display name from node type info
+        const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
+        if (type_info) {
+            node->setDisplayName(type_info->display_name);
+        }
         
         scene_->addItem(node);  // Add to scene BEFORE setPos to avoid crash
         node->setPos(pos);
@@ -864,6 +1095,12 @@ void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
         return;
     }
     
+    if (!project_) {
+        QMessageBox::warning(nullptr, "Add Node Failed", 
+            "No project is connected");
+        return;
+    }
+    
     // Clean up any invalid edges first
     cleanupInvalidEdges();
     
@@ -880,31 +1117,46 @@ void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
     // Process events again after scene clearing
     QApplication::processEvents();
     
-    // Create a passthrough (dummy) node by default
+    // Create a passthrough (dummy) node by default using Project API
     // User can later edit to select a different stage type
-    std::string node_id = generateNodeId();
     std::string stage_name = "Passthrough";
     
-    std::string error;
-    if (!addNode(node_id, stage_name, pos, &error)) {
+    try {
+        std::string node_id = orc::project_io::add_node(*project_, stage_name, pos.x(), pos.y());
+        
+        // Now create the GUI representation
+        std::string error;
+        if (!addNode(node_id, stage_name, pos, &error)) {
+            QMessageBox::warning(nullptr, "Add Node Failed", 
+                QString("Failed to add node to GUI: %1").arg(QString::fromStdString(error)));
+            return;
+        }
+        
+        // Select the newly created node
+        auto it = node_items_.find(node_id);
+        if (it != node_items_.end() && it->second) {
+            it->second->setSelected(true);
+            emit nodeSelected(node_id);
+        }
+        
+        // Notify that DAG was modified
+        emit dagModified();
+    } catch (const std::exception& e) {
         QMessageBox::warning(nullptr, "Add Node Failed", 
-            QString("Failed to add node: %1").arg(QString::fromStdString(error)));
-        return;
-    }
-    
-    // Select the newly created node
-    auto it = node_items_.find(node_id);
-    if (it != node_items_.end() && it->second) {
-        it->second->setSelected(true);
-        emit nodeSelected(node_id);
+            QString("Failed to add node: %1").arg(e.what()));
     }
 }
 
 bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
 {
+    if (!project_) {
+        if (error) *error = "No project is connected";
+        return false;
+    }
+    
     // Don't allow deleting start node
-    if (node_id == "START") {
-        if (error) *error = "Cannot delete START node";
+    if (node_id.find("start_") == 0) {
+        if (error) *error = "Cannot delete source nodes";
         return false;
     }
     
@@ -925,6 +1177,15 @@ bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
         cancelEdgeDrag();
     }
     
+    // Remove from project first (this will also remove connected edges in the project)
+    try {
+        orc::project_io::remove_node(*project_, node_id);
+    } catch (const std::exception& e) {
+        if (error) *error = std::string("Failed to remove node from project: ") + e.what();
+        return false;
+    }
+    
+    // Now clean up GUI representation
     // Collect edges that reference this node and invalidate them
     std::vector<size_t> edge_indices_to_remove;
     for (size_t i = 0; i < edge_items_.size(); ++i) {
@@ -974,11 +1235,19 @@ bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
     // Clean up any stale pointers (without processing events)
     cleanupStalePointers();
     
+    // Notify that DAG was modified
+    emit dagModified();
+    
     return true;
 }
 
 bool DAGViewerWidget::deleteEdge(DAGEdgeItem* edge, std::string* error)
 {
+    if (!project_) {
+        if (error) *error = "No project is connected";
+        return false;
+    }
+    
     if (!edge) {
         if (error) *error = "Invalid edge pointer";
         return false;
@@ -996,6 +1265,21 @@ bool DAGViewerWidget::deleteEdge(DAGEdgeItem* edge, std::string* error)
         // Edge was removed from scene but still in our list - clean up
         edge_items_.erase(it);
         return true;
+    }
+    
+    // Get edge IDs before deleting
+    std::string source_id, target_id;
+    if (edge->source()) source_id = edge->source()->nodeId();
+    if (edge->target()) target_id = edge->target()->nodeId();
+    
+    // Remove from project first
+    if (!source_id.empty() && !target_id.empty()) {
+        try {
+            orc::project_io::remove_edge(*project_, source_id, target_id);
+        } catch (const std::exception& e) {
+            if (error) *error = std::string("Failed to remove edge from project: ") + e.what();
+            return false;
+        }
     }
     
     // Clear any focus or selection on the edge
@@ -1023,6 +1307,9 @@ bool DAGViewerWidget::deleteEdge(DAGEdgeItem* edge, std::string* error)
     // Clean up any stale pointers (without processing events)
     cleanupStalePointers();
     
+    // Notify that DAG was modified
+    emit dagModified();
+    
     return true;
 }
 
@@ -1039,7 +1326,7 @@ void DAGViewerWidget::deleteSelectedItems()
     
     for (auto* item : selected) {
         if (auto* node = dynamic_cast<DAGNodeItem*>(item)) {
-            if (!node->isStartNode()) {
+            if (!node->isSourceNode()) {
                 node_ids_to_delete.push_back(node->nodeId());
             }
         } else if (auto* edge = dynamic_cast<DAGEdgeItem*>(item)) {
@@ -1080,6 +1367,10 @@ void DAGViewerWidget::deleteSelectedItems()
 
 void DAGViewerWidget::createEdge(const std::string& source_id, const std::string& target_id)
 {
+    if (!project_) {
+        return;
+    }
+    
     DAGNodeItem* source_node = findNodeById(source_id);
     DAGNodeItem* target_node = findNodeById(target_id);
     
@@ -1119,11 +1410,45 @@ void DAGViewerWidget::createEdge(const std::string& source_id, const std::string
         return;  // Edge already exists
     }
     
+    // Try to add edge to project first (this validates the connection)
+    try {
+        orc::project_io::add_edge(*project_, source_id, target_id);
+    } catch (const std::exception& e) {
+        // Connection invalid - silently ignore (core already validated)
+        return;
+    }
+    
+    // Connection valid, create GUI representation
     auto* edge = new DAGEdgeItem(source_node, target_node);
     scene_->addItem(edge);
     edge_items_.push_back(edge);
     
     emit edgeCreated(source_id, target_id);
+    emit dagModified();
+}
+
+int DAGViewerWidget::countInputConnections(const std::string& node_id) const
+{
+    int count = 0;
+    for (const auto* edge : edge_items_) {
+        if (edge && edge->isValid() && edge->target() && 
+            edge->target()->nodeId() == node_id) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int DAGViewerWidget::countOutputConnections(const std::string& node_id) const
+{
+    int count = 0;
+    for (const auto* edge : edge_items_) {
+        if (edge && edge->isValid() && edge->source() && 
+            edge->source()->nodeId() == node_id) {
+            count++;
+        }
+    }
+    return count;
 }
 
 void DAGViewerWidget::cleanupInvalidEdges()

@@ -7,6 +7,7 @@
 #include <vector>
 #include <map>
 #include "stage_parameter.h"
+#include "node_type.h"
 
 namespace orc {
 
@@ -26,6 +27,7 @@ struct ProjectSource {
 struct ProjectDAGNode {
     std::string node_id;
     std::string stage_name;
+    NodeType node_type;        // Node type (SOURCE, SINK, TRANSFORM, etc.)
     std::string display_name;  // Display name for GUI (e.g., "Source: video.tbc", "Noise Filter")
     double x_position;  // Position for GUI layout
     double y_position;
@@ -59,6 +61,15 @@ struct Project {
     std::vector<ProjectSource> sources;     // All sources in the project
     std::vector<ProjectDAGNode> nodes;      // DAG nodes (including START nodes)
     std::vector<ProjectDAGEdge> edges;      // DAG edges
+    
+    // Modification tracking (not persisted to file)
+    mutable bool is_modified = false;       // True if project has been modified since load/save
+    
+    // Helper to clear modification flag (called after successful load/save)
+    void clear_modified_flag() const { is_modified = false; }
+    
+    // Helper to check if modified
+    bool has_unsaved_changes() const { return is_modified; }
 };
 
 /**
@@ -134,6 +145,97 @@ namespace project_io {
         const std::vector<ProjectDAGNode>& nodes,
         const std::vector<ProjectDAGEdge>& edges
     );
+    
+    /**
+     * Generate a unique node ID for a project
+     * Finds the next available ID by examining existing nodes
+     * @param project Project to check for existing IDs
+     * @return Unique node ID (e.g., "node_1", "node_2", etc.)
+     */
+    std::string generate_unique_node_id(const Project& project);
+    
+    /**
+     * Add a new node to the project DAG
+     * @param project Project to modify
+     * @param stage_name Stage type name (e.g., "Passthrough", "DropoutCorrect")
+     * @param x_position X position for GUI layout
+     * @param y_position Y position for GUI layout
+     * @return ID of the newly created node
+     * @throws std::runtime_error if stage_name is invalid
+     */
+    std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
+    
+    /**
+     * Remove a node from the project DAG
+     * Also removes all edges connected to this node
+     * @param project Project to modify
+     * @param node_id ID of node to remove
+     * @throws std::runtime_error if node_id not found or if trying to remove a source node
+     */
+    void remove_node(Project& project, const std::string& node_id);
+    
+    /**
+     * Change a node's stage type
+     * @param project Project to modify
+     * @param node_id ID of node to modify
+     * @param new_stage_name New stage type name
+     * @throws std::runtime_error if node_id not found or new_stage_name invalid
+     */
+    void change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name);
+    
+    /**
+     * Check if a node's type can be changed
+     * @param project Project to check
+     * @param node_id ID of node to check
+     * @param reason Optional output parameter for why node type cannot be changed
+     * @return true if node type can be changed, false otherwise
+     */
+    bool can_change_node_type(const Project& project, const std::string& node_id, std::string* reason = nullptr);
+    
+    /**
+     * Update a node's parameters
+     * @param project Project to modify
+     * @param node_id ID of node to modify
+     * @param parameters New parameter map
+     * @throws std::runtime_error if node_id not found
+     */
+    void set_node_parameters(Project& project, const std::string& node_id, 
+                            const std::map<std::string, ParameterValue>& parameters);
+    
+    /**
+     * Update a node's position
+     * @param project Project to modify
+     * @param node_id ID of node to modify
+     * @param x_position New X position
+     * @param y_position New Y position
+     * @throws std::runtime_error if node_id not found
+     */
+    void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
+    
+    /**
+     * Add an edge to the project DAG
+     * @param project Project to modify
+     * @param source_node_id Source node ID
+     * @param target_node_id Target node ID
+     * @throws std::runtime_error if nodes not found or connection invalid
+     */
+    void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    
+    /**
+     * Remove an edge from the project DAG
+     * @param project Project to modify
+     * @param source_node_id Source node ID
+     * @param target_node_id Target node ID
+     * @throws std::runtime_error if edge not found
+     */
+    void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    
+    /**
+     * Clear all project data, resetting to empty state
+     * Clears name, sources, nodes, edges, and resets modification flag
+     * @param project Project to clear
+     */
+    void clear_project(Project& project);
 }
 
 } // namespace orc

@@ -7,6 +7,7 @@
 #include <QMainWindow>
 #include <QString>
 #include <QTabWidget>
+#include <QPointer>
 #include <memory>
 #include "fieldpreviewwidget.h"  // For PreviewMode enum
 #include "guiproject.h"
@@ -75,7 +76,7 @@ private:
     
     // UI components
     FieldPreviewWidget* preview_widget_;
-    DAGEditorWindow* dag_editor_window_;
+    QPointer<DAGEditorWindow> dag_editor_window_;  // Auto-nulls when window is deleted
     QSlider* field_slider_;
     QLabel* field_info_label_;
     QToolBar* toolbar_;

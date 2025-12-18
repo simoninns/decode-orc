@@ -689,6 +689,23 @@ These do not block initial implementation.
 - ✅ Integration tests with 6 real TBC files (PAL/NTSC, CAV/CLV)
 - ✅ 2,444 fields processed, ~914 MB test data validated
 
+**Project System**:
+- ✅ `Project` structure with sources, DAG nodes, edges
+- ✅ `ProjectSource` (source_id, path, display_name)
+- ✅ `ProjectDAGNode` (node_id, stage_name, node_type, display_name, x/y position, source_id, parameters)
+- ✅ `ProjectDAGEdge` (source_node_id, target_node_id)
+- ✅ Project file I/O (YAML format) via `project_io::load_project()` and `save_project()`
+- ✅ Complete CRUD API for DAG manipulation:
+  - `add_node()`, `remove_node()`, `change_node_type()`, `set_node_parameters()`, `set_node_position()`
+  - `add_edge()`, `remove_edge()`
+  - `add_source_to_project()`, `remove_source_from_project()`
+  - `can_change_node_type()` validation
+  - `clear_project()` reset
+- ✅ Automatic modification tracking (is_modified flag) for all CRUD operations
+- ✅ Source ID management and auto-generated node IDs
+- ✅ Node type enumeration (SOURCE, SINK, TRANSFORM, SPLITTER, MERGER, COMPLEX)
+- ✅ Parameter storage with type-safe variant (int32, uint32, double, bool, string)
+
 **Source Files**:
 - `orc/core/include/field_id.h` and `field_id.cpp`
 - `orc/core/include/artifact.h` and `artifact.cpp`
@@ -696,6 +713,7 @@ These do not block initial implementation.
 - `orc/core/include/tbc_reader.h` and `tbc_reader.cpp`
 - `orc/core/include/tbc_metadata.h` and `tbc_metadata.cpp`
 - `orc/core/include/tbc_video_field_representation.h` and `tbc_video_field_representation.cpp`
+- `orc/core/include/project.h` and `project.cpp`
 - All test files in `orc/tests/`
 
 ### Phase 2 (Planned - Observer Framework)

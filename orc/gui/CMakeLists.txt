@@ -30,6 +30,8 @@ add_executable(orc-gui
     dagnodeeditdialog.h
     stageparameterdialog.cpp
     stageparameterdialog.h
+    node_type_helper.cpp
+    node_type_helper.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

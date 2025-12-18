@@ -24,7 +24,7 @@ class DAGEditorWindow : public QMainWindow
 
 public:
     explicit DAGEditorWindow(QWidget *parent = nullptr);
-    ~DAGEditorWindow() = default;
+    ~DAGEditorWindow() override;
     
     DAGViewerWidget* dagViewer() { return dag_viewer_; }
     
@@ -32,15 +32,20 @@ public:
     void setSourceInfo(int source_number, const QString& source_name);
     void loadProjectDAG();
 
+signals:
+    void projectModified();  // Emitted when DAG is modified
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
+
 private slots:
     void onNodeSelected(const std::string& node_id);
     void onChangeNodeType(const std::string& node_id);
     void onEditParameters(const std::string& node_id);
-    void onDAGModified();
+    void updateWindowTitle();
 
 private:
     void setupMenus();
-    void syncDAGToProject();
     
     DAGViewerWidget* dag_viewer_;
     GUIProject* project_;  // Not owned

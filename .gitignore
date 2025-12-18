@@ -57,3 +57,6 @@ build/
 
 # Test output directory
 test-output/
+
+# Test project examples
+project-examples/

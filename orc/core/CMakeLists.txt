@@ -29,6 +29,12 @@ add_library(orc-core STATIC
     
     # Utility stages
     passthrough_stage.cpp
+    passthrough_splitter_stage.cpp
+    passthrough_merger_stage.cpp
+    passthrough_complex_stage.cpp
+    
+    # Node type system
+    node_type.cpp
     
     # Stage parameters
     stage_parameter.cpp
@@ -53,3 +59,7 @@ target_compile_options(orc-core PRIVATE
 # Find and link SQLite3
 find_package(SQLite3 REQUIRED)
 target_link_libraries(orc-core PUBLIC SQLite::SQLite3)
+
+# Find and link yaml-cpp
+find_package(yaml-cpp REQUIRED)
+target_link_libraries(orc-core PUBLIC yaml-cpp)

@@ -44,7 +44,6 @@ Each source has an underlying **video format**, such as:
 
 * PAL
 * NTSC
-* NTSC-J
 
 The key architectural assumption is that:
 

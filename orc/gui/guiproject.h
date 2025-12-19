@@ -75,7 +75,7 @@ public:
 private:
     void loadSourceRepresentations();
     
-    QString project_path_;                                      // Path to .orc-project file
+    QString project_path_;                                      // Path to .orcprj file
     orc::Project core_project_;                                 // Core project structure
     std::shared_ptr<const orc::VideoFieldRepresentation> source_representation_;  // Loaded TBC
     mutable std::shared_ptr<orc::DAG> dag_;                     // Built DAG (single instance)

@@ -19,6 +19,8 @@
 
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QSettings>
+#include <QDir>
 #include <QMenuBar>
 #include <QToolBar>
 #include <QStatusBar>
@@ -247,14 +249,17 @@ void MainWindow::onOpenProject()
     QString filename = QFileDialog::getOpenFileName(
         this,
         "Open Project",
-        QString(),
-        "ORC Project Files (*.orc-project);;All Files (*)"
+        getLastProjectDirectory(),
+        "ORC Project Files (*.orcprj);;All Files (*)"
     );
     
     if (filename.isEmpty()) {
         ORC_LOG_DEBUG("Project open cancelled");
         return;
     }
+    
+    // Remember this directory
+    setLastProjectDirectory(QFileInfo(filename).absolutePath());
     
     ORC_LOG_INFO("Opening project: {}", filename.toStdString());
     openProject(filename);
@@ -285,8 +290,8 @@ void MainWindow::newProject()
     QString filename = QFileDialog::getSaveFileName(
         this,
         "New Project",
-        QString(),
-        "ORC Project Files (*.orc-project);;All Files (*)"
+        getLastProjectDirectory(),
+        "ORC Project Files (*.orcprj);;All Files (*)"
     );
     
     if (filename.isEmpty()) {
@@ -294,10 +299,13 @@ void MainWindow::newProject()
         return;
     }
     
-    // Ensure .orc-project extension
-    if (!filename.endsWith(".orc-project", Qt::CaseInsensitive)) {
-        filename += ".orc-project";
+    // Ensure .orcprj extension
+    if (!filename.endsWith(".orcprj", Qt::CaseInsensitive)) {
+        filename += ".orcprj";
     }
+    
+    // Remember this directory
+    setLastProjectDirectory(QFileInfo(filename).absolutePath());
     
     ORC_LOG_INFO("Creating new project: {}", filename.toStdString());
     
@@ -345,7 +353,7 @@ void MainWindow::addSourceToProject()
     QString filename = QFileDialog::getOpenFileName(
         this,
         "Add TBC Source",
-        QString(),
+        getLastSourceDirectory(),
         "TBC Files (*.tbc);;All Files (*)"
     );
     
@@ -353,6 +361,9 @@ void MainWindow::addSourceToProject()
         ORC_LOG_DEBUG("Add source cancelled");
         return;
     }
+    
+    // Remember this directory
+    setLastSourceDirectory(QFileInfo(filename).absolutePath());
     
     ORC_LOG_INFO("Adding source to project: {}", filename.toStdString());
     
@@ -487,18 +498,21 @@ void MainWindow::saveProjectAs()
     QString filename = QFileDialog::getSaveFileName(
         this,
         "Save Project As",
-        QString(),
-        "ORC Project Files (*.orc-project);;All Files (*)"
+        getLastProjectDirectory(),
+        "ORC Project Files (*.orcprj);;All Files (*)"
     );
     
     if (filename.isEmpty()) {
         return;
     }
     
-    // Ensure .orc-project extension
-    if (!filename.endsWith(".orc-project", Qt::CaseInsensitive)) {
-        filename += ".orc-project";
+    // Ensure .orcprj extension
+    if (!filename.endsWith(".orcprj", Qt::CaseInsensitive)) {
+        filename += ".orcprj";
     }
+    
+    // Remember this directory
+    setLastProjectDirectory(QFileInfo(filename).absolutePath());
     
     QString error;
     if (!project_.saveToFile(filename, &error)) {
@@ -912,4 +926,38 @@ void MainWindow::updateDAGRenderer()
         field_renderer_.reset();
         current_view_node_id_.clear();
     }
+}
+
+// Settings helpers
+
+QString MainWindow::getLastProjectDirectory() const
+{
+    QSettings settings("orc-project", "orc-gui");
+    QString dir = settings.value("lastProjectDirectory", QString()).toString();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir()) {
+        return QDir::homePath();
+    }
+    return dir;
+}
+
+void MainWindow::setLastProjectDirectory(const QString& path)
+{
+    QSettings settings("orc-project", "orc-gui");
+    settings.setValue("lastProjectDirectory", path);
+}
+
+QString MainWindow::getLastSourceDirectory() const
+{
+    QSettings settings("orc-project", "orc-gui");
+    QString dir = settings.value("lastSourceDirectory", QString()).toString();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir()) {
+        return QDir::homePath();
+    }
+    return dir;
+}
+
+void MainWindow::setLastSourceDirectory(const QString& path)
+{
+    QSettings settings("orc-project", "orc-gui");
+    settings.setValue("lastSourceDirectory", path);
 }

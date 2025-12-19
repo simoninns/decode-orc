@@ -81,6 +81,12 @@ private:
     void updateFieldView();
     void updateDAGRenderer();
     
+    // Settings helpers
+    QString getLastProjectDirectory() const;
+    void setLastProjectDirectory(const QString& path);
+    QString getLastSourceDirectory() const;
+    void setLastSourceDirectory(const QString& path);
+    
     // Project management
     GUIProject project_;
     std::shared_ptr<const orc::VideoFieldRepresentation> representation_;

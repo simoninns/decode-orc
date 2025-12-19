@@ -14,23 +14,27 @@ add_library(orc-core STATIC
     tbc_metadata.cpp
     tbc_video_field_representation.cpp
     
-    # Phase 2: Observers
-    observer.cpp
-    vits_observer.cpp
-    
-    # Phase 2b: VBI Observers
+    # VBI utilities
     vbi_utilities.cpp
-    biphase_observer.cpp
-    vitc_observer.cpp
-    closed_caption_observer.cpp
-    video_id_observer.cpp
-    fm_code_observer.cpp
-    white_flag_observer.cpp
+    
+    # Observers (organized in subdirectory)
+    observers/observer.cpp
+    observers/biphase_observer.cpp
+    observers/vitc_observer.cpp
+    observers/closed_caption_observer.cpp
+    observers/video_id_observer.cpp
+    observers/fm_code_observer.cpp
+    observers/white_flag_observer.cpp
+    observers/vits_observer.cpp
+    observers/burst_level_observer.cpp
+    observers/field_parity_observer.cpp
+    observers/pal_phase_observer.cpp
     
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
     stages/ld_sink/ld_sink_stage.cpp
+    stages/ld_sink/tbc_metadata_writer.cpp
     stages/dropout_correct/dropout_correct_stage.cpp
     stages/passthrough/passthrough_stage.cpp
     stages/passthrough_splitter/passthrough_splitter_stage.cpp
@@ -64,6 +68,7 @@ add_library(orc-core STATIC
 
 target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_pal_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_ntsc_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_sink

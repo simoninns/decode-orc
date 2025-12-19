@@ -70,10 +70,6 @@ public:
     
     // Additional accessors specific to TBC
     const VideoParameters& video_parameters() const { return video_params_; }
-    std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
-    
-    // Access to metadata reader for additional metadata queries
-    const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
     
 private:
     std::shared_ptr<TBCReader> tbc_reader_;
@@ -81,6 +77,12 @@ private:
     
     VideoParameters video_params_;
     std::map<FieldID, FieldMetadata> field_metadata_cache_;
+    
+    // Metadata is private - only accessible through observers
+    std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
+    
+    // Access to metadata reader for internal use only
+    const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
     
     // Line data cache (for get_line calls)
     mutable std::map<FieldID, std::vector<sample_type>> field_data_cache_;

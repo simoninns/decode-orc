@@ -38,7 +38,10 @@ public:
                 "1.0",
                 {{"ranges", range_spec}},
                 {source->id()},
-                std::chrono::system_clock::now()
+                std::chrono::system_clock::now(),
+                "",  // hostname
+                "",  // user
+                {}   // statistics
             })
         , field_mapping_(std::move(field_mapping))
     {

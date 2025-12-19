@@ -9,6 +9,17 @@
 
 #include "ld_sink_stage.h"
 #include "stage_registry.h"
+#include "tbc_metadata_writer.h"
+#include "biphase_observer.h"
+#include "vitc_observer.h"
+#include "closed_caption_observer.h"
+#include "video_id_observer.h"
+#include "fm_code_observer.h"
+#include "white_flag_observer.h"
+#include "vits_observer.h"
+#include "burst_level_observer.h"
+#include "field_parity_observer.h"
+#include "pal_phase_observer.h"
 #include "logging.h"
 #include <fstream>
 #include <filesystem>
@@ -40,8 +51,8 @@ NodeTypeInfo LDSinkStage::get_node_type_info() const
 }
 
 std::vector<ArtifactPtr> LDSinkStage::execute(
-    const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::vector<ArtifactPtr>& inputs [[maybe_unused]],
+    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
 {
     // Sink stages don't produce outputs during normal execution
     // They are triggered manually to write data
@@ -246,7 +257,14 @@ bool LDSinkStage::write_metadata_file(
     const std::string& db_path)
 {
     try {
-        ORC_LOG_INFO("Writing metadata to {}", db_path);
+        ORC_LOG_INFO("Writing SQLite metadata to {}", db_path);
+        
+        // Create metadata writer
+        TBCMetadataWriter writer;
+        if (!writer.open(db_path)) {
+            ORC_LOG_ERROR("Failed to open metadata database for writing: {}", db_path);
+            return false;
+        }
         
         // Get video parameters
         auto video_params = representation->get_video_parameters();
@@ -255,28 +273,87 @@ bool LDSinkStage::write_metadata_file(
             return false;
         }
         
-        // For now, create a minimal JSON file with video parameters
-        // Full metadata writing requires implementing JSON serialization
-        std::ofstream meta_file(db_path);
-        if (!meta_file) {
-            ORC_LOG_ERROR("Failed to open metadata file for writing: {}", db_path);
+        // Set decoder to "orc"
+        video_params->decoder = "orc";
+        
+        // Write video parameters (creates capture record)
+        if (!writer.write_video_parameters(*video_params)) {
+            ORC_LOG_ERROR("Failed to write video parameters");
             return false;
         }
         
-        // Write minimal JSON structure
-        meta_file << "{\n";
-        meta_file << "  \"videoParameters\": {\n";
-        meta_file << "    \"system\": \"" << (video_params->system == VideoSystem::PAL ? "PAL" : "NTSC") << "\",\n";
-        meta_file << "    \"fieldWidth\": " << video_params->field_width << ",\n";
-        meta_file << "    \"fieldHeight\": " << video_params->field_height << ",\n";
-        meta_file << "    \"numberOfSequentialFields\": " << video_params->number_of_sequential_fields << "\n";
-        meta_file << "  },\n";
-        meta_file << "  \"fields\": {}\n";
-        meta_file << "}\n";
+        // Create all observers
+        std::vector<std::shared_ptr<Observer>> observers;
+        observers.push_back(std::make_shared<BiphaseObserver>());
+        observers.push_back(std::make_shared<VitcObserver>());
+        observers.push_back(std::make_shared<ClosedCaptionObserver>());
+        observers.push_back(std::make_shared<VideoIdObserver>());
+        observers.push_back(std::make_shared<FmCodeObserver>());
+        observers.push_back(std::make_shared<WhiteFlagObserver>());
+        observers.push_back(std::make_shared<VITSQualityObserver>());
+        observers.push_back(std::make_shared<BurstLevelObserver>());
+        observers.push_back(std::make_shared<FieldParityObserver>());
+        observers.push_back(std::make_shared<PALPhaseObserver>());
         
-        meta_file.close();
+        ORC_LOG_INFO("Running observers on all fields...");
         
-        ORC_LOG_INFO("Successfully wrote metadata file");
+        // Process all fields with observers
+        auto range = representation->field_range();
+        size_t field_count = range.size();
+        size_t fields_processed = 0;
+        
+        // Begin transaction for bulk inserts
+        writer.begin_transaction();
+        
+        for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
+            if (!representation->has_field(field_id)) {
+                continue;
+            }
+            
+            // Create minimal field record
+            // Note: Field-level metadata (sync_confidence, median_burst_ire, field_phase_id, is_first_field)
+            // is NOT copied from input - it should flow through the pipeline via observers/hints.
+            // The sink only writes what can be determined from the current representation.
+            FieldMetadata field_meta;
+            field_meta.seq_no = field_id.value() + 1;  // seq_no is 1-based
+            field_meta.is_first_field = false;  // Will be updated by FieldParityObserver
+            
+            ORC_LOG_DEBUG("Writing field {} (seq_no={})", 
+                         field_id.value(), field_meta.seq_no);
+            
+            // Observers will populate VBI, VITC, VITS, etc. from the actual field data
+            writer.write_field_metadata(field_meta);
+            
+            // Get dropout hints and write them
+            auto dropout_hints = representation->get_dropout_hints(field_id);
+            for (const auto& hint : dropout_hints) {
+                DropoutInfo dropout;
+                dropout.line = hint.line;
+                dropout.start_sample = hint.start_sample;
+                dropout.end_sample = hint.end_sample;
+                writer.write_dropout(field_id, dropout);
+            }
+            
+            // Run all observers on this field
+            for (const auto& observer : observers) {
+                auto observations = observer->process_field(*representation, field_id);
+                writer.write_observations(field_id, observations);
+            }
+            
+            fields_processed++;
+            
+            // Log progress every 50 fields
+            if (fields_processed % 50 == 0) {
+                ORC_LOG_DEBUG("Processed {}/{} fields ({:.1f}%)", fields_processed, field_count, 
+                            (fields_processed * 100.0) / field_count);
+            }
+        }
+        
+        // Commit transaction
+        writer.commit_transaction();
+        writer.close();
+        
+        ORC_LOG_INFO("Successfully wrote metadata for {} fields", fields_processed);
         return true;
         
     } catch (const std::exception& e) {

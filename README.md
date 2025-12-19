@@ -100,6 +100,10 @@ A sink consumes the final output of the DAG and produces artifacts for downstrea
 
 ## 5. Observers and Metadata Extraction
 
+Note that observers do not act on ingress metadata from the source - they observe the signal directly to generate the observation.
+
+There are certain collections of data such as dropout data that cannot be observed (since it is generated from data that is no longer present in the TBC output from a decoder).  Such data is treated as "hints" in a mechanism separate from the observers.
+
 ### 5.1 Observers
 
 Nodes can have associated **observers**. Observers do not modify data; they *inspect* it.

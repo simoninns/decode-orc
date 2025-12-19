@@ -65,9 +65,6 @@ public:
     // Viewer connection for position updates
     void setViewer(DAGViewerWidget* viewer) { viewer_ = viewer; }
     
-    // Source info for START nodes
-    void setSourceInfo(int source_number, const QString& source_name);
-    
     // Parameter storage
     void setParameters(const std::map<std::string, orc::ParameterValue>& params);
     std::map<std::string, orc::ParameterValue> getParameters() const { return parameters_; }
@@ -103,10 +100,6 @@ private:
     std::map<std::string, orc::ParameterValue> parameters_;  // Stage parameters
     
     DAGViewerWidget* viewer_;  // For notifying position changes
-    
-    // Source info for START nodes
-    int source_number_;
-    QString source_name_;
     
     // Multi-port support
     std::vector<QPointF> input_port_positions_;   // Positions relative to node origin

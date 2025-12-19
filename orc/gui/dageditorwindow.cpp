@@ -149,12 +149,6 @@ void DAGEditorWindow::loadProjectDAG()
     
     dag_viewer_->importDAG(gui_dag);
     
-    // Set source info for START nodes
-    if (project_->hasSource()) {
-        // For now, set the same source info for all START nodes (single source workflow)
-        dag_viewer_->setSourceInfo(project_->getSourceId(), project_->getSourceName());
-    }
-    
     statusBar()->showMessage("Loaded DAG from project", 2000);
 }
 
@@ -265,12 +259,7 @@ void DAGEditorWindow::onEditParameters(const std::string& node_id)
     }
 }
 
-void DAGEditorWindow::setSourceInfo(int source_number, const QString& source_name)
-{
-    if (dag_viewer_) {
-        dag_viewer_->setSourceInfo(source_number, source_name);
-    }
-}
+
 
 void DAGEditorWindow::updateWindowTitle()
 {

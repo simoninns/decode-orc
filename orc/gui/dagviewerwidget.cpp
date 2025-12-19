@@ -44,7 +44,6 @@ DAGNodeItem::DAGNodeItem(const std::string& node_id,
     , is_dragging_connection_(false)
     , is_dragging_(false)
     , viewer_(nullptr)
-    , source_number_(-1)
 {
     setFlag(QGraphicsItem::ItemIsMovable);
     setFlag(QGraphicsItem::ItemIsSelectable);
@@ -184,13 +183,6 @@ void DAGNodeItem::setUserLabel(const std::string& user_label)
 {
     user_label_ = user_label;
     update();  // Redraw with new label
-}
-
-void DAGNodeItem::setSourceInfo(int source_number, const QString& source_name)
-{
-    source_number_ = source_number;
-    source_name_ = source_name;
-    update();  // Redraw with source info
 }
 
 void DAGNodeItem::setParameters(const std::map<std::string, orc::ParameterValue>& params)
@@ -661,16 +653,6 @@ std::map<std::string, orc::ParameterValue> DAGViewerWidget::getNodeParameters(co
         return node->getParameters();
     }
     return {};
-}
-
-void DAGViewerWidget::setSourceInfo(int source_number, const QString& source_name)
-{
-    // Find START nodes and update their source info
-    for (auto& [node_id, node_item] : node_items_) {
-        if (node_item && node_item->isSourceNode()) {
-            node_item->setSourceInfo(source_number, source_name);
-        }
-    }
 }
 
 void DAGViewerWidget::arrangeToGrid()

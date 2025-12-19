@@ -109,19 +109,6 @@ NodeType string_to_node_type(const std::string& str) {
 }
 } // anonymous namespace
 
-// Helper to extract display name from TBC path (public in project_io namespace)
-std::string extract_display_name(const std::string& tbc_path) {
-    std::filesystem::path p(tbc_path);
-    std::string name = p.stem().string();
-    
-    // Remove .tbc extension if present in stem
-    if (name.size() > 4 && name.substr(name.size() - 4) == ".tbc") {
-        name = name.substr(0, name.size() - 4);
-    }
-    
-    return name;
-}
-
 Project load_project(const std::string& filename) {
     YAML::Node root = YAML::LoadFile(filename);
     
@@ -284,35 +271,6 @@ void save_project(const Project& project, const std::string& filename) {
     
     // Clear modification flag - project has been saved
     project.clear_modified_flag();
-}
-
-Project create_single_source_project(const std::string& tbc_path, const std::string& project_name) {
-    Project project;
-    
-    // Set project name
-    if (project_name.empty()) {
-        project.name = extract_display_name(tbc_path);
-    } else {
-        project.name = project_name;
-    }
-    project.version = "1.0";
-    
-    // This function is deprecated - use specific source types (LDPALSource, LDNTSCSource)
-    ProjectDAGNode source_node;
-    source_node.node_id = "source_0";
-    source_node.stage_name = "LDPALSource";  // Default to PAL if using legacy method
-    source_node.node_type = NodeType::SOURCE;
-    source_node.display_name = "Source: " + extract_display_name(tbc_path);
-    source_node.x_position = 100.0;
-    source_node.y_position = 100.0;
-    
-    // Set tbc_path as parameter
-    source_node.parameters["tbc_path"] = tbc_path;
-    source_node.parameters["db_path"] = tbc_path + ".db";
-    
-    project.nodes.push_back(source_node);
-    
-    return project;
 }
 
 Project create_empty_project(const std::string& project_name) {

@@ -22,7 +22,7 @@ namespace orc {
 /**
  * GUI wrapper around orc::Project
  * 
- * Provides Qt-friendly interface and manages VideoFieldRepresentation loading
+ * Provides Qt-friendly interface - all data and caching handled by core
  */
 class GUIProject {
 public:
@@ -50,10 +50,6 @@ public:
     
     // Source access (single source for now)
     bool hasSource() const;
-    QString getSourceNodeId() const;  // Returns first SOURCE node ID, empty if none
-    QString getSourceType() const;    // Returns source stage name from registry, empty if no sources
-    int getSourceId() const;  // Legacy compatibility - returns 0 or -1
-    QString getSourcePath() const;
     QString getSourceName() const;
     std::shared_ptr<const orc::VideoFieldRepresentation> getSourceRepresentation() const {
         return core_project_.get_source_representation();

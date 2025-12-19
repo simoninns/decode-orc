@@ -117,14 +117,6 @@ namespace project_io {
     void save_project(const Project& project, const std::string& filename);
     
     /**
-     * Create a new empty project with a single TBC source
-     * @param tbc_path Path to TBC file
-     * @param project_name Name for the project (optional, derived from TBC if empty)
-     * @return Project with one SOURCE node using TBCSourceStage
-     */
-    Project create_single_source_project(const std::string& tbc_path, const std::string& project_name = "");
-    
-    /**
      * Create a new empty project with no sources
      * @param project_name Name for the project
      * @return Empty project structure
@@ -132,18 +124,10 @@ namespace project_io {
     Project create_empty_project(const std::string& project_name);
     
     /**
-     * Extract display name from TBC file path
-     * @param tbc_path Path to TBC file
-     * @return Display name (filename without extension)
-     */
-    std::string extract_display_name(const std::string& tbc_path);
-    
-    /**
      * Update project DAG nodes and edges
-     * Replaces all non-START nodes and edges with new ones
-     * Preserves START nodes from sources
+     * Replaces all nodes and edges with new ones
      * @param project Project to modify
-     * @param nodes New DAG nodes (non-START)
+     * @param nodes New DAG nodes
      * @param edges New DAG edges
      */
     void update_project_dag(
@@ -176,7 +160,7 @@ namespace project_io {
      * Also removes all edges connected to this node
      * @param project Project to modify
      * @param node_id ID of node to remove
-     * @throws std::runtime_error if node_id not found or if trying to remove a source node
+     * @throws std::runtime_error if node_id not found
      */
     void remove_node(Project& project, const std::string& node_id);
     

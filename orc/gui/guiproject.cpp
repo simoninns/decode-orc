@@ -86,47 +86,7 @@ bool GUIProject::hasSource() const
     return core_project_.has_source();
 }
 
-QString GUIProject::getSourceNodeId() const
-{
-    // Return the first SOURCE node ID, empty if none
-    for (const auto& node : core_project_.nodes) {
-        if (node.node_type == orc::NodeType::SOURCE) {
-            return QString::fromStdString(node.node_id);
-        }
-    }
-    return QString();
-}
 
-QString GUIProject::getSourceType() const
-{
-    // Return the first SOURCE node's stage name, empty if none
-    for (const auto& node : core_project_.nodes) {
-        if (node.node_type == orc::NodeType::SOURCE) {
-            return QString::fromStdString(node.stage_name);
-        }
-    }
-    return QString();
-}
-
-int GUIProject::getSourceId() const
-{
-    // Legacy compatibility - return 0 if we have a source, -1 if not
-    return hasSource() ? 0 : -1;
-}
-
-QString GUIProject::getSourcePath() const
-{
-    // Find first SOURCE node and get tbc_path parameter
-    for (const auto& node : core_project_.nodes) {
-        if (node.node_type == orc::NodeType::SOURCE) {
-            auto it = node.parameters.find("tbc_path");
-            if (it != node.parameters.end() && std::holds_alternative<std::string>(it->second)) {
-                return QString::fromStdString(std::get<std::string>(it->second));
-            }
-        }
-    }
-    return QString();
-}
 
 QString GUIProject::getSourceName() const
 {

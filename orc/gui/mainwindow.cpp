@@ -400,8 +400,6 @@ void MainWindow::saveProjectAs()
 void MainWindow::updateUIState()
 {
     bool has_project = !project_.projectName().isEmpty();
-    bool has_source = project_.hasSource();
-    QString source_type = project_.getSourceType();
     
     // Enable/disable actions based on project state
     if (save_project_action_) {
@@ -618,11 +616,6 @@ void MainWindow::onOpenDAGEditor()
         // Connect node selection signal for field rendering
         connect(dag_editor_window_->dagViewer(), &DAGViewerWidget::nodeSelected,
                 this, &MainWindow::onNodeSelectedForView);
-        
-        // Set source info if project has source
-        if (project_.hasSource()) {
-            dag_editor_window_->setSourceInfo(project_.getSourceId(), project_.getSourceName());
-        }
         
         // Load the project's DAG into the editor
         dag_editor_window_->loadProjectDAG();

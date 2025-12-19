@@ -78,6 +78,7 @@ struct VideoParameters {
     std::string tape_format;
     
     // Source information
+    std::string decoder;       // Decoder used (e.g., "ld-decode", "vhs-decode")
     std::string git_branch;
     std::string git_commit;
     

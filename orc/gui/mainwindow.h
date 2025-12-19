@@ -52,7 +52,7 @@ public:
     void openProject(const QString& filename);
     void saveProject();
     void saveProjectAs();
-    void addSourceToProject();
+    void addSourceToProject(const QString& stage_name);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
@@ -62,8 +62,8 @@ private slots:
     void onOpenProject();
     void onSaveProject();
     void onSaveProjectAs();
-    void onAddSource();
-    void onRemoveSource();
+    void onAddPALSource();
+    void onAddNTSCSource();
     void onOpenDAGEditor();
     void onFieldChanged(int field_index);
     void onNavigateField(int delta);
@@ -104,7 +104,7 @@ private:
     QAction* save_project_action_;
     QAction* save_project_as_action_;
     QAction* add_source_action_;
-    QAction* remove_source_action_;
+    QAction* add_ntsc_source_action_;
     
     // Navigation state
     int current_field_index_;

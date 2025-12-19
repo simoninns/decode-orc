@@ -86,16 +86,6 @@ public:
     std::vector<std::string> get_registered_stages() const;
     
     /**
-     * @brief Get default source stage name
-     * 
-     * Returns the canonical stage name for TBC source nodes.
-     * This is the standard source type for video processing.
-     * 
-     * @return Stage name for TBC source (currently "TBCSource")
-     */
-    static std::string get_default_source_stage();
-    
-    /**
      * @brief Get default transform stage name
      * 
      * Returns a simple, neutral stage suitable as a default when

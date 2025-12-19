@@ -55,10 +55,6 @@ std::vector<std::string> StageRegistry::get_registered_stages() const {
     return names;
 }
 
-std::string StageRegistry::get_default_source_stage() {
-    return "TBCSource";
-}
-
 std::string StageRegistry::get_default_transform_stage() {
     return "passthrough";
 }

@@ -1,15 +1,15 @@
 /*
- * File:        tbc_source_stage.h
+ * File:        ld_pal_source_stage.h
  * Module:      orc-core
- * Purpose:     TBC source loading stage
+ * Purpose:     LaserDisc PAL source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
 
-#ifndef TBC_SOURCE_STAGE_H
-#define TBC_SOURCE_STAGE_H
+#ifndef LD_PAL_SOURCE_STAGE_H
+#define LD_PAL_SOURCE_STAGE_H
 
 #include <dag_executor.h>
 #include <tbc_video_field_representation.h>
@@ -18,21 +18,21 @@
 namespace orc {
 
 /**
- * @brief TBC Source Stage - Loads TBC files as DAG input
+ * @brief LaserDisc PAL Source Stage - Loads PAL TBC files from ld-decode
  * 
- * This stage loads a TBC file and its associated database, creating
- * a VideoFieldRepresentation that can be used as input to the processing DAG.
+ * This stage loads a PAL TBC file and its associated database from ld-decode,
+ * creating a VideoFieldRepresentation for PAL video processing.
  * 
  * Parameters:
  * - tbc_path: Path to the .tbc file
- * - db_path: Path to the .tbc.json database file (optional, defaults to tbc_path + ".json")
+ * - db_path: Path to the .tbc.db database file (optional, defaults to tbc_path + ".db")
  * 
  * This is a source stage with no inputs.
  */
-class TBCSourceStage : public DAGStage {
+class LDPALSourceStage : public DAGStage {
 public:
-    TBCSourceStage() = default;
-    ~TBCSourceStage() override = default;
+    LDPALSourceStage() = default;
+    ~LDPALSourceStage() override = default;
 
     // DAGStage interface
     std::string version() const override { return "1.0.0"; }
@@ -40,12 +40,12 @@ public:
     NodeTypeInfo get_node_type_info() const override {
         return NodeTypeInfo{
             NodeType::SOURCE,
-            "TBCSource",
-            "TBC Source",
-            "TBC input source - loads TBC files with metadata",
+            "LDPALSource",
+            "LD PAL Source",
+            "LaserDisc PAL input source - loads PAL TBC files from ld-decode",
             0, 0,  // No inputs
             1, 1,  // Exactly one output
-            false  // Not user-creatable
+            false  // Not user-creatable (created by GUI)
         };
     }
     
@@ -65,4 +65,4 @@ private:
 
 } // namespace orc
 
-#endif // TBC_SOURCE_STAGE_H
+#endif // LD_PAL_SOURCE_STAGE_H

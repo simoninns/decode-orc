@@ -18,6 +18,7 @@
 #include <QKeyEvent>
 #include <QMenu>
 #include <QMessageBox>
+#include <QInputDialog>
 #include <QApplication>
 #include <QWidget>
 #include <QDebug>
@@ -33,14 +34,13 @@
 
 DAGNodeItem::DAGNodeItem(const std::string& node_id, 
                          const std::string& stage_name,
-                         bool is_source_node,
                          QGraphicsItem* parent)
     : QGraphicsItem(parent)
     , node_id_(node_id)
     , stage_name_(stage_name)
     , display_name_(stage_name)  // Default to stage_name if not set
+    , user_label_(stage_name)    // Default to stage_name if not set
     , state_(NodeState::Pending)
-    , is_source_node_(is_source_node)
     , is_dragging_connection_(false)
     , is_dragging_(false)
     , viewer_(nullptr)
@@ -71,10 +71,10 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     Q_UNUSED(option);
     Q_UNUSED(widget);
     
-    // Background color based on state or source node
+    // Background color based on state or node topology
     QColor bg_color;
-    if (is_source_node_) {
-        bg_color = QColor(180, 200, 255);  // Light blue for source node
+    if (isSourceNode()) {
+        bg_color = QColor(180, 200, 255);  // Light blue for source nodes (no inputs)
     } else {
         switch (state_) {
             case NodeState::Pending:
@@ -107,14 +107,10 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     
     QRectF text_rect(5, 10, WIDTH - 10, 25);
     
-    // Top line: For source nodes show stage name ("Source"), for others show display name
-    if (is_source_node_) {
-        painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(stage_name_));
-    } else {
-        painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(display_name_));
-    }
+    // Top line: Show user-editable label in bold
+    painter->drawText(text_rect, Qt::AlignCenter, QString::fromStdString(user_label_));
     
-    // Draw bottom text (source name for source nodes, nothing for others)
+    // Draw bottom text - stage type
     font.setBold(false);
     font.setPointSize(8);
     painter->setFont(font);
@@ -122,10 +118,8 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     
     QRectF id_rect(5, 40, WIDTH - 10, 30);
     
-    // Bottom line: For source nodes show source filename, for others show nothing
-    if (is_source_node_ && !source_name_.isEmpty()) {
-        painter->drawText(id_rect, Qt::AlignCenter, source_name_);
-    }
+    // Bottom line: Show stage type from registry
+    painter->drawText(id_rect, Qt::AlignCenter, QString::fromStdString(stage_name_));
     
     // Draw connection points
     painter->setPen(QPen(Qt::darkGray, 2));
@@ -184,6 +178,12 @@ void DAGNodeItem::setDisplayName(const std::string& display_name)
 {
     display_name_ = display_name;
     update();  // Redraw with new name
+}
+
+void DAGNodeItem::setUserLabel(const std::string& user_label)
+{
+    user_label_ = user_label;
+    update();  // Redraw with new label
 }
 
 void DAGNodeItem::setSourceInfo(int source_number, const QString& source_name)
@@ -481,7 +481,7 @@ DAGViewerWidget::DAGViewerWidget(QWidget* parent)
     setRenderHint(QPainter::Antialiasing);
     setDragMode(QGraphicsView::NoDrag);  // Handle dragging manually
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
-    setContextMenuPolicy(Qt::CustomContextMenu);
+    setContextMenuPolicy(Qt::DefaultContextMenu);  // Allow items to handle context menus
     setMouseTracking(true);
     
     // Set background
@@ -489,10 +489,6 @@ DAGViewerWidget::DAGViewerWidget(QWidget* parent)
     
     connect(scene_, &QGraphicsScene::selectionChanged, 
             this, &DAGViewerWidget::onSceneSelectionChanged);
-    
-    // Connect double-click handling
-    connect(this, &QWidget::customContextMenuRequested,
-            this, &DAGViewerWidget::showContextMenu);
     
     // Initialize with start node
     initializeWithStartNode();
@@ -518,13 +514,13 @@ void DAGViewerWidget::initializeWithStartNode()
 {
     clearDAG();
     
-    // Create permanent start node near left edge of workspace
-    // Use default source stage from core
-    std::string source_stage = orc::StageRegistry::get_default_source_stage();
-    auto* start_node = new DAGNodeItem("start_0", source_stage, true);
+    // Create permanent start node - use passthrough as placeholder
+    // Real sources (LDPALSource, LDNTSCSource) are added via File menu
+    std::string placeholder_stage = orc::StageRegistry::get_default_transform_stage();
+    auto* start_node = new DAGNodeItem("start_0", placeholder_stage);
     start_node->setViewer(this);
-    start_node->setDisplayName("TBC Source");
-    start_node->setPos(-450, 0);  // Position near left edge (50 pixels from edge)
+    start_node->setDisplayName("Start Node");
+    start_node->setPos(-450, 0);  // Position near left edge
     scene_->addItem(start_node);
     node_items_["start_0"] = start_node;
     
@@ -603,10 +599,17 @@ void DAGViewerWidget::setNodeStageType(const std::string& node_id, const std::st
     // Update GUI representation
     node->setStageName(stage_name);
     
-    // Update display name from node type info
-    const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
-    if (type_info) {
-        node->setDisplayName(type_info->display_name);
+    // Update display name and user label from node type info (but only for non-SOURCE nodes)
+    // SOURCE nodes have unique display names set from the project
+    if (!node->isSourceNode()) {
+        const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
+        if (type_info) {
+            node->setDisplayName(type_info->display_name);
+            // Update user label to match new node type
+            node->setUserLabel(type_info->display_name);
+            // Persist the new label to the project
+            onNodeLabelChanged(node_id, type_info->display_name);
+        }
     }
     
     // Notify that DAG was modified
@@ -749,6 +752,62 @@ void DAGViewerWidget::arrangeToGrid()
         columns[level].push_back(node_id);
     }
     
+    // Sort nodes within each column to minimize edge crossings
+    // Strategy: For each column, try to align nodes with their parent's Y position
+    for (auto& [level, node_ids] : columns) {
+        if (level == 0) {
+            // First column (sources) - sort by node ID for consistency
+            std::sort(node_ids.begin(), node_ids.end());
+        } else {
+            // Subsequent columns - sort by average Y position of parent nodes
+            std::vector<std::pair<double, std::string>> nodes_with_parent_y;
+            
+            for (const auto& node_id : node_ids) {
+                double avg_parent_y = 0.0;
+                int parent_count = 0;
+                
+                // Find all parent nodes and their Y positions
+                for (const auto* edge : edge_items_) {
+                    if (!edge || !isEdgeValid(edge)) continue;
+                    if (edge->target()->nodeId() == node_id) {
+                        std::string parent_id = edge->source()->nodeId();
+                        if (node_levels.count(parent_id)) {
+                            // Find parent in previous column arrangement
+                            int parent_level = node_levels[parent_id];
+                            if (columns.count(parent_level)) {
+                                const auto& parent_column = columns[parent_level];
+                                auto parent_pos = std::find(parent_column.begin(), parent_column.end(), parent_id);
+                                if (parent_pos != parent_column.end()) {
+                                    // Use the parent's index in its column as proxy for Y position
+                                    avg_parent_y += std::distance(parent_column.begin(), parent_pos);
+                                    parent_count++;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (parent_count > 0) {
+                    avg_parent_y /= parent_count;
+                } else {
+                    // No parents found (shouldn't happen) - use large value to push to bottom
+                    avg_parent_y = 1000.0;
+                }
+                
+                nodes_with_parent_y.push_back({avg_parent_y, node_id});
+            }
+            
+            // Sort by average parent Y position to keep chains aligned
+            std::sort(nodes_with_parent_y.begin(), nodes_with_parent_y.end());
+            
+            // Extract sorted node IDs
+            node_ids.clear();
+            for (const auto& [y, node_id] : nodes_with_parent_y) {
+                node_ids.push_back(node_id);
+            }
+        }
+    }
+    
     // Layout parameters
     constexpr double COLUMN_SPACING = 250.0;  // Horizontal distance between columns
     constexpr double ROW_SPACING = 120.0;     // Vertical distance between nodes
@@ -805,6 +864,23 @@ void DAGViewerWidget::onNodePositionChanged(const std::string& node_id, double x
     }
 }
 
+void DAGViewerWidget::onNodeLabelChanged(const std::string& node_id, const std::string& label)
+{
+    if (!project_) {
+        return;
+    }
+    
+    // Update label in project
+    try {
+        orc::project_io::set_node_label(*project_, node_id, label);
+        // Label changes mark project as modified
+        emit dagModified();
+    } catch (const std::exception& e) {
+        QMessageBox::warning(nullptr, "Update Label Failed",
+            QString("Failed to update node label: %1").arg(e.what()));
+    }
+}
+
 orc::GUIDAG DAGViewerWidget::exportDAG() const
 {
     orc::GUIDAG dag;
@@ -822,6 +898,7 @@ orc::GUIDAG DAGViewerWidget::exportDAG() const
         node.node_type = type_info ? type_info->type : orc::NodeType::TRANSFORM;
         
         node.display_name = node_item->displayName();
+        node.user_label = node_item->userLabel();
         node.x_position = node_item->pos().x();
         node.y_position = node_item->pos().y();
         node.parameters = node_item->getParameters();
@@ -851,14 +928,18 @@ void DAGViewerWidget::importDAG(const orc::GUIDAG& dag)
     for (const auto& node : dag.nodes) {
         auto* node_item = new DAGNodeItem(
             node.node_id,
-            node.stage_name,
-            node.node_type == orc::NodeType::SOURCE  // Check node type, not stage name
+            node.stage_name
         );
         node_item->setViewer(this);
         
         // Set display name from DAG (provided by core)
         if (!node.display_name.empty()) {
             node_item->setDisplayName(node.display_name);
+        }
+        
+        // Set user label from DAG (user-editable label)
+        if (!node.user_label.empty()) {
+            node_item->setUserLabel(node.user_label);
         }
         
         node_item->setParameters(node.parameters);
@@ -1105,7 +1186,7 @@ bool DAGViewerWidget::addNode(const std::string& node_id, const std::string& sta
         scene_->clearSelection();
         scene_->update();
         
-        auto* node = new DAGNodeItem(node_id, stage_name, false);
+        auto* node = new DAGNodeItem(node_id, stage_name);
         if (!node) {
             if (error) *error = "Failed to allocate node";
             return false;
@@ -1198,12 +1279,6 @@ bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
     
     if (!project_) {
         if (error) *error = "No project is connected";
-        return false;
-    }
-    
-    // Don't allow deleting start node
-    if (node_id.find("start_") == 0) {
-        if (error) *error = "Cannot delete source nodes";
         return false;
     }
     
@@ -1603,6 +1678,121 @@ void DAGViewerWidget::keyPressEvent(QKeyEvent* event)
     }
     
     QGraphicsView::keyPressEvent(event);
+}
+
+void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
+{
+    // Map to scene coordinates
+    QPointF scene_pos = mapToScene(event->pos());
+    
+    // Check what's under the cursor
+    QGraphicsItem* item = scene_->itemAt(scene_pos, transform());
+    DAGNodeItem* node_item = dynamic_cast<DAGNodeItem*>(item);
+    DAGEdgeItem* edge_item = dynamic_cast<DAGEdgeItem*>(item);
+    
+    QMenu menu;
+    
+    // Build menu based on what's under cursor
+    if (edge_item && isEdgeValid(edge_item)) {
+        // Edge menu
+        menu.addAction("Delete Edge", [this, edge_item]() {
+            if (isEdgeValid(edge_item)) {
+                deleteEdge(edge_item);
+            }
+        });
+    } else if (node_item && isNodeValid(node_item)) {
+        // Node menu
+        std::string node_id = node_item->nodeId();
+        std::string stage_name = node_item->stageName();
+        bool is_source = node_item->isSourceNode();
+        
+        // Edit Label (all nodes)
+        menu.addAction("Edit Label...", [this, node_item, node_id]() {
+            if (!isNodeValid(node_item)) return;
+            bool ok;
+            QString newLabel = QInputDialog::getText(
+                nullptr,
+                "Edit Node Label",
+                "Enter new label for node:",
+                QLineEdit::Normal,
+                QString::fromStdString(node_item->userLabel()),
+                &ok
+            );
+            if (ok && !newLabel.isEmpty()) {
+                node_item->setUserLabel(newLabel.toStdString());
+                onNodeLabelChanged(node_id, newLabel.toStdString());
+            }
+        });
+        
+        // Additional options for non-source nodes
+        if (!is_source) {
+            menu.addSeparator();
+            
+            // Change Node Type
+            bool can_change_type = false;
+            std::string change_type_reason;
+            if (project_) {
+                can_change_type = orc::project_io::can_change_node_type(*project_, node_id, &change_type_reason);
+            }
+            
+            auto* changeTypeAction = menu.addAction("Change Node Type...", [this, node_id]() {
+                if (findNodeById(node_id)) {
+                    emit changeNodeTypeRequested(node_id);
+                }
+            });
+            changeTypeAction->setEnabled(can_change_type);
+            if (!can_change_type && !change_type_reason.empty()) {
+                changeTypeAction->setToolTip(QString::fromStdString(change_type_reason));
+            }
+            
+            // Edit Parameters
+            bool has_parameters = false;
+            auto& registry = orc::StageRegistry::instance();
+            if (registry.has_stage(stage_name)) {
+                try {
+                    auto stage = registry.create_stage(stage_name);
+                    if (stage) {
+                        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+                        if (param_stage) {
+                            auto descriptors = param_stage->get_parameter_descriptors();
+                            has_parameters = !descriptors.empty();
+                        }
+                    }
+                } catch (...) {
+                    has_parameters = false;
+                }
+            }
+            
+            auto* editParamsAction = menu.addAction("Edit Parameters...", [this, node_id]() {
+                if (findNodeById(node_id)) {
+                    emit editParametersRequested(node_id);
+                }
+            });
+            editParamsAction->setEnabled(has_parameters);
+        }
+        
+        // Delete Node (all nodes including sources)
+        menu.addSeparator();
+        bool has_connections = hasNodeConnections(node_id);
+        auto* deleteAction = menu.addAction("Delete Node", [this, node_id]() {
+            if (findNodeById(node_id)) {
+                deleteNode(node_id);
+            }
+        });
+        deleteAction->setEnabled(!has_connections);
+        if (has_connections) {
+            deleteAction->setToolTip("Cannot delete node with connections. Delete edges first.");
+        }
+    } else {
+        // Empty space menu
+        QPointF pos_copy = scene_pos;
+        menu.addAction("Add Node", [this, pos_copy]() {
+            addNodeAtPosition(pos_copy);
+        });
+    }
+    
+    menu.exec(event->globalPos());
+    event->accept();
 }
 
 void DAGViewerWidget::startEdgeDrag(DAGNodeItem* source_node, const QPointF& start_pos)

@@ -157,12 +157,13 @@ void MainWindow::setupMenus()
     connect(save_project_as_action_, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
     
     file_menu->addSeparator();
-    add_source_action_ = file_menu->addAction("&Add Source...");
-    add_source_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_O));
-    connect(add_source_action_, &QAction::triggered, this, &MainWindow::onAddSource);
+    add_source_action_ = file_menu->addAction("Add LD &PAL Source...");
+    add_source_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
+    connect(add_source_action_, &QAction::triggered, this, &MainWindow::onAddPALSource);
     
-    remove_source_action_ = file_menu->addAction("&Remove Source...");
-    connect(remove_source_action_, &QAction::triggered, this, &MainWindow::onRemoveSource);
+    add_ntsc_source_action_ = file_menu->addAction("Add LD &NTSC Source...");
+    add_ntsc_source_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
+    connect(add_ntsc_source_action_, &QAction::triggered, this, &MainWindow::onAddNTSCSource);
     
     file_menu->addSeparator();
     
@@ -185,59 +186,7 @@ void MainWindow::setupToolbar()
     // Toolbar can be used for other controls later
 }
 
-void MainWindow::onRemoveSource()
-{
-    if (project_.projectName().isEmpty()) {
-        QMessageBox::information(this, "No Project", "No project is open.");
-        return;
-    }
-    
-    if (!project_.hasSource()) {
-        QMessageBox::information(this, "No Source", "No source is currently loaded in the project.");
-        return;
-    }
-    
-    // Get current source info
-    QString source_name = project_.getSourceName();
-    
-    // Confirm removal
-    auto reply = QMessageBox::question(
-        this,
-        "Remove Source",
-        QString("Remove source '%1' from the project?").arg(source_name),
-        QMessageBox::Yes | QMessageBox::No
-    );
-    
-    if (reply != QMessageBox::Yes) {
-        return;
-    }
-    
-    // Get the first source node ID (single source workflow for now)
-    QString source_node_id = project_.getSourceNodeId();
-    QString error;
-    if (!project_.removeSource(source_node_id, &error)) {
-        QMessageBox::critical(this, "Error", error);
-        return;
-    }
-    
-    // Clear UI
-    representation_ = nullptr;
-    preview_widget_->setRepresentation(nullptr);
-    field_slider_->setEnabled(false);
-    current_field_index_ = 0;
-    total_fields_ = 0;
-    
-    // Close DAG editor if open (no valid DAG to edit without sources)
-    if (dag_editor_window_) {
-        dag_editor_window_->close();
-    }
-    
-    updateWindowTitle();
-    updateFieldInfo();
-    updateUIState();
-    
-    statusBar()->showMessage(QString("Removed source: %1").arg(source_name));
-}
+
 
 void MainWindow::onNewProject()
 {
@@ -280,9 +229,14 @@ void MainWindow::onSaveProjectAs()
     saveProjectAs();
 }
 
-void MainWindow::onAddSource()
+void MainWindow::onAddPALSource()
 {
-    addSourceToProject();
+    addSourceToProject("LDPALSource");
+}
+
+void MainWindow::onAddNTSCSource()
+{
+    addSourceToProject("LDNTSCSource");
 }
 
 void MainWindow::newProject()
@@ -348,7 +302,7 @@ void MainWindow::newProject()
     statusBar()->showMessage(QString("Created new project: %1").arg(project_name));
 }
 
-void MainWindow::addSourceToProject()
+void MainWindow::addSourceToProject(const QString& stage_name)
 {
     QString filename = QFileDialog::getOpenFileName(
         this,
@@ -368,7 +322,7 @@ void MainWindow::addSourceToProject()
     ORC_LOG_INFO("Adding source to project: {}", filename.toStdString());
     
     QString error;
-    if (!project_.addSource(filename, &error)) {
+    if (!project_.addSource(stage_name, filename, &error)) {
         ORC_LOG_ERROR("Failed to add source: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
@@ -399,6 +353,12 @@ void MainWindow::addSourceToProject()
     updateWindowTitle();
     updateFieldInfo();
     updateUIState();
+    
+    // Update DAG editor if it's open
+    if (dag_editor_window_) {
+        dag_editor_window_->setSourceInfo(project_.getSourceId(), project_.getSourceName());
+        dag_editor_window_->loadProjectDAG();
+    }
     
     statusBar()->showMessage(QString("Added source: %1")
         .arg(project_.getSourceName()));
@@ -531,13 +491,26 @@ void MainWindow::updateUIState()
 {
     bool has_project = !project_.projectName().isEmpty();
     bool has_source = project_.hasSource();
+    QString source_type = project_.getSourceType();
     
     // Enable/disable actions based on project state
+    // If no sources, allow both PAL and NTSC
+    // If sources exist, only allow the same type
     if (add_source_action_) {
-        add_source_action_->setEnabled(has_project);
+        if (has_project) {
+            // Enable PAL if no sources, or if existing sources are PAL
+            add_source_action_->setEnabled(!has_source || source_type == "LDPALSource");
+        } else {
+            add_source_action_->setEnabled(false);
+        }
     }
-    if (remove_source_action_) {
-        remove_source_action_->setEnabled(has_project && has_source);
+    if (add_ntsc_source_action_) {
+        if (has_project) {
+            // Enable NTSC if no sources, or if existing sources are NTSC
+            add_ntsc_source_action_->setEnabled(!has_source || source_type == "LDNTSCSource");
+        } else {
+            add_ntsc_source_action_->setEnabled(false);
+        }
     }
     if (save_project_action_) {
         save_project_action_->setEnabled(has_project && project_.isModified());
@@ -769,6 +742,33 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
     // Update status bar to show which node is being viewed
     QString node_display = QString::fromStdString(node_id);
     statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
+    
+    // Try to get the field count from the new node by rendering the first field
+    if (field_renderer_) {
+        try {
+            // Render first field to get the representation at this node
+            auto result = field_renderer_->render_field_at_node(node_id, orc::FieldID(0));
+            if (result.is_valid && result.representation) {
+                auto range = result.representation->field_range();
+                int new_total_fields = range.size();
+                
+                // Update total fields if it changed
+                if (new_total_fields != total_fields_) {
+                    ORC_LOG_DEBUG("Node '{}' has {} fields (was {})", node_id, new_total_fields, total_fields_);
+                    total_fields_ = new_total_fields;
+                    field_slider_->setRange(0, total_fields_ - 1);
+                    
+                    // Clamp current field index to new range
+                    if (current_field_index_ >= total_fields_) {
+                        current_field_index_ = total_fields_ - 1;
+                        field_slider_->setValue(current_field_index_);
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            ORC_LOG_WARN("Failed to get field count for node '{}': {}", node_id, e.what());
+        }
+    }
     
     // Re-render current field at the new node
     updateFieldView();

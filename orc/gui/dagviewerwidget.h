@@ -39,7 +39,6 @@ class DAGNodeItem : public QGraphicsItem {
 public:
     DAGNodeItem(const std::string& node_id, 
                 const std::string& stage_name,
-                bool is_source_node = false,
                 QGraphicsItem* parent = nullptr);
     
     QRectF boundingRect() const override;
@@ -49,13 +48,19 @@ public:
     NodeState state() const { return state_; }
     
     std::string nodeId() const { return node_id_; }
-    bool isSourceNode() const { return is_source_node_; }
+    bool isSourceNode() const { 
+        const orc::NodeTypeInfo* info = orc::get_node_type_info(stage_name_);
+        return info && info->max_inputs == 0;
+    }
     
     std::string stageName() const { return stage_name_; }
     void setStageName(const std::string& stage_name);
     
     std::string displayName() const { return display_name_; }
     void setDisplayName(const std::string& display_name);
+    
+    std::string userLabel() const { return user_label_; }
+    void setUserLabel(const std::string& user_label);
     
     // Viewer connection for position updates
     void setViewer(DAGViewerWidget* viewer) { viewer_ = viewer; }
@@ -90,6 +95,7 @@ private:
     std::string node_id_;
     std::string stage_name_;
     std::string display_name_;  // Display name from core
+    std::string user_label_;    // User-editable label
     NodeState state_;
     bool is_source_node_;
     bool is_dragging_connection_;
@@ -158,6 +164,7 @@ public:
     
     // Project connection
     void setProject(orc::Project* project);
+    orc::Project* project() const { return project_; }
     
     // DAG management
     // Note: setDAG() removed - viewer works with GUIDAG, not executable DAG
@@ -173,6 +180,13 @@ public:
     // Node parameter management
     void setNodeParameters(const std::string& node_id, const std::map<std::string, orc::ParameterValue>& params);
     std::map<std::string, orc::ParameterValue> getNodeParameters(const std::string& node_id) const;
+    
+    // Node label management (called by DAGNodeItem)
+    void onNodeLabelChanged(const std::string& node_id, const std::string& label);
+    
+    // Node query methods (used by context menu)
+    bool hasNodeConnections(const std::string& node_id) const;
+    bool deleteNode(const std::string& node_id, std::string* error = nullptr);
     
     // DAG serialization
     orc::GUIDAG exportDAG() const;
@@ -209,8 +223,6 @@ private:
     std::string generateNodeId();
     bool addNode(const std::string& node_id, const std::string& stage_name, const QPointF& pos, std::string* error = nullptr);
     void addNodeAtPosition(const QPointF& pos);
-    bool hasNodeConnections(const std::string& node_id) const;
-    bool deleteNode(const std::string& node_id, std::string* error = nullptr);
     bool deleteEdge(DAGEdgeItem* edge, std::string* error = nullptr);
     void deleteSelectedItems();
     
@@ -236,6 +248,7 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
     
     QGraphicsScene* scene_;
     std::map<std::string, DAGNodeItem*> node_items_;

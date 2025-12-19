@@ -132,6 +132,7 @@ void DAGEditorWindow::loadProjectDAG()
         gui_node.stage_name = node.stage_name;
         gui_node.node_type = node.node_type;
         gui_node.display_name = node.display_name;
+        gui_node.user_label = node.user_label;
         gui_node.x_position = node.x_position;
         gui_node.y_position = node.y_position;
         gui_node.parameters = node.parameters;

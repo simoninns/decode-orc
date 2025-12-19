@@ -26,9 +26,10 @@ struct ProjectDAGNode {
     std::string stage_name;     // e.g., "TBCSource", "DropoutCorrect", etc.
     NodeType node_type;         // Node type (SOURCE, SINK, TRANSFORM, etc.)
     std::string display_name;   // Display name for GUI (e.g., "Source: video.tbc", "Noise Filter")
+    std::string user_label;     // User-editable label (initially same as display_name)
     double x_position;          // Position for GUI layout
     double y_position;
-    std::map<std::string, ParameterValue> parameters;  // Stage parameters (e.g., tbc_path for TBCSource)
+    std::map<std::string, ParameterValue> parameters;  // Stage parameters (e.g., tbc_path/db_path for sources)
 };
 
 /**
@@ -109,13 +110,14 @@ namespace project_io {
     std::string extract_display_name(const std::string& tbc_path);
     
     /**
-     * Add a TBC source to an existing project
-     * Creates a SOURCE node with TBCSourceStage and positions it
+     * Add a source to an existing project
+     * Creates a SOURCE node with the specified stage type
      * @param project Project to modify
+     * @param stage_name Stage type name (e.g., "LDPALSource", "LDNTSCSource")
      * @param tbc_path Path to TBC file to add
-     * @throws std::runtime_error if source path already exists in project
+     * @throws std::runtime_error if source path already exists or incompatible source type
      */
-    void add_source_to_project(Project& project, const std::string& tbc_path);
+    void add_source_to_project(Project& project, const std::string& stage_name, const std::string& tbc_path);
     
     /**
      * Remove a SOURCE node from a project
@@ -205,6 +207,15 @@ namespace project_io {
      * @throws std::runtime_error if node_id not found
      */
     void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
+    
+    /**
+     * Update a node's user-defined label
+     * @param project Project to modify
+     * @param node_id ID of node to modify
+     * @param label New user-defined label
+     * @throws std::runtime_error if node_id not found
+     */
+    void set_node_label(Project& project, const std::string& node_id, const std::string& label);
     
     /**
      * Add an edge to the project DAG

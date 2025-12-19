@@ -44,7 +44,7 @@ public:
     
     // Project operations
     bool newEmptyProject(const QString& project_name, QString* error = nullptr);
-    bool addSource(const QString& tbc_path, QString* error = nullptr);
+    bool addSource(const QString& stage_name, const QString& tbc_path, QString* error = nullptr);
     bool removeSource(const QString& node_id, QString* error = nullptr);
     bool saveToFile(const QString& path, QString* error = nullptr);
     bool loadFromFile(const QString& path, QString* error = nullptr);
@@ -56,6 +56,7 @@ public:
     // Source access (single source for now)
     bool hasSource() const;
     QString getSourceNodeId() const;  // Returns first SOURCE node ID, empty if none
+    QString getSourceType() const;    // Returns source stage name from registry, empty if no sources
     int getSourceId() const;  // Legacy compatibility - returns 0 or -1
     QString getSourcePath() const;
     QString getSourceName() const;

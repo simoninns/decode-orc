@@ -43,7 +43,9 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         // Copy parameters directly (already strongly typed)
         dag_node.parameters = proj_node.parameters;
         for (const auto& [key, value] : proj_node.parameters) {
-            ORC_LOG_DEBUG("  param '{}' = [ParameterValue]", key);
+            std::visit([&key](const auto& v) {
+                ORC_LOG_DEBUG("  param '{}' = {}", key, v);
+            }, value);
         }
         
         // Find input edges for this node

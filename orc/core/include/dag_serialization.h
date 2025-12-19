@@ -23,6 +23,7 @@ struct GUIDAGNode {
     std::string stage_name;
     NodeType node_type;        // Node type (SOURCE, SINK, TRANSFORM, etc.)
     std::string display_name;  // Display name for GUI
+    std::string user_label;    // User-editable label
     double x_position;  // Position for GUI layout
     double y_position;
     std::map<std::string, ParameterValue> parameters;

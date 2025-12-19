@@ -43,11 +43,11 @@ bool GUIProject::newEmptyProject(const QString& project_name, QString* error)
     }
 }
 
-bool GUIProject::addSource(const QString& tbc_path, QString* error)
+bool GUIProject::addSource(const QString& stage_name, const QString& tbc_path, QString* error)
 {
     try {
-        // Use core function to add source (creates START node automatically)
-        orc::project_io::add_source_to_project(core_project_, tbc_path.toStdString());
+        // Use core function to add source with specified stage type
+        orc::project_io::add_source_to_project(core_project_, stage_name.toStdString(), tbc_path.toStdString());
         
         // Load TBC representation
         loadSourceRepresentations();
@@ -80,12 +80,18 @@ bool GUIProject::removeSource(const QString& node_id, QString* error)
 }
 
 // Deprecated: kept for backward compatibility
+// Attempts to auto-detect format from TBC file
 bool GUIProject::newProject(const QString& tbc_path, QString* error)
 {
     if (!newEmptyProject("Untitled Project", error)) {
         return false;
     }
-    return addSource(tbc_path, error);
+    // Try PAL first, then NTSC - let the stages validate
+    if (addSource("LDPALSource", tbc_path, error)) {
+        return true;
+    }
+    // If PAL failed, try NTSC
+    return addSource("LDNTSCSource", tbc_path, error);
 }
 
 bool GUIProject::saveToFile(const QString& path, QString* error)
@@ -145,6 +151,17 @@ QString GUIProject::getSourceNodeId() const
     for (const auto& node : core_project_.nodes) {
         if (node.node_type == orc::NodeType::SOURCE) {
             return QString::fromStdString(node.node_id);
+        }
+    }
+    return QString();
+}
+
+QString GUIProject::getSourceType() const
+{
+    // Return the first SOURCE node's stage name, empty if none
+    for (const auto& node : core_project_.nodes) {
+        if (node.node_type == orc::NodeType::SOURCE) {
+            return QString::fromStdString(node.stage_name);
         }
     }
     return QString();

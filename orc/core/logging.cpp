@@ -10,16 +10,33 @@
 #include "logging.h"
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <vector>
 
 namespace orc {
 
 static std::shared_ptr<spdlog::logger> g_logger;
 
-void init_logging(const std::string& level, const std::string& pattern) {
+void init_logging(const std::string& level, const std::string& pattern, const std::string& log_file) {
     if (!g_logger) {
-        // Create console logger with color
-        g_logger = spdlog::stdout_color_mt("core");
+        std::vector<spdlog::sink_ptr> sinks;
+        
+        // Always add console sink with color
+        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+        sinks.push_back(console_sink);
+        
+        // Add file sink if specified
+        if (!log_file.empty()) {
+            auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file, true);
+            sinks.push_back(file_sink);
+        }
+        
+        // Create logger with all sinks
+        g_logger = std::make_shared<spdlog::logger>("core", sinks.begin(), sinks.end());
         g_logger->set_pattern(pattern);
+        
+        // Register with spdlog
+        spdlog::register_logger(g_logger);
     }
     
     // Set log level

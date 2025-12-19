@@ -363,7 +363,8 @@ std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) cons
         DropoutInfo dropout;
         dropout.start_sample = static_cast<uint32_t>(impl_->get_int(stmt, 0));
         dropout.end_sample = static_cast<uint32_t>(impl_->get_int(stmt, 1));
-        dropout.line = static_cast<uint32_t>(impl_->get_int(stmt, 2));
+        // TBC database uses 1-based line numbers, convert to 0-based for internal use
+        dropout.line = static_cast<uint32_t>(impl_->get_int(stmt, 2)) - 1;
         dropouts.push_back(dropout);
     }
     

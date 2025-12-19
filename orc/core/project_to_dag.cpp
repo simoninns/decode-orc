@@ -10,6 +10,7 @@
 
 #include "project_to_dag.h"
 #include "stage_registry.h"
+#include "logging.h"
 #include <algorithm>
 #include <sstream>
 
@@ -36,19 +37,13 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         
         dag_node.stage = registry.create_stage(proj_node.stage_name);
         
-        // Convert parameters from ParameterValue to string map
+        ORC_LOG_DEBUG("project_to_dag: node '{}' ({}), {} parameters from project",
+                      proj_node.node_id, proj_node.stage_name, proj_node.parameters.size());
+        
+        // Copy parameters directly (already strongly typed)
+        dag_node.parameters = proj_node.parameters;
         for (const auto& [key, value] : proj_node.parameters) {
-            std::string str_value;
-            if (std::holds_alternative<std::string>(value)) {
-                str_value = std::get<std::string>(value);
-            } else if (std::holds_alternative<int>(value)) {
-                str_value = std::to_string(std::get<int>(value));
-            } else if (std::holds_alternative<double>(value)) {
-                str_value = std::to_string(std::get<double>(value));
-            } else if (std::holds_alternative<bool>(value)) {
-                str_value = std::get<bool>(value) ? "true" : "false";
-            }
-            dag_node.parameters[key] = str_value;
+            ORC_LOG_DEBUG("  param '{}' = [ParameterValue]", key);
         }
         
         // Find input edges for this node

@@ -18,6 +18,7 @@
 #include "tbc_metadata.h"
 #include "tbc_video_field_representation.h"
 #include "stage_registry.h"
+#include "logging.h"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -32,7 +33,7 @@ static StageRegistration dropout_correct_registration([]() {
 // DAGStage::execute() implementation
 std::vector<ArtifactPtr> DropoutCorrectStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>& parameters)
+    const std::map<std::string, ParameterValue>& parameters)
 {
     if (inputs.empty()) {
         throw DAGExecutionError("DropoutCorrectStage requires at least one input");
@@ -44,16 +45,16 @@ std::vector<ArtifactPtr> DropoutCorrectStage::execute(
         throw DAGExecutionError("DropoutCorrectStage input must be VideoFieldRepresentation");
     }
     
+    ORC_LOG_DEBUG("DropoutCorrectStage::execute - Source type: {}", source->type_name());
+    
     // Apply parameters if provided
     if (!parameters.empty()) {
-        std::map<std::string, ParameterValue> param_values;
-        for (const auto& [key, value] : parameters) {
-            // Convert string parameters to appropriate types
-            // For now, store as strings (stages can parse them)
-            param_values[key] = value;
-        }
-        const_cast<DropoutCorrectStage*>(this)->set_parameters(param_values);
+        ORC_LOG_DEBUG("DropoutCorrectStage: applying {} parameters", parameters.size());
+        const_cast<DropoutCorrectStage*>(this)->set_parameters(parameters);
     }
+    
+    ORC_LOG_DEBUG("DropoutCorrectStage config AFTER params: highlight={}, intrafield_only={}, overcorrect={}",
+                  config_.highlight_corrections, config_.intrafield_only, config_.overcorrect_extension);
     
     // Get field range
     auto range = source->field_range();
@@ -92,6 +93,8 @@ void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id)
     if (processed_fields_.count(field_id)) {
         return;
     }
+    
+    ORC_LOG_DEBUG("CorrectedVideoFieldRepresentation: processing field {}", field_id.value());
     
     // Mark as processed
     processed_fields_.insert(field_id);
@@ -385,17 +388,34 @@ void DropoutCorrectStage::correct_single_field(
     std::shared_ptr<const VideoFieldRepresentation> source,
     FieldID field_id) const
 {
+    ORC_LOG_DEBUG("DropoutCorrectStage::correct_single_field - field {}", field_id.value());
+    
     // Get field descriptor
     auto descriptor_opt = source->get_descriptor(field_id);
     if (!descriptor_opt) {
+        ORC_LOG_DEBUG("DropoutCorrectStage: no descriptor for field {}", field_id.value());
         return;  // Can't process without descriptor
     }
     const auto& descriptor = *descriptor_opt;
     
+    ORC_LOG_DEBUG("DropoutCorrectStage: field {} dimensions: {}x{}", 
+                  field_id.value(), descriptor.width, descriptor.height);
+    
     // Get dropout hints from source
     auto dropouts = source->get_dropout_hints(field_id);
+    ORC_LOG_DEBUG("DropoutCorrectStage: field {} has {} dropout hints", 
+                  field_id.value(), dropouts.size());
+    
     if (dropouts.empty()) {
+        ORC_LOG_DEBUG("DropoutCorrectStage: field {} has no dropouts to correct", field_id.value());
         return;  // No dropouts to correct
+    }
+    
+    // Log first few dropouts for debugging
+    size_t log_count = std::min(dropouts.size(), size_t(5));
+    for (size_t i = 0; i < log_count; ++i) {
+        ORC_LOG_DEBUG("  Dropout {}: line {}, samples {}-{}", 
+                      i, dropouts[i].line, dropouts[i].start_sample, dropouts[i].end_sample);
     }
     
     // Apply overcorrection if configured
@@ -418,7 +438,10 @@ void DropoutCorrectStage::correct_single_field(
     // Split dropouts by location
     auto split_dropouts = split_dropout_regions(dropouts, descriptor);
     
+    ORC_LOG_DEBUG("DropoutCorrectStage: split into {} dropout regions", split_dropouts.size());
+    
     // Process each dropout
+    size_t corrections_applied = 0;
     for (const auto& dropout : split_dropouts) {
         // Get current line data (either already corrected or original)
         auto line_key = std::make_pair(field_id, dropout.line);
@@ -446,11 +469,23 @@ void DropoutCorrectStage::correct_single_field(
             // Apply the correction
             const uint16_t* replacement_data = source->get_line(replacement.source_field, replacement.source_line);
             apply_correction(line_data, dropout, replacement_data, corrected->highlight_corrections_);
+            corrections_applied++;
+            
+            ORC_LOG_DEBUG("  Applied correction to line {} samples {}-{} from field {} line {} (quality={:.2f}, highlight={})",
+                          dropout.line, dropout.start_sample, dropout.end_sample,
+                          replacement.source_field.value(), replacement.source_line,
+                          replacement.quality, corrected->highlight_corrections_);
             
             // Store corrected line
             corrected->corrected_lines_[std::make_pair(field_id, dropout.line)] = line_data;
+        } else {
+            ORC_LOG_DEBUG("  No replacement found for line {} samples {}-{}",
+                          dropout.line, dropout.start_sample, dropout.end_sample);
         }
     }
+    
+    ORC_LOG_DEBUG("DropoutCorrectStage: field {} complete - applied {} corrections out of {} regions",
+                  field_id.value(), corrections_applied, split_dropouts.size());
 }
 
 // Parameter interface implementation

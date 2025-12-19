@@ -19,8 +19,10 @@ namespace orc {
 /// Should be called once at application startup
 /// @param level Log level (trace, debug, info, warn, error, critical, off)
 /// @param pattern Optional custom pattern (default: "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v")
+/// @param log_file Optional file path to write logs to (in addition to console)
 void init_logging(const std::string& level = "info", 
-                  const std::string& pattern = "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+                  const std::string& pattern = "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
+                  const std::string& log_file = "");
 
 /// Get the default logger
 std::shared_ptr<spdlog::logger> get_logger();

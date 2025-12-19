@@ -746,7 +746,8 @@ void print_usage(const char* program_name) {
     std::cout << "Options:\n";
     std::cout << "  --version            Show version information\n";
     std::cout << "  --log-level <level>  Set logging verbosity (trace, debug, info, warn, error, critical, off)\n";
-    std::cout << "                       Default: info\n\n";
+    std::cout << "                       Default: info\n";
+    std::cout << "  --log-file <file>    Write logs to specified file (in addition to console)\n\n";
     std::cout << "Arguments:\n";
     std::cout << "  --dag <file>         YAML file describing the processing pipeline\n";
     std::cout << "  input.tbc            Input TBC file (with .tbc.db)\n";
@@ -754,11 +755,13 @@ void print_usage(const char* program_name) {
     std::cout << "Examples:\n";
     std::cout << "  " << program_name << " --dag vbi-observers.yaml input.tbc output.tbc\n";
     std::cout << "  " << program_name << " --log-level debug --dag pipeline.yaml input.tbc output.tbc\n";
+    std::cout << "  " << program_name << " --log-file debug.log --dag pipeline.yaml input.tbc output.tbc\n";
 }
 
 int main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string log_level = "info";
+    std::string log_file = "";
     int arg_idx = 1;
     
     // Check for --version flag
@@ -773,8 +776,14 @@ int main(int argc, char* argv[]) {
         arg_idx = 3;
     }
     
-    // Initialize logging system with specified level
-    orc::init_logging(log_level);
+    // Check for optional --log-file flag
+    if (argc > arg_idx + 1 && std::string(argv[arg_idx]) == "--log-file") {
+        log_file = argv[arg_idx + 1];
+        arg_idx += 2;
+    }
+    
+    // Initialize logging system with specified level and optional file
+    orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
     ORC_LOG_INFO("orc-cli {} starting", ORC_VERSION);
     

@@ -277,7 +277,9 @@ ArtifactID DAGExecutor::compute_expected_artifact_id(
     }
     
     for (const auto& [key, value] : node.parameters) {
-        oss << ":" << key << "=" << value;
+        oss << ":" << key << "=";
+        // Append value based on variant type
+        std::visit([&oss](const auto& v) { oss << v; }, value);
     }
     
     return ArtifactID(oss.str());

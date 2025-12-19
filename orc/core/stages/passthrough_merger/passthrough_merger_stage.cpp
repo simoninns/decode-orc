@@ -19,7 +19,7 @@ static StageRegistration merger_registration([]() {
 
 std::vector<ArtifactPtr> PassthroughMergerStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>&)
+    const std::map<std::string, ParameterValue>&)
 {
     if (inputs.empty()) {
         throw DAGExecutionError("PassthroughMergerStage requires at least one input");

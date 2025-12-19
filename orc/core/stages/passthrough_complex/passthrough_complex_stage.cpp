@@ -19,7 +19,7 @@ static StageRegistration complex_registration([]() {
 
 std::vector<ArtifactPtr> PassthroughComplexStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>&)
+    const std::map<std::string, ParameterValue>&)
 {
     if (inputs.size() < 3) {
         throw DAGExecutionError("PassthroughComplexStage requires 3 inputs");

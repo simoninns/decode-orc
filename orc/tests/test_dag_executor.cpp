@@ -42,13 +42,13 @@ public:
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, std::string>& parameters
+        const std::map<std::string, ParameterValue>& parameters
     ) override {
         // Create mock output artifact
         Provenance prov;
         prov.stage_name = name_;
         prov.stage_version = version_;
-        prov.parameters = parameters;
+        // prov.parameters = parameters;  // Note: Provenance stores strings, would need conversion
         
         ArtifactID id("mock_artifact_" + name_);
         

@@ -20,7 +20,7 @@ static StageRegistration passthrough_registration([]() {
 
 std::vector<ArtifactPtr> PassthroughStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>&)
+    const std::map<std::string, ParameterValue>&)
 {
     if (inputs.empty()) {
         throw DAGExecutionError("PassthroughStage requires one input");

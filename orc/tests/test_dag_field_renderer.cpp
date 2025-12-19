@@ -115,7 +115,7 @@ public:
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, std::string>&) override
+        const std::map<std::string, ParameterValue>&) override
     {
         // Pass through or generate mock data
         std::vector<ArtifactPtr> outputs;

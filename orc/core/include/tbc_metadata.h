@@ -135,7 +135,7 @@ struct VitsMetrics {
  * @brief Dropout information for a field
  */
 struct DropoutInfo {
-    uint32_t line = 0;           ///< Line number (0-based)
+    uint32_t line = 0;           ///< Line number (0-based, converted from 1-based database values)
     uint32_t start_sample = 0;   ///< Start sample within line
     uint32_t end_sample = 0;     ///< End sample within line (exclusive)
 };

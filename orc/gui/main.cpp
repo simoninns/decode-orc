@@ -89,6 +89,14 @@ int main(int argc, char *argv[])
     );
     parser.addOption(logLevelOption);
     
+    // Add log file option
+    QCommandLineOption logFileOption(
+        "log-file",
+        "Write logs to specified file (in addition to console)",
+        "filename"
+    );
+    parser.addOption(logFileOption);
+    
     // Add project file argument
     parser.addPositionalArgument("project", "Project file to open (optional)");
     
@@ -96,7 +104,8 @@ int main(int argc, char *argv[])
     
     // Initialize logging system
     QString logLevel = parser.value(logLevelOption);
-    orc::init_logging(logLevel.toStdString());
+    QString logFile = parser.value(logFileOption);
+    orc::init_logging(logLevel.toStdString(), "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", logFile.toStdString());
     
     // Ensure GUI logger is created and has the correct level
     auto gui_logger = orc::get_gui_logger();

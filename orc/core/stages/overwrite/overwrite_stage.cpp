@@ -135,7 +135,7 @@ OverwriteStage::OverwriteStage()
 
 std::vector<ArtifactPtr> OverwriteStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>& parameters)
+    const std::map<std::string, ParameterValue>& parameters)
 {
     if (inputs.size() != 1) {
         throw std::runtime_error("OverwriteStage requires exactly one input");
@@ -150,7 +150,7 @@ std::vector<ArtifactPtr> OverwriteStage::execute(
     auto it = parameters.find("ire_value");
     if (it != parameters.end()) {
         try {
-            double value = std::stod(it->second);
+            double value = std::get<double>(it->second);
             if (value < 0.0 || value > 120.0) {
                 throw std::runtime_error("IRE value must be between 0 and 120");
             }

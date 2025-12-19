@@ -19,7 +19,7 @@ static StageRegistration splitter_registration([]() {
 
 std::vector<ArtifactPtr> PassthroughSplitterStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>&)
+    const std::map<std::string, ParameterValue>&)
 {
     if (inputs.empty()) {
         throw DAGExecutionError("PassthroughSplitterStage requires one input");

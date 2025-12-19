@@ -51,7 +51,7 @@ public:
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, std::string>& parameters
+        const std::map<std::string, ParameterValue>& parameters
     ) override;
     
     size_t required_input_count() const override { return 0; }  // Source has no inputs

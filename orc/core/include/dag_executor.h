@@ -12,6 +12,7 @@
 
 #include "artifact.h"
 #include "node_type.h"
+#include "stage_parameter.h"
 #include <memory>
 #include <vector>
 #include <map>
@@ -48,7 +49,7 @@ public:
     // Execution
     virtual std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, std::string>& parameters
+        const std::map<std::string, ParameterValue>& parameters
     ) = 0;
     
     // Dependency declaration (input artifact requirements)
@@ -64,7 +65,7 @@ using DAGStagePtr = std::shared_ptr<DAGStage>;
 struct DAGNode {
     std::string node_id;              // Unique within DAG
     DAGStagePtr stage;                // Processing stage
-    std::map<std::string, std::string> parameters;  // Stage parameters
+    std::map<std::string, ParameterValue> parameters;  // Stage parameters (strong types)
     std::vector<std::string> input_node_ids;        // Dependencies
     std::vector<size_t> input_indices;              // Which output from each input node
 };

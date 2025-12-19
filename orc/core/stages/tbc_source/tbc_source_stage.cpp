@@ -21,7 +21,7 @@ static StageRegistration tbc_source_registration([]() {
 
 std::vector<ArtifactPtr> TBCSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, std::string>& parameters
+    const std::map<std::string, ParameterValue>& parameters
 ) {
     // Source stage should have no inputs
     if (!inputs.empty()) {
@@ -33,13 +33,13 @@ std::vector<ArtifactPtr> TBCSourceStage::execute(
     if (tbc_path_it == parameters.end()) {
         throw std::runtime_error("TBCSource stage requires 'tbc_path' parameter");
     }
-    std::string tbc_path = tbc_path_it->second;
+    std::string tbc_path = std::get<std::string>(tbc_path_it->second);
 
     // Get db_path parameter (optional)
     std::string db_path;
     auto db_path_it = parameters.find("db_path");
     if (db_path_it != parameters.end()) {
-        db_path = db_path_it->second;
+        db_path = std::get<std::string>(db_path_it->second);
     } else {
         // Default: tbc_path + ".json"
         db_path = tbc_path + ".json";

@@ -33,7 +33,7 @@ message(STATUS "Decode Orc Version: ${ORC_VERSION}")
 
 # Configure version header
 configure_file(
-    ${CMAKE_SOURCE_DIR}/../version.h.in
+    ${CMAKE_CURRENT_SOURCE_DIR}/../version.h.in
     ${CMAKE_BINARY_DIR}/generated/version.h
     @ONLY
 )

@@ -197,6 +197,7 @@ signals:
     void nodeSelected(const std::string& node_id);
     void nodeDoubleClicked(const std::string& node_id);
     void editParametersRequested(const std::string& node_id);
+    void triggerStageRequested(const std::string& node_id);
     void addNodeRequested(const std::string& after_node_id);
     void deleteNodeRequested(const std::string& node_id);
     void edgeCreated(const std::string& source_id, const std::string& target_id);

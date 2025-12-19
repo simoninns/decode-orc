@@ -609,18 +609,31 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
     
     ORC_LOG_DEBUG("Main window: switching view to node '{}'", node_id);
     
-    // Update status bar to show which node is being viewed
-    QString node_display = QString::fromStdString(node_id);
-    statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
-    
-    // Try to get the field count from the new node by rendering the first field
+    // Check if this is a sink node (no outputs) - can't view those
     if (field_renderer_) {
         try {
-            // Render first field to get the representation at this node
+            // Try to render first field to check if node has outputs
             auto result = field_renderer_->render_field_at_node(node_id, orc::FieldID(0));
-            if (result.is_valid && result.representation) {
+            if (!result.is_valid) {
+                // Node has no outputs (likely a sink) - show message and don't update view
+                statusBar()->showMessage(QString("Cannot view node '%1' - it has no outputs (sink node)")
+                    .arg(QString::fromStdString(node_id)), 5000);
+                ORC_LOG_WARN("Cannot view sink node '{}' - no outputs", node_id);
+                
+                // Disable field controls since we can't view this node
+                field_slider_->setEnabled(false);
+                field_info_label_->setText("Sink node - no preview available");
+                return;
+            }
+            
+            // Node has outputs - get field count
+            if (result.representation) {
                 auto range = result.representation->field_range();
                 int new_total = range.size();
+                
+                // Update status bar to show which node is being viewed
+                QString node_display = QString::fromStdString(node_id);
+                statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
                 
                 // Update slider range if it changed
                 if (field_slider_->maximum() != new_total - 1) {
@@ -632,6 +645,12 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
                         field_slider_->setValue(new_total - 1);
                     }
                 }
+                
+                // Enable field controls
+                field_slider_->setEnabled(true);
+                
+                // Update the view to show current field at new node
+                updateFieldView();
             }
         } catch (const std::exception& e) {
             ORC_LOG_WARN("Failed to get field count for node '{}': {}", node_id, e.what());

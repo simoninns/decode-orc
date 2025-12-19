@@ -14,10 +14,13 @@
 #include "logging.h"
 #include "../core/include/dag_serialization.h"
 #include "../core/include/stage_registry.h"
+#include "../core/include/dag_executor.h"
+#include "../core/stages/ld_sink/ld_sink_stage.h"
 
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QFileDialog>
+#include <QApplication>
 #include <QMessageBox>
 #include <QVBoxLayout>
 #include <QCloseEvent>
@@ -39,6 +42,8 @@ DAGEditorWindow::DAGEditorWindow(QWidget *parent)
             this, &DAGEditorWindow::onNodeSelected);
     connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
             this, &DAGEditorWindow::onEditParameters);
+    connect(dag_viewer_, &DAGViewerWidget::triggerStageRequested,
+            this, &DAGEditorWindow::onTriggerStage);
     
     // Forward dagModified signal to notify parent window
     connect(dag_viewer_, &DAGViewerWidget::dagModified,
@@ -216,6 +221,129 @@ void DAGEditorWindow::onEditParameters(const std::string& node_id)
     }
 }
 
+void DAGEditorWindow::onTriggerStage(const std::string& node_id)
+{
+    if (!project_) {
+        QMessageBox::warning(this, "Trigger Stage", "No project loaded");
+        return;
+    }
+    
+    std::string stage_name = dag_viewer_->getNodeStageType(node_id);
+    
+    if (stage_name.empty()) {
+        ORC_LOG_ERROR("Trigger failed: Node '{}' not found", node_id);
+        QMessageBox::warning(this, "Trigger Stage",
+            QString("Node '%1' not found").arg(QString::fromStdString(node_id)));
+        return;
+    }
+    
+    ORC_LOG_DEBUG("Node stage type: {}", stage_name);
+    
+    // Get the stage instance
+    auto& registry = orc::StageRegistry::instance();
+    if (!registry.has_stage(stage_name)) {
+        ORC_LOG_ERROR("Trigger failed: Unknown stage type '{}'", stage_name);
+        QMessageBox::warning(this, "Trigger Stage",
+            QString("Unknown stage type '%1'").arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    auto stage = registry.create_stage(stage_name);
+    if (!stage) {
+        ORC_LOG_ERROR("Trigger failed: Could not create stage '{}'", stage_name);
+        QMessageBox::warning(this, "Trigger Stage",
+            QString("Failed to create stage '%1'").arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    ORC_LOG_DEBUG("Stage instance created successfully");
+    
+    // Check if stage is triggerable
+    auto* trigger_stage = dynamic_cast<orc::TriggerableStage*>(stage.get());
+    if (!trigger_stage) {
+        ORC_LOG_WARN("Stage '{}' is not triggerable", stage_name);
+        QMessageBox::information(this, "Trigger Stage",
+            QString("Stage '%1' is not triggerable")
+                .arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    // Build the DAG and execute the trigger
+    try {
+        ORC_LOG_INFO("Starting trigger execution for node '{}'", node_id);
+        statusBar()->showMessage(QString("Triggering '%1'...").arg(QString::fromStdString(node_id)));
+        QApplication::processEvents();  // Update UI
+        
+        // Get the DAG
+        auto dag = project_->getDAG();
+        if (!dag) {
+            ORC_LOG_ERROR("Failed to get DAG from project");
+            QMessageBox::warning(this, "Trigger Stage", "Failed to get DAG from project");
+            return;
+        }
+        
+        ORC_LOG_DEBUG("DAG retrieved, contains {} nodes", dag->nodes().size());
+        
+        // Find the node in the DAG
+        const auto& nodes = dag->nodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [&node_id](const orc::DAGNode& n) { return n.node_id == node_id; });
+        
+        if (node_it == nodes.end()) {
+            ORC_LOG_ERROR("Node '{}' not found in DAG", node_id);
+            QMessageBox::warning(this, "Trigger Stage",
+                QString("Node '%1' not found in DAG").arg(QString::fromStdString(node_id)));
+            return;
+        }
+        
+        ORC_LOG_DEBUG("Node found in DAG, has {} inputs", node_it->input_node_ids.size());
+        for (size_t i = 0; i < node_it->input_node_ids.size(); ++i) {
+            ORC_LOG_DEBUG("  Input {}: node '{}'", i, node_it->input_node_ids[i]);
+        }
+        
+        // Execute the DAG to get the inputs for this node
+        // Note: We execute only the INPUT nodes, not the sink itself (which produces no outputs)
+        ORC_LOG_INFO("Executing DAG to collect {} input nodes", node_it->input_node_ids.size());
+        orc::DAGExecutor executor;
+        
+        // Collect input artifacts by executing each input node
+        std::vector<orc::ArtifactPtr> inputs;
+        for (const auto& input_node_id : node_it->input_node_ids) {
+            ORC_LOG_DEBUG("  Executing to input node '{}'", input_node_id);
+            auto results = executor.execute_to_node(*dag, input_node_id);
+            
+            auto input_it = results.find(input_node_id);
+            if (input_it != results.end() && !input_it->second.empty()) {
+                ORC_LOG_DEBUG("  Collected input from node '{}': {} outputs", input_node_id, input_it->second.size());
+                inputs.push_back(input_it->second[0]);  // Take first output
+            } else {
+                ORC_LOG_WARN("  No output found for input node '{}'", input_node_id);
+            }
+        }
+        
+        ORC_LOG_DEBUG("Collected {} inputs for trigger", inputs.size());
+        
+        ORC_LOG_INFO("Calling trigger() on stage with {} inputs", inputs.size());
+        
+        // Trigger the stage
+        bool success = trigger_stage->trigger(inputs, node_it->parameters);
+        
+        if (success) {
+            std::string status = trigger_stage->get_trigger_status();
+            QMessageBox::information(this, "Trigger Complete", QString::fromStdString(status));
+            statusBar()->showMessage(QString::fromStdString(status), 5000);
+        } else {
+            std::string status = trigger_stage->get_trigger_status();
+            QMessageBox::warning(this, "Trigger Failed", QString::fromStdString(status));
+            statusBar()->showMessage("Trigger failed", 5000);
+        }
+        
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Trigger Error",
+            QString("Exception during trigger: %1").arg(e.what()));
+        statusBar()->showMessage("Trigger error", 5000);
+    }
+}
 
 
 void DAGEditorWindow::updateWindowTitle()

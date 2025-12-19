@@ -9,9 +9,12 @@
 
 
 #include "dagviewerwidget.h"
+#include "guiproject.h"
 #include "node_type_helper.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/stage_parameter.h"
+#include "../core/include/project.h"
+#include "../core/stages/ld_sink/ld_sink_stage.h"
 #include "logging.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
@@ -1670,6 +1673,76 @@ void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
             }
         });
         editParamsAction->setEnabled(has_parameters);
+        
+        // Trigger (for triggerable stages)
+        bool is_triggerable = false;
+        bool can_trigger = false;
+        std::string trigger_disabled_reason;
+        
+        if (registry.has_stage(stage_name)) {
+            try {
+                auto stage = registry.create_stage(stage_name);
+                if (stage) {
+                    auto* trigger_stage = dynamic_cast<orc::TriggerableStage*>(stage.get());
+                    is_triggerable = (trigger_stage != nullptr);
+                    
+                    if (is_triggerable) {
+                        // Check if stage has required parameters that must be set before triggering
+                        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+                        bool has_tbc_path_param = false;
+                        
+                        if (param_stage) {
+                            auto descriptors = param_stage->get_parameter_descriptors();
+                            has_tbc_path_param = std::any_of(descriptors.begin(), descriptors.end(),
+                                [](const orc::ParameterDescriptor& desc) { return desc.name == "tbc_path"; });
+                        }
+                        
+                        if (has_tbc_path_param && project_) {
+                            // Stage requires tbc_path - check if it's set
+                            const auto& nodes = project_->nodes;
+                            auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                                [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+                            
+                            if (node_it != nodes.end()) {
+                                auto path_it = node_it->parameters.find("tbc_path");
+                                if (path_it != node_it->parameters.end()) {
+                                    if (auto* path_str = std::get_if<std::string>(&path_it->second)) {
+                                        if (!path_str->empty()) {
+                                            can_trigger = true;
+                                        } else {
+                                            trigger_disabled_reason = "Output path not set";
+                                        }
+                                    } else {
+                                        trigger_disabled_reason = "Output path not set";
+                                    }
+                                } else {
+                                    trigger_disabled_reason = "Output path not set";
+                                }
+                            } else {
+                                trigger_disabled_reason = "Output path not set";
+                            }
+                        } else {
+                            // No tbc_path parameter required, can trigger
+                            can_trigger = true;
+                        }
+                    }
+                }
+            } catch (...) {
+                is_triggerable = false;
+            }
+        }
+        
+        if (is_triggerable) {
+            auto* triggerAction = menu.addAction("Trigger...", [this, node_id]() {
+                if (findNodeById(node_id)) {
+                    emit triggerStageRequested(node_id);
+                }
+            });
+            triggerAction->setEnabled(can_trigger);
+            if (!can_trigger && !trigger_disabled_reason.empty()) {
+                triggerAction->setToolTip(QString::fromStdString(trigger_disabled_reason));
+            }
+        }
         
         // Delete Node (all nodes including sources)
         menu.addSeparator();

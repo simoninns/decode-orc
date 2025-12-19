@@ -30,6 +30,7 @@ add_library(orc-core STATIC
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
+    stages/ld_sink/ld_sink_stage.cpp
     stages/dropout_correct/dropout_correct_stage.cpp
     stages/passthrough/passthrough_stage.cpp
     stages/passthrough_splitter/passthrough_splitter_stage.cpp
@@ -65,6 +66,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_pal_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_ntsc_source
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_correct
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_splitter

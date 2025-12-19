@@ -171,11 +171,18 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                 auto* browse_btn = new QPushButton("Browse...");
                 browse_btn->setObjectName("browse_button");
                 
-                // Capture stage_name for QSettings key
+                // Capture stage_name and param name for determining dialog type
                 std::string stage_name_copy = stage_name_;
+                std::string param_name = desc.name;
+                std::string display_name = desc.display_name;
+                
+                // Determine if this is an output path (save dialog) or input path (open dialog)
+                bool is_output = (stage_name_copy.find("sink") != std::string::npos) ||
+                                (param_name.find("output") != std::string::npos) ||
+                                (display_name.find("Output") != std::string::npos);
                 
                 // Connect browse button to file dialog
-                connect(browse_btn, &QPushButton::clicked, [edit, stage_name_copy]() {
+                connect(browse_btn, &QPushButton::clicked, [edit, stage_name_copy, is_output]() {
                     QSettings settings("orc-project", "orc-gui");
                     QString settings_key = QString("lastSourceDirectory/%1").arg(QString::fromStdString(stage_name_copy));
                     
@@ -188,15 +195,34 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                         QFileInfo info(edit->text());
                         if (info.exists() && info.dir().exists()) {
                             start_dir = info.dir().absolutePath();
+                        } else if (!edit->text().isEmpty()) {
+                            // Path doesn't exist yet (output file) - use its directory if valid
+                            QFileInfo parent_info(info.absolutePath());
+                            if (parent_info.exists() && parent_info.isDir()) {
+                                start_dir = parent_info.absolutePath();
+                            }
                         }
                     }
                     
-                    QString file = QFileDialog::getOpenFileName(
-                        nullptr,
-                        "Select TBC File",
-                        start_dir,
-                        "TBC Files (*.tbc);;All Files (*)"
-                    );
+                    QString file;
+                    if (is_output) {
+                        // Use save dialog for output paths
+                        file = QFileDialog::getSaveFileName(
+                            nullptr,
+                            "Select Output TBC File",
+                            start_dir,
+                            "TBC Files (*.tbc);;All Files (*)"
+                        );
+                    } else {
+                        // Use open dialog for input paths
+                        file = QFileDialog::getOpenFileName(
+                            nullptr,
+                            "Select TBC File",
+                            start_dir,
+                            "TBC Files (*.tbc);;All Files (*)"
+                        );
+                    }
+                    
                     if (!file.isEmpty()) {
                         edit->setText(file);
                         // Save directory for this source type

@@ -26,8 +26,6 @@ add_executable(orc-gui
     fieldpreviewwidget.h
     dagviewerwidget.cpp
     dagviewerwidget.h
-    dagnodeeditdialog.cpp
-    dagnodeeditdialog.h
     stageparameterdialog.cpp
     stageparameterdialog.h
     node_type_helper.cpp

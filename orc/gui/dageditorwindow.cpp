@@ -19,7 +19,6 @@
 #include <QStatusBar>
 #include <QFileDialog>
 #include <QMessageBox>
-#include <QInputDialog>
 #include <QVBoxLayout>
 #include <QCloseEvent>
 
@@ -38,8 +37,6 @@ DAGEditorWindow::DAGEditorWindow(QWidget *parent)
     // Connect signals
     connect(dag_viewer_, &DAGViewerWidget::nodeSelected,
             this, &DAGEditorWindow::onNodeSelected);
-    connect(dag_viewer_, &DAGViewerWidget::changeNodeTypeRequested,
-            this, &DAGEditorWindow::onChangeNodeType);
     connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
             this, &DAGEditorWindow::onEditParameters);
     
@@ -156,46 +153,6 @@ void DAGEditorWindow::loadProjectDAG()
 void DAGEditorWindow::onNodeSelected(const std::string& node_id)
 {
     statusBar()->showMessage(QString("Selected node: %1").arg(QString::fromStdString(node_id)));
-}
-
-void DAGEditorWindow::onChangeNodeType(const std::string& node_id)
-{
-    // Get all available node types from the registry
-    const auto& all_types = orc::get_all_node_types();
-    
-    QStringList stage_display_names;
-    std::vector<std::string> stage_names;  // Parallel array to map display names to stage names
-    
-    for (const auto& type_info : all_types) {
-        stage_display_names << QString::fromStdString(type_info.display_name);
-        stage_names.push_back(type_info.stage_name);
-    }
-    
-    bool ok;
-    QString selected_display_name = QInputDialog::getItem(
-        this,
-        "Change Node Type",
-        QString("Select new stage type for node '%1':").arg(QString::fromStdString(node_id)),
-        stage_display_names,
-        0,
-        false,
-        &ok
-    );
-    
-    if (ok && !selected_display_name.isEmpty()) {
-        // Find the stage_name corresponding to the selected display_name
-        int index = stage_display_names.indexOf(selected_display_name);
-        if (index >= 0 && index < static_cast<int>(stage_names.size())) {
-            std::string stage_name = stage_names[index];
-            dag_viewer_->setNodeStageType(node_id, stage_name);
-            statusBar()->showMessage(
-                QString("Changed node '%1' to %2")
-                    .arg(QString::fromStdString(node_id))
-                    .arg(selected_display_name),
-                3000
-            );
-        }
-    }
 }
 
 void DAGEditorWindow::onEditParameters(const std::string& node_id)

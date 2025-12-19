@@ -46,7 +46,6 @@ protected:
 
 private slots:
     void onNodeSelected(const std::string& node_id);
-    void onChangeNodeType(const std::string& node_id);
     void onEditParameters(const std::string& node_id);
     void updateWindowTitle();
 

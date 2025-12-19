@@ -196,7 +196,6 @@ public:
 signals:
     void nodeSelected(const std::string& node_id);
     void nodeDoubleClicked(const std::string& node_id);
-    void changeNodeTypeRequested(const std::string& node_id);
     void editParametersRequested(const std::string& node_id);
     void addNodeRequested(const std::string& after_node_id);
     void deleteNodeRequested(const std::string& node_id);
@@ -205,7 +204,6 @@ signals:
     
 private slots:
     void onSceneSelectionChanged();
-    void showContextMenu(const QPoint& pos);
     
 private:
     void initializeWithStartNode();
@@ -216,6 +214,7 @@ private:
     std::string generateNodeId();
     bool addNode(const std::string& node_id, const std::string& stage_name, const QPointF& pos, std::string* error = nullptr);
     void addNodeAtPosition(const QPointF& pos);
+    void addNodeWithType(const QPointF& pos, const std::string& stage_name);
     bool deleteEdge(DAGEdgeItem* edge, std::string* error = nullptr);
     void deleteSelectedItems();
     

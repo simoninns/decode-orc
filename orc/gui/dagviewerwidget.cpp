@@ -957,100 +957,6 @@ void DAGViewerWidget::onSceneSelectionChanged()
     }
 }
 
-void DAGViewerWidget::showContextMenu(const QPoint& pos)
-{
-    QPoint global_pos = mapToGlobal(pos);
-    QPointF scene_pos = mapToScene(pos);
-    
-    QGraphicsItem* item = scene_->itemAt(scene_pos, transform());
-    DAGNodeItem* node_item = dynamic_cast<DAGNodeItem*>(item);
-    DAGEdgeItem* edge_item = dynamic_cast<DAGEdgeItem*>(item);
-    
-    QMenu menu;
-    
-    if (edge_item && isEdgeValid(edge_item)) {
-        // Edge-specific actions
-        // Capture edge pointer and validate before use
-        menu.addAction("Delete Edge", [this, edge_item]() {
-            if (isEdgeValid(edge_item)) {
-                deleteEdge(edge_item);
-            }
-        });
-    } else if (node_item && isNodeValid(node_item) && !node_item->isSourceNode()) {
-        // Node-specific actions (not for start node)
-        // Capture node_id by value to avoid accessing deleted pointer
-        std::string node_id = node_item->nodeId();
-        std::string stage_name = node_item->stageName();
-        
-        // Check if node type can be changed (requires project connection)
-        bool can_change_type = false;
-        std::string change_type_reason;
-        if (project_) {
-            can_change_type = orc::project_io::can_change_node_type(*project_, node_id, &change_type_reason);
-        }
-        
-        auto* change_type_action = menu.addAction("Change Node Type...", [this, node_id]() {
-            if (findNodeById(node_id)) {
-                emit changeNodeTypeRequested(node_id);
-            }
-        });
-        change_type_action->setEnabled(can_change_type);
-        if (!can_change_type && !change_type_reason.empty()) {
-            change_type_action->setToolTip(QString::fromStdString(change_type_reason));
-        }
-        
-        // Check if stage has parameters (by checking if it implements ParameterizedStage)
-        bool has_parameters = false;
-        auto& registry = orc::StageRegistry::instance();
-        if (registry.has_stage(stage_name)) {
-            try {
-                auto stage = registry.create_stage(stage_name);
-                if (stage) {
-                    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-                    if (param_stage) {
-                        auto descriptors = param_stage->get_parameter_descriptors();
-                        has_parameters = !descriptors.empty();
-                    }
-                }
-            } catch (...) {
-                // Failed to check - assume no parameters
-                has_parameters = false;
-            }
-        }
-        
-        auto* edit_params_action = menu.addAction("Edit Parameters...", [this, node_id]() {
-            if (findNodeById(node_id)) {
-                emit editParametersRequested(node_id);
-            }
-        });
-        edit_params_action->setEnabled(has_parameters);
-        
-        menu.addSeparator();
-        
-        // Check if node has connections
-        bool has_connections = hasNodeConnections(node_id);
-        auto* delete_action = menu.addAction("Delete Node", [this, node_id]() {
-            if (findNodeById(node_id)) {
-                deleteNode(node_id);
-            }
-        });
-        delete_action->setEnabled(!has_connections);
-        if (has_connections) {
-            delete_action->setToolTip("Cannot delete node with connections. Delete edges first.");
-        }
-        menu.addSeparator();
-    }
-    
-    // Add node action (always available)
-    // Capture position by value to avoid dangling reference
-    QPointF pos_copy = scene_pos;
-    menu.addAction("Add Node", [this, pos_copy]() {
-        addNodeAtPosition(pos_copy);
-    });
-    
-    menu.exec(global_pos);
-}
-
 bool DAGViewerWidget::hasNodeConnections(const std::string& node_id) const
 {
     // Check if the node has any incoming or outgoing edges
@@ -1196,6 +1102,13 @@ bool DAGViewerWidget::addNode(const std::string& node_id, const std::string& sta
 
 void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
 {
+    // Use default transform stage when no specific type is requested
+    std::string stage_name = orc::StageRegistry::get_default_transform_stage();
+    addNodeWithType(pos, stage_name);
+}
+
+void DAGViewerWidget::addNodeWithType(const QPointF& pos, const std::string& stage_name)
+{
     if (!scene_) {
         QMessageBox::warning(nullptr, "Add Node Failed", 
             "Scene is not initialized");
@@ -1223,10 +1136,6 @@ void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
     
     // Process events again after scene clearing
     QApplication::processEvents();
-    
-    // Create a default node using the default transform stage from core
-    // User can later edit to select a different stage type
-    std::string stage_name = orc::StageRegistry::get_default_transform_stage();
     
     try {
         std::string node_id = orc::project_io::add_node(*project_, stage_name, pos.x(), pos.y());
@@ -1708,21 +1617,33 @@ void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
         
         menu.addSeparator();
         
-        // Change Node Type
+        // Change Node Type submenu
         bool can_change_type = false;
         std::string change_type_reason;
         if (project_) {
             can_change_type = orc::project_io::can_change_node_type(*project_, node_id, &change_type_reason);
         }
         
-        auto* changeTypeAction = menu.addAction("Change Node Type...", [this, node_id]() {
-            if (findNodeById(node_id)) {
-                emit changeNodeTypeRequested(node_id);
-            }
-        });
-        changeTypeAction->setEnabled(can_change_type);
+        QMenu* change_type_menu = menu.addMenu("Change Node Type");
+        change_type_menu->setEnabled(can_change_type);
         if (!can_change_type && !change_type_reason.empty()) {
-            changeTypeAction->setToolTip(QString::fromStdString(change_type_reason));
+            change_type_menu->setToolTip(QString::fromStdString(change_type_reason));
+        }
+        
+        if (can_change_type) {
+            const auto& all_types = orc::get_all_node_types();
+            
+            for (const auto& type_info : all_types) {
+                QString display_name = QString::fromStdString(type_info.display_name);
+                QString tooltip = QString::fromStdString(type_info.description);
+                
+                auto* action = change_type_menu->addAction(display_name, [this, node_id, stage_name = type_info.stage_name]() {
+                    if (findNodeById(node_id)) {
+                        setNodeStageType(node_id, stage_name);
+                    }
+                });
+                action->setToolTip(tooltip);
+            }
         }
         
         // Edit Parameters
@@ -1763,11 +1684,21 @@ void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
             deleteAction->setToolTip("Cannot delete node with connections. Delete edges first.");
         }
     } else {
-        // Empty space menu
+        // Empty space menu - Add Node submenu
         QPointF pos_copy = scene_pos;
-        menu.addAction("Add Node", [this, pos_copy]() {
-            addNodeAtPosition(pos_copy);
-        });
+        
+        QMenu* add_node_menu = menu.addMenu("Add Node");
+        const auto& all_types = orc::get_all_node_types();
+        
+        for (const auto& type_info : all_types) {
+            QString display_name = QString::fromStdString(type_info.display_name);
+            QString tooltip = QString::fromStdString(type_info.description);
+            
+            auto* action = add_node_menu->addAction(display_name, [this, pos_copy, stage_name = type_info.stage_name]() {
+                addNodeWithType(pos_copy, stage_name);
+            });
+            action->setToolTip(tooltip);
+        }
     }
     
     menu.exec(event->globalPos());

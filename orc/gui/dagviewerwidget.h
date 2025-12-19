@@ -93,6 +93,7 @@ private:
     NodeState state_;
     bool is_source_node_;
     bool is_dragging_connection_;
+    bool is_dragging_;  // Track if node is being dragged
     std::map<std::string, orc::ParameterValue> parameters_;  // Stage parameters
     
     DAGViewerWidget* viewer_;  // For notifying position changes

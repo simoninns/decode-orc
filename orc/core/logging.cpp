@@ -18,7 +18,7 @@ static std::shared_ptr<spdlog::logger> g_logger;
 void init_logging(const std::string& level, const std::string& pattern) {
     if (!g_logger) {
         // Create console logger with color
-        g_logger = spdlog::stdout_color_mt("orc");
+        g_logger = spdlog::stdout_color_mt("core");
         g_logger->set_pattern(pattern);
     }
     

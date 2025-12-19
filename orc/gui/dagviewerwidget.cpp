@@ -12,6 +12,7 @@
 #include "node_type_helper.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/stage_parameter.h"
+#include "logging.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QKeyEvent>
@@ -41,6 +42,7 @@ DAGNodeItem::DAGNodeItem(const std::string& node_id,
     , state_(NodeState::Pending)
     , is_source_node_(is_source_node)
     , is_dragging_connection_(false)
+    , is_dragging_(false)
     , viewer_(nullptr)
     , source_number_(-1)
 {
@@ -270,9 +272,16 @@ void DAGNodeItem::mousePressEvent(QGraphicsSceneMouseEvent* event)
     // Check if clicking near a connection point to start edge creation
     if (isNearOutputPoint(event->scenePos())) {
         is_dragging_connection_ = true;
+        ORC_LOG_DEBUG("Starting edge drag from node: {}", node_id_);
         event->accept();
         // Signal will be sent from DAGViewerWidget
         return;
+    }
+    
+    // Only start dragging on left mouse button (allow right-click for context menu)
+    if (event->button() == Qt::LeftButton) {
+        is_dragging_ = true;  // Start dragging the node
+        ORC_LOG_DEBUG("Starting node drag: {} at ({}, {})", node_id_, pos().x(), pos().y());
     }
     
     QGraphicsItem::mousePressEvent(event);
@@ -293,9 +302,18 @@ void DAGNodeItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 {
     if (is_dragging_connection_) {
         is_dragging_connection_ = false;
+        ORC_LOG_DEBUG("Edge drag ended from node: {}", node_id_);
         event->accept();
         return;
     }
+    
+    // If we were dragging the node, notify viewer now that drag is complete
+    if (is_dragging_ && viewer_) {
+        QPointF final_pos = pos();
+        ORC_LOG_DEBUG("Node drag completed: {} at ({}, {})", node_id_, final_pos.x(), final_pos.y());
+        viewer_->onNodePositionChanged(node_id_, final_pos.x(), final_pos.y());
+    }
+    is_dragging_ = false;  // Clear dragging flag
     
     QGraphicsItem::mouseReleaseEvent(event);
 }
@@ -319,8 +337,9 @@ QVariant DAGNodeItem::itemChange(GraphicsItemChange change, const QVariant& valu
             }
         }
         
-        // Notify viewer of position change to save to project
-        if (viewer_) {
+        // Only notify viewer when not actively dragging - position will be updated on mouse release
+        // This prevents rebuilding the DAG on every mouse move during drag
+        if (!is_dragging_ && viewer_) {
             QPointF new_pos = pos();
             viewer_->onNodePositionChanged(node_id_, new_pos.x(), new_pos.y());
         }
@@ -568,10 +587,14 @@ void DAGViewerWidget::setNodeStageType(const std::string& node_id, const std::st
         return;
     }
     
+    std::string old_stage = node->stageName();
+    ORC_LOG_DEBUG("Changing node type: {} from '{}' to '{}'", node_id, old_stage, stage_name);
+    
     // Update in project first
     try {
         orc::project_io::change_node_type(*project_, node_id, stage_name);
     } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to change node type for {}: {}", node_id, e.what());
         QMessageBox::warning(nullptr, "Change Node Type Failed",
             QString("Failed to change node type: %1").arg(e.what()));
         return;
@@ -609,6 +632,8 @@ void DAGViewerWidget::setNodeParameters(const std::string& node_id, const std::m
     if (!node) {
         return;
     }
+    
+    ORC_LOG_DEBUG("Setting parameters for node: {} ({} parameters)", node_id, params.size());
     
     // Update in project first
     try {
@@ -1136,6 +1161,7 @@ void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
     
     try {
         std::string node_id = orc::project_io::add_node(*project_, stage_name, pos.x(), pos.y());
+        ORC_LOG_DEBUG("Adding node: {} of type '{}' at ({}, {})", node_id, stage_name, pos.x(), pos.y());
         
         // Now create the GUI representation
         std::string error;
@@ -1162,6 +1188,8 @@ void DAGViewerWidget::addNodeAtPosition(const QPointF& pos)
 
 bool DAGViewerWidget::deleteNode(const std::string& node_id, std::string* error)
 {
+    ORC_LOG_DEBUG("Deleting node: {}", node_id);
+    
     if (!project_) {
         if (error) *error = "No project is connected";
         return false;
@@ -1285,6 +1313,8 @@ bool DAGViewerWidget::deleteEdge(DAGEdgeItem* edge, std::string* error)
     if (edge->source()) source_id = edge->source()->nodeId();
     if (edge->target()) target_id = edge->target()->nodeId();
     
+    ORC_LOG_DEBUG("Deleting edge: {} -> {}", source_id, target_id);
+    
     // Remove from project first
     if (!source_id.empty() && !target_id.empty()) {
         try {
@@ -1380,6 +1410,8 @@ void DAGViewerWidget::deleteSelectedItems()
 
 void DAGViewerWidget::createEdge(const std::string& source_id, const std::string& target_id)
 {
+    ORC_LOG_DEBUG("Creating edge: {} -> {}", source_id, target_id);
+    
     if (!project_) {
         return;
     }
@@ -1388,6 +1420,7 @@ void DAGViewerWidget::createEdge(const std::string& source_id, const std::string
     DAGNodeItem* target_node = findNodeById(target_id);
     
     if (!source_node || !target_node) {
+        ORC_LOG_DEBUG("Edge creation failed: source or target node not found");
         return;
     }
     
@@ -1435,6 +1468,8 @@ void DAGViewerWidget::createEdge(const std::string& source_id, const std::string
     auto* edge = new DAGEdgeItem(source_node, target_node);
     scene_->addItem(edge);
     edge_items_.push_back(edge);
+    
+    ORC_LOG_DEBUG("Edge created successfully: {} -> {}", source_id, target_id);
     
     emit edgeCreated(source_id, target_id);
     emit dagModified();

@@ -18,9 +18,9 @@ namespace orc {
 /// Initialize the logging system
 /// Should be called once at application startup
 /// @param level Log level (trace, debug, info, warn, error, critical, off)
-/// @param pattern Optional custom pattern (default: "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v")
+/// @param pattern Optional custom pattern (default: "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v")
 void init_logging(const std::string& level = "info", 
-                  const std::string& pattern = "[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
+                  const std::string& pattern = "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
 
 /// Get the default logger
 std::shared_ptr<spdlog::logger> get_logger();

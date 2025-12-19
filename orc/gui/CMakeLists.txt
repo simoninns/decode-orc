@@ -40,6 +40,10 @@ target_link_libraries(orc-gui PRIVATE
     Qt6::Widgets
 )
 
+target_compile_definitions(orc-gui PRIVATE
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
+)
+
 target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/core/include
     ${CMAKE_BINARY_DIR}/generated

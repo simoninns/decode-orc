@@ -12,6 +12,37 @@
 #include "version.h"
 #include <QApplication>
 #include <QCommandLineParser>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
+namespace orc {
+
+static std::shared_ptr<spdlog::logger> g_gui_logger;
+
+std::shared_ptr<spdlog::logger> get_gui_logger() {
+    if (!g_gui_logger) {
+        // Get the core logger's sink to share it
+        auto core_logger = get_logger();
+        if (!core_logger) {
+            return nullptr;
+        }
+        
+        // Create GUI logger that shares the core logger's sink
+        auto sinks = core_logger->sinks();
+        g_gui_logger = std::make_shared<spdlog::logger>("gui", sinks.begin(), sinks.end());
+        
+        // Register it with spdlog
+        spdlog::register_logger(g_gui_logger);
+        
+        // Match the pattern from core logger
+        g_gui_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+        
+        // Match log level with core logger
+        g_gui_logger->set_level(core_logger->level());
+    }
+    return g_gui_logger;
+}
+
+} // namespace orc
 
 // Qt message handler that bridges to spdlog
 void qtMessageHandler(QtMsgType type, const QMessageLogContext& /*context*/, const QString& msg)
@@ -66,6 +97,29 @@ int main(int argc, char *argv[])
     // Initialize logging system
     QString logLevel = parser.value(logLevelOption);
     orc::init_logging(logLevel.toStdString());
+    
+    // Ensure GUI logger is created and has the correct level
+    auto gui_logger = orc::get_gui_logger();
+    if (gui_logger) {
+        std::string level_str = logLevel.toStdString();
+        if (level_str == "trace") {
+            gui_logger->set_level(spdlog::level::trace);
+        } else if (level_str == "debug") {
+            gui_logger->set_level(spdlog::level::debug);
+        } else if (level_str == "info") {
+            gui_logger->set_level(spdlog::level::info);
+        } else if (level_str == "warn" || level_str == "warning") {
+            gui_logger->set_level(spdlog::level::warn);
+        } else if (level_str == "error") {
+            gui_logger->set_level(spdlog::level::err);
+        } else if (level_str == "critical") {
+            gui_logger->set_level(spdlog::level::critical);
+        } else if (level_str == "off") {
+            gui_logger->set_level(spdlog::level::off);
+        } else {
+            gui_logger->set_level(spdlog::level::info);
+        }
+    }
     
     // Install Qt message handler to bridge Qt messages to spdlog
     qInstallMessageHandler(qtMessageHandler);

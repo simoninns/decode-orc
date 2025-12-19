@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_reader.cpp
- *
- * TBC file reader implementation
+/*
+ * File:        tbc_reader.cpp
+ * Module:      orc-core
+ * Purpose:     Tbc Reader
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "tbc_reader.h"
 #include <cstring>

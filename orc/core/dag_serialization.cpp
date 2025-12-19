@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        dag_serialization.cpp
+ * Module:      orc-core
+ * Purpose:     DAG serialization to/from formats
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "dag_serialization.h"
 #include <fstream>

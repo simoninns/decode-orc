@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        test_dag_field_renderer.cpp
+ * Module:      orc-tests
+ * Purpose:     Dag Field Renderer test suite
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "dag_field_renderer.h"
 #include "dag_executor.h"

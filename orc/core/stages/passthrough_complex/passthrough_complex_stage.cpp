@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        passthrough_complex_stage.cpp
+ * Module:      orc-core
+ * Purpose:     Complex passthrough stage
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include <passthrough_complex_stage.h>
 #include <stage_registry.h>

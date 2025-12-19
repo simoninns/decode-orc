@@ -1,11 +1,12 @@
-/******************************************************************************
- * test_real_tbc_data.cpp
- *
- * Integration tests with real TBC files and metadata
+/*
+ * File:        test_real_tbc_data.cpp
+ * Module:      orc-tests
+ * Purpose:     Real Tbc Data test suite
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "tbc_reader.h"
 #include "tbc_metadata.h"

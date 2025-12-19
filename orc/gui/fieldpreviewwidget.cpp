@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        fieldpreviewwidget.cpp
+ * Module:      orc-gui
+ * Purpose:     Field preview widget
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "fieldpreviewwidget.h"
 #include "video_field_representation.h"

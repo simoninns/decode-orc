@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        video_id_observer.cpp
+ * Module:      orc-core
+ * Purpose:     Video ID observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "video_id_observer.h"
 #include "tbc_video_field_representation.h"

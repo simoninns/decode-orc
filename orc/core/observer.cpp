@@ -1,11 +1,12 @@
-/******************************************************************************
- * observer.cpp
- *
- * Observer framework implementation
+/*
+ * File:        observer.cpp
+ * Module:      orc-core
+ * Purpose:     Observer base class
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "observer.h"
 

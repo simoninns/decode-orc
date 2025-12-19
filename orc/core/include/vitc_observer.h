@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for VITC (Vertical Interval Timecode)
-// Standard: ITU-R BR.780-2, SMPTE ST 12-1:2008
+/*
+ * File:        vitc_observer.h
+ * Module:      orc-core
+ * Purpose:     VITC observer implementation
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_CORE_VITC_OBSERVER_H
 #define ORC_CORE_VITC_OBSERVER_H

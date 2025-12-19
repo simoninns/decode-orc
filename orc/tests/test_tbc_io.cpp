@@ -1,11 +1,12 @@
-/******************************************************************************
- * test_tbc_io.cpp
- *
- * Unit tests for TBC file I/O
+/*
+ * File:        test_tbc_io.cpp
+ * Module:      orc-tests
+ * Purpose:     Tbc Io test suite
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "tbc_reader.h"
 #include "tbc_metadata.h"

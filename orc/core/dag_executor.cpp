@@ -1,13 +1,15 @@
-/******************************************************************************
- * dag_executor.cpp
- *
- * DAG executor implementation
+/*
+ * File:        dag_executor.cpp
+ * Module:      orc-core
+ * Purpose:     DAG execution engine
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "dag_executor.h"
+#include "logging.h"
 #include <algorithm>
 #include <set>
 #include <queue>
@@ -289,8 +291,11 @@ std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
     const DAG& dag,
     const std::string& target_node_id
 ) {
+    ORC_LOG_DEBUG("Executing DAG to node '{}'", target_node_id);
+    
     if (!dag.validate()) {
         auto errors = dag.get_validation_errors();
+        ORC_LOG_ERROR("DAG validation failed with {} errors", errors.size());
         std::ostringstream oss;
         oss << "DAG validation failed:\n";
         for (const auto& error : errors) {
@@ -302,11 +307,13 @@ std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
     // Check that target node exists
     auto node_index = dag.build_node_index();
     if (node_index.find(target_node_id) == node_index.end()) {
+        ORC_LOG_ERROR("Target node '{}' does not exist in DAG", target_node_id);
         throw DAGExecutionError("Target node '" + target_node_id + "' does not exist in DAG");
     }
     
     // Topological sort up to target node
     auto execution_order = topological_sort_to_node(dag, target_node_id);
+    ORC_LOG_DEBUG("Execution order: {} nodes", execution_order.size());
     
     // Execute nodes in order
     std::map<std::string, std::vector<ArtifactPtr>> node_outputs;

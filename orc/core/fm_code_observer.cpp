@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        fm_code_observer.cpp
+ * Module:      orc-core
+ * Purpose:     FM code observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "fm_code_observer.h"
 #include "tbc_video_field_representation.h"

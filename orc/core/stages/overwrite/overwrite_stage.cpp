@@ -1,11 +1,12 @@
-/******************************************************************************
- * overwrite_stage.cpp
- *
- * Overwrite stage implementation
+/*
+ * File:        overwrite_stage.cpp
+ * Module:      orc-core
+ * Purpose:     Overwrite processing stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "overwrite_stage.h"
 #include "tbc_video_field_representation.h"

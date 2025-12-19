@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        white_flag_observer.cpp
+ * Module:      orc-core
+ * Purpose:     White flag observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "white_flag_observer.h"
 #include "tbc_video_field_representation.h"

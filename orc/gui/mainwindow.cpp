@@ -1,11 +1,18 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        mainwindow.cpp
+ * Module:      orc-gui
+ * Purpose:     Main application window
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
 #include "dageditorwindow.h"
 #include "dagviewerwidget.h"
 #include "tbc_video_field_representation.h"
+#include "logging.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/dag_field_renderer.h"
 #include "../core/include/field_id.h"
@@ -245,9 +252,11 @@ void MainWindow::onOpenProject()
     );
     
     if (filename.isEmpty()) {
+        ORC_LOG_DEBUG("Project open cancelled");
         return;
     }
     
+    ORC_LOG_INFO("Opening project: {}", filename.toStdString());
     openProject(filename);
 }
 
@@ -281,6 +290,7 @@ void MainWindow::newProject()
     );
     
     if (filename.isEmpty()) {
+        ORC_LOG_DEBUG("New project creation cancelled");
         return;
     }
     
@@ -288,6 +298,8 @@ void MainWindow::newProject()
     if (!filename.endsWith(".orc-project", Qt::CaseInsensitive)) {
         filename += ".orc-project";
     }
+    
+    ORC_LOG_INFO("Creating new project: {}", filename.toStdString());
     
     // Close DAG editor if open
     if (dag_editor_window_) {
@@ -309,16 +321,19 @@ void MainWindow::newProject()
     
     QString error;
     if (!project_.newEmptyProject(project_name, &error)) {
+        ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
     }
     
     // Save immediately to the specified location
     if (!project_.saveToFile(filename, &error)) {
+        ORC_LOG_ERROR("Failed to save project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
     }
     
+    ORC_LOG_INFO("Project created successfully: {}", project_name.toStdString());
     updateWindowTitle();
     updateUIState();
     
@@ -335,11 +350,15 @@ void MainWindow::addSourceToProject()
     );
     
     if (filename.isEmpty()) {
+        ORC_LOG_DEBUG("Add source cancelled");
         return;
     }
     
+    ORC_LOG_INFO("Adding source to project: {}", filename.toStdString());
+    
     QString error;
     if (!project_.addSource(filename, &error)) {
+        ORC_LOG_ERROR("Failed to add source: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
     }
@@ -347,6 +366,7 @@ void MainWindow::addSourceToProject()
     // Load the representation
     representation_ = project_.getSourceRepresentation();
     if (!representation_) {
+        ORC_LOG_ERROR("Failed to load TBC representation after adding source");
         QMessageBox::critical(this, "Error", "Failed to load TBC representation");
         return;
     }
@@ -375,6 +395,8 @@ void MainWindow::addSourceToProject()
 
 void MainWindow::openProject(const QString& filename)
 {
+    ORC_LOG_INFO("Loading project: {}", filename.toStdString());
+    
     // Close DAG editor if open
     if (dag_editor_window_) {
         dag_editor_window_->close();
@@ -392,20 +414,28 @@ void MainWindow::openProject(const QString& filename)
     
     QString error;
     if (!project_.loadFromFile(filename, &error)) {
+        ORC_LOG_ERROR("Failed to load project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
     }
     
+    ORC_LOG_DEBUG("Project loaded: {}", project_.projectName().toStdString());
+    
     // Load representation if source exists
     if (project_.hasSource()) {
+        ORC_LOG_DEBUG("Loading source representation");
         representation_ = project_.getSourceRepresentation();
         if (!representation_) {
+            ORC_LOG_WARN("Failed to load TBC representation");
             QMessageBox::warning(this, "Warning", "Failed to load TBC representation");
         } else {
             // Get field range
             auto range = representation_->field_range();
             total_fields_ = range.size();
             current_field_index_ = 0;
+            
+            ORC_LOG_INFO("Source loaded: {} fields ({}..{})", 
+                         total_fields_, range.start.value(), range.end.value());
             
             // Update UI
             field_slider_->setEnabled(true);
@@ -418,6 +448,8 @@ void MainWindow::openProject(const QString& filename)
             
             updateFieldInfo();
         }
+    } else {
+        ORC_LOG_DEBUG("Project has no source");
     }
     
     updateWindowTitle();
@@ -436,12 +468,16 @@ void MainWindow::saveProject()
         return;
     }
     
+    ORC_LOG_INFO("Saving project: {}", project_.projectPath().toStdString());
+    
     QString error;
     if (!project_.saveToFile(project_.projectPath(), &error)) {
+        ORC_LOG_ERROR("Failed to save project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
     }
     
+    ORC_LOG_DEBUG("Project saved successfully");
     updateWindowTitle();
     statusBar()->showMessage("Project saved");
 }
@@ -790,14 +826,7 @@ void MainWindow::updateFieldView()
                 statusBar()->showMessage("(from cache)", 1000);
             }
         } else {
-            // Rendering failed - log detailed error
-            std::cerr << "ERROR: render_field_at_node failed!" << std::endl;
-            std::cerr << "  node_id: " << current_view_node_id_ << std::endl;
-            std::cerr << "  field_id: " << field_id.value() << std::endl;
-            std::cerr << "  error: " << result.error_message << std::endl;
-            std::cerr << "  is_valid: " << result.is_valid << std::endl;
-            std::cerr << "  representation: " << (result.representation ? "exists" : "null") << std::endl;
-            
+            // Rendering failed - show in status bar
             statusBar()->showMessage(
                 QString("Render ERROR at node %1: %2")
                     .arg(QString::fromStdString(current_view_node_id_))
@@ -823,9 +852,12 @@ void MainWindow::updateDAGRenderer()
         return;
     }
     
+    ORC_LOG_DEBUG("Updating DAG renderer");
+    
     // Get the project's owned DAG (single instance)
     auto dag = project_.getDAG();
     if (!dag) {
+        ORC_LOG_ERROR("Failed to build executable DAG from project");
         field_renderer_.reset();
         current_view_node_id_.clear();
         statusBar()->showMessage("Failed to build executable DAG", 5000);
@@ -835,22 +867,28 @@ void MainWindow::updateDAGRenderer()
     // Create or update field renderer with the project's DAG
     try {
         if (field_renderer_) {
+            ORC_LOG_DEBUG("Updating existing field renderer with new DAG");
             field_renderer_->update_dag(dag);
         } else {
+            ORC_LOG_DEBUG("Creating new field renderer");
             field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(dag);
             
             // Default to viewing first source node
             auto nodes = field_renderer_->get_renderable_nodes();
             if (!nodes.empty()) {
                 current_view_node_id_ = nodes[0];
+                ORC_LOG_INFO("DAG renderer initialized, viewing node: {}", current_view_node_id_);
                 statusBar()->showMessage(
                     QString("Viewing output from node: %1")
                         .arg(QString::fromStdString(current_view_node_id_)),
                     3000
                 );
+            } else {
+                ORC_LOG_WARN("No renderable nodes found in DAG");
             }
         }
     } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Error creating/updating DAG renderer: {}", e.what());
         statusBar()->showMessage(
             QString("Error creating renderer: %1").arg(e.what()),
             5000

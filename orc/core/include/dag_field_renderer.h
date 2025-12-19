@@ -1,12 +1,12 @@
-/******************************************************************************
- * dag_field_renderer.h
- *
- * DAG Field Renderer - Executes DAG up to a specific node to produce fields
- * for preview/inspection at any point in the processing pipeline
+/*
+ * File:        dag_field_renderer.h
+ * Module:      orc-core
+ * Purpose:     Field rendering at DAG nodes
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

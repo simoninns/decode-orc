@@ -1,11 +1,12 @@
-/******************************************************************************
- * node_type_helper.h
- *
- * Helper functions for working with orc-core node types in the GUI
+/*
+ * File:        node_type_helper.h
+ * Module:      orc-gui
+ * Purpose:     Node type helper utilities
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

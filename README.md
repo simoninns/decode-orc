@@ -290,3 +290,103 @@ This architecture provides:
 * Long-term maintainability
 
 It forms a robust foundation for current and future LaserDisc and tape decode workflows.
+
+---
+
+## 15. Building and Usage
+
+### 15.1 Dependencies
+
+**System Requirements (must be installed):**
+- **CMake** >= 3.20
+- **C++17** compatible compiler (GCC 8+, Clang 7+, MSVC 2019+)
+- **spdlog**: C++ logging library (header-only, but installed via package manager)
+- **SQLite3**: Database for TBC metadata
+- **yaml-cpp**: YAML parsing library
+- **Qt6** (optional, for GUI): Widgets module
+
+**Installation commands:**
+
+Ubuntu/Debian:
+```bash
+sudo apt install cmake build-essential libspdlog-dev libsqlite3-dev libyaml-cpp-dev qt6-base-dev
+```
+
+Fedora/RHEL:
+```bash
+sudo dnf install cmake gcc-c++ spdlog-devel sqlite-devel yaml-cpp-devel qt6-qtbase-devel
+```
+
+macOS (via Homebrew):
+```bash
+brew install cmake spdlog sqlite yaml-cpp qt@6
+```
+
+### 15.3 Building
+
+```bash
+mkdir build
+cd build
+cmake ../orc
+make -j4
+```
+
+This builds:
+- `orc-core`: Core processing library
+- `orc-cli`: Command-line interface for batch processing
+- `orc-gui`: Qt6-based graphical interface (if Qt6 is installed)
+- Test executables
+
+**Note**: Version numbers are automatically generated from the git commit hash. If there are uncommitted changes, the version will include a `-dirty` suffix.
+
+### 15.4 Running orc-cli
+
+```bash
+./bin/orc-cli --dag pipeline.yaml input.tbc output.tbc
+```
+
+Optional flags:
+- `--version` or `-v`: Show version information (git commit hash)
+- `--log-level <level>`: Set logging verbosity (trace, debug, info, warn, error, critical, off). Default: info
+
+Examples:
+```bash
+# Show version
+./bin/orc-cli --version
+
+# Run with debug logging
+./bin/orc-cli --log-level debug --dag pipeline.yaml input.tbc output.tbc
+```
+
+### 15.5 Running orc-gui
+
+```bash
+./bin/orc-gui [project-file.orc-project]
+```
+
+Optional flags:
+- `--version` or `-v`: Show version information (git commit hash)
+- `--log-level <level>`: Set logging verbosity (trace, debug, info, warn, error, critical, off). Default: info
+
+Examples:
+```bash
+# Show version
+./bin/orc-gui --version
+
+# Run with trace logging
+./bin/orc-gui --log-level trace
+```
+
+### 15.6 Logging
+
+Both orc-cli and orc-gui use **spdlog** for structured logging with color-coded console output:
+
+- **trace**: Very detailed execution flow (typically for debugging library internals)
+- **debug**: Detailed execution flow (DAG operations, field rendering, etc.)
+- **info**: High-level operations (project loading, source addition, etc.) - **default**
+- **warn**: Potential issues that don't prevent operation
+- **error**: Errors that prevent specific operations
+- **critical**: Fatal errors
+- **off**: Disable all logging
+
+Qt messages (qDebug, qInfo, qWarning, etc.) in orc-gui are automatically bridged to spdlog and prefixed with `[Qt]`.

@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_metadata.cpp
- *
- * TBC metadata reader implementation
+/*
+ * File:        tbc_metadata.cpp
+ * Module:      orc-core
+ * Purpose:     Tbc Metadata
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "tbc_metadata.h"
 #include <stdexcept>

@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        fieldpreviewwidget.h
+ * Module:      orc-gui
+ * Purpose:     Field preview widget
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef FIELDPREVIEWWIDGET_H
 #define FIELDPREVIEWWIDGET_H

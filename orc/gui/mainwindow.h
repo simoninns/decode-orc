@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        mainwindow.h
+ * Module:      orc-gui
+ * Purpose:     Main application window
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H

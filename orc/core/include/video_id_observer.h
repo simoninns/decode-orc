@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for IEC 61880 Video ID (NTSC only)
-// Standard: IEC 61880:1998
+/*
+ * File:        video_id_observer.h
+ * Module:      orc-core
+ * Purpose:     Video ID observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_CORE_VIDEO_ID_OBSERVER_H
 #define ORC_CORE_VIDEO_ID_OBSERVER_H

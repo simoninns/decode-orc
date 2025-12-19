@@ -1,13 +1,15 @@
-/******************************************************************************
- * tbc_video_field_representation.cpp
- *
- * TBC-backed VideoFieldRepresentation implementation
+/*
+ * File:        tbc_video_field_representation.cpp
+ * Module:      orc-core
+ * Purpose:     TBC video field representation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "tbc_video_field_representation.h"
+#include "dropout_decision.h"
 #include <sstream>
 #include <chrono>
 
@@ -222,6 +224,29 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
         artifact_id,
         provenance
     );
+}
+
+std::vector<DropoutRegion> TBCVideoFieldRepresentation::get_dropout_hints(FieldID id) const {
+    std::vector<DropoutRegion> regions;
+    
+    if (!metadata_reader_ || !metadata_reader_->is_open()) {
+        return regions;
+    }
+    
+    // Read dropout info from metadata
+    auto dropout_infos = metadata_reader_->read_dropouts(id);
+    
+    // Convert DropoutInfo to DropoutRegion
+    for (const auto& info : dropout_infos) {
+        DropoutRegion region;
+        region.line = info.line;
+        region.start_sample = info.start_sample;
+        region.end_sample = info.end_sample;
+        region.basis = DropoutRegion::DetectionBasis::HINT_DERIVED;
+        regions.push_back(region);
+    }
+    
+    return regions;
 }
 
 } // namespace orc

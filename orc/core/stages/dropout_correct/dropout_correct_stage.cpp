@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        dropout_correct_stage.cpp
+ * Module:      orc-core
+ * Purpose:     Dropout correction stage
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include <dropout_correct_stage.h>
 #include "tbc_metadata.h"
@@ -41,15 +47,24 @@ std::vector<ArtifactPtr> DropoutCorrectStage::execute(
         const_cast<DropoutCorrectStage*>(this)->set_parameters(param_values);
     }
     
-    // TODO: For now, return input unchanged since we need dropout metadata
-    // Full implementation requires:
-    // 1. Access to dropout metadata (from observer)
-    // 2. Access to dropout decisions (from user)
-    // 3. Call correct_field() with proper inputs
+    // Get field range
+    auto range = source->field_range();
+    if (!range.is_valid()) {
+        std::cerr << "DropoutCorrectStage: Invalid field range\n";
+        std::vector<ArtifactPtr> outputs;
+        outputs.push_back(std::const_pointer_cast<VideoFieldRepresentation>(source));
+        return outputs;
+    }
     
-    // Placeholder: pass through unchanged
+    // Return the corrected representation (lazy - corrections computed on-demand per field)
+    auto corrected = std::make_shared<CorrectedVideoFieldRepresentation>(
+        source, 
+        const_cast<DropoutCorrectStage*>(this),
+        config_.highlight_corrections
+    );
+    
     std::vector<ArtifactPtr> outputs;
-    outputs.push_back(std::const_pointer_cast<VideoFieldRepresentation>(source));
+    outputs.push_back(std::static_pointer_cast<VideoFieldRepresentation>(corrected));
     return outputs;
 }
 
@@ -57,10 +72,24 @@ std::vector<ArtifactPtr> DropoutCorrectStage::execute(
 
 CorrectedVideoFieldRepresentation::CorrectedVideoFieldRepresentation(
     std::shared_ptr<const VideoFieldRepresentation> source,
-    const std::vector<DropoutRegion>& corrections_applied)
+    DropoutCorrectStage* stage,
+    bool highlight_corrections)
     : VideoFieldRepresentation(ArtifactID("corrected_field"), Provenance{})
-    , source_(source), corrections_(corrections_applied)
+    , source_(source), stage_(stage), highlight_corrections_(highlight_corrections)
 {
+}
+
+void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id) const {
+    // Check if already processed
+    if (processed_fields_.count(field_id)) {
+        return;
+    }
+    
+    // Mark as processed
+    processed_fields_.insert(field_id);
+    
+    // Correct this field
+    stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, field_id);
 }
 
 FieldIDRange CorrectedVideoFieldRepresentation::field_range() const {
@@ -80,6 +109,9 @@ std::optional<FieldDescriptor> CorrectedVideoFieldRepresentation::get_descriptor
 }
 
 const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {
+    // Ensure this field has been corrected
+    ensure_field_corrected(id);
+    
     // Check if we have a corrected version of this line
     auto key = std::make_pair(id, static_cast<uint32_t>(line));
     auto it = corrected_lines_.find(key);
@@ -111,89 +143,24 @@ std::vector<uint16_t> CorrectedVideoFieldRepresentation::get_field(FieldID id) c
     return field_data;
 }
 
-const std::vector<uint16_t>& CorrectedVideoFieldRepresentation::get_corrected_line(
-    FieldID id, uint32_t line) const
-{
-    auto key = std::make_pair(id, line);
-    return corrected_lines_[key];
-}
-
 // DropoutCorrectStage implementation
 
 std::shared_ptr<CorrectedVideoFieldRepresentation> DropoutCorrectStage::correct_field(
     std::shared_ptr<const VideoFieldRepresentation> source,
-    FieldID field_id,
-    const std::vector<DropoutRegion>& dropouts,
-    const DropoutDecisions& decisions)
+    FieldID /*field_id*/,
+    const std::vector<DropoutRegion>& /*dropouts*/,
+    const DropoutDecisions& /*decisions*/)
 {
-    // Apply user decisions to dropout list
-    auto effective_dropouts = decisions.apply_decisions(field_id, dropouts);
+    // For now, this method creates a lazy corrected representation
+    // The dropouts and decisions parameters are ignored since the source
+    // should provide dropout hints
+    // TODO: Support explicit dropout list and decisions
     
-    // Get field descriptor
-    auto descriptor_opt = source->get_descriptor(field_id);
-    if (!descriptor_opt) {
-        // Can't process without descriptor
-        return std::make_shared<CorrectedVideoFieldRepresentation>(source, std::vector<DropoutRegion>());
-    }
-    const auto& descriptor = *descriptor_opt;
-    
-    // Apply overcorrection if configured
-    if (config_.overcorrect_extension > 0) {
-        for (auto& dropout : effective_dropouts) {
-            if (dropout.start_sample > config_.overcorrect_extension) {
-                dropout.start_sample -= config_.overcorrect_extension;
-            } else {
-                dropout.start_sample = 0;
-            }
-            
-            if (dropout.end_sample + config_.overcorrect_extension < descriptor.width) {
-                dropout.end_sample += config_.overcorrect_extension;
-            } else {
-                dropout.end_sample = static_cast<uint32_t>(descriptor.width);
-            }
-        }
-    }
-    
-    // Split dropouts by location
-    auto split_dropouts = split_dropout_regions(effective_dropouts, descriptor);
-    
-    // Create corrected representation
-    auto corrected = std::make_shared<CorrectedVideoFieldRepresentation>(source, split_dropouts);
-    
-    // Process each dropout
-    for (const auto& dropout : split_dropouts) {
-        // Get current line data (either already corrected or original)
-        // Check if we've already corrected this line
-        auto line_key = std::make_pair(field_id, dropout.line);
-        std::vector<uint16_t> line_data;
-        
-        if (corrected->corrected_lines_.count(line_key)) {
-            // Use the already-corrected version
-            line_data = corrected->corrected_lines_[line_key];
-        } else {
-            // Get original line data
-            const uint16_t* original_data = source->get_line(field_id, dropout.line);
-            line_data.assign(original_data, original_data + descriptor.width);
-        }
-        
-        // Find replacement line
-        bool use_intrafield = config_.intrafield_only;
-        auto replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield);
-        
-        // If no intrafield replacement and not forced, try interfield
-        if (!replacement.found && !config_.intrafield_only) {
-            replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false);
-        }
-        
-        if (replacement.found) {
-            // Apply the correction
-            const uint16_t* replacement_data = source->get_line(replacement.source_field, replacement.source_line);
-            apply_correction(line_data, dropout, replacement_data);
-            
-            // Store corrected line
-            corrected->corrected_lines_[std::make_pair(field_id, dropout.line)] = line_data;
-        }
-    }
+    auto corrected = std::make_shared<CorrectedVideoFieldRepresentation>(
+        source, 
+        const_cast<DropoutCorrectStage*>(this),
+        config_.highlight_corrections
+    );
     
     return corrected;
 }
@@ -374,12 +341,16 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
 void DropoutCorrectStage::apply_correction(
     std::vector<uint16_t>& line_data,
     const DropoutRegion& dropout,
-    const uint16_t* replacement_data) const
+    const uint16_t* replacement_data,
+    bool highlight) const
 {
-    // Copy samples from replacement line to corrected line
+    // If highlighting, fill with white IRE level (100 IRE = 65535 in 16-bit)
+    // Otherwise, copy samples from replacement line to corrected line
+    uint16_t fill_value = highlight ? 65535 : 0;  // White IRE level
+    
     for (uint32_t sample = dropout.start_sample; sample < dropout.end_sample; ++sample) {
         if (sample < line_data.size()) {
-            line_data[sample] = replacement_data[sample];
+            line_data[sample] = highlight ? fill_value : replacement_data[sample];
         }
     }
 }
@@ -415,6 +386,79 @@ double DropoutCorrectStage::calculate_line_quality(
     // Return inverse of variance (higher = better quality)
     // Add small epsilon to avoid division by zero
     return 1.0 / (variance + 1.0);
+}
+
+void DropoutCorrectStage::correct_single_field(
+    CorrectedVideoFieldRepresentation* corrected,
+    std::shared_ptr<const VideoFieldRepresentation> source,
+    FieldID field_id) const
+{
+    // Get field descriptor
+    auto descriptor_opt = source->get_descriptor(field_id);
+    if (!descriptor_opt) {
+        return;  // Can't process without descriptor
+    }
+    const auto& descriptor = *descriptor_opt;
+    
+    // Get dropout hints from source
+    auto dropouts = source->get_dropout_hints(field_id);
+    if (dropouts.empty()) {
+        return;  // No dropouts to correct
+    }
+    
+    // Apply overcorrection if configured
+    if (config_.overcorrect_extension > 0) {
+        for (auto& dropout : dropouts) {
+            if (dropout.start_sample > config_.overcorrect_extension) {
+                dropout.start_sample -= config_.overcorrect_extension;
+            } else {
+                dropout.start_sample = 0;
+            }
+            
+            if (dropout.end_sample + config_.overcorrect_extension < descriptor.width) {
+                dropout.end_sample += config_.overcorrect_extension;
+            } else {
+                dropout.end_sample = static_cast<uint32_t>(descriptor.width);
+            }
+        }
+    }
+    
+    // Split dropouts by location
+    auto split_dropouts = split_dropout_regions(dropouts, descriptor);
+    
+    // Process each dropout
+    for (const auto& dropout : split_dropouts) {
+        // Get current line data (either already corrected or original)
+        auto line_key = std::make_pair(field_id, dropout.line);
+        std::vector<uint16_t> line_data;
+        
+        if (corrected->corrected_lines_.count(line_key)) {
+            // Use the already-corrected version
+            line_data = corrected->corrected_lines_[line_key];
+        } else {
+            // Get original line data
+            const uint16_t* original_data = source->get_line(field_id, dropout.line);
+            line_data.assign(original_data, original_data + descriptor.width);
+        }
+        
+        // Find replacement line
+        bool use_intrafield = config_.intrafield_only;
+        auto replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield);
+        
+        // If no intrafield replacement and not forced, try interfield
+        if (!replacement.found && !config_.intrafield_only) {
+            replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false);
+        }
+        
+        if (replacement.found) {
+            // Apply the correction
+            const uint16_t* replacement_data = source->get_line(replacement.source_field, replacement.source_line);
+            apply_correction(line_data, dropout, replacement_data, corrected->highlight_corrections_);
+            
+            // Store corrected line
+            corrected->corrected_lines_[std::make_pair(field_id, dropout.line)] = line_data;
+        }
+    }
 }
 
 // Parameter interface implementation
@@ -487,6 +531,18 @@ std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors(
         descriptors.push_back(desc);
     }
     
+    // Highlight corrections parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "highlight_corrections";
+        desc.display_name = "Highlight Corrections";
+        desc.description = "Fill corrected regions with white IRE level (100) to visualize dropout locations";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
     return descriptors;
 }
 
@@ -498,6 +554,7 @@ std::map<std::string, ParameterValue> DropoutCorrectStage::get_parameters() cons
     params["reverse_field_order"] = config_.reverse_field_order;
     params["max_replacement_distance"] = config_.max_replacement_distance;
     params["match_chroma_phase"] = config_.match_chroma_phase;
+    params["highlight_corrections"] = config_.highlight_corrections;
     return params;
 }
 
@@ -544,6 +601,13 @@ bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterVa
         else if (name == "match_chroma_phase") {
             if (auto* val = std::get_if<bool>(&value)) {
                 config_.match_chroma_phase = *val;
+            } else {
+                return false;
+            }
+        }
+        else if (name == "highlight_corrections") {
+            if (auto* val = std::get_if<bool>(&value)) {
+                config_.highlight_corrections = *val;
             } else {
                 return false;
             }

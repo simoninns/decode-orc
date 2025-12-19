@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_reader.h
- *
- * Reader for TBC (Time Base Corrected) video files
+/*
+ * File:        tbc_reader.h
+ * Module:      orc-core
+ * Purpose:     Tbc Reader
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

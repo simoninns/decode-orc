@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for CEA-608 closed captions
-// Standard: ANSI/CTA-608-E
+/*
+ * File:        closed_caption_observer.h
+ * Module:      orc-core
+ * Purpose:     Closed caption observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_CORE_CLOSED_CAPTION_OBSERVER_H
 #define ORC_CORE_CLOSED_CAPTION_OBSERVER_H

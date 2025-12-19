@@ -1,10 +1,17 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        dageditorwindow.cpp
+ * Module:      orc-gui
+ * Purpose:     DAG editor window
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "dageditorwindow.h"
 #include "dagviewerwidget.h"
 #include "guiproject.h"
 #include "stageparameterdialog.h"
+#include "logging.h"
 #include "../core/include/dag_serialization.h"
 #include "../core/include/stage_registry.h"
 
@@ -93,6 +100,7 @@ void DAGEditorWindow::setProject(GUIProject* project)
 {
     project_ = project;
     if (project_) {
+        ORC_LOG_DEBUG("DAG Editor: setting project {}", project_->projectName().toStdString());
         // Connect DAG viewer to the core project for CRUD operations
         if (dag_viewer_) {
             dag_viewer_->setProject(&project_->coreProject());
@@ -107,6 +115,8 @@ void DAGEditorWindow::loadProjectDAG()
     if (!project_) {
         return;
     }
+    
+    ORC_LOG_DEBUG("DAG Editor: loading project DAG for visualization");
     
     // Convert project DAG to GUIDAG for visualization
     orc::GUIDAG gui_dag;

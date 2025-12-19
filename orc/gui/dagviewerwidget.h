@@ -1,11 +1,12 @@
-/******************************************************************************
- * dagviewerwidget.h
- *
- * DAG visualization widget
+/*
+ * File:        dagviewerwidget.h
+ * Module:      orc-gui
+ * Purpose:     DAG viewer widget
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

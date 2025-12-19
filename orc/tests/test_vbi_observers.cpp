@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Tests for VBI observers with real TBC data
+/*
+ * File:        test_vbi_observers.cpp
+ * Module:      orc-tests
+ * Purpose:     Vbi Observers test suite
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "biphase_observer.h"
 #include "vitc_observer.h"

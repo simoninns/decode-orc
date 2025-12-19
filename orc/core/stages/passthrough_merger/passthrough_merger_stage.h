@@ -1,11 +1,12 @@
-/******************************************************************************
- * passthrough_merger_stage.h
- *
- * Passthrough merger stage - multiple inputs, one output (for testing)
+/*
+ * File:        passthrough_merger_stage.h
+ * Module:      orc-core
+ * Purpose:     Passthrough merger stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_video_field_representation.h
- *
- * Concrete implementation of VideoFieldRepresentation backed by TBC files
+/*
+ * File:        tbc_video_field_representation.h
+ * Module:      orc-core
+ * Purpose:     TBC video field representation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 
@@ -58,6 +59,8 @@ public:
     
     const sample_type* get_line(FieldID id, size_t line) const override;
     std::vector<sample_type> get_field(FieldID id) const override;
+    
+    std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
     
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
     

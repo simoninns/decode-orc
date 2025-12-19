@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        dageditorwindow.h
+ * Module:      orc-gui
+ * Purpose:     DAG editor window
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef DAGEDITORWINDOW_H
 #define DAGEDITORWINDOW_H

@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for biphase (Manchester) encoded VBI data
+/*
+ * File:        biphase_observer.cpp
+ * Module:      orc-core
+ * Purpose:     Biphase observer implementation
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "biphase_observer.h"
 #include "tbc_video_field_representation.h"

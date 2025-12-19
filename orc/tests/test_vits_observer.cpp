@@ -1,11 +1,12 @@
-/******************************************************************************
- * test_vits_observer.cpp
- *
- * Unit tests for VITS quality observer
+/*
+ * File:        test_vits_observer.cpp
+ * Module:      orc-tests
+ * Purpose:     Vits Observer test suite
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "vits_observer.h"
 #include "tbc_video_field_representation.h"

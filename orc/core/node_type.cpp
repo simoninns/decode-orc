@@ -1,12 +1,18 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        node_type.cpp
+ * Module:      orc-core
+ * Purpose:     Node type registry
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "include/node_type.h"
 #include "include/stage_registry.h"
+#include "logging.h"
 #include <limits>
 #include <vector>
 #include <unordered_map>
-#include <iostream>
 
 namespace orc {
 
@@ -15,14 +21,13 @@ const NodeTypeInfo* get_node_type_info(const std::string& stage_name) {
     auto& registry = StageRegistry::instance();
     
     if (!registry.has_stage(stage_name)) {
-        std::cerr << "ERROR: Stage '" << stage_name << "' is not registered!" << std::endl;
-        std::cerr << "  Available stages: ";
         auto stages = registry.get_registered_stages();
+        std::string available_stages;
         for (size_t i = 0; i < stages.size(); ++i) {
-            std::cerr << stages[i];
-            if (i < stages.size() - 1) std::cerr << ", ";
+            available_stages += stages[i];
+            if (i < stages.size() - 1) available_stages += ", ";
         }
-        std::cerr << std::endl;
+        ORC_LOG_ERROR("Stage '{}' is not registered. Available: {}", stage_name, available_stages);
         return nullptr;
     }
     

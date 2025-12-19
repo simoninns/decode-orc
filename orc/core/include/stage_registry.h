@@ -1,11 +1,12 @@
-/******************************************************************************
- * stage_registry.h
- *
- * Stage Registry - Factory for creating stage instances by name
+/*
+ * File:        stage_registry.h
+ * Module:      orc-core
+ * Purpose:     Stage type registration
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

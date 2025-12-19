@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_source_stage.h
- *
- * TBC Source Stage - Loads TBC files as source input
+/*
+ * File:        tbc_source_stage.h
+ * Module:      orc-core
+ * Purpose:     TBC source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #ifndef TBC_SOURCE_STAGE_H
 #define TBC_SOURCE_STAGE_H

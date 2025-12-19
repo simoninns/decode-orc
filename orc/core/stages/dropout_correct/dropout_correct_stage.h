@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        dropout_correct_stage.h
+ * Module:      orc-core
+ * Purpose:     Dropout correction stage
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #pragma once
 
@@ -10,8 +16,13 @@
 #include <memory>
 #include <vector>
 #include <cstdint>
+#include <map>
+#include <set>
 
 namespace orc {
+
+// Forward declarations
+class DropoutCorrectStage;
 
 /// Configuration for dropout correction stage
 struct DropoutCorrectionConfig {
@@ -30,18 +41,22 @@ struct DropoutCorrectionConfig {
     
     /// Whether to match chroma phase when selecting replacement lines
     bool match_chroma_phase = true;
+    
+    /// Highlight corrections by filling with white IRE level instead of replacement data
+    bool highlight_corrections = false;
 };
 
 /// Corrected video field representation
 /// 
-/// This wraps the original field data with corrections applied
+/// This wraps the original field data with corrections applied on-demand
 class CorrectedVideoFieldRepresentation : public VideoFieldRepresentation {
 public:
     CorrectedVideoFieldRepresentation(
         std::shared_ptr<const VideoFieldRepresentation> source,
-        const std::vector<DropoutRegion>& corrections_applied);
+        DropoutCorrectStage* stage,
+        bool highlight_corrections);
     
-    ~CorrectedVideoFieldRepresentation() override = default;
+    ~CorrectedVideoFieldRepresentation() = default;
     
     // VideoFieldRepresentation interface
     FieldIDRange field_range() const override;
@@ -51,20 +66,22 @@ public:
     const uint16_t* get_line(FieldID id, size_t line) const override;
     std::vector<uint16_t> get_field(FieldID id) const override;
     
-    // Access to corrected data
-    const std::vector<uint16_t>& get_corrected_line(FieldID id, uint32_t line) const;
-    
     // Allow stage to access private members
     friend class DropoutCorrectStage;
     
 private:
     std::shared_ptr<const VideoFieldRepresentation> source_;
+    DropoutCorrectStage* stage_;  // Non-owning pointer to stage for lazy correction
+    bool highlight_corrections_;
     
     // Corrected line data (sparse - only lines with corrections)
     mutable std::map<std::pair<FieldID, uint32_t>, std::vector<uint16_t>> corrected_lines_;
     
-    // List of corrections applied
-    std::vector<DropoutRegion> corrections_;
+    // Cache of processed fields to avoid reprocessing
+    mutable std::set<FieldID> processed_fields_;
+    
+    // Ensure field is corrected (lazy)
+    void ensure_field_corrected(FieldID field_id) const;
 };
 
 /// Dropout correction stage
@@ -128,6 +145,12 @@ public:
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     
+    // Public for lazy correction from CorrectedVideoFieldRepresentation
+    void correct_single_field(
+        CorrectedVideoFieldRepresentation* corrected,
+        std::shared_ptr<const VideoFieldRepresentation> source,
+        FieldID field_id) const;
+    
 private:
     DropoutCorrectionConfig config_;
     
@@ -169,7 +192,8 @@ private:
     void apply_correction(
         std::vector<uint16_t>& line_data,
         const DropoutRegion& dropout,
-        const uint16_t* replacement_data) const;
+        const uint16_t* replacement_data,
+        bool highlight = false) const;
     
     /// Calculate quality metric for a potential replacement line
     double calculate_line_quality(

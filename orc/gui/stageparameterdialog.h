@@ -1,11 +1,12 @@
-/******************************************************************************
- * stageparameterdialog.h
- *
- * Dialog for editing stage parameters dynamically
+/*
+ * File:        stageparameterdialog.h
+ * Module:      orc-gui
+ * Purpose:     Stage parameter dialog
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

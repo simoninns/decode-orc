@@ -1,11 +1,12 @@
-/******************************************************************************
- * artifact.h
- *
- * Artifact identity, provenance, and base class for processing results
+/*
+ * File:        artifact.h
+ * Module:      orc-core
+ * Purpose:     Artifact implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for NTSC FM code (line 10)
-// Standard: IEC 60587-1986 §10.2
+/*
+ * File:        fm_code_observer.h
+ * Module:      orc-core
+ * Purpose:     FM code observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_CORE_FM_CODE_OBSERVER_H
 #define ORC_CORE_FM_CODE_OBSERVER_H

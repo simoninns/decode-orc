@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        passthrough_merger_stage.cpp
+ * Module:      orc-core
+ * Purpose:     Passthrough merger stage
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include <passthrough_merger_stage.h>
 #include <stage_registry.h>

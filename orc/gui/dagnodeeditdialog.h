@@ -1,11 +1,12 @@
-/******************************************************************************
- * dagnodeeditdialog.h
- *
- * Dialog for editing DAG node parameters
+/*
+ * File:        dagnodeeditdialog.h
+ * Module:      orc-gui
+ * Purpose:     DAG node edit dialog
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

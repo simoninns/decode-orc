@@ -1,11 +1,11 @@
-/******************************************************************************
- * artifact.cpp
- *
- * Artifact implementation
+/*
+ * File:        artifact.cpp
+ * Module:      orc-core
+ * Purpose:     Artifact implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
 
 #include "artifact.h"
 

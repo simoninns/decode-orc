@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        closed_caption_observer.cpp
+ * Module:      orc-core
+ * Purpose:     Closed caption observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "closed_caption_observer.h"
 #include "tbc_video_field_representation.h"

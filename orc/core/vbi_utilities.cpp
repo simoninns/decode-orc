@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Common utility functions for VBI decoding
+/*
+ * File:        vbi_utilities.cpp
+ * Module:      orc-core
+ * Purpose:     Vbi Utilities
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "vbi_utilities.h"
 #include <algorithm>

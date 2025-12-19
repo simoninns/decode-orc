@@ -1,11 +1,12 @@
-/******************************************************************************
- * overwrite_stage.h
- *
- * Overwrite stage - replaces all field data with a constant IRE value
+/*
+ * File:        overwrite_stage.h
+ * Module:      orc-core
+ * Purpose:     Overwrite processing stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

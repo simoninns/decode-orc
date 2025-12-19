@@ -42,6 +42,7 @@ target_link_libraries(orc-gui PRIVATE
 
 target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/core/include
+    ${CMAKE_BINARY_DIR}/generated
 )
 
 # Install target

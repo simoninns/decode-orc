@@ -1,11 +1,12 @@
-/******************************************************************************
- * vits_observer.h
- *
- * VITS (Vertical Interval Test Signal) quality observer
+/*
+ * File:        vits_observer.h
+ * Module:      orc-core
+ * Purpose:     VITS observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

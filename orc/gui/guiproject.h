@@ -1,5 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        guiproject.h
+ * Module:      orc-gui
+ * Purpose:     GUI project management
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_GUI_PROJECT_H
 #define ORC_GUI_PROJECT_H

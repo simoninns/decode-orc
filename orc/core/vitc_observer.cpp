@@ -1,7 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for VITC (Vertical Interval Timecode)
+/*
+ * File:        vitc_observer.cpp
+ * Module:      orc-core
+ * Purpose:     VITC observer implementation
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "vitc_observer.h"
 #include "tbc_video_field_representation.h"

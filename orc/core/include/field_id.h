@@ -1,11 +1,12 @@
-/******************************************************************************
- * field_id.h
- *
- * FieldID - The fundamental coordinate system for ld-decode-orc
+/*
+ * File:        field_id.h
+ * Module:      orc-core
+ * Purpose:     Field identifier implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

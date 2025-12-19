@@ -6,6 +6,9 @@ add_library(orc-core STATIC
     dag_executor.cpp
     dag_field_renderer.cpp
     
+    # Logging
+    logging.cpp
+    
     # TBC file I/O
     tbc_reader.cpp
     tbc_metadata.cpp
@@ -79,3 +82,7 @@ target_link_libraries(orc-core PUBLIC SQLite::SQLite3)
 # Find and link yaml-cpp
 find_package(yaml-cpp REQUIRED)
 target_link_libraries(orc-core PUBLIC yaml-cpp)
+
+# Find and link spdlog
+find_package(spdlog REQUIRED)
+target_link_libraries(orc-core PUBLIC spdlog::spdlog)

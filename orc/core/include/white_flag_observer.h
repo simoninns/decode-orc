@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for NTSC white flag (line 11)
-// Standard: IEC 60587-1986 §10.2.4
+/*
+ * File:        white_flag_observer.h
+ * Module:      orc-core
+ * Purpose:     White flag observer
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_CORE_WHITE_FLAG_OBSERVER_H
 #define ORC_CORE_WHITE_FLAG_OBSERVER_H

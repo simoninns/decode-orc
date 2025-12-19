@@ -1,11 +1,12 @@
-/******************************************************************************
- * dagnodeeditdialog.cpp
- *
- * Dialog for editing DAG node parameters implementation
+/*
+ * File:        dagnodeeditdialog.cpp
+ * Module:      orc-gui
+ * Purpose:     DAG node edit dialog
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "dagnodeeditdialog.h"
 #include <QVBoxLayout>

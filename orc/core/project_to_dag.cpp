@@ -1,11 +1,12 @@
-/******************************************************************************
- * project_to_dag.cpp
- *
- * Project to DAG Conversion - Convert serializable Project to executable DAG
+/*
+ * File:        project_to_dag.cpp
+ * Module:      orc-core
+ * Purpose:     Project to DAG conversion
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "project_to_dag.h"
 #include "stage_registry.h"

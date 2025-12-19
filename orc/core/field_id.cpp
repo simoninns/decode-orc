@@ -1,11 +1,12 @@
-/******************************************************************************
- * field_id.cpp
- *
- * FieldID implementation
+/*
+ * File:        field_id.cpp
+ * Module:      orc-core
+ * Purpose:     Field identifier implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "field_id.h"
 #include <sstream>

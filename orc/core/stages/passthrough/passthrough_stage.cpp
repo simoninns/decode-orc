@@ -1,11 +1,12 @@
-/******************************************************************************
- * passthrough_stage.cpp
- *
- * Passthrough (dummy) stage implementation
+/*
+ * File:        passthrough_stage.cpp
+ * Module:      orc-core
+ * Purpose:     Passthrough processing stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "passthrough_stage.h"
 #include "stage_registry.h"

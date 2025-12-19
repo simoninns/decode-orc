@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_source_stage.cpp
- *
- * TBC Source Stage Implementation
+/*
+ * File:        tbc_source_stage.cpp
+ * Module:      orc-core
+ * Purpose:     TBC source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "tbc_source_stage.h"
 #include <stage_registry.h>

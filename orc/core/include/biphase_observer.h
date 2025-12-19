@@ -1,8 +1,11 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-// 
-// Observer for biphase (Manchester) encoded VBI data on lines 16-18
-// Standard: IEC 60586-1986 §10.1 (PAL) / IEC 60587-1986 §10.1 (NTSC)
+/*
+ * File:        biphase_observer.h
+ * Module:      orc-core
+ * Purpose:     Biphase observer implementation
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #ifndef ORC_CORE_BIPHASE_OBSERVER_H
 #define ORC_CORE_BIPHASE_OBSERVER_H

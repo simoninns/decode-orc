@@ -1,11 +1,12 @@
-/******************************************************************************
- * tbc_metadata.h
- *
- * Reader for TBC metadata (SQLite database)
+/*
+ * File:        tbc_metadata.h
+ * Module:      orc-core
+ * Purpose:     Tbc Metadata
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

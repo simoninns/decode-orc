@@ -1,14 +1,12 @@
-/******************************************************************************
- * stage_init.cpp
- *
- * Force linking of all stage registration units
- *
- * This file ensures that all stage object files are linked into the final
- * binary, which is necessary for their static registration to execute.
+/*
+ * File:        stage_init.cpp
+ * Module:      orc-core
+ * Purpose:     Stage initialization
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "stages/tbc_source/tbc_source_stage.h"
 #include "stages/dropout_correct/dropout_correct_stage.h"

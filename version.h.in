@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-FileCopyrightText: 2025
+// Auto-generated version header - do not edit directly
+
+#ifndef ORC_VERSION_H
+#define ORC_VERSION_H
+
+#define ORC_VERSION "@ORC_VERSION@"
+
+#endif // ORC_VERSION_H

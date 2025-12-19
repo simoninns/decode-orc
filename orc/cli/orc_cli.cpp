@@ -1,8 +1,13 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
-//
-// orc-process: Execute DAG pipeline on TBC files
+/*
+ * File:        orc_cli.cpp
+ * Module:      orc-cli
+ * Purpose:     CLI application entry point
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
+#include "version.h"
 #include "tbc_video_field_representation.h"
 #include "biphase_observer.h"
 #include "vitc_observer.h"
@@ -14,6 +19,7 @@
 #include "dropout_correct_stage.h"
 #include "dropout_decision.h"
 #include "observer.h"
+#include "logging.h"
 
 #include <iostream>
 #include <fstream>
@@ -734,25 +740,53 @@ void write_observations_to_db(const std::string& db_path,
 }
 
 void print_usage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " --dag <pipeline.yaml> <input.tbc> <output.tbc>\n\n";
+    std::cout << "orc-cli " << ORC_VERSION << "\n\n";
+    std::cout << "Usage: " << program_name << " [options] --dag <pipeline.yaml> <input.tbc> <output.tbc>\n\n";
     std::cout << "Execute a DAG pipeline on TBC files\n\n";
+    std::cout << "Options:\n";
+    std::cout << "  --version            Show version information\n";
+    std::cout << "  --log-level <level>  Set logging verbosity (trace, debug, info, warn, error, critical, off)\n";
+    std::cout << "                       Default: info\n\n";
     std::cout << "Arguments:\n";
-    std::cout << "  --dag <file>     YAML file describing the processing pipeline\n";
-    std::cout << "  input.tbc        Input TBC file (with .tbc.db)\n";
-    std::cout << "  output.tbc       Output TBC file (creates .tbc and .tbc.db)\n\n";
-    std::cout << "Example:\n";
+    std::cout << "  --dag <file>         YAML file describing the processing pipeline\n";
+    std::cout << "  input.tbc            Input TBC file (with .tbc.db)\n";
+    std::cout << "  output.tbc           Output TBC file (creates .tbc and .tbc.db)\n\n";
+    std::cout << "Examples:\n";
     std::cout << "  " << program_name << " --dag vbi-observers.yaml input.tbc output.tbc\n";
+    std::cout << "  " << program_name << " --log-level debug --dag pipeline.yaml input.tbc output.tbc\n";
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 5 || std::string(argv[1]) != "--dag") {
+    // Parse command line arguments
+    std::string log_level = "info";
+    int arg_idx = 1;
+    
+    // Check for --version flag
+    if (argc > 1 && (std::string(argv[1]) == "--version" || std::string(argv[1]) == "-v")) {
+        std::cout << "orc-cli " << ORC_VERSION << "\n";
+        return 0;
+    }
+    
+    // Check for optional --log-level flag
+    if (argc > 2 && std::string(argv[1]) == "--log-level") {
+        log_level = argv[2];
+        arg_idx = 3;
+    }
+    
+    // Initialize logging system with specified level
+    orc::init_logging(log_level);
+    
+    ORC_LOG_INFO("orc-cli {} starting", ORC_VERSION);
+    
+    // Check for required arguments
+    if (argc < arg_idx + 4 || std::string(argv[arg_idx]) != "--dag") {
         print_usage(argv[0]);
         return 1;
     }
     
-    std::string dag_file = argv[2];
-    std::string input_tbc = argv[3];
-    std::string output_tbc = argv[4];
+    std::string dag_file = argv[arg_idx + 1];
+    std::string input_tbc = argv[arg_idx + 2];
+    std::string output_tbc = argv[arg_idx + 3];
     std::string input_db = input_tbc + ".db";
     std::string output_db = output_tbc + ".db";
     

@@ -1,11 +1,12 @@
-/******************************************************************************
- * vits_observer.cpp
- *
- * VITS quality observer implementation
+/*
+ * File:        vits_observer.cpp
+ * Module:      orc-core
+ * Purpose:     VITS observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #include "vits_observer.h"
 #include <cmath>

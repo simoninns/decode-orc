@@ -1,10 +1,15 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        dropout_decision.h
+ * Module:      orc-core
+ * Purpose:     Dropout decision management
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #pragma once
 
 #include "field_id.h"
-#include "observer.h"
 #include <string>
 #include <vector>
 #include <cstdint>

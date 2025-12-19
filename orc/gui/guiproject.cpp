@@ -1,8 +1,15 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-// SPDX-FileCopyrightText: 2025
+/*
+ * File:        guiproject.cpp
+ * Module:      orc-gui
+ * Purpose:     GUI project management
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
 
 #include "guiproject.h"
 #include "tbc_video_field_representation.h"
+#include "logging.h"
 #include "../core/include/project_to_dag.h"
 #include <QFileInfo>
 #include <algorithm>
@@ -98,12 +105,16 @@ bool GUIProject::saveToFile(const QString& path, QString* error)
 bool GUIProject::loadFromFile(const QString& path, QString* error)
 {
     try {
+        ORC_LOG_DEBUG("Loading project from: {}", path.toStdString());
         core_project_ = orc::project_io::load_project(path.toStdString());
         project_path_ = path;
+        ORC_LOG_DEBUG("Project loaded, loading source representations");
         loadSourceRepresentations();
+        ORC_LOG_DEBUG("Building DAG from project");
         rebuildDAG();  // Build DAG after loading project
         return true;
     } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to load project: {}", e.what());
         if (error) {
             *error = QString("Failed to load project: %1").arg(e.what());
         }
@@ -180,16 +191,20 @@ void GUIProject::rebuildDAG()
     dag_.reset();
     
     if (!hasSource()) {
+        ORC_LOG_DEBUG("No source in project, skipping DAG build");
         return;
     }
     
     // Project-to-DAG conversion
     // SOURCE nodes use TBCSourceStage which loads TBC files directly
     try {
+        ORC_LOG_DEBUG("Converting project to executable DAG");
         dag_ = orc::project_to_dag(core_project_);
+        ORC_LOG_INFO("DAG built successfully from project");
     } catch (const std::exception& e) {
         // Conversion failed - leave null
         // GUI will handle the error
+        ORC_LOG_ERROR("Failed to build DAG from project: {}", e.what());
         dag_.reset();
     }
 }
@@ -213,8 +228,15 @@ void GUIProject::loadSourceRepresentations()
                     db_path = std::get<std::string>(db_it->second);
                 }
                 
+                ORC_LOG_DEBUG("Loading TBC representation: {}", tbc_path);
                 // Load representation
                 source_representation_ = orc::create_tbc_representation(tbc_path, db_path);
+                if (source_representation_) {
+                    auto range = source_representation_->field_range();
+                    ORC_LOG_INFO("TBC representation loaded: {} fields", range.size());
+                } else {
+                    ORC_LOG_ERROR("Failed to create TBC representation");
+                }
                 break;  // Only load first source for now
             }
         }

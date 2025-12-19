@@ -1,11 +1,12 @@
-/******************************************************************************
- * observer.h
- *
- * Base class and framework for field observers
+/*
+ * File:        observer.h
+ * Module:      orc-core
+ * Purpose:     Observer base class
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

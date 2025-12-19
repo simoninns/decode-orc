@@ -1,16 +1,18 @@
-/******************************************************************************
- * video_field_representation.h
- *
- * Abstract interface for video field sample access
+/*
+ * File:        video_field_representation.h
+ * Module:      orc-core
+ * Purpose:     Video field representation interface
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 
 #include "field_id.h"
 #include "artifact.h"
+#include "dropout_decision.h"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -83,6 +85,12 @@ public:
     
     // Bulk access (returns copy)
     virtual std::vector<sample_type> get_field(FieldID id) const = 0;
+    
+    // Dropout hints (metadata from source, e.g., TBC decoder hints)
+    // Returns empty vector if source has no dropout information
+    virtual std::vector<DropoutRegion> get_dropout_hints(FieldID /*id*/) const {
+        return {};  // Default: no hints
+    }
     
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }

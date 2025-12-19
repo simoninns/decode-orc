@@ -1,11 +1,12 @@
-/******************************************************************************
- * passthrough_splitter_stage.h
- *
- * Passthrough splitter stage - one input, multiple outputs (for testing)
+/*
+ * File:        passthrough_splitter_stage.h
+ * Module:      orc-core
+ * Purpose:     Passthrough splitter stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
- ******************************************************************************/
+ */
+
 
 #pragma once
 

@@ -3,12 +3,20 @@
  * Module:      orc-core
  * Purpose:     Dropout correction stage
  *
+ * This stage corrects video dropouts by replacing corrupted samples with data
+ * from other lines/fields. The output has corrected data, so get_dropout_hints()
+ * returns empty (no dropouts remain). The original dropout locations can still
+ * be retrieved via get_corrected_regions() for visualization/debugging.
+ *
+ * Hint Semantics: Outputs describe corrected state (no dropouts)
+ *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
 #include <dropout_correct_stage.h>
 #include "tbc_metadata.h"
+#include "tbc_video_field_representation.h"
 #include "stage_registry.h"
 #include <algorithm>
 #include <cmath>
@@ -74,8 +82,8 @@ CorrectedVideoFieldRepresentation::CorrectedVideoFieldRepresentation(
     std::shared_ptr<const VideoFieldRepresentation> source,
     DropoutCorrectStage* stage,
     bool highlight_corrections)
-    : VideoFieldRepresentation(ArtifactID("corrected_field"), Provenance{})
-    , source_(source), stage_(stage), highlight_corrections_(highlight_corrections)
+    : VideoFieldRepresentationWrapper(source, ArtifactID("corrected_field"), Provenance{})
+    , stage_(stage), highlight_corrections_(highlight_corrections)
 {
 }
 
@@ -90,22 +98,6 @@ void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id)
     
     // Correct this field
     stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, field_id);
-}
-
-FieldIDRange CorrectedVideoFieldRepresentation::field_range() const {
-    return source_->field_range();
-}
-
-size_t CorrectedVideoFieldRepresentation::field_count() const {
-    return source_->field_count();
-}
-
-bool CorrectedVideoFieldRepresentation::has_field(FieldID id) const {
-    return source_->has_field(id);
-}
-
-std::optional<FieldDescriptor> CorrectedVideoFieldRepresentation::get_descriptor(FieldID id) const {
-    return source_->get_descriptor(id);
 }
 
 const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {

@@ -98,6 +98,8 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
     const std::string& node_id,
     FieldID field_id)
 {
+    ORC_LOG_DEBUG("render_field_at_node: node '{}', field {}", node_id, field_id.value());
+    
     // Check node exists
     if (!has_node(node_id)) {
         ORC_LOG_ERROR("render_field_at_node failed: Node '{}' does not exist", node_id);
@@ -116,10 +118,12 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
         auto it = render_cache_.find(key);
         if (it != render_cache_.end()) {
             // Return cached result
+            ORC_LOG_DEBUG("render_field_at_node: returning cached result for node '{}', field {}", node_id, field_id.value());
             auto result = it->second;
             result.from_cache = true;
             return result;
         }
+        ORC_LOG_DEBUG("render_field_at_node: cache miss, will execute DAG");
     }
     
     // Execute DAG to produce the field
@@ -143,13 +147,17 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
     result.field_id = field_id;
     result.from_cache = false;
     
+    ORC_LOG_DEBUG("DAGFieldRenderer: executing DAG to node '{}' for field {}", node_id, field_id.value());
+    
     try {
         // Create a DAG executor
         DAGExecutor executor;
         executor.set_cache_enabled(true);  // Use executor's cache for efficiency
         
         // Execute the DAG up to the target node
+        ORC_LOG_DEBUG("DAGFieldRenderer: calling executor.execute_to_node");
         auto node_outputs = executor.execute_to_node(*dag_, node_id);
+        ORC_LOG_DEBUG("DAGFieldRenderer: executor returned {} node outputs", node_outputs.size());
         
         // Get the output from our target node
         auto it = node_outputs.find(node_id);

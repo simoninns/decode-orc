@@ -173,6 +173,7 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         params.system = video_system_from_string(impl_->get_string(stmt, 0));
         params.sample_rate = impl_->get_double(stmt, 1);
+        // active_video_start/end in database are HORIZONTAL sample positions (x-axis)
         params.active_video_start = impl_->get_int(stmt, 2);
         params.active_video_end = impl_->get_int(stmt, 3);
         params.field_width = impl_->get_int(stmt, 4);
@@ -187,6 +188,9 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         params.black_16b_ire = impl_->get_int(stmt, 13);
         params.git_branch = impl_->get_string(stmt, 14);
         params.git_commit = impl_->get_string(stmt, 15);
+        
+        // Vertical field line boundaries must be inferred from format
+        // first_active_field_line and last_active_field_line remain -1 (not in database)
         
         sqlite3_finalize(stmt);
         return params;

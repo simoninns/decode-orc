@@ -62,6 +62,10 @@ public:
     
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
     
+    std::optional<VideoParameters> get_video_parameters() const override {
+        return video_params_;
+    }
+    
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
     
     // Additional accessors specific to TBC

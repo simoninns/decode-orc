@@ -13,6 +13,7 @@
 #include "field_id.h"
 #include "artifact.h"
 #include "dropout_decision.h"
+#include "tbc_metadata.h"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -92,12 +93,99 @@ public:
         return {};  // Default: no hints
     }
     
+    // Video parameters (metadata from source, e.g., TBC metadata)
+    // Returns empty optional if source has no video parameter information
+    // Stages should propagate this through the DAG chain
+    virtual std::optional<VideoParameters> get_video_parameters() const {
+        return std::nullopt;  // Default: no parameters
+    }
+    
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }
     
 protected:
     VideoFieldRepresentation(ArtifactID id, Provenance prov)
         : Artifact(std::move(id), std::move(prov)) {}
+};
+
+/**
+ * @brief Base class for VideoFieldRepresentation wrappers
+ * 
+ * This class automatically propagates all hints and metadata from the source
+ * through the DAG chain, eliminating code duplication in wrapper implementations.
+ * 
+ * Wrapper implementations only need to override methods they actually modify
+ * (typically get_line() and/or get_field()).
+ * 
+ * IMPORTANT: Hint Semantics
+ * -------------------------
+ * Hints describe the OUTPUT of each stage, not the input. This means:
+ * 
+ * - If a stage modifies data that hints describe, it MUST override the hint methods
+ *   to reflect the modified state. For example:
+ *   * Dropout correction stage should return EMPTY dropout hints (all corrected)
+ *   * Field reordering stage should update field descriptors with new ordering
+ *   * Chroma decoding stage might add/modify format information
+ *   * Crop stage should update video parameters with new active area
+ *   * Scale stage should update video parameters with new dimensions
+ * 
+ * - If a stage does NOT modify the hinted data, it inherits the default behavior
+ *   which forwards hints unchanged. For example:
+ *   * Overwrite stage preserves dropout hints (doesn't correct them)
+ *   * Overwrite stage preserves video parameters (doesn't change geometry)
+ *   * Brightness adjustment preserves all hints
+ * 
+ * Video parameters (active_video_start/end, field dimensions, etc.) are hints too
+ * and follow the same semantic - they describe the output video geometry.
+ * 
+ * This ensures each stage in the chain receives accurate information about its input.
+ */
+class VideoFieldRepresentationWrapper : public VideoFieldRepresentation {
+public:
+    virtual ~VideoFieldRepresentationWrapper() = default;
+    
+    // Automatically forward sequence information to source
+    FieldIDRange field_range() const override {
+        return source_ ? source_->field_range() : FieldIDRange{};
+    }
+    
+    size_t field_count() const override {
+        return source_ ? source_->field_count() : 0;
+    }
+    
+    bool has_field(FieldID id) const override {
+        return source_ ? source_->has_field(id) : false;
+    }
+    
+    // Automatically forward field metadata to source
+    std::optional<FieldDescriptor> get_descriptor(FieldID id) const override {
+        return source_ ? source_->get_descriptor(id) : std::nullopt;
+    }
+    
+    // Automatically propagate hints through the chain
+    std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override {
+        return source_ ? source_->get_dropout_hints(id) : std::vector<DropoutRegion>{};
+    }
+    
+    std::optional<VideoParameters> get_video_parameters() const override {
+        return source_ ? source_->get_video_parameters() : std::nullopt;
+    }
+    
+    // Access to wrapped source
+    std::shared_ptr<const VideoFieldRepresentation> get_source() const {
+        return source_;
+    }
+    
+protected:
+    VideoFieldRepresentationWrapper(
+        std::shared_ptr<const VideoFieldRepresentation> source,
+        ArtifactID id,
+        Provenance prov)
+        : VideoFieldRepresentation(std::move(id), std::move(prov))
+        , source_(std::move(source))
+    {}
+    
+    std::shared_ptr<const VideoFieldRepresentation> source_;
 };
 
 using VideoFieldRepresentationPtr = std::shared_ptr<VideoFieldRepresentation>;

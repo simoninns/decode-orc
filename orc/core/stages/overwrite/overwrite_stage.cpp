@@ -10,43 +10,42 @@
 
 #include "overwrite_stage.h"
 #include "tbc_video_field_representation.h"
+#include "tbc_metadata.h"
 #include "stage_registry.h"
+#include "logging.h"
 #include <stdexcept>
 #include <algorithm>
 
 namespace orc {
 
 // Simple representation that wraps source metadata but provides overwritten data
-class OverwrittenVideoFieldRepresentation : public VideoFieldRepresentation {
+// Inherits from VideoFieldRepresentationWrapper to automatically propagate hints
+class OverwrittenVideoFieldRepresentation : public VideoFieldRepresentationWrapper {
 public:
     OverwrittenVideoFieldRepresentation(
         std::shared_ptr<const VideoFieldRepresentation> source,
         uint16_t constant_value,
+        size_t active_video_start,
+        size_t active_video_end,
+        size_t first_active_line,
+        size_t last_active_line,
         ArtifactID artifact_id,
         Provenance provenance)
-        : VideoFieldRepresentation(artifact_id, provenance)
-        , source_(source)
+        : VideoFieldRepresentationWrapper(source, artifact_id, provenance)
         , constant_value_(constant_value)
+        , active_video_start_(active_video_start)
+        , active_video_end_(active_video_end)
+        , first_active_line_(first_active_line)
+        , last_active_line_(last_active_line)
     {
+        ORC_LOG_DEBUG("OverwrittenVideoFieldRepresentation created: value={}, active_start={}, active_end={}, first_line={}, last_line={}",
+                      constant_value_, active_video_start_, active_video_end_, first_active_line_, last_active_line_);
     }
     
-    FieldIDRange field_range() const override {
-        return source_->field_range();
-    }
-    
-    size_t field_count() const override {
-        return source_->field_count();
-    }
-    
-    bool has_field(FieldID id) const override {
-        return source_->has_field(id);
-    }
-    
-    std::optional<FieldDescriptor> get_descriptor(FieldID id) const override {
-        return source_->get_descriptor(id);
-    }
-    
+    // Only override methods that are actually modified by this stage
     const sample_type* get_line(FieldID id, size_t line) const override {
+        ORC_LOG_DEBUG("OverwrittenVideoFieldRepresentation::get_line called: field={}, line={}", id.value(), line);
+        
         if (!has_field(id)) {
             return nullptr;
         }
@@ -63,8 +62,27 @@ public:
             return it->second.data();
         }
         
-        // Create new line filled with constant value
-        std::vector<sample_type> line_data(descriptor->width, constant_value_);
+        // Get the source line data
+        const sample_type* source_line = source_->get_line(id, line);
+        if (!source_line) {
+            return nullptr;
+        }
+        
+        // Create line data by copying source
+        std::vector<sample_type> line_data(source_line, source_line + descriptor->width);
+        
+        // Only overwrite the visible area
+        // Check if we're within active video lines
+        if (line >= first_active_line_ && line <= last_active_line_) {
+            // Overwrite the active video sample range
+            size_t start_sample = std::max(static_cast<size_t>(0), static_cast<size_t>(active_video_start_));
+            size_t end_sample = std::min(descriptor->width, static_cast<size_t>(active_video_end_));
+            
+            for (size_t i = start_sample; i < end_sample; ++i) {
+                line_data[i] = constant_value_;
+            }
+        }
+        
         line_cache_[line_key] = std::move(line_data);
         return line_cache_[line_key].data();
     }
@@ -75,8 +93,25 @@ public:
             return {};
         }
         
-        size_t total_samples = descriptor->height * descriptor->width;
-        std::vector<sample_type> field_data(total_samples, constant_value_);
+        // Get source field data
+        std::vector<sample_type> field_data = source_->get_field(id);
+        if (field_data.empty()) {
+            return {};
+        }
+        
+        // Only overwrite visible area
+        for (size_t line = 0; line < descriptor->height; ++line) {
+            if (line >= first_active_line_ && line <= last_active_line_) {
+                size_t line_offset = line * descriptor->width;
+                size_t start_sample = std::max(static_cast<size_t>(0), static_cast<size_t>(active_video_start_));
+                size_t end_sample = std::min(descriptor->width, static_cast<size_t>(active_video_end_));
+                
+                for (size_t i = start_sample; i < end_sample; ++i) {
+                    field_data[line_offset + i] = constant_value_;
+                }
+            }
+        }
+        
         return field_data;
     }
     
@@ -85,8 +120,11 @@ public:
     }
 
 private:
-    std::shared_ptr<const VideoFieldRepresentation> source_;
     uint16_t constant_value_;
+    size_t active_video_start_;
+    size_t active_video_end_;
+    size_t first_active_line_;
+    size_t last_active_line_;
     mutable std::map<size_t, std::vector<sample_type>> line_cache_;
 };
 
@@ -131,6 +169,8 @@ std::vector<ArtifactPtr> OverwriteStage::execute(
 std::shared_ptr<const VideoFieldRepresentation> OverwriteStage::process(
     std::shared_ptr<const VideoFieldRepresentation> source) const
 {
+    ORC_LOG_DEBUG("OverwriteStage::process called with IRE value: {}", ire_value_);
+    
     // Convert IRE to 16-bit sample value
     // Standard IRE scale: 0 IRE = 0, 100 IRE = 65535 (for 16-bit)
     // But typically: black = 7.5 IRE (4915), white = 100 IRE (65535)
@@ -138,6 +178,59 @@ std::shared_ptr<const VideoFieldRepresentation> OverwriteStage::process(
     uint16_t sample_value = static_cast<uint16_t>(
         std::clamp(ire_value_ * 65535.0 / 120.0, 0.0, 65535.0)
     );
+    
+    ORC_LOG_DEBUG("OverwriteStage sample_value: {}", sample_value);
+    
+    // Try to get video parameters from source if it's a TBC representation
+    size_t active_video_start = 0;
+    size_t active_video_end = 0;
+    size_t first_active_line = 0;
+    size_t last_active_line = 0;
+    
+    // Get field descriptor for defaults
+    auto descriptor = source->get_descriptor(source->field_range().start);
+    
+    // Get video parameters from source (propagated through DAG chain)
+    auto video_params_opt = source->get_video_parameters();
+    
+    if (video_params_opt && descriptor) {
+        const auto& video_params = *video_params_opt;
+        
+        ORC_LOG_DEBUG("OverwriteStage raw video params: first_active_field_line={}, last_active_field_line={}, active_video_start={}, active_video_end={}, field_height={}, field_width={}",
+                      video_params.first_active_field_line, video_params.last_active_field_line,
+                      video_params.active_video_start, video_params.active_video_end,
+                      video_params.field_height, video_params.field_width);
+        
+        // Horizontal boundaries from metadata
+        if (video_params.active_video_start > 0 && video_params.active_video_end > 0) {
+            active_video_start = static_cast<size_t>(video_params.active_video_start);
+            active_video_end = static_cast<size_t>(video_params.active_video_end);
+        } else {
+            // Fallback to full width
+            active_video_start = 0;
+            active_video_end = descriptor->width;
+        }
+        
+        // Vertical boundaries must be inferred from format (not in metadata)
+        if (descriptor->height >= 300) {
+            // PAL: 625 lines total, 313 per field, active video approximately lines 23-310
+            first_active_line = 23;
+            last_active_line = 310;
+        } else {
+            // NTSC: 525 lines total, 263 per field, active video approximately lines 22-259
+            first_active_line = 22;
+            last_active_line = 259;
+        }
+        
+        ORC_LOG_DEBUG("OverwriteStage active area: lines {}-{}, samples {}-{}", 
+                      first_active_line, last_active_line, active_video_start, active_video_end);
+    } else if (descriptor) {
+        // If no video parameters available, use full field
+        active_video_end = descriptor->width;
+        last_active_line = descriptor->height - 1;
+        ORC_LOG_DEBUG("OverwriteStage using full field: lines {}-{}, samples {}-{}", 
+                      first_active_line, last_active_line, active_video_start, active_video_end);
+    }
     
     // Create provenance
     Provenance prov;
@@ -154,6 +247,10 @@ std::shared_ptr<const VideoFieldRepresentation> OverwriteStage::process(
     return std::make_shared<OverwrittenVideoFieldRepresentation>(
         source,
         sample_value,
+        active_video_start,
+        active_video_end,
+        first_active_line,
+        last_active_line,
         artifact_id,
         prov
     );

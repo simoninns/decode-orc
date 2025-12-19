@@ -750,6 +750,8 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
     // Update which node is being viewed
     current_view_node_id_ = node_id;
     
+    ORC_LOG_DEBUG("Main window: switching view to node '{}'", node_id);
+    
     // Update status bar to show which node is being viewed
     QString node_display = QString::fromStdString(node_id);
     statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
@@ -804,18 +806,25 @@ void MainWindow::onDAGModified()
 void MainWindow::updateFieldView()
 {
     if (!representation_) {
+        ORC_LOG_DEBUG("updateFieldView: no representation, returning");
         return;
     }
     
     auto range = representation_->field_range();
     if (current_field_index_ >= static_cast<int>(range.size())) {
+        ORC_LOG_DEBUG("updateFieldView: current_field_index_ {} out of range, returning", current_field_index_);
         return;
     }
     
     orc::FieldID field_id = range.start + current_field_index_;
     
+    ORC_LOG_DEBUG("updateFieldView: rendering field {} at node '{}'", field_id.value(), current_view_node_id_);
+    ORC_LOG_DEBUG("updateFieldView: field_renderer_ = {}, current_view_node_id_ = '{}'", 
+                  (void*)field_renderer_.get(), current_view_node_id_);
+    
     // If we have a field renderer and a selected node, render at that node
     if (field_renderer_ && !current_view_node_id_.empty()) {
+        ORC_LOG_DEBUG("updateFieldView: calling render_field_at_node");
         auto result = field_renderer_->render_field_at_node(current_view_node_id_, field_id);
         
         if (result.is_valid && result.representation) {
@@ -862,6 +871,13 @@ void MainWindow::updateDAGRenderer()
         current_view_node_id_.clear();
         statusBar()->showMessage("Failed to build executable DAG", 5000);
         return;
+    }
+    
+    // Debug: show what nodes are in the DAG
+    const auto& dag_nodes = dag->nodes();
+    ORC_LOG_DEBUG("DAG contains {} nodes:", dag_nodes.size());
+    for (const auto& node : dag_nodes) {
+        ORC_LOG_DEBUG("  - {}", node.node_id);
     }
     
     // Create or update field renderer with the project's DAG

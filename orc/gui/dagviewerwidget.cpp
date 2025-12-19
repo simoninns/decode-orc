@@ -841,6 +841,9 @@ orc::GUIDAG DAGViewerWidget::exportDAG() const
 
 void DAGViewerWidget::importDAG(const orc::GUIDAG& dag)
 {
+    // Block signals during import to prevent premature dagModified emission
+    QSignalBlocker blocker(this);
+    
     // Clear existing DAG
     clearDAG();
     
@@ -876,6 +879,8 @@ void DAGViewerWidget::importDAG(const orc::GUIDAG& dag)
             edge_items_.push_back(edge_item);
         }
     }
+    
+    // Signals will be unblocked when blocker goes out of scope
 }
 
 void DAGViewerWidget::onSceneSelectionChanged()
@@ -883,6 +888,7 @@ void DAGViewerWidget::onSceneSelectionChanged()
     auto selected = scene_->selectedItems();
     if (!selected.isEmpty()) {
         if (auto* node_item = dynamic_cast<DAGNodeItem*>(selected.first())) {
+            ORC_LOG_DEBUG("Node selected in DAG viewer: {}", node_item->nodeId());
             emit nodeSelected(node_item->nodeId());
         }
     }

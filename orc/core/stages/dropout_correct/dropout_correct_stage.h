@@ -10,6 +10,7 @@
 #pragma once
 
 #include "video_field_representation.h"
+#include "tbc_metadata.h"
 #include "dropout_decision.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
@@ -49,7 +50,9 @@ struct DropoutCorrectionConfig {
 /// Corrected video field representation
 /// 
 /// This wraps the original field data with corrections applied on-demand
-class CorrectedVideoFieldRepresentation : public VideoFieldRepresentation {
+/// Inherits from VideoFieldRepresentationWrapper to automatically propagate
+/// hints and metadata through the DAG chain
+class CorrectedVideoFieldRepresentation : public VideoFieldRepresentationWrapper {
 public:
     CorrectedVideoFieldRepresentation(
         std::shared_ptr<const VideoFieldRepresentation> source,
@@ -58,19 +61,27 @@ public:
     
     ~CorrectedVideoFieldRepresentation() = default;
     
-    // VideoFieldRepresentation interface
-    FieldIDRange field_range() const override;
-    size_t field_count() const override;
-    bool has_field(FieldID id) const override;
-    std::optional<FieldDescriptor> get_descriptor(FieldID id) const override;
+    // Only override methods that are actually modified by this stage
     const uint16_t* get_line(FieldID id, size_t line) const override;
     std::vector<uint16_t> get_field(FieldID id) const override;
+    
+    // Override dropout hints - after correction, there are no dropouts
+    // (the output of this stage has corrected data, so hints describe the output)
+    std::vector<DropoutRegion> get_dropout_hints(FieldID /*id*/) const override {
+        // All dropouts have been corrected, so return empty
+        // Future: could return uncorrectable dropouts if correction failed
+        return {};
+    }
+    
+    // Get the original dropout regions that were corrected (for visualization/debugging)
+    std::vector<DropoutRegion> get_corrected_regions(FieldID id) const {
+        return source_ ? source_->get_dropout_hints(id) : std::vector<DropoutRegion>{};
+    }
     
     // Allow stage to access private members
     friend class DropoutCorrectStage;
     
 private:
-    std::shared_ptr<const VideoFieldRepresentation> source_;
     DropoutCorrectStage* stage_;  // Non-owning pointer to stage for lazy correction
     bool highlight_corrections_;
     

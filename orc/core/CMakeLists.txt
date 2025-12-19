@@ -75,6 +75,9 @@ target_compile_options(orc-core PRIVATE
     $<$<CONFIG:Release>:-O3>
 )
 
+# Enable debug/trace logging at compile time
+target_compile_definitions(orc-core PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
+
 # Find and link SQLite3
 find_package(SQLite3 REQUIRED)
 target_link_libraries(orc-core PUBLIC SQLite::SQLite3)

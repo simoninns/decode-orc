@@ -42,8 +42,7 @@ public:
             "Pass-through Merger",
             "Select first input from multiple inputs (test stage for merge patterns)",
             2, 8,  // 2 to 8 inputs
-            1, 1,  // Exactly one output
-            true   // User can add
+            1, 1   // Exactly one output
         };
     }    
     std::vector<ArtifactPtr> execute(

@@ -33,7 +33,8 @@ enum class ParameterType {
     UINT32,
     DOUBLE,
     BOOL,
-    STRING
+    STRING,
+    FILE_PATH  // String representing a file path (GUI shows file browser)
 };
 
 /// Parameter constraints

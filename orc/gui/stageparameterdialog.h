@@ -66,6 +66,8 @@ private:
     QDialogButtonBox* button_box_;
     QPushButton* reset_button_;
     
+    std::string stage_name_;  // Stage name for QSettings keys
+    
     // Parameter descriptors (keep for validation and defaults)
     std::vector<orc::ParameterDescriptor> descriptors_;
     

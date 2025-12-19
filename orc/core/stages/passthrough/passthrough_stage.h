@@ -42,8 +42,7 @@ public:
             "Pass-through Simple",
             "Pass input to output unchanged (no-op stage for testing)",
             1, 1,  // Exactly one input
-            1, 1,  // Exactly one output
-            true   // User can add
+            1, 1   // Exactly one output
         };
     }    
     std::vector<ArtifactPtr> execute(

@@ -13,6 +13,7 @@
 
 #include <dag_executor.h>
 #include <tbc_video_field_representation.h>
+#include <stage_parameter.h>
 #include <string>
 
 namespace orc {
@@ -29,7 +30,7 @@ namespace orc {
  * 
  * This is a source stage with no inputs.
  */
-class LDPALSourceStage : public DAGStage {
+class LDPALSourceStage : public DAGStage, public ParameterizedStage {
 public:
     LDPALSourceStage() = default;
     ~LDPALSourceStage() override = default;
@@ -44,8 +45,7 @@ public:
             "LD PAL Source",
             "LaserDisc PAL input source - loads PAL TBC files from ld-decode",
             0, 0,  // No inputs
-            1, 1,  // Exactly one output
-            false  // Not user-creatable (created by GUI)
+            1, 1   // Exactly one output
         };
     }
     
@@ -56,6 +56,11 @@ public:
     
     size_t required_input_count() const override { return 0; }  // Source has no inputs
     size_t output_count() const override { return 1; }
+
+    // ParameterizedStage interface
+    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::map<std::string, ParameterValue> get_parameters() const override;
+    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 
 private:
     // Cache the loaded representation to avoid reloading

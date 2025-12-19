@@ -31,8 +31,11 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
 
     // Get tbc_path parameter
     auto tbc_path_it = parameters.find("tbc_path");
-    if (tbc_path_it == parameters.end()) {
-        throw std::runtime_error("LDNTSCSource stage requires 'tbc_path' parameter");
+    if (tbc_path_it == parameters.end() || std::get<std::string>(tbc_path_it->second).empty()) {
+        // No file path configured - return empty artifact (0 fields)
+        // This allows the node to exist in the DAG without a file, acting as a placeholder
+        ORC_LOG_DEBUG("LDNTSCSource: No tbc_path configured, returning empty output");
+        return {};
     }
     std::string tbc_path = std::get<std::string>(tbc_path_it->second);
 
@@ -98,6 +101,42 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
             std::string("Failed to load NTSC TBC file '") + tbc_path + "': " + e.what()
         );
     }
+}
+
+std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors() const
+{
+    std::vector<ParameterDescriptor> descriptors;
+    
+    // tbc_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "tbc_path";
+        desc.display_name = "TBC File Path";
+        desc.description = "Path to the NTSC .tbc file from ld-decode (database file is automatically located)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
+        descriptors.push_back(desc);
+    }
+    
+    return descriptors;
+}
+
+std::map<std::string, ParameterValue> LDNTSCSourceStage::get_parameters() const
+{
+    // Source stages don't maintain parameter state - parameters are passed to execute()
+    return {};
+}
+
+bool LDNTSCSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
+{
+    // Source stages don't maintain parameter state - parameters are passed to execute()
+    // Just validate that tbc_path has correct type if present
+    auto tbc_path_it = params.find("tbc_path");
+    if (tbc_path_it != params.end() && !std::holds_alternative<std::string>(tbc_path_it->second)) {
+        return false;
+    }
+    
+    return true;
 }
 
 } // namespace orc

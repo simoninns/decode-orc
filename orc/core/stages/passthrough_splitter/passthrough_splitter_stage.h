@@ -41,8 +41,7 @@ public:
             "Pass-through Splitter",
             "Duplicate input to multiple outputs (test stage for fanout patterns)",
             1, 1,  // Exactly one input
-            3, 3,  // Exactly three outputs
-            true   // User can add
+            3, 3   // Exactly three outputs
         };
     }    
     std::vector<ArtifactPtr> execute(

@@ -9,6 +9,7 @@
 
 #include "project.h"
 #include "tbc_metadata.h"
+#include "tbc_video_field_representation.h"
 #include "logging.h"
 #include <fstream>
 #include <filesystem>
@@ -19,6 +20,64 @@
 #include <yaml-cpp/yaml.h>
 
 namespace orc {
+
+// Project class method implementations
+std::shared_ptr<const VideoFieldRepresentation> Project::get_source_representation() const
+{
+    // Return cached if valid
+    if (source_cache_valid_) {
+        return cached_source_representation_;
+    }
+    
+    // Find first SOURCE node
+    for (const auto& node : nodes) {
+        if (node.node_type == NodeType::SOURCE) {
+            // Get tbc_path from parameters
+            auto it = node.parameters.find("tbc_path");
+            if (it != node.parameters.end() && std::holds_alternative<std::string>(it->second)) {
+                std::string tbc_path = std::get<std::string>(it->second);
+                std::string db_path = tbc_path + ".db";
+                
+                // Check for db_path parameter
+                auto db_it = node.parameters.find("db_path");
+                if (db_it != node.parameters.end() && std::holds_alternative<std::string>(db_it->second)) {
+                    db_path = std::get<std::string>(db_it->second);
+                }
+                
+                ORC_LOG_DEBUG("Loading TBC representation: {}", tbc_path);
+                // Load representation
+                cached_source_representation_ = create_tbc_representation(tbc_path, db_path);
+                if (cached_source_representation_) {
+                    auto range = cached_source_representation_->field_range();
+                    ORC_LOG_INFO("TBC representation loaded: {} fields", range.size());
+                } else {
+                    ORC_LOG_ERROR("Failed to create TBC representation");
+                }
+                source_cache_valid_ = true;
+                break;  // Only load first source for now
+            }
+        }
+    }
+    
+    return cached_source_representation_;
+}
+
+void Project::invalidate_source_cache()
+{
+    source_cache_valid_ = false;
+    cached_source_representation_.reset();
+}
+
+bool Project::has_source() const
+{
+    for (const auto& node : nodes) {
+        if (node.node_type == NodeType::SOURCE) {
+            return true;
+        }
+    }
+    return false;
+}
+
 namespace project_io {
 
 namespace {
@@ -264,153 +323,6 @@ Project create_empty_project(const std::string& project_name) {
     return project;
 }
 
-void add_source_to_project(Project& project, const std::string& stage_name, const std::string& tbc_path) {
-    // Validate the TBC file matches the requested source type
-    std::string db_path = tbc_path + ".db";
-    
-    ORC_LOG_INFO("Validating source: stage={}, tbc_path={}", stage_name, tbc_path);
-    ORC_LOG_DEBUG("  Metadata database: {}", db_path);
-    
-    try {
-        // Load metadata to validate decoder and system
-        auto metadata_reader = std::make_shared<TBCMetadataReader>();
-        if (!metadata_reader->open(db_path)) {
-            throw std::runtime_error("Failed to open TBC metadata database: " + db_path);
-        }
-        
-        auto video_params = metadata_reader->read_video_parameters();
-        if (!video_params) {
-            throw std::runtime_error("No video parameters found in TBC metadata");
-        }
-        
-        // Log detected metadata
-        std::string system_str;
-        switch (video_params->system) {
-            case VideoSystem::PAL: system_str = "PAL"; break;
-            case VideoSystem::PAL_M: system_str = "PAL-M"; break;
-            case VideoSystem::NTSC: system_str = "NTSC"; break;
-            default: system_str = "UNKNOWN"; break;
-        }
-        ORC_LOG_DEBUG("  Detected decoder: {}", video_params->decoder);
-        ORC_LOG_DEBUG("  Detected system: {}", system_str);
-        ORC_LOG_DEBUG("  Field size: {}x{}", video_params->field_width, video_params->field_height);
-        ORC_LOG_DEBUG("  Sequential fields: {}", video_params->number_of_sequential_fields);
-        
-        // Validate decoder
-        if (video_params->decoder != "ld-decode") {
-            throw std::runtime_error(
-                "TBC file was not created by ld-decode (decoder: " + 
-                video_params->decoder + "). This source type requires ld-decode files."
-            );
-        }
-        
-        // Validate system matches the requested source type
-        if (stage_name == "LDPALSource") {
-            if (video_params->system != VideoSystem::PAL && 
-                video_params->system != VideoSystem::PAL_M) {
-                throw std::runtime_error(
-                    "Selected TBC file is not PAL format. Use 'Add LD NTSC Source' for NTSC files."
-                );
-            }
-        } else if (stage_name == "LDNTSCSource") {
-            if (video_params->system != VideoSystem::NTSC) {
-                throw std::runtime_error(
-                    "Selected TBC file is not NTSC format. Use 'Add LD PAL Source' for PAL files."
-                );
-            }
-        }
-    } catch (const std::exception& e) {
-        throw std::runtime_error(
-            std::string("Failed to validate TBC file: ") + e.what()
-        );
-    }
-    
-    // Validate that all existing sources have the same stage type
-    for (const auto& node : project.nodes) {
-        if (node.node_type == NodeType::SOURCE) {
-            if (node.stage_name != stage_name) {
-                throw std::runtime_error(
-                    "Cannot mix source types. Project already has " + node.stage_name + 
-                    " sources, cannot add " + stage_name
-                );
-            }
-            
-            // Check for duplicate paths
-            auto it = node.parameters.find("tbc_path");
-            if (it != node.parameters.end() && 
-                std::holds_alternative<std::string>(it->second) &&
-                std::get<std::string>(it->second) == tbc_path) {
-                throw std::runtime_error("Source already exists in project: " + tbc_path);
-            }
-        }
-    }
-    
-    // Find next available source ID
-    int next_id = 0;
-    for (const auto& node : project.nodes) {
-        if (node.node_type == NodeType::SOURCE) {
-            std::string node_suffix = node.node_id.substr(node.node_id.find_last_of('_') + 1);
-            try {
-                int id = std::stoi(node_suffix);
-                if (id >= next_id) {
-                    next_id = id + 1;
-                }
-            } catch (...) {
-                // Ignore non-numeric suffixes
-            }
-        }
-    }
-    
-    // Create new SOURCE node with specified stage type
-    ProjectDAGNode source_node;
-    source_node.node_id = "source_" + std::to_string(next_id);
-    source_node.stage_name = stage_name;  // Use specified stage name
-    source_node.node_type = NodeType::SOURCE;
-    source_node.display_name = "Source " + std::to_string(next_id + 1) + ": " + extract_display_name(tbc_path);
-    source_node.user_label = source_node.display_name;  // Initialize user label
-    source_node.x_position = 100.0;
-    source_node.y_position = next_id * 150.0;  // Offset Y position for multiple sources
-    source_node.parameters["tbc_path"] = tbc_path;
-    source_node.parameters["db_path"] = tbc_path + ".db";
-    
-    project.nodes.push_back(source_node);
-    project.is_modified = true;
-}
-
-void remove_source_node(Project& project, const std::string& node_id) {
-    // Find and verify it's a SOURCE node
-    auto node_it = std::find_if(
-        project.nodes.begin(),
-        project.nodes.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; }
-    );
-    
-    if (node_it == project.nodes.end()) {
-        throw std::runtime_error("Node ID not found: " + node_id);
-    }
-    
-    if (node_it->node_type != NodeType::SOURCE) {
-        throw std::runtime_error("Node is not a SOURCE node: " + node_id);
-    }
-    
-    // Remove the node
-    project.nodes.erase(node_it);
-    
-    // Remove any edges connected to this node
-    project.edges.erase(
-        std::remove_if(
-            project.edges.begin(),
-            project.edges.end(),
-            [&node_id](const ProjectDAGEdge& e) {
-                return e.source_node_id == node_id || e.target_node_id == node_id;
-            }
-        ),
-        project.edges.end()
-    );
-    
-    project.is_modified = true;
-}
-
 void update_project_dag(
     Project& project,
     const std::vector<ProjectDAGNode>& nodes,
@@ -475,11 +387,6 @@ std::string add_node(Project& project, const std::string& stage_name, double x_p
     const NodeTypeInfo* type_info = get_node_type_info(stage_name);
     if (!type_info) {
         throw std::runtime_error("Invalid stage name: " + stage_name);
-    }
-    
-    // Don't allow manual creation of source nodes
-    if (type_info->type == NodeType::SOURCE) {
-        throw std::runtime_error("Source nodes are created automatically. Use add_source_to_project() instead.");
     }
     
     // Generate unique node ID
@@ -572,12 +479,6 @@ bool can_change_node_type(const Project& project, const std::string& node_id, st
         return false;
     }
     
-    // Cannot change source nodes
-    if (node_it->node_type == NodeType::SOURCE) {
-        if (reason) *reason = "Cannot change type of source node";
-        return false;
-    }
-    
     // Check if node has any connections
     for (const auto& edge : project.edges) {
         if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
@@ -601,7 +502,80 @@ void set_node_parameters(Project& project, const std::string& node_id,
         throw std::runtime_error("Node not found: " + node_id);
     }
     
+    // Special validation for source nodes
+    if (node_it->node_type == NodeType::SOURCE) {
+        auto tbc_path_it = parameters.find("tbc_path");
+        if (tbc_path_it != parameters.end() && std::holds_alternative<std::string>(tbc_path_it->second)) {
+            std::string tbc_path = std::get<std::string>(tbc_path_it->second);
+            
+            // Only validate if a path is provided (empty is allowed)
+            if (!tbc_path.empty()) {
+                // Validate using the existing add_source_to_project validation logic
+                std::string db_path = tbc_path + ".db";
+                
+                try {
+                    // Load metadata to validate system
+                    auto metadata_reader = std::make_shared<TBCMetadataReader>();
+                    if (!metadata_reader->open(db_path)) {
+                        throw std::runtime_error("Failed to open TBC metadata database: " + db_path);
+                    }
+                    
+                    auto video_params = metadata_reader->read_video_parameters();
+                    if (!video_params) {
+                        throw std::runtime_error("No video parameters found in TBC metadata");
+                    }
+                    
+                    // Validate decoder
+                    if (video_params->decoder != "ld-decode") {
+                        throw std::runtime_error(
+                            "TBC file was not created by ld-decode (decoder: " + 
+                            video_params->decoder + "). This source type requires ld-decode files."
+                        );
+                    }
+                    
+                    // Validate system matches the node's stage type
+                    if (node_it->stage_name == "LDPALSource") {
+                        if (video_params->system != VideoSystem::PAL && 
+                            video_params->system != VideoSystem::PAL_M) {
+                            throw std::runtime_error(
+                                "Selected TBC file is not PAL format. This is a PAL source node - use an NTSC source node for NTSC files."
+                            );
+                        }
+                    } else if (node_it->stage_name == "LDNTSCSource") {
+                        if (video_params->system != VideoSystem::NTSC) {
+                            throw std::runtime_error(
+                                "Selected TBC file is not NTSC format. This is an NTSC source node - use a PAL source node for PAL files."
+                            );
+                        }
+                    }
+                    
+                    // Check consistency with other sources in the project
+                    for (const auto& other_node : project.nodes) {
+                        if (other_node.node_id != node_id && other_node.node_type == NodeType::SOURCE) {
+                            if (other_node.stage_name != node_it->stage_name) {
+                                throw std::runtime_error(
+                                    "Cannot mix source types. Project already has " + other_node.stage_name + 
+                                    " sources, cannot add " + node_it->stage_name + " TBC file."
+                                );
+                            }
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    throw std::runtime_error(
+                        std::string("Failed to validate TBC file: ") + e.what()
+                    );
+                }
+            }
+        }
+    }
+    
     node_it->parameters = parameters;
+    
+    // Invalidate source cache if this is a source node
+    if (node_it->node_type == NodeType::SOURCE) {
+        project.invalidate_source_cache();
+    }
+    
     project.is_modified = true;
 }
 
@@ -706,6 +680,7 @@ void clear_project(Project& project) {
     project.version.clear();
     project.nodes.clear();
     project.edges.clear();
+    project.invalidate_source_cache();
     project.clear_modified_flag();
 }
 

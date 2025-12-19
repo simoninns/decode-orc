@@ -41,6 +41,7 @@ std::optional<ParameterValue> string_to_value(const std::string& str, ParameterT
                 if (str == "false" || str == "0" || str == "no") return false;
                 return std::nullopt;
             case ParameterType::STRING:
+            case ParameterType::FILE_PATH:
                 return str;
         }
     } catch (const std::exception&) {
@@ -56,6 +57,7 @@ const char* type_name(ParameterType type) {
         case ParameterType::DOUBLE: return "double";
         case ParameterType::BOOL: return "bool";
         case ParameterType::STRING: return "string";
+        case ParameterType::FILE_PATH: return "file_path";
     }
     return "unknown";
 }

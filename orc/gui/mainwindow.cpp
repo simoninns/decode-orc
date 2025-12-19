@@ -51,8 +51,6 @@ MainWindow::MainWindow(QWidget *parent)
     , save_project_as_action_(nullptr)
     , field_renderer_(nullptr)
     , current_view_node_id_()
-    , current_field_index_(0)
-    , total_fields_(0)
     , current_preview_mode_(PreviewMode::SingleField)
 {
     setupUI();
@@ -157,15 +155,6 @@ void MainWindow::setupMenus()
     connect(save_project_as_action_, &QAction::triggered, this, &MainWindow::onSaveProjectAs);
     
     file_menu->addSeparator();
-    add_source_action_ = file_menu->addAction("Add LD &PAL Source...");
-    add_source_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
-    connect(add_source_action_, &QAction::triggered, this, &MainWindow::onAddPALSource);
-    
-    add_ntsc_source_action_ = file_menu->addAction("Add LD &NTSC Source...");
-    add_ntsc_source_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
-    connect(add_ntsc_source_action_, &QAction::triggered, this, &MainWindow::onAddNTSCSource);
-    
-    file_menu->addSeparator();
     
     auto* quit_action = file_menu->addAction("&Quit");
     quit_action->setShortcut(QKeySequence::Quit);
@@ -176,7 +165,7 @@ void MainWindow::setupMenus()
     
     dag_editor_action_ = tools_menu->addAction("&DAG Editor...");
     dag_editor_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
-    dag_editor_action_->setEnabled(false);  // Disabled until project has source
+    dag_editor_action_->setEnabled(false);  // Disabled until project is loaded/created
     connect(dag_editor_action_, &QAction::triggered, this, &MainWindow::onOpenDAGEditor);
 }
 
@@ -229,15 +218,6 @@ void MainWindow::onSaveProjectAs()
     saveProjectAs();
 }
 
-void MainWindow::onAddPALSource()
-{
-    addSourceToProject("LDPALSource");
-}
-
-void MainWindow::onAddNTSCSource()
-{
-    addSourceToProject("LDNTSCSource");
-}
 
 void MainWindow::newProject()
 {
@@ -271,12 +251,9 @@ void MainWindow::newProject()
     
     // Clear existing project state
     project_.clear();
-    representation_.reset();
     preview_widget_->setRepresentation(nullptr);
     field_slider_->setEnabled(false);
     field_slider_->setValue(0);
-    current_field_index_ = 0;
-    total_fields_ = 0;
     
     // Derive project name from filename
     QString project_name = QFileInfo(filename).completeBaseName();
@@ -302,68 +279,6 @@ void MainWindow::newProject()
     statusBar()->showMessage(QString("Created new project: %1").arg(project_name));
 }
 
-void MainWindow::addSourceToProject(const QString& stage_name)
-{
-    QString filename = QFileDialog::getOpenFileName(
-        this,
-        "Add TBC Source",
-        getLastSourceDirectory(),
-        "TBC Files (*.tbc);;All Files (*)"
-    );
-    
-    if (filename.isEmpty()) {
-        ORC_LOG_DEBUG("Add source cancelled");
-        return;
-    }
-    
-    // Remember this directory
-    setLastSourceDirectory(QFileInfo(filename).absolutePath());
-    
-    ORC_LOG_INFO("Adding source to project: {}", filename.toStdString());
-    
-    QString error;
-    if (!project_.addSource(stage_name, filename, &error)) {
-        ORC_LOG_ERROR("Failed to add source: {}", error.toStdString());
-        QMessageBox::critical(this, "Error", error);
-        return;
-    }
-    
-    // Load the representation
-    representation_ = project_.getSourceRepresentation();
-    if (!representation_) {
-        ORC_LOG_ERROR("Failed to load TBC representation after adding source");
-        QMessageBox::critical(this, "Error", "Failed to load TBC representation");
-        return;
-    }
-    
-    // Get field range
-    auto range = representation_->field_range();
-    total_fields_ = range.size();
-    current_field_index_ = 0;
-    
-    // Update UI
-    field_slider_->setEnabled(true);
-    field_slider_->setRange(0, total_fields_ - 1);
-    field_slider_->setValue(0);
-    
-    // Set representation in preview widget
-    preview_widget_->setRepresentation(representation_);
-    preview_widget_->setFieldIndex(range.start.value());
-    
-    updateWindowTitle();
-    updateFieldInfo();
-    updateUIState();
-    
-    // Update DAG editor if it's open
-    if (dag_editor_window_) {
-        dag_editor_window_->setSourceInfo(project_.getSourceId(), project_.getSourceName());
-        dag_editor_window_->loadProjectDAG();
-    }
-    
-    statusBar()->showMessage(QString("Added source: %1")
-        .arg(project_.getSourceName()));
-}
-
 void MainWindow::openProject(const QString& filename)
 {
     ORC_LOG_INFO("Loading project: {}", filename.toStdString());
@@ -376,12 +291,9 @@ void MainWindow::openProject(const QString& filename)
     
     // Clear existing project state
     project_.clear();
-    representation_.reset();
     preview_widget_->setRepresentation(nullptr);
     field_slider_->setEnabled(false);
     field_slider_->setValue(0);
-    current_field_index_ = 0;
-    total_fields_ = 0;
     
     QString error;
     if (!project_.loadFromFile(filename, &error)) {
@@ -395,26 +307,24 @@ void MainWindow::openProject(const QString& filename)
     // Load representation if source exists
     if (project_.hasSource()) {
         ORC_LOG_DEBUG("Loading source representation");
-        representation_ = project_.getSourceRepresentation();
-        if (!representation_) {
+        auto representation = project_.getSourceRepresentation();
+        if (!representation) {
             ORC_LOG_WARN("Failed to load TBC representation");
             QMessageBox::warning(this, "Warning", "Failed to load TBC representation");
         } else {
-            // Get field range
-            auto range = representation_->field_range();
-            total_fields_ = range.size();
-            current_field_index_ = 0;
+            // Get field range from core
+            auto range = representation->field_range();
             
             ORC_LOG_INFO("Source loaded: {} fields ({}..{})", 
-                         total_fields_, range.start.value(), range.end.value());
+                         range.size(), range.start.value(), range.end.value());
             
             // Update UI
             field_slider_->setEnabled(true);
-            field_slider_->setRange(0, total_fields_ - 1);
+            field_slider_->setRange(0, range.size() - 1);
             field_slider_->setValue(0);
             
             // Set representation in preview widget
-            preview_widget_->setRepresentation(representation_);
+            preview_widget_->setRepresentation(representation);
             preview_widget_->setFieldIndex(range.start.value());
             
             updateFieldInfo();
@@ -494,24 +404,6 @@ void MainWindow::updateUIState()
     QString source_type = project_.getSourceType();
     
     // Enable/disable actions based on project state
-    // If no sources, allow both PAL and NTSC
-    // If sources exist, only allow the same type
-    if (add_source_action_) {
-        if (has_project) {
-            // Enable PAL if no sources, or if existing sources are PAL
-            add_source_action_->setEnabled(!has_source || source_type == "LDPALSource");
-        } else {
-            add_source_action_->setEnabled(false);
-        }
-    }
-    if (add_ntsc_source_action_) {
-        if (has_project) {
-            // Enable NTSC if no sources, or if existing sources are NTSC
-            add_ntsc_source_action_->setEnabled(!has_source || source_type == "LDNTSCSource");
-        } else {
-            add_ntsc_source_action_->setEnabled(false);
-        }
-    }
     if (save_project_action_) {
         save_project_action_->setEnabled(has_project && project_.isModified());
     }
@@ -519,7 +411,8 @@ void MainWindow::updateUIState()
         save_project_as_action_->setEnabled(has_project);
     }
     if (dag_editor_action_) {
-        dag_editor_action_->setEnabled(has_source);
+        // Allow DAG editor on any project, even without sources
+        dag_editor_action_->setEnabled(has_project);
     }
     
     // Update window title to reflect modified state
@@ -528,13 +421,16 @@ void MainWindow::updateUIState()
 
 void MainWindow::onFieldChanged(int field_index)
 {
-    if (!representation_ || field_index < 0 || field_index >= total_fields_) {
+    auto representation = project_.getSourceRepresentation();
+    if (!representation) {
         return;
     }
     
-    current_field_index_ = field_index;
+    auto range = representation->field_range();
+    if (field_index < 0 || field_index >= static_cast<int>(range.size())) {
+        return;
+    }
     
-    auto range = representation_->field_range();
     orc::FieldID field_id = range.start + field_index;
     
     preview_widget_->setFieldIndex(field_id.value());
@@ -543,7 +439,8 @@ void MainWindow::onFieldChanged(int field_index)
 
 void MainWindow::onNavigateField(int delta)
 {
-    if (!representation_) {
+    auto representation = project_.getSourceRepresentation();
+    if (!representation) {
         return;
     }
     
@@ -551,8 +448,11 @@ void MainWindow::onNavigateField(int delta)
     int step = (current_preview_mode_ == PreviewMode::Frame_EvenOdd ||
                 current_preview_mode_ == PreviewMode::Frame_OddEven) ? 2 : 1;
     
-    int new_index = current_field_index_ + (delta * step);
-    if (new_index >= 0 && new_index < total_fields_) {
+    auto range = representation->field_range();
+    int current_index = field_slider_->value();
+    int new_index = current_index + (delta * step);
+    
+    if (new_index >= 0 && new_index < static_cast<int>(range.size())) {
         field_slider_->setValue(new_index);
     }
 }
@@ -620,13 +520,16 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::updateFieldInfo()
 {
-    if (!representation_ || total_fields_ == 0) {
+    auto representation = project_.getSourceRepresentation();
+    if (!representation) {
         field_info_label_->setText("No source loaded");
         return;
     }
     
-    auto range = representation_->field_range();
-    orc::FieldID field_id = range.start + current_field_index_;
+    auto range = representation->field_range();
+    int current_index = field_slider_->value();
+    int total = range.size();
+    orc::FieldID field_id = range.start + current_index;
     
     PreviewMode mode = preview_widget_->previewMode();
     
@@ -634,19 +537,19 @@ void MainWindow::updateFieldInfo()
         // Single field: show one field ID
         field_info_label_->setText(
             QString("Field %1 / %2 (ID: %3)")
-                .arg(current_field_index_ + 1)
-                .arg(total_fields_)
+                .arg(current_index + 1)
+                .arg(total)
                 .arg(field_id.value())
         );
     } else {
         // Frame view: show both field IDs
         orc::FieldID next_field_id = field_id + 1;
-        if (current_field_index_ + 1 < total_fields_) {
+        if (current_index + 1 < total) {
             field_info_label_->setText(
                 QString("Field %1-%2 / %3 (IDs: %4+%5)")
-                    .arg(current_field_index_ + 1)
-                    .arg(current_field_index_ + 2)
-                    .arg(total_fields_)
+                    .arg(current_index + 1)
+                    .arg(current_index + 2)
+                    .arg(total)
                     .arg(field_id.value())
                     .arg(next_field_id.value())
             );
@@ -654,8 +557,8 @@ void MainWindow::updateFieldInfo()
             // Last field, can't make frame
             field_info_label_->setText(
                 QString("Field %1 / %2 (ID: %3) [no next field]")
-                    .arg(current_field_index_ + 1)
-                    .arg(total_fields_)
+                    .arg(current_index + 1)
+                    .arg(total)
                     .arg(field_id.value())
             );
         }
@@ -664,7 +567,8 @@ void MainWindow::updateFieldInfo()
 
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
-    if (!representation_) {
+    auto representation = project_.getSourceRepresentation();
+    if (!representation) {
         QMainWindow::keyPressEvent(event);
         return;
     }
@@ -680,7 +584,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
             field_slider_->setValue(0);
             break;
         case Qt::Key_End:
-            field_slider_->setValue(total_fields_ - 1);
+            field_slider_->setValue(field_slider_->maximum());
             break;
         case Qt::Key_PageUp:
             onNavigateField(-10);
@@ -750,18 +654,16 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             auto result = field_renderer_->render_field_at_node(node_id, orc::FieldID(0));
             if (result.is_valid && result.representation) {
                 auto range = result.representation->field_range();
-                int new_total_fields = range.size();
+                int new_total = range.size();
                 
-                // Update total fields if it changed
-                if (new_total_fields != total_fields_) {
-                    ORC_LOG_DEBUG("Node '{}' has {} fields (was {})", node_id, new_total_fields, total_fields_);
-                    total_fields_ = new_total_fields;
-                    field_slider_->setRange(0, total_fields_ - 1);
+                // Update slider range if it changed
+                if (field_slider_->maximum() != new_total - 1) {
+                    ORC_LOG_DEBUG("Node '{}' has {} fields", node_id, new_total);
+                    field_slider_->setRange(0, new_total - 1);
                     
-                    // Clamp current field index to new range
-                    if (current_field_index_ >= total_fields_) {
-                        current_field_index_ = total_fields_ - 1;
-                        field_slider_->setValue(current_field_index_);
+                    // Clamp current slider position to new range
+                    if (field_slider_->value() >= new_total) {
+                        field_slider_->setValue(new_total - 1);
                     }
                 }
             }
@@ -813,24 +715,45 @@ void MainWindow::onDAGModified()
     // Update renderer to use the project's DAG
     updateDAGRenderer();
     
+    // Update UI state (field count, slider range, etc.) from core
+    auto representation = project_.getSourceRepresentation();
+    if (representation) {
+        auto range = representation->field_range();
+        int total = range.size();
+        
+        // Enable slider and set range based on actual field count from core
+        field_slider_->setEnabled(true);
+        field_slider_->setRange(0, total - 1);
+        
+        // Clamp slider to valid range
+        if (field_slider_->value() >= total) {
+            field_slider_->setValue(0);
+        }
+        
+        updateFieldInfo();
+    }
+    
     // Re-render current field with updated DAG
     updateFieldView();
 }
 
 void MainWindow::updateFieldView()
 {
-    if (!representation_) {
+    auto representation = project_.getSourceRepresentation();
+    if (!representation) {
         ORC_LOG_DEBUG("updateFieldView: no representation, returning");
         return;
     }
     
-    auto range = representation_->field_range();
-    if (current_field_index_ >= static_cast<int>(range.size())) {
-        ORC_LOG_DEBUG("updateFieldView: current_field_index_ {} out of range, returning", current_field_index_);
+    auto range = representation->field_range();
+    int current_index = field_slider_->value();
+    
+    if (current_index >= static_cast<int>(range.size())) {
+        ORC_LOG_DEBUG("updateFieldView: slider value {} out of range, returning", current_index);
         return;
     }
     
-    orc::FieldID field_id = range.start + current_field_index_;
+    orc::FieldID field_id = range.start + current_index;
     
     ORC_LOG_DEBUG("updateFieldView: rendering field {} at node '{}'", field_id.value(), current_view_node_id_);
     ORC_LOG_DEBUG("updateFieldView: field_renderer_ = {}, current_view_node_id_ = '{}'", 
@@ -857,12 +780,12 @@ void MainWindow::updateFieldView()
                 5000
             );
             // Fall back to source representation
-            preview_widget_->setRepresentation(representation_);
+            preview_widget_->setRepresentation(representation);
             preview_widget_->setFieldIndex(field_id.value());
         }
     } else {
         // No renderer or no node selected - show source
-        preview_widget_->setRepresentation(representation_);
+        preview_widget_->setRepresentation(representation);
         preview_widget_->setFieldIndex(field_id.value());
     }
 }
@@ -944,20 +867,4 @@ void MainWindow::setLastProjectDirectory(const QString& path)
 {
     QSettings settings("orc-project", "orc-gui");
     settings.setValue("lastProjectDirectory", path);
-}
-
-QString MainWindow::getLastSourceDirectory() const
-{
-    QSettings settings("orc-project", "orc-gui");
-    QString dir = settings.value("lastSourceDirectory", QString()).toString();
-    if (dir.isEmpty() || !QFileInfo(dir).isDir()) {
-        return QDir::homePath();
-    }
-    return dir;
-}
-
-void MainWindow::setLastSourceDirectory(const QString& path)
-{
-    QSettings settings("orc-project", "orc-gui");
-    settings.setValue("lastSourceDirectory", path);
 }

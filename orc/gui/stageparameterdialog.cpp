@@ -11,6 +11,10 @@
 #include "stageparameterdialog.h"
 #include <QVBoxLayout>
 #include <QMessageBox>
+#include <QFileDialog>
+#include <QDir>
+#include <QFileInfo>
+#include <QSettings>
 #include <limits>
 
 StageParameterDialog::StageParameterDialog(
@@ -19,6 +23,7 @@ StageParameterDialog::StageParameterDialog(
     const std::map<std::string, orc::ParameterValue>& current_values,
     QWidget* parent)
     : QDialog(parent)
+    , stage_name_(stage_name)
     , descriptors_(descriptors)
 {
     setWindowTitle(QString("Edit %1 Parameters").arg(QString::fromStdString(stage_name)));
@@ -70,6 +75,7 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                 case orc::ParameterType::DOUBLE: value = 0.0; break;
                 case orc::ParameterType::BOOL: value = false; break;
                 case orc::ParameterType::STRING: value = std::string(""); break;
+                case orc::ParameterType::FILE_PATH: value = std::string(""); break;
             }
         }
         
@@ -151,6 +157,59 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                 }
                 break;
             }
+            
+            case orc::ParameterType::FILE_PATH: {
+                // File path with browse button
+                auto* container = new QWidget();
+                auto* layout = new QHBoxLayout(container);
+                layout->setContentsMargins(0, 0, 0, 0);
+                
+                auto* edit = new QLineEdit();
+                edit->setText(QString::fromStdString(std::get<std::string>(value)));
+                edit->setObjectName("file_path_edit");
+                
+                auto* browse_btn = new QPushButton("Browse...");
+                browse_btn->setObjectName("browse_button");
+                
+                // Capture stage_name for QSettings key
+                std::string stage_name_copy = stage_name_;
+                
+                // Connect browse button to file dialog
+                connect(browse_btn, &QPushButton::clicked, [edit, stage_name_copy]() {
+                    QSettings settings("orc-project", "orc-gui");
+                    QString settings_key = QString("lastSourceDirectory/%1").arg(QString::fromStdString(stage_name_copy));
+                    
+                    // Get last directory for this source type
+                    QString last_dir = settings.value(settings_key, QDir::homePath()).toString();
+                    
+                    // Use current path's directory if it exists, otherwise use last_dir
+                    QString start_dir = last_dir;
+                    if (!edit->text().isEmpty()) {
+                        QFileInfo info(edit->text());
+                        if (info.exists() && info.dir().exists()) {
+                            start_dir = info.dir().absolutePath();
+                        }
+                    }
+                    
+                    QString file = QFileDialog::getOpenFileName(
+                        nullptr,
+                        "Select TBC File",
+                        start_dir,
+                        "TBC Files (*.tbc);;All Files (*)"
+                    );
+                    if (!file.isEmpty()) {
+                        edit->setText(file);
+                        // Save directory for this source type
+                        settings.setValue(settings_key, QFileInfo(file).absolutePath());
+                    }
+                });
+                
+                layout->addWidget(edit, 1);  // Line edit takes most space
+                layout->addWidget(browse_btn);
+                
+                widget = container;
+                break;
+            }
         }
         
         if (widget) {
@@ -198,6 +257,14 @@ void StageParameterDialog::set_widget_value(const std::string& param_name, const
                 edit->setText(QString::fromStdString(std::get<std::string>(value)));
             }
             break;
+        case orc::ParameterType::FILE_PATH: {
+            // For FILE_PATH, the widget is a container with a QLineEdit inside
+            auto* edit = pw.widget->findChild<QLineEdit*>("file_path_edit");
+            if (edit) {
+                edit->setText(QString::fromStdString(std::get<std::string>(value)));
+            }
+            break;
+        }
     }
 }
 
@@ -226,6 +293,14 @@ orc::ParameterValue StageParameterDialog::get_widget_value(const std::string& pa
                 return edit->text().toStdString();
             }
             break;
+        case orc::ParameterType::FILE_PATH: {
+            // For FILE_PATH, the widget is a container with a QLineEdit inside
+            auto* edit = pw.widget->findChild<QLineEdit*>("file_path_edit");
+            if (edit) {
+                return edit->text().toStdString();
+            }
+            break;
+        }
     }
     
     return static_cast<int32_t>(0);  // Should never happen

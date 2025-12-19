@@ -52,7 +52,6 @@ public:
     void openProject(const QString& filename);
     void saveProject();
     void saveProjectAs();
-    void addSourceToProject(const QString& stage_name);
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
@@ -62,8 +61,6 @@ private slots:
     void onOpenProject();
     void onSaveProject();
     void onSaveProjectAs();
-    void onAddPALSource();
-    void onAddNTSCSource();
     void onOpenDAGEditor();
     void onFieldChanged(int field_index);
     void onNavigateField(int delta);
@@ -84,12 +81,9 @@ private:
     // Settings helpers
     QString getLastProjectDirectory() const;
     void setLastProjectDirectory(const QString& path);
-    QString getLastSourceDirectory() const;
-    void setLastSourceDirectory(const QString& path);
     
     // Project management
     GUIProject project_;
-    std::shared_ptr<const orc::VideoFieldRepresentation> representation_;
     std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
     std::string current_view_node_id_;  // Which node is being viewed
     
@@ -103,12 +97,8 @@ private:
     QAction* dag_editor_action_;  // Track to enable/disable
     QAction* save_project_action_;
     QAction* save_project_as_action_;
-    QAction* add_source_action_;
-    QAction* add_ntsc_source_action_;
     
-    // Navigation state
-    int current_field_index_;
-    int total_fields_;
+    // Preview state (UI only - all data comes from core)
     PreviewMode current_preview_mode_;
 };
 

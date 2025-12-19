@@ -56,7 +56,6 @@ struct NodeTypeInfo {
     uint32_t max_inputs;        // Maximum number of inputs (0 for SOURCE, UINT32_MAX for unlimited)
     uint32_t min_outputs;       // Minimum number of outputs (0 for SINK)
     uint32_t max_outputs;       // Maximum number of outputs (0 for SINK, UINT32_MAX for unlimited)
-    bool user_creatable;        // Can user add this node via GUI? (false for START nodes)
 };
 
 /**

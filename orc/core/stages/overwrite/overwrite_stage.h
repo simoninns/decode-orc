@@ -42,8 +42,7 @@ public:
             "Overwrite",
             "Replace all field data with constant IRE value (for testing)",
             1, 1,  // Exactly one input
-            1, 1,  // Exactly one output
-            true   // User can add
+            1, 1   // Exactly one output
         };
     }    
     std::vector<ArtifactPtr> execute(

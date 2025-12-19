@@ -173,11 +173,8 @@ void DAGEditorWindow::onChangeNodeType(const std::string& node_id)
     std::vector<std::string> stage_names;  // Parallel array to map display names to stage names
     
     for (const auto& type_info : all_types) {
-        // Only include user-creatable types
-        if (type_info.user_creatable) {
-            stage_display_names << QString::fromStdString(type_info.display_name);
-            stage_names.push_back(type_info.stage_name);
-        }
+        stage_display_names << QString::fromStdString(type_info.display_name);
+        stage_names.push_back(type_info.stage_name);
     }
     
     bool ok;

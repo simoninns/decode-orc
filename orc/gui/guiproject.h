@@ -44,14 +44,9 @@ public:
     
     // Project operations
     bool newEmptyProject(const QString& project_name, QString* error = nullptr);
-    bool addSource(const QString& stage_name, const QString& tbc_path, QString* error = nullptr);
-    bool removeSource(const QString& node_id, QString* error = nullptr);
     bool saveToFile(const QString& path, QString* error = nullptr);
     bool loadFromFile(const QString& path, QString* error = nullptr);
     void clear();
-    
-    // Deprecated: use newEmptyProject + addSource
-    bool newProject(const QString& tbc_path, QString* error = nullptr);
     
     // Source access (single source for now)
     bool hasSource() const;
@@ -60,7 +55,9 @@ public:
     int getSourceId() const;  // Legacy compatibility - returns 0 or -1
     QString getSourcePath() const;
     QString getSourceName() const;
-    std::shared_ptr<const orc::VideoFieldRepresentation> getSourceRepresentation() const;
+    std::shared_ptr<const orc::VideoFieldRepresentation> getSourceRepresentation() const {
+        return core_project_.get_source_representation();
+    }
     
     // Core project access
     orc::Project& coreProject() { return core_project_; }
@@ -74,11 +71,9 @@ public:
     void rebuildDAG();
     
 private:
-    void loadSourceRepresentations();
     
     QString project_path_;                                      // Path to .orcprj file
     orc::Project core_project_;                                 // Core project structure
-    std::shared_ptr<const orc::VideoFieldRepresentation> source_representation_;  // Loaded TBC
     mutable std::shared_ptr<orc::DAG> dag_;                     // Built DAG (single instance)
 };
 

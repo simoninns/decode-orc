@@ -1724,52 +1724,49 @@ void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
             }
         });
         
-        // Additional options for non-source nodes
-        if (!is_source) {
-            menu.addSeparator();
-            
-            // Change Node Type
-            bool can_change_type = false;
-            std::string change_type_reason;
-            if (project_) {
-                can_change_type = orc::project_io::can_change_node_type(*project_, node_id, &change_type_reason);
-            }
-            
-            auto* changeTypeAction = menu.addAction("Change Node Type...", [this, node_id]() {
-                if (findNodeById(node_id)) {
-                    emit changeNodeTypeRequested(node_id);
-                }
-            });
-            changeTypeAction->setEnabled(can_change_type);
-            if (!can_change_type && !change_type_reason.empty()) {
-                changeTypeAction->setToolTip(QString::fromStdString(change_type_reason));
-            }
-            
-            // Edit Parameters
-            bool has_parameters = false;
-            auto& registry = orc::StageRegistry::instance();
-            if (registry.has_stage(stage_name)) {
-                try {
-                    auto stage = registry.create_stage(stage_name);
-                    if (stage) {
-                        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-                        if (param_stage) {
-                            auto descriptors = param_stage->get_parameter_descriptors();
-                            has_parameters = !descriptors.empty();
-                        }
-                    }
-                } catch (...) {
-                    has_parameters = false;
-                }
-            }
-            
-            auto* editParamsAction = menu.addAction("Edit Parameters...", [this, node_id]() {
-                if (findNodeById(node_id)) {
-                    emit editParametersRequested(node_id);
-                }
-            });
-            editParamsAction->setEnabled(has_parameters);
+        menu.addSeparator();
+        
+        // Change Node Type
+        bool can_change_type = false;
+        std::string change_type_reason;
+        if (project_) {
+            can_change_type = orc::project_io::can_change_node_type(*project_, node_id, &change_type_reason);
         }
+        
+        auto* changeTypeAction = menu.addAction("Change Node Type...", [this, node_id]() {
+            if (findNodeById(node_id)) {
+                emit changeNodeTypeRequested(node_id);
+            }
+        });
+        changeTypeAction->setEnabled(can_change_type);
+        if (!can_change_type && !change_type_reason.empty()) {
+            changeTypeAction->setToolTip(QString::fromStdString(change_type_reason));
+        }
+        
+        // Edit Parameters
+        bool has_parameters = false;
+        auto& registry = orc::StageRegistry::instance();
+        if (registry.has_stage(stage_name)) {
+            try {
+                auto stage = registry.create_stage(stage_name);
+                if (stage) {
+                    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+                    if (param_stage) {
+                        auto descriptors = param_stage->get_parameter_descriptors();
+                        has_parameters = !descriptors.empty();
+                    }
+                }
+            } catch (...) {
+                has_parameters = false;
+            }
+        }
+        
+        auto* editParamsAction = menu.addAction("Edit Parameters...", [this, node_id]() {
+            if (findNodeById(node_id)) {
+                emit editParametersRequested(node_id);
+            }
+        });
+        editParamsAction->setEnabled(has_parameters);
         
         // Delete Node (all nodes including sources)
         menu.addSeparator();

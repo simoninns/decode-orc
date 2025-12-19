@@ -12,10 +12,14 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 #include "stage_parameter.h"
 #include "node_type.h"
 
 namespace orc {
+
+// Forward declaration
+class VideoFieldRepresentation;
 
 /**
  * Node in a project DAG
@@ -50,8 +54,12 @@ struct ProjectDAGEdge {
  * 
  * The project file format is shared between orc-gui and orc-process.
  * Both tools can load and save projects in the same format.
+ * 
+ * The Project class owns and caches the source TBC representation,
+ * ensuring a single source of truth for all consumers.
  */
-struct Project {
+class Project {
+public:
     std::string name;                       // Project name
     std::string version;                    // Project format version (e.g., "1.0")
     std::vector<ProjectDAGNode> nodes;      // DAG nodes (including SOURCE nodes)
@@ -65,6 +73,27 @@ struct Project {
     
     // Helper to check if modified
     bool has_unsaved_changes() const { return is_modified; }
+    
+    /**
+     * Get cached source representation, loading if necessary
+     * @return Shared pointer to representation, or nullptr if no source or load failed
+     */
+    std::shared_ptr<const VideoFieldRepresentation> get_source_representation() const;
+    
+    /**
+     * Invalidate cached representation (called when source parameters change)
+     */
+    void invalidate_source_cache();
+    
+    /**
+     * Check if project has a source node
+     */
+    bool has_source() const;
+
+private:
+    // Cached source representation (loaded on-demand)
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_source_representation_;
+    mutable bool source_cache_valid_ = false;
 };
 
 /**
@@ -108,25 +137,6 @@ namespace project_io {
      * @return Display name (filename without extension)
      */
     std::string extract_display_name(const std::string& tbc_path);
-    
-    /**
-     * Add a source to an existing project
-     * Creates a SOURCE node with the specified stage type
-     * @param project Project to modify
-     * @param stage_name Stage type name (e.g., "LDPALSource", "LDNTSCSource")
-     * @param tbc_path Path to TBC file to add
-     * @throws std::runtime_error if source path already exists or incompatible source type
-     */
-    void add_source_to_project(Project& project, const std::string& stage_name, const std::string& tbc_path);
-    
-    /**
-     * Remove a SOURCE node from a project
-     * Removes the node and connected edges
-     * @param project Project to modify
-     * @param node_id ID of SOURCE node to remove
-     * @throws std::runtime_error if node ID not found
-     */
-    void remove_source_node(Project& project, const std::string& node_id);
     
     /**
      * Update project DAG nodes and edges

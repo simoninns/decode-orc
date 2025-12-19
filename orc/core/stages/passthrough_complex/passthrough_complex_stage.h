@@ -42,8 +42,7 @@ public:
             "Pass-through Complex",
             "Multiple inputs to multiple outputs (test stage for complex patterns)",
             2, 4,  // 2 to 4 inputs
-            2, 4,  // 2 to 4 outputs
-            true   // User can add
+            2, 4   // 2 to 4 outputs
         };
     }    
     std::vector<ArtifactPtr> execute(

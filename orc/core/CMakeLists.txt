@@ -36,6 +36,7 @@ add_library(orc-core STATIC
     stages/passthrough_merger/passthrough_merger_stage.cpp
     stages/passthrough_complex/passthrough_complex_stage.cpp
     stages/overwrite/overwrite_stage.cpp
+    stages/field_map/field_map_stage.cpp
     
     # Dropout decision utilities
     dropout_decision.cpp
@@ -69,6 +70,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_splitter
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_merger
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_complex
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_map
 )
 
 target_compile_options(orc-core PRIVATE

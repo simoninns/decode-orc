@@ -16,6 +16,7 @@
 #include "stages/passthrough_merger/passthrough_merger_stage.h"
 #include "stages/passthrough_complex/passthrough_complex_stage.h"
 #include "stages/overwrite/overwrite_stage.h"
+#include "stages/field_map/field_map_stage.h"
 #include <iostream>
 
 namespace orc {
@@ -38,6 +39,7 @@ void force_stage_linking() {
     [[maybe_unused]] auto dummy6 = std::make_shared<PassthroughMergerStage>();
     [[maybe_unused]] auto dummy7 = std::make_shared<PassthroughComplexStage>();
     [[maybe_unused]] auto dummy8 = std::make_shared<OverwriteStage>();
+    [[maybe_unused]] auto dummy9 = std::make_shared<FieldMapStage>();
 }
 
 } // namespace orc

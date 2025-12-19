@@ -22,52 +22,6 @@
 namespace orc {
 
 // Project class method implementations
-std::shared_ptr<const VideoFieldRepresentation> Project::get_source_representation() const
-{
-    // Return cached if valid
-    if (source_cache_valid_) {
-        return cached_source_representation_;
-    }
-    
-    // Find first SOURCE node
-    for (const auto& node : nodes) {
-        if (node.node_type == NodeType::SOURCE) {
-            // Get tbc_path from parameters
-            auto it = node.parameters.find("tbc_path");
-            if (it != node.parameters.end() && std::holds_alternative<std::string>(it->second)) {
-                std::string tbc_path = std::get<std::string>(it->second);
-                std::string db_path = tbc_path + ".db";
-                
-                // Check for db_path parameter
-                auto db_it = node.parameters.find("db_path");
-                if (db_it != node.parameters.end() && std::holds_alternative<std::string>(db_it->second)) {
-                    db_path = std::get<std::string>(db_it->second);
-                }
-                
-                ORC_LOG_DEBUG("Loading TBC representation: {}", tbc_path);
-                // Load representation
-                cached_source_representation_ = create_tbc_representation(tbc_path, db_path);
-                if (cached_source_representation_) {
-                    auto range = cached_source_representation_->field_range();
-                    ORC_LOG_INFO("TBC representation loaded: {} fields", range.size());
-                } else {
-                    ORC_LOG_ERROR("Failed to create TBC representation");
-                }
-                source_cache_valid_ = true;
-                break;  // Only load first source for now
-            }
-        }
-    }
-    
-    return cached_source_representation_;
-}
-
-void Project::invalidate_source_cache()
-{
-    source_cache_valid_ = false;
-    cached_source_representation_.reset();
-}
-
 bool Project::has_source() const
 {
     for (const auto& node : nodes) {
@@ -529,10 +483,7 @@ void set_node_parameters(Project& project, const std::string& node_id,
     
     node_it->parameters = parameters;
     
-    // Invalidate source cache if this is a source node
-    if (node_it->node_type == NodeType::SOURCE) {
-        project.invalidate_source_cache();
-    }
+    // Source stages handle their own caching via set_parameters()
     
     project.is_modified = true;
 }
@@ -638,7 +589,6 @@ void clear_project(Project& project) {
     project.version.clear();
     project.nodes.clear();
     project.edges.clear();
-    project.invalidate_source_cache();
     project.clear_modified_flag();
 }
 

@@ -75,25 +75,9 @@ public:
     bool has_unsaved_changes() const { return is_modified; }
     
     /**
-     * Get cached source representation, loading if necessary
-     * @return Shared pointer to representation, or nullptr if no source or load failed
-     */
-    std::shared_ptr<const VideoFieldRepresentation> get_source_representation() const;
-    
-    /**
-     * Invalidate cached representation (called when source parameters change)
-     */
-    void invalidate_source_cache();
-    
-    /**
      * Check if project has a source node
      */
     bool has_source() const;
-
-private:
-    // Cached source representation (loaded on-demand)
-    mutable std::shared_ptr<const VideoFieldRepresentation> cached_source_representation_;
-    mutable bool source_cache_valid_ = false;
 };
 
 /**

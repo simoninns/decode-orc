@@ -304,31 +304,17 @@ void MainWindow::openProject(const QString& filename)
     
     ORC_LOG_DEBUG("Project loaded: {}", project_.projectName().toStdString());
     
-    // Load representation if source exists
+    // Project loaded - user needs to open DAG editor and select a node to view
+    // The GUI is now completely node-agnostic - it doesn't matter if it's viewing
+    // the source or any other stage node
     if (project_.hasSource()) {
-        ORC_LOG_DEBUG("Loading source representation");
-        auto representation = project_.getSourceRepresentation();
-        if (!representation) {
-            ORC_LOG_WARN("Failed to load TBC representation");
-            QMessageBox::warning(this, "Warning", "Failed to load TBC representation");
-        } else {
-            // Get field range from core
-            auto range = representation->field_range();
-            
-            ORC_LOG_INFO("Source loaded: {} fields ({}..{})", 
-                         range.size(), range.start.value(), range.end.value());
-            
-            // Update UI
-            field_slider_->setEnabled(true);
-            field_slider_->setRange(0, range.size() - 1);
-            field_slider_->setValue(0);
-            
-            // Set representation in preview widget
-            preview_widget_->setRepresentation(representation);
-            preview_widget_->setFieldIndex(range.start.value());
-            
-            updateFieldInfo();
-        }
+        ORC_LOG_INFO("Source loaded - open DAG editor to select node for viewing");
+        
+        // Enable DAG editor action
+        dag_editor_action_->setEnabled(true);
+        
+        // Show helpful message
+        statusBar()->showMessage("Project loaded - open DAG Editor to select a node for viewing", 5000);
     } else {
         ORC_LOG_DEBUG("Project has no source");
     }
@@ -419,26 +405,15 @@ void MainWindow::updateUIState()
 
 void MainWindow::onFieldChanged(int field_index)
 {
-    auto representation = project_.getSourceRepresentation();
-    if (!representation) {
-        return;
-    }
-    
-    auto range = representation->field_range();
-    if (field_index < 0 || field_index >= static_cast<int>(range.size())) {
-        return;
-    }
-    
-    orc::FieldID field_id = range.start + field_index;
-    
-    preview_widget_->setFieldIndex(field_id.value());
+    // Slider changed - update the field view at the current node
+    // The slider index directly maps to field index in the current node's output
+    updateFieldView();
     updateFieldInfo();
 }
 
 void MainWindow::onNavigateField(int delta)
 {
-    auto representation = project_.getSourceRepresentation();
-    if (!representation) {
+    if (!field_slider_->isEnabled()) {
         return;
     }
     
@@ -446,11 +421,11 @@ void MainWindow::onNavigateField(int delta)
     int step = (current_preview_mode_ == PreviewMode::Frame_EvenOdd ||
                 current_preview_mode_ == PreviewMode::Frame_OddEven) ? 2 : 1;
     
-    auto range = representation->field_range();
     int current_index = field_slider_->value();
     int new_index = current_index + (delta * step);
+    int max_index = field_slider_->maximum();
     
-    if (new_index >= 0 && new_index < static_cast<int>(range.size())) {
+    if (new_index >= 0 && new_index <= max_index) {
         field_slider_->setValue(new_index);
     }
 }
@@ -518,16 +493,15 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::updateFieldInfo()
 {
-    auto representation = project_.getSourceRepresentation();
-    if (!representation) {
-        field_info_label_->setText("No source loaded");
+    if (!field_renderer_ || current_view_node_id_.empty()) {
+        field_info_label_->setText("No node selected");
         return;
     }
     
-    auto range = representation->field_range();
+    // Get field range from current node's output
     int current_index = field_slider_->value();
-    int total = range.size();
-    orc::FieldID field_id = range.start + current_index;
+    int total = field_slider_->maximum() + 1;
+    orc::FieldID field_id(current_index);
     
     PreviewMode mode = preview_widget_->previewMode();
     
@@ -565,8 +539,7 @@ void MainWindow::updateFieldInfo()
 
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
-    auto representation = project_.getSourceRepresentation();
-    if (!representation) {
+    if (!field_slider_->isEnabled()) {
         QMainWindow::keyPressEvent(event);
         return;
     }
@@ -708,22 +681,26 @@ void MainWindow::onDAGModified()
     // Update renderer to use the project's DAG
     updateDAGRenderer();
     
-    // Update UI state (field count, slider range, etc.) from core
-    auto representation = project_.getSourceRepresentation();
-    if (representation) {
-        auto range = representation->field_range();
-        int total = range.size();
-        
-        // Enable slider and set range based on actual field count from core
-        field_slider_->setEnabled(true);
-        field_slider_->setRange(0, total - 1);
-        
-        // Clamp slider to valid range
-        if (field_slider_->value() >= total) {
-            field_slider_->setValue(0);
+    // Update UI state (field count, slider range, etc.) from the current view node
+    if (field_renderer_ && !current_view_node_id_.empty()) {
+        // Render field 0 at the current node to get its output representation and field count
+        auto result = field_renderer_->render_field_at_node(current_view_node_id_, orc::FieldID(0));
+        if (result.is_valid && result.representation) {
+            auto range = result.representation->field_range();
+            int total_fields = range.size();
+            ORC_LOG_DEBUG("onDAGModified: node '{}' has {} fields", current_view_node_id_, total_fields);
+            
+            // Enable slider and set range based on the current node's output
+            field_slider_->setEnabled(true);
+            field_slider_->setRange(0, total_fields - 1);
+            
+            // Clamp slider to valid range
+            if (field_slider_->value() >= total_fields) {
+                field_slider_->setValue(0);
+            }
+            
+            updateFieldInfo();
         }
-        
-        updateFieldInfo();
     }
     
     // Re-render current field with updated DAG
@@ -732,54 +709,40 @@ void MainWindow::onDAGModified()
 
 void MainWindow::updateFieldView()
 {
-    auto representation = project_.getSourceRepresentation();
-    if (!representation) {
-        ORC_LOG_DEBUG("updateFieldView: no representation, returning");
+    // If we have a field renderer and a selected node, render at that node
+    if (!field_renderer_ || current_view_node_id_.empty()) {
+        ORC_LOG_DEBUG("updateFieldView: no field renderer or node selected, returning");
         return;
     }
     
-    auto range = representation->field_range();
     int current_index = field_slider_->value();
     
-    if (current_index >= static_cast<int>(range.size())) {
-        ORC_LOG_DEBUG("updateFieldView: slider value {} out of range, returning", current_index);
-        return;
-    }
-    
-    orc::FieldID field_id = range.start + current_index;
+    // The slider index corresponds directly to the field index in the current node's output
+    // (not the source's field ID)
+    orc::FieldID field_id(current_index);
     
     ORC_LOG_DEBUG("updateFieldView: rendering field {} at node '{}'", field_id.value(), current_view_node_id_);
     ORC_LOG_DEBUG("updateFieldView: field_renderer_ = {}, current_view_node_id_ = '{}'", 
                   (void*)field_renderer_.get(), current_view_node_id_);
     
-    // If we have a field renderer and a selected node, render at that node
-    if (field_renderer_ && !current_view_node_id_.empty()) {
-        ORC_LOG_DEBUG("updateFieldView: calling render_field_at_node");
-        auto result = field_renderer_->render_field_at_node(current_view_node_id_, field_id);
+    ORC_LOG_DEBUG("updateFieldView: calling render_field_at_node");
+    auto result = field_renderer_->render_field_at_node(current_view_node_id_, field_id);
+    
+    if (result.is_valid && result.representation) {
+        preview_widget_->setRepresentation(result.representation);
+        preview_widget_->setFieldIndex(field_id.value());
         
-        if (result.is_valid && result.representation) {
-            preview_widget_->setRepresentation(result.representation);
-            preview_widget_->setFieldIndex(field_id.value());
-            
-            if (result.from_cache) {
-                statusBar()->showMessage("(from cache)", 1000);
-            }
-        } else {
-            // Rendering failed - show in status bar
-            statusBar()->showMessage(
-                QString("Render ERROR at node %1: %2")
-                    .arg(QString::fromStdString(current_view_node_id_))
-                    .arg(QString::fromStdString(result.error_message)),
-                5000
-            );
-            // Fall back to source representation
-            preview_widget_->setRepresentation(representation);
-            preview_widget_->setFieldIndex(field_id.value());
+        if (result.from_cache) {
+            statusBar()->showMessage("(from cache)", 1000);
         }
     } else {
-        // No renderer or no node selected - show source
-        preview_widget_->setRepresentation(representation);
-        preview_widget_->setFieldIndex(field_id.value());
+        // Rendering failed - show in status bar
+        statusBar()->showMessage(
+            QString("Render ERROR at node %1: %2")
+                .arg(QString::fromStdString(current_view_node_id_))
+                .arg(QString::fromStdString(result.error_message)),
+            5000
+        );
     }
 }
 

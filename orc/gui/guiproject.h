@@ -51,9 +51,6 @@ public:
     // Source access (single source for now)
     bool hasSource() const;
     QString getSourceName() const;
-    std::shared_ptr<const orc::VideoFieldRepresentation> getSourceRepresentation() const {
-        return core_project_.get_source_representation();
-    }
     
     // Core project access
     orc::Project& coreProject() { return core_project_; }

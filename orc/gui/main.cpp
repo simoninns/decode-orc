@@ -20,13 +20,13 @@ static std::shared_ptr<spdlog::logger> g_gui_logger;
 
 std::shared_ptr<spdlog::logger> get_gui_logger() {
     if (!g_gui_logger) {
-        // Get the core logger's sink to share it
+        // Ensure core logger is initialized first
         auto core_logger = get_logger();
         if (!core_logger) {
             return nullptr;
         }
         
-        // Create GUI logger that shares the core logger's sink
+        // Create GUI logger that shares the core logger's sinks
         auto sinks = core_logger->sinks();
         g_gui_logger = std::make_shared<spdlog::logger>("gui", sinks.begin(), sinks.end());
         
@@ -40,6 +40,10 @@ std::shared_ptr<spdlog::logger> get_gui_logger() {
         g_gui_logger->set_level(core_logger->level());
     }
     return g_gui_logger;
+}
+
+void reset_gui_logger() {
+    g_gui_logger.reset();
 }
 
 } // namespace orc
@@ -105,9 +109,13 @@ int main(int argc, char *argv[])
     // Initialize logging system
     QString logLevel = parser.value(logLevelOption);
     QString logFile = parser.value(logFileOption);
+    
+    // Reset GUI logger if it exists (so it will be recreated with new sinks)
+    orc::reset_gui_logger();
+    
     orc::init_logging(logLevel.toStdString(), "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", logFile.toStdString());
     
-    // Ensure GUI logger is created and has the correct level
+    // Now create GUI logger (it will get the sinks including file sink if specified)
     auto gui_logger = orc::get_gui_logger();
     if (gui_logger) {
         std::string level_str = logLevel.toStdString();
@@ -128,6 +136,9 @@ int main(int argc, char *argv[])
         } else {
             gui_logger->set_level(spdlog::level::info);
         }
+        
+        // Flush on every log for debugging
+        gui_logger->flush_on(spdlog::level::trace);
     }
     
     // Install Qt message handler to bridge Qt messages to spdlog

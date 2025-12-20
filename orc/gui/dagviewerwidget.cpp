@@ -14,8 +14,12 @@
 #include "../core/include/stage_registry.h"
 #include "../core/include/stage_parameter.h"
 #include "../core/include/project.h"
+#include "../core/include/project_to_dag.h"
 #include "../core/stages/ld_sink/ld_sink_stage.h"
 #include "logging.h"
+#include "analysis/analysis_dialog.h"
+#include "../../core/analysis/analysis_registry.h"
+#include "../../core/analysis/analysis_context.h"
 #include <QPainter>
 #include <QGraphicsSceneMouseEvent>
 #include <QKeyEvent>
@@ -1698,6 +1702,39 @@ void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
         });
         editParamsAction->setEnabled(has_parameters);
         
+        // Analysis Tools submenu - dynamically populated from registry
+        QMenu* analysis_menu = menu.addMenu("Analysis Tools");
+        auto& analysis_registry = orc::AnalysisRegistry::instance();
+        auto tools = analysis_registry.toolsForSource(orc::AnalysisSourceType::LaserDisc);
+        
+        // Filter tools to only those applicable to this stage type
+        std::vector<const orc::AnalysisTool*> applicable_tools;
+        for (const auto* tool : tools) {
+            if (tool->isApplicableToStage(stage_name)) {
+                applicable_tools.push_back(tool);
+            }
+        }
+        
+        if (!applicable_tools.empty()) {
+            for (const auto* tool : applicable_tools) {
+                QString tool_name = QString::fromStdString(tool->name());
+                QString tool_desc = QString::fromStdString(tool->description());
+                
+                auto* tool_action = analysis_menu->addAction(tool_name, 
+                    [this, tool, node_id, stage_name]() {
+                        if (findNodeById(node_id)) {
+                            runAnalysisForNode(const_cast<orc::AnalysisTool*>(tool), node_id, stage_name);
+                        }
+                    });
+                tool_action->setToolTip(tool_desc);
+            }
+        } else {
+            analysis_menu->setEnabled(false);
+            analysis_menu->setToolTip("No analysis tools available for this node type");
+        }
+        
+        menu.addSeparator();
+        
         // Trigger (for triggerable stages)
         bool is_triggerable = false;
         bool can_trigger = false;
@@ -1976,4 +2013,148 @@ std::vector<std::string> DAGViewerWidget::topologicalSort(const orc::DAG& dag) c
     std::reverse(result.begin(), result.end());
     
     return result;
+}
+
+void DAGViewerWidget::runAnalysisForNode(orc::AnalysisTool* tool, 
+                                          const std::string& node_id, 
+                                          const std::string& stage_name)
+{
+    if (!tool || !project_) {
+        return;
+    }
+    
+    ORC_LOG_INFO("Running analysis tool '{}' for node '{}' (stage: '{}')", 
+                 tool->name(), node_id, stage_name);
+    
+    // Create analysis context
+    // For now, we'll need to get the input file path from the node's parameters or source
+    // This is a bit tricky - we need to determine what file to analyze based on the node type
+    
+    orc::AnalysisContext context;
+    context.source_type = orc::AnalysisSourceType::LaserDisc;
+    context.node_id = node_id;
+    
+    // Try to find input file path from node's input source
+    // For a field mapper, we'd want to analyze the source TBC file
+    // This could come from a source node connected to this node
+    
+    // Find the node in the project
+    auto node_it = std::find_if(project_->nodes.begin(), project_->nodes.end(),
+        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+    
+    if (node_it == project_->nodes.end()) {
+        ORC_LOG_ERROR("Node '{}' not found in project", node_id);
+        QMessageBox::warning(nullptr, "Error", "Node not found in project");
+        return;
+    }
+    
+    // For source nodes, get the tbc_path parameter directly
+    // For processing nodes, we'd need to trace back to the source
+    auto param_it = node_it->parameters.find("tbc_path");
+    if (param_it != node_it->parameters.end()) {
+        if (auto* path_str = std::get_if<std::string>(&param_it->second)) {
+            context.source_file = *path_str;
+        }
+    }
+    
+    // If we couldn't get the file from this node's parameters, try to find it from connected sources
+    if (context.source_file.empty()) {
+        // Walk back through the DAG to find a source node
+        std::queue<std::string> to_visit;
+        std::set<std::string> visited;
+        
+        // Start with this node's inputs (find edges targeting this node)
+        for (const auto& edge : project_->edges) {
+            if (edge.target_node_id == node_id) {
+                to_visit.push(edge.source_node_id);
+            }
+        }
+        
+        while (!to_visit.empty() && context.source_file.empty()) {
+            std::string current_id = to_visit.front();
+            to_visit.pop();
+            
+            if (visited.count(current_id)) continue;
+            visited.insert(current_id);
+            
+            // Find this node
+            auto current_node_it = std::find_if(project_->nodes.begin(), project_->nodes.end(),
+                [&current_id](const orc::ProjectDAGNode& n) { return n.node_id == current_id; });
+            
+            if (current_node_it != project_->nodes.end()) {
+                // Check if it has a tbc_path
+                auto path_param = current_node_it->parameters.find("tbc_path");
+                if (path_param != current_node_it->parameters.end()) {
+                    if (auto* path_str = std::get_if<std::string>(&path_param->second)) {
+                        context.source_file = *path_str;
+                        break;
+                    }
+                }
+                
+                // Continue searching inputs (find edges targeting current node)
+                for (const auto& edge : project_->edges) {
+                    if (edge.target_node_id == current_id) {
+                        to_visit.push(edge.source_node_id);
+                    }
+                }
+            }
+        }
+    }
+    
+    if (context.source_file.empty()) {
+        ORC_LOG_WARN("No source file found for analysis");
+        QMessageBox::information(nullptr, "No Source File", 
+            "Could not determine source file for analysis. Please ensure a source node with a TBC file is connected.");
+        return;
+    }
+    
+    // Provide DAG and project for analysis tools that need to execute the pipeline
+    try {
+        context.dag = orc::project_to_dag(*project_);
+        context.project = std::make_shared<orc::Project>(*project_);
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to build DAG from project: {}", e.what());
+        QMessageBox::warning(nullptr, "Error", 
+            QString("Failed to prepare analysis: %1").arg(e.what()));
+        return;
+    }
+    
+    // Create and show analysis dialog
+    auto* dialog = new orc::gui::AnalysisDialog(tool, context, nullptr);
+    
+    // If the analysis can be applied to graph, connect the apply signal to update the node
+    if (tool->canApplyToGraph()) {
+        QObject::connect(dialog, &orc::gui::AnalysisDialog::applyToGraph, 
+            [this, tool, node_id, stage_name](const orc::AnalysisResult& result) {
+                ORC_LOG_INFO("Applying analysis result to node '{}'", node_id);
+                
+                // Apply the result to the graph node in both the project and GUI DAG
+                if (tool->applyToGraph(result, *project_, node_id)) {
+                    ORC_LOG_INFO("Successfully applied analysis result to project");
+                    
+                    // Also update the GUI DAG node's parameters to match
+                    // This ensures the viewer reflects the change and dagModified() export preserves it
+                    auto node_it = std::find_if(project_->nodes.begin(), project_->nodes.end(),
+                        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+                    
+                    if (node_it != project_->nodes.end()) {
+                        setNodeParameters(node_id, node_it->parameters);
+                        ORC_LOG_DEBUG("Updated GUI node parameters to match project");
+                    }
+                    
+                    QMessageBox::information(nullptr, "Success", 
+                        "Analysis results applied to node successfully");
+                    
+                    // Emit signal to notify that DAG was modified
+                    emit dagModified();
+                } else {
+                    ORC_LOG_ERROR("Failed to apply analysis result to node");
+                    QMessageBox::warning(nullptr, "Error", 
+                        "Failed to apply analysis results to node");
+                }
+            });
+    }
+    
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
 }

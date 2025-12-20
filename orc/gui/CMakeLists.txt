@@ -32,6 +32,14 @@ add_executable(orc-gui
     projectpropertiesdialog.h
     node_type_helper.cpp
     node_type_helper.h
+    
+    # Analysis framework GUI components
+    analysis/analysis_progress_impl.cpp
+    analysis/analysis_progress_impl.h
+    analysis/analysis_runner.cpp
+    analysis/analysis_runner.h
+    analysis/analysis_dialog.cpp
+    analysis/analysis_dialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

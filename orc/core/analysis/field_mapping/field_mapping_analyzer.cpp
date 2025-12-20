@@ -1,28 +1,28 @@
 /*
- * File:        disc_mapper_policy.cpp
+ * File:        field_mapping_analyzer.cpp
  * Module:      orc-core/analysis
- * Purpose:     Disc mapping analysis policy implementation
+ * Purpose:     Field mapping analyzer implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
-#include "disc_mapper_policy.h"
-#include "observation_history.h"
-#include "biphase_observer.h"
-#include "pal_phase_observer.h"
-#include "disc_quality_observer.h"
-#include "pulldown_observer.h"
-#include "lead_in_out_observer.h"
-#include "field_parity_observer.h"
-#include "logging.h"
+#include "field_mapping_analyzer.h"
+#include "../../observers/observation_history.h"
+#include "../../observers/biphase_observer.h"
+#include "../../observers/pal_phase_observer.h"
+#include "../../include/disc_quality_observer.h"
+#include "../../include/pulldown_observer.h"
+#include "../../include/lead_in_out_observer.h"
+#include "../../observers/field_parity_observer.h"
+#include "../../include/logging.h"
 #include <algorithm>
 #include <sstream>
 #include <set>
 
 namespace orc {
 
-FieldMappingDecision DiscMapperPolicy::analyze(
+FieldMappingDecision FieldMappingAnalyzer::analyze(
     const VideoFieldRepresentation& source,
     const Options& options) {
     
@@ -188,7 +188,7 @@ FieldMappingDecision DiscMapperPolicy::analyze(
     return decision;
 }
 
-void DiscMapperPolicy::remove_lead_in_out(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::remove_lead_in_out(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Removing lead-in/out frames...");
     
     size_t removed = 0;
@@ -216,7 +216,7 @@ void DiscMapperPolicy::remove_lead_in_out(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Removed {} lead-in/out frames", removed);
 }
 
-void DiscMapperPolicy::remove_invalid_frames_by_phase(
+void FieldMappingAnalyzer::remove_invalid_frames_by_phase(
     std::vector<FrameInfo>& frames,
     VideoFormat format) {
     
@@ -251,7 +251,7 @@ void DiscMapperPolicy::remove_invalid_frames_by_phase(
     ORC_LOG_INFO("Removed {} frames with invalid phase sequences", removed);
 }
 
-void DiscMapperPolicy::correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Correcting VBI frame numbers using sequence analysis...");
     
     const int scan_distance = 10;
@@ -306,7 +306,7 @@ void DiscMapperPolicy::correct_vbi_using_sequence_analysis(std::vector<FrameInfo
     ORC_LOG_INFO("Corrected {} VBI frame numbers using sequence analysis", corrections);
 }
 
-void DiscMapperPolicy::remove_duplicate_frames(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Removing duplicate frames...");
     
     // Find all VBI numbers that appear more than once
@@ -353,7 +353,7 @@ void DiscMapperPolicy::remove_duplicate_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Removed {} duplicate frames", removed);
 }
 
-void DiscMapperPolicy::number_pulldown_frames(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::number_pulldown_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Numbering pulldown frames...");
     
     size_t pulldown_count = 0;
@@ -376,7 +376,7 @@ void DiscMapperPolicy::number_pulldown_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Numbered {} pulldown frames", pulldown_count);
 }
 
-bool DiscMapperPolicy::verify_frame_numbers(const std::vector<FrameInfo>& frames) {
+bool FieldMappingAnalyzer::verify_frame_numbers(const std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Verifying all frames have valid frame numbers...");
     
     for (const auto& frame : frames) {
@@ -391,7 +391,7 @@ bool DiscMapperPolicy::verify_frame_numbers(const std::vector<FrameInfo>& frames
     return true;
 }
 
-void DiscMapperPolicy::delete_unmappable_frames(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::delete_unmappable_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Deleting unmappable frames...");
     
     size_t removed = 0;
@@ -411,7 +411,7 @@ void DiscMapperPolicy::delete_unmappable_frames(std::vector<FrameInfo>& frames) 
     ORC_LOG_INFO("Deleted {} unmappable frames", removed);
 }
 
-void DiscMapperPolicy::reorder_frames(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::reorder_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Sorting frames by VBI number...");
     
     std::sort(frames.begin(), frames.end(),
@@ -426,7 +426,7 @@ void DiscMapperPolicy::reorder_frames(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Sorting complete");
 }
 
-void DiscMapperPolicy::pad_gaps(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::pad_gaps(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Padding gaps in frame sequence...");
     
     std::vector<FrameInfo> padded_frames;
@@ -470,7 +470,7 @@ void DiscMapperPolicy::pad_gaps(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Padded {} gaps with {} total padding frames", gaps, total_padding);
 }
 
-void DiscMapperPolicy::renumber_for_pulldown(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::renumber_for_pulldown(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Renumbering all frames to include pulldown frames...");
     
     int32_t new_vbi = frames.empty() ? 0 : frames[0].vbi_frame_number;
@@ -481,7 +481,7 @@ void DiscMapperPolicy::renumber_for_pulldown(std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Renumbering complete");
 }
 
-std::string DiscMapperPolicy::generate_mapping_spec(const std::vector<FrameInfo>& frames) {
+std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameInfo>& frames) {
     // Generate field map specification string
     // Format: "field_range,PAD_count,field_range,..."
     
@@ -531,7 +531,7 @@ std::string DiscMapperPolicy::generate_mapping_spec(const std::vector<FrameInfo>
     return spec.str();
 }
 
-std::string DiscMapperPolicy::generate_rationale(
+std::string FieldMappingAnalyzer::generate_rationale(
     const FieldMappingDecision::Stats& stats,
     bool is_cav,
     bool is_pal) {

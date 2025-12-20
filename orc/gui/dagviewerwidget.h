@@ -20,6 +20,11 @@
 #include "../core/include/dag_serialization.h"
 #include "../core/include/project.h"
 
+// Forward declarations
+namespace orc {
+    class AnalysisTool;
+}
+
 /**
  * @brief Node state for visualization
  */
@@ -238,6 +243,7 @@ private:
     void updateEdgeDrag(const QPointF& current_pos);
     void finishEdgeDrag(const QPointF& end_pos);
     void cancelEdgeDrag();
+    void runAnalysisForNode(orc::AnalysisTool* tool, const std::string& node_id, const std::string& stage_name);
     
 protected:
     void mousePressEvent(QMouseEvent* event) override;

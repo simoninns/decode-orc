@@ -1,0 +1,97 @@
+#ifndef ORC_CORE_ANALYSIS_TOOL_H
+#define ORC_CORE_ANALYSIS_TOOL_H
+
+#include "analysis_context.h"
+#include "analysis_result.h"
+#include "analysis_progress.h"
+#include "../include/project.h"
+#include "../include/stage_parameter.h"
+#include <string>
+#include <vector>
+
+namespace orc {
+
+/**
+ * @brief Abstract base class for all analysis tools
+ * 
+ * Analysis tools inspect TBC data and report issues, metrics, or other
+ * diagnostic information without modifying the source data.
+ */
+class AnalysisTool {
+public:
+    virtual ~AnalysisTool() = default;
+
+    /**
+     * @brief Unique identifier for this tool
+     */
+    virtual std::string id() const = 0;
+
+    /**
+     * @brief Human-readable name
+     */
+    virtual std::string name() const = 0;
+
+    /**
+     * @brief Description of what this tool does
+     */
+    virtual std::string description() const = 0;
+
+    /**
+     * @brief Category for menu organization
+     */
+    virtual std::string category() const = 0;
+
+    /**
+     * @brief Get parameter definitions for this tool
+     */
+    virtual std::vector<ParameterDescriptor> parameters() const = 0;
+
+    /**
+     * @brief Check if this tool can analyze the given source type
+     */
+    virtual bool canAnalyze(AnalysisSourceType source_type) const = 0;
+
+    /**
+     * @brief Check if this tool is applicable to the given stage type
+     * @param stage_name Name of the stage type (e.g., "field_map", "LDPALSource")
+     * @return true if this tool can be used with this stage type
+     */
+    virtual bool isApplicableToStage(const std::string& stage_name) const = 0;
+
+    /**
+     * @brief Run the analysis
+     * @param ctx Analysis context with source and parameters
+     * @param progress Progress reporter (can be null)
+     * @return Analysis result
+     */
+    virtual AnalysisResult analyze(const AnalysisContext& ctx,
+                                   AnalysisProgress* progress) = 0;
+
+    /**
+     * @brief Can this analysis be applied to the graph?
+     */
+    virtual bool canApplyToGraph() const = 0;
+
+    /**
+     * @brief Apply analysis results to a specific node in the project
+     * @param result Analysis result to apply
+     * @param project Project to modify
+     * @param node_id Target node ID to apply results to
+     * @return true if successfully applied
+     */
+    virtual bool applyToGraph(const AnalysisResult& result,
+                             Project& project,
+                             const std::string& node_id) = 0;
+
+    /**
+     * @brief Estimate analysis duration in seconds (-1 if unknown)
+     */
+    virtual int estimateDurationSeconds(const AnalysisContext& ctx) const {
+        (void)ctx;
+        return -1;
+    }
+};
+
+} // namespace orc
+
+#endif // ORC_CORE_ANALYSIS_TOOL_H

@@ -35,8 +35,13 @@ add_library(orc-core STATIC
     observers/pulldown_observer.cpp
     observers/lead_in_out_observer.cpp
     
-    # Analysis tools (policy/analysis helpers)
-    analysis/disc_mapper_policy.cpp
+    # Analysis framework
+    analysis/analysis_registry.cpp
+    analysis/analysis_init.cpp
+    
+    # Field mapping analysis
+    analysis/field_mapping/field_mapping_analyzer.cpp
+    analysis/field_mapping/field_mapping_analysis.cpp
     
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
@@ -113,11 +118,3 @@ target_link_libraries(orc-core PUBLIC spdlog::spdlog)
 # Find and link libpng
 find_package(PNG REQUIRED)
 target_link_libraries(orc-core PUBLIC PNG::PNG)
-
-# Test utilities
-add_executable(tbc-corruption-generator tests/tbc_corruption_generator.cpp)
-target_link_libraries(tbc-corruption-generator PRIVATE orc-core)
-target_include_directories(tbc-corruption-generator PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_BINARY_DIR}/generated
-)

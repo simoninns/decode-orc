@@ -1,0 +1,297 @@
+#include "field_mapping_analysis.h"
+#include "../analysis_registry.h"
+#include "field_mapping_analyzer.h"
+#include "../../include/video_field_representation.h"
+#include "../../include/tbc_video_field_representation.h"
+#include "../../include/dag_executor.h"
+#include "../../include/project.h"
+#include "logging.h"
+#include <iostream>
+#include <algorithm>
+
+namespace orc {
+
+std::string FieldMappingAnalysisTool::id() const {
+    return "field_mapping";
+}
+
+std::string FieldMappingAnalysisTool::name() const {
+    return "Field Mapping Analysis";
+}
+
+std::string FieldMappingAnalysisTool::description() const {
+    return "Detect and correct skipped, repeated, and missing fields caused by "
+           "laserdisc player tracking problems.";
+}
+
+std::string FieldMappingAnalysisTool::category() const {
+    return "Diagnostic";
+}
+
+std::vector<ParameterDescriptor> FieldMappingAnalysisTool::parameters() const {
+    std::vector<ParameterDescriptor> params;
+    
+    ParameterDescriptor delete_unmappable;
+    delete_unmappable.name = "deleteUnmappable";
+    delete_unmappable.display_name = "Delete Unmappable";
+    delete_unmappable.description = "Delete unmappable frames";
+    delete_unmappable.type = ParameterType::BOOL;
+    delete_unmappable.constraints.default_value = false;
+    params.push_back(delete_unmappable);
+    
+    ParameterDescriptor strict_pulldown;
+    strict_pulldown.name = "strictPulldown";
+    strict_pulldown.display_name = "Strict Pulldown";
+    strict_pulldown.description = "Enforce strict pulldown patterns";
+    strict_pulldown.type = ParameterType::BOOL;
+    strict_pulldown.constraints.default_value = true;
+    params.push_back(strict_pulldown);
+    
+    ParameterDescriptor pad_gaps;
+    pad_gaps.name = "padGaps";
+    pad_gaps.display_name = "Pad Gaps";
+    pad_gaps.description = "Insert padding for missing frames";
+    pad_gaps.type = ParameterType::BOOL;
+    pad_gaps.constraints.default_value = true;
+    params.push_back(pad_gaps);
+    
+    return params;
+}
+
+bool FieldMappingAnalysisTool::canAnalyze(AnalysisSourceType source_type) const {
+    // Can analyze laserdisc sources
+    return source_type == AnalysisSourceType::LaserDisc;
+}
+
+bool FieldMappingAnalysisTool::isApplicableToStage(const std::string& stage_name) const {
+    // Field mapping analysis is only applicable to field_map stages
+    // because it generates a mapping specification that the field_map stage uses
+    return stage_name == "field_map";
+}
+
+AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
+                                               AnalysisProgress* progress) {
+    AnalysisResult result;
+    
+    if (progress) {
+        progress->setStatus("Initializing disc mapper analysis...");
+        progress->setProgress(0);
+    }
+    
+    // Get the VideoFieldRepresentation from the DAG execution
+    // The field_map node should have exactly one input
+    if (!ctx.dag || !ctx.project) {
+        result.status = AnalysisResult::Failed;
+        result.summary = "No DAG or project provided for analysis";
+        ORC_LOG_ERROR("Field mapping analysis requires DAG and project in context");
+        return result;
+    }
+    
+    // Find the field_map node in the DAG
+    const auto& dag_nodes = ctx.dag->nodes();
+    auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+        [&ctx](const DAGNode& node) { return node.node_id == ctx.node_id; });
+    
+    if (node_it == dag_nodes.end()) {
+        result.status = AnalysisResult::Failed;
+        result.summary = "Node not found in DAG";
+        ORC_LOG_ERROR("Node '{}' not found in DAG", ctx.node_id);
+        return result;
+    }
+    
+    const auto& node = *node_it;
+    
+    // Get the input node ID
+    if (node.input_node_ids.empty()) {
+        result.status = AnalysisResult::Failed;
+        result.summary = "Field map node has no input connected";
+        ORC_LOG_ERROR("Field map node '{}' has no input", ctx.node_id);
+        return result;
+    }
+    
+    std::string input_node_id = node.input_node_ids[0];
+    ORC_LOG_INFO("Field mapping analysis: getting input from node '{}'", input_node_id);
+    
+    // Execute DAG to get the VideoFieldRepresentation from the input node
+    // We need to get it as a stage output
+    DAGExecutor executor;
+    try {
+        auto all_outputs = executor.execute_to_node(*ctx.dag, input_node_id);
+        
+        // Get the outputs from the input node
+        auto output_it = all_outputs.find(input_node_id);
+        if (output_it == all_outputs.end() || output_it->second.empty()) {
+            result.status = AnalysisResult::Failed;
+            result.summary = "Input node produced no outputs";
+            ORC_LOG_ERROR("Input node '{}' produced no outputs", input_node_id);
+            return result;
+        }
+        
+        // Find the VideoFieldRepresentation output
+        std::shared_ptr<VideoFieldRepresentation> source;
+        for (const auto& artifact : output_it->second) {
+            // Try to cast to VideoFieldRepresentation
+            source = std::dynamic_pointer_cast<VideoFieldRepresentation>(artifact);
+            if (source) {
+                break;
+            }
+        }
+        
+        if (!source) {
+            result.status = AnalysisResult::Failed;
+            result.summary = "Input node did not produce VideoFieldRepresentation";
+            ORC_LOG_ERROR("Input node '{}' did not produce VideoFieldRepresentation", input_node_id);
+            return result;
+        }
+        
+        ORC_LOG_INFO("Got VideoFieldRepresentation with {} fields", source->field_range().size());
+        
+        if (progress) {
+            progress->setStatus("Running field analysis...");
+            progress->setProgress(20);
+        }
+        
+        // Now run the analyzer on the representation
+        FieldMappingAnalyzer analyzer;
+        FieldMappingAnalyzer::Options options;
+        
+        auto delete_param = ctx.parameters.find("deleteUnmappable");
+        if (delete_param != ctx.parameters.end() && std::holds_alternative<bool>(delete_param->second)) {
+            options.delete_unmappable_frames = std::get<bool>(delete_param->second);
+        }
+        
+        auto strict_param = ctx.parameters.find("strictPulldown");
+        if (strict_param != ctx.parameters.end() && std::holds_alternative<bool>(strict_param->second)) {
+            options.strict_pulldown_checking = std::get<bool>(strict_param->second);
+        }
+        
+        auto pad_param = ctx.parameters.find("padGaps");
+        if (pad_param != ctx.parameters.end() && std::holds_alternative<bool>(pad_param->second)) {
+            options.pad_gaps = std::get<bool>(pad_param->second);
+        }
+        
+        if (progress && progress->isCancelled()) {
+            result.status = AnalysisResult::Cancelled;
+            return result;
+        }
+        
+        if (progress) {
+            progress->setStatus("Analyzing field sequence...");
+            progress->setProgress(50);
+        }
+        
+        // Run field mapping analysis
+        FieldMappingDecision decision = analyzer.analyze(*source, options);
+        
+        if (progress && progress->isCancelled()) {
+            result.status = AnalysisResult::Cancelled;
+            return result;
+        }
+        
+        if (progress) {
+            progress->setStatus("Processing results...");
+            progress->setProgress(80);
+        }
+        
+        // Convert warnings to result items
+        for (const auto& warning : decision.warnings) {
+            AnalysisResult::ResultItem item;
+            item.type = "warning";
+            item.message = warning;
+            result.items.push_back(item);
+            
+            if (progress) {
+                progress->reportPartialResult(item);
+            }
+        }
+        
+        if (progress) {
+            progress->setStatus("Analysis complete");
+            progress->setProgress(100);
+        }
+        
+        // Build summary
+        const auto& stats = decision.stats;
+        result.summary = "Analysis complete: " + std::to_string(stats.total_fields) + " fields processed";
+        
+        if (!decision.success) {
+            result.status = AnalysisResult::Failed;
+            result.summary = "Disc mapper analysis failed";
+            return result;
+        }
+        
+        // Statistics
+        result.statistics["totalFields"] = static_cast<long long>(stats.total_fields);
+        result.statistics["removedLeadInOut"] = static_cast<long long>(stats.removed_lead_in_out);
+        result.statistics["removedInvalidPhase"] = static_cast<long long>(stats.removed_invalid_phase);
+        result.statistics["removedDuplicates"] = static_cast<long long>(stats.removed_duplicates);
+        result.statistics["removedUnmappable"] = static_cast<long long>(stats.removed_unmappable);
+        result.statistics["correctedVBIErrors"] = static_cast<long long>(stats.corrected_vbi_errors);
+        result.statistics["pulldownFrames"] = static_cast<long long>(stats.pulldown_frames);
+        result.statistics["paddingFrames"] = static_cast<long long>(stats.padding_frames);
+        result.statistics["gapsPadded"] = static_cast<long long>(stats.gaps_padded);
+        
+        // Store mapping spec for graph application
+        result.graphData["mappingSpec"] = decision.mapping_spec;
+        result.graphData["rationale"] = decision.rationale;
+        
+        result.status = AnalysisResult::Success;
+        return result;
+        
+    } catch (const std::exception& e) {
+        result.status = AnalysisResult::Failed;
+        result.summary = std::string("Analysis failed: ") + e.what();
+        ORC_LOG_ERROR("Field mapping analysis failed: {}", e.what());
+        return result;
+    }
+}
+
+bool FieldMappingAnalysisTool::canApplyToGraph() const {
+    return true;
+}
+
+bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
+                                         Project& project,
+                                         const std::string& node_id) {
+    // Find the target node in the project
+    auto node_it = std::find_if(project.nodes.begin(), project.nodes.end(),
+        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+    
+    if (node_it == project.nodes.end()) {
+        std::cerr << "DiscMapperAnalysisTool::applyToGraph: node not found: " << node_id << std::endl;
+        return false;
+    }
+    
+    // Apply mapping spec to the node's parameters
+    auto mapping_it = result.graphData.find("mappingSpec");
+    if (mapping_it == result.graphData.end()) {
+        std::cerr << "No mapping spec in result" << std::endl;
+        return false;
+    }
+    std::string mappingSpec = mapping_it->second;
+    
+    std::cout << "Applying field mapping results to node " << node_id << std::endl;
+    std::cout << "  Mapping spec: " << mappingSpec << std::endl;
+    auto rationale_it = result.graphData.find("rationale");
+    if (rationale_it != result.graphData.end()) {
+        std::cout << "  Rationale: " << rationale_it->second << std::endl;
+    }
+    
+    // Set the FieldMapStage's "ranges" parameter to the computed mapping spec
+    node_it->parameters["ranges"] = mappingSpec;
+    
+    std::cout << "Successfully applied mapping spec to FieldMapStage 'ranges' parameter" << std::endl;
+    return true;
+}
+
+int FieldMappingAnalysisTool::estimateDurationSeconds(const AnalysisContext& ctx) const {
+    (void)ctx;
+    // Disc mapper needs to load entire TBC and run observers
+    // Estimate: ~5-10 seconds for typical TBC file
+    return 5;
+}
+
+// Register the tool
+REGISTER_ANALYSIS_TOOL(FieldMappingAnalysisTool);
+
+} // namespace orc

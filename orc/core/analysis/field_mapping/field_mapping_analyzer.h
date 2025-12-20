@@ -1,7 +1,7 @@
 /*
- * File:        disc_mapper_policy.h
+ * File:        field_mapping_analyzer.h
  * Module:      orc-core/analysis
- * Purpose:     Disc mapping analysis policy
+ * Purpose:     Field mapping analyzer (disc mapper implementation)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
@@ -9,8 +9,8 @@
 
 #pragma once
 
-#include "video_field_representation.h"
-#include "field_id.h"
+#include "../../include/video_field_representation.h"
+#include "../../include/field_id.h"
 #include <string>
 #include <vector>
 #include <map>
@@ -42,7 +42,7 @@ struct FieldMappingDecision {
 };
 
 /**
- * @brief Disc mapping policy analysis tool
+ * @brief Field mapping analyzer
  * 
  * Analyzes a VideoFieldRepresentation and its observations to detect
  * and correct field ordering issues caused by laserdisc player problems:
@@ -54,10 +54,9 @@ struct FieldMappingDecision {
  * Generates a field mapping specification that can be used to configure
  * a FieldMapStage to apply the corrections.
  * 
- * This is NOT a stage - it's an analysis tool called explicitly by
- * GUI or CLI to generate stage configuration.
+ * This is the core analysis engine used by DiscMapperAnalysisTool.
  */
-class DiscMapperPolicy {
+class FieldMappingAnalyzer {
 public:
     /**
      * @brief Configuration options for disc mapping analysis
@@ -76,8 +75,8 @@ public:
             , pad_gaps(true) {}
     };
     
-    DiscMapperPolicy() = default;
-    ~DiscMapperPolicy() = default;
+    FieldMappingAnalyzer() = default;
+    ~FieldMappingAnalyzer() = default;
     
     /**
      * @brief Analyze source and generate field mapping decision

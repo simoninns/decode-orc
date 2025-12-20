@@ -1,0 +1,397 @@
+#include "analysis_dialog.h"
+#include "../graph_editor.h"
+#include "../core/source_node.h"
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QHeaderView>
+#include <QFileDialog>
+#include <QMessageBox>
+#include <QTextStream>
+
+namespace orc {
+namespace gui {
+
+AnalysisDialog::AnalysisDialog(core::analysis::AnalysisTool* tool,
+                               core::SourceNode* source,
+                               GraphEditor* editor,
+                               QWidget* parent)
+    : QDialog(parent), tool_(tool), sourceNode_(source), graphEditor_(editor) {
+    setupUI();
+    populateParameters();
+    
+    setWindowTitle(tool->name());
+    resize(800, 600);
+}
+
+void AnalysisDialog::setupUI() {
+    auto* layout = new QVBoxLayout(this);
+    
+    // Description
+    descriptionLabel_ = new QLabel(tool_->description());
+    descriptionLabel_->setWordWrap(true);
+    layout->addWidget(descriptionLabel_);
+    
+    // Parameters section
+    auto* paramsGroup = new QGroupBox("Parameters");
+    parametersLayout_ = new QFormLayout(paramsGroup);
+    layout->addWidget(paramsGroup);
+    
+    // Progress section
+    auto* progressGroup = new QGroupBox("Progress");
+    auto* progressLayout = new QVBoxLayout(progressGroup);
+    
+    statusLabel_ = new QLabel("Ready");
+    subStatusLabel_ = new QLabel("");
+    subStatusLabel_->setStyleSheet("QLabel { color: gray; font-size: 10pt; }");
+    estimateLabel_ = new QLabel("");
+    estimateLabel_->setStyleSheet("QLabel { color: gray; font-style: italic; }");
+    progressBar_ = new QProgressBar();
+    progressBar_->setRange(0, 100);
+    progressBar_->setValue(0);
+    
+    progressLayout->addWidget(statusLabel_);
+    progressLayout->addWidget(subStatusLabel_);
+    progressLayout->addWidget(estimateLabel_);
+    progressLayout->addWidget(progressBar_);
+    
+    layout->addWidget(progressGroup);
+    
+    // Results section
+    auto* resultsGroup = new QGroupBox("Results");
+    auto* resultsLayout = new QVBoxLayout(resultsGroup);
+    
+    summaryLabel_ = new QLabel("");
+    summaryLabel_->setStyleSheet("QLabel { font-weight: bold; }");
+    resultsLayout->addWidget(summaryLabel_);
+    
+    resultsTable_ = new QTableWidget();
+    resultsTable_->setColumnCount(4);
+    resultsTable_->setHorizontalHeaderLabels(
+        {"Type", "Message", "Start Frame", "End Frame"});
+    resultsTable_->horizontalHeader()->setStretchLastSection(false);
+    resultsTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    resultsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    resultsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
+    resultsLayout->addWidget(resultsTable_);
+    
+    layout->addWidget(resultsGroup);
+    
+    // Statistics
+    auto* statsGroup = new QGroupBox("Statistics");
+    auto* statsLayout = new QVBoxLayout(statsGroup);
+    
+    statisticsText_ = new QTextEdit();
+    statisticsText_->setReadOnly(true);
+    statisticsText_->setMaximumHeight(120);
+    statsLayout->addWidget(statisticsText_);
+    
+    layout->addWidget(statsGroup);
+    
+    // Buttons
+    auto* buttonLayout = new QHBoxLayout();
+    runButton_ = new QPushButton("Run Analysis");
+    runButton_->setDefault(true);
+    cancelButton_ = new QPushButton("Cancel");
+    cancelButton_->setEnabled(false);
+    applyButton_ = new QPushButton("Apply to Graph");
+    applyButton_->setEnabled(false);
+    exportButton_ = new QPushButton("Export Results");
+    exportButton_->setEnabled(false);
+    closeButton_ = new QPushButton("Close");
+    
+    buttonLayout->addWidget(runButton_);
+    buttonLayout->addWidget(cancelButton_);
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(applyButton_);
+    buttonLayout->addWidget(exportButton_);
+    buttonLayout->addWidget(closeButton_);
+    
+    layout->addLayout(buttonLayout);
+    
+    // Connections
+    connect(runButton_, &QPushButton::clicked, this, &AnalysisDialog::runAnalysis);
+    connect(cancelButton_, &QPushButton::clicked, this, &AnalysisDialog::cancelAnalysis);
+    connect(applyButton_, &QPushButton::clicked, this, &AnalysisDialog::applyToGraph);
+    connect(exportButton_, &QPushButton::clicked, this, &AnalysisDialog::exportResults);
+    connect(closeButton_, &QPushButton::clicked, this, &QDialog::reject);
+}
+
+void AnalysisDialog::populateParameters() {
+    auto params = tool_->parameters();
+    
+    for (const auto& param : params) {
+        QWidget* widget = createParameterWidget(param);
+        parametersLayout_->addRow(param.description + ":", widget);
+        
+        parameterWidgets_.append({
+            param.name,
+            widget,
+            param.type
+        });
+    }
+    
+    if (params.isEmpty()) {
+        parametersLayout_->addRow(new QLabel("No configurable parameters"));
+    }
+}
+
+QWidget* AnalysisDialog::createParameterWidget(const core::ParameterDefinition& param) {
+    switch (param.type) {
+    case core::ParameterType::Integer: {
+        auto* spinBox = new QSpinBox();
+        spinBox->setRange(0, 999999);
+        spinBox->setValue(param.defaultValue.toInt());
+        return spinBox;
+    }
+    
+    case core::ParameterType::Double: {
+        auto* spinBox = new QDoubleSpinBox();
+        spinBox->setRange(0.0, 999999.0);
+        spinBox->setValue(param.defaultValue.toDouble());
+        spinBox->setDecimals(3);
+        return spinBox;
+    }
+    
+    case core::ParameterType::Boolean: {
+        auto* checkBox = new QCheckBox();
+        checkBox->setChecked(param.defaultValue.toBool());
+        return checkBox;
+    }
+    
+    case core::ParameterType::String: {
+        auto* lineEdit = new QLineEdit();
+        lineEdit->setText(param.defaultValue.toString());
+        return lineEdit;
+    }
+    
+    case core::ParameterType::Enum: {
+        auto* comboBox = new QComboBox();
+        // Enum values would be in param metadata
+        return comboBox;
+    }
+    
+    default:
+        return new QLabel("Unsupported parameter type");
+    }
+}
+
+QVariantMap AnalysisDialog::collectParameters() const {
+    QVariantMap params;
+    
+    for (const auto& pw : parameterWidgets_) {
+        QVariant value;
+        
+        switch (pw.type) {
+        case core::ParameterType::Integer:
+            value = qobject_cast<QSpinBox*>(pw.widget)->value();
+            break;
+        case core::ParameterType::Double:
+            value = qobject_cast<QDoubleSpinBox*>(pw.widget)->value();
+            break;
+        case core::ParameterType::Boolean:
+            value = qobject_cast<QCheckBox*>(pw.widget)->isChecked();
+            break;
+        case core::ParameterType::String:
+            value = qobject_cast<QLineEdit*>(pw.widget)->text();
+            break;
+        case core::ParameterType::Enum:
+            value = qobject_cast<QComboBox*>(pw.widget)->currentText();
+            break;
+        }
+        
+        params[pw.name] = value;
+    }
+    
+    return params;
+}
+
+void AnalysisDialog::runAnalysis() {
+    // Disable controls during analysis
+    runButton_->setEnabled(false);
+    cancelButton_->setEnabled(true);
+    applyButton_->setEnabled(false);
+    exportButton_->setEnabled(false);
+    resultsTable_->clearContents();
+    resultsTable_->setRowCount(0);
+    statisticsText_->clear();
+    summaryLabel_->clear();
+    
+    // Prepare context
+    core::analysis::AnalysisContext ctx;
+    ctx.sourceNode = sourceNode_;
+    ctx.tbcFilePath = sourceNode_->sourceFilePath();
+    ctx.parameters = collectParameters();
+    
+    // Create runner
+    analysisRunner_ = new AnalysisRunner(tool_, ctx, this);
+    
+    // Connect progress signals
+    connect(analysisRunner_, &AnalysisRunner::progressChanged,
+            progressBar_, &QProgressBar::setValue);
+    
+    connect(analysisRunner_, &AnalysisRunner::statusChanged,
+            statusLabel_, &QLabel::setText);
+    
+    connect(analysisRunner_, &AnalysisRunner::subStatusChanged,
+            subStatusLabel_, &QLabel::setText);
+    
+    // Show partial results as they arrive
+    connect(analysisRunner_, &AnalysisRunner::partialResultReady,
+            this, &AnalysisDialog::addPartialResult);
+    
+    connect(analysisRunner_, &AnalysisRunner::analysisComplete,
+            this, &AnalysisDialog::onAnalysisComplete);
+    
+    // Show estimated time
+    int estSeconds = tool_->estimateDurationSeconds(ctx);
+    if (estSeconds > 0) {
+        estimateLabel_->setText(
+            QString("Estimated time: ~%1 seconds").arg(estSeconds));
+    } else {
+        estimateLabel_->setText("");
+    }
+    
+    // Start analysis
+    analysisRunner_->start();
+}
+
+void AnalysisDialog::cancelAnalysis() {
+    if (analysisRunner_) {
+        statusLabel_->setText("Cancelling...");
+        analysisRunner_->cancel();
+        cancelButton_->setEnabled(false);
+    }
+}
+
+void AnalysisDialog::addPartialResult(const core::analysis::AnalysisResult::ResultItem& item) {
+    // Add to table immediately for live updates
+    int row = resultsTable_->rowCount();
+    resultsTable_->insertRow(row);
+    resultsTable_->setItem(row, 0, new QTableWidgetItem(item.type));
+    resultsTable_->setItem(row, 1, new QTableWidgetItem(item.message));
+    
+    if (item.startFrame >= 0) {
+        resultsTable_->setItem(row, 2, 
+            new QTableWidgetItem(QString::number(item.startFrame)));
+    }
+    if (item.endFrame >= 0) {
+        resultsTable_->setItem(row, 3, 
+            new QTableWidgetItem(QString::number(item.endFrame)));
+    }
+    
+    // Auto-scroll to latest
+    resultsTable_->scrollToBottom();
+    
+    // Update live statistics
+    updateLiveStatistics();
+}
+
+void AnalysisDialog::onAnalysisComplete(const core::analysis::AnalysisResult& result) {
+    currentResult_ = result;
+    
+    // Update UI
+    runButton_->setEnabled(true);
+    cancelButton_->setEnabled(false);
+    
+    if (result.status == core::analysis::AnalysisResult::Success) {
+        statusLabel_->setText("Analysis complete");
+        summaryLabel_->setText(result.summary);
+        displayFinalStatistics(result);
+        applyButton_->setEnabled(tool_->canApplyToGraph());
+        exportButton_->setEnabled(true);
+    } else if (result.status == core::analysis::AnalysisResult::Cancelled) {
+        statusLabel_->setText("Analysis cancelled");
+        summaryLabel_->setText("Analysis was cancelled by user");
+    } else {
+        statusLabel_->setText("Analysis failed");
+        summaryLabel_->setText(result.summary);
+        QMessageBox::warning(this, "Analysis Failed", result.summary);
+    }
+    
+    // Clean up
+    analysisRunner_->deleteLater();
+    analysisRunner_ = nullptr;
+}
+
+void AnalysisDialog::applyToGraph() {
+    tool_->applyToGraph(graphEditor_, currentResult_);
+    
+    QMessageBox::information(this, "Applied",
+        "Analysis results have been applied to the graph.");
+}
+
+void AnalysisDialog::exportResults() {
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "Export Analysis Results",
+        QString(),
+        "Text Files (*.txt);;All Files (*)");
+    
+    if (fileName.isEmpty()) {
+        return;
+    }
+    
+    QFile file(fileName);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Export Failed",
+            "Could not open file for writing.");
+        return;
+    }
+    
+    QTextStream out(&file);
+    out << "Analysis Tool: " << tool_->name() << "\n";
+    out << "Source: " << sourceNode_->sourceFilePath() << "\n";
+    out << "\n";
+    out << "Summary: " << currentResult_.summary << "\n";
+    out << "\n";
+    out << "Statistics:\n";
+    out << statisticsText_->toPlainText();
+    out << "\n";
+    out << "Results:\n";
+    
+    for (const auto& item : currentResult_.items) {
+        out << "  [" << item.type << "] " << item.message;
+        if (item.startFrame >= 0) {
+            out << " (frames " << item.startFrame;
+            if (item.endFrame >= 0 && item.endFrame != item.startFrame) {
+                out << "-" << item.endFrame;
+            }
+            out << ")";
+        }
+        out << "\n";
+    }
+    
+    file.close();
+    
+    QMessageBox::information(this, "Export Complete",
+        "Results exported successfully.");
+}
+
+void AnalysisDialog::displayFinalStatistics(const core::analysis::AnalysisResult& result) {
+    statisticsText_->clear();
+    
+    for (auto it = result.statistics.begin(); it != result.statistics.end(); ++it) {
+        statisticsText_->append(
+            QString("%1: %2").arg(it.key()).arg(it.value().toString()));
+    }
+}
+
+void AnalysisDialog::updateLiveStatistics() {
+    // Count result types
+    QMap<QString, int> typeCounts;
+    for (int i = 0; i < resultsTable_->rowCount(); ++i) {
+        QString type = resultsTable_->item(i, 0)->text();
+        typeCounts[type]++;
+    }
+    
+    QString stats;
+    for (auto it = typeCounts.begin(); it != typeCounts.end(); ++it) {
+        stats += QString("%1: %2\n").arg(it.key()).arg(it.value());
+    }
+    
+    statisticsText_->setText(stats);
+}
+
+} // namespace gui
+} // namespace orc

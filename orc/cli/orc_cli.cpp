@@ -100,6 +100,9 @@ int main(int argc, char* argv[]) {
     }
     
     ORC_LOG_INFO("Project loaded: {} (version {})", project.name, project.version);
+    if (!project.description.empty()) {
+        ORC_LOG_INFO("Project description: {}", project.description);
+    }
     ORC_LOG_INFO("Project contains {} nodes and {} edges", 
                  project.nodes.size(), project.edges.size());
     

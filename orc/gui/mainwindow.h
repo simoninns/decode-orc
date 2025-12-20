@@ -61,6 +61,7 @@ private slots:
     void onOpenProject();
     void onSaveProject();
     void onSaveProjectAs();
+    void onEditProject();
     void onOpenDAGEditor();
     void onFieldChanged(int field_index);
     void onNavigateField(int delta);
@@ -97,6 +98,7 @@ private:
     QAction* dag_editor_action_;  // Track to enable/disable
     QAction* save_project_action_;
     QAction* save_project_as_action_;
+    QAction* edit_project_action_;
     
     // Preview state (UI only - all data comes from core)
     PreviewMode current_preview_mode_;

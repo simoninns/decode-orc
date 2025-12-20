@@ -11,6 +11,7 @@
 #include "fieldpreviewwidget.h"
 #include "dageditorwindow.h"
 #include "dagviewerwidget.h"
+#include "projectpropertiesdialog.h"
 #include "tbc_video_field_representation.h"
 #include "logging.h"
 #include "../core/include/dag_executor.h"
@@ -49,6 +50,7 @@ MainWindow::MainWindow(QWidget *parent)
     , dag_editor_action_(nullptr)
     , save_project_action_(nullptr)
     , save_project_as_action_(nullptr)
+    , edit_project_action_(nullptr)
     , field_renderer_(nullptr)
     , current_view_node_id_()
     , current_preview_mode_(PreviewMode::SingleField)
@@ -156,6 +158,12 @@ void MainWindow::setupMenus()
     
     file_menu->addSeparator();
     
+    edit_project_action_ = file_menu->addAction("&Edit Project...");
+    edit_project_action_->setEnabled(false);
+    connect(edit_project_action_, &QAction::triggered, this, &MainWindow::onEditProject);
+    
+    file_menu->addSeparator();
+    
     auto* quit_action = file_menu->addAction("&Quit");
     quit_action->setShortcut(QKeySequence::Quit);
     connect(quit_action, &QAction::triggered, this, &QWidget::close);
@@ -216,6 +224,41 @@ void MainWindow::onSaveProject()
 void MainWindow::onSaveProjectAs()
 {
     saveProjectAs();
+}
+
+void MainWindow::onEditProject()
+{
+    // Open dialog with current project properties
+    ProjectPropertiesDialog dialog(this);
+    dialog.setProjectName(QString::fromStdString(project_.coreProject().name));
+    dialog.setProjectDescription(QString::fromStdString(project_.coreProject().description));
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        // Update project with new values
+        QString new_name = dialog.projectName();
+        QString new_description = dialog.projectDescription();
+        
+        if (new_name.isEmpty()) {
+            QMessageBox::warning(this, "Invalid Input", "Project name cannot be empty.");
+            return;
+        }
+        
+        // Update core project
+        project_.coreProject().name = new_name.toStdString();
+        project_.coreProject().description = new_description.toStdString();
+        
+        // Mark project as modified
+        project_.setModified(true);
+        
+        ORC_LOG_INFO("Project properties updated: name='{}', description='{}'", 
+                     new_name.toStdString(), new_description.toStdString());
+        
+        // Update UI to reflect changes
+        updateWindowTitle();
+        updateUIState();
+        
+        statusBar()->showMessage("Project properties updated", 3000);
+    }
 }
 
 
@@ -393,6 +436,9 @@ void MainWindow::updateUIState()
     }
     if (save_project_as_action_) {
         save_project_as_action_->setEnabled(has_project);
+    }
+    if (edit_project_action_) {
+        edit_project_action_->setEnabled(has_project);
     }
     if (dag_editor_action_) {
         // Allow DAG editor on any project, even without sources

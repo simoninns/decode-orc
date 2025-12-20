@@ -28,6 +28,8 @@ add_executable(orc-gui
     dagviewerwidget.h
     stageparameterdialog.cpp
     stageparameterdialog.h
+    projectpropertiesdialog.cpp
+    projectpropertiesdialog.h
     node_type_helper.cpp
     node_type_helper.h
 )

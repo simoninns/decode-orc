@@ -48,7 +48,7 @@ struct ProjectDAGEdge {
  * Project - encapsulates processing DAG
  * 
  * A project file (.orc-project) is a YAML file containing:
- * - Project metadata (name, version)
+ * - Project metadata (name, description, version)
  * - DAG structure (nodes, edges, parameters)
  * - SOURCE nodes use TBCSourceStage with tbc_path in parameters
  * 
@@ -61,6 +61,7 @@ struct ProjectDAGEdge {
 class Project {
 public:
     std::string name;                       // Project name
+    std::string description;                // Project description (optional)
     std::string version;                    // Project format version (e.g., "1.0")
     std::vector<ProjectDAGNode> nodes;      // DAG nodes (including SOURCE nodes)
     std::vector<ProjectDAGEdge> edges;      // DAG edges

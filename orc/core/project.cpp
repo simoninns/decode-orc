@@ -71,6 +71,7 @@ Project load_project(const std::string& filename) {
     // Load project metadata
     if (root["project"]) {
         project.name = root["project"]["name"].as<std::string>("");
+        project.description = root["project"]["description"].as<std::string>("");
         project.version = root["project"]["version"].as<std::string>("1.0");
     }
     
@@ -142,6 +143,9 @@ void save_project(const Project& project, const std::string& filename) {
     out << YAML::Key << "project";
     out << YAML::Value << YAML::BeginMap;
     out << YAML::Key << "name" << YAML::Value << project.name;
+    if (!project.description.empty()) {
+        out << YAML::Key << "description" << YAML::Value << project.description;
+    }
     out << YAML::Key << "version" << YAML::Value << project.version;
     out << YAML::EndMap;
     

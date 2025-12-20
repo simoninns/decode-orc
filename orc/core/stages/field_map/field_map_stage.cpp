@@ -45,6 +45,15 @@ public:
             })
         , field_mapping_(std::move(field_mapping))
     {
+        // Initialize black line buffer for padding
+        // Get video parameters from source to determine line width
+        if (source_) {
+            auto params = source_->get_video_parameters();
+            if (params) {
+                // Create black line (all zeros)
+                black_line_.resize(params->field_width, 0);
+            }
+        }
     }
     
     FieldIDRange field_range() const override {
@@ -64,7 +73,13 @@ public:
             return false;
         }
         FieldID source_id = field_mapping_[index];
-        return source_ && source_id.is_valid() && source_->has_field(source_id);
+        
+        // Padding fields (INVALID) always exist as black fields
+        if (!source_id.is_valid()) {
+            return true;
+        }
+        
+        return source_ && source_->has_field(source_id);
     }
     
     std::optional<FieldDescriptor> get_descriptor(FieldID id) const override {
@@ -73,7 +88,24 @@ public:
             return std::nullopt;
         }
         FieldID source_id = field_mapping_[index];
-        if (!source_ || !source_id.is_valid()) {
+        
+        // For padding fields, create a descriptor from source video parameters
+        if (!source_id.is_valid() && source_) {
+            auto params = source_->get_video_parameters();
+            if (params) {
+                FieldDescriptor desc;
+                desc.field_id = id;
+                desc.width = params->field_width;
+                desc.height = params->field_height;
+                // Convert VideoSystem to VideoFormat
+                desc.format = (params->system == VideoSystem::PAL) ? VideoFormat::PAL : VideoFormat::NTSC;
+                desc.parity = FieldParity::Top;  // Arbitrary for black fields
+                return desc;
+            }
+            return std::nullopt;
+        }
+        
+        if (!source_) {
             return std::nullopt;
         }
         
@@ -91,7 +123,14 @@ public:
             return nullptr;
         }
         FieldID source_id = field_mapping_[index];
-        if (!source_ || !source_id.is_valid()) {
+        
+        // Return black line for padding fields
+        if (!source_id.is_valid()) {
+            (void)line;  // All lines same for black field
+            return black_line_.empty() ? nullptr : black_line_.data();
+        }
+        
+        if (!source_) {
             return nullptr;
         }
         return source_->get_line(source_id, line);
@@ -103,7 +142,17 @@ public:
             return {};
         }
         FieldID source_id = field_mapping_[index];
-        if (!source_ || !source_id.is_valid()) {
+        
+        // Return black field for padding
+        if (!source_id.is_valid()) {
+            auto desc = get_descriptor(id);
+            if (desc) {
+                return std::vector<sample_type>(desc->width * desc->height, 0);
+            }
+            return {};
+        }
+        
+        if (!source_) {
             return {};
         }
         return source_->get_field(source_id);
@@ -115,7 +164,13 @@ public:
             return {};
         }
         FieldID source_id = field_mapping_[index];
-        if (!source_ || !source_id.is_valid()) {
+        
+        // Padding fields have no dropouts
+        if (!source_id.is_valid()) {
+            return {};
+        }
+        
+        if (!source_) {
             return {};
         }
         return source_->get_dropout_hints(source_id);
@@ -123,6 +178,7 @@ public:
 
 private:
     std::vector<FieldID> field_mapping_;  // Maps output field index -> source FieldID
+    mutable std::vector<sample_type> black_line_;  // Cached black line for padding
 };
 
 std::vector<ArtifactPtr> FieldMapStage::execute(
@@ -259,6 +315,20 @@ std::vector<std::pair<uint64_t, uint64_t>> FieldMapStage::parse_ranges(const std
             continue;
         }
         
+        // Check for PAD_N token
+        if (range_str.substr(0, 4) == "PAD_") {
+            try {
+                uint64_t pad_count = std::stoull(range_str.substr(4));
+                // Use UINT64_MAX to signal padding
+                ranges.emplace_back(UINT64_MAX, pad_count);
+                ORC_LOG_DEBUG("FieldMapStage: Parsed padding directive: {} frames", pad_count);
+                continue;
+            } catch (...) {
+                ORC_LOG_ERROR("FieldMapStage: Invalid padding directive: {}", range_str);
+                return {};
+            }
+        }
+        
         // Find the dash separator
         size_t dash_pos = range_str.find('-');
         if (dash_pos == std::string::npos) {
@@ -313,6 +383,17 @@ std::vector<FieldID> FieldMapStage::build_field_mapping(
     
     // Build the mapping by expanding each range
     for (const auto& [start, end] : ranges) {
+        // Check for padding directive (signaled by UINT64_MAX)
+        if (start == UINT64_MAX) {
+            // This is a PAD_N directive, 'end' contains the count
+            for (uint64_t i = 0; i < end; ++i) {
+                mapping.push_back(FieldID());  // Invalid FieldID = black field
+            }
+            ORC_LOG_DEBUG("FieldMapStage: Inserted {} padding fields", end);
+            continue;
+        }
+        
+        // Normal field range
         for (uint64_t field_num = start; field_num <= end; ++field_num) {
             // Compute the actual FieldID in the source
             uint64_t source_field_id = source_start + field_num;

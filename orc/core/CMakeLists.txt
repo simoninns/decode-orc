@@ -31,6 +31,12 @@ add_library(orc-core STATIC
     observers/burst_level_observer.cpp
     observers/field_parity_observer.cpp
     observers/pal_phase_observer.cpp
+    observers/disc_quality_observer.cpp
+    observers/pulldown_observer.cpp
+    observers/lead_in_out_observer.cpp
+    
+    # Analysis tools (policy/analysis helpers)
+    analysis/disc_mapper_policy.cpp
     
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
@@ -71,6 +77,7 @@ add_library(orc-core STATIC
 target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
+    ${CMAKE_CURRENT_SOURCE_DIR}/analysis
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_pal_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_ntsc_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_sink
@@ -106,3 +113,11 @@ target_link_libraries(orc-core PUBLIC spdlog::spdlog)
 # Find and link libpng
 find_package(PNG REQUIRED)
 target_link_libraries(orc-core PUBLIC PNG::PNG)
+
+# Test utilities
+add_executable(tbc-corruption-generator tests/tbc_corruption_generator.cpp)
+target_link_libraries(tbc-corruption-generator PRIVATE orc-core)
+target_include_directories(tbc-corruption-generator PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated
+)

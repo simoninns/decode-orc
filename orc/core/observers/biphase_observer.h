@@ -57,7 +57,8 @@ public:
     
     std::vector<std::shared_ptr<Observation>> process_field(
         const VideoFieldRepresentation& representation,
-        FieldID field_id) override;
+        FieldID field_id,
+        const ObservationHistory& history) override;
 
 private:
     // Decode a single biphase line (Manchester decoder)

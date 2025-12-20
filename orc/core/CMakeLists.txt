@@ -19,6 +19,7 @@ add_library(orc-core STATIC
     
     # Observers (organized in subdirectory)
     observers/observer.cpp
+    observers/observation_history.cpp
     observers/biphase_observer.cpp
     observers/vitc_observer.cpp
     observers/closed_caption_observer.cpp

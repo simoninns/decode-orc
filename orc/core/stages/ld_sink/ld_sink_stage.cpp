@@ -10,6 +10,7 @@
 #include "ld_sink_stage.h"
 #include "stage_registry.h"
 #include "tbc_metadata_writer.h"
+#include "observation_history.h"
 #include "biphase_observer.h"
 #include "vitc_observer.h"
 #include "closed_caption_observer.h"
@@ -23,6 +24,7 @@
 #include "logging.h"
 #include <fstream>
 #include <filesystem>
+#include <algorithm>
 
 namespace orc {
 
@@ -302,13 +304,37 @@ bool LDSinkStage::write_metadata_file(
         size_t field_count = range.size();
         size_t fields_processed = 0;
         
+        // Build list of field IDs in sorted order
+        // This ensures consistent processing regardless of field map reordering
+        std::vector<FieldID> field_ids;
+        field_ids.reserve(field_count);
+        for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
+            if (representation->has_field(field_id)) {
+                field_ids.push_back(field_id);
+            }
+        }
+        // Sort by field_id to ensure deterministic order
+        std::sort(field_ids.begin(), field_ids.end());
+        
         // Begin transaction for bulk inserts
         writer.begin_transaction();
         
-        for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
-            if (!representation->has_field(field_id)) {
-                continue;
+        // Observation history for observers that need previous field context
+        // Processing fields in field_id order ensures history is built correctly
+        // even if fields were reordered by upstream stages
+        ObservationHistory history;
+        
+        // Pre-populate history from source representations
+        // This enables correct behavior when fields come from multiple sources
+        // (e.g., after a merge stage that interleaves two inputs)
+        for (FieldID field_id : field_ids) {
+            auto source_observations = representation->get_observations(field_id);
+            if (!source_observations.empty()) {
+                history.add_observations(field_id, source_observations);
             }
+        }
+        
+        for (FieldID field_id : field_ids) {
             
             // Create minimal field record
             // Note: Field-level metadata (sync_confidence, median_burst_ire, field_phase_id, is_first_field)
@@ -334,10 +360,18 @@ bool LDSinkStage::write_metadata_file(
                 writer.write_dropout(field_id, dropout);
             }
             
-            // Run all observers on this field
+            // Run all observers on this field, passing the observation history
+            // Note: Observations are added to history incrementally so later observers
+            // can use results from earlier observers in the same field
             for (const auto& observer : observers) {
-                auto observations = observer->process_field(*representation, field_id);
+                auto observations = observer->process_field(*representation, field_id, history);
                 writer.write_observations(field_id, observations);
+                
+                // Add observations to history immediately so subsequent observers can use them
+                auto current_field_obs = history.get_observations(field_id);
+                current_field_obs.insert(current_field_obs.end(), 
+                                        observations.begin(), observations.end());
+                history.add_observations(field_id, current_field_obs);
             }
             
             fields_processed++;

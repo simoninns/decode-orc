@@ -18,6 +18,7 @@
 #include "logging.h"
 #include <sqlite3.h>
 #include <stdexcept>
+#include <filesystem>
 
 namespace orc {
 
@@ -49,7 +50,7 @@ public:
         // Create tables matching legacy ld-decode schema
         const char* schema_sql = R"(
             CREATE TABLE IF NOT EXISTS capture (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                capture_id INTEGER PRIMARY KEY,
                 system TEXT NOT NULL,
                 decoder TEXT,
                 git_branch TEXT,
@@ -76,7 +77,7 @@ public:
                 is_signed INTEGER NOT NULL,
                 is_little_endian INTEGER NOT NULL,
                 sample_rate REAL NOT NULL,
-                FOREIGN KEY (capture_id) REFERENCES capture(id)
+                FOREIGN KEY (capture_id) REFERENCES capture(capture_id)
             );
             
             CREATE TABLE IF NOT EXISTS field_record (
@@ -99,14 +100,14 @@ public:
                 ntsc_video_id_data INTEGER,
                 ntsc_white_flag INTEGER,
                 PRIMARY KEY (capture_id, field_id),
-                FOREIGN KEY (capture_id) REFERENCES capture(id)
+                FOREIGN KEY (capture_id) REFERENCES capture(capture_id)
             );
             
             CREATE TABLE IF NOT EXISTS vits_metrics (
                 capture_id INTEGER NOT NULL,
                 field_id INTEGER NOT NULL,
-                white_snr REAL,
-                black_psnr REAL,
+                b_psnr REAL,
+                w_snr REAL,
                 PRIMARY KEY (capture_id, field_id),
                 FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
             );
@@ -145,7 +146,7 @@ public:
                 FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
             );
             
-            CREATE TABLE IF NOT EXISTS dropouts (
+            CREATE TABLE IF NOT EXISTS drop_outs (
                 capture_id INTEGER NOT NULL,
                 field_id INTEGER NOT NULL,
                 field_line INTEGER NOT NULL,
@@ -155,7 +156,7 @@ public:
             );
             
             CREATE INDEX IF NOT EXISTS idx_field_record_capture ON field_record(capture_id);
-            CREATE INDEX IF NOT EXISTS idx_dropouts_capture_field ON dropouts(capture_id, field_id);
+            CREATE INDEX IF NOT EXISTS idx_dropouts_capture_field ON drop_outs(capture_id, field_id);
         )";
         
         return exec_sql(schema_sql);
@@ -179,6 +180,11 @@ bool TBCMetadataWriter::open(const std::string& filename) {
     if (is_open_) {
         close();
     }
+    
+    // Delete existing database file to ensure clean state
+    std::error_code ec;
+    std::filesystem::remove(filename, ec);
+    // Ignore error if file doesn't exist
     
     int rc = sqlite3_open(filename.c_str(), &impl_->db);
     if (rc != SQLITE_OK) {
@@ -456,15 +462,15 @@ bool TBCMetadataWriter::write_vits_metrics(FieldID field_id, const VitsMetrics& 
     if (!is_open_ || capture_id_ < 0 || !metrics.in_use) return false;
     
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT INTO vits_metrics (capture_id, field_id, white_snr, black_psnr) VALUES (?, ?, ?, ?)";
+    const char* sql = "INSERT INTO vits_metrics (capture_id, field_id, b_psnr, w_snr) VALUES (?, ?, ?, ?)";
     
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
     sqlite3_bind_int(stmt, 1, capture_id_);
     sqlite3_bind_int(stmt, 2, field_id.value());
-    sqlite3_bind_double(stmt, 3, metrics.white_snr);
-    sqlite3_bind_double(stmt, 4, metrics.black_psnr);
+    sqlite3_bind_double(stmt, 3, metrics.black_psnr);
+    sqlite3_bind_double(stmt, 4, metrics.white_snr);
     
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -476,7 +482,7 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
     if (!is_open_ || capture_id_ < 0) return false;
     
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT INTO dropouts (capture_id, field_id, field_line, startx, endx) VALUES (?, ?, ?, ?, ?)";
+    const char* sql = "INSERT INTO drop_outs (capture_id, field_id, field_line, startx, endx) VALUES (?, ?, ?, ?, ?)";
     
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;

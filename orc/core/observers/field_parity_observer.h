@@ -6,6 +6,9 @@
 
 namespace orc {
 
+// Forward declaration for classified pulse structure
+struct ClassifiedPulse;
+
 /**
  * Observation containing field parity detection result.
  * 
@@ -70,32 +73,33 @@ public:
      */
     std::vector<std::shared_ptr<Observation>> process_field(
         const VideoFieldRepresentation& representation,
-        FieldID field_id) override;
+        FieldID field_id,
+        const ObservationHistory& history) override;
 
 private:
     /**
-     * Find sync pulses in the VBlank region (first ~20 lines).
-     * Returns a vector of pulse locations (sample positions).
+     * Find and classify sync pulses in the VBlank region (first ~20 lines).
+     * Returns a vector of classified pulses.
      */
-    std::vector<size_t> find_sync_pulses(
+    std::vector<ClassifiedPulse> find_sync_pulses(
         const std::vector<uint16_t>& field_data,
         const VideoParameters& video_params,
-        size_t max_lines = 20) const;
+        size_t max_lines = 25) const;
     
     /**
-     * Analyze pulse gaps to determine field parity for PAL.
+     * Analyze classified pulses to determine field parity for PAL.
      * Returns (is_first_field, confidence).
      */
     std::pair<bool, int> analyze_pal_parity(
-        const std::vector<size_t>& pulses,
+        const std::vector<ClassifiedPulse>& pulses,
         const VideoParameters& video_params) const;
     
     /**
-     * Analyze pulse gaps to determine field parity for NTSC.
+     * Analyze classified pulses to determine field parity for NTSC.
      * Returns (is_first_field, confidence).
      */
     std::pair<bool, int> analyze_ntsc_parity(
-        const std::vector<size_t>& pulses,
+        const std::vector<ClassifiedPulse>& pulses,
         const VideoParameters& video_params) const;
 };
 

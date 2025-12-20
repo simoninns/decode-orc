@@ -22,6 +22,9 @@
 
 namespace orc {
 
+// Forward declarations
+class Observation;
+
 /**
  * @brief Field parity (interlacing information)
  */
@@ -100,6 +103,14 @@ public:
         return std::nullopt;  // Default: no parameters
     }
     
+    // Observation access (metadata from source or computed by stages)
+    // Returns observations for a specific field (e.g., field parity, VBI data)
+    // This allows observation history to flow through the DAG, enabling
+    // stages that merge multiple sources to provide complete history
+    virtual std::vector<std::shared_ptr<Observation>> get_observations(FieldID /*id*/) const {
+        return {};  // Default: no observations
+    }
+    
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }
     
@@ -169,6 +180,11 @@ public:
     
     std::optional<VideoParameters> get_video_parameters() const override {
         return source_ ? source_->get_video_parameters() : std::nullopt;
+    }
+    
+    // Automatically propagate observations through the chain
+    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
+        return source_ ? source_->get_observations(id) : std::vector<std::shared_ptr<Observation>>{};
     }
     
     // Access to wrapped source

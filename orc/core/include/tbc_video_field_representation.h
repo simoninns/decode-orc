@@ -66,6 +66,8 @@ public:
         return video_params_;
     }
     
+    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override;
+    
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
     
     // Additional accessors specific to TBC

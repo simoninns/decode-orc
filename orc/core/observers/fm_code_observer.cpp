@@ -16,7 +16,9 @@ namespace orc {
 
 std::vector<std::shared_ptr<Observation>> FmCodeObserver::process_field(
     const VideoFieldRepresentation& representation,
-    FieldID field_id) {
+    FieldID field_id,
+    const ObservationHistory& history) {
+    (void)history;  // Unused
     
     std::vector<std::shared_ptr<Observation>> observations;
     auto observation = std::make_shared<FmCodeObservation>();

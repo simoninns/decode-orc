@@ -20,6 +20,9 @@
 
 namespace orc {
 
+// Forward declaration
+class ObservationHistory;
+
 // Detection basis for observations
 enum class DetectionBasis {
     SAMPLE_DERIVED,      // Derived purely from sample analysis
@@ -59,9 +62,11 @@ public:
     virtual std::string observer_version() const = 0;
     
     // Process a single field and return observations
+    // The history parameter provides access to observations from previous fields
     virtual std::vector<std::shared_ptr<Observation>> process_field(
         const VideoFieldRepresentation& representation,
-        FieldID field_id) = 0;
+        FieldID field_id,
+        const ObservationHistory& history) = 0;
     
     // Optional: Set parameters for the observer
     virtual void set_parameters(const std::map<std::string, std::string>& params) {

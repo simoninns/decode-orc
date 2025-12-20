@@ -59,8 +59,10 @@ void VITSQualityObserver::set_parameters(const std::map<std::string, std::string
 
 std::vector<std::shared_ptr<Observation>> VITSQualityObserver::process_field(
     const VideoFieldRepresentation& representation,
-    FieldID field_id)
-{
+    FieldID field_id,
+    const ObservationHistory& history) {
+    (void)history;  // Unused
+    
     auto obs = std::make_shared<VITSQualityObservation>();
     obs->field_id = field_id;
     obs->detection_basis = DetectionBasis::SAMPLE_DERIVED;

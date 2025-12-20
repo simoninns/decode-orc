@@ -8,6 +8,7 @@
  */
 
 #include "pal_phase_observer.h"
+#include "observation_history.h"
 #include "logging.h"
 #include <algorithm>
 #include <cmath>
@@ -17,8 +18,9 @@ namespace orc {
 
 std::vector<std::shared_ptr<Observation>> PALPhaseObserver::process_field(
     const VideoFieldRepresentation& representation,
-    FieldID field_id)
-{
+    FieldID field_id,
+    const ObservationHistory& history) {
+    
     auto obs = std::make_shared<PALPhaseObservation>();
     obs->field_id = field_id;
     obs->detection_basis = DetectionBasis::SAMPLE_DERIVED;
@@ -41,23 +43,37 @@ std::vector<std::shared_ptr<Observation>> PALPhaseObserver::process_field(
         return {obs};
     }
     
-    // Use FieldParityObserver to determine if this is the first or second field
+    // Get field parity from observation history (if FieldParityObserver ran before us)
     // This is critical for correct PAL phase detection!
-    FieldParityObserver parity_observer;
-    auto parity_observations = parity_observer.process_field(representation, field_id);
+    bool is_first_field = false;
+    auto parity_from_history = history.get_observation(field_id, "FieldParity");
     
-    if (parity_observations.empty()) {
-        obs->confidence = ConfidenceLevel::NONE;
-        return {obs};
+    if (parity_from_history) {
+        // Use the already-calculated parity from history
+        auto* parity_obs = dynamic_cast<FieldParityObservation*>(parity_from_history.get());
+        if (parity_obs && parity_obs->confidence_pct >= 25) {
+            is_first_field = parity_obs->is_first_field;
+        } else {
+            obs->confidence = ConfidenceLevel::LOW;
+            return {obs};  // Can't determine field parity reliably
+        }
+    } else {
+        // Fallback: Calculate field parity ourselves (if FieldParityObserver not in pipeline)
+        FieldParityObserver parity_observer;
+        auto parity_observations = parity_observer.process_field(representation, field_id, history);
+        
+        if (parity_observations.empty()) {
+            obs->confidence = ConfidenceLevel::NONE;
+            return {obs};
+        }
+        
+        auto* parity_obs = dynamic_cast<FieldParityObservation*>(parity_observations[0].get());
+        if (!parity_obs || parity_obs->confidence_pct < 25) {
+            obs->confidence = ConfidenceLevel::LOW;
+            return {obs};  // Can't determine field parity reliably
+        }
+        is_first_field = parity_obs->is_first_field;
     }
-    
-    auto* parity_obs = dynamic_cast<FieldParityObservation*>(parity_observations[0].get());
-    if (!parity_obs || parity_obs->confidence_pct < 25) {
-        obs->confidence = ConfidenceLevel::LOW;
-        return {obs};  // Can't determine field parity reliably
-    }
-    
-    bool is_first_field = parity_obs->is_first_field;
     
     // PAL has line offsets (ld-decode: lineoffset = 2 for first field, 3 for second)
     size_t line_offset = is_first_field ? 2 : 3;

@@ -24,6 +24,8 @@ Decode Orc was designed and written by Simon Inns.  Decode Orc's development hea
 - Phillip Blucas (2023) - VideoID decoding
 - ...and others (see the original ld-decode-tools source)
 
+It should be noted that the original code for the observers is also based heavily on the ld-decode python code-base (written by Chad Page et al).
+
 This project is under active development.
 
 # Vision
@@ -110,22 +112,43 @@ Observers:
 * Monitor node outputs
 * Extract metadata from the node outputs
 * Are typically source-type specific
+* Operate statelessly - all context comes from the video field and observation history
 
 Implemented observers include:
-* **VBI observers**: Extract VBI information (VITC, closed captions, white flag, video ID, etc.)
-* **VITS observers**: Extract VITS test signal information
-* **Biphase observers**: Decode biphase-encoded data
+* **Field parity observers**: Determine field parity (odd/even) using ld-decode's algorithm with fallback to previous field
+* **PAL phase observers**: Detect PAL phase information (requires field parity)
+* **Biphase observers**: Decode biphase-encoded data from VBI lines
+* **VITC observers**: Extract VITC (Vertical Interval Timecode) information
+* **Closed caption observers**: Extract closed caption data from line 21
+* **Video ID observers**: Decode Video ID information
 * **FM code observers**: Extract FM code information
-* **Field parity observers**: Determine field parity (odd/even)
-* **Burst level observers**: Measure color burst levels
-* **PAL phase observers**: Detect PAL phase information
+* **White flag observers**: Detect white flag presence in VBI
+* **VITS observers**: Extract VITS test signal quality metrics
+* **Burst level observers**: Measure color burst amplitude levels
 
-### 4.2 Rationale
+### 4.2 Observation History
+
+Some observers require information from previously processed fields (e.g., field parity detection often relies on the previous field's parity). To support this without making observers stateful:
+
+* Observers receive an **ObservationHistory** parameter containing observations from prior fields
+* The history flows through the DAG alongside video data via the representation interface
+* At sources, observations are read from input metadata (e.g., from .tbc.db files)
+* At sinks, observations are pre-populated from all sources before processing begins
+* During processing, observations are incrementally added to history for use by subsequent observers
+
+This architecture ensures:
+* **Multi-source support**: Merge stages combine observations from all inputs
+* **Field reordering**: History remains correct even when field map stages change processing order
+* **Observer independence**: No global state, observers remain pure functions
+* **Deterministic execution**: Fields processed in sorted FieldID order regardless of DAG structure
+
+### 4.3 Rationale
 
 Some transformations improve video quality and metadata accuracy (e.g. field mapping, dropout correction). By placing observers at node outputs:
 
 * Observers always see the **node output version** of the signal
 * Observations change as processing progresses (so improvements or degradations by the nodes can be observed)
+* Observations propagate through the DAG to ensure complete history at every stage
 
 ---
 

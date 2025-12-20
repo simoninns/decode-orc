@@ -79,9 +79,23 @@ public:
         return sqlite3_column_int(stmt, col);
     }
     
+    std::optional<int> get_optional_int(sqlite3_stmt* stmt, int col) {
+        if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
+            return std::nullopt;
+        }
+        return sqlite3_column_int(stmt, col);
+    }
+    
     int64_t get_int64(sqlite3_stmt* stmt, int col, int64_t default_val = -1) {
         if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
             return default_val;
+        }
+        return sqlite3_column_int64(stmt, col);
+    }
+    
+    std::optional<int64_t> get_optional_int64(sqlite3_stmt* stmt, int col) {
+        if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
+            return std::nullopt;
         }
         return sqlite3_column_int64(stmt, col);
     }
@@ -93,9 +107,23 @@ public:
         return sqlite3_column_double(stmt, col);
     }
     
+    std::optional<double> get_optional_double(sqlite3_stmt* stmt, int col) {
+        if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
+            return std::nullopt;
+        }
+        return sqlite3_column_double(stmt, col);
+    }
+    
     bool get_bool(sqlite3_stmt* stmt, int col, bool default_val = false) {
         if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
             return default_val;
+        }
+        return sqlite3_column_int(stmt, col) != 0;
+    }
+    
+    std::optional<bool> get_optional_bool(sqlite3_stmt* stmt, int col) {
+        if (sqlite3_column_type(stmt, col) == SQLITE_NULL) {
+            return std::nullopt;
         }
         return sqlite3_column_int(stmt, col) != 0;
     }
@@ -259,16 +287,16 @@ std::optional<FieldMetadata> TBCMetadataReader::read_field_metadata(FieldID fiel
     
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         metadata.seq_no = impl_->get_int(stmt, 0);
-        metadata.is_first_field = impl_->get_bool(stmt, 1);
-        metadata.sync_confidence = impl_->get_int(stmt, 2);
-        metadata.median_burst_ire = impl_->get_double(stmt, 3);
-        metadata.field_phase_id = impl_->get_int(stmt, 4);
-        metadata.audio_samples = impl_->get_int(stmt, 5);
-        metadata.is_pad = impl_->get_bool(stmt, 6);
-        metadata.disk_location = impl_->get_double(stmt, 7);
-        metadata.file_location = impl_->get_int64(stmt, 8);
-        metadata.decode_faults = impl_->get_int(stmt, 9);
-        metadata.efm_t_values = impl_->get_int(stmt, 10);
+        metadata.is_first_field = impl_->get_optional_bool(stmt, 1);
+        metadata.sync_confidence = impl_->get_optional_int(stmt, 2);
+        metadata.median_burst_ire = impl_->get_optional_double(stmt, 3);
+        metadata.field_phase_id = impl_->get_optional_int(stmt, 4);
+        metadata.audio_samples = impl_->get_optional_int(stmt, 5);
+        metadata.is_pad = impl_->get_optional_bool(stmt, 6);
+        metadata.disk_location = impl_->get_optional_double(stmt, 7);
+        metadata.file_location = impl_->get_optional_int64(stmt, 8);
+        metadata.decode_faults = impl_->get_optional_int(stmt, 9);
+        metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
         
         sqlite3_finalize(stmt);
         return metadata;
@@ -293,16 +321,16 @@ std::map<FieldID, FieldMetadata> TBCMetadataReader::read_all_field_metadata() {
     impl_->execute_query(sql, [&](sqlite3_stmt* stmt) {
         FieldMetadata metadata;
         metadata.seq_no = impl_->get_int(stmt, 0);
-        metadata.is_first_field = impl_->get_bool(stmt, 1);
-        metadata.sync_confidence = impl_->get_int(stmt, 2);
-        metadata.median_burst_ire = impl_->get_double(stmt, 3);
-        metadata.field_phase_id = impl_->get_int(stmt, 4);
-        metadata.audio_samples = impl_->get_int(stmt, 5);
-        metadata.is_pad = impl_->get_bool(stmt, 6);
-        metadata.disk_location = impl_->get_double(stmt, 7);
-        metadata.file_location = impl_->get_int64(stmt, 8);
-        metadata.decode_faults = impl_->get_int(stmt, 9);
-        metadata.efm_t_values = impl_->get_int(stmt, 10);
+        metadata.is_first_field = impl_->get_optional_bool(stmt, 1);
+        metadata.sync_confidence = impl_->get_optional_int(stmt, 2);
+        metadata.median_burst_ire = impl_->get_optional_double(stmt, 3);
+        metadata.field_phase_id = impl_->get_optional_int(stmt, 4);
+        metadata.audio_samples = impl_->get_optional_int(stmt, 5);
+        metadata.is_pad = impl_->get_optional_bool(stmt, 6);
+        metadata.disk_location = impl_->get_optional_double(stmt, 7);
+        metadata.file_location = impl_->get_optional_int64(stmt, 8);
+        metadata.decode_faults = impl_->get_optional_int(stmt, 9);
+        metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
         
         result[FieldID(metadata.seq_no)] = metadata;
         return true;

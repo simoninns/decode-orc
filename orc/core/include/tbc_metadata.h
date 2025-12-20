@@ -155,25 +155,28 @@ struct DropoutData {
  */
 struct FieldMetadata {
     int32_t seq_no = 0;  // Sequence number (primary key in DB)
-    bool is_first_field = false;
-    int32_t sync_confidence = 0;
-    double median_burst_ire = 0.0;
-    int32_t field_phase_id = -1;
-    int32_t audio_samples = -1;
     
-    // Optional metadata
+    // Fields from observers (written by sink observers)
+    std::optional<bool> is_first_field;        // From FieldParityObserver
+    std::optional<int32_t> field_phase_id;     // From PALPhaseObserver
+    std::optional<double> median_burst_ire;    // From BurstLevelObserver
+    
+    // Fields from hints (typically from decoder metadata)
+    std::optional<int32_t> audio_samples;
+    std::optional<int32_t> decode_faults;
+    std::optional<double> disk_location;
+    std::optional<int32_t> efm_t_values;
+    std::optional<int64_t> file_location;
+    std::optional<int32_t> sync_confidence;
+    std::optional<bool> is_pad;
+    
+    // VBI/metadata structures (from observers)
     VitsMetrics vits_metrics;
     VbiData vbi;
     NtscData ntsc;
     VitcData vitc;
     ClosedCaptionData closed_caption;
     std::vector<DropoutInfo> dropouts;
-    
-    bool is_pad = false;
-    double disk_location = -1.0;
-    int64_t file_location = -1;
-    int32_t decode_faults = -1;
-    int32_t efm_t_values = -1;
 };
 
 /**

@@ -47,12 +47,14 @@ public:
     }
     
     bool create_schema() {
-        // Create tables matching legacy ld-decode schema
+        // Create tables matching legacy ld-decode schema exactly (including CHECK constraints)
         const char* schema_sql = R"(
             CREATE TABLE IF NOT EXISTS capture (
                 capture_id INTEGER PRIMARY KEY,
-                system TEXT NOT NULL,
-                decoder TEXT,
+                system TEXT NOT NULL
+                    CHECK (system IN ('NTSC','PAL','PAL_M')),
+                decoder TEXT NOT NULL
+                    CHECK (decoder IN ('ld-decode','vhs-decode','orc')),
                 git_branch TEXT,
                 git_commit TEXT,
                 video_sample_rate REAL,
@@ -63,25 +65,31 @@ public:
                 number_of_sequential_fields INTEGER,
                 colour_burst_start INTEGER,
                 colour_burst_end INTEGER,
-                is_mapped INTEGER,
-                is_subcarrier_locked INTEGER,
-                is_widescreen INTEGER,
+                is_mapped INTEGER
+                    CHECK (is_mapped IN (0,1)),
+                is_subcarrier_locked INTEGER
+                    CHECK (is_subcarrier_locked IN (0,1)),
+                is_widescreen INTEGER
+                    CHECK (is_widescreen IN (0,1)),
                 white_16b_ire INTEGER,
                 black_16b_ire INTEGER,
                 capture_notes TEXT
             );
             
             CREATE TABLE IF NOT EXISTS pcm_audio_parameters (
-                capture_id INTEGER PRIMARY KEY,
-                bits INTEGER NOT NULL,
-                is_signed INTEGER NOT NULL,
-                is_little_endian INTEGER NOT NULL,
-                sample_rate REAL NOT NULL,
-                FOREIGN KEY (capture_id) REFERENCES capture(capture_id)
+                capture_id INTEGER PRIMARY KEY
+                    REFERENCES capture(capture_id) ON DELETE CASCADE,
+                bits INTEGER,
+                is_signed INTEGER
+                    CHECK (is_signed IN (0,1)),
+                is_little_endian INTEGER
+                    CHECK (is_little_endian IN (0,1)),
+                sample_rate REAL
             );
             
             CREATE TABLE IF NOT EXISTS field_record (
-                capture_id INTEGER NOT NULL,
+                capture_id INTEGER NOT NULL
+                    REFERENCES capture(capture_id) ON DELETE CASCADE,
                 field_id INTEGER NOT NULL,
                 audio_samples INTEGER,
                 decode_faults INTEGER,
@@ -89,18 +97,23 @@ public:
                 efm_t_values INTEGER,
                 field_phase_id INTEGER,
                 file_loc INTEGER,
-                is_first_field INTEGER,
+                is_first_field INTEGER
+                    CHECK (is_first_field IN (0,1)),
                 median_burst_ire REAL,
-                pad INTEGER,
+                pad INTEGER
+                    CHECK (pad IN (0,1)),
                 sync_conf INTEGER,
-                ntsc_is_fm_code_data_valid INTEGER,
+                ntsc_is_fm_code_data_valid INTEGER
+                    CHECK (ntsc_is_fm_code_data_valid IN (0,1)),
                 ntsc_fm_code_data INTEGER,
-                ntsc_field_flag INTEGER,
-                ntsc_is_video_id_data_valid INTEGER,
+                ntsc_field_flag INTEGER
+                    CHECK (ntsc_field_flag IN (0,1)),
+                ntsc_is_video_id_data_valid INTEGER
+                    CHECK (ntsc_is_video_id_data_valid IN (0,1)),
                 ntsc_video_id_data INTEGER,
-                ntsc_white_flag INTEGER,
-                PRIMARY KEY (capture_id, field_id),
-                FOREIGN KEY (capture_id) REFERENCES capture(capture_id)
+                ntsc_white_flag INTEGER
+                    CHECK (ntsc_white_flag IN (0,1)),
+                PRIMARY KEY (capture_id, field_id)
             );
             
             CREATE TABLE IF NOT EXISTS vits_metrics (
@@ -108,42 +121,22 @@ public:
                 field_id INTEGER NOT NULL,
                 b_psnr REAL,
                 w_snr REAL,
-                PRIMARY KEY (capture_id, field_id),
-                FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
+                FOREIGN KEY (capture_id, field_id)
+                    REFERENCES field_record(capture_id, field_id)
+                    ON DELETE CASCADE,
+                PRIMARY KEY (capture_id, field_id)
             );
             
             CREATE TABLE IF NOT EXISTS vbi (
                 capture_id INTEGER NOT NULL,
                 field_id INTEGER NOT NULL,
-                vbi0 INTEGER,
-                vbi1 INTEGER,
-                vbi2 INTEGER,
-                PRIMARY KEY (capture_id, field_id),
-                FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
-            );
-            
-            CREATE TABLE IF NOT EXISTS vitc (
-                capture_id INTEGER NOT NULL,
-                field_id INTEGER NOT NULL,
-                vitc0 INTEGER,
-                vitc1 INTEGER,
-                vitc2 INTEGER,
-                vitc3 INTEGER,
-                vitc4 INTEGER,
-                vitc5 INTEGER,
-                vitc6 INTEGER,
-                vitc7 INTEGER,
-                PRIMARY KEY (capture_id, field_id),
-                FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
-            );
-            
-            CREATE TABLE IF NOT EXISTS closed_caption (
-                capture_id INTEGER NOT NULL,
-                field_id INTEGER NOT NULL,
-                data0 INTEGER,
-                data1 INTEGER,
-                PRIMARY KEY (capture_id, field_id),
-                FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
+                vbi0 INTEGER NOT NULL,
+                vbi1 INTEGER NOT NULL,
+                vbi2 INTEGER NOT NULL,
+                FOREIGN KEY (capture_id, field_id)
+                    REFERENCES field_record(capture_id, field_id)
+                    ON DELETE CASCADE,
+                PRIMARY KEY (capture_id, field_id)
             );
             
             CREATE TABLE IF NOT EXISTS drop_outs (
@@ -152,11 +145,39 @@ public:
                 field_line INTEGER NOT NULL,
                 startx INTEGER NOT NULL,
                 endx INTEGER NOT NULL,
-                FOREIGN KEY (capture_id, field_id) REFERENCES field_record(capture_id, field_id)
+                PRIMARY KEY (capture_id, field_id, field_line, startx, endx),
+                FOREIGN KEY (capture_id, field_id)
+                    REFERENCES field_record(capture_id, field_id)
+                    ON DELETE CASCADE
             );
             
-            CREATE INDEX IF NOT EXISTS idx_field_record_capture ON field_record(capture_id);
-            CREATE INDEX IF NOT EXISTS idx_dropouts_capture_field ON drop_outs(capture_id, field_id);
+            CREATE TABLE IF NOT EXISTS vitc (
+                capture_id INTEGER NOT NULL,
+                field_id INTEGER NOT NULL,
+                vitc0 INTEGER NOT NULL,
+                vitc1 INTEGER NOT NULL,
+                vitc2 INTEGER NOT NULL,
+                vitc3 INTEGER NOT NULL,
+                vitc4 INTEGER NOT NULL,
+                vitc5 INTEGER NOT NULL,
+                vitc6 INTEGER NOT NULL,
+                vitc7 INTEGER NOT NULL,
+                FOREIGN KEY (capture_id, field_id)
+                    REFERENCES field_record(capture_id, field_id)
+                    ON DELETE CASCADE,
+                PRIMARY KEY (capture_id, field_id)
+            );
+            
+            CREATE TABLE IF NOT EXISTS closed_caption (
+                capture_id INTEGER NOT NULL,
+                field_id INTEGER NOT NULL,
+                data0 INTEGER,
+                data1 INTEGER,
+                FOREIGN KEY (capture_id, field_id)
+                    REFERENCES field_record(capture_id, field_id)
+                    ON DELETE CASCADE,
+                PRIMARY KEY (capture_id, field_id)
+            );
         )";
         
         return exec_sql(schema_sql);
@@ -313,21 +334,88 @@ bool TBCMetadataWriter::write_field_metadata(const FieldMetadata& field) {
     
     sqlite3_bind_int(stmt, 1, capture_id_);
     sqlite3_bind_int(stmt, 2, field_id);
-    sqlite3_bind_int(stmt, 3, field.audio_samples);
-    sqlite3_bind_int(stmt, 4, field.decode_faults);
-    sqlite3_bind_double(stmt, 5, field.disk_location);
-    sqlite3_bind_int(stmt, 6, field.efm_t_values);
-    sqlite3_bind_int(stmt, 7, field.field_phase_id);
-    sqlite3_bind_int64(stmt, 8, field.file_location);
-    sqlite3_bind_int(stmt, 9, field.is_first_field ? 1 : 0);
-    sqlite3_bind_double(stmt, 10, field.median_burst_ire);
-    sqlite3_bind_int(stmt, 11, field.is_pad ? 1 : 0);
-    sqlite3_bind_int(stmt, 12, field.sync_confidence);
+    
+    // Only write fields that have values (from hints/observers)
+    if (field.audio_samples.has_value()) {
+        sqlite3_bind_int(stmt, 3, field.audio_samples.value());
+    } else {
+        sqlite3_bind_null(stmt, 3);
+    }
+    
+    if (field.decode_faults.has_value()) {
+        sqlite3_bind_int(stmt, 4, field.decode_faults.value());
+    } else {
+        sqlite3_bind_null(stmt, 4);
+    }
+    
+    if (field.disk_location.has_value()) {
+        sqlite3_bind_double(stmt, 5, field.disk_location.value());
+    } else {
+        sqlite3_bind_null(stmt, 5);
+    }
+    
+    if (field.efm_t_values.has_value()) {
+        sqlite3_bind_int(stmt, 6, field.efm_t_values.value());
+    } else {
+        sqlite3_bind_null(stmt, 6);
+    }
+    
+    // field_phase_id comes from PALPhaseObserver
+    if (field.field_phase_id.has_value()) {
+        sqlite3_bind_int(stmt, 7, field.field_phase_id.value());
+    } else {
+        sqlite3_bind_null(stmt, 7);
+    }
+    
+    if (field.file_location.has_value()) {
+        sqlite3_bind_int64(stmt, 8, field.file_location.value());
+    } else {
+        sqlite3_bind_null(stmt, 8);
+    }
+    
+    // is_first_field comes from FieldParityObserver
+    if (field.is_first_field.has_value()) {
+        sqlite3_bind_int(stmt, 9, field.is_first_field.value() ? 1 : 0);
+    } else {
+        sqlite3_bind_null(stmt, 9);
+    }
+    
+    // median_burst_ire comes from BurstLevelObserver
+    if (field.median_burst_ire.has_value()) {
+        sqlite3_bind_double(stmt, 10, field.median_burst_ire.value());
+    } else {
+        sqlite3_bind_null(stmt, 10);
+    }
+    
+    if (field.is_pad.has_value()) {
+        sqlite3_bind_int(stmt, 11, field.is_pad.value() ? 1 : 0);
+    } else {
+        sqlite3_bind_null(stmt, 11);
+    }
+    
+    if (field.sync_confidence.has_value()) {
+        sqlite3_bind_int(stmt, 12, field.sync_confidence.value());
+    } else {
+        sqlite3_bind_null(stmt, 12);
+    }
+    
+    // NTSC fields come from observers
     sqlite3_bind_int(stmt, 13, field.ntsc.is_fm_code_data_valid ? 1 : 0);
-    sqlite3_bind_int(stmt, 14, field.ntsc.fm_code_data);
+    if (field.ntsc.is_fm_code_data_valid) {
+        sqlite3_bind_int(stmt, 14, field.ntsc.fm_code_data);
+    } else {
+        sqlite3_bind_null(stmt, 14);
+    }
+    
     sqlite3_bind_int(stmt, 15, field.ntsc.field_flag ? 1 : 0);
+    
     sqlite3_bind_int(stmt, 16, field.ntsc.is_video_id_data_valid ? 1 : 0);
-    sqlite3_bind_int(stmt, 17, field.ntsc.video_id_data);
+    if (field.ntsc.is_video_id_data_valid) {
+        sqlite3_bind_int(stmt, 17, field.ntsc.video_id_data);
+    } else {
+        sqlite3_bind_null(stmt, 17);
+    }
+    
     sqlite3_bind_int(stmt, 18, field.ntsc.white_flag ? 1 : 0);
     
     rc = sqlite3_step(stmt);

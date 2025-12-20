@@ -88,7 +88,33 @@ decode-orc uses a **consistent dependency management strategy**:
 
 ---
 
-### 4. Qt6 (GUI Framework)
+### 4. libpng (PNG Image Library)
+
+**Type:** Compiled C library  
+**Management:** System package via `find_package()`  
+**Source:** http://www.libpng.org/pub/png/libpng.html
+
+**Rationale:**
+- ✅ Universal availability (standard on all platforms)
+- ✅ System-optimized with architecture-specific builds
+- ✅ Security updates via system package manager
+- ✅ Standard dependency for image I/O
+- ✅ Extremely stable API
+- ✅ Used for PNG export from preview renderer
+
+**Why not FetchContent?**
+- System libpng is highly optimized
+- Standard practice to use system library
+- No benefits from source compilation
+
+**Why not submodule?**
+- Requires zlib dependency
+- System package better maintained
+- No benefit over system installation
+
+---
+
+### 5. Qt6 (GUI Framework)
 
 **Type:** Large compiled framework  
 **Management:** System package via `find_package()` (optional)  

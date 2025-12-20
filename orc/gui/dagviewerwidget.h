@@ -166,6 +166,9 @@ public:
     // Node state updates
     void setNodeState(const std::string& node_id, NodeState state);
     
+    // Node selection
+    void selectNode(const std::string& node_id);
+    
     // Node type management
     void setNodeStageType(const std::string& node_id, const std::string& stage_name);
     std::string getNodeStageType(const std::string& node_id) const;

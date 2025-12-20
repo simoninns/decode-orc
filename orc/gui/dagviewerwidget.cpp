@@ -96,7 +96,12 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     
     // Draw box at origin
     QRectF box_rect(0, 0, WIDTH, HEIGHT);
-    painter->setPen(QPen(isSelected() ? Qt::blue : Qt::black, 2));
+    // Make selection more obvious with thicker, brighter border
+    if (isSelected()) {
+        painter->setPen(QPen(QColor(50, 150, 255), 4));  // Bright blue, 4px thick
+    } else {
+        painter->setPen(QPen(Qt::black, 2));
+    }
     painter->setBrush(bg_color);
     painter->drawRoundedRect(box_rect, 5, 5);
     
@@ -564,6 +569,25 @@ void DAGViewerWidget::setNodeState(const std::string& node_id, NodeState state)
     DAGNodeItem* node = findNodeById(node_id);
     if (node) {
         node->setState(state);
+    }
+}
+
+void DAGViewerWidget::selectNode(const std::string& node_id)
+{
+    // Safety check - scene might not be initialized yet
+    if (!scene()) {
+        return;
+    }
+    
+    // Clear current selection
+    scene()->clearSelection();
+    
+    // Find and select the specified node
+    DAGNodeItem* node = findNodeById(node_id);
+    if (node) {
+        node->setSelected(true);
+        // Ensure the node is visible
+        ensureVisible(node);
     }
 }
 

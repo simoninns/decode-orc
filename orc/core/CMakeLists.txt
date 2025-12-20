@@ -5,6 +5,7 @@ add_library(orc-core STATIC
     artifact.cpp
     dag_executor.cpp
     dag_field_renderer.cpp
+    preview_renderer.cpp
     
     # Logging
     logging.cpp
@@ -101,3 +102,7 @@ target_link_libraries(orc-core PUBLIC yaml-cpp)
 # Find and link spdlog
 find_package(spdlog REQUIRED)
 target_link_libraries(orc-core PUBLIC spdlog::spdlog)
+
+# Find and link libpng
+find_package(PNG REQUIRED)
+target_link_libraries(orc-core PUBLIC PNG::PNG)

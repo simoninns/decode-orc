@@ -14,28 +14,16 @@
 #include <QImage>
 #include <memory>
 #include <cstdint>
-
-namespace orc {
-    class VideoFieldRepresentation;
-    class FieldID;
-}
+#include "preview_renderer.h"
 
 /**
- * Preview display modes
- */
-enum class PreviewMode {
-    SingleField,      // Display one field at a time
-    Frame_EvenOdd,    // Weave fields: even on top (0+1)
-    Frame_OddEven     // Weave fields: odd on top (1+0)
-};
-
-/**
- * Widget for displaying decoded video fields
+ * Widget for displaying rendered previews from orc-core
  * 
- * Displays a single field at a time with optional:
- * - Scaling/zoom
- * - Deinterlacing visualization
- * - Dropout overlay
+ * This widget is now a thin display client - all rendering
+ * logic is in orc::PreviewRenderer. The widget only:
+ * - Displays RGB888 data from core
+ * - Handles aspect ratio correction for display
+ * - Manages widget sizing
  */
 class FieldPreviewWidget : public QWidget
 {
@@ -45,11 +33,22 @@ public:
     explicit FieldPreviewWidget(QWidget *parent = nullptr);
     ~FieldPreviewWidget();
     
-    void setRepresentation(std::shared_ptr<const orc::VideoFieldRepresentation> repr);
-    void setFieldIndex(uint64_t field_id);
-    void setPreviewMode(PreviewMode mode);
+    /**
+     * @brief Set the rendered image to display
+     * @param image PreviewImage from orc::PreviewRenderer
+     */
+    void setImage(const orc::PreviewImage& image);
     
-    PreviewMode previewMode() const { return preview_mode_; }
+    /**
+     * @brief Clear the display
+     */
+    void clearImage();
+    
+    /**
+     * @brief Set the aspect ratio correction for display
+     * @param correction Width scaling factor (1.0 = no correction, <1.0 = narrower)
+     */
+    void setAspectCorrection(double correction);
     
     QSize sizeHint() const override;
 
@@ -58,15 +57,8 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 
 private:
-    void updatePreview();
-    QImage renderField();
-    QImage renderFrame();
-    
-    std::shared_ptr<const orc::VideoFieldRepresentation> representation_;
-    uint64_t current_field_id_;
-    PreviewMode preview_mode_;
-    QImage preview_image_;
-    bool needs_update_;
+    QImage current_image_;
+    double aspect_correction_ = 0.7;  // Default for PAL/NTSC DAR 4:3
 };
 
 #endif // FIELDPREVIEWWIDGET_H

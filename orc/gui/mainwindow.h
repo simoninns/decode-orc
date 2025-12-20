@@ -15,13 +15,12 @@
 #include <QTabWidget>
 #include <QPointer>
 #include <memory>
-#include "fieldpreviewwidget.h"  // For PreviewMode enum
 #include "guiproject.h"
+#include "preview_renderer.h"  // For PreviewOutputType
 
 namespace orc {
     class VideoFieldRepresentation;
     class DAG;
-    class DAGFieldRenderer;
 }
 
 class FieldPreviewWidget;
@@ -38,6 +37,9 @@ class QComboBox;
  * - Toolbar (file operations, source selection)
  * - Central preview area
  * - Bottom status/navigation bar
+ * 
+ * Architecture: This window is a thin display client.
+ * All rendering logic is in orc::PreviewRenderer (orc-core).
  */
 class MainWindow : public QMainWindow
 {
@@ -63,21 +65,26 @@ private slots:
     void onSaveProjectAs();
     void onEditProject();
     void onOpenDAGEditor();
-    void onFieldChanged(int field_index);
-    void onNavigateField(int delta);
+    void onPreviewIndexChanged(int index);
+    void onNavigatePreview(int delta);
     void onPreviewModeChanged(int index);
+    void onAspectRatioModeChanged(int index);
     void onNodeSelectedForView(const std::string& node_id);
     void onDAGModified();
+    void onExportPNG();
 
 private:
     void setupUI();
     void setupMenus();
     void setupToolbar();
     void updateWindowTitle();
-    void updateFieldInfo();
+    void updatePreviewInfo();
     void updateUIState();
-    void updateFieldView();
-    void updateDAGRenderer();
+    void updatePreview();
+    void updatePreviewRenderer();
+    void updatePreviewModeCombo();
+    void updateAspectRatioCombo();  // Populate aspect ratio combo from core
+    void refreshViewerControls();  // Update slider, combo, preview, and info for current node
     
     // Settings helpers
     QString getLastProjectDirectory() const;
@@ -85,23 +92,26 @@ private:
     
     // Project management
     GUIProject project_;
-    std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
+    std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
     std::string current_view_node_id_;  // Which node is being viewed
     
     // UI components
     FieldPreviewWidget* preview_widget_;
     QPointer<DAGEditorWindow> dag_editor_window_;  // Auto-nulls when window is deleted
-    QSlider* field_slider_;
-    QLabel* field_info_label_;
+    QSlider* preview_slider_;
+    QLabel* preview_info_label_;
     QToolBar* toolbar_;
     QComboBox* preview_mode_combo_;
+    QComboBox* aspect_ratio_combo_;
     QAction* dag_editor_action_;  // Track to enable/disable
     QAction* save_project_action_;
     QAction* save_project_as_action_;
     QAction* edit_project_action_;
+    QAction* export_png_action_;
     
     // Preview state (UI only - all data comes from core)
-    PreviewMode current_preview_mode_;
+    orc::PreviewOutputType current_output_type_;
+    std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
 };
 
 #endif // MAINWINDOW_H

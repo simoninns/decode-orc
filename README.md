@@ -326,23 +326,24 @@ It forms a robust foundation for current and future LaserDisc and tape decode wo
 - **spdlog**: C++ logging library (header-only, but installed via package manager)
 - **SQLite3**: Database for TBC metadata
 - **yaml-cpp**: YAML parsing library
+- **libpng**: PNG image library (for preview export)
 - **Qt6** (optional, for GUI): Widgets module
 
 **Installation commands:**
 
 Ubuntu/Debian:
 ```bash
-sudo apt install cmake build-essential libspdlog-dev libsqlite3-dev libyaml-cpp-dev qt6-base-dev
+sudo apt install cmake build-essential libspdlog-dev libsqlite3-dev libyaml-cpp-dev libpng-dev qt6-base-dev
 ```
 
 Fedora/RHEL:
 ```bash
-sudo dnf install cmake gcc-c++ spdlog-devel sqlite-devel yaml-cpp-devel qt6-qtbase-devel
+sudo dnf install cmake gcc-c++ spdlog-devel sqlite-devel yaml-cpp-devel libpng-devel qt6-qtbase-devel
 ```
 
 macOS (via Homebrew):
 ```bash
-brew install cmake spdlog sqlite yaml-cpp qt@6
+brew install cmake spdlog sqlite yaml-cpp libpng qt@6
 ```
 
 See [DEPENDENCIES.md](DEPENDENCIES.md) for detailed dependency management information.

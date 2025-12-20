@@ -4,7 +4,7 @@
 
 ![](./assets/decode-orc-icon-small.png)
 
-It aims to brings structure and consistency to complex LaserDisc decoding processes, making them easier to run, repeat, and understand.
+It aims to brings structure and consistency to complex decoding processes, making them easier to run, repeat, and understand.
 
 `decode-orc` is a direct replacement for the existing ld-decode-tools, coordinating each step of the process and keeping track of inputs, outputs, and results.
 
@@ -13,7 +13,16 @@ The project aims to:
 - Reduce manual steps and error-prone command sequences
 - Help users reproduce the same results over time
 
-A graphical interface is also planned, alongside support for automated and scripted workflows.
+Both a graphical interface (orc-gui) and command-line interface (orc-cli) are implemented for orchestrating workflows.  These commands contain minimal business logic and, instead, rely on the same orc-core following a MVP architecture (Model–View–Presenter) wherever possible.
+
+Decode Orc was designed and written by Simon Inns.  Decode Orc's development heavily relied on the original GPLv3 ld-decode-tools which contained many contributions from others.
+
+- Simon Inns (2018-2025) - Extensive work across all tools
+- Adam Sampson (2019-2023) - Significant contributions to core libraries, chroma decoder and tools
+- Chad Page (2014-2018) - Filter implementations and original NTSC comb filter
+- Ryan Holtz (2022) - Metadata handling
+- Phillip Blucas (2023) - VideoID decoding
+- ...and others (see the original ld-decode-tools source)
 
 This project is under active development.
 
@@ -21,9 +30,9 @@ This project is under active development.
 
 ## 1. Overview
 
-The system is designed as an **orchestrated processing environment**, not a linear tool chain. Processing is described declaratively using a **Directed Acyclic Graph (DAG)** stored in a project file. The DAG connects independent processing nodes that operate on video data and associated metadata.
+The system is designed as an **orchestrated processing environment**, not a linear tool chain. Processing is described declaratively using a **Directed Acyclic Graph (DAG)** stored in a project file. The DAG connects independent processing nodes that operate on video data.
 
-All business logic lives in a shared **core library** (orc-core). User interfaces (GUI (orc-gui) or CLI (orc-cli)) are thin shells that load a project file and execute the same processing graph in exactly the same way.
+All business logic lives in a shared **core library** (orc-core). User interfaces (orc-gui for the GUI and orc-cli for the CLI) are thin shells that load a project file and execute the same processing graph in exactly the same way.
 
 ---
 
@@ -36,19 +45,19 @@ A **source** represents incoming decoded data. Examples include:
 * LaserDisc captures
 * Tape-based sources (e.g. VHS)
 
-Sources define *where the data comes from*, not how it is processed.
+Sources define *where the data comes from* (ld-decode, vhs-decode, etc.), not how it is processed.
 
 ### 2.2 Video Formats
 
 Each source has an underlying **video format**, such as:
 
-* PAL
+* PAL/PAL-M
 * NTSC
 
 The key architectural assumption is that:
 
 * The *video format and framing* remain consistent across sources of the same format
-* Differences between source types are primarily expressed in **metadata**
+* Differences between source types are primarily expressed by the associated ingress **metadata**
 
 Examples:
 
@@ -64,7 +73,8 @@ This separation allows new source types to be added without redefining the entir
 ### 3.1 Node Types
 
 Processing is performed by **nodes** connected in a DAG. Nodes fall into structural categories:
-
+* **Output only**: sources (-decode ingress)
+* **Input only**: sinks (egress)
 * **One-to-one**: simple transforms
 * **One-to-many**: splitters
 * **Many-to-one**: mergers
@@ -81,53 +91,41 @@ Signal transformation nodes perform all actual processing, such as:
 * Mapping
 * Filtering
 
-Nodes are **independent and re-orderable**. There is no implicit state passed along a linear chain.
+Nodes are **independent and re-orderable**. There is no implicit state passed along a DAG between nodes.
 
 ---
 
-## 4. Sinks (Outputs)
+## 4. Observers and Metadata Extraction
 
-Every DAG must ultimately terminate in one or more **sinks**.
-
-Typical sink types:
-
-* **Decoder-format sink**: outputs data in the same decoded format as the source
-* **Conversion sink**: outputs a different representation (e.g. RGB frames, chroma-decoded video)
-
-A sink consumes the final output of the DAG and produces artifacts for downstream use.
-
----
-
-## 5. Observers and Metadata Extraction
-
-Note that observers do not act on ingress metadata from the source - they observe the signal directly to generate the observation.
-
-There are certain collections of data such as dropout data that cannot be observed (since it is generated from data that is no longer present in the TBC output from a decoder).  Such data is treated as "hints" in a mechanism separate from the observers.
-
-### 5.1 Observers
+### 4.1 Observers
 
 Nodes can have associated **observers**. Observers do not modify data; they *inspect* it.
+
+Observers extract metadata from video signals without modifying them. They observe the signal directly to generate metadata (Note this is *not* ingress metadata from the decoder source).
+
+Note: Certain data like dropout information cannot be observed after-the-fact (since it is generated from data no longer present in the TBC output (such as the original RF sample)). Such data is treated as "hints" through a separate mechanism.
 
 Observers:
 
 * Monitor node outputs
-* Extract metadata from the video stream
+* Extract metadata from the node outputs
 * Are typically source-type specific
 
-### 5.2 Example: VBI
+Implemented observers include:
+* **VBI observers**: Extract VBI information (VITC, closed captions, white flag, video ID, etc.)
+* **VITS observers**: Extract VITS test signal information
+* **Biphase observers**: Decode biphase-encoded data
+* **FM code observers**: Extract FM code information
+* **Field parity observers**: Determine field parity (odd/even)
+* **Burst level observers**: Measure color burst levels
+* **PAL phase observers**: Detect PAL phase information
 
-A VBI observer:
+### 4.2 Rationale
 
-* Watches video fields leaving a node
-* Extracts VBI information
-* Produces structured VBI metadata
+Some transformations improve video quality and metadata accuracy (e.g. field mapping, dropout correction). By placing observers at node outputs:
 
-### 5.3 Rationale
-
-Some transformations improve video quality and metadata accuracy (e.g. stacking, correction). By placing observers at node outputs:
-
-* Observers always see the **best available version** of the signal
-* Metadata improves as processing progresses
+* Observers always see the **node output version** of the signal
+* Observations change as processing progresses (so improvements or degradations by the nodes can be observed)
 
 ---
 
@@ -227,18 +225,19 @@ This removes the need for scripting and ensures long-term reproducibility.
 
 ---
 
-## 11. Structural Transforms (Cut, Slice, Combine)
+## 11. Structural Transforms
 
-Beyond signal correction, nodes can perform structural operations:
+Beyond signal correction, nodes can perform structural operations.
 
-* **Cut**: select specific field/frame ranges
-* **Slice**: extract subsets of captures
-* **Combine**: join multiple captures into a single logical source
+**Currently implemented:**
 
-Examples:
+* **Field mapping**: Remap field IDs to correct skips, jumps, or discontinuities in the source
+* **Overwrite**: Replace specific field ranges with data from another source
 
-* Feeding only overlapping frame ranges into a stacking node
-* Joining multiple interrupted captures into one continuous source
+**Future capabilities may include:**
+
+* Cutting/slicing specific field/frame ranges
+* Combining multiple captures into a single logical source
 
 These transforms simplify downstream processing and alignment.
 
@@ -261,25 +260,22 @@ This makes the system more flexible, maintainable, and repeatable.
 
 ---
 
-## 13. Multi-Project Integration and CI/CD
+## 13. Multi-Project Integration
 
 The orchestrator is designed to be reused across multiple decode projects.
 
-### 13.1 Submodule Strategy
+**Integration strategy:**
 
-* The orchestrator is included as a **submodule** in upstream projects
-* Upstream CI pipelines feed decoded data into the orchestrator DAGs
+* The orchestrator can be included as a **submodule** in upstream projects
+* Upstream CI pipelines can feed decoded data into the orchestrator DAGs
+* CI can verify that upstream changes do not break downstream decoding
+* Failures can alert contributors during the PR process
 
-### 13.2 Continuous Validation
-
-* CI verifies that upstream changes do not break downstream decoding
-* Failures alert contributors during the PR process
-
-Outcomes:
+This enables:
 
 * Clear ownership of breaking changes
 * Early detection of integration issues
-* Strong guarantees of long-term stability
+* Long-term stability guarantees
 
 ---
 
@@ -297,9 +293,9 @@ It forms a robust foundation for current and future LaserDisc and tape decode wo
 
 ---
 
-## 15. Building and Usage
+# Building and Usage
 
-### 15.1 Dependencies
+## 1. Dependencies
 
 **System Requirements (must be installed):**
 - **CMake** >= 3.20
@@ -326,7 +322,9 @@ macOS (via Homebrew):
 brew install cmake spdlog sqlite yaml-cpp qt@6
 ```
 
-### 15.3 Building
+See [DEPENDENCIES.md](DEPENDENCIES.md) for detailed dependency management information.
+
+## 2. Building
 
 ```bash
 mkdir build
@@ -343,45 +341,59 @@ This builds:
 
 **Note**: Version numbers are automatically generated from the git commit hash. If there are uncommitted changes, the version will include a `-dirty` suffix.
 
-### 15.4 Running orc-cli
+**Build options:**
+- `-DBUILD_GUI=OFF`: Disable Qt6 GUI (CLI only build)
+- `-DBUILD_TESTS=OFF`: Disable test executables
+
+## 3. Running orc-cli
+
+The CLI tool loads an ORC project file and triggers all sink nodes to execute the processing pipeline.
 
 ```bash
-./bin/orc-cli --dag pipeline.yaml input.tbc output.tbc
+./bin/orc-cli <project-file> [options]
 ```
 
-Optional flags:
-- `--version` or `-v`: Show version information (git commit hash)
+**Options:**
 - `--log-level <level>`: Set logging verbosity (trace, debug, info, warn, error, critical, off). Default: info
+- `--log-file <file>`: Write logs to specified file (in addition to console)
+- `-h, --help`: Display usage information
 
-Examples:
+**Examples:**
 ```bash
-# Show version
-./bin/orc-cli --version
+# Run a project
+./bin/orc-cli project-examples/test4.orcprj
 
-# Run with debug logging
-./bin/orc-cli --log-level debug --dag pipeline.yaml input.tbc output.tbc
+# Run with debug logging and log file
+./bin/orc-cli project.orcprj --log-level debug --log-file output.log
 ```
 
-### 15.5 Running orc-gui
+## 4. Running orc-gui
+
+The GUI provides an interactive interface for creating and managing ORC projects.
 
 ```bash
-./bin/orc-gui [project-file.orc-project]
+./bin/orc-gui [project-file]
 ```
 
-Optional flags:
-- `--version` or `-v`: Show version information (git commit hash)
+**Options:**
 - `--log-level <level>`: Set logging verbosity (trace, debug, info, warn, error, critical, off). Default: info
+- `--log-file <file>`: Write logs to specified file (in addition to console)
+- `-h, --help`: Display usage information
+- `-v, --version`: Display version information
 
-Examples:
+**Examples:**
 ```bash
-# Show version
-./bin/orc-gui --version
+# Launch GUI without project
+./bin/orc-gui
+
+# Open a specific project
+./bin/orc-gui project-examples/test4.orcprj
 
 # Run with trace logging
-./bin/orc-gui --log-level trace
+./bin/orc-gui --log-level trace --log-file gui.log
 ```
 
-### 15.6 Logging
+## 5. Logging
 
 Both orc-cli and orc-gui use **spdlog** for structured logging with color-coded console output:
 

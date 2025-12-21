@@ -66,3 +66,8 @@ test-output/
 
 # Test project examples
 project-examples/
+
+# Test automation results
+test-results/
+test-projects/
+test-run.log

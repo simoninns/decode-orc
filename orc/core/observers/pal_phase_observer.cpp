@@ -164,35 +164,27 @@ std::vector<std::shared_ptr<Observation>> PALPhaseObserver::process_field(
     // Phase ~245-265°: corresponds to certain fields in the 8-field sequence
     // Phase ~65-85°: corresponds to other fields
     
-    // Empirical mapping based on correlation with reference data:
+    // Determine if fields 1-4 or 5-8 using burst phase on line 7
+    // Following ld-decode logic: phase ~0-90° suggests first four fields (1-4)
+    // phase ~180-270° suggests second four fields (5-8)
+    // Using simplified threshold at 135° (midpoint between 90° and 180°)
     int final_phase;
-    bool high_phase = (phase7 >= 200 && phase7 <= 280);  // ~245-265° range
+    bool is_firstfour = (phase7 < 135.0 || phase7 > 315.0);  // Close to 0° (with wrapping)
     
-    // Mapping corrected after fixing line indexing (using 0-based lines 5,6,7 for spec lines 6,7,8):
-    // phase_4field=1 (first field, no burst on line 6):
-    //   high_phase → field 5, low_phase → field 1
-    // phase_4field=2 (second field, burst on line 6):
-    //   high_phase → field 2, low_phase → field 6
-    // phase_4field=3 (first field, burst on line 6):
-    //   high_phase → field 7, low_phase → field 3
-    // phase_4field=4 (second field, no burst on line 6):
-    //   high_phase → field 8, low_phase → field 4
-    
-    if (phase_4field == 1) {
-        final_phase = high_phase ? 5 : 1;
-    } else if (phase_4field == 2) {
-        final_phase = high_phase ? 2 : 6;
-    } else if (phase_4field == 3) {
-        final_phase = high_phase ? 7 : 3;
-    } else {  // phase_4field == 4
-        final_phase = high_phase ? 8 : 4;
+    // Special case for phase_4field == 2: reverse the determination
+    // This is a quirk of the PAL 8-field sequence (see ld-decode)
+    if (phase_4field == 2) {
+        is_firstfour = !is_firstfour;
     }
+    
+    // Calculate final phase ID (1-8)
+    final_phase = phase_4field + (is_firstfour ? 0 : 4);
     
     obs->field_phase_id = final_phase;
     obs->confidence = ConfidenceLevel::HIGH;
     
-    ORC_LOG_DEBUG("PALPhaseObserver: Field {} phase7={:.1f}° phase_4field={} high_phase={} → phase_id={}",
-                  field_id.value(), phase7, phase_4field, high_phase, obs->field_phase_id);
+    ORC_LOG_DEBUG("PALPhaseObserver: Field {} phase7={:.1f}° phase_4field={} is_firstfour={} → phase_id={}",
+                  field_id.value(), phase7, phase_4field, is_firstfour, obs->field_phase_id);
     
     return {obs};
 }

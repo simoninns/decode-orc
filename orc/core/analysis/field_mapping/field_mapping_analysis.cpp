@@ -222,8 +222,8 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         std::string video_format = decision.is_pal ? "PAL" : "NTSC";
         
         summary << "Source: " << video_format << " " << disc_type << " disc\n";
-        summary << "Analysis complete: " << stats.total_fields << " fields (" << total_frames << " frames) processed\n";
-        summary << "Final output: " << final_frames << " frames";
+        summary << "Analysis complete: " << stats.total_fields << " fields (" << total_frames << " field pairs/frames) processed\n";
+        summary << "Final output: " << final_frames << " frames (" << (final_frames * 2) << " fields)";
         
         if (stats.removed_duplicates > 0 || stats.gaps_padded > 0 || stats.removed_lead_in_out > 0) {
             summary << " (";

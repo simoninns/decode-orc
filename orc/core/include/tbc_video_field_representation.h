@@ -74,6 +74,7 @@ public:
     
     // Additional accessors specific to TBC
     const VideoParameters& video_parameters() const { return video_params_; }
+    std::shared_ptr<TBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
     
 private:
     std::shared_ptr<TBCReader> tbc_reader_;

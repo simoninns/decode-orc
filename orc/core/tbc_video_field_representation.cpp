@@ -10,6 +10,7 @@
 
 #include "tbc_video_field_representation.h"
 #include "dropout_decision.h"
+#include "logging.h"
 #include <sstream>
 #include <chrono>
 
@@ -188,11 +189,22 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     
     // Open metadata first to get parameters
     if (!metadata_reader->open(metadata_filename)) {
+        ORC_LOG_ERROR("Failed to open TBC metadata: {}", metadata_filename);
+        return nullptr;
+    }
+    
+    // Validate metadata consistency before proceeding
+    std::string validation_error;
+    if (!metadata_reader->validate_metadata(&validation_error)) {
+        ORC_LOG_ERROR("TBC metadata validation failed: {}", validation_error);
+        ORC_LOG_ERROR("  Metadata file: {}", metadata_filename);
+        ORC_LOG_ERROR("  TBC file: {}", tbc_filename);
         return nullptr;
     }
     
     auto video_params_opt = metadata_reader->read_video_parameters();
     if (!video_params_opt) {
+        ORC_LOG_ERROR("Failed to read video parameters from metadata: {}", metadata_filename);
         return nullptr;
     }
     
@@ -203,8 +215,31 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     
     // Open TBC file
     if (!tbc_reader->open(tbc_filename, field_length, params.field_width)) {
+        ORC_LOG_ERROR("Failed to open TBC file: {}", tbc_filename);
         return nullptr;
     }
+    
+    // Validate TBC file size matches metadata field count
+    size_t file_field_count = tbc_reader->get_field_count();
+    size_t metadata_field_count = static_cast<size_t>(params.number_of_sequential_fields);
+    
+    if (file_field_count != metadata_field_count) {
+        size_t field_size = field_length * sizeof(uint16_t);
+        size_t expected_file_size = metadata_field_count * field_size;
+        size_t actual_file_size = file_field_count * field_size;
+        
+        ORC_LOG_ERROR("TBC file size mismatch!");
+        ORC_LOG_ERROR("  TBC file: {}", tbc_filename);
+        ORC_LOG_ERROR("  File contains {} fields ({} bytes)", file_field_count, actual_file_size);
+        ORC_LOG_ERROR("  Metadata specifies {} fields ({} bytes expected)", 
+                     metadata_field_count, expected_file_size);
+        ORC_LOG_ERROR("  The TBC file and metadata are inconsistent.");
+        ORC_LOG_ERROR("  This file may be corrupted or truncated. Please regenerate the TBC file.");
+        return nullptr;
+    }
+    
+    ORC_LOG_DEBUG("TBC validation passed: {} fields, {}x{} pixels", 
+                 metadata_field_count, params.field_width, params.field_height);
     
     // Create artifact ID and provenance
     std::ostringstream id_stream;

@@ -227,6 +227,10 @@ public:
     std::optional<DropoutData> read_dropout(FieldID field_id) const;
     std::vector<DropoutInfo> read_dropouts(FieldID field_id) const;  // Legacy compatibility
     
+    // Validation and diagnostics
+    int32_t get_field_record_count() const;
+    bool validate_metadata(std::string* error_message = nullptr) const;
+    
 private:
     class Impl;  // Forward declaration for pimpl
     std::unique_ptr<Impl> impl_;

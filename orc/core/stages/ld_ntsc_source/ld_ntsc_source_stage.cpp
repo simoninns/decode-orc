@@ -62,6 +62,9 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     
     try {
         cached_representation_ = create_tbc_representation(tbc_path, db_path);
+        if (!cached_representation_) {
+            throw std::runtime_error("Failed to load TBC file (validation failed - see logs above)");
+        }
         cached_tbc_path_ = tbc_path;
         
         // Verify decoder and system

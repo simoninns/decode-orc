@@ -56,8 +56,9 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         history.add_observations(field_id, all_observations);
     }
     
-    ORC_LOG_INFO("Observers complete, processing {} fields", stats_.total_fields);
-    ORC_LOG_DEBUG("Field range: {} to {}", field_range.start.value(), field_range.end.value());
+    ORC_LOG_INFO("Observers complete, processed {} fields (field range: {} to {})", 
+                 stats_.total_fields, field_range.start.value(), field_range.end.value());
+    ORC_LOG_DEBUG("Field IDs: {} to {}", field_range.start.value(), field_range.end.value());
     
     // Step 2: Build frame map from fields
     // Combine pairs of fields into frames
@@ -153,9 +154,9 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     
     // Log first few frames for debugging
     size_t debug_count = std::min(size_t(5), frames.size());
-    ORC_LOG_DEBUG("First {} frames:", debug_count);
+    ORC_LOG_DEBUG("First {} frames (each frame = 2 fields):", debug_count);
     for (size_t i = 0; i < debug_count; ++i) {
-        ORC_LOG_DEBUG("  Frame {}: Fields {}-{}, VBI={}, Quality={:.2f}, Pulldown={}, LeadInOut={}",
+        ORC_LOG_DEBUG("  Frame {}: field IDs {}-{}, VBI frame#={}, Quality={:.2f}, Pulldown={}, LeadInOut={}",
                      i, frames[i].first_field.value(), frames[i].second_field.value(),
                      frames[i].vbi_frame_number, frames[i].quality_score,
                      frames[i].is_pulldown, frames[i].is_lead_in_out);
@@ -169,7 +170,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     remove_invalid_frames_by_phase(frames, format);
     ORC_LOG_DEBUG("After phase validation: {} frames remaining", frames.size());
     
-    correct_vbi_using_sequence_analysis(frames);
+    correct_vbi_using_sequence_analysis(frames, format);
     ORC_LOG_DEBUG("After VBI correction: {} frames", frames.size());
     
     remove_duplicate_frames(frames);
@@ -216,16 +217,19 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     decision.rationale = generate_rationale(stats_, is_cav, is_pal);
     
     ORC_LOG_INFO("Disc mapping analysis complete");
-    ORC_LOG_INFO("  Final frame count: {}", frames.size());
+    ORC_LOG_INFO("  Input: {} fields ({} field pairs/frames)", stats_.total_fields, stats_.total_fields / 2);
+    ORC_LOG_INFO("  Output: {} frames ({} fields)", frames.size(), frames.size() * 2);
     ORC_LOG_INFO("  Mapping spec length: {} chars", decision.mapping_spec.length());
     if (decision.mapping_spec.length() <= 200) {
         ORC_LOG_INFO("  Mapping spec: {}", decision.mapping_spec);
     } else {
         ORC_LOG_INFO("  Mapping spec (first 200 chars): {}...", decision.mapping_spec.substr(0, 200));
     }
-    ORC_LOG_INFO("  Stats: removed_lead={} invalid_phase={} duplicates={} gaps={} padding={}",
+    ORC_LOG_INFO("  Frames removed: lead-in/out={} invalid_phase={} duplicates={} unmappable={}",
                  stats_.removed_lead_in_out, stats_.removed_invalid_phase,
-                 stats_.removed_duplicates, stats_.gaps_padded, stats_.padding_frames);
+                 stats_.removed_duplicates, stats_.removed_unmappable);
+    ORC_LOG_INFO("  Frames added: gap_padding={} (filled {} gaps)",
+                 stats_.padding_frames, stats_.gaps_padded);
     
     return decision;
 }
@@ -275,9 +279,14 @@ void FieldMappingAnalyzer::remove_invalid_frames_by_phase(
             if (expected_next == 5) expected_next = 1;  // NTSC wraps at 4
         }
         
+        // Only remove frames with invalid phase if they ALSO have invalid VBI numbers
+        // Frames with valid VBI but broken phase indicate field skips/gaps in the source
         if (frame.second_field_phase != expected_next && 
             frame.first_field_phase != -1 && 
-            frame.second_field_phase != -1) {
+            frame.second_field_phase != -1 &&
+            frame.vbi_frame_number == -1) {
+            ORC_LOG_DEBUG("Marking frame {} for deletion: invalid phase (expected {}, got {}) and no VBI frame number",
+                         frame.seq_frame_number, expected_next, frame.second_field_phase);
             frame.marked_for_deletion = true;
             removed++;
         }
@@ -293,7 +302,7 @@ void FieldMappingAnalyzer::remove_invalid_frames_by_phase(
     ORC_LOG_INFO("Removed {} frames with invalid phase sequences", removed);
 }
 
-void FieldMappingAnalyzer::correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames) {
+void FieldMappingAnalyzer::correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames, VideoFormat format) {
     ORC_LOG_INFO("Correcting VBI frame numbers using sequence analysis...");
     
     const int scan_distance = 10;
@@ -326,19 +335,97 @@ void FieldMappingAnalyzer::correct_vbi_using_sequence_analysis(std::vector<Frame
         // Count good frames
         int good_count = std::count(vbi_good.begin(), vbi_good.end(), true);
         
-        // If we have enough good frames before and after errors, correct them
-        if (good_count < scan_distance && good_count >= scan_distance / 2) {
+        // If all frames are good, nothing to correct
+        if (good_count == scan_distance) {
+            continue;
+        }
+        
+        // Count good frames before first error
+        int check1 = 0;
+        for (int j = 0; j < scan_distance; ++j) {
+            size_t idx = i + j + 1;
+            if (idx >= frames.size()) break;
+            if (vbi_good[j] && !frames[idx].is_pulldown) {
+                check1++;
+            } else if (!frames[idx].is_pulldown) {
+                break;
+            }
+        }
+        
+        // Count good frames after last error (scanning backwards)
+        int check2 = 0;
+        for (int j = scan_distance - 1; j >= 0; --j) {
+            size_t idx = i + j + 1;
+            if (idx >= frames.size()) break;
+            if (vbi_good[j] && !frames[idx].is_pulldown) {
+                check2++;
+            } else if (!frames[idx].is_pulldown) {
+                break;
+            }
+        }
+        
+        // Need at least 2 good frames before and after errors to be confident
+        if (check1 >= 2 && check2 >= 2) {
+            bool in_error = false;
             expected_increment = 1;
+            
             for (int j = 0; j < scan_distance; ++j) {
                 size_t idx = i + j + 1;
                 if (idx >= frames.size()) break;
                 
-                if (!vbi_good[j] && !frames[idx].is_pulldown) {
-                    frames[idx].vbi_frame_number = start_vbi + expected_increment;
-                    corrections++;
-                }
-                if (!frames[idx].is_pulldown) {
-                    expected_increment++;
+                if (!vbi_good[j]) {
+                    in_error = true;
+                    
+                    if (!frames[idx].is_pulldown) {
+                        // Only correct if:
+                        // 1. It's not a repeating frame (different VBI from previous)
+                        // 2. The phase is correct (not a real gap/skip)
+                        bool is_repeating = (idx > 0 && 
+                                           frames[idx].vbi_frame_number == frames[idx-1].vbi_frame_number);
+                        
+                        bool has_correct_phase = true;
+                        if (idx > 0 && frames[idx].first_field_phase != -1 && 
+                            frames[idx-1].second_field_phase != -1) {
+                            int expected_phase = frames[idx-1].second_field_phase + 1;
+                            // PAL wraps at 8, NTSC at 4
+                            if (format == VideoFormat::PAL && expected_phase == 9) {
+                                expected_phase = 1;
+                            } else if (format == VideoFormat::NTSC && expected_phase == 5) {
+                                expected_phase = 1;
+                            }
+                            has_correct_phase = (frames[idx].first_field_phase == expected_phase);
+                        }
+                        
+                        if (!is_repeating && has_correct_phase) {
+                            ORC_LOG_DEBUG("Correcting VBI: seq frame {} VBI {} -> {}", 
+                                         frames[idx].seq_frame_number,
+                                         frames[idx].vbi_frame_number,
+                                         start_vbi + expected_increment);
+                            frames[idx].vbi_frame_number = start_vbi + expected_increment;
+                            corrections++;
+                        } else if (is_repeating) {
+                            // Check if phases also repeat (true repeating frame)
+                            bool phase_repeats = false;
+                            if (idx > 0) {
+                                phase_repeats = (frames[idx].first_field_phase == frames[idx-1].first_field_phase &&
+                                               frames[idx].second_field_phase == frames[idx-1].second_field_phase);
+                            }
+                            if (phase_repeats) {
+                                ORC_LOG_DEBUG("Ignoring sequence break at seq frame {}: frame is repeating (VBI and phase)",
+                                            frames[idx].seq_frame_number);
+                                // This is a real repeat, stop processing this sequence
+                                if (in_error) break;
+                            }
+                        }
+                        expected_increment++;
+                    }
+                } else {
+                    // Good frame
+                    if (!frames[idx].is_pulldown) {
+                        expected_increment++;
+                    }
+                    // Stop once we get a good frame after the bad ones
+                    if (in_error) break;
                 }
             }
         }
@@ -366,7 +453,7 @@ void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frame
             duplicate_vbi_count++;
         }
     }
-    ORC_LOG_DEBUG("Found {} VBI frame numbers with duplicates", duplicate_vbi_count);
+    ORC_LOG_DEBUG("Found {} distinct VBI frame numbers that appear multiple times", duplicate_vbi_count);
     
     size_t removed = 0;
     
@@ -384,7 +471,7 @@ void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frame
                 }
             }
             
-            ORC_LOG_DEBUG("VBI {}: {} duplicates found, keeping frame {} (quality={:.2f})",
+            ORC_LOG_DEBUG("VBI frame #{}: {} duplicate frames found, keeping seq frame {} (quality={:.2f})",
                          vbi_num, indices.size(), frames[best_idx].seq_frame_number, best_quality);
             
             // Mark all others for deletion
@@ -431,17 +518,17 @@ void FieldMappingAnalyzer::number_pulldown_frames(std::vector<FrameInfo>& frames
 }
 
 bool FieldMappingAnalyzer::verify_frame_numbers(const std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Verifying all frames have valid frame numbers...");
+    ORC_LOG_INFO("Verifying all frames have valid VBI frame numbers...");
     
     for (const auto& frame : frames) {
         if (frame.vbi_frame_number < 0) {
-            ORC_LOG_WARN("Frame {} has invalid VBI number {}", 
+            ORC_LOG_WARN("Sequential frame {} has invalid VBI frame number {}", 
                            frame.seq_frame_number, frame.vbi_frame_number);
             return false;
         }
     }
     
-    ORC_LOG_INFO("Verification successful - all frames have valid numbers");
+    ORC_LOG_INFO("Verification successful - all frames have valid VBI frame numbers");
     return true;
 }
 
@@ -609,7 +696,7 @@ std::string FieldMappingAnalyzer::generate_rationale(
     
     rationale << "Disc mapping analysis complete.\n";
     rationale << "Disc type: " << (is_pal ? "PAL" : "NTSC") << " " << (is_cav ? "CAV" : "CLV") << "\n";
-    rationale << "Total frames processed: " << stats.total_fields / 2 << "\n\n";
+    rationale << "Input: " << stats.total_fields << " fields (" << stats.total_fields / 2 << " field pairs/frames)\n\n";
     
     rationale << "Operations performed:\n";
     

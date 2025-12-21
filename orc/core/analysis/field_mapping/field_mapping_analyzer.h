@@ -117,7 +117,7 @@ private:
     // Analysis steps (ported from legacy ld-discmap)
     void remove_lead_in_out(std::vector<FrameInfo>& frames);
     void remove_invalid_frames_by_phase(std::vector<FrameInfo>& frames, VideoFormat format);
-    void correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames);
+    void correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames, VideoFormat format);
     void remove_duplicate_frames(std::vector<FrameInfo>& frames);
     void number_pulldown_frames(std::vector<FrameInfo>& frames);
     bool verify_frame_numbers(const std::vector<FrameInfo>& frames);

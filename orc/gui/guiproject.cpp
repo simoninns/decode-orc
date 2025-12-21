@@ -64,6 +64,19 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
         project_path_ = path;
         ORC_LOG_DEBUG("Building DAG from project");
         rebuildDAG();  // Build DAG after loading project
+        
+        // Validate DAG was built successfully
+        if (hasSource() && !dag_) {
+            // Project has source nodes but DAG build failed - this is an error
+            throw std::runtime_error("Failed to build DAG from project - check that all source files are valid");
+        }
+        
+        // Attempt to validate source nodes by trying to access them
+        if (dag_ && hasSource()) {
+            ORC_LOG_DEBUG("Validating source nodes in DAG");
+            validateDAGSources();
+        }
+        
         return true;
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Failed to load project: {}", e.what());
@@ -119,6 +132,37 @@ void GUIProject::rebuildDAG()
         // GUI will handle the error
         ORC_LOG_ERROR("Failed to build DAG from project: {}", e.what());
         dag_.reset();
+    }
+}
+
+void GUIProject::validateDAGSources()
+{
+    if (!dag_) {
+        return;
+    }
+    
+    // Try to execute each source node to validate they can be accessed
+    // Source nodes should produce output when executed with empty inputs
+    ORC_LOG_DEBUG("Validating {} DAG nodes", dag_->nodes().size());
+    
+    for (const auto& node : dag_->nodes()) {
+        // Check if this is a source node by checking if it has no inputs
+        if (node.input_node_ids.empty()) {
+            ORC_LOG_DEBUG("Validating source node: {}", node.node_id);
+            try {
+                // Execute the stage with empty inputs to validate
+                // This will trigger TBC loading and validation
+                auto outputs = node.stage->execute({}, node.parameters);
+                if (outputs.empty()) {
+                    throw std::runtime_error("Source node '" + node.node_id + "' produced no output");
+                }
+                ORC_LOG_DEBUG("Source node validation passed: {}", node.node_id);
+            } catch (const std::exception& e) {
+                // Source validation failed - re-throw with more context
+                std::string error_msg = "Source validation failed for node '" + node.node_id + "': " + e.what();
+                throw std::runtime_error(error_msg);
+            }
+        }
     }
 }
 

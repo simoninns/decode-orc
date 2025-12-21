@@ -412,4 +412,103 @@ std::optional<DropoutData> TBCMetadataReader::read_dropout(FieldID field_id) con
     return data;
 }
 
+int32_t TBCMetadataReader::get_field_record_count() const {
+    if (!is_open_) {
+        return -1;
+    }
+    
+    const char* sql = "SELECT COUNT(*) FROM field_record WHERE capture_id = ?";
+    
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    
+    if (rc != SQLITE_OK) {
+        return -1;
+    }
+    
+    sqlite3_bind_int(stmt, 1, impl_->capture_id);
+    
+    int32_t count = -1;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        count = sqlite3_column_int(stmt, 0);
+    }
+    
+    sqlite3_finalize(stmt);
+    return count;
+}
+
+bool TBCMetadataReader::validate_metadata(std::string* error_message) const {
+    if (!is_open_) {
+        if (error_message) {
+            *error_message = "Metadata database is not open";
+        }
+        return false;
+    }
+    
+    // Read video parameters
+    auto params_opt = const_cast<TBCMetadataReader*>(this)->read_video_parameters();
+    if (!params_opt) {
+        if (error_message) {
+            *error_message = "Failed to read video parameters from metadata";
+        }
+        return false;
+    }
+    
+    const auto& params = *params_opt;
+    
+    // Check that number_of_sequential_fields is set
+    if (params.number_of_sequential_fields <= 0) {
+        if (error_message) {
+            *error_message = "Metadata does not specify valid number_of_sequential_fields (" + 
+                           std::to_string(params.number_of_sequential_fields) + ")";
+        }
+        return false;
+    }
+    
+    // Get actual field record count from database
+    int32_t field_record_count = get_field_record_count();
+    if (field_record_count < 0) {
+        if (error_message) {
+            *error_message = "Failed to count field records in database";
+        }
+        return false;
+    }
+    
+    // Check consistency between capture table and field_record table
+    // Warning: Some TBC files have mismatches where field_record has more entries
+    // than number_of_sequential_fields indicates. This is a known issue with
+    // certain ld-decode versions. We use field_record count to match ld-discmap behavior.
+    if (field_record_count != params.number_of_sequential_fields) {
+        if (error_message) {
+            *error_message = "Metadata inconsistency: capture table specifies " +
+                           std::to_string(params.number_of_sequential_fields) + 
+                           " fields, but field_record table contains " +
+                           std::to_string(field_record_count) + " records. " +
+                           "This TBC file has inconsistent metadata, likely from a buggy " +
+                           "ld-decode version or interrupted capture.";
+        }
+        return false;
+    }
+    
+    // Validate field dimensions
+    if (params.field_width <= 0 || params.field_height <= 0) {
+        if (error_message) {
+            *error_message = "Invalid field dimensions: " + 
+                           std::to_string(params.field_width) + "x" + 
+                           std::to_string(params.field_height);
+        }
+        return false;
+    }
+    
+    // Validate video system
+    if (params.system == VideoSystem::Unknown) {
+        if (error_message) {
+            *error_message = "Unknown or unsupported video system";
+        }
+        return false;
+    }
+    
+    return true;
+}
+
 } // namespace orc

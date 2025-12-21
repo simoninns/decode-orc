@@ -63,6 +63,9 @@ public:
     // Call this whenever the DAG structure changes (nodes/edges added/removed)
     void rebuildDAG();
     
+    // Validate that DAG source nodes can be accessed
+    void validateDAGSources();
+    
 private:
     
     QString project_path_;                                      // Path to .orcprj file

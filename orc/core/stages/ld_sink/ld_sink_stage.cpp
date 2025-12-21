@@ -355,14 +355,15 @@ bool LDSinkStage::write_metadata_file(
                              field_id.value(), field_meta.seq_no);
             }
             
-            // Check for PAL phase HINT (from upstream processor like ld-decode)
-            auto pal_phase_hint = representation->get_pal_phase_hint(field_id);
-            if (pal_phase_hint.has_value()) {
-                field_meta.field_phase_id = pal_phase_hint->field_phase_id;
-                ORC_LOG_DEBUG("Writing field {} (seq_no={}) with PAL phase HINT: field_phase_id={}", 
+            // Check for field phase HINT (from upstream processor like ld-decode)
+            // Works for both PAL and NTSC
+            auto phase_hint = representation->get_field_phase_hint(field_id);
+            if (phase_hint.has_value()) {
+                field_meta.field_phase_id = phase_hint->field_phase_id;
+                ORC_LOG_DEBUG("Writing field {} (seq_no={}) with phase HINT: field_phase_id={}", 
                              field_id.value(), field_meta.seq_no, field_meta.field_phase_id.value());
             } else {
-                ORC_LOG_DEBUG("Writing field {} (seq_no={}) - no PAL phase hint", 
+                ORC_LOG_DEBUG("Writing field {} (seq_no={}) - no phase hint", 
                              field_id.value(), field_meta.seq_no);
             }
             

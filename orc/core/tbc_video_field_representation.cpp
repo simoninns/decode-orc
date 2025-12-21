@@ -311,7 +311,7 @@ std::optional<FieldParityHint> TBCVideoFieldRepresentation::get_field_parity_hin
     return hint;
 }
 
-std::optional<PALPhaseHint> TBCVideoFieldRepresentation::get_pal_phase_hint(FieldID id) const {
+std::optional<FieldPhaseHint> TBCVideoFieldRepresentation::get_field_phase_hint(FieldID id) const {
     if (!metadata_reader_ || !metadata_reader_->is_open()) {
         return std::nullopt;
     }
@@ -330,7 +330,7 @@ std::optional<PALPhaseHint> TBCVideoFieldRepresentation::get_pal_phase_hint(Fiel
     }
     
     // Create hint from metadata
-    PALPhaseHint hint;
+    FieldPhaseHint hint;
     hint.field_phase_id = metadata.field_phase_id.value();
     hint.source = HintSource::METADATA;
     hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;

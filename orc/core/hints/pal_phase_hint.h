@@ -1,7 +1,7 @@
 /*
  * File:        pal_phase_hint.h
  * Module:      orc-core/hints
- * Purpose:     PAL phase hint from upstream processors
+ * Purpose:     Field phase hint from upstream processors
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
@@ -14,10 +14,11 @@
 namespace orc {
 
 /**
- * PAL Phase Hint
+ * Field Phase Hint
  * 
- * Provides PAL phase ID (1-8) information from upstream processors like ld-decode.
- * PAL uses an 8-field color sequence due to the PAL color encoding system.
+ * Provides field phase ID information from upstream processors like ld-decode.
+ * - PAL uses an 8-field color sequence (phases 1-8)
+ * - NTSC uses a 4-field color sequence (phases 1-4)
  * 
  * This is a HINT because it comes from external metadata (ld-decode's determination),
  * not from orc-core's own analysis of the video signal.
@@ -26,8 +27,8 @@ namespace orc {
  * - source: HintSource indicating origin of this hint
  * - confidence_pct: 0-100 confidence level
  */
-struct PALPhaseHint {
-    int32_t field_phase_id;  // PAL phase (1-8), or -1 if unable to determine
+struct FieldPhaseHint {
+    int32_t field_phase_id;  // Phase ID (PAL: 1-8, NTSC: 1-4), or -1 if unable to determine
     
     /**
      * @brief Source of this hint (common interface)

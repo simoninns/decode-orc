@@ -16,6 +16,7 @@
 #include "tbc_metadata.h"
 #include "../hints/field_parity_hint.h"
 #include "../hints/pal_phase_hint.h"
+// Note: pal_phase_hint.h contains FieldPhaseHint (works for both PAL and NTSC)
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -111,9 +112,10 @@ public:
         return std::nullopt;  // Default: no hint
     }
     
-    // PAL phase hint (from TBC metadata like ld-decode's field_phase_id)
-    // Returns empty optional if source has no PAL phase information
-    virtual std::optional<PALPhaseHint> get_pal_phase_hint(FieldID /*id*/) const {
+    // Field phase hint (from TBC metadata like ld-decode's field_phase_id)
+    // Works for both PAL (8-phase) and NTSC (4-phase)
+    // Returns empty optional if source has no phase information
+    virtual std::optional<FieldPhaseHint> get_field_phase_hint(FieldID /*id*/) const {
         return std::nullopt;  // Default: no hint
     }
     
@@ -213,8 +215,8 @@ public:
         return source_ ? source_->get_field_parity_hint(id) : std::nullopt;
     }
     
-    std::optional<PALPhaseHint> get_pal_phase_hint(FieldID id) const override {
-        return source_ ? source_->get_pal_phase_hint(id) : std::nullopt;
+    std::optional<FieldPhaseHint> get_field_phase_hint(FieldID id) const override {
+        return source_ ? source_->get_field_phase_hint(id) : std::nullopt;
     }
     
     std::optional<VideoParameters> get_video_parameters() const override {

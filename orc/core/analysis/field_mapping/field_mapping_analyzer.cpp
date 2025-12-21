@@ -107,19 +107,15 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
             frame.vbi_frame_number = convert_clv_timecode_to_frame(vbi_second->clv_timecode.value(), is_pal);
         }
         
-        // Get phase data
-        if (is_pal) {
-            // Get PAL phase from hints (from TBC metadata)
-            auto phase_first = source.get_pal_phase_hint(first_id);
-            auto phase_second = source.get_pal_phase_hint(second_id);
-            
-            frame.first_field_phase = phase_first.has_value() ? phase_first->field_phase_id : -1;
-            frame.second_field_phase = phase_second.has_value() ? phase_second->field_phase_id : -1;
-        } else {
-            // NTSC phase is simpler (just field sequence)
-            frame.first_field_phase = static_cast<int>(i % 4) + 1;
-            frame.second_field_phase = static_cast<int>((i + 1) % 4) + 1;
-        }
+        // Get phase data from hints (works for both PAL and NTSC)
+        // Phase comes from TBC metadata field_phase_id:
+        // - PAL: 8-field sequence (1-8)
+        // - NTSC: 4-field sequence (1-4)
+        auto phase_first = source.get_field_phase_hint(first_id);
+        auto phase_second = source.get_field_phase_hint(second_id);
+        
+        frame.first_field_phase = phase_first.has_value() ? phase_first->field_phase_id : -1;
+        frame.second_field_phase = phase_second.has_value() ? phase_second->field_phase_id : -1;
         
         // Get quality
         auto quality_first_ptr = history.get_observation(first_id, "DiscQuality");

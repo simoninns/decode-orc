@@ -911,6 +911,65 @@ std::string PreviewRenderer::get_preview_item_label(
     }
 }
 
+PreviewItemDisplayInfo PreviewRenderer::get_preview_item_display_info(
+    PreviewOutputType type,
+    uint64_t index,
+    uint64_t total_count
+) const {
+    PreviewItemDisplayInfo info;
+    
+    // Get display name for this output type
+    switch (type) {
+        case PreviewOutputType::Field:
+            info.type_name = "Field";
+            break;
+        case PreviewOutputType::Frame:
+            info.type_name = "Frame";
+            break;
+        case PreviewOutputType::Frame_Reversed:
+            info.type_name = "Frame (Reversed)";
+            break;
+        case PreviewOutputType::Split:
+            info.type_name = "Split";
+            break;
+        case PreviewOutputType::Luma:
+            info.type_name = "Luma";
+            break;
+        case PreviewOutputType::Chroma:
+            info.type_name = "Chroma";
+            break;
+        case PreviewOutputType::Composite:
+            info.type_name = "Composite";
+            break;
+        default:
+            info.type_name = "Item";
+            break;
+    }
+    
+    // Convert 0-based index to 1-based for display
+    info.current_number = index + 1;
+    info.total_count = total_count;
+    
+    if (type == PreviewOutputType::Field) {
+        // Field view: no constituent field info
+        info.has_field_info = false;
+        info.first_field_number = 0;
+        info.second_field_number = 0;
+    } else {
+        // Frame-based views: calculate constituent field numbers
+        info.has_field_info = true;
+        
+        uint64_t first_field = index * 2;
+        uint64_t second_field = first_field + 1;
+        
+        // Convert to 1-based for display
+        info.first_field_number = first_field + 1;
+        info.second_field_number = second_field + 1;
+    }
+    
+    return info;
+}
+
 SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
     // Special placeholder node ID for when no real content is available
     const std::string PLACEHOLDER_NODE = "_no_preview";

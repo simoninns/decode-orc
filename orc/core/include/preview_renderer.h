@@ -73,6 +73,20 @@ struct PreviewOutputInfo {
 };
 
 /**
+ * @brief Detailed information for displaying an item in preview
+ * 
+ * Provides all components needed for GUI to arrange labels as desired.
+ */
+struct PreviewItemDisplayInfo {
+    std::string type_name;          ///< Type name (e.g., "Field", "Frame", "Frame (Reversed)")
+    uint64_t current_number;        ///< Current item number (1-based)
+    uint64_t total_count;           ///< Total number of items available
+    uint64_t first_field_number;    ///< First field number (1-based, 0 if N/A)
+    uint64_t second_field_number;   ///< Second field number (1-based, 0 if N/A)
+    bool has_field_info;            ///< True if field numbers are relevant
+};
+
+/**
  * @brief Rendered preview image data
  * 
  * Simple RGB888 image format for GUI display.
@@ -251,6 +265,23 @@ public:
      * - Frame Reversed 62 / 250: "Frame (Reversed) 63 (126-125) / 250"
      */
     std::string get_preview_item_label(
+        PreviewOutputType type,
+        uint64_t index,
+        uint64_t total_count
+    ) const;
+    
+    /**
+     * @brief Get detailed display information for current preview item
+     * 
+     * @param type The output type being displayed
+     * @param index The current index (0-based)
+     * @param total_count The total number of items available
+     * @return Display info with all components for GUI to arrange
+     * 
+     * This provides individual components (type, numbers, range) so the GUI
+     * can arrange labels as desired instead of using a pre-formatted string.
+     */
+    PreviewItemDisplayInfo get_preview_item_display_info(
         PreviewOutputType type,
         uint64_t index,
         uint64_t total_count

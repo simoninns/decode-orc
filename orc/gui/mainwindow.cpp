@@ -9,11 +9,13 @@
 
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
-#include "dageditorwindow.h"
 #include "dagviewerwidget.h"
 #include "projectpropertiesdialog.h"
+#include "stageparameterdialog.h"
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
+#include "../core/include/stage_registry.h"
+#include "../core/include/dag_executor.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -32,30 +34,33 @@
 #include <QKeyEvent>
 #include <QComboBox>
 #include <QApplication>
+#include <QSplitter>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_widget_(nullptr)
-    , dag_editor_window_(nullptr)
+    , dag_viewer_(nullptr)
+    , main_splitter_(nullptr)
     , preview_slider_(nullptr)
     , preview_info_label_(nullptr)
+    , slider_min_label_(nullptr)
+    , slider_max_label_(nullptr)
     , toolbar_(nullptr)
     , preview_mode_combo_(nullptr)
-    , dag_editor_action_(nullptr)
     , save_project_action_(nullptr)
     , save_project_as_action_(nullptr)
     , edit_project_action_(nullptr)
     , export_png_action_(nullptr)
     , preview_renderer_(nullptr)
     , current_view_node_id_()
-    , current_output_type_(orc::PreviewOutputType::Field)
+    , current_output_type_(orc::PreviewOutputType::Frame)
 {
     setupUI();
     setupMenus();
     setupToolbar();
     
     updateWindowTitle();
-    resize(1280, 720);
+    resize(1600, 900);
     
     updateUIState();
 }
@@ -66,33 +71,27 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
-    // Central widget with field preview
-    auto* central = new QWidget(this);
-    auto* layout = new QVBoxLayout(central);
+    // Central widget with horizontal splitter
+    main_splitter_ = new QSplitter(Qt::Horizontal, this);
+    
+    // Left side: Field preview with navigation controls
+    auto* preview_container = new QWidget(this);
+    preview_container->setMinimumWidth(400);  // Prevent frame viewer from disappearing
+    auto* preview_layout = new QVBoxLayout(preview_container);
+    preview_layout->setContentsMargins(0, 0, 0, 0);
+    preview_layout->setSpacing(0);
     
     // Field preview widget
     preview_widget_ = new FieldPreviewWidget(this);
-    layout->addWidget(preview_widget_, 1);
+    preview_layout->addWidget(preview_widget_, 1);
     
-    // Navigation controls at bottom
+    // Navigation controls at bottom - two rows
+    auto* controls_container = new QVBoxLayout();
+    controls_container->setSpacing(5);
+    
+    // First row: navigation buttons and slider
     auto* nav_layout = new QHBoxLayout();
-    
-    // Preview mode selector - populated dynamically from core
-    preview_mode_combo_ = new QComboBox(this);
-    preview_mode_combo_->setEnabled(false);  // Disabled until node selected
-    connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MainWindow::onPreviewModeChanged);
-    nav_layout->addWidget(preview_mode_combo_);
-    
-    // Aspect ratio selector - populated dynamically from core
-    aspect_ratio_combo_ = new QComboBox(this);
-    aspect_ratio_combo_->setEnabled(false);   // Disabled until node selected
-    connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &MainWindow::onAspectRatioModeChanged);
-    nav_layout->addWidget(aspect_ratio_combo_);
-    
-    // Spacer
-    nav_layout->addSpacing(20);
+    nav_layout->setContentsMargins(10, 5, 10, 0);
     
     // Previous item button
     auto* prev_button = new QPushButton("<", this);
@@ -112,20 +111,84 @@ void MainWindow::setupUI()
     connect(next_button, &QPushButton::clicked, this, [this]() { onNavigatePreview(1); });
     nav_layout->addWidget(next_button);
     
-    // Preview slider
+    // Slider min label
+    slider_min_label_ = new QLabel("0", this);
+    slider_min_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    slider_min_label_->setMinimumWidth(40);
+    slider_min_label_->setMaximumWidth(40);
+    nav_layout->addWidget(slider_min_label_);
+    
+    // Preview slider - stretches to fill available space
     preview_slider_ = new QSlider(Qt::Horizontal, this);
     preview_slider_->setEnabled(false);
     connect(preview_slider_, &QSlider::valueChanged, this, &MainWindow::onPreviewIndexChanged);
     nav_layout->addWidget(preview_slider_, 1);
     
-    // Preview info label
+    // Slider max label
+    slider_max_label_ = new QLabel("0", this);
+    slider_max_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    slider_max_label_->setMinimumWidth(40);
+    slider_max_label_->setMaximumWidth(40);
+    nav_layout->addWidget(slider_max_label_);
+    
+    controls_container->addLayout(nav_layout);
+    
+    // Second row: mode selectors and current frame/field info
+    auto* info_layout = new QHBoxLayout();
+    info_layout->setContentsMargins(10, 0, 10, 5);
+    
+    // Preview mode selector - populated dynamically from core
+    preview_mode_combo_ = new QComboBox(this);
+    preview_mode_combo_->setEnabled(false);  // Disabled until node selected
+    connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onPreviewModeChanged);
+    info_layout->addWidget(preview_mode_combo_);
+    
+    // Aspect ratio selector - populated dynamically from core
+    aspect_ratio_combo_ = new QComboBox(this);
+    aspect_ratio_combo_->setEnabled(false);   // Disabled until node selected
+    connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onAspectRatioModeChanged);
+    info_layout->addWidget(aspect_ratio_combo_);
+    
+    info_layout->addSpacing(20);
+    
+    // Preview info label - left-justified
     preview_info_label_ = new QLabel("No source loaded", this);
-    preview_info_label_->setMinimumWidth(200);
-    nav_layout->addWidget(preview_info_label_);
+    preview_info_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    info_layout->addWidget(preview_info_label_);
     
-    layout->addLayout(nav_layout);
+    // Add stretch to push everything to the left
+    info_layout->addStretch(1);
     
-    setCentralWidget(central);
+    controls_container->addLayout(info_layout);
+    
+    preview_layout->addLayout(controls_container);
+    
+    // Right side: DAG editor
+    dag_viewer_ = new DAGViewerWidget(this);
+    
+    // Connect DAG viewer signals
+    connect(dag_viewer_, &DAGViewerWidget::nodeSelected,
+            this, &MainWindow::onNodeSelectedForView);
+    connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
+            this, &MainWindow::onEditParameters);
+    connect(dag_viewer_, &DAGViewerWidget::triggerStageRequested,
+            this, &MainWindow::onTriggerStage);
+    connect(dag_viewer_, &DAGViewerWidget::dagModified,
+            this, &MainWindow::onDAGModified);
+    connect(dag_viewer_, &DAGViewerWidget::dagModified,
+            this, &MainWindow::updateWindowTitle);
+    
+    // Add widgets to splitter
+    main_splitter_->addWidget(preview_container);
+    main_splitter_->addWidget(dag_viewer_);
+    
+    // Set initial sizes (60% preview, 40% DAG editor)
+    main_splitter_->setStretchFactor(0, 60);
+    main_splitter_->setStretchFactor(1, 40);
+    
+    setCentralWidget(main_splitter_);
     
     // Status bar
     statusBar()->showMessage("Ready");
@@ -174,13 +237,12 @@ void MainWindow::setupMenus()
     quit_action->setShortcut(QKeySequence::Quit);
     connect(quit_action, &QAction::triggered, this, &QWidget::close);
     
-    // Tools menu
-    auto* tools_menu = menuBar()->addMenu("&Tools");
+    // View menu for DAG operations
+    auto* view_menu = menuBar()->addMenu("&View");
     
-    dag_editor_action_ = tools_menu->addAction("&DAG Editor...");
-    dag_editor_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_D));
-    dag_editor_action_->setEnabled(false);  // Disabled until project is loaded/created
-    connect(dag_editor_action_, &QAction::triggered, this, &MainWindow::onOpenDAGEditor);
+    auto* arrange_action = view_menu->addAction("&Arrange DAG to Grid");
+    arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
+    connect(arrange_action, &QAction::triggered, dag_viewer_, &DAGViewerWidget::arrangeToGrid);
 }
 
 void MainWindow::setupToolbar()
@@ -292,12 +354,6 @@ void MainWindow::newProject()
     
     ORC_LOG_INFO("Creating new project: {}", filename.toStdString());
     
-    // Close DAG editor if open
-    if (dag_editor_window_) {
-        dag_editor_window_->close();
-        dag_editor_window_ = nullptr;
-    }
-    
     // Clear existing project state
     project_.clear();
     preview_widget_->clearImage();
@@ -328,18 +384,15 @@ void MainWindow::newProject()
     // Initialize preview renderer for new project
     updatePreviewRenderer();
     
+    // Load DAG into embedded viewer
+    loadProjectDAG();
+    
     statusBar()->showMessage(QString("Created new project: %1").arg(project_name));
 }
 
 void MainWindow::openProject(const QString& filename)
 {
     ORC_LOG_INFO("Loading project: {}", filename.toStdString());
-    
-    // Close DAG editor if open
-    if (dag_editor_window_) {
-        dag_editor_window_->close();
-        dag_editor_window_ = nullptr;
-    }
     
     // Clear existing project state
     project_.clear();
@@ -356,17 +409,12 @@ void MainWindow::openProject(const QString& filename)
     
     ORC_LOG_DEBUG("Project loaded: {}", project_.projectName().toStdString());
     
-    // Project loaded - user needs to open DAG editor and select a node to view
-    // The GUI is now completely node-agnostic - it doesn't matter if it's viewing
-    // the source or any other stage node
+    // Project loaded - user can select a node in the DAG editor for viewing
     if (project_.hasSource()) {
-        ORC_LOG_INFO("Source loaded - open DAG editor to select node for viewing");
-        
-        // Enable DAG editor action
-        dag_editor_action_->setEnabled(true);
+        ORC_LOG_INFO("Source loaded - select a node in DAG editor for viewing");
         
         // Show helpful message
-        statusBar()->showMessage("Project loaded - open DAG Editor to select a node for viewing", 5000);
+        statusBar()->showMessage("Project loaded - select a node in DAG editor to view", 5000);
     } else {
         ORC_LOG_DEBUG("Project has no source");
     }
@@ -376,6 +424,9 @@ void MainWindow::openProject(const QString& filename)
     
     // Initialize preview renderer with project DAG
     updatePreviewRenderer();
+    
+    // Load DAG into embedded viewer
+    loadProjectDAG();
     
     statusBar()->showMessage(QString("Opened project: %1").arg(project_.projectName()));
 }
@@ -449,10 +500,6 @@ void MainWindow::updateUIState()
     }
     if (edit_project_action_) {
         edit_project_action_->setEnabled(has_project);
-    }
-    if (dag_editor_action_) {
-        // Allow DAG editor on any project, even without sources
-        dag_editor_action_->setEnabled(has_project);
     }
     if (export_png_action_) {
         export_png_action_->setEnabled(has_preview);
@@ -579,26 +626,46 @@ void MainWindow::updatePreviewInfo()
 {
     if (!preview_renderer_ || current_view_node_id_.empty()) {
         preview_info_label_->setText("No node selected");
+        slider_min_label_->setText("");
+        slider_max_label_->setText("");
         return;
     }
     
     // Special handling for placeholder node
     if (current_view_node_id_ == "_no_preview") {
         preview_info_label_->setText("No source available");
+        slider_min_label_->setText("");
+        slider_max_label_->setText("");
         return;
     }
     
-    // Get formatted label from core
+    // Get detailed display info from core
     int current_index = preview_slider_->value();
     int total = preview_slider_->maximum() + 1;
     
-    std::string label = preview_renderer_->get_preview_item_label(
+    auto display_info = preview_renderer_->get_preview_item_display_info(
         current_output_type_,
         current_index,
         total
     );
     
-    preview_info_label_->setText(QString::fromStdString(label));
+    // Update slider labels with range
+    slider_min_label_->setText(QString::number(1));
+    slider_max_label_->setText(QString::number(display_info.total_count));
+    
+    // Build compact info label
+    QString info_text = QString("%1 %2")
+        .arg(QString::fromStdString(display_info.type_name))
+        .arg(display_info.current_number);
+    
+    // Add field info if relevant
+    if (display_info.has_field_info) {
+        info_text += QString(" (%1-%2)")
+            .arg(display_info.first_field_number)
+            .arg(display_info.second_field_number);
+    }
+    
+    preview_info_label_->setText(info_text);
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* event)
@@ -638,38 +705,114 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
     }
 }
 
-void MainWindow::onOpenDAGEditor()
+void MainWindow::loadProjectDAG()
 {
-    // QPointer automatically becomes null when window is deleted (WA_DeleteOnClose)
-    if (!dag_editor_window_) {
-        // Create new window
-        dag_editor_window_ = new DAGEditorWindow(this);
-        
-        // Connect project to DAG editor
-        dag_editor_window_->setProject(&project_);
-        
-        // Connect modification signal to update UI state
-        connect(dag_editor_window_, &DAGEditorWindow::projectModified,
-                this, &MainWindow::updateUIState);
-        
-        // Connect DAG modification signal to update renderer
-        connect(dag_editor_window_, &DAGEditorWindow::projectModified,
-                this, &MainWindow::onDAGModified);
-        
-        // Connect node selection signal for field rendering
-        connect(dag_editor_window_->dagViewer(), &DAGViewerWidget::nodeSelected,
-                this, &MainWindow::onNodeSelectedForView);
-        
-        // Load the project's DAG into the editor
-        dag_editor_window_->loadProjectDAG();
+    if (!dag_viewer_) {
+        return;
     }
     
-    // Show the window (safe even if it was just created or already exists)
-    if (dag_editor_window_) {
-        dag_editor_window_->show();
-        dag_editor_window_->raise();
-        dag_editor_window_->activateWindow();
+    ORC_LOG_DEBUG("MainWindow: loading project DAG for visualization");
+    
+    // Set project connection for DAG viewer
+    dag_viewer_->setProject(&project_.coreProject());
+    
+    // Convert project DAG to GUIDAG for visualization
+    orc::GUIDAG gui_dag;
+    gui_dag.name = project_.projectName().toStdString();
+    gui_dag.version = "1.0";
+    
+    auto& core_project = project_.coreProject();
+    
+    // Convert nodes
+    for (const auto& node : core_project.nodes) {
+        orc::GUIDAGNode gui_node;
+        gui_node.node_id = node.node_id;
+        gui_node.stage_name = node.stage_name;
+        gui_node.node_type = node.node_type;
+        gui_node.display_name = node.display_name;
+        gui_node.user_label = node.user_label;
+        gui_node.x_position = node.x_position;
+        gui_node.y_position = node.y_position;
+        gui_node.parameters = node.parameters;
+        gui_dag.nodes.push_back(gui_node);
     }
+    
+    // Convert edges
+    for (const auto& edge : core_project.edges) {
+        orc::GUIDAGEdge gui_edge;
+        gui_edge.source_node_id = edge.source_node_id;
+        gui_edge.target_node_id = edge.target_node_id;
+        gui_dag.edges.push_back(gui_edge);
+    }
+    
+    dag_viewer_->importDAG(gui_dag);
+    
+    statusBar()->showMessage("Loaded DAG from project", 2000);
+}
+
+void MainWindow::onEditParameters(const std::string& node_id)
+{
+    ORC_LOG_DEBUG("Edit parameters requested for node: {}", node_id);
+    
+    // Get stage name to determine available parameters
+    std::string stage_name = dag_viewer_->getNodeStageType(node_id);
+    
+    if (stage_name.empty()) {
+        QMessageBox::warning(this, "Edit Parameters",
+            QString("Node '%1' not found").arg(QString::fromStdString(node_id)));
+        return;
+    }
+    
+    // Get the stage instance to access parameter descriptors
+    auto& registry = orc::StageRegistry::instance();
+    if (!registry.has_stage(stage_name)) {
+        QMessageBox::warning(this, "Edit Parameters",
+            QString("Unknown stage type '%1'").arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    auto stage = registry.create_stage(stage_name);
+    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+    
+    if (!param_stage) {
+        QMessageBox::information(this, "Edit Parameters",
+            QString("Stage '%1' does not have configurable parameters")
+                .arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    // Get parameter descriptors
+    auto param_descriptors = param_stage->get_parameter_descriptors();
+    
+    if (param_descriptors.empty()) {
+        QMessageBox::information(this, "Edit Parameters",
+            QString("Stage '%1' does not have configurable parameters")
+                .arg(QString::fromStdString(stage_name)));
+        return;
+    }
+    
+    // Get current parameter values from the node
+    auto current_values = dag_viewer_->getNodeParameters(node_id);
+    
+    // Show parameter dialog
+    StageParameterDialog dialog(stage_name, param_descriptors, current_values, this);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        auto new_values = dialog.get_values();
+        dag_viewer_->setNodeParameters(node_id, new_values);
+        statusBar()->showMessage(
+            QString("Updated parameters for node '%1'")
+                .arg(QString::fromStdString(node_id)),
+            3000
+        );
+    }
+}
+
+void MainWindow::onTriggerStage(const std::string& node_id)
+{
+    ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id);
+    statusBar()->showMessage(QString("Stage triggering not yet implemented for '%1'")
+        .arg(QString::fromStdString(node_id)), 3000);
 }
 
 void MainWindow::onNodeSelectedForView(const std::string& node_id)
@@ -698,12 +841,12 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             current_view_node_id_ = node_id;
             available_outputs_ = outputs;
             
-            // Update DAG editor selection if it's open
+            // Update DAG viewer selection
             // Block signals to prevent infinite loop (selectNode -> nodeSelected -> onNodeSelectedForView)
-            if (dag_editor_window_ && dag_editor_window_->dagViewer()) {
-                dag_editor_window_->dagViewer()->blockSignals(true);
-                dag_editor_window_->dagViewer()->selectNode(node_id);
-                dag_editor_window_->dagViewer()->blockSignals(false);
+            if (dag_viewer_) {
+                dag_viewer_->blockSignals(true);
+                dag_viewer_->selectNode(node_id);
+                dag_viewer_->blockSignals(false);
             }
             
             // Update status bar to show which node is being viewed
@@ -724,8 +867,8 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
 void MainWindow::onDAGModified()
 {
     // Export DAG from viewer and save back to project
-    if (dag_editor_window_ && dag_editor_window_->dagViewer()) {
-        auto gui_dag = dag_editor_window_->dagViewer()->exportDAG();
+    if (dag_viewer_) {
+        auto gui_dag = dag_viewer_->exportDAG();
         
         // Convert GUIDAG nodes back to ProjectDAGNodes
         std::vector<orc::ProjectDAGNode> nodes;
@@ -884,7 +1027,7 @@ void MainWindow::refreshViewerControls()
         }
     }
     
-    // Update slider range
+    // Update slider range and labels
     if (new_total > 0) {
         preview_slider_->setRange(0, new_total - 1);
         
@@ -899,7 +1042,7 @@ void MainWindow::refreshViewerControls()
     // Update the preview image
     updatePreview();
     
-    // Update the info label
+    // Update the info label and slider range labels (all done in one helper)
     updatePreviewInfo();
 }
 

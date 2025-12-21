@@ -488,6 +488,8 @@ DAGViewerWidget::DAGViewerWidget(QWidget* parent)
     setRenderHint(QPainter::Antialiasing);
     setDragMode(QGraphicsView::NoDrag);  // Handle dragging manually
     setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+    setResizeAnchor(QGraphicsView::AnchorViewCenter);  // Keep center stable when resizing
+    setAlignment(Qt::AlignLeft | Qt::AlignTop);  // Show top-left origin by default
     setContextMenuPolicy(Qt::DefaultContextMenu);  // Allow items to handle context menus
     setMouseTracking(true);
     
@@ -864,6 +866,15 @@ void DAGViewerWidget::arrangeToGrid()
     // Scene will update automatically - do not force immediate update
 }
 
+void DAGViewerWidget::updateSceneRect()
+{
+    if (!scene_) return;
+    
+    // Update scene rect to encompass all nodes with margin
+    QRectF bounds = scene_->itemsBoundingRect();
+    scene_->setSceneRect(bounds.adjusted(-100, -100, 100, 100));
+}
+
 void DAGViewerWidget::onNodePositionChanged(const std::string& node_id, double x, double y)
 {
     if (!project_) {
@@ -875,6 +886,9 @@ void DAGViewerWidget::onNodePositionChanged(const std::string& node_id, double x
         orc::project_io::set_node_position(*project_, node_id, x, y);
         // Position changes mark project as modified, and we emit signal
         emit dagModified();
+        
+        // Update scene rect to make node accessible via scrollbars
+        updateSceneRect();
     } catch (const std::exception& e) {
         // Silently ignore errors - position updates shouldn't block UI
     }
@@ -976,6 +990,9 @@ void DAGViewerWidget::importDAG(const orc::GUIDAG& dag)
             edge_items_.push_back(edge_item);
         }
     }
+    
+    // Update scene rect to encompass all nodes
+    updateSceneRect();
     
     // Signals will be unblocked when blocker goes out of scope
 }

@@ -236,6 +236,7 @@ private:
     bool isEdgeValid(const DAGEdgeItem* edge) const;
     DAGNodeItem* findNodeById(const std::string& node_id) const;
     void cleanupStalePointers();
+    void updateSceneRect();  // Update scene rect to encompass all nodes
     
     // Connection counting for validation
     int countInputConnections(const std::string& node_id) const;

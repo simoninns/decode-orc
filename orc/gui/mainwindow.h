@@ -24,11 +24,12 @@ namespace orc {
 }
 
 class FieldPreviewWidget;
-class DAGEditorWindow;
+class DAGViewerWidget;
 class QLabel;
 class QSlider;
 class QToolBar;
 class QComboBox;
+class QSplitter;
 
 /**
  * Main window for orc-gui
@@ -64,7 +65,6 @@ private slots:
     void onSaveProject();
     void onSaveProjectAs();
     void onEditProject();
-    void onOpenDAGEditor();
     void onPreviewIndexChanged(int index);
     void onNavigatePreview(int delta);
     void onPreviewModeChanged(int index);
@@ -85,6 +85,9 @@ private:
     void updatePreviewModeCombo();
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls();  // Update slider, combo, preview, and info for current node
+    void loadProjectDAG();  // Load DAG into embedded viewer
+    void onEditParameters(const std::string& node_id);
+    void onTriggerStage(const std::string& node_id);
     
     // Settings helpers
     QString getLastProjectDirectory() const;
@@ -97,13 +100,15 @@ private:
     
     // UI components
     FieldPreviewWidget* preview_widget_;
-    QPointer<DAGEditorWindow> dag_editor_window_;  // Auto-nulls when window is deleted
+    DAGViewerWidget* dag_viewer_;
+    QSplitter* main_splitter_;
     QSlider* preview_slider_;
     QLabel* preview_info_label_;
+    QLabel* slider_min_label_;
+    QLabel* slider_max_label_;
     QToolBar* toolbar_;
     QComboBox* preview_mode_combo_;
     QComboBox* aspect_ratio_combo_;
-    QAction* dag_editor_action_;  // Track to enable/disable
     QAction* save_project_action_;
     QAction* save_project_as_action_;
     QAction* edit_project_action_;

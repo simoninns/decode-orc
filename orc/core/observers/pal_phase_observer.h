@@ -10,7 +10,6 @@
 #pragma once
 
 #include "observer.h"
-#include "field_parity_observer.h"
 #include "tbc_metadata.h"
 #include <optional>
 #include <vector>

@@ -47,26 +47,51 @@ std::vector<std::shared_ptr<Observation>> FieldParityObserver::process_field(
     // Find sync pulses in VBlank region
     std::vector<ClassifiedPulse> pulses = find_sync_pulses(field_data, video_params);
     
-    if (pulses.size() < 15) {
-        // Not enough pulses to analyze - use fallback
+    if (pulses.size() < 3) {
+        // Not enough pulses - need at least VSYNC + HSYNC
         bool is_first = (field_id.value() % 2 == 0);
         auto obs = std::make_shared<FieldParityObservation>(is_first, 25);
         obs->field_id = field_id;
         obs->detection_basis = DetectionBasis::SAMPLE_DERIVED;
         obs->confidence = ConfidenceLevel::LOW;
         obs->observer_version = observer_version();
+        ORC_LOG_DEBUG("FieldParityObserver: Field {} has only {} pulses (need 3), using field_id fallback",
+                      field_id.value(), pulses.size());
         observations.push_back(obs);
         return observations;
     }
     
-    // Analyze based on video system
+    // PRIMARY: Use direct half-line offset detection
     bool is_first_field;
     int confidence_pct;
+    std::tie(is_first_field, confidence_pct) = detect_parity_direct(pulses, video_params);
     
-    if (video_params.system == VideoSystem::PAL) {
-        std::tie(is_first_field, confidence_pct) = analyze_pal_parity(pulses, video_params);
-    } else {
-        std::tie(is_first_field, confidence_pct) = analyze_ntsc_parity(pulses, video_params);
+    // VALIDATION: If we have enough pulses, validate with gap analysis
+    if (pulses.size() >= 15 && confidence_pct > 0) {
+        bool gap_is_first;
+        int gap_confidence;
+        
+        if (video_params.system == VideoSystem::PAL) {
+            std::tie(gap_is_first, gap_confidence) = analyze_pal_parity(pulses, video_params);
+        } else {
+            std::tie(gap_is_first, gap_confidence) = analyze_ntsc_parity(pulses, video_params);
+        }
+        
+        // If gap analysis succeeded and agrees with direct method, increase confidence
+        if (gap_confidence > 0) {
+            if (gap_is_first == is_first_field) {
+                // Both methods agree - high confidence
+                confidence_pct = std::min(90, confidence_pct + 20);
+                ORC_LOG_TRACE("Field {}: Direct and gap analysis agree, confidence boosted to {}%",
+                              field_id.value(), confidence_pct);
+            } else {
+                // Methods disagree - use gap analysis (proven method) but lower confidence
+                ORC_LOG_TRACE("Field {}: Direct method={}, gap method={} - MISMATCH, using gap analysis",
+                              field_id.value(), is_first_field, gap_is_first);
+                is_first_field = gap_is_first;
+                confidence_pct = std::max(40, gap_confidence - 10);
+            }
+        }
     }
     
     // If confidence is 0 (detection failed), try to use previous field's parity
@@ -233,6 +258,117 @@ std::vector<ClassifiedPulse> FieldParityObserver::find_sync_pulses(
     return pulses;
 }
 
+std::pair<bool, int> FieldParityObserver::detect_parity_direct(
+    const std::vector<ClassifiedPulse>& pulses,
+    const VideoParameters& video_params) const {
+    
+    /**
+     * DIRECT HALF-LINE OFFSET DETECTION
+     * 
+     * In interlaced video, odd and even fields have a fundamental timing difference:
+     * - Odd field (first): HSYNC occurs at whole line boundaries (0.0H offset)
+     * - Even field (second): HSYNC occurs at half-line offset (0.5H offset)
+     * 
+     * This method directly measures this by finding the first HSYNC after VSYNC
+     * and checking its fractional line position.
+     */
+    
+    double samples_per_line = video_params.field_width;
+    
+    // Find first VSYNC pulse
+    int vsync_idx = -1;
+    for (size_t i = 0; i < pulses.size(); ++i) {
+        if (pulses[i].type == VSYNC) {
+            vsync_idx = i;
+            break;
+        }
+    }
+    
+    if (vsync_idx < 0) {
+        ORC_LOG_TRACE("Direct parity: No VSYNC found");
+        return {false, 0};
+    }
+    
+    // Find first HSYNC after VSYNC (marks return to normal line timing)
+    int hsync_idx = -1;
+    for (size_t i = vsync_idx + 1; i < pulses.size(); ++i) {
+        if (pulses[i].type == HSYNC) {
+            hsync_idx = i;
+            break;
+        }
+    }
+    
+    if (hsync_idx < 0) {
+        ORC_LOG_TRACE("Direct parity: No HSYNC after VSYNC");
+        return {false, 0};
+    }
+    
+    // Get the sample position of this HSYNC
+    size_t hsync_position = pulses[hsync_idx].position;
+    
+    // Calculate fractional line offset
+    // This tells us whether HSYNC aligns with whole lines (0.0) or half-lines (0.5)
+    double fractional_offset = std::fmod(static_cast<double>(hsync_position), samples_per_line) / samples_per_line;
+    
+    // Normalize to [0.0, 1.0) range\n    if (fractional_offset < 0.0) fractional_offset += 1.0;
+    
+    ORC_LOG_TRACE("Direct parity: VSYNC at idx={}, first HSYNC at idx={} (pos={}), fractional_offset={:.4f}H",
+                  vsync_idx, hsync_idx, hsync_position, fractional_offset);
+    
+    // Determine field parity based on fractional offset
+    // CRITICAL: PAL and NTSC have OPPOSITE conventions!
+    // 
+    // NTSC:
+    //   Field 1 (odd/top): starts on whole line (0.0H offset)
+    //   Field 2 (even/bottom): starts on half line (0.5H offset)
+    // 
+    // PAL:
+    //   Field 1 (odd/top): starts on half line (0.5H offset)
+    //   Field 2 (even/bottom): starts on whole line (0.0H offset)
+    
+    bool is_first_field;
+    int confidence;
+    
+    // Determine if we detected half-line offset (near 0.5) or whole-line (near 0.0)
+    bool half_line_offset = (fractional_offset >= 0.25 && fractional_offset < 0.75);
+    
+    // Apply standard-specific convention
+    if (video_params.system == VideoSystem::PAL) {
+        // PAL: half-line = first field, whole-line = second field
+        is_first_field = half_line_offset;
+    } else {
+        // NTSC: whole-line = first field, half-line = second field
+        is_first_field = !half_line_offset;
+    }
+    
+    // Calculate confidence based on how close to ideal offset
+    if (half_line_offset) {
+        // Near 0.5 - higher confidence if closer
+        double distance = std::abs(fractional_offset - 0.5);
+        if (distance < 0.1) {
+            confidence = 80;
+        } else if (distance < 0.15) {
+            confidence = 70;
+        } else {
+            confidence = 60;
+        }
+    } else {
+        // Near 0.0 - higher confidence if closer to 0.0 or 1.0
+        double distance = std::min(fractional_offset, 1.0 - fractional_offset);
+        if (distance < 0.1) {
+            confidence = 80;
+        } else if (distance < 0.15) {
+            confidence = 70;
+        } else {
+            confidence = 60;
+        }
+    }
+    
+    ORC_LOG_TRACE("Direct parity: is_first_field={} (confidence={}%)",
+                  is_first_field, confidence);
+    
+    return {is_first_field, confidence};
+}
 
 std::pair<bool, int> FieldParityObserver::analyze_pal_parity(
     const std::vector<ClassifiedPulse>& pulses,

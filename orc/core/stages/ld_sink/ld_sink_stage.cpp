@@ -19,8 +19,6 @@
 #include "white_flag_observer.h"
 #include "vits_observer.h"
 #include "burst_level_observer.h"
-#include "field_parity_observer.h"
-#include "pal_phase_observer.h"
 #include "logging.h"
 #include <fstream>
 #include <filesystem>
@@ -294,8 +292,9 @@ bool LDSinkStage::write_metadata_file(
         observers.push_back(std::make_shared<WhiteFlagObserver>());
         observers.push_back(std::make_shared<VITSQualityObserver>());
         observers.push_back(std::make_shared<BurstLevelObserver>());
-        observers.push_back(std::make_shared<FieldParityObserver>());
-        observers.push_back(std::make_shared<PALPhaseObserver>());
+        // Note: FieldParityObserver removed - field parity comes from hints only
+        // Note: PALPhaseObserver removed - PAL phase comes from hints only
+        // (TBC files have normalized sync patterns, making field parity detection impossible)
         
         ORC_LOG_INFO("Running observers on all fields...");
         
@@ -342,10 +341,30 @@ bool LDSinkStage::write_metadata_file(
             // The sink only writes what can be determined from the current representation.
             FieldMetadata field_meta;
             field_meta.seq_no = field_id.value() + 1;  // seq_no is 1-based
-            field_meta.is_first_field = false;  // Will be updated by FieldParityObserver
             
-            ORC_LOG_DEBUG("Writing field {} (seq_no={})", 
-                         field_id.value(), field_meta.seq_no);
+            // Check for field parity HINT (from upstream processor like ld-decode)
+            // Hints are preferred over observations as they represent authoritative metadata
+            auto parity_hint = representation->get_field_parity_hint(field_id);
+            if (parity_hint.has_value()) {
+                field_meta.is_first_field = parity_hint->is_first_field;
+                ORC_LOG_DEBUG("Writing field {} (seq_no={}) with field parity HINT: is_first_field={}", 
+                             field_id.value(), field_meta.seq_no, field_meta.is_first_field.value());
+            } else {
+                field_meta.is_first_field = false;  // Default if no hint
+                ORC_LOG_DEBUG("Writing field {} (seq_no={}) - no parity hint", 
+                             field_id.value(), field_meta.seq_no);
+            }
+            
+            // Check for PAL phase HINT (from upstream processor like ld-decode)
+            auto pal_phase_hint = representation->get_pal_phase_hint(field_id);
+            if (pal_phase_hint.has_value()) {
+                field_meta.field_phase_id = pal_phase_hint->field_phase_id;
+                ORC_LOG_DEBUG("Writing field {} (seq_no={}) with PAL phase HINT: field_phase_id={}", 
+                             field_id.value(), field_meta.seq_no, field_meta.field_phase_id.value());
+            } else {
+                ORC_LOG_DEBUG("Writing field {} (seq_no={}) - no PAL phase hint", 
+                             field_id.value(), field_meta.seq_no);
+            }
             
             // Observers will populate VBI, VITC, VITS, etc. from the actual field data
             writer.write_field_metadata(field_meta);

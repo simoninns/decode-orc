@@ -9,7 +9,6 @@
 
 #include "preview_renderer.h"
 #include "logging.h"
-#include "field_parity_observer.h"
 #include <algorithm>
 #include <cstdio>
 #include <png.h>
@@ -263,21 +262,15 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
     
     // Frame outputs - available if we have at least 2 fields
     if (field_count >= 2) {
-        // Determine first viewable frame based on is_first_field observation
+        // Determine first viewable frame based on is_first_field hint
         // We need to find the first field that is marked as "first"
         uint64_t first_frame_start = 0;
         
-        // Check if field 0 is the first field by looking at observations
-        auto observations = result.representation->get_observations(FieldID(0));
-        for (const auto& obs : observations) {
-            if (obs->observation_type() == "FieldParity") {
-                auto* parity_obs = dynamic_cast<FieldParityObservation*>(obs.get());
-                if (parity_obs && !parity_obs->is_first_field) {
-                    // Field 0 is second field, so first complete frame starts at field 1
-                    first_frame_start = 1;
-                    break;
-                }
-            }
+        // Check if field 0 is the first field by looking at hints
+        auto parity_hint = result.representation->get_field_parity_hint(FieldID(0));
+        if (parity_hint.has_value() && !parity_hint->is_first_field) {
+            // Field 0 is second field, so first complete frame starts at field 1
+            first_frame_start = 1;
         }
         
         // Calculate number of complete frames
@@ -392,16 +385,10 @@ PreviewRenderResult PreviewRenderer::render_output(
             // Check field 0 to see if it's the first field
             auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
             if (probe_result.is_valid && probe_result.representation) {
-                auto observations = probe_result.representation->get_observations(FieldID(0));
-                for (const auto& obs : observations) {
-                    if (obs->observation_type() == "FieldParity") {
-                        auto* parity_obs = dynamic_cast<FieldParityObservation*>(obs.get());
-                        if (parity_obs && !parity_obs->is_first_field) {
-                            // Field 0 is second field, so frames start at field 1
-                            first_field_offset = 1;
-                            break;
-                        }
-                    }
+                auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+                if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                    // Field 0 is second field, so frames start at field 1
+                    first_field_offset = 1;
                 }
             }
             

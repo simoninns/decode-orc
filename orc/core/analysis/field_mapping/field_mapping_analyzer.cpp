@@ -10,11 +10,9 @@
 #include "field_mapping_analyzer.h"
 #include "../../observers/observation_history.h"
 #include "../../observers/biphase_observer.h"
-#include "../../observers/pal_phase_observer.h"
 #include "../../include/disc_quality_observer.h"
 #include "../../include/pulldown_observer.h"
 #include "../../include/lead_in_out_observer.h"
-#include "../../observers/field_parity_observer.h"
 #include "../../include/logging.h"
 #include <algorithm>
 #include <sstream>
@@ -39,8 +37,8 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     ObservationHistory history;
     std::vector<std::shared_ptr<Observer>> observers;
     observers.push_back(std::make_shared<BiphaseObserver>());
-    observers.push_back(std::make_shared<PALPhaseObserver>());
-    observers.push_back(std::make_shared<FieldParityObserver>());
+    // Note: FieldParityObserver removed - field parity comes from hints only
+    // Note: PALPhaseObserver removed - PAL phase comes from hints only
     observers.push_back(std::make_shared<DiscQualityObserver>());
     observers.push_back(std::make_shared<PulldownObserver>());
     observers.push_back(std::make_shared<LeadInOutObserver>());
@@ -110,14 +108,12 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         
         // Get phase data
         if (is_pal) {
-            // Get PAL phase observations (8-field sequence for PAL)
-            auto phase_first_ptr = history.get_observation(first_id, "PALPhase");
-            auto phase_second_ptr = history.get_observation(second_id, "PALPhase");
-            auto phase_first = std::dynamic_pointer_cast<PALPhaseObservation>(phase_first_ptr);
-            auto phase_second = std::dynamic_pointer_cast<PALPhaseObservation>(phase_second_ptr);
+            // Get PAL phase from hints (from TBC metadata)
+            auto phase_first = source.get_pal_phase_hint(first_id);
+            auto phase_second = source.get_pal_phase_hint(second_id);
             
-            frame.first_field_phase = phase_first ? phase_first->field_phase_id : -1;
-            frame.second_field_phase = phase_second ? phase_second->field_phase_id : -1;
+            frame.first_field_phase = phase_first.has_value() ? phase_first->field_phase_id : -1;
+            frame.second_field_phase = phase_second.has_value() ? phase_second->field_phase_id : -1;
         } else {
             // NTSC phase is simpler (just field sequence)
             frame.first_field_phase = static_cast<int>(i % 4) + 1;

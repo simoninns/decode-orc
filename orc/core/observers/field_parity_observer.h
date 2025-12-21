@@ -87,7 +87,18 @@ private:
         size_t max_lines = 25) const;
     
     /**
+     * Simplified direct half-line offset detection (primary method).
+     * Measures the position of the first HSYNC after VSYNC to detect
+     * the fundamental half-line timing difference between odd/even fields.
+     * Returns (is_first_field, confidence).
+     */
+    std::pair<bool, int> detect_parity_direct(
+        const std::vector<ClassifiedPulse>& pulses,
+        const VideoParameters& video_params) const;
+    
+    /**
      * Analyze classified pulses to determine field parity for PAL.
+     * Uses gap analysis (ld-decode method) for validation.
      * Returns (is_first_field, confidence).
      */
     std::pair<bool, int> analyze_pal_parity(
@@ -96,6 +107,7 @@ private:
     
     /**
      * Analyze classified pulses to determine field parity for NTSC.
+     * Uses gap analysis (ld-decode method) for validation.
      * Returns (is_first_field, confidence).
      */
     std::pair<bool, int> analyze_ntsc_parity(

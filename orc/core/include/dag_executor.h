@@ -11,8 +11,7 @@
 #pragma once
 
 #include "artifact.h"
-#include "node_type.h"
-#include "stage_parameter.h"
+#include "../stages/stage.h"
 #include <memory>
 #include <vector>
 #include <map>
@@ -29,35 +28,6 @@ class DAGExecutionError : public std::runtime_error {
 public:
     explicit DAGExecutionError(const std::string& msg) : std::runtime_error(msg) {}
 };
-
-/**
- * @brief Represents a processing stage in the DAG
- * 
- * Stages transform input artifacts into output artifacts.
- * They are pure functions of their inputs and parameters.
- */
-class DAGStage {
-public:
-    virtual ~DAGStage() = default;
-    
-    // Stage metadata
-    virtual std::string version() const = 0;
-    
-    // Node type information for GUI and validation
-    virtual NodeTypeInfo get_node_type_info() const = 0;
-    
-    // Execution
-    virtual std::vector<ArtifactPtr> execute(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
-    ) = 0;
-    
-    // Dependency declaration (input artifact requirements)
-    virtual size_t required_input_count() const = 0;
-    virtual size_t output_count() const = 0;
-};
-
-using DAGStagePtr = std::shared_ptr<DAGStage>;
 
 /**
  * @brief Represents a node in the processing DAG

@@ -249,6 +249,60 @@ std::vector<DropoutRegion> TBCVideoFieldRepresentation::get_dropout_hints(FieldI
     return regions;
 }
 
+std::optional<FieldParityHint> TBCVideoFieldRepresentation::get_field_parity_hint(FieldID id) const {
+    if (!metadata_reader_ || !metadata_reader_->is_open()) {
+        return std::nullopt;
+    }
+    
+    // Get field metadata from TBC database
+    auto metadata_opt = get_field_metadata(id);
+    if (!metadata_opt) {
+        return std::nullopt;
+    }
+    
+    const auto& metadata = metadata_opt.value();
+    
+    // Check if is_first_field is available in the metadata
+    if (!metadata.is_first_field.has_value()) {
+        return std::nullopt;
+    }
+    
+    // Create hint from metadata
+    FieldParityHint hint;
+    hint.is_first_field = metadata.is_first_field.value();
+    hint.source = HintSource::METADATA;
+    hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;
+    
+    return hint;
+}
+
+std::optional<PALPhaseHint> TBCVideoFieldRepresentation::get_pal_phase_hint(FieldID id) const {
+    if (!metadata_reader_ || !metadata_reader_->is_open()) {
+        return std::nullopt;
+    }
+    
+    // Get field metadata from TBC database
+    auto metadata_opt = get_field_metadata(id);
+    if (!metadata_opt) {
+        return std::nullopt;
+    }
+    
+    const auto& metadata = metadata_opt.value();
+    
+    // Check if field_phase_id is available in the metadata
+    if (!metadata.field_phase_id.has_value()) {
+        return std::nullopt;
+    }
+    
+    // Create hint from metadata
+    PALPhaseHint hint;
+    hint.field_phase_id = metadata.field_phase_id.value();
+    hint.source = HintSource::METADATA;
+    hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;
+    
+    return hint;
+}
+
 std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {
     // TODO: Implement reading observations from TBC metadata database
     // This would convert metadata (VBI, VITC, field parity, etc.) into Observation objects

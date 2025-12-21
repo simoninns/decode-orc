@@ -43,36 +43,17 @@ std::vector<std::shared_ptr<Observation>> PALPhaseObserver::process_field(
         return {obs};
     }
     
-    // Get field parity from observation history (if FieldParityObserver ran before us)
+    // Get field parity from hint (from TBC metadata)
     // This is critical for correct PAL phase detection!
     bool is_first_field = false;
-    auto parity_from_history = history.get_observation(field_id, "FieldParity");
+    auto parity_hint = representation.get_field_parity_hint(field_id);
     
-    if (parity_from_history) {
-        // Use the already-calculated parity from history
-        auto* parity_obs = dynamic_cast<FieldParityObservation*>(parity_from_history.get());
-        if (parity_obs && parity_obs->confidence_pct >= 25) {
-            is_first_field = parity_obs->is_first_field;
-        } else {
-            obs->confidence = ConfidenceLevel::LOW;
-            return {obs};  // Can't determine field parity reliably
-        }
+    if (parity_hint.has_value()) {
+        is_first_field = parity_hint->is_first_field;
     } else {
-        // Fallback: Calculate field parity ourselves (if FieldParityObserver not in pipeline)
-        FieldParityObserver parity_observer;
-        auto parity_observations = parity_observer.process_field(representation, field_id, history);
-        
-        if (parity_observations.empty()) {
-            obs->confidence = ConfidenceLevel::NONE;
-            return {obs};
-        }
-        
-        auto* parity_obs = dynamic_cast<FieldParityObservation*>(parity_observations[0].get());
-        if (!parity_obs || parity_obs->confidence_pct < 25) {
-            obs->confidence = ConfidenceLevel::LOW;
-            return {obs};  // Can't determine field parity reliably
-        }
-        is_first_field = parity_obs->is_first_field;
+        // No hint available - cannot determine field parity reliably
+        obs->confidence = ConfidenceLevel::LOW;
+        return {obs};
     }
     
     // Get median burst level for comparison

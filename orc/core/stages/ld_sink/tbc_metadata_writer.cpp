@@ -13,8 +13,6 @@
 #include "closed_caption_observer.h"
 #include "vits_observer.h"
 #include "burst_level_observer.h"
-#include "field_parity_observer.h"
-#include "pal_phase_observer.h"
 #include "logging.h"
 #include <sqlite3.h>
 #include <stdexcept>
@@ -643,18 +641,8 @@ bool TBCMetadataWriter::write_observations(FieldID field_id,
                 update_field_median_burst_ire(field_id, burst_obs->median_burst_ire);
             }
         }
-        else if (type == "PALPhase") {
-            auto* phase_obs = dynamic_cast<PALPhaseObservation*>(obs.get());
-            if (phase_obs && phase_obs->field_phase_id > 0) {
-                update_field_phase_id(field_id, phase_obs->field_phase_id);
-            }
-        }
-        else if (type == "FieldParity") {
-            auto* parity_obs = dynamic_cast<FieldParityObservation*>(obs.get());
-            if (parity_obs && parity_obs->confidence_pct >= 25) {
-                update_field_is_first_field(field_id, parity_obs->is_first_field);
-            }
-        }
+        // Note: FieldParity observation removed - field parity comes from hints only
+        // Note: PALPhase observation removed - PAL phase comes from hints only
     }
     
     return true;

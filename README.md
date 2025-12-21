@@ -152,6 +152,16 @@ Some transformations improve video quality and metadata accuracy (e.g. field map
 
 ---
 
+## 5. Decoder Hints
+
+## 5.1 Use and propagation of hints from the decoder
+
+Since the decoder stage (ld-decode, vhs-decode, etc.) has access to information that is not preserved in the TBC file the decoder provides information that cannot be observed.
+
+Such information is termed "hints" and Decode Orc provides a specific mechanism for propagating such information through the DAG chain.
+
+Examples of hints are dropout, field parity (as half-lines are not represented in TBCs) and PAL field phase.
+
 ## 6. Field-Based Navigation Model
 
 ### 6.1 Fields as the Atomic Unit

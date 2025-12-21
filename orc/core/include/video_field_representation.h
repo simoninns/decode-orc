@@ -14,6 +14,8 @@
 #include "artifact.h"
 #include "dropout_decision.h"
 #include "tbc_metadata.h"
+#include "../hints/field_parity_hint.h"
+#include "../hints/pal_phase_hint.h"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -90,11 +92,34 @@ public:
     // Bulk access (returns copy)
     virtual std::vector<sample_type> get_field(FieldID id) const = 0;
     
-    // Dropout hints (metadata from source, e.g., TBC decoder hints)
+    // ========================================================================
+    // HINTS - Information from upstream processors (e.g., ld-decode)
+    // ========================================================================
+    // Hints are metadata provided by external tools that analyzed the video.
+    // They should be preferred over observations when available, as they
+    // represent the original processor's determination.
+    
+    // Dropout hints (from TBC decoder like ld-decode)
     // Returns empty vector if source has no dropout information
     virtual std::vector<DropoutRegion> get_dropout_hints(FieldID /*id*/) const {
         return {};  // Default: no hints
     }
+    
+    // Field parity hint (from TBC metadata like ld-decode's is_first_field)
+    // Returns empty optional if source has no field parity information
+    virtual std::optional<FieldParityHint> get_field_parity_hint(FieldID /*id*/) const {
+        return std::nullopt;  // Default: no hint
+    }
+    
+    // PAL phase hint (from TBC metadata like ld-decode's field_phase_id)
+    // Returns empty optional if source has no PAL phase information
+    virtual std::optional<PALPhaseHint> get_pal_phase_hint(FieldID /*id*/) const {
+        return std::nullopt;  // Default: no hint
+    }
+    
+    // ========================================================================
+    // METADATA - Video parameters and configuration
+    // ========================================================================
     
     // Video parameters (metadata from source, e.g., TBC metadata)
     // Returns empty optional if source has no video parameter information
@@ -102,6 +127,12 @@ public:
     virtual std::optional<VideoParameters> get_video_parameters() const {
         return std::nullopt;  // Default: no parameters
     }
+    
+    // ========================================================================
+    // OBSERVATIONS - Analysis results from orc-core stages
+    // ========================================================================
+    // Observations are computed by orc-core's own analysis (observers).
+    // They should only be used when hints are not available.
     
     // Observation access (metadata from source or computed by stages)
     // Returns observations for a specific field (e.g., field parity, VBI data)
@@ -176,6 +207,14 @@ public:
     // Automatically propagate hints through the chain
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override {
         return source_ ? source_->get_dropout_hints(id) : std::vector<DropoutRegion>{};
+    }
+    
+    std::optional<FieldParityHint> get_field_parity_hint(FieldID id) const override {
+        return source_ ? source_->get_field_parity_hint(id) : std::nullopt;
+    }
+    
+    std::optional<PALPhaseHint> get_pal_phase_hint(FieldID id) const override {
+        return source_ ? source_->get_pal_phase_hint(id) : std::nullopt;
     }
     
     std::optional<VideoParameters> get_video_parameters() const override {

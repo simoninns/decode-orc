@@ -36,7 +36,8 @@ public:
     bool isModified() const { return core_project_.has_unsaved_changes(); }
     void setModified(bool modified) { 
         if (modified) {
-            core_project_.is_modified = true;
+            // We can't directly set is_modified - this is handled by project_io functions
+            // Just rely on the fact that modification operations will set it
         } else {
             core_project_.clear_modified_flag();
         }

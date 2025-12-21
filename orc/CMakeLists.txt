@@ -55,5 +55,22 @@ add_subdirectory(cli)
 
 # GUI (optional)
 if(BUILD_GUI)
+    # Fetch QtNodes for node graph editing
+    include(FetchContent)
+    FetchContent_Declare(
+        QtNodes
+        GIT_REPOSITORY https://github.com/paceholder/nodeeditor.git
+        GIT_TAG master
+        GIT_SHALLOW TRUE
+    )
+    
+    set(USE_QT6 ON CACHE BOOL "Use Qt6 for QtNodes" FORCE)
+    set(BUILD_TESTING OFF CACHE BOOL "Disable QtNodes tests" FORCE)
+    set(BUILD_EXAMPLES OFF CACHE BOOL "Disable QtNodes examples" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build QtNodes as static lib" FORCE)
+    
+    message(STATUS "Fetching QtNodes...")
+    FetchContent_MakeAvailable(QtNodes)
+    
     add_subdirectory(gui)
 endif()

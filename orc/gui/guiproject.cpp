@@ -23,7 +23,7 @@ GUIProject::~GUIProject() = default;
 QString GUIProject::projectName() const
 {
     if (project_path_.isEmpty()) {
-        return QString::fromStdString(core_project_.name);
+        return QString::fromStdString(core_project_.get_name());
     }
     return QFileInfo(project_path_).completeBaseName();
 }
@@ -104,7 +104,7 @@ bool GUIProject::hasSource() const
 QString GUIProject::getSourceName() const
 {
     // Find first SOURCE node and get display name
-    for (const auto& node : core_project_.nodes) {
+    for (const auto& node : core_project_.get_nodes()) {
         if (node.node_type == orc::NodeType::SOURCE) {
             return QString::fromStdString(node.display_name);
         }

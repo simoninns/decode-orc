@@ -17,6 +17,7 @@
 
 #include <iostream>
 #include <filesystem>
+#include <algorithm>
 
 namespace fs = std::filesystem;
 
@@ -41,7 +42,7 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
         return 1;
     }
     
-    ORC_LOG_INFO("Project loaded: {} (version {})", project.name, project.version);
+    ORC_LOG_INFO("Project loaded: {} (version {})", project.get_name(), project.get_version());
     
     // Convert project to DAG
     auto dag = orc::project_to_dag(project);
@@ -52,7 +53,7 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
     
     // Find all source nodes
     std::vector<std::string> source_node_ids;
-    for (const auto& node : project.nodes) {
+    for (const auto& node : project.get_nodes()) {
         if (node.node_type == orc::NodeType::SOURCE) {
             source_node_ids.push_back(node.node_id);
         }
@@ -74,10 +75,10 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
         
         // Find field_map node(s) connected to this source
         std::string field_map_node_id;
-        for (const auto& edge : project.edges) {
+        for (const auto& edge : project.get_edges()) {
             if (edge.source_node_id == source_node_id) {
                 // Check if target is a field_map node
-                for (const auto& node : project.nodes) {
+                for (const auto& node : project.get_nodes()) {
                     if (node.node_id == edge.target_node_id && node.stage_name == "field_map") {
                         field_map_node_id = edge.target_node_id;
                         break;
@@ -155,21 +156,27 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
         int updated_count = 0;
         for (const auto& [field_map_node_id, decision] : decisions) {
             // Update the field mapper node's ranges parameter
-            for (auto& node : project.nodes) {
-                if (node.node_id == field_map_node_id) {
-                    std::string old_value = "";
-                    if (node.parameters.count("ranges")) {
-                        if (auto* str_val = std::get_if<std::string>(&node.parameters["ranges"])) {
-                            old_value = *str_val;
-                        }
+            const auto& nodes = project.get_nodes();
+            auto it = std::find_if(nodes.begin(), nodes.end(),
+                [&field_map_node_id](const ProjectDAGNode& n) { return n.node_id == field_map_node_id; });
+            
+            if (it != nodes.end()) {
+                std::string old_value = "";
+                if (it->parameters.count("ranges")) {
+                    if (auto* str_val = std::get_if<std::string>(&it->parameters.at("ranges"))) {
+                        old_value = *str_val;
                     }
-                    node.parameters["ranges"] = decision.mapping_spec;
-                    updated_count++;
-                    ORC_LOG_INFO("Updated node '{}' ranges parameter", field_map_node_id);
-                    ORC_LOG_INFO("  Old value: {}", old_value.empty() ? "(not set)" : old_value);
-                    ORC_LOG_INFO("  New value: {}", decision.mapping_spec);
-                    break;
                 }
+                
+                // Use project_io to modify parameters
+                auto updated_params = it->parameters;
+                updated_params["ranges"] = decision.mapping_spec;
+                project_io::set_node_parameters(project, field_map_node_id, updated_params);
+                
+                updated_count++;
+                ORC_LOG_INFO("Updated node '{}' ranges parameter", field_map_node_id);
+                ORC_LOG_INFO("  Old value: {}", old_value.empty() ? "(not set)" : old_value);
+                ORC_LOG_INFO("  New value: {}", decision.mapping_spec);
             }
         }
         

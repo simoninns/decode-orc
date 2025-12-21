@@ -4,8 +4,10 @@
  * Purpose:     Project to DAG conversion
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
- */
+ * SPDX-FileCopyrightText: 2025 Simon Inns *
+ * ARCHITECTURE NOTE:
+ * This file uses READ-ONLY access to Project via const getters.
+ * It NEVER modifies Project state - use project_io:: functions for that. */
 
 
 #include "project_to_dag.h"
@@ -24,7 +26,7 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
     // All nodes are uniform now - SOURCE nodes just use TBCSourceStage
     std::vector<DAGNode> dag_nodes;
     
-    for (const auto& proj_node : project.nodes) {
+    for (const auto& proj_node : project.get_nodes()) {
         DAGNode dag_node;
         dag_node.node_id = proj_node.node_id;
         
@@ -49,7 +51,7 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         }
         
         // Find input edges for this node
-        for (const auto& edge : project.edges) {
+        for (const auto& edge : project.get_edges()) {
             if (edge.target_node_id == proj_node.node_id) {
                 dag_node.input_node_ids.push_back(edge.source_node_id);
                 dag_node.input_indices.push_back(0);  // Assume output index 0
@@ -66,7 +68,7 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
     
     // Find SINK nodes for output
     std::vector<std::string> output_node_ids;
-    for (const auto& proj_node : project.nodes) {
+    for (const auto& proj_node : project.get_nodes()) {
         if (proj_node.node_type == NodeType::SINK) {
             output_node_ids.push_back(proj_node.node_id);
         }

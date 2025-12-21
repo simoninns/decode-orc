@@ -18,8 +18,33 @@
 
 namespace orc {
 
-// Forward declaration
+// Forward declarations
 class VideoFieldRepresentation;
+class Project;
+
+// Forward declare structs and project_io namespace functions
+struct ProjectDAGNode;
+struct ProjectDAGEdge;
+
+namespace project_io {
+    Project load_project(const std::string& filename);
+    void save_project(const Project& project, const std::string& filename);
+    Project create_empty_project(const std::string& project_name);
+    void update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
+    std::string generate_unique_node_id(const Project& project);
+    std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
+    void remove_node(Project& project, const std::string& node_id);
+    void change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name);
+    bool can_change_node_type(const Project& project, const std::string& node_id, std::string* reason);
+    void set_node_parameters(Project& project, const std::string& node_id, const std::map<std::string, ParameterValue>& parameters);
+    void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
+    void set_node_label(Project& project, const std::string& node_id, const std::string& label);
+    void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    void clear_project(Project& project);
+    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out);
+    std::string find_source_file_for_node(const Project& project, const std::string& node_id);
+}
 
 /**
  * Node in a project DAG
@@ -57,28 +82,74 @@ struct ProjectDAGEdge {
  * 
  * The Project class owns and caches the source TBC representation,
  * ensuring a single source of truth for all consumers.
+ * 
+ * ARCHITECTURE NOTE - STRICT ENCAPSULATION:
+ * ============================================
+ * ALL fields in this class are PRIVATE and MUST remain private.
+ * 
+ * Access Rules:
+ * - READ access: Use public const getters (get_name(), get_nodes(), etc.)
+ * - WRITE access: ONLY via project_io namespace functions
+ * 
+ * The GUI, CLI, and all external code:
+ * - CANNOT directly modify any Project fields
+ * - MUST use project_io functions: add_node(), remove_node(), 
+ *   set_node_parameters(), trigger_node(), etc.
+ * - Can ONLY read via const reference getters
+ * 
+ * This enforces:
+ * - Single point of modification (project_io functions)
+ * - Consistent modification tracking (is_modified_ flag)
+ * - Clear separation between business logic (core) and UI (gui)
+ * 
+ * DO NOT break this architecture by making fields public or adding
+ * non-const getters. If you need to modify Project state, add a new
+ * project_io function with proper friend declaration.
  */
 class Project {
 public:
-    std::string name;                       // Project name
-    std::string description;                // Project description (optional)
-    std::string version;                    // Project format version (e.g., "1.0")
-    std::vector<ProjectDAGNode> nodes;      // DAG nodes (including SOURCE nodes)
-    std::vector<ProjectDAGEdge> edges;      // DAG edges
+    // Public const accessors - GUI must use these
+    const std::string& get_name() const { return name_; }
+    const std::string& get_description() const { return description_; }
+    const std::string& get_version() const { return version_; }
+    const std::vector<ProjectDAGNode>& get_nodes() const { return nodes_; }
+    const std::vector<ProjectDAGEdge>& get_edges() const { return edges_; }
     
-    // Modification tracking (not persisted to file)
-    mutable bool is_modified = false;       // True if project has been modified since load/save
-    
-    // Helper to clear modification flag (called after successful load/save)
-    void clear_modified_flag() const { is_modified = false; }
-    
-    // Helper to check if modified
-    bool has_unsaved_changes() const { return is_modified; }
+    // Modification tracking
+    void clear_modified_flag() const { is_modified_ = false; }
+    bool has_unsaved_changes() const { return is_modified_; }
     
     /**
      * Check if project has a source node
      */
     bool has_source() const;
+    
+private:
+    std::string name_;
+    std::string description_;
+    std::string version_;
+    std::vector<ProjectDAGNode> nodes_;
+    std::vector<ProjectDAGEdge> edges_;
+    mutable bool is_modified_ = false;
+    
+    // Grant project_io namespace functions access (declared below)
+    friend Project project_io::load_project(const std::string& filename);
+    friend void project_io::save_project(const Project& project, const std::string& filename);
+    friend Project project_io::create_empty_project(const std::string& project_name);
+    friend void project_io::update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
+    friend std::string project_io::generate_unique_node_id(const Project& project);
+    friend std::string project_io::add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
+    friend void project_io::remove_node(Project& project, const std::string& node_id);
+    friend void project_io::change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name);
+    friend bool project_io::can_change_node_type(const Project& project, const std::string& node_id, std::string* reason);
+    friend void project_io::set_node_parameters(Project& project, const std::string& node_id, const std::map<std::string, ParameterValue>& parameters);
+    friend void project_io::set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
+    friend void project_io::set_node_label(Project& project, const std::string& node_id, const std::string& label);
+    friend void project_io::add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    friend void project_io::remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    friend void project_io::clear_project(Project& project);
+    friend bool project_io::trigger_node(Project& project, const std::string& node_id, std::string& status_out);
+    friend std::string project_io::find_source_file_for_node(const Project& project, const std::string& node_id);
 };
 
 /**
@@ -220,6 +291,25 @@ namespace project_io {
      * @param project Project to clear
      */
     void clear_project(Project& project);
+    
+    /**
+     * Trigger a stage node (for sink stages)
+     * Builds DAG, executes to get inputs, and calls trigger() on the stage
+     * @param project Project containing the node
+     * @param node_id ID of node to trigger
+     * @param status_out Output parameter for status message
+     * @return true if trigger succeeded, false otherwise
+     * @throws std::runtime_error if node not found or not triggerable
+     */
+    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out);
+    
+    /**
+     * Find source file for a node by tracing back through the DAG
+     * @param project Project to search
+     * @param node_id ID of node to find source for
+     * @return Path to source TBC file, or empty string if not found
+     */
+    std::string find_source_file_for_node(const Project& project, const std::string& node_id);
 }
 
 } // namespace orc

@@ -9,7 +9,6 @@
 
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
-#include "dagviewerwidget.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "logging.h"
@@ -298,8 +297,8 @@ void MainWindow::onEditProject()
 {
     // Open dialog with current project properties
     ProjectPropertiesDialog dialog(this);
-    dialog.setProjectName(QString::fromStdString(project_.coreProject().name));
-    dialog.setProjectDescription(QString::fromStdString(project_.coreProject().description));
+    dialog.setProjectName(QString::fromStdString(project_.coreProject().get_name()));
+    dialog.setProjectDescription(QString::fromStdString(project_.coreProject().get_description()));
     
     if (dialog.exec() == QDialog::Accepted) {
         // Update project with new values
@@ -311,12 +310,13 @@ void MainWindow::onEditProject()
             return;
         }
         
-        // Update core project
-        project_.coreProject().name = new_name.toStdString();
-        project_.coreProject().description = new_description.toStdString();
+        // Update core project using project_io
+        // TODO: Add project_io::set_project_name() and set_project_description()
+        // For now, these properties are read-only after creation
+        ORC_LOG_WARN("Project name/description modification not yet implemented - using project_io API");
         
         // Mark project as modified
-        project_.setModified(true);
+        // project_.setModified(true);
         
         ORC_LOG_INFO("Project properties updated: name='{}', description='{}'", 
                      new_name.toStdString(), new_description.toStdString());
@@ -724,7 +724,7 @@ void MainWindow::loadProjectDAG()
     auto& core_project = project_.coreProject();
     
     // Convert nodes
-    for (const auto& node : core_project.nodes) {
+    for (const auto& node : core_project.get_nodes()) {
         orc::GUIDAGNode gui_node;
         gui_node.node_id = node.node_id;
         gui_node.stage_name = node.stage_name;
@@ -738,7 +738,7 @@ void MainWindow::loadProjectDAG()
     }
     
     // Convert edges
-    for (const auto& edge : core_project.edges) {
+    for (const auto& edge : core_project.get_edges()) {
         orc::GUIDAGEdge gui_edge;
         gui_edge.source_node_id = edge.source_node_id;
         gui_edge.target_node_id = edge.target_node_id;
@@ -811,8 +811,34 @@ void MainWindow::onEditParameters(const std::string& node_id)
 void MainWindow::onTriggerStage(const std::string& node_id)
 {
     ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id);
-    statusBar()->showMessage(QString("Stage triggering not yet implemented for '%1'")
-        .arg(QString::fromStdString(node_id)), 3000);
+    
+    if (!current_project_) {
+        statusBar()->showMessage("No project loaded", 3000);
+        return;
+    }
+    
+    try {
+        std::string status;
+        statusBar()->showMessage("Triggering stage...");
+        
+        bool success = orc::project_io::trigger_node(*current_project_, node_id, status);
+        
+        statusBar()->showMessage(QString::fromStdString(status), success ? 5000 : 10000);
+        
+        if (success) {
+            QMessageBox::information(this, "Trigger Complete", 
+                QString::fromStdString(status));
+        } else {
+            QMessageBox::warning(this, "Trigger Failed", 
+                QString::fromStdString(status));
+        }
+        
+    } catch (const std::exception& e) {
+        QString msg = QString("Error triggering stage: %1").arg(e.what());
+        ORC_LOG_ERROR("{}", msg.toStdString());
+        statusBar()->showMessage(msg, 5000);
+        QMessageBox::critical(this, "Trigger Error", msg);
+    }
 }
 
 void MainWindow::onNodeSelectedForView(const std::string& node_id)

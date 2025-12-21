@@ -323,10 +323,11 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
                                          Project& project,
                                          const std::string& node_id) {
     // Find the target node in the project
-    auto node_it = std::find_if(project.nodes.begin(), project.nodes.end(),
+    const auto& nodes = project.get_nodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
-    if (node_it == project.nodes.end()) {
+    if (node_it == nodes.end()) {
         std::cerr << "DiscMapperAnalysisTool::applyToGraph: node not found: " << node_id << std::endl;
         return false;
     }
@@ -359,7 +360,10 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     }
     
     // Set the FieldMapStage's "ranges" parameter to the computed mapping spec
-    node_it->parameters["ranges"] = mappingSpec;
+    // Use project_io function to modify parameters
+    auto updated_params = node_it->parameters;
+    updated_params["ranges"] = mappingSpec;
+    project_io::set_node_parameters(project, node_id, updated_params);
     
     ORC_LOG_INFO("Successfully applied mapping spec to FieldMapStage 'ranges' parameter");
     std::cout << "Successfully applied mapping spec to FieldMapStage 'ranges' parameter" << std::endl;

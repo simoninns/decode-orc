@@ -20,12 +20,12 @@ add_executable(orc-gui
     mainwindow.h
     guiproject.cpp
     guiproject.h
-    dageditorwindow.cpp
-    dageditorwindow.h
+    orcgraphmodel.cpp
+    orcgraphmodel.h
+    orcgraphicsscene.cpp
+    orcgraphicsscene.h
     fieldpreviewwidget.cpp
     fieldpreviewwidget.h
-    dagviewerwidget.cpp
-    dagviewerwidget.h
     stageparameterdialog.cpp
     stageparameterdialog.h
     projectpropertiesdialog.cpp
@@ -50,6 +50,7 @@ target_link_libraries(orc-gui PRIVATE
     orc-core 
     Qt6::Core 
     Qt6::Widgets
+    QtNodes
 )
 
 target_compile_definitions(orc-gui PRIVATE

@@ -17,14 +17,18 @@
 #include <memory>
 #include "guiproject.h"
 #include "preview_renderer.h"  // For PreviewOutputType
+#include <QtNodes/GraphicsView>
+#include <QtNodes/BasicGraphicsScene>
+#include "orcgraphmodel.h"
+#include "orcgraphicsscene.h"
 
 namespace orc {
     class VideoFieldRepresentation;
     class DAG;
+    class AnalysisTool;
 }
 
 class FieldPreviewWidget;
-class DAGViewerWidget;
 class QLabel;
 class QSlider;
 class QToolBar;
@@ -58,6 +62,7 @@ public:
 
 protected:
     void keyPressEvent(QKeyEvent* event) override;
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private slots:
     void onNewProject();
@@ -72,6 +77,7 @@ private slots:
     void onNodeSelectedForView(const std::string& node_id);
     void onDAGModified();
     void onExportPNG();
+    void onNodeContextMenu(QtNodes::NodeId nodeId, const QPointF& pos);
 
 private:
     void setupUI();
@@ -88,6 +94,7 @@ private:
     void loadProjectDAG();  // Load DAG into embedded viewer
     void onEditParameters(const std::string& node_id);
     void onTriggerStage(const std::string& node_id);
+    void runAnalysisForNode(orc::AnalysisTool* tool, const std::string& node_id, const std::string& stage_name);
     
     // Settings helpers
     QString getLastProjectDirectory() const;
@@ -97,10 +104,13 @@ private:
     GUIProject project_;
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
     std::string current_view_node_id_;  // Which node is being viewed
+    QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
     
     // UI components
     FieldPreviewWidget* preview_widget_;
-    DAGViewerWidget* dag_viewer_;
+    OrcGraphModel* graph_model_;
+    QtNodes::GraphicsView* dag_view_;
+    OrcGraphicsScene* dag_scene_;
     QSplitter* main_splitter_;
     QSlider* preview_slider_;
     QLabel* preview_info_label_;

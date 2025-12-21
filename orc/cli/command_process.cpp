@@ -43,12 +43,12 @@ int process_command(const ProcessOptions& options) {
         return 1;
     }
     
-    ORC_LOG_INFO("Project loaded: {} (version {})", project.name, project.version);
-    if (!project.description.empty()) {
-        ORC_LOG_INFO("Project description: {}", project.description);
+    ORC_LOG_INFO("Project loaded: {} (version {})", project.get_name(), project.get_version());
+    if (!project.get_description().empty()) {
+        ORC_LOG_INFO("Project description: {}", project.get_description());
     }
     ORC_LOG_INFO("Project contains {} nodes and {} edges", 
-                 project.nodes.size(), project.edges.size());
+                 project.get_nodes().size(), project.get_edges().size());
     
     // Convert project to DAG
     auto dag = orc::project_to_dag(project);
@@ -61,7 +61,7 @@ int process_command(const ProcessOptions& options) {
     std::vector<std::string> sink_nodes;
     auto& registry = StageRegistry::instance();
     
-    for (const auto& node : project.nodes) {
+    for (const auto& node : project.get_nodes()) {
         if (!registry.has_stage(node.stage_name)) {
             ORC_LOG_WARN("Unknown stage type: {}", node.stage_name);
             continue;

@@ -11,6 +11,7 @@
 
 #include "../../include/video_field_representation.h"
 #include "../../include/field_id.h"
+#include "../../observers/biphase_observer.h"
 #include <string>
 #include <vector>
 #include <map>
@@ -26,6 +27,8 @@ struct FieldMappingDecision {
     bool success = false;      ///< True if mapping was successful
     std::string rationale;     ///< Human-readable explanation of decisions
     std::vector<std::string> warnings;  ///< Warnings about potential issues
+    bool is_cav = false;       ///< True if CAV disc, false if CLV
+    bool is_pal = false;       ///< True if PAL format, false if NTSC
     
     // Statistics for reporting
     struct Stats {
@@ -126,6 +129,7 @@ private:
     // Helper functions
     std::string generate_mapping_spec(const std::vector<FrameInfo>& frames);
     std::string generate_rationale(const FieldMappingDecision::Stats& stats, bool is_cav, bool is_pal);
+    int32_t convert_clv_timecode_to_frame(const CLVTimecode& clv_tc, bool is_pal);
     
     // Current analysis state
     Options current_options_;

@@ -59,16 +59,21 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     }
     
     ORC_LOG_INFO("Observers complete, processing {} fields", stats_.total_fields);
+    ORC_LOG_DEBUG("Field range: {} to {}", field_range.start.value(), field_range.end.value());
     
     // Step 2: Build frame map from fields
     // Combine pairs of fields into frames
     std::vector<FrameInfo> frames;
+    
+    ORC_LOG_INFO("Building frame map from field pairs...");
     
     // Determine video format from first field descriptor
     auto first_descriptor = source.get_descriptor(field_range.start);
     VideoFormat format = first_descriptor ? first_descriptor->format : VideoFormat::NTSC;
     bool is_pal = (format == VideoFormat::PAL);
     bool is_cav = false;  // Determine from VBI
+    
+    ORC_LOG_DEBUG("Video format: {}", is_pal ? "PAL" : "NTSC");
     
     // Group fields into frames (2 fields per frame)
     for (size_t i = 0; i + 1 < field_range.size(); i += 2) {
@@ -86,22 +91,33 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         auto vbi_first = std::dynamic_pointer_cast<BiphaseObservation>(vbi_first_ptr);
         auto vbi_second = std::dynamic_pointer_cast<BiphaseObservation>(vbi_second_ptr);
         
+        // Check for CAV picture number
         if (vbi_first && vbi_first->picture_number.has_value()) {
             frame.vbi_frame_number = vbi_first->picture_number.value();
             is_cav = true;
         } else if (vbi_second && vbi_second->picture_number.has_value()) {
             frame.vbi_frame_number = vbi_second->picture_number.value();
             is_cav = true;
-        } else if (vbi_first && vbi_first->clv_timecode.has_value()) {
+        }
+        // Check for CLV timecode and convert to frame number
+        else if (vbi_first && vbi_first->clv_timecode.has_value()) {
             is_cav = false;
+            frame.vbi_frame_number = convert_clv_timecode_to_frame(vbi_first->clv_timecode.value(), is_pal);
         } else if (vbi_second && vbi_second->clv_timecode.has_value()) {
             is_cav = false;
+            frame.vbi_frame_number = convert_clv_timecode_to_frame(vbi_second->clv_timecode.value(), is_pal);
         }
         
         // Get phase data
         if (is_pal) {
-            // TODO: Implement PALPhaseObservation reading when phase observer is available
-            // For now, leave phase values uninitialized
+            // Get PAL phase observations (8-field sequence for PAL)
+            auto phase_first_ptr = history.get_observation(first_id, "PALPhase");
+            auto phase_second_ptr = history.get_observation(second_id, "PALPhase");
+            auto phase_first = std::dynamic_pointer_cast<PALPhaseObservation>(phase_first_ptr);
+            auto phase_second = std::dynamic_pointer_cast<PALPhaseObservation>(phase_second_ptr);
+            
+            frame.first_field_phase = phase_first ? phase_first->field_phase_id : -1;
+            frame.second_field_phase = phase_second ? phase_second->field_phase_id : -1;
         } else {
             // NTSC phase is simpler (just field sequence)
             frame.first_field_phase = static_cast<int>(i % 4) + 1;
@@ -139,11 +155,29 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     ORC_LOG_INFO("Built frame map with {} frames (format={} disc_type={})",
                  frames.size(), is_pal ? "PAL" : "NTSC", is_cav ? "CAV" : "CLV");
     
+    // Log first few frames for debugging
+    size_t debug_count = std::min(size_t(5), frames.size());
+    ORC_LOG_DEBUG("First {} frames:", debug_count);
+    for (size_t i = 0; i < debug_count; ++i) {
+        ORC_LOG_DEBUG("  Frame {}: Fields {}-{}, VBI={}, Quality={:.2f}, Pulldown={}, LeadInOut={}",
+                     i, frames[i].first_field.value(), frames[i].second_field.value(),
+                     frames[i].vbi_frame_number, frames[i].quality_score,
+                     frames[i].is_pulldown, frames[i].is_lead_in_out);
+    }
+    
     // Step 3: Apply analysis and corrections
+    ORC_LOG_INFO("Applying disc mapping corrections...");
     remove_lead_in_out(frames);
+    ORC_LOG_DEBUG("After lead-in/out removal: {} frames remaining", frames.size());
+    
     remove_invalid_frames_by_phase(frames, format);
+    ORC_LOG_DEBUG("After phase validation: {} frames remaining", frames.size());
+    
     correct_vbi_using_sequence_analysis(frames);
+    ORC_LOG_DEBUG("After VBI correction: {} frames", frames.size());
+    
     remove_duplicate_frames(frames);
+    ORC_LOG_DEBUG("After duplicate removal: {} frames remaining", frames.size());
     
     if (!is_pal && is_cav) {
         number_pulldown_frames(frames);
@@ -164,26 +198,38 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     }
     
     reorder_frames(frames);
+    ORC_LOG_DEBUG("After reordering: {} frames", frames.size());
     
     if (options.pad_gaps) {
         pad_gaps(frames);
+        ORC_LOG_DEBUG("After gap padding: {} frames", frames.size());
     }
     
     if (!is_pal && is_cav && stats_.pulldown_frames > 0) {
         renumber_for_pulldown(frames);
+        ORC_LOG_DEBUG("After pulldown renumbering: {} frames", frames.size());
     }
     
     // Step 4: Generate mapping specification
+    ORC_LOG_INFO("Generating field mapping specification...");
     decision.mapping_spec = generate_mapping_spec(frames);
     decision.stats = stats_;
+    decision.is_cav = is_cav;
+    decision.is_pal = is_pal;
     decision.success = true;
     decision.rationale = generate_rationale(stats_, is_cav, is_pal);
     
     ORC_LOG_INFO("Disc mapping analysis complete");
-    ORC_LOG_INFO("  Mapping spec: {}", decision.mapping_spec.substr(0, 100) + "...");
-    ORC_LOG_INFO("  Stats: removed_lead={} invalid_phase={} duplicates={} gaps={}",
+    ORC_LOG_INFO("  Final frame count: {}", frames.size());
+    ORC_LOG_INFO("  Mapping spec length: {} chars", decision.mapping_spec.length());
+    if (decision.mapping_spec.length() <= 200) {
+        ORC_LOG_INFO("  Mapping spec: {}", decision.mapping_spec);
+    } else {
+        ORC_LOG_INFO("  Mapping spec (first 200 chars): {}...", decision.mapping_spec.substr(0, 200));
+    }
+    ORC_LOG_INFO("  Stats: removed_lead={} invalid_phase={} duplicates={} gaps={} padding={}",
                  stats_.removed_lead_in_out, stats_.removed_invalid_phase,
-                 stats_.removed_duplicates, stats_.gaps_padded);
+                 stats_.removed_duplicates, stats_.gaps_padded, stats_.padding_frames);
     
     return decision;
 }
@@ -317,6 +363,15 @@ void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frame
         }
     }
     
+    // Count duplicates
+    size_t duplicate_vbi_count = 0;
+    for (const auto& [vbi_num, indices] : vbi_to_frames) {
+        if (indices.size() > 1) {
+            duplicate_vbi_count++;
+        }
+    }
+    ORC_LOG_DEBUG("Found {} VBI frame numbers with duplicates", duplicate_vbi_count);
+    
     size_t removed = 0;
     
     // For each duplicated VBI number, keep the best quality
@@ -332,6 +387,9 @@ void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frame
                     best_idx = idx;
                 }
             }
+            
+            ORC_LOG_DEBUG("VBI {}: {} duplicates found, keeping frame {} (quality={:.2f})",
+                         vbi_num, indices.size(), frames[best_idx].seq_frame_number, best_quality);
             
             // Mark all others for deletion
             for (size_t idx : indices) {
@@ -484,11 +542,12 @@ void FieldMappingAnalyzer::renumber_for_pulldown(std::vector<FrameInfo>& frames)
 std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameInfo>& frames) {
     // Generate field map specification string
     // Format: "field_range,PAD_count,field_range,..."
+    // Field ranges use FIELD IDs (from the source), not frame indices
     
     std::ostringstream spec;
     bool first = true;
     
-    size_t current_range_start = 0;
+    uint64_t current_range_start_field = 0;
     bool in_real_range = false;
     size_t pad_count = 0;
     
@@ -497,7 +556,9 @@ std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameI
             // End current real range if any
             if (in_real_range && i > 0) {
                 if (!first) spec << ",";
-                spec << current_range_start << "-" << (i - 1);
+                // Use the second field ID of the previous frame as the end of range
+                uint64_t range_end_field = frames[i-1].second_field.value();
+                spec << current_range_start_field << "-" << range_end_field;
                 first = false;
                 in_real_range = false;
             }
@@ -513,7 +574,8 @@ std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameI
             
             // Start or continue real range
             if (!in_real_range) {
-                current_range_start = i;
+                // Use the first field ID of this frame as the start of range
+                current_range_start_field = frames[i].first_field.value();
                 in_real_range = true;
             }
         }
@@ -522,7 +584,18 @@ std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameI
     // Output final range or padding
     if (in_real_range) {
         if (!first) spec << ",";
-        spec << current_range_start << "-" << (frames.size() - 1 - pad_count);
+        // Use the second field ID of the last non-padded frame
+        uint64_t range_end_field = frames.back().second_field.value();
+        if (frames.back().is_padded) {
+            // Find last non-padded frame
+            for (int i = static_cast<int>(frames.size()) - 1; i >= 0; --i) {
+                if (!frames[i].is_padded) {
+                    range_end_field = frames[i].second_field.value();
+                    break;
+                }
+            }
+        }
+        spec << current_range_start_field << "-" << range_end_field;
     } else if (pad_count > 0) {
         if (!first) spec << ",";
         spec << "PAD_" << pad_count;
@@ -577,6 +650,38 @@ std::string FieldMappingAnalyzer::generate_rationale(
     }
     
     return rationale.str();
+}
+
+int32_t FieldMappingAnalyzer::convert_clv_timecode_to_frame(const CLVTimecode& clv_tc, bool is_pal) {
+    // Convert CLV timecode to frame number
+    // Based on legacy LdDecodeMetaData::convertClvTimecodeToFrameNumber
+    
+    // Check for invalid timecode
+    if (clv_tc.hours == -1 && clv_tc.minutes == -1 && 
+        clv_tc.seconds == -1 && clv_tc.picture_number == -1) {
+        return -1;
+    }
+    
+    int32_t frame_number = 0;
+    int32_t fps = is_pal ? 25 : 30;
+    
+    if (clv_tc.hours != -1) {
+        frame_number += clv_tc.hours * 3600 * fps;
+    }
+    
+    if (clv_tc.minutes != -1) {
+        frame_number += clv_tc.minutes * 60 * fps;
+    }
+    
+    if (clv_tc.seconds != -1) {
+        frame_number += clv_tc.seconds * fps;
+    }
+    
+    if (clv_tc.picture_number != -1) {
+        frame_number += clv_tc.picture_number;
+    }
+    
+    return frame_number;
 }
 
 } // namespace orc

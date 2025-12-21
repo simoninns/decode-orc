@@ -8,6 +8,7 @@
 #include "logging.h"
 #include <iostream>
 #include <algorithm>
+#include <sstream>
 
 namespace orc {
 
@@ -210,9 +211,40 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
             progress->setProgress(100);
         }
         
-        // Build summary
+        // Build detailed summary
         const auto& stats = decision.stats;
-        result.summary = "Analysis complete: " + std::to_string(stats.total_fields) + " fields processed";
+        size_t total_frames = stats.total_fields / 2;
+        size_t final_frames = total_frames - stats.removed_lead_in_out - stats.removed_invalid_phase 
+                            - stats.removed_duplicates - stats.removed_unmappable + stats.padding_frames;
+        
+        std::ostringstream summary;
+        std::string disc_type = decision.is_cav ? "CAV" : "CLV";
+        std::string video_format = decision.is_pal ? "PAL" : "NTSC";
+        
+        summary << "Source: " << video_format << " " << disc_type << " disc\n";
+        summary << "Analysis complete: " << stats.total_fields << " fields (" << total_frames << " frames) processed\n";
+        summary << "Final output: " << final_frames << " frames";
+        
+        if (stats.removed_duplicates > 0 || stats.gaps_padded > 0 || stats.removed_lead_in_out > 0) {
+            summary << " (";
+            bool need_sep = false;
+            if (stats.removed_duplicates > 0) {
+                summary << stats.removed_duplicates << " duplicates removed";
+                need_sep = true;
+            }
+            if (stats.gaps_padded > 0) {
+                if (need_sep) summary << ", ";
+                summary << stats.gaps_padded << " gaps padded";
+                need_sep = true;
+            }
+            if (stats.removed_lead_in_out > 0) {
+                if (need_sep) summary << ", ";
+                summary << stats.removed_lead_in_out << " lead-in/out removed";
+            }
+            summary << ")";
+        }
+        
+        result.summary = summary.str();
         
         if (!decision.success) {
             result.status = AnalysisResult::Failed;
@@ -221,6 +253,8 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         }
         
         // Statistics
+        result.statistics["discType"] = decision.is_cav ? "CAV" : "CLV";
+        result.statistics["videoFormat"] = decision.is_pal ? "PAL" : "NTSC";
         result.statistics["totalFields"] = static_cast<long long>(stats.total_fields);
         result.statistics["removedLeadInOut"] = static_cast<long long>(stats.removed_lead_in_out);
         result.statistics["removedInvalidPhase"] = static_cast<long long>(stats.removed_invalid_phase);
@@ -234,6 +268,24 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         // Store mapping spec for graph application
         result.graphData["mappingSpec"] = decision.mapping_spec;
         result.graphData["rationale"] = decision.rationale;
+        
+        // Add detailed info items for display
+        AnalysisResult::ResultItem spec_item;
+        spec_item.type = "info";
+        if (decision.mapping_spec.length() <= 500) {
+            spec_item.message = "Field mapping specification: " + decision.mapping_spec;
+        } else {
+            spec_item.message = "Field mapping specification (" + 
+                              std::to_string(decision.mapping_spec.length()) + 
+                              " chars): " + decision.mapping_spec.substr(0, 500) + "...";
+        }
+        result.items.push_back(spec_item);
+        
+        // Add rationale as separate item
+        AnalysisResult::ResultItem rationale_item;
+        rationale_item.type = "info";
+        rationale_item.message = decision.rationale;
+        result.items.push_back(rationale_item);
         
         result.status = AnalysisResult::Success;
         return result;

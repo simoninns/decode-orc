@@ -252,7 +252,7 @@ std::vector<DropoutRegion> TBCVideoFieldRepresentation::get_dropout_hints(FieldI
 std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {
     // TODO: Implement reading observations from TBC metadata database
     // This would convert metadata (VBI, VITC, field parity, etc.) into Observation objects
-    // For now, return empty - observers will compute fresh
+    // For now, return empty - observers will compute fresh from TBC signal data
     // 
     // Future implementation:
     // - Read field_record for is_first_field → FieldParityObservation

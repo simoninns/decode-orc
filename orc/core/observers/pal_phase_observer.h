@@ -53,8 +53,8 @@ private:
         size_t line,
         const VideoParameters& video_params) const;
     
-    // Compute if burst phase is rising on a line
-    std::optional<bool> compute_line_burst_rising(
+    // Measure burst phase on a specific line (in degrees)
+    std::optional<double> measure_burst_phase(
         const VideoFieldRepresentation& representation,
         FieldID field_id,
         size_t line,

@@ -75,9 +75,6 @@ std::vector<std::shared_ptr<Observation>> PALPhaseObserver::process_field(
         is_first_field = parity_obs->is_first_field;
     }
     
-    // PAL has line offsets (ld-decode: lineoffset = 2 for first field, 3 for second)
-    size_t line_offset = is_first_field ? 2 : 3;
-    
     // Get median burst level for comparison
     double median_burst = 0.0;
     std::vector<double> burst_levels;
@@ -96,79 +93,106 @@ std::vector<std::shared_ptr<Observation>> PALPhaseObserver::process_field(
     std::sort(burst_levels.begin(), burst_levels.end());
     median_burst = burst_levels[burst_levels.size() / 2];
     
-    // Step 1: Determine 4-field sequence based on burst presence on line 6
-    // PAL line numbering accounts for field offset (line 6 + lineoffset)
-    auto burst6_opt = get_burst_level(representation, field_id, 6 + line_offset, video_params);
-    if (!burst6_opt.has_value()) {
-        obs->confidence = ConfidenceLevel::LOW;
-        return {obs};  // Can't determine without line 6 burst info
-    }
+    // Step 1: Determine 4-field sequence using burst presence/absence on line 6
+    // PAL spec uses 1-based line numbering, but our get_line() uses 0-based indexing
+    // So "line 6" in PAL spec corresponds to get_line(field_id, 5)
+    // Lines 7, 8 in spec correspond to get_line indices 6, 7
+    auto burst6 = get_burst_level(representation, field_id, 5, video_params);  // Spec line 6
+    auto phase7_opt = measure_burst_phase(representation, field_id, 6, video_params);  // Spec line 7
+    auto phase8_opt = measure_burst_phase(representation, field_id, 7, video_params);  // Spec line 8
     
-    double burst6_level = burst6_opt.value();
-    
-    // Determine if line 6 has valid burst
-    bool has_burst_line6;
-    if (burst6_level >= median_burst * 0.8 && burst6_level <= median_burst * 1.2) {
-        has_burst_line6 = true;
-    } else if (burst6_level < median_burst * 0.2) {
-        has_burst_line6 = false;
-    } else {
-        // Ambiguous burst level
+    if (!phase7_opt.has_value()) {
         obs->confidence = ConfidenceLevel::LOW;
         return {obs};
     }
     
-    // Map to 4-field sequence
-    // (first field, has burst on line 6) → phase
+    double phase7 = phase7_opt.value();
+    
+    // Determine 4-field position using burst presence on line 6 (as per ld-decode)
+    // Field 1: First field, no burst on line 6
+    // Field 2: Second field, burst on line 6  
+    // Field 3: First field, burst on line 6
+    // Field 4: Second field, no burst on line 6
     int phase_4field;
-    if (is_first_field && !has_burst_line6) {
-        phase_4field = 1;
-    } else if (!is_first_field && has_burst_line6) {
-        phase_4field = 2;
-    } else if (is_first_field && has_burst_line6) {
-        phase_4field = 3;
-    } else {  // !is_first_field && !has_burst_line6
-        phase_4field = 4;
-    }
-    
-    // Step 2: Determine if it's fields 1-4 or 5-8 by checking burst phase on lines 7,11,15,19 (accounting for line offset)
-    int rising_count = 0;
-    int total_count = 0;
-    
-    for (size_t line : {7, 11, 15, 19}) {
-        auto rising_opt = compute_line_burst_rising(representation, field_id, line + line_offset, video_params);
-        if (rising_opt.has_value()) {
-            if (rising_opt.value()) {
-                rising_count++;
-            }
-            total_count++;
+    if (burst6.has_value()) {
+        double burst_level = burst6.value();
+        bool hasburst;
+        
+        // Use ld-decode's threshold logic with adjusted ranges:
+        // Strong burst: >= 70% of median
+        // Weak/no burst: < 30% of median  
+        // Ambiguous: 30-70% - use field parity to make educated guess
+        if (burst_level >= median_burst * 0.7) {
+            hasburst = true;
+        } else if (burst_level < median_burst * 0.3) {
+            hasburst = false;
+        } else {
+            // Ambiguous burst level - use field parity for educated guess
+            // Burst on line 6 tends to appear in fields 2 and 3
+            // No burst tends to appear in fields 1 and 4
+            // So guess: first field → likely field 3 (burst), second field → likely field 4 (no burst)
+            obs->confidence = ConfidenceLevel::MEDIUM;
+            hasburst = is_first_field;  // First field more likely to have burst if ambiguous
+            ORC_LOG_TRACE("PALPhaseObserver: Field {} first={} burst6={:.0f} median={:.0f} AMBIGUOUS → guessing hasburst={}",
+                         field_id.value(), is_first_field, burst_level, median_burst, hasburst);
         }
-    }
-    
-    if (total_count == 0 || (rising_count * 2) == total_count) {
-        // Can't determine or exactly 50/50
+        
+        // Map (is_first_field, hasburst) to 4-field position
+        if (is_first_field && !hasburst) phase_4field = 1;
+        else if (!is_first_field && hasburst) phase_4field = 2;
+        else if (is_first_field && hasburst) phase_4field = 3;
+        else phase_4field = 4;  // (!is_first_field && !hasburst)
+        
+        ORC_LOG_TRACE("PALPhaseObserver: Field {} first={} burst6={:.0f} median={:.0f} hasburst={} → phase_4field={}",
+                     field_id.value(), is_first_field, burst_level, median_burst, hasburst, phase_4field);
+    } else {
+        // No burst measurement - use fallback
         obs->confidence = ConfidenceLevel::LOW;
-        obs->field_phase_id = phase_4field;  // At least we know 1-4 sequence
         return {obs};
     }
     
-    // Determine if it's first four or second four
-    bool is_first_four = (rising_count * 2) > total_count;
+
+    // Normalize to 0-360 range
+    while (phase7 < 0) phase7 += 360.0;
+    while (phase7 >= 360.0) phase7 -= 360.0;
     
-    // For field 2/6, reverse the determination
-    if (phase_4field == 2) {
-        is_first_four = !is_first_four;
+    // PAL 8-field sequence discrimination using I/Q-demodulated burst phase
+    // The phase on line 7 follows a specific pattern across the 8-field sequence
+    // Combined with the 4-field position, we can determine the exact field phase
+    
+    // Observed phase patterns from I/Q demodulation:
+    // Phase ~245-265°: corresponds to certain fields in the 8-field sequence
+    // Phase ~65-85°: corresponds to other fields
+    
+    // Empirical mapping based on correlation with reference data:
+    int final_phase;
+    bool high_phase = (phase7 >= 200 && phase7 <= 280);  // ~245-265° range
+    
+    // Mapping corrected after fixing line indexing (using 0-based lines 5,6,7 for spec lines 6,7,8):
+    // phase_4field=1 (first field, no burst on line 6):
+    //   high_phase → field 5, low_phase → field 1
+    // phase_4field=2 (second field, burst on line 6):
+    //   high_phase → field 2, low_phase → field 6
+    // phase_4field=3 (first field, burst on line 6):
+    //   high_phase → field 7, low_phase → field 3
+    // phase_4field=4 (second field, no burst on line 6):
+    //   high_phase → field 8, low_phase → field 4
+    
+    if (phase_4field == 1) {
+        final_phase = high_phase ? 5 : 1;
+    } else if (phase_4field == 2) {
+        final_phase = high_phase ? 2 : 6;
+    } else if (phase_4field == 3) {
+        final_phase = high_phase ? 7 : 3;
+    } else {  // phase_4field == 4
+        final_phase = high_phase ? 8 : 4;
     }
     
-    // Final phase ID
-    obs->field_phase_id = phase_4field + (is_first_four ? 0 : 4);
-    obs->confidence = (total_count >= 3) ? ConfidenceLevel::HIGH : ConfidenceLevel::MEDIUM;
+    obs->field_phase_id = final_phase;
+    obs->confidence = ConfidenceLevel::HIGH;
     
-    ORC_LOG_DEBUG("PALPhaseObserver: Field {} phase_id={} (confidence={})",
-                  field_id.value(), obs->field_phase_id, 
-                  obs->confidence == ConfidenceLevel::HIGH ? "HIGH" : 
-                  obs->confidence == ConfidenceLevel::MEDIUM ? "MEDIUM" : 
-                  obs->confidence == ConfidenceLevel::LOW ? "LOW" : "NONE");
+    ORC_LOG_DEBUG("PALPhaseObserver: Field {} phase7={:.1f}° phase_4field={} high_phase={} → phase_id={}",
+                  field_id.value(), phase7, phase_4field, high_phase, obs->field_phase_id);
     
     return {obs};
 }
@@ -214,7 +238,7 @@ std::optional<double> PALPhaseObserver::get_burst_level(
     return rms * std::sqrt(2.0);
 }
 
-std::optional<bool> PALPhaseObserver::compute_line_burst_rising(
+std::optional<double> PALPhaseObserver::measure_burst_phase(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
     size_t line,
@@ -225,64 +249,63 @@ std::optional<bool> PALPhaseObserver::compute_line_burst_rising(
         return std::nullopt;
     }
     
+    // PAL subcarrier frequency and sampling parameters
+    const double fsc_hz = 4433618.75;  // PAL subcarrier frequency in Hz
+    const double sample_rate_hz = video_params.sample_rate;
+    const double angular_freq = 2.0 * M_PI * fsc_hz / sample_rate_hz;
+    
+    // Burst timing from video parameters
     size_t burst_start = static_cast<size_t>(video_params.colour_burst_start);
     size_t burst_end = static_cast<size_t>(video_params.colour_burst_end);
     
-    if (burst_end <= burst_start) {
+    if (burst_end <= burst_start || burst_end >= static_cast<size_t>(video_params.field_width)) {
         return std::nullopt;
     }
     
-    // Collect burst samples
-    std::vector<double> burst_samples;
-    for (size_t idx = burst_start; idx <= burst_end; ++idx) {
-        burst_samples.push_back(static_cast<double>(line_data[idx]));
-    }
-    
-    if (burst_samples.size() < 8) {
+    size_t burst_len = burst_end - burst_start;
+    if (burst_len < 8) {
         return std::nullopt;
     }
     
-    // Remove DC component
-    double mean = std::accumulate(burst_samples.begin(), burst_samples.end(), 0.0) / burst_samples.size();
-    
-    std::vector<double> centered;
-    for (double sample : burst_samples) {
-        centered.push_back(sample - mean);
+    // Extract burst samples and remove DC component
+    std::vector<double> burst;
+    double sum = 0.0;
+    for (size_t i = burst_start; i < burst_end; ++i) {
+        double sample = static_cast<double>(line_data[i]);
+        burst.push_back(sample);
+        sum += sample;
+    }
+    double mean = sum / burst.size();
+    for (double& s : burst) {
+        s -= mean;
     }
     
-    // Calculate RMS for threshold
-    double rms = calculate_rms(centered);
-    double threshold = rms;
+    // I/Q demodulation: correlate burst with sin and cos reference at subcarrier frequency
+    // This acts as a phase detector locked to the subcarrier
+    double I = 0.0;  // In-phase component
+    double Q = 0.0;  // Quadrature component
     
-    if (threshold < 1.0) {
-        return std::nullopt;  // Signal too weak
+    for (size_t i = 0; i < burst.size(); ++i) {
+        double phase = angular_freq * (burst_start + i);
+        I += burst[i] * std::cos(phase);
+        Q += burst[i] * std::sin(phase);
     }
     
-    // Count zero crossings and determine if they're rising or falling
-    int rising_count = 0;
-    int total_crossings = 0;
+    // Normalize by burst length
+    I /= burst.size();
+    Q /= burst.size();
     
-    for (size_t i = 1; i < centered.size(); ++i) {
-        // Check for zero crossing
-        if ((centered[i-1] < 0 && centered[i] >= 0) || (centered[i-1] >= 0 && centered[i] < 0)) {
-            total_crossings++;
-            
-            // Check if magnitude is significant
-            if (std::abs(centered[i]) > threshold * 0.3) {
-                // Rising if crossing from negative to positive
-                if (centered[i-1] < 0 && centered[i] >= 0) {
-                    rising_count++;
-                }
-            }
-        }
+    // Calculate phase angle from I/Q components
+    // atan2 gives phase in radians (-π to π)
+    double phase_rad = std::atan2(Q, I);
+    
+    // Convert to degrees (0-360)
+    double phase_deg = phase_rad * 180.0 / M_PI;
+    if (phase_deg < 0) {
+        phase_deg += 360.0;
     }
     
-    if (total_crossings < 8) {
-        return std::nullopt;  // Not enough crossings for valid burst
-    }
-    
-    // Majority of crossings should be rising or falling
-    return rising_count > (total_crossings / 2);
+    return phase_deg;
 }
 
 double PALPhaseObserver::calculate_rms(const std::vector<double>& data) const {

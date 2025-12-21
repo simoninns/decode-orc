@@ -240,13 +240,16 @@ void FieldMappingAnalyzer::remove_lead_in_out(std::vector<FrameInfo>& frames) {
     size_t removed = 0;
     for (auto& frame : frames) {
         if (frame.is_lead_in_out) {
+            ORC_LOG_DEBUG("Removing lead-in/out frame: seq={}, VBI={}", 
+                         frame.seq_frame_number, frame.vbi_frame_number);
             frame.marked_for_deletion = true;
             removed++;
         }
         
         // Also remove CAV frame 0 (illegal)
         if (frame.vbi_frame_number == 0 && !frame.is_lead_in_out) {
-            ORC_LOG_WARN("Frame with illegal CAV frame number 0 found, marking for deletion");
+            ORC_LOG_WARN("Removing frame with illegal CAV frame number 0: seq={}", 
+                        frame.seq_frame_number);
             frame.marked_for_deletion = true;
             removed++;
         }
@@ -279,14 +282,25 @@ void FieldMappingAnalyzer::remove_invalid_frames_by_phase(
             if (expected_next == 5) expected_next = 1;  // NTSC wraps at 4
         }
         
-        // Only remove frames with invalid phase if they ALSO have invalid VBI numbers
-        // Frames with valid VBI but broken phase indicate field skips/gaps in the source
+        // Log phase info for debugging (first 10 frames)
+        if (frame.seq_frame_number < 10 || frame.seq_frame_number == 29 || frame.seq_frame_number == 79 || frame.seq_frame_number == 109) {
+            ORC_LOG_DEBUG("Frame {} (VBI# {}): phases {}/{}, expected second={}", 
+                         frame.seq_frame_number, frame.vbi_frame_number,
+                         frame.first_field_phase, frame.second_field_phase, expected_next);
+        }
+        
+        // Remove frames where field phases are not in sequence
+        // This matches ld-discmap behavior - invalid phase means the frame is broken
         if (frame.second_field_phase != expected_next && 
             frame.first_field_phase != -1 && 
-            frame.second_field_phase != -1 &&
-            frame.vbi_frame_number == -1) {
-            ORC_LOG_DEBUG("Marking frame {} for deletion: invalid phase (expected {}, got {}) and no VBI frame number",
-                         frame.seq_frame_number, expected_next, frame.second_field_phase);
+            frame.second_field_phase != -1) {
+            if (frame.vbi_frame_number != -1) {
+                ORC_LOG_DEBUG("Marking frame {} for deletion (VBI Frame# {}): phases not in sequence (expected {}, got {})",
+                             frame.seq_frame_number, frame.vbi_frame_number, expected_next, frame.second_field_phase);
+            } else {
+                ORC_LOG_DEBUG("Marking frame {} for deletion (no VBI): phases not in sequence (expected {}, got {})",
+                             frame.seq_frame_number, expected_next, frame.second_field_phase);
+            }
             frame.marked_for_deletion = true;
             removed++;
         }
@@ -471,12 +485,14 @@ void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frame
                 }
             }
             
-            ORC_LOG_DEBUG("VBI frame #{}: {} duplicate frames found, keeping seq frame {} (quality={:.2f})",
+            ORC_LOG_DEBUG("VBI frame #{}: {} duplicates, keeping seq frame {} (quality={:.2f})",
                          vbi_num, indices.size(), frames[best_idx].seq_frame_number, best_quality);
             
             // Mark all others for deletion
             for (size_t idx : indices) {
                 if (idx != best_idx) {
+                    ORC_LOG_DEBUG("  Removing duplicate: seq frame {} (quality={:.2f})",
+                                 frames[idx].seq_frame_number, frames[idx].quality_score);
                     frames[idx].marked_for_deletion = true;
                     removed++;
                 }
@@ -502,6 +518,8 @@ void FieldMappingAnalyzer::number_pulldown_frames(std::vector<FrameInfo>& frames
     // Give pulldown frames the same number as previous frame
     for (size_t i = 1; i < frames.size(); ++i) {
         if (frames[i].is_pulldown) {
+            ORC_LOG_DEBUG("Numbering pulldown frame: seq={}, assigned VBI={} (from previous frame)",
+                         frames[i].seq_frame_number, frames[i-1].vbi_frame_number);
             frames[i].vbi_frame_number = frames[i-1].vbi_frame_number;
             pulldown_count++;
         }
@@ -520,12 +538,18 @@ void FieldMappingAnalyzer::number_pulldown_frames(std::vector<FrameInfo>& frames
 bool FieldMappingAnalyzer::verify_frame_numbers(const std::vector<FrameInfo>& frames) {
     ORC_LOG_INFO("Verifying all frames have valid VBI frame numbers...");
     
+    size_t unmappable = 0;
     for (const auto& frame : frames) {
         if (frame.vbi_frame_number < 0) {
-            ORC_LOG_WARN("Sequential frame {} has invalid VBI frame number {}", 
-                           frame.seq_frame_number, frame.vbi_frame_number);
-            return false;
+            ORC_LOG_WARN("Unmappable frame found: seq={}, VBI={}, pulldown={}", 
+                         frame.seq_frame_number, frame.vbi_frame_number, frame.is_pulldown);
+            unmappable++;
         }
+    }
+    
+    if (unmappable > 0) {
+        ORC_LOG_WARN("Verification failed: {} frames have invalid VBI numbers", unmappable);
+        return false;
     }
     
     ORC_LOG_INFO("Verification successful - all frames have valid VBI frame numbers");
@@ -538,6 +562,8 @@ void FieldMappingAnalyzer::delete_unmappable_frames(std::vector<FrameInfo>& fram
     size_t removed = 0;
     for (auto& frame : frames) {
         if (frame.vbi_frame_number < 0 && !frame.is_pulldown) {
+            ORC_LOG_DEBUG("Deleting unmappable frame: seq={}, VBI={}",
+                         frame.seq_frame_number, frame.vbi_frame_number);
             frame.marked_for_deletion = true;
             removed++;
         }
@@ -589,6 +615,8 @@ void FieldMappingAnalyzer::pad_gaps(std::vector<FrameInfo>& frames) {
             int32_t gap_size = next_vbi - current_vbi - 1;
             
             if (gap_size > 0 && gap_size < 1000) {  // Sanity check
+                ORC_LOG_DEBUG("Gap found: current VBI={}, next VBI={}, gap size={} frames",
+                             current_vbi, next_vbi, gap_size);
                 // Insert padding frames
                 for (int32_t j = 0; j < gap_size; ++j) {
                     FrameInfo pad_frame;
@@ -599,7 +627,8 @@ void FieldMappingAnalyzer::pad_gaps(std::vector<FrameInfo>& frames) {
                 gaps++;
                 total_padding += gap_size;
             } else if (gap_size >= 1000) {
-                ORC_LOG_WARN("Large gap detected ({} frames), skipping padding", gap_size);
+                ORC_LOG_WARN("Large gap detected ({} frames), skipping padding (VBI {} to {})", 
+                            gap_size, current_vbi, next_vbi);
             }
         }
     }

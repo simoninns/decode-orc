@@ -197,6 +197,10 @@ public:
                 // This includes VBI data, drop-outs, etc. from the actual field
                 LdDecodeMetaData::Field fieldMeta = metaData.getField(sourceFieldNum);
                 
+                // IMPORTANT: Recalculate isFirstField based on OUTPUT position, not source
+                // When skipping odd numbers of fields, the parity flips and must be corrected
+                fieldMeta.isFirstField = (i % 2 == 0);
+                
                 // appendField() will automatically set seqNo to maintain sequential numbering
                 outputMetaData.appendField(fieldMeta);
             } else {

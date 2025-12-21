@@ -50,105 +50,135 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
         return 1;
     }
     
-    // Find source node (any SOURCE type node)
-    std::string source_node_id;
+    // Find all source nodes
+    std::vector<std::string> source_node_ids;
     for (const auto& node : project.nodes) {
         if (node.node_type == orc::NodeType::SOURCE) {
-            source_node_id = node.node_id;
-            break;
+            source_node_ids.push_back(node.node_id);
         }
     }
     
-    if (source_node_id.empty()) {
-        ORC_LOG_ERROR("No SOURCE node found in project");
+    if (source_node_ids.empty()) {
+        ORC_LOG_ERROR("No SOURCE nodes found in project");
         return 1;
     }
     
-    ORC_LOG_INFO("Found source node: {}", source_node_id);
+    ORC_LOG_INFO("Found {} source node(s)", source_node_ids.size());
     
-    // Execute DAG to get source representation
-    DAGExecutor executor;
-    auto results = executor.execute_to_node(*dag, source_node_id);
+    // For each source, find connected field_map nodes and analyze
+    std::map<std::string, FieldMappingDecision> decisions;
     
-    auto source_it = results.find(source_node_id);
-    if (source_it == results.end() || source_it->second.empty()) {
-        ORC_LOG_ERROR("Failed to execute source node");
-        return 1;
+    for (const auto& source_node_id : source_node_ids) {
+        ORC_LOG_INFO("");
+        ORC_LOG_INFO("=== Analyzing source: {} ===", source_node_id);
+        
+        // Find field_map node(s) connected to this source
+        std::string field_map_node_id;
+        for (const auto& edge : project.edges) {
+            if (edge.source_node_id == source_node_id) {
+                // Check if target is a field_map node
+                for (const auto& node : project.nodes) {
+                    if (node.node_id == edge.target_node_id && node.stage_name == "field_map") {
+                        field_map_node_id = edge.target_node_id;
+                        break;
+                    }
+                }
+                if (!field_map_node_id.empty()) break;
+            }
+        }
+        
+        if (field_map_node_id.empty()) {
+            ORC_LOG_WARN("No field_map node found connected to source {}, skipping", source_node_id);
+            continue;
+        }
+        
+        ORC_LOG_INFO("Found connected field_map node: {}", field_map_node_id);
+        
+        // Execute DAG to get source representation
+        DAGExecutor executor;
+        auto results = executor.execute_to_node(*dag, source_node_id);
+        
+        auto source_it = results.find(source_node_id);
+        if (source_it == results.end() || source_it->second.empty()) {
+            ORC_LOG_ERROR("Failed to execute source node {}", source_node_id);
+            continue;
+        }
+        
+        auto source_artifact = source_it->second[0];
+        auto* video_rep = dynamic_cast<VideoFieldRepresentation*>(source_artifact.get());
+        if (!video_rep) {
+            ORC_LOG_ERROR("Source node {} did not produce VideoFieldRepresentation", source_node_id);
+            continue;
+        }
+        
+        ORC_LOG_INFO("Running field mapping analysis...");
+        
+        // Run field mapping analysis
+        FieldMappingAnalyzer analyzer;
+        FieldMappingAnalyzer::Options analyzer_options;
+        analyzer_options.pad_gaps = options.pad_gaps;
+        analyzer_options.delete_unmappable_frames = options.delete_unmappable;
+        
+        auto decision = analyzer.analyze(*video_rep, analyzer_options);
+        
+        if (!decision.success) {
+            ORC_LOG_ERROR("Field mapping analysis failed for {}: {}", source_node_id, decision.rationale);
+            continue;
+        }
+        
+        ORC_LOG_INFO("Field mapping analysis successful");
+        ORC_LOG_INFO("Mapping specification: {}", decision.mapping_spec);
+        ORC_LOG_INFO("Statistics:");
+        ORC_LOG_INFO("  Input: {} fields", decision.stats.total_fields);
+        ORC_LOG_INFO("  Output: {} fields", (decision.stats.total_fields - decision.stats.removed_lead_in_out * 2 
+                     - decision.stats.removed_invalid_phase * 2 - decision.stats.removed_duplicates * 2 
+                     - decision.stats.removed_unmappable * 2 + decision.stats.padding_frames * 2));
+        ORC_LOG_INFO("  Removed: invalid_phase={} duplicates={} lead_in_out={}", 
+                     decision.stats.removed_invalid_phase, decision.stats.removed_duplicates, 
+                     decision.stats.removed_lead_in_out);
+        ORC_LOG_INFO("  Added: padding_frames={}", decision.stats.padding_frames);
+        
+        // Store decision for this field_map node
+        decisions[field_map_node_id] = decision;
     }
     
-    auto source_artifact = source_it->second[0];
-    auto* video_rep = dynamic_cast<VideoFieldRepresentation*>(source_artifact.get());
-    if (!video_rep) {
-        ORC_LOG_ERROR("Source node did not produce VideoFieldRepresentation");
+    if (decisions.empty()) {
+        ORC_LOG_ERROR("No field mapping analyses succeeded");
         return 1;
     }
-    
-    ORC_LOG_INFO("Running field mapping analysis...");
-    
-    // Run field mapping analysis
-    FieldMappingAnalyzer analyzer;
-    FieldMappingAnalyzer::Options analyzer_options;
-    analyzer_options.pad_gaps = options.pad_gaps;
-    analyzer_options.delete_unmappable_frames = options.delete_unmappable;
-    
-    auto decision = analyzer.analyze(*video_rep, analyzer_options);
-    
-    if (!decision.success) {
-        ORC_LOG_ERROR("Field mapping analysis failed: {}", decision.rationale);
-        return 1;
-    }
-    
-    ORC_LOG_INFO("Field mapping analysis successful");
-    ORC_LOG_INFO("Mapping specification: {}", decision.mapping_spec);
-    ORC_LOG_INFO("");
-    ORC_LOG_INFO("Statistics:");
-    ORC_LOG_INFO("  correctedVBIErrors: {}", decision.stats.corrected_vbi_errors);
-    ORC_LOG_INFO("  discType: {}", decision.is_cav ? "CAV" : "CLV");
-    ORC_LOG_INFO("  gapsPadded: {}", decision.stats.gaps_padded);
-    ORC_LOG_INFO("  paddingFrames: {}", decision.stats.padding_frames);
-    ORC_LOG_INFO("  pulldownFrames: {}", decision.stats.pulldown_frames);
-    ORC_LOG_INFO("  removedDuplicates: {}", decision.stats.removed_duplicates);
-    ORC_LOG_INFO("  removedInvalidPhase: {}", decision.stats.removed_invalid_phase);
-    ORC_LOG_INFO("  removedLeadInOut: {}", decision.stats.removed_lead_in_out);
-    ORC_LOG_INFO("  removedUnmappable: {}", decision.stats.removed_unmappable);
-    ORC_LOG_INFO("  totalFields: {}", decision.stats.total_fields);
-    ORC_LOG_INFO("  videoFormat: {}", decision.is_pal ? "PAL" : "NTSC");
     
     // Update project file if requested
     if (options.update_project) {
         ORC_LOG_INFO("");
-        ORC_LOG_INFO("Updating project file with mapping specification...");
+        ORC_LOG_INFO("Updating project file with mapping specifications...");
         
-        // Find field mapper node
-        std::string field_mapper_node_id;
-        for (const auto& node : project.nodes) {
-            if (node.stage_name == "field_map") {
-                field_mapper_node_id = node.node_id;
-                break;
+        int updated_count = 0;
+        for (const auto& [field_map_node_id, decision] : decisions) {
+            // Update the field mapper node's ranges parameter
+            for (auto& node : project.nodes) {
+                if (node.node_id == field_map_node_id) {
+                    std::string old_value = "";
+                    if (node.parameters.count("ranges")) {
+                        if (auto* str_val = std::get_if<std::string>(&node.parameters["ranges"])) {
+                            old_value = *str_val;
+                        }
+                    }
+                    node.parameters["ranges"] = decision.mapping_spec;
+                    updated_count++;
+                    ORC_LOG_INFO("Updated node '{}' ranges parameter", field_map_node_id);
+                    ORC_LOG_INFO("  Old value: {}", old_value.empty() ? "(not set)" : old_value);
+                    ORC_LOG_INFO("  New value: {}", decision.mapping_spec);
+                    break;
+                }
             }
         }
         
-        if (field_mapper_node_id.empty()) {
-            ORC_LOG_ERROR("No field_map node found in project");
+        if (updated_count == 0) {
+            ORC_LOG_ERROR("Failed to update any field_map nodes");
             return 1;
         }
         
-        // Update the field mapper node's ranges parameter in the project structure
-        bool updated = false;
-        for (auto& node : project.nodes) {
-            if (node.node_id == field_mapper_node_id) {
-                // Update the ranges parameter (ParameterValue is a variant, just assign the string)
-                node.parameters["ranges"] = decision.mapping_spec;
-                updated = true;
-                ORC_LOG_INFO("Updated node '{}' ranges parameter", field_mapper_node_id);
-                break;
-            }
-        }
-        
-        if (!updated) {
-            ORC_LOG_ERROR("Failed to find node '{}' in project", field_mapper_node_id);
-            return 1;
-        }
+        ORC_LOG_DEBUG("About to save project with {} updated nodes", updated_count);
         
         // Save the project using the built-in save function
         try {

@@ -61,11 +61,17 @@ public:
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+    
+    // Stage inspection
+    std::optional<StageReport> generate_report() const override;
 
 private:
     // Cache the loaded representation to avoid reloading
     mutable std::string cached_tbc_path_;
     mutable std::shared_ptr<TBCVideoFieldRepresentation> cached_representation_;
+    
+    // Store parameters for inspection
+    std::map<std::string, ParameterValue> parameters_;
 };
 
 } // namespace orc

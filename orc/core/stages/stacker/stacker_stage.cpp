@@ -476,29 +476,14 @@ std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors() const
 
 std::map<std::string, ParameterValue> StackerStage::get_parameters() const
 {
-    std::map<std::string, ParameterValue> params;
-    
-    // Convert mode integer to string for UI
-    std::string mode_str;
-    switch (m_mode) {
-        case -1: mode_str = "Auto"; break;
-        case 0:  mode_str = "Mean"; break;
-        case 1:  mode_str = "Median"; break;
-        case 2:  mode_str = "Smart Mean"; break;
-        case 3:  mode_str = "Smart Neighbor"; break;
-        case 4:  mode_str = "Neighbor"; break;
-        default: mode_str = "Auto"; break;
-    }
-    params["mode"] = mode_str;
-    params["smart_threshold"] = m_smart_threshold;
-    params["no_diff_dod"] = m_no_diff_dod;
-    params["passthrough"] = m_passthrough;
-    params["reverse"] = m_reverse;
-    return params;
+    return parameters_;
 }
 
 bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
+    // Store parameters
+    parameters_ = params;
+    
     bool any_changed = false;
     int32_t old_mode = m_mode;
     int32_t old_threshold = m_smart_threshold;
@@ -575,6 +560,30 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
     }
     
     return true;
+}
+
+std::optional<StageReport> StackerStage::generate_report() const {
+    StageReport report;
+    
+    // Summary
+    const char* mode_names[] = {"Auto", "Mean", "Median", "Smart Mean", "Smart Neighbor", "Neighbor"};
+    int mode_index = m_mode + 1;  // -1 (Auto) becomes 0
+    if (mode_index < 0 || mode_index >= 6) mode_index = 0;
+    
+    report.summary = "Stacker Configuration";
+    
+    // Configuration items
+    report.items.push_back({"Stacking Mode", mode_names[mode_index]});
+    report.items.push_back({"Smart Threshold", std::to_string(m_smart_threshold)});
+    report.items.push_back({"Differential Dropout Detection", m_no_diff_dod ? "Disabled" : "Enabled"});
+    report.items.push_back({"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
+    report.items.push_back({"Reverse Field Order", m_reverse ? "Yes" : "No"});
+    
+    // Metrics
+    report.metrics["mode"] = static_cast<int64_t>(m_mode);
+    report.metrics["smart_threshold"] = static_cast<int64_t>(m_smart_threshold);
+    
+    return report;
 }
 
 } // namespace orc

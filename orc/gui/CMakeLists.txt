@@ -40,6 +40,10 @@ add_executable(orc-gui
     analysis/analysis_runner.h
     analysis/analysis_dialog.cpp
     analysis/analysis_dialog.h
+    
+    # Inspection dialog
+    inspection_dialog.cpp
+    inspection_dialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

@@ -221,9 +221,13 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         std::string disc_type = decision.is_cav ? "CAV" : "CLV";
         std::string video_format = decision.is_pal ? "PAL" : "NTSC";
         
-        summary << "Source: " << video_format << " " << disc_type << " disc\n";
-        summary << "Analysis complete: " << stats.total_fields << " fields (" << total_frames << " field pairs/frames) processed\n";
-        summary << "Final output: " << final_frames << " frames (" << (final_frames * 2) << " fields)";
+        summary << "Source: " << video_format << " " << disc_type << " disc\n\n";
+        
+        summary << "Input:\n";
+        summary << "  " << stats.total_fields << " fields (" << total_frames << " field pairs/frames)\n\n";
+        
+        summary << "Output:\n";
+        summary << "  " << final_frames << " frames (" << (final_frames * 2) << " fields)";
         
         if (stats.removed_duplicates > 0 || stats.gaps_padded > 0 || stats.removed_lead_in_out > 0) {
             summary << " (";
@@ -244,6 +248,15 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
             summary << ")";
         }
         
+        // Add generated mapping spec to summary
+        summary << "\n\nGenerated Field Mapping:\n";
+        if (decision.mapping_spec.length() <= 200) {
+            summary << "  " << decision.mapping_spec;
+        } else {
+            summary << "  " << decision.mapping_spec.substr(0, 200) << "...\n";
+            summary << "  (Full spec: " << decision.mapping_spec.length() << " chars - see details below)";
+        }
+        
         result.summary = summary.str();
         
         if (!decision.success) {
@@ -256,6 +269,8 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         result.statistics["discType"] = decision.is_cav ? "CAV" : "CLV";
         result.statistics["videoFormat"] = decision.is_pal ? "PAL" : "NTSC";
         result.statistics["totalFields"] = static_cast<long long>(stats.total_fields);
+        result.statistics["outputFields"] = static_cast<long long>(final_frames * 2);
+        result.statistics["outputFrames"] = static_cast<long long>(final_frames);
         result.statistics["removedLeadInOut"] = static_cast<long long>(stats.removed_lead_in_out);
         result.statistics["removedInvalidPhase"] = static_cast<long long>(stats.removed_invalid_phase);
         result.statistics["removedDuplicates"] = static_cast<long long>(stats.removed_duplicates);
@@ -269,23 +284,25 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         result.graphData["mappingSpec"] = decision.mapping_spec;
         result.graphData["rationale"] = decision.rationale;
         
+        ORC_LOG_DEBUG("Field mapping analysis - adding mapping spec to result items ({} chars)", 
+                     decision.mapping_spec.length());
+        
         // Add detailed info items for display
         AnalysisResult::ResultItem spec_item;
         spec_item.type = "info";
-        if (decision.mapping_spec.length() <= 500) {
-            spec_item.message = "Field mapping specification: " + decision.mapping_spec;
-        } else {
-            spec_item.message = "Field mapping specification (" + 
-                              std::to_string(decision.mapping_spec.length()) + 
-                              " chars): " + decision.mapping_spec.substr(0, 500) + "...";
-        }
+        spec_item.message = "Generated Field Mapping Specification:\n\n" + decision.mapping_spec;
         result.items.push_back(spec_item);
+        
+        ORC_LOG_DEBUG("Field mapping analysis - adding rationale to result items ({} chars)", 
+                     decision.rationale.length());
         
         // Add rationale as separate item
         AnalysisResult::ResultItem rationale_item;
         rationale_item.type = "info";
-        rationale_item.message = decision.rationale;
+        rationale_item.message = "Analysis Rationale:\n\n" + decision.rationale;
         result.items.push_back(rationale_item);
+        
+        ORC_LOG_DEBUG("Field mapping analysis complete - {} result items total", result.items.size());
         
         result.status = AnalysisResult::Success;
         return result;
@@ -317,10 +334,22 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     // Apply mapping spec to the node's parameters
     auto mapping_it = result.graphData.find("mappingSpec");
     if (mapping_it == result.graphData.end()) {
+        ORC_LOG_ERROR("FieldMappingAnalysisTool::applyToGraph - No mapping spec in result");
         std::cerr << "No mapping spec in result" << std::endl;
         return false;
     }
     std::string mappingSpec = mapping_it->second;
+    
+    ORC_LOG_INFO("Applying field mapping results to node {}", node_id);
+    if (node_it->parameters.count("ranges")) {
+        auto& old_value = node_it->parameters.at("ranges");
+        if (auto* str_val = std::get_if<std::string>(&old_value)) {
+            ORC_LOG_INFO("  Old ranges parameter: {}", *str_val);
+        }
+    } else {
+        ORC_LOG_INFO("  Old ranges parameter: (not set)");
+    }
+    ORC_LOG_INFO("  New mapping spec: {}", mappingSpec);
     
     std::cout << "Applying field mapping results to node " << node_id << std::endl;
     std::cout << "  Mapping spec: " << mappingSpec << std::endl;
@@ -332,6 +361,7 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     // Set the FieldMapStage's "ranges" parameter to the computed mapping spec
     node_it->parameters["ranges"] = mappingSpec;
     
+    ORC_LOG_INFO("Successfully applied mapping spec to FieldMapStage 'ranges' parameter");
     std::cout << "Successfully applied mapping spec to FieldMapStage 'ranges' parameter" << std::endl;
     return true;
 }

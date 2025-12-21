@@ -205,6 +205,13 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     
     // Step 4: Generate mapping specification
     ORC_LOG_INFO("Generating field mapping specification...");
+    ORC_LOG_DEBUG("Before generate_mapping_spec: {} frames remaining", frames.size());
+    if (frames.size() > 0) {
+        ORC_LOG_DEBUG("  First frame: fields {}-{}", 
+                     frames.front().first_field.value(), frames.front().second_field.value());
+        ORC_LOG_DEBUG("  Last frame: fields {}-{}", 
+                     frames.back().first_field.value(), frames.back().second_field.value());
+    }
     decision.mapping_spec = generate_mapping_spec(frames);
     decision.stats = stats_;
     decision.is_cav = is_cav;
@@ -675,12 +682,44 @@ std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameI
             // Output pending padding if any
             if (pad_count > 0) {
                 if (!first) spec << ",";
-                spec << "PAD_" << pad_count;
+                // PAD directive is in fields (frames * 2)
+                spec << "PAD_" << (pad_count * 2);
                 first = false;
                 pad_count = 0;
             }
             
-            // Start or continue real range
+            // Check if this frame is contiguous with the previous range
+            bool is_contiguous = false;
+            if (in_real_range && i > 0) {
+                // Find the previous non-padded frame
+                for (int j = static_cast<int>(i) - 1; j >= 0; --j) {
+                    if (!frames[j].is_padded) {
+                        // Check if current frame's first field immediately follows previous frame's second field
+                        uint64_t prev_second_field = frames[j].second_field.value();
+                        uint64_t curr_first_field = frames[i].first_field.value();
+                        is_contiguous = (curr_first_field == prev_second_field + 1);
+                        break;
+                    }
+                }
+            }
+            
+            // If not contiguous, close current range and start a new one
+            if (in_real_range && !is_contiguous) {
+                // Close previous range
+                if (!first) spec << ",";
+                // Find the last non-padded frame before this one
+                for (int j = static_cast<int>(i) - 1; j >= 0; --j) {
+                    if (!frames[j].is_padded) {
+                        uint64_t range_end_field = frames[j].second_field.value();
+                        spec << current_range_start_field << "-" << range_end_field;
+                        break;
+                    }
+                }
+                first = false;
+                in_real_range = false;
+            }
+            
+            // Start new range if not currently in one
             if (!in_real_range) {
                 // Use the first field ID of this frame as the start of range
                 current_range_start_field = frames[i].first_field.value();
@@ -706,7 +745,8 @@ std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameI
         spec << current_range_start_field << "-" << range_end_field;
     } else if (pad_count > 0) {
         if (!first) spec << ",";
-        spec << "PAD_" << pad_count;
+        // PAD directive is in fields (frames * 2)
+        spec << "PAD_" << (pad_count * 2);
     }
     
     return spec.str();

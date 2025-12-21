@@ -69,12 +69,10 @@ private:
     QLabel* estimateLabel_;
     QLabel* summaryLabel_;
     QProgressBar* progressBar_;
-    QTableWidget* resultsTable_;
     QTextEdit* statisticsText_;
     QPushButton* runButton_;
     QPushButton* cancelButton_;
     QPushButton* applyButton_;
-    QPushButton* exportButton_;
     QPushButton* closeButton_;
     QFormLayout* parametersLayout_;
 

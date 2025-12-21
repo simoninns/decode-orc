@@ -131,20 +131,91 @@ std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors() c
 
 std::map<std::string, ParameterValue> LDPALSourceStage::get_parameters() const
 {
-    // Source stages don't maintain parameter state - parameters are passed to execute()
-    return {};
+    return parameters_;
 }
 
 bool LDPALSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
-    // Source stages don't maintain parameter state - parameters are passed to execute()
-    // Just validate that tbc_path has correct type if present
+    // Validate that tbc_path has correct type if present
     auto tbc_path_it = params.find("tbc_path");
     if (tbc_path_it != params.end() && !std::holds_alternative<std::string>(tbc_path_it->second)) {
         return false;
     }
     
+    parameters_ = params;
     return true;
+}
+
+std::optional<StageReport> LDPALSourceStage::generate_report() const {
+    StageReport report;
+    report.summary = "PAL Source Status";
+    
+    // Get tbc_path from parameters
+    std::string tbc_path;
+    auto tbc_path_it = parameters_.find("tbc_path");
+    if (tbc_path_it != parameters_.end()) {
+        tbc_path = std::get<std::string>(tbc_path_it->second);
+    }
+    
+    if (tbc_path.empty()) {
+        report.items.push_back({"Source File", "Not configured"});
+        report.items.push_back({"Status", "No TBC file path set"});
+        return report;
+    }
+    
+    report.items.push_back({"Source File", tbc_path});
+    
+    // Get db_path
+    std::string db_path;
+    auto db_path_it = parameters_.find("db_path");
+    if (db_path_it != parameters_.end()) {
+        db_path = std::get<std::string>(db_path_it->second);
+    } else {
+        db_path = tbc_path + ".db";
+    }
+    
+    // Try to load the file to get actual information
+    try {
+        auto representation = create_tbc_representation(tbc_path, db_path);
+        if (representation) {
+            auto video_params = representation->get_video_parameters();
+            
+            report.items.push_back({"Status", "File accessible"});
+            
+            if (video_params) {
+                report.items.push_back({"Decoder", video_params->decoder});
+                
+                std::string system_str;
+                switch (video_params->system) {
+                    case VideoSystem::PAL: system_str = "PAL"; break;
+                    case VideoSystem::PAL_M: system_str = "PAL-M"; break;
+                    default: system_str = "Unknown"; break;
+                }
+                report.items.push_back({"Video System", system_str});
+                
+                report.items.push_back({"Field Dimensions", 
+                    std::to_string(video_params->field_width) + " x " + 
+                    std::to_string(video_params->field_height)});
+                report.items.push_back({"Total Fields", 
+                    std::to_string(video_params->number_of_sequential_fields)});
+                report.items.push_back({"Total Frames", 
+                    std::to_string(video_params->number_of_sequential_fields / 2)});
+                
+                // Metrics
+                report.metrics["field_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields);
+                report.metrics["frame_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields / 2);
+                report.metrics["field_width"] = static_cast<int64_t>(video_params->field_width);
+                report.metrics["field_height"] = static_cast<int64_t>(video_params->field_height);
+            }
+        } else {
+            report.items.push_back({"Status", "Error loading file"});
+        }
+    } catch (const std::exception& e) {
+        report.items.push_back({"Status", "Error"});
+        report.items.push_back({"Error", e.what()});
+    }
+    
+    return report;
 }
 
 } // namespace orc

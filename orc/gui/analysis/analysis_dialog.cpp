@@ -47,16 +47,11 @@ void AnalysisDialog::setupUI() {
     progressGroup->setLayout(progLayout);
     layout->addWidget(progressGroup);
     
-    // Results table
-    resultsTable_ = new QTableWidget(0, 2);
-    resultsTable_->setHorizontalHeaderLabels({"Type", "Message"});
-    resultsTable_->horizontalHeader()->setStretchLastSection(true);
-    layout->addWidget(resultsTable_);
-    
-    // Statistics text
+    // Results text area (combines results, summary, and statistics)
     statisticsText_ = new QTextEdit();
     statisticsText_->setReadOnly(true);
-    statisticsText_->setMaximumHeight(150);
+    statisticsText_->setMinimumHeight(300);
+    statisticsText_->setLineWrapMode(QTextEdit::WidgetWidth);
     layout->addWidget(statisticsText_);
     
     // Buttons
@@ -64,17 +59,14 @@ void AnalysisDialog::setupUI() {
     runButton_ = new QPushButton("Run Analysis");
     cancelButton_ = new QPushButton("Cancel");
     applyButton_ = new QPushButton("Apply to Graph");
-    exportButton_ = new QPushButton("Export Results");
     closeButton_ = new QPushButton("Close");
     
     cancelButton_->setEnabled(false);
     applyButton_->setEnabled(false);
-    exportButton_->setEnabled(false);
     
     buttonLayout->addWidget(runButton_);
     buttonLayout->addWidget(cancelButton_);
     buttonLayout->addWidget(applyButton_);
-    buttonLayout->addWidget(exportButton_);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeButton_);
     
@@ -84,7 +76,6 @@ void AnalysisDialog::setupUI() {
     connect(runButton_, &QPushButton::clicked, this, &AnalysisDialog::runAnalysis);
     connect(cancelButton_, &QPushButton::clicked, this, &AnalysisDialog::cancelAnalysis);
     connect(applyButton_, &QPushButton::clicked, this, &AnalysisDialog::onApplyClicked);
-    connect(exportButton_, &QPushButton::clicked, this, &AnalysisDialog::exportResults);
     connect(closeButton_, &QPushButton::clicked, this, &QDialog::accept);
 }
 
@@ -180,8 +171,6 @@ void AnalysisDialog::runAnalysis() {
     runButton_->setEnabled(false);
     cancelButton_->setEnabled(true);
     applyButton_->setEnabled(false);
-    exportButton_->setEnabled(false);
-    resultsTable_->setRowCount(0);
     statisticsText_->clear();
     
     analysisRunner_ = new AnalysisRunner(tool_, context_, this);
@@ -206,10 +195,8 @@ void AnalysisDialog::onApplyClicked() {
 }
 
 void AnalysisDialog::addPartialResult(const AnalysisResult::ResultItem& item) {
-    int row = resultsTable_->rowCount();
-    resultsTable_->insertRow(row);
-    resultsTable_->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(item.type)));
-    resultsTable_->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(item.message)));
+    QString itemText = QString::fromStdString(item.message) + "\n";
+    statisticsText_->append(itemText);
 }
 
 void AnalysisDialog::onAnalysisComplete(const AnalysisResult& result) {
@@ -221,7 +208,22 @@ void AnalysisDialog::onAnalysisComplete(const AnalysisResult& result) {
     if (result.status == AnalysisResult::Success) {
         statusLabel_->setText("Analysis complete");
         applyButton_->setEnabled(tool_->canApplyToGraph());
-        exportButton_->setEnabled(true);
+        
+        // Clear previous results and display everything
+        statisticsText_->clear();
+        
+        // Display any result items
+        for (const auto& item : result.items) {
+            statisticsText_->append(QString::fromStdString(item.message));
+            statisticsText_->append("");  // Blank line between items
+        }
+        
+        // Add separator if there were items
+        if (!result.items.empty()) {
+            statisticsText_->append("=" + QString("=").repeated(70));
+            statisticsText_->append("");
+        }
+        
         displayFinalStatistics(result);
     } else if (result.status == AnalysisResult::Failed) {
         statusLabel_->setText("Analysis failed");

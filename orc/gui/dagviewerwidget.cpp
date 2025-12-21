@@ -18,6 +18,7 @@
 #include "../core/stages/ld_sink/ld_sink_stage.h"
 #include "logging.h"
 #include "analysis/analysis_dialog.h"
+#include "inspection_dialog.h"
 #include "../../core/analysis/analysis_registry.h"
 #include "../../core/analysis/analysis_context.h"
 #include <QPainter>
@@ -81,6 +82,8 @@ void DAGNodeItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
     QColor bg_color;
     if (isSourceNode()) {
         bg_color = QColor(180, 200, 255);  // Light blue for source nodes (no inputs)
+    } else if (isSinkNode()) {
+        bg_color = QColor(255, 165, 0);  // Orange for sink nodes (no outputs)
     } else {
         switch (state_) {
             case NodeState::Pending:
@@ -1731,6 +1734,50 @@ void DAGViewerWidget::contextMenuEvent(QContextMenuEvent* event)
         } else {
             analysis_menu->setEnabled(false);
             analysis_menu->setToolTip("No analysis tools available for this node type");
+        }
+        
+        // Inspect Stage - check if stage provides inspection info
+        bool has_inspection = false;
+        std::optional<orc::StageReport> cached_report;
+        
+        if (registry.has_stage(stage_name)) {
+            try {
+                auto stage = registry.create_stage(stage_name);
+                if (stage) {
+                    // Get parameters from project if they exist
+                    if (project_) {
+                        const auto& nodes = project_->nodes;
+                        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+                        
+                        if (node_it != nodes.end()) {
+                            // Apply parameters to stage
+                            auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+                            if (param_stage) {
+                                param_stage->set_parameters(node_it->parameters);
+                            }
+                        }
+                    }
+                    
+                    // Check if stage provides inspection info
+                    cached_report = stage->generate_report();
+                    has_inspection = cached_report.has_value();
+                }
+            } catch (...) {
+                has_inspection = false;
+            }
+        }
+        
+        auto* inspectAction = menu.addAction("Inspect Stage", [this, cached_report]() {
+            if (cached_report.has_value()) {
+                auto* dialog = new orc::InspectionDialog(cached_report.value(), this);
+                dialog->setAttribute(Qt::WA_DeleteOnClose);
+                dialog->show();
+            }
+        });
+        inspectAction->setEnabled(has_inspection);
+        if (!has_inspection) {
+            inspectAction->setToolTip("This stage does not provide inspection information");
         }
         
         menu.addSeparator();

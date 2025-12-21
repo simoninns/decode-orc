@@ -60,6 +60,9 @@ public:
     size_t required_input_count() const override { return 1; }  // At least 1 input (passthrough mode)
     size_t output_count() const override { return 1; }
     
+    // Stage inspection
+    std::optional<StageReport> generate_report() const override;
+    
     /**
      * @brief Stack multiple fields into one output field
      * 
@@ -91,6 +94,9 @@ private:
     bool m_no_diff_dod;          // Disable differential dropout detection
     bool m_passthrough;          // Pass through dropouts present on all sources
     bool m_reverse;              // Reverse field order
+    
+    // Store parameters for inspection
+    std::map<std::string, ParameterValue> parameters_;
     
     /**
      * @brief Stack a single field from multiple sources

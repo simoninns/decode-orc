@@ -57,6 +57,10 @@ public:
         const orc::NodeTypeInfo* info = orc::get_node_type_info(stage_name_);
         return info && info->max_inputs == 0;
     }
+    bool isSinkNode() const {
+        const orc::NodeTypeInfo* info = orc::get_node_type_info(stage_name_);
+        return info && info->type == orc::NodeType::SINK;
+    }
     
     std::string stageName() const { return stage_name_; }
     void setStageName(const std::string& stage_name);

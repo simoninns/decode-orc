@@ -1,222 +1,188 @@
 /*
  * File:        orc_cli.cpp
  * Module:      orc-cli
- * Purpose:     CLI application - loads a project and triggers sink nodes
+ * Purpose:     CLI application with subcommands
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
 #include "version.h"
-#include "project.h"
-#include "project_to_dag.h"
-#include "dag_executor.h"
-#include "stage_registry.h"
-#include "ld_sink_stage.h"
+#include "command_process.h"
+#include "command_analyze_field_mapping.h"
 #include "logging.h"
 
 #include <iostream>
-#include <memory>
 #include <string>
-#include <algorithm>
-#include <filesystem>
 
-namespace fs = std::filesystem;
 using namespace orc;
 
 void print_usage(const char* program_name) {
-    std::cerr << "Usage: " << program_name << " <project-file> [options]\n";
+    std::cerr << "Usage: " << program_name << " <command> [options]\n";
     std::cerr << "\n";
-    std::cerr << "Loads an ORC project file and triggers all sink nodes.\n";
-    std::cerr << "The project should contain at least one source and one sink node.\n";
+    std::cerr << "Commands:\n";
+    std::cerr << "  process                        Process project DAG and trigger sinks\n";
+    std::cerr << "  analyze-field-mapping          Analyze field mapping for a project\n";
     std::cerr << "\n";
-    std::cerr << "Options:\n";
-    std::cerr << "  --log-level LEVEL    Set logging verbosity\n";
-    std::cerr << "                       (trace, debug, info, warn, error, critical, off)\n";
-    std::cerr << "                       Default: info\n";
-    std::cerr << "  --log-file FILE      Write logs to specified file (in addition to console)\n";
+    std::cerr << "Global Options:\n";
+    std::cerr << "  --log-level LEVEL              Set logging verbosity\n";
+    std::cerr << "                                 (trace, debug, info, warn, error, critical, off)\n";
+    std::cerr << "                                 Default: info\n";
+    std::cerr << "  --log-file FILE                Write logs to specified file\n";
+    std::cerr << "\n";
+    std::cerr << "Run '" << program_name << " <command> --help' for command-specific help.\n";
+}
+
+void print_process_usage(const char* program_name) {
+    std::cerr << "Usage: " << program_name << " process <project-file> [options]\n";
+    std::cerr << "\n";
+    std::cerr << "Process an ORC project by executing the DAG and triggering all sink nodes.\n";
+    std::cerr << "\n";
+    std::cerr << "Arguments:\n";
+    std::cerr << "  project-file                   Path to ORC project file (.orcprj)\n";
     std::cerr << "\n";
     std::cerr << "Example:\n";
-    std::cerr << "  " << program_name << " project-examples/test4.orcprj\n";
-    std::cerr << "  " << program_name << " project.orcprj --log-level debug --log-file output.log\n";
+    std::cerr << "  " << program_name << " process project.orcprj\n";
+    std::cerr << "  " << program_name << " process project.orcprj --log-level debug\n";
+}
+
+void print_analyze_field_mapping_usage(const char* program_name) {
+    std::cerr << "Usage: " << program_name << " analyze-field-mapping <project-file> [options]\n";
+    std::cerr << "\n";
+    std::cerr << "Analyze field mapping for a TBC source and optionally update the project.\n";
+    std::cerr << "\n";
+    std::cerr << "Arguments:\n";
+    std::cerr << "  project-file                   Path to ORC project file (.orcprj)\n";
+    std::cerr << "\n";
+    std::cerr << "Options:\n";
+    std::cerr << "  --update-project               Update project file with mapping spec\n";
+    std::cerr << "  --no-pad-gaps                  Don't pad gaps with black frames\n";
+    std::cerr << "  --delete-unmappable            Delete frames that can't be mapped\n";
+    std::cerr << "\n";
+    std::cerr << "Examples:\n";
+    std::cerr << "  # Analyze only (no project update):\n";
+    std::cerr << "  " << program_name << " analyze-field-mapping project.orcprj\n";
+    std::cerr << "\n";
+    std::cerr << "  # Analyze and update project:\n";
+    std::cerr << "  " << program_name << " analyze-field-mapping project.orcprj --update-project\n";
+    std::cerr << "\n";
+    std::cerr << "  # Then process the updated project:\n";
+    std::cerr << "  " << program_name << " process project.orcprj\n";
 }
 
 int main(int argc, char* argv[]) {
     // Parse command line arguments
+    std::string command;
     std::string project_path;
     std::string log_level = "info";
     std::string log_file;
     
-    for (int i = 1; i < argc; ++i) {
+    // Command-specific options
+    bool update_project = false;
+    bool pad_gaps = true;
+    bool delete_unmappable = false;
+    
+    // First pass: extract command
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
+    }
+    
+    std::string first_arg = argv[1];
+    if (first_arg == "--help" || first_arg == "-h") {
+        print_usage(argv[0]);
+        return 0;
+    }
+    
+    // Check if first argument is a command
+    if (first_arg == "process" || first_arg == "analyze-field-mapping") {
+        command = first_arg;
+    } else {
+        // Backwards compatibility: if no command, assume "process"
+        command = "process";
+        project_path = first_arg;
+    }
+    
+    // Parse remaining arguments
+    int start_idx = (command == first_arg) ? 2 : 1;
+    for (int i = start_idx; i < argc; ++i) {
         std::string arg = argv[i];
         
-        if (arg == "--log-level" && i + 1 < argc) {
+        if (arg == "--help" || arg == "-h") {
+            if (command == "process") {
+                print_process_usage(argv[0]);
+            } else if (command == "analyze-field-mapping") {
+                print_analyze_field_mapping_usage(argv[0]);
+            }
+            return 0;
+        } else if (arg == "--log-level" && i + 1 < argc) {
             log_level = argv[++i];
         } else if (arg == "--log-file" && i + 1 < argc) {
             log_file = argv[++i];
-        } else if (arg == "--help" || arg == "-h") {
-            print_usage(argv[0]);
-            return 0;
+        } else if (arg == "--update-project") {
+            update_project = true;
+        } else if (arg == "--no-pad-gaps") {
+            pad_gaps = false;
+        } else if (arg == "--delete-unmappable") {
+            delete_unmappable = true;
         } else if (arg[0] != '-') {
             // Positional argument - project file
             if (project_path.empty()) {
                 project_path = arg;
             } else {
                 std::cerr << "Error: Multiple project files specified\n";
-                print_usage(argv[0]);
+                if (command == "process") {
+                    print_process_usage(argv[0]);
+                } else if (command == "analyze-field-mapping") {
+                    print_analyze_field_mapping_usage(argv[0]);
+                } else {
+                    print_usage(argv[0]);
+                }
                 return 1;
             }
         } else {
             std::cerr << "Error: Unknown option: " << arg << "\n";
-            print_usage(argv[0]);
+            if (command == "process") {
+                print_process_usage(argv[0]);
+            } else if (command == "analyze-field-mapping") {
+                print_analyze_field_mapping_usage(argv[0]);
+            } else {
+                print_usage(argv[0]);
+            }
             return 1;
         }
     }
     
     // Check if project file was provided
     if (project_path.empty()) {
-        print_usage(argv[0]);
+        if (command == "process") {
+            print_process_usage(argv[0]);
+        } else if (command == "analyze-field-mapping") {
+            print_analyze_field_mapping_usage(argv[0]);
+        } else {
+            print_usage(argv[0]);
+        }
         return 1;
     }
     
-    // Initialize logging with specified level and file
+    // Initialize logging
     orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
-    // Check if file exists
-    if (!fs::exists(project_path)) {
-        ORC_LOG_ERROR("Project file not found: {}", project_path);
-        return 1;
-    }
-    
-    ORC_LOG_INFO("Loading project: {}", project_path);
-    
-    // Load project
-    Project project;
-    try {
-        project = orc::project_io::load_project(project_path);
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Failed to load project: {}", e.what());
-        return 1;
-    }
-    
-    ORC_LOG_INFO("Project loaded: {} (version {})", project.name, project.version);
-    if (!project.description.empty()) {
-        ORC_LOG_INFO("Project description: {}", project.description);
-    }
-    ORC_LOG_INFO("Project contains {} nodes and {} edges", 
-                 project.nodes.size(), project.edges.size());
-    
-    // Convert project to DAG
-    auto dag = orc::project_to_dag(project);
-    if (!dag) {
-        ORC_LOG_ERROR("Failed to convert project to DAG");
-        return 1;
-    }
-    
-    // Find all sink nodes (triggerable stages)
-    std::vector<std::string> sink_nodes;
-    auto& registry = StageRegistry::instance();
-    
-    for (const auto& node : project.nodes) {
-        if (!registry.has_stage(node.stage_name)) {
-            ORC_LOG_WARN("Unknown stage type: {}", node.stage_name);
-            continue;
-        }
-        
-        auto stage = registry.create_stage(node.stage_name);
-        if (!stage) {
-            ORC_LOG_WARN("Failed to create stage: {}", node.stage_name);
-            continue;
-        }
-        
-        auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
-        if (trigger_stage) {
-            sink_nodes.push_back(node.node_id);
-            ORC_LOG_INFO("Found triggerable node: {} ({})", node.node_id, node.stage_name);
-        }
-    }
-    
-    if (sink_nodes.empty()) {
-        ORC_LOG_ERROR("No triggerable sink nodes found in project");
-        return 1;
-    }
-    
-    // Trigger each sink node
-    bool all_success = true;
-    for (const auto& node_id : sink_nodes) {
-        ORC_LOG_INFO("========================================");
-        ORC_LOG_INFO("Triggering node: {}", node_id);
-        ORC_LOG_INFO("========================================");
-        
-        // Find node in DAG
-        const auto& nodes = dag->nodes();
-        auto node_it = std::find_if(nodes.begin(), nodes.end(),
-            [&node_id](const DAGNode& n) { return n.node_id == node_id; });
-        
-        if (node_it == nodes.end()) {
-            ORC_LOG_ERROR("Node '{}' not found in DAG", node_id);
-            all_success = false;
-            continue;
-        }
-        
-        // The DAG node already has the stage instance
-        auto* trigger_stage = dynamic_cast<TriggerableStage*>(node_it->stage.get());
-        if (!trigger_stage) {
-            ORC_LOG_ERROR("Node '{}' is not triggerable", node_id);
-            all_success = false;
-            continue;
-        }
-        
-        // Execute DAG to collect inputs
-        ORC_LOG_INFO("Executing DAG to collect {} input nodes", node_it->input_node_ids.size());
-        DAGExecutor executor;
-        
-        std::vector<ArtifactPtr> inputs;
-        for (const auto& input_node_id : node_it->input_node_ids) {
-            ORC_LOG_DEBUG("Executing to input node '{}'", input_node_id);
-            auto results = executor.execute_to_node(*dag, input_node_id);
-            
-            auto input_it = results.find(input_node_id);
-            if (input_it != results.end() && !input_it->second.empty()) {
-                ORC_LOG_DEBUG("Collected input from node '{}': {} outputs", 
-                             input_node_id, input_it->second.size());
-                inputs.push_back(input_it->second[0]);
-            } else {
-                ORC_LOG_ERROR("No output found for input node '{}'", input_node_id);
-                all_success = false;
-                continue;
-            }
-        }
-        
-        if (inputs.size() != node_it->input_node_ids.size()) {
-            ORC_LOG_ERROR("Failed to collect all inputs for node '{}'", node_id);
-            all_success = false;
-            continue;
-        }
-        
-        // Trigger the stage
-        ORC_LOG_INFO("Calling trigger() with {} inputs", inputs.size());
-        bool success = trigger_stage->trigger(inputs, node_it->parameters);
-        
-        if (success) {
-            std::string status = trigger_stage->get_trigger_status();
-            ORC_LOG_INFO("Trigger SUCCESS: {}", status);
-        } else {
-            std::string status = trigger_stage->get_trigger_status();
-            ORC_LOG_ERROR("Trigger FAILED: {}", status);
-            all_success = false;
-        }
-    }
-    
-    if (all_success) {
-        ORC_LOG_INFO("========================================");
-        ORC_LOG_INFO("All sink nodes triggered successfully");
-        ORC_LOG_INFO("========================================");
-        return 0;
+    // Dispatch to command
+    if (command == "process") {
+        cli::ProcessOptions options;
+        options.project_path = project_path;
+        return cli::process_command(options);
+    } else if (command == "analyze-field-mapping") {
+        cli::AnalyzeFieldMappingOptions options;
+        options.project_path = project_path;
+        options.update_project = update_project;
+        options.pad_gaps = pad_gaps;
+        options.delete_unmappable = delete_unmappable;
+        return cli::analyze_field_mapping_command(options);
     } else {
-        ORC_LOG_ERROR("========================================");
-        ORC_LOG_ERROR("One or more sink nodes failed");
-        ORC_LOG_ERROR("========================================");
+        std::cerr << "Error: Unknown command: " << command << "\n";
+        print_usage(argv[0]);
         return 1;
     }
 }

@@ -211,8 +211,9 @@ public:
             }
         }
         
-        // Write output metadata
+        // Write output metadata (delete old file first to ensure clean write)
         QString outputMetadataFile = outputFile_ + ".db";
+        QFile::remove(outputMetadataFile);  // Delete old metadata file if it exists
         if (!outputMetaData.write(outputMetadataFile)) {
             qCritical() << "Failed to write output metadata:" << outputMetadataFile;
             return false;

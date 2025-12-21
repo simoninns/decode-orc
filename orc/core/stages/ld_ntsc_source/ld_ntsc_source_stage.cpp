@@ -12,6 +12,7 @@
 #include "logging.h"
 #include <stage_registry.h>
 #include <stdexcept>
+#include <fstream>
 
 namespace orc {
 
@@ -79,6 +80,38 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
         ORC_LOG_DEBUG("  Decoder: {}", video_params->decoder);
         ORC_LOG_DEBUG("  System: {}", system_str);
         ORC_LOG_DEBUG("  Field size: {}x{}", video_params->field_width, video_params->field_height);
+        
+        // Validate TBC file size matches metadata field count
+        // Note: field_count() from representation uses TBC file size, but we need to
+        // compare against the metadata's number_of_sequential_fields to catch mismatches
+        int32_t metadata_field_count = video_params->number_of_sequential_fields;
+        if (metadata_field_count < 0) {
+            throw std::runtime_error("Metadata does not specify number_of_sequential_fields");
+        }
+        
+        size_t expected_field_size = static_cast<size_t>(video_params->field_width) * 
+                                     static_cast<size_t>(video_params->field_height) * 
+                                     sizeof(uint16_t);
+        size_t expected_file_size = static_cast<size_t>(metadata_field_count) * expected_field_size;
+        
+        std::ifstream tbc_file(tbc_path, std::ios::binary | std::ios::ate);
+        if (!tbc_file) {
+            throw std::runtime_error("Cannot open TBC file to verify size");
+        }
+        size_t actual_file_size = static_cast<size_t>(tbc_file.tellg());
+        tbc_file.close();
+        
+        if (actual_file_size != expected_file_size) {
+            size_t actual_fields = actual_file_size / expected_field_size;
+            throw std::runtime_error(
+                "TBC file size mismatch! File contains " + std::to_string(actual_fields) + 
+                " fields (" + std::to_string(actual_file_size) + " bytes) but metadata " +
+                "specifies " + std::to_string(metadata_field_count) + " fields (" + 
+                std::to_string(expected_file_size) + " bytes expected). " +
+                "The TBC file and metadata are inconsistent - possibly corrupted during generation."
+            );
+        }
+        ORC_LOG_DEBUG("  Field count: {} (validated against metadata)", metadata_field_count);
         
         // Check decoder
         if (video_params->decoder != "ld-decode") {

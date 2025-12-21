@@ -183,30 +183,30 @@ public:
         // Start with a copy of video parameters
         LdDecodeMetaData outputMetaData;
         outputMetaData.setVideoParameters(metaData.getVideoParameters());
-        outputMetaData.setNumberOfFields(fieldMapping.size());
         
         // Copy field metadata for each output field
-        // Note: VBI frame numbers will be wrong for skipped/repeated fields
-        // This is intentional - it simulates the broken state we want to fix
+        // Note: numberOfSequentialFields and seqNo will be automatically set by appendField()
+        // Field metadata (including VBI) is copied from the actual source field being written.
+        // For repeated fields, the same source metadata is used multiple times.
+        // For skipped fields, no metadata entry is created (simulating missing fields).
         for (size_t i = 0; i < fieldMapping.size(); ++i) {
             qint32 sourceFieldNum = fieldMapping[i];
             
             if (sourceFieldNum > 0) {
-                // Copy metadata from source field (fields are 1-indexed)
+                // Copy all metadata from the source field being written (fields are 1-indexed)
+                // This includes VBI data, drop-outs, etc. from the actual field
                 LdDecodeMetaData::Field fieldMeta = metaData.getField(sourceFieldNum);
                 
-                // Update sequence number to match output position (1-indexed)
-                fieldMeta.seqNo = i + 1;
-                
+                // appendField() will automatically set seqNo to maintain sequential numbering
                 outputMetaData.appendField(fieldMeta);
             } else {
-                // Gap field - create minimal metadata
+                // Gap field (black field) - create minimal metadata
                 LdDecodeMetaData::Field fieldMeta;
-                fieldMeta.seqNo = i + 1;
                 fieldMeta.isFirstField = (i % 2 == 0);
                 fieldMeta.syncConf = 0;
-                fieldMeta.pad = true;  // Mark as padding
+                fieldMeta.pad = true;  // Mark as padding/gap field
                 
+                // appendField() will automatically set seqNo to maintain sequential numbering
                 outputMetaData.appendField(fieldMeta);
             }
         }

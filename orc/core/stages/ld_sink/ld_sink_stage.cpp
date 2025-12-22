@@ -154,6 +154,16 @@ std::string LDSinkStage::get_trigger_status() const
     return trigger_status_;
 }
 
+std::shared_ptr<const VideoFieldRepresentation> LDSinkStage::render_preview_field(
+    std::shared_ptr<const VideoFieldRepresentation> input,
+    FieldID field_id) const
+{
+    // LaserDisc sink writes TBC unchanged to disk
+    // For preview, simply return the input as-is to show what will be written
+    (void)field_id;  // Unused - we return the entire representation
+    return input;
+}
+
 bool LDSinkStage::write_tbc_and_metadata(
     const VideoFieldRepresentation* representation,
     const std::string& tbc_path)

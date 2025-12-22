@@ -12,6 +12,7 @@
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"
 #include "field_id.h"
+#include "previewable_sink.h"
 #include <memory>
 #include <string>
 #include <vector>
@@ -397,6 +398,42 @@ private:
      * Default: simple 16->8 bit shift, but could be improved with metadata.
      */
     uint8_t tbc_sample_to_8bit(uint16_t sample);
+    
+    // ========================================================================
+    // Sink preview support
+    // ========================================================================
+    
+    /**
+     * @brief Get available outputs for a previewable sink node
+     * 
+     * @param sink_node_id The sink node ID
+     * @param sink_node The DAG node for the sink
+     * @param previewable The PreviewableSink interface
+     * @return Vector of available output types
+     */
+    std::vector<PreviewOutputInfo> get_sink_preview_outputs(
+        const std::string& sink_node_id,
+        const DAGNode& sink_node,
+        const class PreviewableSink& previewable
+    );
+    
+    /**
+     * @brief Render preview output from a previewable sink
+     * 
+     * @param sink_node_id The sink node ID
+     * @param sink_node The DAG node for the sink
+     * @param previewable The PreviewableSink interface
+     * @param type The output type to render
+     * @param index The output index
+     * @return Rendered preview result
+     */
+    PreviewRenderResult render_sink_preview(
+        const std::string& sink_node_id,
+        const DAGNode& sink_node,
+        const class PreviewableSink& previewable,
+        PreviewOutputType type,
+        uint64_t index
+    );
 };
 
 } // namespace orc

@@ -15,6 +15,7 @@
 #include "node_type.h"
 #include "video_field_representation.h"
 #include "tbc_metadata.h"
+#include "previewable_sink.h"
 #include <string>
 #include <memory>
 
@@ -61,10 +62,13 @@ public:
  * - TBC file: Raw field data
  * - .db file: Metadata including all observations and hints
  * 
+ * This sink supports preview - it passes through the input unchanged so users
+ * can see what will be written to disk.
+ * 
  * Parameters:
  * - tbc_path: Output file path (metadata will be tbc_path + ".db")
  */
-class LDSinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage {
+class LDSinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage, public PreviewableSink {
 public:
     LDSinkStage();
     ~LDSinkStage() override = default;
@@ -93,6 +97,14 @@ public:
     ) override;
     
     std::string get_trigger_status() const override;
+    
+    // PreviewableSink interface
+    std::shared_ptr<const VideoFieldRepresentation> render_preview_field(
+        std::shared_ptr<const VideoFieldRepresentation> input,
+        FieldID field_id
+    ) const override;
+    
+    bool supports_preview() const override { return true; }
     
 private:
     std::string tbc_path_;

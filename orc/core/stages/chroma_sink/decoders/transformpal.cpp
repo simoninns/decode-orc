@@ -50,8 +50,6 @@ void TransformPal::updateConfiguration(const LdDecodeMetaData::VideoParameters &
 
     if (_thresholds.size() == 0) {
         // Use the same (squared) threshold value for all bins
-        qInfo() << "TransformPal: Using single threshold=" << threshold << "squared=" << (threshold * threshold)
-                << "for" << thresholdsSize << "bins";
         thresholds.fill(threshold * threshold, thresholdsSize);
     } else {
         // Square the provided thresholds

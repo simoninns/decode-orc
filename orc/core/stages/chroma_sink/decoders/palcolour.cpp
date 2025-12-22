@@ -125,8 +125,6 @@ void PalColour::updateConfiguration(const LdDecodeMetaData::VideoParameters &_vi
         }
 
         // Configure the filter
-        qInfo() << "ORC PalColour: Configuring Transform PAL with threshold=" << configuration.transformThreshold
-                << "thresholds.size()=" << configuration.transformThresholds.size();
         transformPal->updateConfiguration(videoParameters, configuration.transformThreshold,
                                           configuration.transformThresholds);
     }

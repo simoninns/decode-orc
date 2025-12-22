@@ -120,17 +120,8 @@ void TransformPal2D::filterFields(const QVector<SourceField> &inputFields, qint3
 // Process one field, writing the result into chromaBuf[outputIndex]
 void TransformPal2D::filterField(const SourceField& inputField, qint32 outputIndex)
 {
-    static int callCount = 0;
     const qint32 firstFieldLine = inputField.getFirstActiveLine(videoParameters);
     const qint32 lastFieldLine = inputField.getLastActiveLine(videoParameters);
-    if (callCount == 0) {
-        qInfo() << "TransformPal2D::filterField: First call - seqNo=" << inputField.field.seqNo
-                << "outputIndex=" << outputIndex << "firstFieldLine=" << firstFieldLine
-                << "lastFieldLine=" << lastFieldLine << "thresholds[0]=" << thresholds[0]
-                << "activeVideoStart=" << videoParameters.activeVideoStart
-                << "activeVideoEnd=" << videoParameters.activeVideoEnd;
-        callCount++;
-    }
 
     // Iterate through the overlapping tile positions, covering the active area.
     // (See TransformPal2D member variable documentation for how the tiling works.)
@@ -155,14 +146,8 @@ void TransformPal2D::filterField(const SourceField& inputField, qint32 outputInd
 // Apply the forward FFT to an input tile, populating fftComplexIn
 void TransformPal2D::forwardFFTTile(qint32 tileX, qint32 tileY, qint32 startY, qint32 endY, const SourceField &inputField)
 {
-    static int tileCount = 0;
     // Copy the input signal into fftReal, applying the window function
     const quint16 *inputPtr = inputField.data.data();
-    if (tileCount == 0) {
-        qInfo() << "TransformPal2D::forwardFFTTile: First tile - tileX=" << tileX << "tileY=" << tileY
-                << "startY=" << startY << "endY=" << endY << "inputField.data[0]=" << inputField.data[0];
-        tileCount++;
-    }
     for (qint32 y = 0; y < YTILE; y++) {
         // If this frame line is above/below the active region, fill it with
         // black instead.

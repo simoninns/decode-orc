@@ -122,3 +122,7 @@ target_link_libraries(orc-core PUBLIC spdlog::spdlog)
 # Find and link libpng
 find_package(PNG REQUIRED)
 target_link_libraries(orc-core PUBLIC PNG::PNG)
+
+# Add chroma decoder library subdirectory (still with Qt6 dependencies - to be removed in Step 3)
+add_subdirectory(stages/chroma_sink/decoders)
+target_link_libraries(orc-core PRIVATE orc_chroma_decoders)

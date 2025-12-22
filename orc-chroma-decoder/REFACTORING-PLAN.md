@@ -220,9 +220,9 @@ orc-cli list-stages | grep chroma_sink
 
 ### Step 2: Copy Decoder Classes (Read-Only)
 
-**Status:** Not Started  
+**Status:** ✅ COMPLETE (22 Dec 2025)  
 **Risk:** Low  
-**Duration:** ~3 hours
+**Actual Duration:** ~2 hours
 
 #### Objectives
 Make all decoder code available in orc-core without integration. Ensure clean compilation with orc-core's dependencies.
@@ -338,6 +338,61 @@ orc-gui
 - ✅ Original orc-chroma-decoder tests still pass (unchanged)
 - ✅ No runtime behavior changes (decoders not used yet)
 - ✅ GUI still works (no crashes)
+
+#### Completion Notes
+
+**Directory Structure Created:**
+- `/orc/core/stages/chroma_sink/decoders/` - Main decoder directory
+- `/orc/core/stages/chroma_sink/decoders/encoder/` - Encoder subdirectory
+- `/orc/core/stages/chroma_sink/decoders/lib/tbc/` - TBC library files
+- `/orc/core/stages/chroma_sink/decoders/lib/filter/` - Filter headers
+
+**Files Copied (29 decoder/encoder files):**
+- **Decoder core:** decoder.h/cpp, decoderpool.h/cpp
+- **PAL decoders:** paldecoder.h/cpp, palcolour.h/cpp, transformpal.h/cpp, transformpal2d.h/cpp, transformpal3d.h/cpp
+- **NTSC decoders:** ntscdecoder.h/cpp, comb.h/cpp
+- **Mono decoder:** monodecoder.h/cpp
+- **Frame handling:** componentframe.h/cpp, framecanvas.h/cpp, sourcefield.h/cpp
+- **Output:** outputwriter.h/cpp
+- **Encoders:** encoder/encoder.h/cpp, encoder/ntscencoder.h/cpp, encoder/palencoder.h/cpp
+- **TBC library (12 files):** lddecodemetadata.h/cpp, dropouts.h/cpp, filters.h/cpp, logging.h/cpp, navigation.h/cpp, sourceaudio.h/cpp, sourcevideo.h/cpp, sqliteio.h/cpp, vbidecoder.h/cpp, videoiddecoder.h/cpp, vitcdecoder.h/cpp, linenumber.h
+- **Filter headers:** lib/filter/deemp.h, firfilter.h, iirfilter.h
+
+**Files Created:**
+- `/orc/core/stages/chroma_sink/decoders/CMakeLists.txt` - Build configuration for decoder library
+
+**Files Modified:**
+- `/orc/core/CMakeLists.txt` - Added decoders subdirectory and linked orc_chroma_decoders
+- `/orc/core/stages/chroma_sink/CMakeLists.txt` - No changes needed (linking done at core level)
+
+**Build Configuration:**
+- Created `orc_chroma_decoders` static library (3.6 MB)
+- Qt6 dependencies: Core, Concurrent, Sql
+- System dependencies: SQLite3
+- Compile definitions: APP_BRANCH="chroma-decoder-integration", APP_COMMIT="step2"
+- Include directories: decoders/, encoder/, lib/tbc/, lib/filter/
+
+**Verification:**
+- Build completed successfully without errors
+- Library created: `build/lib/liborc_chroma_decoders.a` (3.6 MB)
+- All 29 decoder source files compiled
+- All 12 TBC library source files compiled
+- GUI still launches and functions normally
+- ChromaSinkStage still appears in GUI and is fully interactive
+- Standalone orc-chroma-decoder tests: 24/24 passed (no regressions)
+
+**Key Decisions:**
+- Copied TBC library files directly into decoder directory instead of using separate orc_tbc_library (avoids dependency complexity)
+- Added Qt6::Sql module for QSqlDatabase support (required by sqliteio.h)
+- Removed orc_tbc_library dependency (self-contained decoder library)
+- Kept main.cpp excluded (not needed for library)
+- Kept encoder/main.cpp (part of encoder directory structure, not compiled)
+
+**Known State:**
+- All decoder code now has Qt6 dependencies (QVector, QString, QThread, etc.)
+- Step 3 will remove these Qt6 dependencies and convert to standard C++17
+- Decoder classes are available but not yet called from ChromaSinkStage
+- Integration will begin in Step 4 after Qt6 → C++ conversion
 
 ---
 

@@ -182,34 +182,34 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
     auto result = field_renderer_->render_field_at_node(node_id, FieldID(0));
     
     if (!result.is_valid || !result.representation) {
-        // Node exists but can't render - provide placeholder outputs
-        // so GUI can display "Nothing to output" message
+        // Node exists but can't render - provide placeholder outputs marked as unavailable
+        // so GUI knows not to auto-open preview
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Field,
             "Field",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
             "Frame",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
             "Frame (Reversed)",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
             "Split",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         return outputs;
@@ -219,33 +219,33 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
     auto field_count = result.representation->field_count();
     
     if (field_count == 0) {
-        // Node rendered but has no fields - provide placeholder outputs
+        // Node rendered but has no fields - provide placeholder outputs marked as unavailable
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Field,
             "Field",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
             "Frame",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
             "Frame (Reversed)",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
             "Split",
             1,  // Single placeholder item
-            true,
+            false,  // Not available - placeholder only
             0.7
         });
         return outputs;

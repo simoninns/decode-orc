@@ -9,6 +9,7 @@
 
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
+#include "previewdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
@@ -43,21 +44,16 @@
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-    , preview_widget_(nullptr)
+    , preview_dialog_(nullptr)
     , dag_view_(nullptr)
     , dag_model_(nullptr)
     , dag_scene_(nullptr)
-    , main_splitter_(nullptr)
-    , preview_slider_(nullptr)
-    , preview_info_label_(nullptr)
-    , slider_min_label_(nullptr)
-    , slider_max_label_(nullptr)
     , toolbar_(nullptr)
-    , preview_mode_combo_(nullptr)
     , save_project_action_(nullptr)
     , save_project_as_action_(nullptr)
     , edit_project_action_(nullptr)
-    , export_png_action_(nullptr)
+    , show_preview_action_(nullptr)
+    , auto_show_preview_action_(nullptr)
     , preview_renderer_(nullptr)
     , current_view_node_id_()
     , current_output_type_(orc::PreviewOutputType::Frame)
@@ -67,7 +63,7 @@ MainWindow::MainWindow(QWidget *parent)
     setupToolbar();
     
     updateWindowTitle();
-    resize(1600, 900);
+    resize(1200, 800);
     
     updateUIState();
 }
@@ -78,101 +74,20 @@ MainWindow::~MainWindow()
 
 void MainWindow::setupUI()
 {
-    // Central widget with horizontal splitter
-    main_splitter_ = new QSplitter(Qt::Horizontal, this);
+    // Create preview dialog (initially hidden)
+    preview_dialog_ = new PreviewDialog(this);
     
-    // Left side: Field preview with navigation controls
-    auto* preview_container = new QWidget(this);
-    preview_container->setMinimumWidth(400);  // Prevent frame viewer from disappearing
-    auto* preview_layout = new QVBoxLayout(preview_container);
-    preview_layout->setContentsMargins(0, 0, 0, 0);
-    preview_layout->setSpacing(0);
-    
-    // Field preview widget
-    preview_widget_ = new FieldPreviewWidget(this);
-    preview_layout->addWidget(preview_widget_, 1);
-    
-    // Navigation controls at bottom - two rows
-    auto* controls_container = new QVBoxLayout();
-    controls_container->setSpacing(5);
-    
-    // First row: navigation buttons and slider
-    auto* nav_layout = new QHBoxLayout();
-    nav_layout->setContentsMargins(10, 5, 10, 0);
-    
-    // Previous item button
-    auto* prev_button = new QPushButton("<", this);
-    prev_button->setMaximumWidth(50);
-    prev_button->setAutoRepeat(true);
-    prev_button->setAutoRepeatDelay(250);  // 250ms initial delay
-    prev_button->setAutoRepeatInterval(10);  // 10ms repeat interval (very fast)
-    connect(prev_button, &QPushButton::clicked, this, [this]() { onNavigatePreview(-1); });
-    nav_layout->addWidget(prev_button);
-    
-    // Next item button
-    auto* next_button = new QPushButton(">", this);
-    next_button->setMaximumWidth(50);
-    next_button->setAutoRepeat(true);
-    next_button->setAutoRepeatDelay(250);  // 250ms initial delay
-    next_button->setAutoRepeatInterval(10);  // 10ms repeat interval (very fast)
-    connect(next_button, &QPushButton::clicked, this, [this]() { onNavigatePreview(1); });
-    nav_layout->addWidget(next_button);
-    
-    // Slider min label
-    slider_min_label_ = new QLabel("0", this);
-    slider_min_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    slider_min_label_->setMinimumWidth(40);
-    slider_min_label_->setMaximumWidth(40);
-    nav_layout->addWidget(slider_min_label_);
-    
-    // Preview slider - stretches to fill available space
-    preview_slider_ = new QSlider(Qt::Horizontal, this);
-    preview_slider_->setEnabled(false);
-    connect(preview_slider_, &QSlider::valueChanged, this, &MainWindow::onPreviewIndexChanged);
-    nav_layout->addWidget(preview_slider_, 1);
-    
-    // Slider max label
-    slider_max_label_ = new QLabel("0", this);
-    slider_max_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    slider_max_label_->setMinimumWidth(40);
-    slider_max_label_->setMaximumWidth(40);
-    nav_layout->addWidget(slider_max_label_);
-    
-    controls_container->addLayout(nav_layout);
-    
-    // Second row: mode selectors and current frame/field info
-    auto* info_layout = new QHBoxLayout();
-    info_layout->setContentsMargins(10, 0, 10, 5);
-    
-    // Preview mode selector - populated dynamically from core
-    preview_mode_combo_ = new QComboBox(this);
-    preview_mode_combo_->setEnabled(false);  // Disabled until node selected
-    connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    // Connect preview dialog signals
+    connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
+            this, &MainWindow::onPreviewIndexChanged);
+    connect(preview_dialog_, &PreviewDialog::previewModeChanged,
             this, &MainWindow::onPreviewModeChanged);
-    info_layout->addWidget(preview_mode_combo_);
-    
-    // Aspect ratio selector - populated dynamically from core
-    aspect_ratio_combo_ = new QComboBox(this);
-    aspect_ratio_combo_->setEnabled(false);   // Disabled until node selected
-    connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+    connect(preview_dialog_, &PreviewDialog::aspectRatioModeChanged,
             this, &MainWindow::onAspectRatioModeChanged);
-    info_layout->addWidget(aspect_ratio_combo_);
+    connect(preview_dialog_, &PreviewDialog::exportPNGRequested,
+            this, &MainWindow::onExportPNG);
     
-    info_layout->addSpacing(20);
-    
-    // Preview info label - left-justified
-    preview_info_label_ = new QLabel("No source loaded", this);
-    preview_info_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    info_layout->addWidget(preview_info_label_);
-    
-    // Add stretch to push everything to the left
-    info_layout->addStretch(1);
-    
-    controls_container->addLayout(info_layout);
-    
-    preview_layout->addLayout(controls_container);
-    
-    // Right side: QtNodes DAG editor
+    // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
     dag_model_ = new OrcGraphModel(project_.coreProject(), dag_view_);
     dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
@@ -203,15 +118,8 @@ void MainWindow::setupUI()
     connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
             this, &MainWindow::runAnalysisForNode);
     
-    // Add widgets to splitter
-    main_splitter_->addWidget(preview_container);
-    main_splitter_->addWidget(dag_view_);
-    
-    // Set initial sizes (60% preview, 40% DAG editor)
-    main_splitter_->setStretchFactor(0, 60);
-    main_splitter_->setStretchFactor(1, 40);
-    
-    setCentralWidget(main_splitter_);
+    // DAG editor takes up full main window
+    setCentralWidget(dag_view_);
     
     // Status bar
     statusBar()->showMessage("Ready");
@@ -262,6 +170,29 @@ void MainWindow::setupMenus()
     
     // View menu for DAG operations
     auto* view_menu = menuBar()->addMenu("&View");
+    
+    show_preview_action_ = view_menu->addAction("Show &Preview");
+    show_preview_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
+    show_preview_action_->setEnabled(false);
+    connect(show_preview_action_, &QAction::triggered, this, [this]() { preview_dialog_->show(); });
+    
+    view_menu->addSeparator();
+    
+    auto_show_preview_action_ = view_menu->addAction("Show Preview on &Selection");
+    auto_show_preview_action_->setCheckable(true);
+    
+    // Load setting from QSettings (default: true)
+    QSettings settings;
+    bool auto_show = settings.value("preview/auto_show_on_selection", true).toBool();
+    auto_show_preview_action_->setChecked(auto_show);
+    
+    // Save setting when changed
+    connect(auto_show_preview_action_, &QAction::toggled, this, [](bool checked) {
+        QSettings settings;
+        settings.setValue("preview/auto_show_on_selection", checked);
+    });
+    
+    view_menu->addSeparator();
     
     auto* arrange_action = view_menu->addAction("&Arrange DAG to Grid");
     arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
@@ -376,9 +307,9 @@ void MainWindow::newProject()
     
     // Clear existing project state
     project_.clear();
-    preview_widget_->clearImage();
-    preview_slider_->setEnabled(false);
-    preview_slider_->setValue(0);
+    preview_dialog_->previewWidget()->clearImage();
+    preview_dialog_->previewSlider()->setEnabled(false);
+    preview_dialog_->previewSlider()->setValue(0);
     
     // Derive project name from filename
     QString project_name = QFileInfo(filename).completeBaseName();
@@ -416,9 +347,9 @@ void MainWindow::openProject(const QString& filename)
     
     // Clear existing project state
     project_.clear();
-    preview_widget_->clearImage();
-    preview_slider_->setEnabled(false);
-    preview_slider_->setValue(0);
+    preview_dialog_->previewWidget()->clearImage();
+    preview_dialog_->previewSlider()->setEnabled(false);
+    preview_dialog_->previewSlider()->setValue(0);
     
     QString error;
     if (!project_.loadFromFile(filename, &error)) {
@@ -530,9 +461,9 @@ void MainWindow::updateUIState()
         dag_view_->setEnabled(has_project);
     }
     
-    // Enable aspect ratio selector when preview is available
-    if (aspect_ratio_combo_) {
-        aspect_ratio_combo_->setEnabled(has_preview);
+    // Enable aspect ratio selector when preview is available (in preview dialog)
+    if (preview_dialog_) {
+        preview_dialog_->aspectRatioCombo()->setEnabled(has_preview);
     }
     
     // Update window title to reflect modified state
@@ -548,7 +479,7 @@ void MainWindow::onPreviewIndexChanged(int index)
 
 void MainWindow::onNavigatePreview(int delta)
 {
-    if (!preview_slider_->isEnabled()) {
+    if (!preview_dialog_->previewSlider()->isEnabled()) {
         return;
     }
     
@@ -556,12 +487,12 @@ void MainWindow::onNavigatePreview(int delta)
     int step = (current_output_type_ == orc::PreviewOutputType::Frame ||
                 current_output_type_ == orc::PreviewOutputType::Frame_Reversed) ? 2 : 1;
     
-    int current_index = preview_slider_->value();
+    int current_index = preview_dialog_->previewSlider()->value();
     int new_index = current_index + (delta * step);
-    int max_index = preview_slider_->maximum();
+    int max_index = preview_dialog_->previewSlider()->maximum();
     
     if (new_index >= 0 && new_index <= max_index) {
-        preview_slider_->setValue(new_index);
+        preview_dialog_->previewSlider()->setValue(new_index);
     }
 }
 
@@ -574,7 +505,7 @@ void MainWindow::onPreviewModeChanged(int index)
     
     // Remember previous type and current position
     auto previous_type = current_output_type_;
-    int current_position = preview_slider_->value();
+    int current_position = preview_dialog_->previewSlider()->value();
     
     // Update to new type
     current_output_type_ = available_outputs_[index].type;
@@ -590,8 +521,8 @@ void MainWindow::onPreviewModeChanged(int index)
     refreshViewerControls();
     
     // Set the calculated position (after refreshViewerControls updates the range)
-    if (new_position >= 0 && new_position <= static_cast<uint64_t>(preview_slider_->maximum())) {
-        preview_slider_->setValue(new_position);
+    if (new_position >= 0 && new_position <= static_cast<uint64_t>(preview_dialog_->previewSlider()->maximum())) {
+        preview_dialog_->previewSlider()->setValue(new_position);
     }
 }
 
@@ -612,10 +543,10 @@ void MainWindow::onAspectRatioModeChanged(int index)
     
     // Get the correction factor from core (not calculated by GUI)
     double aspect_correction = available_modes[index].correction_factor;
-    preview_widget_->setAspectCorrection(aspect_correction);
+    preview_dialog_->previewWidget()->setAspectCorrection(aspect_correction);
     
     // Refresh the display
-    preview_widget_->update();
+    preview_dialog_->previewWidget()->update();
 }
 
 void MainWindow::updateWindowTitle()
@@ -650,23 +581,23 @@ void MainWindow::updateWindowTitle()
 void MainWindow::updatePreviewInfo()
 {
     if (!preview_renderer_ || current_view_node_id_.empty()) {
-        preview_info_label_->setText("No node selected");
-        slider_min_label_->setText("");
-        slider_max_label_->setText("");
+        preview_dialog_->previewInfoLabel()->setText("No node selected");
+        preview_dialog_->sliderMinLabel()->setText("");
+        preview_dialog_->sliderMaxLabel()->setText("");
         return;
     }
     
     // Special handling for placeholder node
     if (current_view_node_id_ == "_no_preview") {
-        preview_info_label_->setText("No source available");
-        slider_min_label_->setText("");
-        slider_max_label_->setText("");
+        preview_dialog_->previewInfoLabel()->setText("No source available");
+        preview_dialog_->sliderMinLabel()->setText("");
+        preview_dialog_->sliderMaxLabel()->setText("");
         return;
     }
     
     // Get detailed display info from core
-    int current_index = preview_slider_->value();
-    int total = preview_slider_->maximum() + 1;
+    int current_index = preview_dialog_->previewSlider()->value();
+    int total = preview_dialog_->previewSlider()->maximum() + 1;
     
     auto display_info = preview_renderer_->get_preview_item_display_info(
         current_output_type_,
@@ -675,8 +606,8 @@ void MainWindow::updatePreviewInfo()
     );
     
     // Update slider labels with range
-    slider_min_label_->setText(QString::number(1));
-    slider_max_label_->setText(QString::number(display_info.total_count));
+    preview_dialog_->sliderMinLabel()->setText(QString::number(1));
+    preview_dialog_->sliderMaxLabel()->setText(QString::number(display_info.total_count));
     
     // Build compact info label
     QString info_text = QString("%1 %2")
@@ -690,12 +621,12 @@ void MainWindow::updatePreviewInfo()
             .arg(display_info.second_field_number);
     }
     
-    preview_info_label_->setText(info_text);
+    preview_dialog_->previewInfoLabel()->setText(info_text);
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* event)
 {
-    if (!preview_slider_->isEnabled()) {
+    if (!preview_dialog_->previewSlider()->isEnabled()) {
         QMainWindow::keyPressEvent(event);
         return;
     }
@@ -710,11 +641,11 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
             event->accept();
             break;
         case Qt::Key_Home:
-            preview_slider_->setValue(0);
+            preview_dialog_->previewSlider()->setValue(0);
             event->accept();
             break;
         case Qt::Key_End:
-            preview_slider_->setValue(preview_slider_->maximum());
+            preview_dialog_->previewSlider()->setValue(preview_dialog_->previewSlider()->maximum());
             event->accept();
             break;
         case Qt::Key_PageUp:
@@ -874,6 +805,30 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             current_view_node_id_ = node_id;
             available_outputs_ = outputs;
             
+            // Show preview dialog only if:
+            // 1) Not already visible
+            // 2) Node has valid outputs that are truly available (not placeholders)
+            // 3) Node is not a placeholder (like "_no_preview")
+            // 4) Auto-show setting is enabled
+            bool is_real_node = (node_id != "_no_preview");
+            bool has_valid_content = false;
+            for (const auto& output : outputs) {
+                if (output.is_available) {
+                    has_valid_content = true;
+                    break;
+                }
+            }
+            
+            bool auto_show_enabled = auto_show_preview_action_ && auto_show_preview_action_->isChecked();
+            
+            if (!preview_dialog_->isVisible() && is_real_node && has_valid_content && auto_show_enabled) {
+                preview_dialog_->show();
+                show_preview_action_->setEnabled(true);
+            }
+            
+            // Update preview dialog to show current node
+            preview_dialog_->setCurrentNode(QString::fromStdString(node_id));
+            
             // Update status bar to show which node is being viewed
             QString node_display = QString::fromStdString(node_id);
             statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
@@ -942,11 +897,11 @@ void MainWindow::updatePreview()
     // If we have a preview renderer and a selected node, render at that node
     if (!preview_renderer_ || current_view_node_id_.empty()) {
         ORC_LOG_DEBUG("updatePreview: no preview renderer or node selected, returning");
-        preview_widget_->clearImage();
+        preview_dialog_->previewWidget()->clearImage();
         return;
     }
     
-    int current_index = preview_slider_->value();
+    int current_index = preview_dialog_->previewSlider()->value();
     
     ORC_LOG_DEBUG("updatePreview: rendering output type {} index {} at node '{}'", 
                   static_cast<int>(current_output_type_), current_index, current_view_node_id_);
@@ -954,10 +909,10 @@ void MainWindow::updatePreview()
     auto result = preview_renderer_->render_output(current_view_node_id_, current_output_type_, current_index);
     
     if (result.success) {
-        preview_widget_->setImage(result.image);
+        preview_dialog_->previewWidget()->setImage(result.image);
     } else {
         // Rendering failed - show in status bar
-        preview_widget_->clearImage();
+        preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(
             QString("Render ERROR at node %1: %2")
                 .arg(QString::fromStdString(current_view_node_id_))
@@ -970,16 +925,16 @@ void MainWindow::updatePreview()
 void MainWindow::updatePreviewModeCombo()
 {
     // Block signals while updating combo box
-    preview_mode_combo_->blockSignals(true);
+    preview_dialog_->previewModeCombo()->blockSignals(true);
     
     // Clear existing items
-    preview_mode_combo_->clear();
+    preview_dialog_->previewModeCombo()->clear();
     
     // Populate from available outputs
     int current_type_index = 0;
     for (size_t i = 0; i < available_outputs_.size(); ++i) {
         const auto& output = available_outputs_[i];
-        preview_mode_combo_->addItem(QString::fromStdString(output.display_name));
+        preview_dialog_->previewModeCombo()->addItem(QString::fromStdString(output.display_name));
         
         // Track which index matches current output type
         if (output.type == current_output_type_) {
@@ -989,14 +944,14 @@ void MainWindow::updatePreviewModeCombo()
     
     // Set current selection to match current output type
     if (!available_outputs_.empty()) {
-        preview_mode_combo_->setCurrentIndex(current_type_index);
-        preview_mode_combo_->setEnabled(true);
+        preview_dialog_->previewModeCombo()->setCurrentIndex(current_type_index);
+        preview_dialog_->previewModeCombo()->setEnabled(true);
     } else {
-        preview_mode_combo_->setEnabled(false);
+        preview_dialog_->previewModeCombo()->setEnabled(false);
     }
     
     // Restore signals
-    preview_mode_combo_->blockSignals(false);
+    preview_dialog_->previewModeCombo()->blockSignals(false);
 }
 
 void MainWindow::updateAspectRatioCombo()
@@ -1006,10 +961,10 @@ void MainWindow::updateAspectRatioCombo()
     }
     
     // Block signals while updating combo box
-    aspect_ratio_combo_->blockSignals(true);
+    preview_dialog_->aspectRatioCombo()->blockSignals(true);
     
     // Clear existing items
-    aspect_ratio_combo_->clear();
+    preview_dialog_->aspectRatioCombo()->clear();
     
     // Get available modes from core
     auto available_modes = preview_renderer_->get_available_aspect_ratio_modes();
@@ -1019,7 +974,7 @@ void MainWindow::updateAspectRatioCombo()
     int current_index = 0;
     for (size_t i = 0; i < available_modes.size(); ++i) {
         const auto& mode_info = available_modes[i];
-        aspect_ratio_combo_->addItem(QString::fromStdString(mode_info.display_name));
+        preview_dialog_->aspectRatioCombo()->addItem(QString::fromStdString(mode_info.display_name));
         
         // Track which index matches current mode
         if (mode_info.mode == current_mode) {
@@ -1029,11 +984,11 @@ void MainWindow::updateAspectRatioCombo()
     
     // Set current selection
     if (!available_modes.empty()) {
-        aspect_ratio_combo_->setCurrentIndex(current_index);
+        preview_dialog_->aspectRatioCombo()->setCurrentIndex(current_index);
     }
     
     // Restore signals
-    aspect_ratio_combo_->blockSignals(false);
+    preview_dialog_->aspectRatioCombo()->blockSignals(false);
 }
 
 void MainWindow::refreshViewerControls()
@@ -1060,14 +1015,14 @@ void MainWindow::refreshViewerControls()
     
     // Update slider range and labels
     if (new_total > 0) {
-        preview_slider_->setRange(0, new_total - 1);
+        preview_dialog_->previewSlider()->setRange(0, new_total - 1);
         
         // Clamp current slider position to new range
-        if (preview_slider_->value() >= new_total) {
-            preview_slider_->setValue(0);
+        if (preview_dialog_->previewSlider()->value() >= new_total) {
+            preview_dialog_->previewSlider()->setValue(0);
         }
         
-        preview_slider_->setEnabled(true);
+        preview_dialog_->previewSlider()->setEnabled(true);
     }
     
     // Update the preview image
@@ -1107,7 +1062,7 @@ void MainWindow::updatePreviewRenderer()
             // Populate aspect ratio combo from core and initialize aspect correction
             updateAspectRatioCombo();
             auto aspect_info = preview_renderer_->get_current_aspect_ratio_mode_info();
-            preview_widget_->setAspectCorrection(aspect_info.correction_factor);
+            preview_dialog_->previewWidget()->setAspectCorrection(aspect_info.correction_factor);
         }
         
         // Check if current node is still valid, or if we need to switch
@@ -1190,7 +1145,7 @@ void MainWindow::onExportPNG()
     // Remember directory
     setLastProjectDirectory(QFileInfo(filename).absolutePath());
     
-    int current_index = preview_slider_->value();
+    int current_index = preview_dialog_->previewSlider()->value();
     
     // Export using preview renderer
     bool success = preview_renderer_->save_png(

@@ -28,6 +28,8 @@ add_executable(orc-gui
     orcgraphicsview.h
     fieldpreviewwidget.cpp
     fieldpreviewwidget.h
+    previewdialog.cpp
+    previewdialog.h
     stageparameterdialog.cpp
     stageparameterdialog.h
     projectpropertiesdialog.cpp

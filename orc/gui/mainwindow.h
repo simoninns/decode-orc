@@ -21,6 +21,7 @@
 #include "orcgraphicsscene.h"
 
 class OrcGraphicsView;
+class PreviewDialog;
 
 namespace orc {
     class VideoFieldRepresentation;
@@ -110,21 +111,16 @@ private:
     QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
     
     // UI components
-    FieldPreviewWidget* preview_widget_;
+    PreviewDialog* preview_dialog_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;
-    QSplitter* main_splitter_;
-    QSlider* preview_slider_;
-    QLabel* preview_info_label_;
-    QLabel* slider_min_label_;
-    QLabel* slider_max_label_;
     QToolBar* toolbar_;
-    QComboBox* preview_mode_combo_;
-    QComboBox* aspect_ratio_combo_;
     QAction* save_project_action_;
     QAction* save_project_as_action_;
     QAction* edit_project_action_;
+    QAction* show_preview_action_;
+    QAction* auto_show_preview_action_;
     QAction* export_png_action_;
     
     // Preview state (UI only - all data comes from core)

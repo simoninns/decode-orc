@@ -17,8 +17,16 @@
 #include "tbc_metadata.h"
 #include "previewable_sink.h"
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
+
+// Forward declarations for decoder classes
+class SourceField;
+class LdDecodeMetaData;
+class Decoder;
+class ComponentFrame;
+
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace orc {
 
@@ -109,7 +117,19 @@ private:
     // Status tracking
     std::string trigger_status_;
     
-    // Helper methods will be added in later steps
+    // Helper methods for integration
+    SourceField convertToSourceField(
+        const VideoFieldRepresentation* vfr,
+        FieldID field_id,
+        LdDecodeMetaData& metadata
+    ) const;
+    
+    bool writeOutputFile(
+        const std::string& output_path,
+        const std::string& format,
+        const std::vector<ComponentFrame>& frames,
+        const void* videoParams  // Use void* to avoid incomplete type
+    ) const;
 };
 
 } // namespace orc

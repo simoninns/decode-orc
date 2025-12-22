@@ -67,6 +67,18 @@ void DecoderThread::run()
         // Convert the component frames to the output format
         for (qint32 i = 0; i < numFrames; i++) {
             outputWriter.convert(componentFrames[i], outputFrames[i]);
+            
+            // Debug: Log first frame's RGB values (pixel 0 and pixel 1000)
+            if (i == 0 && outputFrames[i].size() >= 3) {
+                qInfo() << "DEBUG Decoder: Pixel 0: R=" << outputFrames[i][0]
+                        << "G=" << outputFrames[i][1]
+                        << "B=" << outputFrames[i][2];
+            }
+            if (i == 0 && outputFrames[i].size() >= 3003) {
+                qInfo() << "DEBUG Decoder: Pixel 1000: R=" << outputFrames[i][3000]
+                        << "G=" << outputFrames[i][3001]
+                        << "B=" << outputFrames[i][3002];
+            }
         }
 
         // Write the frames to the output file

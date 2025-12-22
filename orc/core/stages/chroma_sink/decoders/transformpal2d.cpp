@@ -104,6 +104,7 @@ void TransformPal2D::filterFields(const QVector<SourceField> &inputFields, qint3
 
     // Allocate and clear output buffers
     chromaBuf.resize(endIndex - startIndex);
+    
     for (qint32 i = 0; i < chromaBuf.size(); i++) {
         chromaBuf[i].resize(videoParameters.fieldWidth * videoParameters.fieldHeight);
         chromaBuf[i].fill(0.0);

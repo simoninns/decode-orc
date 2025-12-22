@@ -49,6 +49,9 @@ struct VideoParameters {
     int32_t field_height = -1;
     int32_t number_of_sequential_fields = -1;
     
+    // Field ordering
+    bool is_first_field_first = true;  // True if frame N uses fields (N*2-1, N*2), false if (N*2, N*2-1)
+    
     // Sample ranges
     int32_t colour_burst_start = -1;
     int32_t colour_burst_end = -1;

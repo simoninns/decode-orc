@@ -42,6 +42,7 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <iostream>
 #include "logging.h"
 
 /*!
@@ -258,6 +259,24 @@ void PalColour::decodeFrames(const QVector<SourceField> &inputFields, qint32 sta
 {
     assert(configurationSet);
     assert((componentFrames.size() * 2) == (endIndex - startIndex));
+    
+    // Debug: Log first field input
+    if (startIndex < inputFields.size()) {
+        const auto& field = inputFields[startIndex];
+        // Calculate checksum of first field data
+        quint32 checksum = 0;
+        for (int i = 0; i < field.data.size(); i++) {
+            checksum += field.data[i];
+        }
+        qInfo() << "DEBUG PalColour::decodeFrames: First field - seqNo=" << field.field.seqNo 
+                << "isFirstField=" << field.field.isFirstField 
+                << "data size=" << field.data.size()
+                << "checksum=" << checksum
+                << "first 4 samples:" << (field.data.size() > 0 ? field.data[0] : 0)
+                << (field.data.size() > 1 ? field.data[1] : 0)
+                << (field.data.size() > 2 ? field.data[2] : 0)
+                << (field.data.size() > 3 ? field.data[3] : 0);
+    }
 
     QVector<const double *> chromaData(endIndex - startIndex);
     if (configuration.chromaFilter != palColourFilter) {
@@ -265,12 +284,45 @@ void PalColour::decodeFrames(const QVector<SourceField> &inputFields, qint32 sta
         transformPal->filterFields(inputFields, startIndex, endIndex, chromaData);
     }
 
+    std::cerr << "DEBUG PalColour::decodeFrames: About to decode " << ((endIndex - startIndex) / 2) 
+              << " frames from " << (endIndex - startIndex) << " fields (startIndex=" << startIndex 
+              << " endIndex=" << endIndex << ")" << std::endl;
+    
     for (qint32 i = startIndex, j = 0, k = 0; i < endIndex; i += 2, j += 2, k++) {
+        if (k < 3) {  // Only log first 3 frames
+            std::cerr << "DEBUG PalColour: Decoding frame k=" << k 
+                      << " from inputFields[" << i << "," << (i+1) << "] (seqNo=" 
+                      << inputFields[i].field.seqNo << "," << inputFields[i+1].field.seqNo << ")" << std::endl;
+        }
+        
         // Initialise and clear the component frame
         componentFrames[k].init(videoParameters);
 
         decodeField(inputFields[i], chromaData[j], componentFrames[k]);
         decodeField(inputFields[i + 1], chromaData[j + 1], componentFrames[k]);
+    }
+    
+    // Debug: Log first frame output
+    if (!componentFrames.isEmpty()) {
+        auto& frame = componentFrames[0];
+        const auto* yData = frame.getY();
+        const auto* uData = frame.getU();
+        const auto* vData = frame.getV();
+        qInfo() << "DEBUG PalColour::decodeFrames: First output frame - width=" << frame.getWidth()
+                << "height=" << frame.getHeight()
+                << "Y size=" << yData->size();
+        qInfo() << "DEBUG PalColour: First Y samples:" << (yData->size() > 0 ? (*yData)[0] : 0)
+                << (yData->size() > 1 ? (*yData)[1] : 0)
+                << (yData->size() > 2 ? (*yData)[2] : 0)
+                << (yData->size() > 3 ? (*yData)[3] : 0);
+        qInfo() << "DEBUG PalColour: First U samples:" << (uData->size() > 0 ? (*uData)[0] : 0)
+                << (uData->size() > 1 ? (*uData)[1] : 0)
+                << (uData->size() > 2 ? (*uData)[2] : 0)
+                << (uData->size() > 3 ? (*uData)[3] : 0);
+        qInfo() << "DEBUG PalColour: First V samples:" << (vData->size() > 0 ? (*vData)[0] : 0)
+                << (vData->size() > 1 ? (*vData)[1] : 0)
+                << (vData->size() > 2 ? (*vData)[2] : 0)
+                << (vData->size() > 3 ? (*vData)[3] : 0);
     }
 
     if (configuration.showFFTs && configuration.chromaFilter != palColourFilter) {

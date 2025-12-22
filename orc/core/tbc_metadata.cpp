@@ -218,6 +218,16 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         params.git_branch = impl_->get_string(stmt, 15);
         params.git_commit = impl_->get_string(stmt, 16);
         
+        // Calculate fSC based on video system (not stored in database)
+        // These match the LdDecodeMetaData defaults
+        if (params.system == VideoSystem::PAL) {
+            params.fsc = (283.75 * 15625.0) + 25.0;  // 4433618.75 Hz
+        } else if (params.system == VideoSystem::NTSC) {
+            params.fsc = 315.0e6 / 88.0;  // 3579545.454... Hz
+        } else if (params.system == VideoSystem::PAL_M) {
+            params.fsc = 5.0e6 * (63.0 / 88.0) * (909.0 / 910.0);  // ~3575611.89 Hz
+        }
+        
         // Vertical field line boundaries must be inferred from format
         // first_active_field_line and last_active_field_line remain -1 (not in database)
         

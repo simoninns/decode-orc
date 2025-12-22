@@ -1,0 +1,12 @@
+# Test outputs (regenerated on each run)
+outputs/
+temp/
+
+# Keep the references directory but ignore new signature files during generation
+references/*.new
+references/*.backup-*
+
+# Logs and debug files
+*.log
+*.broken
+*.backup

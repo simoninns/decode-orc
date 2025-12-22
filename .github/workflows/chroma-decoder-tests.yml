@@ -1,0 +1,78 @@
+name: Chroma Decoder Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'orc-chroma-decoder/**'
+      - '.github/workflows/chroma-decoder-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'orc-chroma-decoder/**'
+
+jobs:
+  test:
+    name: Test Chroma Decoder
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          lfs: true  # Pull test data if using Git LFS
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            qt6-base-dev \
+            libfftw3-dev \
+            pkg-config
+      
+      - name: Cache build artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            orc-chroma-decoder/build
+          key: ${{ runner.os }}-chroma-decoder-${{ hashFiles('orc-chroma-decoder/CMakeLists.txt', 'orc-chroma-decoder/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-chroma-decoder-
+      
+      - name: Build decoder
+        run: |
+          cd orc-chroma-decoder
+          mkdir -p build
+          cd build
+          cmake ..
+          make -j$(nproc)
+      
+      - name: Run quick tests
+        run: |
+          cd orc-chroma-decoder/tests
+          ./run-tests.sh --quick
+      
+      - name: Run full test suite
+        if: github.event_name == 'push'
+        run: |
+          cd orc-chroma-decoder/tests
+          ./run-tests.sh
+      
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-logs
+          path: orc-chroma-decoder/tests/temp/*.log
+          retention-days: 7
+      
+      - name: Upload test summary
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            orc-chroma-decoder/tests/temp/*.log
+          retention-days: 7

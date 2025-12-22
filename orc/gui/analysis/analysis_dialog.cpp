@@ -58,7 +58,7 @@ void AnalysisDialog::setupUI() {
     auto* buttonLayout = new QHBoxLayout();
     runButton_ = new QPushButton("Run Analysis");
     cancelButton_ = new QPushButton("Cancel");
-    applyButton_ = new QPushButton("Apply to Graph");
+    applyButton_ = new QPushButton("Apply to Node");
     closeButton_ = new QPushButton("Close");
     
     cancelButton_->setEnabled(false);

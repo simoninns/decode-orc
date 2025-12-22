@@ -1,0 +1,29 @@
+/*
+ * File:        orcgraphicsview.h
+ * Module:      orc-gui
+ * Purpose:     Custom QtNodes view with validated deletion
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
+
+#pragma once
+
+#include <QtNodes/GraphicsView>
+
+class OrcGraphModel;
+
+/**
+ * Custom graphics view that validates node deletion before allowing it
+ */
+class OrcGraphicsView : public QtNodes::GraphicsView
+{
+    Q_OBJECT
+
+public:
+    explicit OrcGraphicsView(QWidget* parent = nullptr);
+    ~OrcGraphicsView() override = default;
+
+private slots:
+    void onDeleteSelectedObjects();
+};

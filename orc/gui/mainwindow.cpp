@@ -11,10 +11,16 @@
 #include "fieldpreviewwidget.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
+#include "inspection_dialog.h"
+#include "analysis/analysis_dialog.h"
+#include "orcgraphicsview.h"
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/dag_executor.h"
+#include "../core/include/project_to_dag.h"
+#include "../core/analysis/analysis_registry.h"
+#include "../core/analysis/analysis_context.h"
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -38,7 +44,9 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_widget_(nullptr)
-    , dag_viewer_(nullptr)
+    , dag_view_(nullptr)
+    , dag_model_(nullptr)
+    , dag_scene_(nullptr)
     , main_splitter_(nullptr)
     , preview_slider_(nullptr)
     , preview_info_label_(nullptr)
@@ -164,24 +172,40 @@ void MainWindow::setupUI()
     
     preview_layout->addLayout(controls_container);
     
-    // Right side: DAG editor
-    dag_viewer_ = new DAGViewerWidget(this);
+    // Right side: QtNodes DAG editor
+    dag_view_ = new OrcGraphicsView(this);
+    dag_model_ = new OrcGraphModel(project_.coreProject(), dag_view_);
+    dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
     
-    // Connect DAG viewer signals
-    connect(dag_viewer_, &DAGViewerWidget::nodeSelected,
-            this, &MainWindow::onNodeSelectedForView);
-    connect(dag_viewer_, &DAGViewerWidget::editParametersRequested,
-            this, &MainWindow::onEditParameters);
-    connect(dag_viewer_, &DAGViewerWidget::triggerStageRequested,
-            this, &MainWindow::onTriggerStage);
-    connect(dag_viewer_, &DAGViewerWidget::dagModified,
+    dag_view_->setScene(dag_scene_);
+    
+    // Connect scene/model signals for DAG modifications  
+    connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
             this, &MainWindow::onDAGModified);
-    connect(dag_viewer_, &DAGViewerWidget::dagModified,
-            this, &MainWindow::updateWindowTitle);
+    connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
+            this, &MainWindow::onDAGModified);
+    connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
+            this, &MainWindow::onDAGModified);
+    connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
+            this, &MainWindow::onDAGModified);
+    
+    // Connect node selection signal
+    connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
+            this, &MainWindow::onQtNodeSelected);
+    
+    // Connect node context menu action signals
+    connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
+            this, &MainWindow::onEditParameters);
+    connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
+            this, &MainWindow::onTriggerStage);
+    connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
+            this, &MainWindow::onInspectStage);
+    connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
+            this, &MainWindow::runAnalysisForNode);
     
     // Add widgets to splitter
     main_splitter_->addWidget(preview_container);
-    main_splitter_->addWidget(dag_viewer_);
+    main_splitter_->addWidget(dag_view_);
     
     // Set initial sizes (60% preview, 40% DAG editor)
     main_splitter_->setStretchFactor(0, 60);
@@ -241,7 +265,7 @@ void MainWindow::setupMenus()
     
     auto* arrange_action = view_menu->addAction("&Arrange DAG to Grid");
     arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
-    connect(arrange_action, &QAction::triggered, dag_viewer_, &DAGViewerWidget::arrangeToGrid);
+    connect(arrange_action, &QAction::triggered, this, &MainWindow::onArrangeDAGToGrid);
 }
 
 void MainWindow::setupToolbar()
@@ -311,12 +335,8 @@ void MainWindow::onEditProject()
         }
         
         // Update core project using project_io
-        // TODO: Add project_io::set_project_name() and set_project_description()
-        // For now, these properties are read-only after creation
-        ORC_LOG_WARN("Project name/description modification not yet implemented - using project_io API");
-        
-        // Mark project as modified
-        // project_.setModified(true);
+        orc::project_io::set_project_name(project_.coreProject(), new_name.toStdString());
+        orc::project_io::set_project_description(project_.coreProject(), new_description.toStdString());
         
         ORC_LOG_INFO("Project properties updated: name='{}', description='{}'", 
                      new_name.toStdString(), new_description.toStdString());
@@ -503,6 +523,11 @@ void MainWindow::updateUIState()
     }
     if (export_png_action_) {
         export_png_action_->setEnabled(has_preview);
+    }
+    
+    // Enable/disable DAG view based on project state
+    if (dag_view_) {
+        dag_view_->setEnabled(has_project);
     }
     
     // Enable aspect ratio selector when preview is available
@@ -707,45 +732,15 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
 
 void MainWindow::loadProjectDAG()
 {
-    if (!dag_viewer_) {
+    if (!dag_model_) {
         return;
     }
     
     ORC_LOG_DEBUG("MainWindow: loading project DAG for visualization");
     
-    // Set project connection for DAG viewer
-    dag_viewer_->setProject(&project_.coreProject());
-    
-    // Convert project DAG to GUIDAG for visualization
-    orc::GUIDAG gui_dag;
-    gui_dag.name = project_.projectName().toStdString();
-    gui_dag.version = "1.0";
-    
-    auto& core_project = project_.coreProject();
-    
-    // Convert nodes
-    for (const auto& node : core_project.get_nodes()) {
-        orc::GUIDAGNode gui_node;
-        gui_node.node_id = node.node_id;
-        gui_node.stage_name = node.stage_name;
-        gui_node.node_type = node.node_type;
-        gui_node.display_name = node.display_name;
-        gui_node.user_label = node.user_label;
-        gui_node.x_position = node.x_position;
-        gui_node.y_position = node.y_position;
-        gui_node.parameters = node.parameters;
-        gui_dag.nodes.push_back(gui_node);
-    }
-    
-    // Convert edges
-    for (const auto& edge : core_project.get_edges()) {
-        orc::GUIDAGEdge gui_edge;
-        gui_edge.source_node_id = edge.source_node_id;
-        gui_edge.target_node_id = edge.target_node_id;
-        gui_dag.edges.push_back(gui_edge);
-    }
-    
-    dag_viewer_->importDAG(gui_dag);
+    // QtNodes model will automatically sync with Project via OrcGraphModel
+    // Just need to refresh the model to update the view
+    dag_model_->refresh();
     
     statusBar()->showMessage("Loaded DAG from project", 2000);
 }
@@ -754,14 +749,18 @@ void MainWindow::onEditParameters(const std::string& node_id)
 {
     ORC_LOG_DEBUG("Edit parameters requested for node: {}", node_id);
     
-    // Get stage name to determine available parameters
-    std::string stage_name = dag_viewer_->getNodeStageType(node_id);
+    // Find the node in the project
+    const auto& nodes = project_.coreProject().get_nodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
     
-    if (stage_name.empty()) {
+    if (node_it == nodes.end()) {
         QMessageBox::warning(this, "Edit Parameters",
             QString("Node '%1' not found").arg(QString::fromStdString(node_id)));
         return;
     }
+    
+    std::string stage_name = node_it->stage_name;
     
     // Get the stage instance to access parameter descriptors
     auto& registry = orc::StageRegistry::instance();
@@ -792,14 +791,27 @@ void MainWindow::onEditParameters(const std::string& node_id)
     }
     
     // Get current parameter values from the node
-    auto current_values = dag_viewer_->getNodeParameters(node_id);
+    auto current_values = node_it->parameters;
     
     // Show parameter dialog
     StageParameterDialog dialog(stage_name, param_descriptors, current_values, this);
     
     if (dialog.exec() == QDialog::Accepted) {
         auto new_values = dialog.get_values();
-        dag_viewer_->setNodeParameters(node_id, new_values);
+        orc::project_io::set_node_parameters(project_.coreProject(), node_id, new_values);
+        
+        // Rebuild DAG to pick up the new parameter values
+        project_.rebuildDAG();
+        
+        // Update the preview renderer with the new DAG
+        updatePreviewRenderer();
+        
+        // Refresh QtNodes view
+        dag_model_->refresh();
+        
+        // Update the preview to show the changes
+        updatePreview();
+        
         statusBar()->showMessage(
             QString("Updated parameters for node '%1'")
                 .arg(QString::fromStdString(node_id)),
@@ -812,16 +824,11 @@ void MainWindow::onTriggerStage(const std::string& node_id)
 {
     ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id);
     
-    if (!current_project_) {
-        statusBar()->showMessage("No project loaded", 3000);
-        return;
-    }
-    
     try {
         std::string status;
         statusBar()->showMessage("Triggering stage...");
         
-        bool success = orc::project_io::trigger_node(*current_project_, node_id, status);
+        bool success = orc::project_io::trigger_node(project_.coreProject(), node_id, status);
         
         statusBar()->showMessage(QString::fromStdString(status), success ? 5000 : 10000);
         
@@ -867,14 +874,6 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             current_view_node_id_ = node_id;
             available_outputs_ = outputs;
             
-            // Update DAG viewer selection
-            // Block signals to prevent infinite loop (selectNode -> nodeSelected -> onNodeSelectedForView)
-            if (dag_viewer_) {
-                dag_viewer_->blockSignals(true);
-                dag_viewer_->selectNode(node_id);
-                dag_viewer_->blockSignals(false);
-            }
-            
             // Update status bar to show which node is being viewed
             QString node_display = QString::fromStdString(node_id);
             statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
@@ -892,44 +891,50 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
 
 void MainWindow::onDAGModified()
 {
-    // Export DAG from viewer and save back to project
-    if (dag_viewer_) {
-        auto gui_dag = dag_viewer_->exportDAG();
-        
-        // Convert GUIDAG nodes back to ProjectDAGNodes
-        std::vector<orc::ProjectDAGNode> nodes;
-        for (const auto& gui_node : gui_dag.nodes) {
-            orc::ProjectDAGNode node;
-            node.node_id = gui_node.node_id;
-            node.stage_name = gui_node.stage_name;
-            node.node_type = gui_node.node_type;
-            node.display_name = gui_node.display_name;
-            node.x_position = gui_node.x_position;
-            node.y_position = gui_node.y_position;
-            node.parameters = gui_node.parameters;
-            nodes.push_back(node);
-        }
-        
-        // Convert GUIDAG edges back to ProjectDAGEdges
-        std::vector<orc::ProjectDAGEdge> edges;
-        for (const auto& gui_edge : gui_dag.edges) {
-            orc::ProjectDAGEdge edge;
-            edge.source_node_id = gui_edge.source_node_id;
-            edge.target_node_id = gui_edge.target_node_id;
-            edges.push_back(edge);
-        }
-        
-        // Update project with new DAG
-        orc::project_io::update_project_dag(project_.coreProject(), nodes, edges);
-        
-        // Rebuild the DAG from the updated project structure
-        project_.rebuildDAG();
+    // QtNodes model automatically updates the Project via OrcGraphModel
+    // The model change triggers this slot, so Project is already updated
+    
+    // Rebuild DAG to reflect the changes (new nodes, edges, etc.)
+    project_.rebuildDAG();
+    
+    // Update the preview renderer with new DAG structure
+    updatePreviewRenderer();
+    
+    // Refresh the displayed preview to show the changes
+    updatePreview();
+}
+
+void MainWindow::onArrangeDAGToGrid()
+{
+    if (!dag_model_) {
+        return;
     }
     
-    // Update renderer with new DAG - this will automatically handle:
-    // - Selecting appropriate node to view (or placeholder if no nodes)
-    // - Updating all UI controls and state
-    updatePreviewRenderer();
+    // Simple grid layout - arrange nodes in a grid pattern
+    const auto& nodes = project_.coreProject().get_nodes();
+    const double grid_spacing_x = 250.0;
+    const double grid_spacing_y = 150.0;
+    const int cols = std::max(1, static_cast<int>(std::sqrt(nodes.size())));
+    
+    int row = 0;
+    int col = 0;
+    
+    for (const auto& node : nodes) {
+        double x = col * grid_spacing_x;
+        double y = row * grid_spacing_y;
+        
+        orc::project_io::set_node_position(project_.coreProject(), node.node_id, x, y);
+        
+        col++;
+        if (col >= cols) {
+            col = 0;
+            row++;
+        }
+    }
+    
+    // Refresh the view
+    dag_model_->refresh();
+    statusBar()->showMessage("Arranged DAG to grid", 2000);
 }
 
 void MainWindow::updatePreview()
@@ -1227,4 +1232,140 @@ void MainWindow::setLastProjectDirectory(const QString& path)
 {
     QSettings settings("orc-project", "orc-gui");
     settings.setValue("lastProjectDirectory", path);
+}
+
+void MainWindow::onNodeContextMenu(QtNodes::NodeId nodeId, const QPointF& pos)
+{
+    ORC_LOG_DEBUG("Context menu requested for node: {}", nodeId);
+    
+    // The OrcGraphicsScene already handles context menus
+    // This slot is here for future extension if needed
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event)
+{
+    // Future: Add event filtering if needed
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::onQtNodeSelected(QtNodes::NodeId nodeId)
+{
+    if (!dag_model_) {
+        return;
+    }
+    
+    // Convert QtNodes ID to ORC node ID
+    std::string orc_node_id = dag_model_->getOrcNodeId(nodeId);
+    if (!orc_node_id.empty()) {
+        ORC_LOG_DEBUG("QtNode {} selected -> ORC node '{}'", nodeId, orc_node_id);
+        onNodeSelectedForView(orc_node_id);
+    }
+}
+
+void MainWindow::onInspectStage(const std::string& node_id)
+{
+    ORC_LOG_DEBUG("Inspect stage requested for node: {}", node_id);
+    
+    // Find the node in the project
+    const auto& nodes = project_.coreProject().get_nodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+    
+    if (node_it == nodes.end()) {
+        ORC_LOG_ERROR("Node '{}' not found in project", node_id);
+        QMessageBox::warning(this, "Inspection Failed",
+            QString("Node '%1' not found.").arg(QString::fromStdString(node_id)));
+        return;
+    }
+    
+    const std::string& stage_name = node_it->stage_name;
+    
+    // Create a stage instance to generate the report
+    try {
+        auto& stage_registry = orc::StageRegistry::instance();
+        if (!stage_registry.has_stage(stage_name)) {
+            ORC_LOG_ERROR("Stage type '{}' not found in registry", stage_name);
+            QMessageBox::warning(this, "Inspection Failed",
+                QString("Stage type '%1' not found in registry.").arg(QString::fromStdString(stage_name)));
+            return;
+        }
+        
+        auto stage = stage_registry.create_stage(stage_name);
+        
+        // Apply the node's parameters to the stage
+        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+        if (param_stage) {
+            param_stage->set_parameters(node_it->parameters);
+        }
+        
+        auto report = stage->generate_report();
+        
+        if (!report.has_value()) {
+            QMessageBox::information(this, "Stage Inspection",
+                QString("Stage '%1' does not support inspection reporting.")
+                    .arg(QString::fromStdString(stage_name)));
+            return;
+        }
+        
+        // Show inspection dialog
+        orc::InspectionDialog dialog(report.value(), this);
+        dialog.exec();
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to inspect stage '{}': {}", stage_name, e.what());
+        QMessageBox::warning(this, "Inspection Failed",
+            QString("Failed to inspect stage: %1").arg(e.what()));
+    }
+}
+
+void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& node_id, const std::string& stage_name)
+{
+    ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool->name(), node_id);
+    
+    // Create analysis context
+    orc::AnalysisContext context;
+    context.node_id = node_id;
+    context.source_type = orc::AnalysisSourceType::LaserDisc;  // TODO: Detect from project
+    context.project = std::make_shared<orc::Project>(project_.coreProject());
+    
+    // Create DAG from project for analysis
+    context.dag = orc::project_to_dag(project_.coreProject());
+    
+    // Show analysis dialog which handles the actual analysis execution
+    orc::gui::AnalysisDialog dialog(tool, context, this);
+    
+    // Connect apply signal to handle applying results to the node
+    connect(&dialog, &orc::gui::AnalysisDialog::applyToGraph, 
+            [this, tool, node_id](const orc::AnalysisResult& result) {
+        ORC_LOG_INFO("Applying analysis results to node '{}'", node_id);
+        
+        try {
+            bool success = tool->applyToGraph(result, project_.coreProject(), node_id);
+            
+            if (success) {
+                // Rebuild DAG and update preview to reflect changes
+                project_.rebuildDAG();
+                updatePreviewRenderer();
+                dag_model_->refresh();
+                updatePreview();
+                
+                statusBar()->showMessage(
+                    QString("Applied analysis results to node '%1'")
+                        .arg(QString::fromStdString(node_id)),
+                    5000
+                );
+                QMessageBox::information(this, "Analysis Applied",
+                    "Analysis results successfully applied to node.");
+            } else {
+                QMessageBox::warning(this, "Apply Failed",
+                    "Failed to apply analysis results to node.");
+            }
+        } catch (const std::exception& e) {
+            ORC_LOG_ERROR("Failed to apply analysis results: {}", e.what());
+            QMessageBox::warning(this, "Apply Failed",
+                QString("Error applying results: %1").arg(e.what()));
+        }
+    });
+    
+    dialog.exec();
 }

@@ -102,9 +102,9 @@ Project load_project(const std::string& filename) {
         project.version_ = root["project"]["version"].as<std::string>("1.0");
     }
     
-    // Load DAG nodes_
-    if (root["dag"] && root["dag"]["nodes_"] && root["dag"]["nodes_"].IsSequence()) {
-        for (const auto& node_yaml : root["dag"]["nodes_"]) {
+    // Load DAG nodes
+    if (root["dag"] && root["dag"]["nodes"] && root["dag"]["nodes"].IsSequence()) {
+        for (const auto& node_yaml : root["dag"]["nodes"]) {
             ProjectDAGNode node;
             node.node_id = node_yaml["id"].as<std::string>("");
             node.stage_name = node_yaml["stage"].as<std::string>("");
@@ -181,7 +181,7 @@ void save_project(const Project& project, const std::string& filename) {
     out << YAML::Value << YAML::BeginMap;
     
     // Nodes
-    out << YAML::Key << "nodes_";
+    out << YAML::Key << "nodes";
     out << YAML::Value << YAML::BeginSeq;
     for (const auto& node : project.nodes_) {
         out << YAML::BeginMap;
@@ -326,6 +326,11 @@ std::string generate_unique_node_id(const Project& project) {
 }
 
 std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position) {
+    // Validate that project has been initialized
+    if (project.name_.empty()) {
+        throw std::runtime_error("Cannot add node to uninitialized project. Create or load a project first.");
+    }
+    
     // Validate stage name
     const NodeTypeInfo* type_info = get_node_type_info(stage_name);
     if (!type_info) {
@@ -359,6 +364,12 @@ void remove_node(Project& project, const std::string& node_id) {
         throw std::runtime_error("Node not found: " + node_id);
     }
     
+    // Check if node can be removed
+    std::string reason;
+    if (!can_remove_node(project, node_id, &reason)) {
+        throw std::runtime_error(reason);
+    }
+    
     // Remove all edges connected to this node
     project.edges_.erase(
         std::remove_if(project.edges_.begin(), project.edges_.end(),
@@ -374,45 +385,7 @@ void remove_node(Project& project, const std::string& node_id) {
     project.is_modified_ = true;
 }
 
-void change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name) {
-    // Validate new stage name
-    const NodeTypeInfo* type_info = get_node_type_info(new_stage_name);
-    if (!type_info) {
-        throw std::runtime_error("Invalid stage name: " + new_stage_name);
-    }
-    
-    // Find the node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id);
-    }
-    
-    // Check if node has any connections - if so, prevent type change
-    // This prevents breaking the DAG by switching to incompatible types
-    bool has_connections = false;
-    for (const auto& edge : project.edges_) {
-        if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
-            has_connections = true;
-            break;
-        }
-    }
-    
-    if (has_connections) {
-        throw std::runtime_error("Cannot change type of node with connections. Disconnect all edges first.");
-    }
-    
-    // Update node
-    node_it->stage_name = new_stage_name;
-    node_it->node_type = type_info->type;
-    node_it->display_name = type_info->display_name;
-    // Clear parameters when changing type
-    node_it->parameters.clear();
-    project.is_modified_ = true;
-}
-
-bool can_change_node_type(const Project& project, const std::string& node_id, std::string* reason) {
+bool can_remove_node(const Project& project, const std::string& node_id, std::string* reason) {
     // Find the node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
@@ -425,12 +398,12 @@ bool can_change_node_type(const Project& project, const std::string& node_id, st
     // Check if node has any connections
     for (const auto& edge : project.edges_) {
         if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
-            if (reason) *reason = "Node has connections - disconnect all edges first";
+            if (reason) *reason = "Cannot delete node with connections - disconnect all edges first";
             return false;
         }
     }
     
-    // Node type can be changed
+    // Node can be removed
     if (reason) *reason = "";
     return true;
 }
@@ -547,6 +520,11 @@ void set_node_label(Project& project, const std::string& node_id, const std::str
 }
 
 void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id) {
+    // Validate that project has been initialized
+    if (project.name_.empty()) {
+        throw std::runtime_error("Cannot add edge to uninitialized project. Create or load a project first.");
+    }
+    
     // Find source and target nodes_
     auto source_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&source_node_id](const ProjectDAGNode& n) { return n.node_id == source_node_id; });
@@ -621,6 +599,51 @@ void clear_project(Project& project) {
     project.nodes_.clear();
     project.edges_.clear();
     project.clear_modified_flag();
+}
+
+void set_project_name(Project& project, const std::string& name) {
+    if (name.empty()) {
+        throw std::invalid_argument("Project name cannot be empty");
+    }
+    project.name_ = name;
+    project.is_modified_ = true;
+}
+
+void set_project_description(Project& project, const std::string& description) {
+    project.description_ = description;
+    project.is_modified_ = true;
+}
+
+bool can_trigger_node(const Project& project, const std::string& node_id, std::string* reason) {
+    // Find the node
+    auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+    
+    if (it == project.nodes_.end()) {
+        if (reason) *reason = "Node not found";
+        return false;
+    }
+    
+    // Check if stage is triggerable
+    try {
+        auto stage = StageRegistry::instance().create_stage(it->stage_name);
+        if (!stage) {
+            if (reason) *reason = "Failed to create stage";
+            return false;
+        }
+        
+        auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
+        if (!trigger_stage) {
+            if (reason) *reason = "Stage is not triggerable";
+            return false;
+        }
+        
+        if (reason) *reason = "";
+        return true;
+    } catch (const std::exception& e) {
+        if (reason) *reason = std::string("Error: ") + e.what();
+        return false;
+    }
 }
 
 bool trigger_node(Project& project, const std::string& node_id, std::string& status_out) {
@@ -731,6 +754,64 @@ std::string find_source_file_for_node(const Project& project, const std::string&
     }
     
     return "";
+}
+
+NodeCapabilities get_node_capabilities(const Project& project, const std::string& node_id) {
+    NodeCapabilities caps;
+    caps.node_id = node_id;
+    
+    // Find the node
+    auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+    
+    if (it == project.nodes_.end()) {
+        caps.remove_reason = "Node not found";
+        caps.trigger_reason = "Node not found";
+        caps.inspect_reason = "Node not found";
+        return caps;
+    }
+    
+    caps.stage_name = it->stage_name;
+    caps.node_label = it->user_label.empty() ? it->display_name : it->user_label;
+    
+    // Check can_remove - cannot remove if node has connections
+    bool has_connections = false;
+    for (const auto& edge : project.edges_) {
+        if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
+            has_connections = true;
+            break;
+        }
+    }
+    caps.can_remove = !has_connections;
+    if (has_connections) {
+        caps.remove_reason = "Cannot remove connected node";
+    }
+    
+    // Check can_trigger - must be TriggerableStage
+    try {
+        auto stage = StageRegistry::instance().create_stage(it->stage_name);
+        if (stage) {
+            auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
+            caps.can_trigger = (trigger_stage != nullptr);
+            if (!caps.can_trigger) {
+                caps.trigger_reason = "Stage is not triggerable";
+            }
+            
+            // Check can_inspect - must have generate_report
+            caps.can_inspect = stage->generate_report().has_value();
+            if (!caps.can_inspect) {
+                caps.inspect_reason = "Stage does not support inspection";
+            }
+        } else {
+            caps.trigger_reason = "Failed to create stage";
+            caps.inspect_reason = "Failed to create stage";
+        }
+    } catch (const std::exception& e) {
+        caps.trigger_reason = std::string("Error: ") + e.what();
+        caps.inspect_reason = std::string("Error: ") + e.what();
+    }
+    
+    return caps;
 }
 
 } // namespace project_io

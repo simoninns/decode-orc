@@ -26,6 +26,22 @@ class Project;
 struct ProjectDAGNode;
 struct ProjectDAGEdge;
 
+// Node capabilities structure
+struct NodeCapabilities {
+    bool can_remove = false;
+    std::string remove_reason;
+    
+    bool can_trigger = false;
+    std::string trigger_reason;
+    
+    bool can_inspect = false;
+    std::string inspect_reason;
+    
+    std::string node_id;
+    std::string stage_name;
+    std::string node_label;
+};
+
 namespace project_io {
     Project load_project(const std::string& filename);
     void save_project(const Project& project, const std::string& filename);
@@ -34,16 +50,23 @@ namespace project_io {
     std::string generate_unique_node_id(const Project& project);
     std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
     void remove_node(Project& project, const std::string& node_id);
-    void change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name);
-    bool can_change_node_type(const Project& project, const std::string& node_id, std::string* reason);
+    bool can_remove_node(const Project& project, const std::string& node_id, std::string* reason);
     void set_node_parameters(Project& project, const std::string& node_id, const std::map<std::string, ParameterValue>& parameters);
     void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
     void set_node_label(Project& project, const std::string& node_id, const std::string& label);
     void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
     void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
     void clear_project(Project& project);
+    bool can_trigger_node(const Project& project, const std::string& node_id, std::string* reason);
     bool trigger_node(Project& project, const std::string& node_id, std::string& status_out);
     std::string find_source_file_for_node(const Project& project, const std::string& node_id);
+    
+    // Get all capabilities for a node in a single call
+    NodeCapabilities get_node_capabilities(const Project& project, const std::string& node_id);
+    
+    // Project metadata setters
+    void set_project_name(Project& project, const std::string& name);
+    void set_project_description(Project& project, const std::string& description);
 }
 
 /**
@@ -140,16 +163,19 @@ private:
     friend std::string project_io::generate_unique_node_id(const Project& project);
     friend std::string project_io::add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
     friend void project_io::remove_node(Project& project, const std::string& node_id);
-    friend void project_io::change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name);
-    friend bool project_io::can_change_node_type(const Project& project, const std::string& node_id, std::string* reason);
+    friend bool project_io::can_remove_node(const Project& project, const std::string& node_id, std::string* reason);
     friend void project_io::set_node_parameters(Project& project, const std::string& node_id, const std::map<std::string, ParameterValue>& parameters);
     friend void project_io::set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
     friend void project_io::set_node_label(Project& project, const std::string& node_id, const std::string& label);
     friend void project_io::add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
     friend void project_io::remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
     friend void project_io::clear_project(Project& project);
+    friend bool project_io::can_trigger_node(const Project& project, const std::string& node_id, std::string* reason);
     friend bool project_io::trigger_node(Project& project, const std::string& node_id, std::string& status_out);
     friend std::string project_io::find_source_file_for_node(const Project& project, const std::string& node_id);
+    friend NodeCapabilities project_io::get_node_capabilities(const Project& project, const std::string& node_id);
+    friend void project_io::set_project_name(Project& project, const std::string& name);
+    friend void project_io::set_project_description(Project& project, const std::string& description);
 };
 
 /**

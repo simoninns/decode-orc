@@ -72,6 +72,10 @@ public:
     
     // Get ORC node ID from QtNodes NodeId
     std::string getOrcNodeId(NodeId qtNodeId) const;
+    
+    // Access to underlying project (for context menu)
+    orc::Project& project() { return project_; }
+    const orc::Project& project() const { return project_; }
 
 private:
     orc::Project& project_;

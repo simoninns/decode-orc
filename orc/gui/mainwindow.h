@@ -17,10 +17,10 @@
 #include <memory>
 #include "guiproject.h"
 #include "preview_renderer.h"  // For PreviewOutputType
-#include <QtNodes/GraphicsView>
-#include <QtNodes/BasicGraphicsScene>
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
+
+class OrcGraphicsView;
 
 namespace orc {
     class VideoFieldRepresentation;
@@ -78,6 +78,9 @@ private slots:
     void onDAGModified();
     void onExportPNG();
     void onNodeContextMenu(QtNodes::NodeId nodeId, const QPointF& pos);
+    void onArrangeDAGToGrid();
+    void onQtNodeSelected(QtNodes::NodeId nodeId);
+    void onInspectStage(const std::string& node_id);
 
 private:
     void setupUI();
@@ -108,8 +111,8 @@ private:
     
     // UI components
     FieldPreviewWidget* preview_widget_;
-    OrcGraphModel* graph_model_;
-    QtNodes::GraphicsView* dag_view_;
+    OrcGraphModel* dag_model_;
+    OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;
     QSplitter* main_splitter_;
     QSlider* preview_slider_;

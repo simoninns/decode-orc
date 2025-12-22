@@ -9,10 +9,10 @@
 
 #include "orcgraphmodel.h"
 #include "node_type_helper.h"
+#include "logging.h"
 #include "../core/include/project.h"
 #include <QtNodes/ConnectionIdUtils>
 #include <QtNodes/StyleCollection>
-#include <spdlog/spdlog.h>
 
 using QtNodes::getNodeId;
 using QtNodes::getPortIndex;
@@ -33,14 +33,21 @@ void OrcGraphModel::buildMappings()
     
     // Build node mappings
     NodeId qt_id = 0;
-    for (const auto& node : project_.get_nodes()) {
+    const auto& nodes = project_.get_nodes();
+    ORC_LOG_DEBUG("OrcGraphModel::buildMappings - Project has {} nodes", nodes.size());
+    
+    for (const auto& node : nodes) {
         qt_to_orc_nodes_[qt_id] = node.node_id;
         orc_to_qt_nodes_[node.node_id] = qt_id;
+        ORC_LOG_DEBUG("  Mapped QtNode {} -> ORC node '{}'", qt_id, node.node_id);
         qt_id++;
     }
     
     // Build connection mappings
-    for (const auto& edge : project_.get_edges()) {
+    const auto& edges = project_.get_edges();
+    ORC_LOG_DEBUG("OrcGraphModel::buildMappings - Project has {} edges", edges.size());
+    
+    for (const auto& edge : edges) {
         auto it_out = orc_to_qt_nodes_.find(edge.source_node_id);
         auto it_in = orc_to_qt_nodes_.find(edge.target_node_id);
         
@@ -48,6 +55,7 @@ void OrcGraphModel::buildMappings()
             // All nodes have single ports (index 0)
             ConnectionId conn_id{it_out->second, 0, it_in->second, 0};
             connectivity_.insert(conn_id);
+            ORC_LOG_DEBUG("  Mapped connection: {} -> {}", edge.source_node_id, edge.target_node_id);
         }
     }
 }
@@ -92,7 +100,9 @@ const orc::ProjectDAGNode* OrcGraphModel::findOrcNode(const std::string& node_id
 
 void OrcGraphModel::refresh()
 {
+    ORC_LOG_DEBUG("OrcGraphModel::refresh - Rebuilding node mappings");
     buildMappings();
+    ORC_LOG_DEBUG("OrcGraphModel::refresh - Emitting modelReset signal");
     Q_EMIT modelReset();
 }
 
@@ -383,7 +393,8 @@ bool OrcGraphModel::deleteConnection(ConnectionId const connectionId)
         Q_EMIT connectionDeleted(connectionId);
         
         return true;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        ORC_LOG_WARN("Failed to delete connection: {}", e.what());
         return false;
     }
 }
@@ -420,7 +431,9 @@ bool OrcGraphModel::deleteNode(NodeId const nodeId)
         Q_EMIT nodeDeleted(nodeId);
         
         return true;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        // Log error - validation failed (likely has connections)
+        ORC_LOG_WARN("Failed to delete node '{}': {}", orc_node_id, e.what());
         return false;
     }
 }
@@ -429,11 +442,15 @@ QJsonObject OrcGraphModel::saveNode(NodeId const nodeId) const
 {
     QJsonObject json;
     
+    // QtNodes expects the integer NodeId in the "id" field for undo/redo
+    json["id"] = static_cast<int>(nodeId);
+    
+    // Also save ORC-specific data for completeness
     auto it = qt_to_orc_nodes_.find(nodeId);
     if (it != qt_to_orc_nodes_.end()) {
         const orc::ProjectDAGNode* node = findOrcNode(it->second);
         if (node) {
-            json["id"] = QString::fromStdString(node->node_id);
+            json["orc_node_id"] = QString::fromStdString(node->node_id);
             json["stage_name"] = QString::fromStdString(node->stage_name);
             json["display_name"] = QString::fromStdString(node->display_name);
             json["user_label"] = QString::fromStdString(node->user_label);
@@ -448,7 +465,7 @@ QJsonObject OrcGraphModel::saveNode(NodeId const nodeId) const
 void OrcGraphModel::loadNode(QJsonObject const& nodeJson)
 {
     // Project loading is handled by project_io, not by QtNodes
-    spdlog::warn("OrcGraphModel::loadNode not implemented - use project_io instead");
+    ORC_LOG_WARN("OrcGraphModel::loadNode not implemented - use project_io instead");
 }
 
 std::string OrcGraphModel::getOrcNodeId(NodeId qtNodeId) const

@@ -76,6 +76,9 @@ public:
     // Access to underlying project (for context menu)
     orc::Project& project() { return project_; }
     const orc::Project& project() const { return project_; }
+    
+    // Helper to find ORC node by ID (public for custom painters)
+    const orc::ProjectDAGNode* findOrcNode(const std::string& node_id) const;
 
 private:
     orc::Project& project_;
@@ -89,7 +92,6 @@ private:
     
     // Helper functions
     NodeId getOrCreateQtNodeId(const std::string& orc_node_id);
-    const orc::ProjectDAGNode* findOrcNode(const std::string& node_id) const;
     // Removed non-const version - use project_io for modifications
     
     void buildMappings();

@@ -26,6 +26,8 @@ add_executable(orc-gui
     orcgraphicsscene.h
     orcgraphicsview.cpp
     orcgraphicsview.h
+    orcnodepainter.cpp
+    orcnodepainter.h
     fieldpreviewwidget.cpp
     fieldpreviewwidget.h
     previewdialog.cpp

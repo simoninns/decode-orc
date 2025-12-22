@@ -14,6 +14,7 @@
 #include <QHBoxLayout>
 #include <QMenuBar>
 #include <QStatusBar>
+#include <QPushButton>
 #include <QCloseEvent>
 #include <QShowEvent>
 #include <QHideEvent>
@@ -61,13 +62,39 @@ void PreviewDialog::setupUI()
     preview_info_label_ = new QLabel("No preview available");
     mainLayout->addWidget(preview_info_label_);
     
-    // Slider controls
+    // Slider controls with navigation buttons
     auto* sliderLayout = new QHBoxLayout();
+    
+    // Navigation buttons
+    first_button_ = new QPushButton("<<");
+    prev_button_ = new QPushButton("<");
+    next_button_ = new QPushButton(">");
+    last_button_ = new QPushButton(">>");
+    
+    // Set auto-repeat on prev/next buttons (150ms delay, then fast repeat)
+    prev_button_->setAutoRepeat(true);
+    prev_button_->setAutoRepeatDelay(150);
+    prev_button_->setAutoRepeatInterval(50);
+    
+    next_button_->setAutoRepeat(true);
+    next_button_->setAutoRepeatDelay(150);
+    next_button_->setAutoRepeatInterval(50);
+    
+    // Set fixed width for navigation buttons
+    first_button_->setFixedWidth(40);
+    prev_button_->setFixedWidth(40);
+    next_button_->setFixedWidth(40);
+    last_button_->setFixedWidth(40);
+    
     slider_min_label_ = new QLabel("0");
     slider_max_label_ = new QLabel("0");
     preview_slider_ = new QSlider(Qt::Horizontal);
     preview_slider_->setEnabled(false);
     
+    sliderLayout->addWidget(first_button_);
+    sliderLayout->addWidget(prev_button_);
+    sliderLayout->addWidget(next_button_);
+    sliderLayout->addWidget(last_button_);
     sliderLayout->addWidget(slider_min_label_);
     sliderLayout->addWidget(preview_slider_, 1);
     sliderLayout->addWidget(slider_max_label_);
@@ -98,6 +125,20 @@ void PreviewDialog::setupUI()
             this, &PreviewDialog::previewModeChanged);
     connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::aspectRatioModeChanged);
+    
+    // Connect navigation buttons
+    connect(first_button_, &QPushButton::clicked, [this]() {
+        preview_slider_->setValue(preview_slider_->minimum());
+    });
+    connect(prev_button_, &QPushButton::clicked, [this]() {
+        preview_slider_->setValue(preview_slider_->value() - 1);
+    });
+    connect(next_button_, &QPushButton::clicked, [this]() {
+        preview_slider_->setValue(preview_slider_->value() + 1);
+    });
+    connect(last_button_, &QPushButton::clicked, [this]() {
+        preview_slider_->setValue(preview_slider_->maximum());
+    });
 }
 
 void PreviewDialog::setCurrentNode(const QString& node_label, const QString& node_id)

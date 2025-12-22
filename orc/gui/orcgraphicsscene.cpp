@@ -8,6 +8,7 @@
  */
 
 #include "orcgraphicsscene.h"
+#include "orcnodepainter.h"
 #include "logging.h"
 #include "../core/include/node_type.h"
 #include "../core/include/project.h"
@@ -22,6 +23,9 @@ OrcGraphicsScene::OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent)
     : QtNodes::BasicGraphicsScene(graphModel, parent)
     , graph_model_(graphModel)
 {
+    // Set custom node painter that distinguishes "one" vs "many" ports
+    setNodePainter(std::make_unique<OrcNodePainter>());
+    
     // Connect to scene's selection changed signal
     connect(this, &QGraphicsScene::selectionChanged,
             this, &OrcGraphicsScene::onSelectionChanged);

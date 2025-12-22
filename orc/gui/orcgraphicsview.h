@@ -24,6 +24,10 @@ public:
     explicit OrcGraphicsView(QWidget* parent = nullptr);
     ~OrcGraphicsView() override = default;
 
+protected:
+    void wheelEvent(QWheelEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+
 private slots:
     void onDeleteSelectedObjects();
 };

@@ -46,6 +46,9 @@
 #include <QMoveEvent>
 #include <QResizeEvent>
 
+#include <queue>
+#include <map>
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_dialog_(nullptr)
@@ -868,9 +871,14 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             
             bool auto_show_enabled = auto_show_preview_action_ && auto_show_preview_action_->isChecked();
             
+            // Enable the Show Preview menu action whenever there's valid content
+            if (is_real_node && has_valid_content) {
+                show_preview_action_->setEnabled(true);
+            }
+            
+            // Auto-show the preview dialog only if the setting is enabled
             if (!preview_dialog_->isVisible() && is_real_node && has_valid_content && auto_show_enabled) {
                 preview_dialog_->show();
-                show_preview_action_->setEnabled(true);
             }
             
             // Update preview dialog to show current node
@@ -928,25 +936,79 @@ void MainWindow::onArrangeDAGToGrid()
         return;
     }
     
-    // Simple grid layout - arrange nodes in a grid pattern
+    // Hierarchical layout - arrange nodes left to right based on topological order
     const auto& nodes = project_.coreProject().get_nodes();
-    const double grid_spacing_x = 250.0;
+    const auto& edges = project_.coreProject().get_edges();
+    
+    if (nodes.empty()) {
+        return;
+    }
+    
+    const double grid_spacing_x = 300.0;
     const double grid_spacing_y = 150.0;
-    const int cols = std::max(1, static_cast<int>(std::sqrt(nodes.size())));
     
-    int row = 0;
-    int col = 0;
+    // Build adjacency list (forward edges: source -> targets)
+    std::map<std::string, std::vector<std::string>> forward_edges;
+    std::map<std::string, int> in_degree;
     
+    // Initialize in-degree for all nodes
     for (const auto& node : nodes) {
-        double x = col * grid_spacing_x;
-        double y = row * grid_spacing_y;
+        in_degree[node.node_id] = 0;
+        forward_edges[node.node_id] = {};
+    }
+    
+    // Count in-degrees and build forward edge list
+    for (const auto& edge : edges) {
+        in_degree[edge.target_node_id]++;
+        forward_edges[edge.source_node_id].push_back(edge.target_node_id);
+    }
+    
+    // Calculate depth level for each node (BFS from sources)
+    std::map<std::string, int> node_depth;
+    std::queue<std::string> queue;
+    
+    // Start with source nodes (in-degree 0)
+    for (const auto& [node_id, degree] : in_degree) {
+        if (degree == 0) {
+            node_depth[node_id] = 0;
+            queue.push(node_id);
+        }
+    }
+    
+    // BFS to assign depths
+    while (!queue.empty()) {
+        std::string current_id = queue.front();
+        queue.pop();
         
-        orc::project_io::set_node_position(project_.coreProject(), node.node_id, x, y);
+        int current_depth = node_depth[current_id];
         
-        col++;
-        if (col >= cols) {
-            col = 0;
-            row++;
+        // Process all targets of this node
+        for (const auto& target_id : forward_edges[current_id]) {
+            // Update depth if not set or if we found a longer path
+            if (node_depth.find(target_id) == node_depth.end()) {
+                node_depth[target_id] = current_depth + 1;
+                queue.push(target_id);
+            } else if (node_depth[target_id] < current_depth + 1) {
+                node_depth[target_id] = current_depth + 1;
+                queue.push(target_id);
+            }
+        }
+    }
+    
+    // Group nodes by depth level
+    std::map<int, std::vector<std::string>> levels;
+    for (const auto& [node_id, depth] : node_depth) {
+        levels[depth].push_back(node_id);
+    }
+    
+    // Position nodes: each depth level gets a column
+    for (const auto& [depth, level_nodes] : levels) {
+        double x = depth * grid_spacing_x;
+        
+        // Center nodes vertically within this level
+        for (size_t i = 0; i < level_nodes.size(); ++i) {
+            double y = i * grid_spacing_y;
+            orc::project_io::set_node_position(project_.coreProject(), level_nodes[i], x, y);
         }
     }
     

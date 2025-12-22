@@ -14,6 +14,7 @@
 #include <QSlider>
 #include <QLabel>
 #include <QComboBox>
+#include <QPushButton>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QVBoxLayout>
@@ -64,6 +65,12 @@ private:
     QMenuBar* menu_bar_;
     QStatusBar* status_bar_;
     QAction* export_png_action_;
+    
+    // Navigation buttons
+    QPushButton* first_button_;
+    QPushButton* prev_button_;
+    QPushButton* next_button_;
+    QPushButton* last_button_;
 };
 
 #endif // PREVIEWDIALOG_H

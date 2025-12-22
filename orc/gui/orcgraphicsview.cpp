@@ -17,6 +17,9 @@
 #include <QKeySequence>
 #include <QAction>
 #include <QMessageBox>
+#include <QWheelEvent>
+#include <QShowEvent>
+#include <cmath>
 
 OrcGraphicsView::OrcGraphicsView(QWidget* parent)
     : QtNodes::GraphicsView(parent)
@@ -31,6 +34,42 @@ OrcGraphicsView::OrcGraphicsView(QWidget* parent)
             break;
         }
     }
+}
+
+void OrcGraphicsView::showEvent(QShowEvent *event)
+{
+    // Set scale limits: 70% to 100%
+    setScaleRange(0.7, 1.0);
+    QtNodes::GraphicsView::showEvent(event);
+}
+
+void OrcGraphicsView::wheelEvent(QWheelEvent *event)
+{
+    QPoint delta = event->angleDelta();
+
+    if (delta.y() == 0) {
+        event->ignore();
+        return;
+    }
+
+    // Reduced sensitivity: use 1.1 (10% per scroll) instead of default 1.2 (20%)
+    double const step = 1.1;
+    double const d = delta.y() / std::abs(delta.y());
+    double const factor = std::pow(step, d);
+
+    // Get current scale and apply limits
+    double currentScale = transform().m11();
+    double newScale = currentScale * factor;
+    
+    // Clamp to 70%-100% range
+    newScale = std::max(0.7, std::min(1.0, newScale));
+    
+    // Only apply if there's a meaningful change
+    if (std::abs(newScale - currentScale) > 0.001) {
+        setupScale(newScale);
+    }
+    
+    event->accept();
 }
 
 void OrcGraphicsView::onDeleteSelectedObjects()

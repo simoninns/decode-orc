@@ -253,15 +253,17 @@ QVariant OrcGraphModel::nodeData(NodeId nodeId, NodeRole role) const
             return true;
             
         case NodeRole::InPortCount: {
-            // Get port count from NodeTypeInfo
-            const orc::NodeTypeInfo* info = orc::get_node_type_info(node->stage_name);
-            return info ? static_cast<unsigned int>(info->max_inputs) : 1u;
+            // Return 1 port if node has inputs, 0 if it's a source node
+            // The ConnectionPolicy determines if it accepts multiple connections
+            NodeTypeHelper::NodeVisualInfo info = NodeTypeHelper::getVisualInfo(node->stage_name);
+            return info.has_input ? 1u : 0u;
         }
             
         case NodeRole::OutPortCount: {
-            // Get port count from NodeTypeInfo
-            const orc::NodeTypeInfo* info = orc::get_node_type_info(node->stage_name);
-            return info ? static_cast<unsigned int>(info->max_outputs) : 1u;
+            // Return 1 port if node has outputs, 0 if it's a sink node
+            // The ConnectionPolicy determines if it allows multiple connections
+            NodeTypeHelper::NodeVisualInfo info = NodeTypeHelper::getVisualInfo(node->stage_name);
+            return info.has_output ? 1u : 0u;
         }
             
         case NodeRole::Widget:
@@ -340,10 +342,24 @@ QVariant OrcGraphModel::portData(NodeId nodeId,
         case PortRole::DataType:
             return QString("VideoField");
             
-        case PortRole::ConnectionPolicyRole:
-            // Always return One - multi-port support is handled by port count,
-            // not by allowing multiple connections per port
-            return QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+        case PortRole::ConnectionPolicyRole: {
+            // Return Many if the port can handle multiple connections
+            if (!info) {
+                return QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+            }
+            
+            if (portType == PortType::In) {
+                // Input port: Many if max_inputs > 1
+                return (info->max_inputs > 1) 
+                    ? QVariant::fromValue(QtNodes::ConnectionPolicy::Many)
+                    : QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+            } else {
+                // Output port: Many if max_outputs > 1
+                return (info->max_outputs > 1)
+                    ? QVariant::fromValue(QtNodes::ConnectionPolicy::Many)
+                    : QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+            }
+        }
             
         case PortRole::CaptionVisible:
             return false;

@@ -335,6 +335,22 @@ bool ChromaSinkStage::trigger(
     ORC_LOG_DEBUG("ChromaSink: Sample rate: {}, fSC: {}, isSubcarrierLocked: {}", 
                   ldVideoParams.sampleRate, ldVideoParams.fSC, ldVideoParams.isSubcarrierLocked);
     
+    // Apply padding adjustments to active video region BEFORE configuring decoder
+    // This ensures the decoder processes the correct region that will be written to output
+    {
+        OutputWriter::Configuration writerConfig;
+        writerConfig.paddingAmount = 8;  // Same as used later for actual output
+        
+        // Create temporary output writer just to apply padding adjustments
+        OutputWriter tempWriter;
+        tempWriter.updateConfiguration(ldVideoParams, writerConfig);
+        // ldVideoParams now has adjusted activeVideoStart/End values
+    }
+    
+    ORC_LOG_DEBUG("ChromaSink: After padding adjustment: activeVideoStart={}, activeVideoEnd={}, width={}", 
+                  ldVideoParams.activeVideoStart, ldVideoParams.activeVideoEnd,
+                  ldVideoParams.activeVideoEnd - ldVideoParams.activeVideoStart);
+    
     // 4. Create appropriate decoder
     // Note: We'll use the decoder classes directly (synchronously)
     // without the threading infrastructure for now

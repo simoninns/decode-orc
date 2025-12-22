@@ -75,9 +75,9 @@ Each step is independently testable. Run the test suite after each step to verif
 
 ### Step 1: Create ChromaSinkStage Skeleton
 
-**Status:** Not Started  
+**Status:** ✅ COMPLETE (22 Dec 2025)  
 **Risk:** Low  
-**Duration:** ~2 hours
+**Actual Duration:** ~2 hours
 
 #### Objectives
 Establish basic infrastructure without functionality. Verify stage registration and parameter system work.
@@ -180,6 +180,41 @@ orc-cli list-stages | grep chroma_sink
 - ✅ Connections work
 - ✅ No crashes or errors
 - ✅ Existing tests still pass (no regressions)
+
+#### Completion Notes
+
+**Files Created:**
+- `/orc/core/stages/chroma_sink/chroma_sink_stage.h` (126 lines)
+- `/orc/core/stages/chroma_sink/chroma_sink_stage.cpp` (237 lines)
+- `/orc/core/stages/chroma_sink/CMakeLists.txt`
+
+**Files Modified:**
+- `/orc/core/CMakeLists.txt` - Added chroma_sink_stage.cpp to build
+- `/orc/core/stage_init.cpp` - Added ChromaSinkStage to force-linking
+
+**Implementation Details:**
+- All 13 parameters defined with proper ParameterConstraints format:
+  - output_path, decoder_type, output_format, chroma_gain, chroma_phase
+  - start_frame, length, threads, reverse_fields
+  - luma_nr, chroma_nr, ntsc_phase_comp, output_padding
+- Used correct ParameterConstraints struct initialization (not fluent API)
+- Fixed ParameterType enum names (INT32, BOOL vs INTEGER, BOOLEAN)
+- Included TriggerableStage interface via ld_sink_stage.h
+
+**Verification:**
+- Build completed without errors
+- Stage appears in GUI node palette as "Chroma Decoder Sink"
+- Stage can be added to project canvas
+- Parameters panel displays all 13 parameters correctly
+- Parameter values are editable through GUI
+- Stage can be connected to source nodes (accepts VideoFieldRepresentation)
+- No crashes during GUI interaction
+- orc-chroma-decoder standalone tests still pass (unchanged)
+
+**Known Limitations (by design):**
+- `execute()` returns empty vector (sinks have no outputs)
+- `trigger()` logs message but doesn't process (implementation in Step 4)
+- `render_preview_field()` returns input unchanged (implementation in Step 9)
 
 ---
 

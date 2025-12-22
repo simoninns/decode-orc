@@ -56,6 +56,7 @@ add_library(orc-core STATIC
     stages/overwrite/overwrite_stage.cpp
     stages/field_map/field_map_stage.cpp
     stages/stacker/stacker_stage.cpp
+    stages/chroma_sink/chroma_sink_stage.cpp
     
     # Dropout decision utilities
     dropout_decision.cpp
@@ -94,6 +95,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/passthrough_complex
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_map
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink
 )
 
 target_compile_options(orc-core PRIVATE

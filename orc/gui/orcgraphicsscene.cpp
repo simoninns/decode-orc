@@ -16,6 +16,7 @@
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 #include <QGraphicsView>
 #include <QMessageBox>
+#include <QInputDialog>
 
 OrcGraphicsScene::OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent)
     : QtNodes::BasicGraphicsScene(graphModel, parent)
@@ -121,6 +122,24 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
     // Create context menu
     QMenu* menu = new QMenu();
     menu->addSection(QString("Node: %1").arg(node_label));
+    
+    // Rename Node action - always available
+    auto* rename_action = menu->addAction("Rename Node...");
+    connect(rename_action, &QAction::triggered, [this, nodeId, node_label]() {
+        // Prompt for new name
+        bool ok;
+        QString new_label = QInputDialog::getText(
+            nullptr,
+            "Rename Node",
+            "Enter new name for node:",
+            QLineEdit::Normal,
+            node_label,
+            &ok
+        );
+        if (ok && !new_label.isEmpty()) {
+            graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Caption, new_label);
+        }
+    });
     
     // Edit Parameters action - always available
     auto* edit_params_action = menu->addAction("Edit Parameters...");

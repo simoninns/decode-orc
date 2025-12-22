@@ -14,7 +14,8 @@
 #include <QSlider>
 #include <QLabel>
 #include <QComboBox>
-#include <QToolBar>
+#include <QMenuBar>
+#include <QStatusBar>
 #include <QVBoxLayout>
 #include <QString>
 #include "../core/include/preview_renderer.h"
@@ -41,16 +42,13 @@ public:
     QComboBox* previewModeCombo() { return preview_mode_combo_; }
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }
     
-    void setCurrentNode(const QString& node_name);
+    void setCurrentNode(const QString& node_label, const QString& node_id);
 
 Q_SIGNALS:
     void previewIndexChanged(int index);
     void previewModeChanged(int index);
     void aspectRatioModeChanged(int index);
     void exportPNGRequested();
-
-protected:
-    void closeEvent(QCloseEvent* event) override;
 
 private:
     void setupUI();
@@ -63,7 +61,8 @@ private:
     QLabel* slider_max_label_;
     QComboBox* preview_mode_combo_;
     QComboBox* aspect_ratio_combo_;
-    QLabel* current_node_label_;
+    QMenuBar* menu_bar_;
+    QStatusBar* status_bar_;
     QAction* export_png_action_;
 };
 

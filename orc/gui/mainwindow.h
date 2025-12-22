@@ -64,6 +64,7 @@ public:
 protected:
     void keyPressEvent(QKeyEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
 private slots:
     void onNewProject();
@@ -103,6 +104,8 @@ private:
     // Settings helpers
     QString getLastProjectDirectory() const;
     void setLastProjectDirectory(const QString& path);
+    void saveSettings();
+    void restoreSettings();
     
     // Project management
     GUIProject project_;

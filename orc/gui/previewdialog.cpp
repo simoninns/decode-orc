@@ -9,20 +9,33 @@
 
 #include "previewdialog.h"
 #include "fieldpreviewwidget.h"
+#include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
-#include <QToolBar>
+#include <QMenuBar>
+#include <QStatusBar>
 #include <QCloseEvent>
+#include <QShowEvent>
+#include <QHideEvent>
+#include <QMoveEvent>
+#include <QResizeEvent>
+#include <QMenu>
+#include <QSettings>
 
 PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
 {
     setupUI();
     setWindowTitle("Field/Frame Preview");
-    resize(800, 700);
+    
+    // Use Qt::Window flag to allow independent positioning (like ld-analyse dialogs)
+    setWindowFlags(Qt::Window);
     
     // Don't destroy on close, just hide
     setAttribute(Qt::WA_DeleteOnClose, false);
+    
+    // Set default size - geometry will be restored by MainWindow
+    resize(800, 700);
 }
 
 PreviewDialog::~PreviewDialog() = default;
@@ -31,16 +44,13 @@ void PreviewDialog::setupUI()
 {
     auto* mainLayout = new QVBoxLayout(this);
     
-    // Toolbar for actions
-    auto* toolbar = new QToolBar();
-    export_png_action_ = toolbar->addAction("Export PNG");
+    // Menu bar
+    menu_bar_ = new QMenuBar(this);
+    auto* fileMenu = menu_bar_->addMenu("&File");
+    export_png_action_ = fileMenu->addAction("&Export PNG...");
+    export_png_action_->setShortcut(QKeySequence("Ctrl+E"));
     connect(export_png_action_, &QAction::triggered, this, &PreviewDialog::exportPNGRequested);
-    mainLayout->addWidget(toolbar);
-    
-    // Current node display
-    current_node_label_ = new QLabel("No node selected");
-    current_node_label_->setStyleSheet("QLabel { font-weight: bold; padding: 5px; }");
-    mainLayout->addWidget(current_node_label_);
+    mainLayout->setMenuBar(menu_bar_);
     
     // Preview widget
     preview_widget_ = new FieldPreviewWidget(this);
@@ -77,6 +87,11 @@ void PreviewDialog::setupUI()
     controlLayout->addStretch();
     mainLayout->addLayout(controlLayout);
     
+    // Status bar
+    status_bar_ = new QStatusBar(this);
+    status_bar_->showMessage("No node selected");
+    mainLayout->addWidget(status_bar_);
+    
     // Connect signals
     connect(preview_slider_, &QSlider::valueChanged, this, &PreviewDialog::previewIndexChanged);
     connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -85,14 +100,7 @@ void PreviewDialog::setupUI()
             this, &PreviewDialog::aspectRatioModeChanged);
 }
 
-void PreviewDialog::setCurrentNode(const QString& node_name)
+void PreviewDialog::setCurrentNode(const QString& node_label, const QString& node_id)
 {
-    current_node_label_->setText(QString("Viewing node: %1").arg(node_name));
-}
-
-void PreviewDialog::closeEvent(QCloseEvent* event)
-{
-    // Just hide instead of closing
-    event->ignore();
-    hide();
+    status_bar_->showMessage(QString("Viewing \"%1\" (%2)").arg(node_label, node_id));
 }

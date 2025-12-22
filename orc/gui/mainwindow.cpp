@@ -41,6 +41,10 @@
 #include <QComboBox>
 #include <QApplication>
 #include <QSplitter>
+#include <QCloseEvent>
+#include <QShowEvent>
+#include <QMoveEvent>
+#include <QResizeEvent>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -63,13 +67,54 @@ MainWindow::MainWindow(QWidget *parent)
     setupToolbar();
     
     updateWindowTitle();
-    resize(1200, 800);
+    
+    // Restore window geometry and state from settings
+    restoreSettings();
     
     updateUIState();
 }
 
 MainWindow::~MainWindow()
 {
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    saveSettings();
+    QMainWindow::closeEvent(event);
+}
+
+void MainWindow::saveSettings()
+{
+    QSettings settings("orc-project", "orc-gui");
+    
+    // Save main window geometry and state
+    settings.setValue("mainwindow/geometry", saveGeometry());
+    settings.setValue("mainwindow/state", saveState());
+    
+    // Save preview dialog geometry (ld-analyse pattern)
+    settings.setValue("previewdialog/geometry", preview_dialog_->saveGeometry());
+}
+
+void MainWindow::restoreSettings()
+{
+    QSettings settings("orc-project", "orc-gui");
+    
+    // Restore main window geometry and state
+    if (settings.contains("mainwindow/geometry")) {
+        restoreGeometry(settings.value("mainwindow/geometry").toByteArray());
+    } else {
+        resize(1200, 800);
+    }
+    
+    if (settings.contains("mainwindow/state")) {
+        restoreState(settings.value("mainwindow/state").toByteArray());
+    }
+    
+    // Restore preview dialog geometry (ld-analyse pattern)
+    if (settings.contains("previewdialog/geometry")) {
+        preview_dialog_->restoreGeometry(settings.value("previewdialog/geometry").toByteArray());
+    }
 }
 
 void MainWindow::setupUI()
@@ -174,7 +219,9 @@ void MainWindow::setupMenus()
     show_preview_action_ = view_menu->addAction("Show &Preview");
     show_preview_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
     show_preview_action_->setEnabled(false);
-    connect(show_preview_action_, &QAction::triggered, this, [this]() { preview_dialog_->show(); });
+    connect(show_preview_action_, &QAction::triggered, this, [this]() {
+        preview_dialog_->show();
+    });
     
     view_menu->addSeparator();
     
@@ -827,7 +874,23 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             }
             
             // Update preview dialog to show current node
-            preview_dialog_->setCurrentNode(QString::fromStdString(node_id));
+            // Get node label from project (prefer user_label, fallback to display_name)
+            const auto& nodes = project_.coreProject().get_nodes();
+            auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+            QString node_label;
+            if (node_it != nodes.end()) {
+                if (!node_it->user_label.empty()) {
+                    node_label = QString::fromStdString(node_it->user_label);
+                } else if (!node_it->display_name.empty()) {
+                    node_label = QString::fromStdString(node_it->display_name);
+                } else {
+                    node_label = QString::fromStdString(node_id);
+                }
+            } else {
+                node_label = QString::fromStdString(node_id);
+            }
+            preview_dialog_->setCurrentNode(node_label, QString::fromStdString(node_id));
             
             // Update status bar to show which node is being viewed
             QString node_display = QString::fromStdString(node_id);

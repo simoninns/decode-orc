@@ -111,7 +111,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
     }
     
     std::string input_node_id = node.input_node_ids[0];
-    ORC_LOG_INFO("Field mapping analysis: getting input from node '{}'", input_node_id);
+    ORC_LOG_INFO("Node '{}': Field mapping analysis - getting input from node '{}'", ctx.node_id, input_node_id);
     
     // Execute DAG to get the VideoFieldRepresentation from the input node
     // We need to get it as a stage output
@@ -124,7 +124,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         if (output_it == all_outputs.end() || output_it->second.empty()) {
             result.status = AnalysisResult::Failed;
             result.summary = "Input node produced no outputs";
-            ORC_LOG_ERROR("Input node '{}' produced no outputs", input_node_id);
+            ORC_LOG_ERROR("Node '{}': Input node '{}' produced no outputs", ctx.node_id, input_node_id);
             return result;
         }
         
@@ -141,7 +141,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         if (!source) {
             result.status = AnalysisResult::Failed;
             result.summary = "Input node did not produce VideoFieldRepresentation";
-            ORC_LOG_ERROR("Input node '{}' did not produce VideoFieldRepresentation", input_node_id);
+            ORC_LOG_ERROR("Node '{}': Input node '{}' did not produce VideoFieldRepresentation", ctx.node_id, input_node_id);
             return result;
         }
         
@@ -341,16 +341,16 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     }
     std::string mappingSpec = mapping_it->second;
     
-    ORC_LOG_INFO("Applying field mapping results to node {}", node_id);
+    ORC_LOG_INFO("Node '{}': Applying field mapping results", node_id);
     if (node_it->parameters.count("ranges")) {
         auto& old_value = node_it->parameters.at("ranges");
         if (auto* str_val = std::get_if<std::string>(&old_value)) {
-            ORC_LOG_INFO("  Old ranges parameter: {}", *str_val);
+            ORC_LOG_INFO("Node '{}':   Old ranges parameter: {}", node_id, *str_val);
         }
     } else {
-        ORC_LOG_INFO("  Old ranges parameter: (not set)");
+        ORC_LOG_INFO("Node '{}':   Old ranges parameter: (not set)", node_id);
     }
-    ORC_LOG_INFO("  New mapping spec: {}", mappingSpec);
+    ORC_LOG_INFO("Node '{}':   New mapping spec: {}", node_id, mappingSpec);
     
     std::cout << "Applying field mapping results to node " << node_id << std::endl;
     std::cout << "  Mapping spec: " << mappingSpec << std::endl;

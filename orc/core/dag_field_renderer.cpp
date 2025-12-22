@@ -98,11 +98,11 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
     const std::string& node_id,
     FieldID field_id)
 {
-    ORC_LOG_DEBUG("render_field_at_node: node '{}', field {}", node_id, field_id.value());
+    ORC_LOG_DEBUG("Node '{}': render_field_at_node, field {}", node_id, field_id.value());
     
     // Check node exists
     if (!has_node(node_id)) {
-        ORC_LOG_ERROR("render_field_at_node failed: Node '{}' does not exist", node_id);
+        ORC_LOG_ERROR("Node '{}': Does not exist", node_id);
         FieldRenderResult error_result;
         error_result.is_valid = false;
         error_result.error_message = "Node '" + node_id + "' does not exist in DAG";
@@ -118,12 +118,12 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
         auto it = render_cache_.find(key);
         if (it != render_cache_.end()) {
             // Return cached result
-            ORC_LOG_DEBUG("render_field_at_node: returning cached result for node '{}', field {}", node_id, field_id.value());
+            ORC_LOG_DEBUG("Node '{}': Returning cached result for field {}", node_id, field_id.value());
             auto result = it->second;
             result.from_cache = true;
             return result;
         }
-        ORC_LOG_DEBUG("render_field_at_node: cache miss, will execute DAG");
+        ORC_LOG_DEBUG("Node '{}': Cache miss, will execute DAG", node_id);
     }
     
     // Execute DAG to produce the field
@@ -147,7 +147,7 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
     result.field_id = field_id;
     result.from_cache = false;
     
-    ORC_LOG_DEBUG("DAGFieldRenderer: executing DAG to node '{}' for field {}", node_id, field_id.value());
+    ORC_LOG_DEBUG("Node '{}': Executing DAG for field {}", node_id, field_id.value());
     
     try {
         // Create a DAG executor
@@ -155,14 +155,12 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         executor.set_cache_enabled(true);  // Use executor's cache for efficiency
         
         // Execute the DAG up to the target node
-        ORC_LOG_DEBUG("DAGFieldRenderer: calling executor.execute_to_node");
         auto node_outputs = executor.execute_to_node(*dag_, node_id);
-        ORC_LOG_DEBUG("DAGFieldRenderer: executor returned {} node outputs", node_outputs.size());
         
         // Get the output from our target node
         auto it = node_outputs.find(node_id);
         if (it == node_outputs.end() || it->second.empty()) {
-            ORC_LOG_ERROR("Node '{}' produced no output", node_id);
+            ORC_LOG_ERROR("Node '{}': Produced no output", node_id);
             result.is_valid = false;
             result.error_message = "Node '" + node_id + "' produced no output";
             return result;
@@ -171,7 +169,7 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         // The output should be a VideoFieldRepresentation
         auto video_field_repr = std::dynamic_pointer_cast<VideoFieldRepresentation>(it->second[0]);
         if (!video_field_repr) {
-            ORC_LOG_ERROR("Node '{}' did not produce a VideoFieldRepresentation", node_id);
+            ORC_LOG_ERROR("Node '{}': Did not produce a VideoFieldRepresentation", node_id);
             result.is_valid = false;
             result.error_message = "Node '" + node_id + "' did not produce a VideoFieldRepresentation";
             return result;
@@ -179,7 +177,7 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         
         // Verify the field exists in the representation
         if (!video_field_repr->has_field(field_id)) {
-            ORC_LOG_WARN("Field {} not available in node '{}'", field_id.to_string(), node_id);
+            ORC_LOG_WARN("Node '{}': Field {} not available", node_id, field_id.to_string());
             result.is_valid = false;
             result.error_message = "Field " + field_id.to_string() + " not available in node '" + node_id + "'";
             return result;
@@ -187,15 +185,15 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         
         result.is_valid = true;
         result.representation = video_field_repr;
-        ORC_LOG_DEBUG("Field {} rendered successfully at node '{}'", field_id.to_string(), node_id);
+        ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully", node_id, field_id.to_string());
         
         return result;
         
     } catch (const std::exception& e) {
         result.is_valid = false;
         result.error_message = std::string("Error rendering field: ") + e.what();
-        ORC_LOG_ERROR("Exception rendering field {} at node '{}': {}", 
-                     field_id.to_string(), node_id, e.what());
+        ORC_LOG_ERROR("Node '{}': Exception rendering field {}: {}", 
+                     node_id, field_id.to_string(), e.what());
         return result;
     }
 }

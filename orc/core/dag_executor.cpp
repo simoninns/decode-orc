@@ -143,6 +143,8 @@ std::vector<ArtifactPtr> DAGExecutor::execute(const DAG& dag) {
     for (const auto& node_id : execution_order) {
         ++current_node;
         
+        ORC_LOG_DEBUG("Node '{}': Executing ({}/{} in order)", node_id, current_node, total_nodes);
+        
         if (progress_callback_) {
             progress_callback_(node_id, current_node, total_nodes);
         }
@@ -241,14 +243,17 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
     if (cache_enabled_) {
         auto it = artifact_cache_.find(expected_id);
         if (it != artifact_cache_.end()) {
+            ORC_LOG_DEBUG("Node '{}': Using cached result", node.node_id);
             return it->second;
         }
     }
     
     // Execute stage
+    ORC_LOG_DEBUG("Node '{}': Executing stage '{}'", node.node_id, node.stage->get_node_type_info().stage_name);
     auto outputs = node.stage->execute(inputs, node.parameters);
     
     if (outputs.empty()) {
+        ORC_LOG_ERROR("Node '{}': Stage '{}' produced no outputs", node.node_id, node.stage->get_node_type_info().stage_name);
         throw DAGExecutionError("Stage '" + node.stage->get_node_type_info().stage_name + "' produced no outputs");
     }
     
@@ -293,7 +298,7 @@ std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
     const DAG& dag,
     const std::string& target_node_id
 ) {
-    ORC_LOG_DEBUG("Executing DAG to node '{}'", target_node_id);
+    ORC_LOG_DEBUG("Node '{}': Executing DAG to this node", target_node_id);
     
     if (!dag.validate()) {
         auto errors = dag.get_validation_errors();
@@ -309,13 +314,13 @@ std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
     // Check that target node exists
     auto node_index = dag.build_node_index();
     if (node_index.find(target_node_id) == node_index.end()) {
-        ORC_LOG_ERROR("Target node '{}' does not exist in DAG", target_node_id);
+        ORC_LOG_ERROR("Node '{}': Does not exist in DAG", target_node_id);
         throw DAGExecutionError("Target node '" + target_node_id + "' does not exist in DAG");
     }
     
     // Topological sort up to target node
     auto execution_order = topological_sort_to_node(dag, target_node_id);
-    ORC_LOG_DEBUG("Execution order: {} nodes", execution_order.size());
+    ORC_LOG_DEBUG("Node '{}': Execution order includes {} nodes", target_node_id, execution_order.size());
     
     // Execute nodes in order
     std::map<std::string, std::vector<ArtifactPtr>> node_outputs;
@@ -328,6 +333,8 @@ std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
     
     for (const auto& node_id : execution_order) {
         ++current_node;
+        
+        ORC_LOG_DEBUG("Node '{}': Executing ({}/{} in order)", node_id, current_node, total_nodes);
         
         if (progress_callback_) {
             progress_callback_(node_id, current_node, total_nodes);

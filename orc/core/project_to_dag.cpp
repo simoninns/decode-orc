@@ -39,14 +39,14 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         
         dag_node.stage = registry.create_stage(proj_node.stage_name);
         
-        ORC_LOG_DEBUG("project_to_dag: node '{}' ({}), {} parameters from project",
+        ORC_LOG_DEBUG("Node '{}': Converting from project (stage: {}, {} parameters)",
                       proj_node.node_id, proj_node.stage_name, proj_node.parameters.size());
         
         // Copy parameters directly (already strongly typed)
         dag_node.parameters = proj_node.parameters;
         for (const auto& [key, value] : proj_node.parameters) {
-            std::visit([&key](const auto& v) {
-                ORC_LOG_DEBUG("  param '{}' = {}", key, v);
+            std::visit([&proj_node, &key](const auto& v) {
+                ORC_LOG_DEBUG("Node '{}':   param '{}' = {}", proj_node.node_id, key, v);
             }, value);
         }
         

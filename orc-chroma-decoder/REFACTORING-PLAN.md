@@ -2,7 +2,7 @@
 
 **Document Status:** Active Development Plan  
 **Created:** December 2025  
-**Last Updated:** December 2025
+**Last Updated:** 22 December 2025
 
 ---
 
@@ -81,8 +81,9 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
    - ✅ Synchronous decoder invocation (bypass threading infrastructure)
    - ✅ OutputWriter integration (RGB48/YUV444P16/Y4M formats)
    - ✅ Frame-to-field ID mapping and field parity detection
-   - **STATUS:** Decoder produces valid RGB48 output (928x576 frames)
-   - **NOTE:** Checksums differ from standalone (investigation needed)
+   - ✅ **CRITICAL FIX:** Apply padding adjustments before decoder initialization
+   - **STATUS:** All 24 standalone decoder tests passing (pixel-perfect output)
+   - **COMPLETION DATE:** 22 December 2025
    
 **Step 4:** ⏳ **PENDING** - Remove Qt6 dependencies from decoders (~12-16 hours)  
    - Phase A: Data types & containers  
@@ -597,47 +598,36 @@ Write output file (RGB/YUV/Y4M)
 - ✅ **Format:** Raw RGB48 data (16-bit per channel)
 - ✅ **Structure:** Valid output accepted by video players
 
-**Current Issue:**
-- ⚠️ **Checksum mismatch:** ORC output differs from standalone decoder
-  - ORC: `059638c8aaf48e1e6d2ee519edfadd6e92931b00b1e935f3ddbdac4dbd4352ba`
-  - Standalone: `639d55e3f4525ba0dc39491c78259fd19315c35fb70269405d71f71541d58859`
-  - File sizes identical (32,071,680 bytes)
-  - Dimensions identical (928x576 RGB48)
-  - First bytes completely different (suggests data difference, not format issue)
+**Current Status:**
+- ✅ **All tests passing:** 24/24 decoder tests produce pixel-perfect output
+  - PAL decoders: 2D, Transform2D, Transform3D (all formats: RGB, YUV, Y4M)
+  - NTSC decoders: 1D, 2D, 3D, 3D-NoAdapt (all formats)
+  - Edge cases: Reverse fields, custom padding, custom line ranges
+  - All output checksums match standalone decoder exactly
 
-**Investigation Performed:**
-- ✅ Field parity: Alternates correctly (0=Top, 1=Bottom, 2=Top...)
-- ✅ Field order: First/second order matches (not reversed)
-- ✅ Frame range: Processing frames 0-9 (user frames 1-10) correctly
-- ✅ Field IDs: Frame 0 → fields 0,1; Frame 1 → fields 2,3; etc.
-- ✅ Decoder parameters: chroma_gain=1.0, chroma_phase=0.0, luma_nr=0.0 (all defaults)
-- ✅ Decoder type: pal2d (simple 2D comb filter)
-- ✅ Active region: 185-1107 (922 pixels) → padded to 928 (matches standalone)
+**Critical Bug Fixed (22 Dec 2025):**
+- **Issue:** Transform PAL 2D/3D decoders produced incorrect output (wrong checksums)
+- **Root Cause:** activeVideoStart/activeVideoEnd values need padding adjustment BEFORE decoder initialization
+  - Original values from database: activeVideoStart=185, activeVideoEnd=1107 (width=922)
+  - OutputWriter applies padding to make width divisible by 8: activeVideoStart=182, activeVideoEnd=1110 (width=928)
+  - Decoder was initialized with original values (185/1107) but OutputWriter used adjusted values (182/1110)
+  - Transform PAL's FFT tiles were processing wrong region → different pixel values
+- **Solution:** Apply OutputWriter padding adjustments to VideoParameters BEFORE configuring decoder
+  ```cpp
+  // Apply padding adjustments BEFORE configuring decoder
+  {
+      OutputWriter::Configuration writerConfig;
+      writerConfig.paddingAmount = 8;
+      OutputWriter tempWriter;
+      tempWriter.updateConfiguration(ldVideoParams, writerConfig);
+      // ldVideoParams now has adjusted activeVideoStart/End values
+  }
+  // NOW configure decoder with adjusted parameters
+  palDecoder->updateConfiguration(ldVideoParams, config);
+  ```
+- **Impact:** All Transform PAL tests now pass with pixel-perfect output
 
-**Possible Causes of Checksum Difference:**
-1. Random number generation differences (if decoders use RNG)
-2. Floating-point precision variations (compiler/optimization differences)
-3. Threading/execution order (though we're single-threaded now)
-4. Library version differences (FFTW3, Qt6)
-5. Field data extraction differences (sample ordering, alignment)
-6. Decoder algorithm state initialization
-
-**Functional Status:**
-- ✅ Integration is **functionally working** - decoder produces valid video output
-- ✅ Can decode PAL composite video to RGB48
-- ✅ Output dimensions and format are correct
-- ⚠️ Output is **not bit-identical** to standalone tool
-- ⏳ Need to investigate why pixel data differs
-
-**Next Actions:**
-1. ✅ Document current status (this update)
-2. Test with NTSC decoder (verify it also produces valid output)
-3. Test with Transform2D/3D decoders
-4. Compare intermediate data (ComponentFrame, chroma/luma values)
-5. Check if standalone uses different default parameters
-6. Consider if bit-identical output is required or if functional correctness is sufficient
-
-#### Success Criteria (Updated)
+#### Success Criteria
 - ✅ Test infrastructure created (ORC projects + test script)
 - ✅ ChromaSinkStage::trigger() implemented and working
 - ✅ All helper methods implemented
@@ -645,33 +635,71 @@ Write output file (RGB/YUV/Y4M)
 - ✅ First successful decode (PAL RGB48)
 - ✅ Output file written correctly (31 MB, 928x576 frames)
 - ✅ Dimensions match standalone tool
-- ⚠️ Output functionally correct but not bit-identical (investigation ongoing)
+- ✅ Output pixel-perfect identical to standalone tool
+- ✅ All 24 decoder tests passing with exact checksum matches
 
 #### Completion Summary
 
-**Step 3 Status:** ✅ **FUNCTIONALLY COMPLETE** (22 Dec 2025)
+**Step 3 Status:** ✅ **COMPLETE** (22 Dec 2025)
 
-The integration layer is working and successfully decodes PAL composite video to RGB48 format. The decoder produces valid output with correct dimensions (928x576) matching the standalone tool. While the output is not bit-identical to the standalone tool (checksums differ), the integration demonstrates:
+The integration layer is fully working and passes all tests. The ChromaSinkStage successfully:
 
-1. **Working data flow:** VideoFieldRepresentation → SourceField → Decoder → ComponentFrame → RGB48
-2. **Correct video parameters:** Active regions, line ranges, and padding all calculated properly
-3. **Proper field handling:** Field parity, sequencing, and frame assembly working correctly
-4. **Valid decoder output:** OutputWriter produces correctly-sized RGB48 files
+1. **Converts orc-core data → decoder format:** VideoFieldRepresentation → SourceField adapter working perfectly
+2. **Applies video parameters correctly:** Active regions, line ranges, field parity, and padding all calculated properly
+3. **Processes all decoder types:** PAL (2D, Transform2D, Transform3D), NTSC (1D, 2D, 3D, 3D-NoAdapt), Mono
+4. **Handles all output formats:** RGB48, YUV444P16, Y4M with correct headers and frame structure
+5. **Produces pixel-perfect output:** All 24 test signatures match standalone decoder exactly
 
-**Known Issue:**
-- Output checksums differ from standalone tool despite identical dimensions and format
-- Possible causes: floating-point precision, compiler optimizations, library versions
-- Investigation needed but does not block progress to Step 4
+**Test Results (22 Dec 2025):**
+```
+Mode:    verify
+Total:   24
+Passed:  24
+Failed:  0
+Skipped: 0
+[PASS] All tests passed!
+```
+
+**Test Coverage:**
+- PAL decoders: 9 tests (basic, transform2d, transform3d, formats, parameters)
+- NTSC decoders: 10 tests (1d, 2d, 3d variants, formats, parameters)  
+- Edge cases: 5 tests (CAV format, reverse fields, padding, custom lines)
+
+**Critical Issue Resolved:**
+The major blocker was a subtle bug where `activeVideoStart` and `activeVideoEnd` values needed to be adjusted for padding alignment BEFORE the decoder was initialized. The OutputWriter modifies these values to ensure output width is divisible by the padding factor (8 pixels), but the decoder needs to process the SAME region that gets written to output. This was particularly critical for Transform PAL decoders which use FFT-based processing on specific tile regions.
+
+**Debugging Methodology:**
+- Used execution tracing to compare ORC vs standalone decoder behavior
+- Added strategic debug output to compare Transform PAL configuration values
+- Discovered 3-pixel offset in first FFT tile position (tileX: 169 vs 166)
+- Traced back to activeVideoStart difference (185 vs 182)
+- Found OutputWriter padding logic was applied AFTER decoder initialization
+- Fixed by applying padding adjustments before decoder configuration
 
 **Files Created/Modified:**
-- `orc/core/stages/chroma_sink/chroma_sink_stage.cpp` - Full trigger() implementation (~200+ lines)
-- `orc/core/stages/chroma_sink/decoders/CMakeLists.txt` - Added AUTOMOC
+- `orc/core/stages/chroma_sink/chroma_sink_stage.cpp` - Full trigger() implementation (~750 lines)
+  - Video parameter conversion from orc-core → ld-decode format
+  - **CRITICAL:** Padding adjustment applied before decoder initialization
+  - Field collection and conversion to SourceField format
+  - Field ordering detection using FieldParityHint
+  - Proper field pairing algorithm (handles is_first_field_first flag)
+  - Synchronous decoder invocation (all decoder types)
+  - OutputWriter integration with all formats
+- `orc/core/stages/chroma_sink/decoders/CMakeLists.txt` - Added AUTOMOC, FFTW3
 - `orc/cli/CMakeLists.txt` - Added FFTW3 linkage
 - `orc/gui/CMakeLists.txt` - Added FFTW3 linkage
-- `test-projects/chroma-test-pal.orcprj` - PAL test project
+- `test-projects/chroma-test-pal.orcprj` - PAL test project (Transform2D)
 - `test-projects/chroma-test-ntsc.orcprj` - NTSC test project
+- `orc/core/include/tbc_metadata.h` - Added is_first_field_first flag
 
-**Ready for Step 4:** Yes (Qt6 removal can proceed)
+**Ready for Step 4:** Yes (Qt6 removal can proceed with confidence)
+
+**Key Learnings:**
+1. **Order of operations matters:** Padding adjustments must happen before decoder initialization
+2. **Region alignment is critical:** FFT-based decoders process specific tiles that must match output region
+3. **Debugging approach:** Execution tracing and watchpoints were invaluable for comparing decoder behavior
+4. **Test-driven development:** Having comprehensive test suite caught subtle bugs immediately
+5. **Field ordering complexity:** Need to handle both field parity AND first/second field ordering from metadata
 
 #### Next Steps
 1. Implement ChromaSinkStage::trigger() to:
@@ -2493,6 +2521,104 @@ Each step must pass these checks before proceeding:
 - Additional output formats
 - Real-time preview optimization
 - Advanced decoder tuning options
+
+---
+
+## Critical Issues & Resolutions
+
+### Issue #1: Padding Alignment Bug (22 Dec 2025)
+
+**Severity:** CRITICAL  
+**Status:** ✅ RESOLVED  
+**Affected Decoders:** Transform PAL 2D, Transform PAL 3D (FFT-based)
+
+#### Problem Description
+
+Transform PAL decoders produced incorrect output with checksums differing from the standalone decoder, despite using identical algorithms and parameters. Initial investigation suggested floating-point precision or compiler optimization differences, but the actual issue was more subtle.
+
+#### Root Cause Analysis
+
+The `OutputWriter` class modifies `activeVideoStart` and `activeVideoEnd` values to ensure the output width is divisible by the padding factor (default: 8 pixels). This padding adjustment happens during `OutputWriter::updateConfiguration()`.
+
+**Original workflow (INCORRECT):**
+1. Read video parameters from TBC metadata: `activeVideoStart=185, activeVideoEnd=1107` (width=922)
+2. Initialize decoder with original parameters
+3. Later, initialize OutputWriter which adjusts parameters: `activeVideoStart=182, activeVideoEnd=1110` (width=928)
+4. Decoder processes region 185-1107, OutputWriter expects region 182-1110
+5. **Mismatch:** Different regions → incorrect pixel data
+
+**Why this affected Transform PAL specifically:**
+- Transform PAL uses FFT-based processing on overlapping tiles
+- First tile X position calculated as: `tileX = activeVideoStart - HALFXTILE`
+  - ORC (wrong): 185 - 16 = 169
+  - Standalone (correct): 182 - 16 = 166
+- Processing different tiles produces completely different frequency-domain data
+- Simple comb filters (PAL 2D, NTSC) were less affected due to pixel-by-pixel processing
+
+#### Debugging Methodology
+
+1. **Initial comparison:** Noticed file sizes matched but checksums differed
+2. **Byte-level analysis:** Used `cmp -l` to confirm pixel data differences from byte 3 onward
+3. **Parameter verification:** Confirmed all decoder parameters (gain, phase, NR) were identical
+4. **Execution tracing:** Added debug output to compare Transform PAL configuration:
+   ```
+   ORC: activeVideoStart=185, activeVideoEnd=1107, tileX=169
+   Standalone: activeVideoStart=182, activeVideoEnd=1110, tileX=166
+   ```
+5. **Database inspection:** Verified TBC database contains 185/1107 (original values)
+6. **Code inspection:** Found OutputWriter padding logic modifies parameters during initialization
+
+#### Solution
+
+Apply padding adjustments BEFORE initializing the decoder:
+
+```cpp
+// BEFORE decoder initialization
+{
+    OutputWriter::Configuration writerConfig;
+    writerConfig.paddingAmount = 8;
+    
+    // Create temporary OutputWriter just to apply padding adjustments
+    OutputWriter tempWriter;
+    tempWriter.updateConfiguration(ldVideoParams, writerConfig);
+    // ldVideoParams now has adjusted activeVideoStart/End values (182/1110)
+}
+
+// NOW initialize decoder with adjusted parameters
+palDecoder->updateConfiguration(ldVideoParams, config);
+```
+
+**File:** `orc/core/stages/chroma_sink/chroma_sink_stage.cpp` lines 336-348
+
+#### Verification
+
+After fix, all 24 decoder tests pass with pixel-perfect output:
+- All PAL decoders: 9/9 tests ✅
+- All NTSC decoders: 10/10 tests ✅
+- Edge cases: 5/5 tests ✅
+- **Total: 24/24 tests passing**
+
+Example checksums (Transform2D PAL):
+```
+Reference:  e7beef3c7dcf355c8bb3776ce74cf0becbdacbfdd88e0a131d4e9addc9bcef94
+ORC Before: c6c9c81b3acae6ba3b74a96fecb62c85419c19e50382d9957f822e2fc69da344 ❌
+ORC After:  e7beef3c7dcf355c8bb3776ce74cf0becbdacbfdd88e0a131d4e9addc9bcef94 ✅
+```
+
+#### Key Takeaways
+
+1. **Order of operations matters:** Configuration steps must happen in the correct sequence
+2. **FFT-based algorithms are sensitive:** Small region offsets produce completely different results
+3. **Debug with execution tracing:** Comparing intermediate values between implementations is invaluable
+4. **Test-driven development:** Comprehensive test suite caught the issue immediately
+5. **Architecture insight:** OutputWriter's padding logic is a cross-cutting concern that affects decoder initialization
+
+#### Related Code Locations
+
+- **Bug fix:** `orc/core/stages/chroma_sink/chroma_sink_stage.cpp:336-348`
+- **Padding logic:** `orc/core/stages/chroma_sink/decoders/outputwriter.cpp:68-83`
+- **Transform PAL tiles:** `orc/core/stages/chroma_sink/decoders/transformpal2d.cpp:142`
+- **Test verification:** `orc-chroma-decoder/tests/run-tests.sh`
 
 ---
 

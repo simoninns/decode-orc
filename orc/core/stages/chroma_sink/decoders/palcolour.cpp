@@ -1,30 +1,13 @@
-/************************************************************************
+/*
+ * File:        palcolour.cpp
+ * Module:      orc-core
+ * Purpose:     PAL colour decoder
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2018-2025 Simon Inns
+ * SPDX-FileCopyrightText: 2019-2021 Adam Sampson
+ */
 
-    palcolour.cpp
-
-    Performs 2D subcarrier filtering to process stand-alone fields of
-    a video signal
-
-    Copyright (C) 2018  William Andrew Steer
-    Copyright (C) 2018-2019 Simon Inns
-    Copyright (C) 2019 Adam Sampson
-
-    This file is part of ld-decode-tools.
-
-    ld-chroma-decoder is free software: you can redistribute it and/or
-    modify it under the terms of the GNU General Public License as
-    published by the Free Software Foundation, either version 3 of the
-    License, or (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-************************************************************************/
 
 // PALcolour original copyright notice:
 // Copyright (C) 2018  William Andrew Steer

@@ -1,11 +1,12 @@
 /*
  * File:        chroma_sink_stage.cpp
  * Module:      orc-core
- * Purpose:     Chroma Decoder Sink Stage implementation
+ * Purpose:     Chroma decoder sink stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
+
 
 #include "chroma_sink_stage.h"
 #include "stage_registry.h"

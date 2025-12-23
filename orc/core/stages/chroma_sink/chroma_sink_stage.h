@@ -1,11 +1,12 @@
 /*
  * File:        chroma_sink_stage.h
  * Module:      orc-core
- * Purpose:     Chroma Decoder Sink Stage - decodes and exports colorized video
+ * Purpose:     Chroma decoder sink stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
+
 
 #ifndef ORC_CORE_CHROMA_SINK_STAGE_H
 #define ORC_CORE_CHROMA_SINK_STAGE_H

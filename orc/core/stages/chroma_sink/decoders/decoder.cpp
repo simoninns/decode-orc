@@ -36,8 +36,8 @@ int32_t Decoder::getLookAhead() const
     return 0;
 }
 
-DecoderThread::DecoderThread(QAtomicInt& _abort, DecoderPool& _decoderPool, QObject *parent)
-    : QThread(parent), abort(_abort), decoderPool(_decoderPool), outputWriter(_decoderPool.getOutputWriter())
+DecoderThread::DecoderThread(std::atomic<bool>& _abort, DecoderPool& _decoderPool)
+    : abort(_abort), decoderPool(_decoderPool), outputWriter(_decoderPool.getOutputWriter())
 {
 }
 

@@ -26,8 +26,8 @@
 #define MONODECODER_H
 
 #include <QObject>
-#include <QAtomicInt>
-#include <QThread>
+#include <atomic>
+#include <thread>
 #include <QDebug>
 
 #include "componentframe.h"
@@ -52,7 +52,7 @@ public:
 	MonoDecoder(const MonoDecoder::MonoConfiguration &config);
 	bool updateConfiguration(const LdDecodeMetaData::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
 	bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
-    QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) override;
+    std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) override;
 	/// Synchronously decode luma-only frames (no filtering)
 	void decodeFrames(const std::vector<SourceField>& inputFields,
                     int32_t startIndex,
@@ -66,11 +66,9 @@ private:
 
 class MonoThread : public DecoderThread
 {
-    Q_OBJECT
 public:
-    explicit MonoThread(QAtomicInt &abort, DecoderPool &decoderPool,
-                       const MonoDecoder::MonoConfiguration &monoConfig,
-                       QObject *parent = nullptr);
+    explicit MonoThread(std::atomic<bool> &abort, DecoderPool &decoderPool,
+                       const MonoDecoder::MonoConfiguration &monoConfig);
 
 protected:
     void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,

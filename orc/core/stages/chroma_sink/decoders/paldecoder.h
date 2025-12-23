@@ -27,8 +27,8 @@
 #define PALDECODER_H
 
 #include <QObject>
-#include <QAtomicInt>
-#include <QThread>
+#include <atomic>
+#include <thread>
 #include <QDebug>
 
 #include "componentframe.h"
@@ -48,7 +48,7 @@ public:
     bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
     int32_t getLookBehind() const override;
     int32_t getLookAhead() const override;
-    QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) override;
+    std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) override;
 
     // Parameters used by PalDecoder and PalThread
     struct Configuration : public Decoder::Configuration {
@@ -61,11 +61,9 @@ private:
 
 class PalThread : public DecoderThread
 {
-    Q_OBJECT
 public:
-    explicit PalThread(QAtomicInt &abort, DecoderPool &decoderPool,
-                       const PalDecoder::Configuration &config,
-                       QObject *parent = nullptr);
+    explicit PalThread(std::atomic<bool> &abort, DecoderPool &decoderPool,
+                       const PalDecoder::Configuration &config);
 
 protected:
     void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,

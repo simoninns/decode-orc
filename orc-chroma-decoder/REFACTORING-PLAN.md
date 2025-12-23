@@ -86,9 +86,9 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
    - ✅ All 24 tests passing with pixel-perfect output
    - **STATUS:** Integration complete and production-ready
    
-**Step 4:** ⏳ **PENDING** - Remove Qt6 dependencies from decoders
-   - Phase A: Data types & containers  
-   - Phase B: Threading & synchronization  
+**Step 4:** ⏳ **IN PROGRESS** - Remove Qt6 dependencies from decoders
+   - Phase A: Data types & containers ✅ COMPLETE (23 Dec 2025) 
+   - Phase B: Threading & synchronization ✅ COMPLETE (23 Dec 2025)
    - Phase C: Algorithm classes  
    - Phase D: Metadata & parameters  
    - Phase E: Build system updates  
@@ -835,6 +835,72 @@ This ensures we have a working baseline to test against.
 **Next Phase:** Phase B would involve removing Qt threading primitives (QThread, QMutex, QAtomicInt), but that's a larger structural change requiring replacement of DecoderPool's threading infrastructure.
 
 #### Conversion Strategy (Remaining Phases)
+
+**Phase B: Threading & Synchronization** (~4 hours) - ✅ COMPLETE (23 Dec 2025)
+
+**Duration:** ~2 hours (actual)
+**Status:** Complete and tested
+
+**Changes Made:**
+
+1. **Threading Primitives Converted:**
+   ```cpp
+   QThread → std::thread
+   QAtomicInt → std::atomic<bool>
+   QMutex → std::mutex
+   QMutexLocker → std::lock_guard<std::mutex>
+   QElapsedTimer → std::chrono::steady_clock
+   ```
+
+2. **DecoderThread Base Class:**
+   - Removed inheritance from `QThread`
+   - Removed `Q_OBJECT` macro
+   - Changed `run()` from override to regular method
+   - Constructor no longer takes `QObject *parent`
+   - Member variable `abort` changed from `QAtomicInt&` to `std::atomic<bool>&`
+
+3. **Decoder Classes (PAL, NTSC, Mono):**
+   - Updated `makeThread()` signature: `QThread* makeThread(QAtomicInt&, DecoderPool&)` → `std::thread makeThread(std::atomic<bool>&, DecoderPool&)`
+   - Return `std::thread` by value using `std::thread(&ThreadClass::run, ThreadClass(...))`
+   - Removed `new` allocations for thread objects
+   - Updated thread class constructors to remove `QObject *parent` parameter
+
+4. **DecoderPool:**
+   - Changed `QVector<QThread*>` to `std::vector<std::thread>`
+   - Removed `thread->start(QThread::LowPriority)` → threads auto-start on construction
+   - Changed `thread->wait()` to `thread.join()`
+   - Removed `delete thread` (std::thread destructor handles cleanup)
+   - Updated mutexes: `QMutex inputMutex` → `std::mutex inputMutex`
+   - Updated locks: `QMutexLocker locker(&mutex)` → `std::lock_guard<std::mutex> locker(mutex)`
+   - Updated timing: `QElapsedTimer totalTimer` → `std::chrono::steady_clock::time_point totalTimerStart`
+   - Updated FPS calculation to use `std::chrono::duration_cast<std::chrono::milliseconds>`
+
+5. **CMakeLists.txt:**
+   - Set `AUTOMOC OFF` (no longer need Qt MOC for Q_OBJECT)
+
+**Files Modified:**
+- `decoder.h/cpp` - Base classes
+- `paldecoder.h/cpp` - PAL decoder and thread
+- `ntscdecoder.h/cpp` - NTSC decoder and thread  
+- `monodecoder.h/cpp` - Mono decoder and thread
+- `decoderpool.h/cpp` - Threading coordinator
+- `CMakeLists.txt` - Build configuration
+
+**Test Results:**
+- ✅ All 23 ORC integration tests passing (100%)
+- ✅ Output signatures match reference (pixel-perfect)
+- ✅ Parallel processing still works correctly
+- ✅ No performance regression
+
+**Threading Model Preserved:**
+The parallel processing architecture was maintained:
+- DecoderPool creates N worker threads
+- Each thread processes frames from shared input queue
+- Mutexes protect shared state (input/output queues)
+- Atomic abort flag for coordinated shutdown
+- Frames written in order despite parallel processing
+
+**Next Phase:** Phase C would involve converting remaining Qt classes if needed (QFile, QDebug, etc.), but those may be kept for compatibility with TBC library.
 
 **Phase B: Threading & Synchronization** (~4 hours) - NOT STARTED
 - Convert all decoder algorithm files:

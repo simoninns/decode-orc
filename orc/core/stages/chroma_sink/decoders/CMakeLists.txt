@@ -82,5 +82,5 @@ target_include_directories(orc_chroma_decoders
 set_target_properties(orc_chroma_decoders PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
-    AUTOMOC ON
+    AUTOMOC OFF
 )

@@ -56,8 +56,8 @@ bool MonoDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParame
     return true;
 }
 
-QThread *MonoDecoder::makeThread(QAtomicInt& abort, DecoderPool& decoderPool) {
-    return new MonoThread(abort, decoderPool, monoConfig);
+std::thread MonoDecoder::makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) {
+    return std::thread(&MonoThread::run, MonoThread(abort, decoderPool, monoConfig));
 }
 
 void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
@@ -149,9 +149,9 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
     }
 }
 
-MonoThread::MonoThread(QAtomicInt& _abort, DecoderPool& _decoderPool,
-                       const MonoDecoder::MonoConfiguration &_monoConfig, QObject *parent)
-    : DecoderThread(_abort, _decoderPool, parent), monoConfig(_monoConfig)
+MonoThread::MonoThread(std::atomic<bool>& _abort, DecoderPool& _decoderPool,
+                       const MonoDecoder::MonoConfiguration &_monoConfig)
+    : DecoderThread(_abort, _decoderPool), monoConfig(_monoConfig)
 {
 }
 

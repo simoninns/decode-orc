@@ -28,8 +28,8 @@
 #define NTSCDECODER_H
 
 #include <QObject>
-#include <QAtomicInt>
-#include <QThread>
+#include <atomic>
+#include <thread>
 #include <QDebug>
 
 #include "componentframe.h"
@@ -49,7 +49,7 @@ public:
     bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
     int32_t getLookBehind() const override;
     int32_t getLookAhead() const override;
-    QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) override;
+    std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) override;
 
     // Parameters used by NtscDecoder and NtscThread
     struct Configuration : public Decoder::Configuration {
@@ -62,11 +62,9 @@ private:
 
 class NtscThread : public DecoderThread
 {
-    Q_OBJECT
 public:
-    explicit NtscThread(QAtomicInt &abort, DecoderPool &decoderPool,
-                        const NtscDecoder::Configuration &config,
-                        QObject *parent = nullptr);
+    explicit NtscThread(std::atomic<bool> &abort, DecoderPool &decoderPool,
+                        const NtscDecoder::Configuration &config);
 
 protected:
     void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,

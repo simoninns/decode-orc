@@ -116,20 +116,18 @@ bool DecoderPool::process()
     inputFrameNumber = startFrame;
     outputFrameNumber = startFrame;
     lastFrameNumber = length + (startFrame - 1);
-    totalTimer.start();
+    totalTimerStart = std::chrono::steady_clock::now();
 
     // Start a vector of filtering threads to process the video
-    QVector<QThread *> threads;
-    threads.resize(maxThreads);
+    std::vector<std::thread> threads;
+    threads.reserve(maxThreads);
     for (qint32 i = 0; i < maxThreads; i++) {
-        threads[i] = decoder.makeThread(abort, *this);
-        threads[i]->start(QThread::LowPriority);
+        threads.push_back(decoder.makeThread(abort, *this));
     }
 
     // Wait for the workers to finish
-    for (qint32 i = 0; i < maxThreads; i++) {
-        threads[i]->wait();
-        delete threads[i];
+    for (auto& thread : threads) {
+        thread.join();
     }
 
     // Did any of the threads abort?
@@ -148,7 +146,10 @@ bool DecoderPool::process()
         return false;
     }
 
-    double totalSecs = (static_cast<double>(totalTimer.elapsed()) / 1000.0);
+    auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - totalTimerStart
+    ).count();
+    double totalSecs = static_cast<double>(total_ms) / 1000.0;
     qInfo() << "Processing complete -" << length << "frames in" << totalSecs << "seconds (" <<
                length / totalSecs << "FPS )";
 
@@ -163,7 +164,7 @@ bool DecoderPool::process()
 
 bool DecoderPool::getInputFrames(int32_t &startFrameNumber, std::vector<SourceField> &fields, int32_t &startIndex, int32_t &endIndex)
 {
-    QMutexLocker locker(&inputMutex);
+    std::lock_guard<std::mutex> locker(inputMutex);
 
     // Work out a reasonable batch size to provide work for all threads.
     // This assumes that the synchronisation to get a new batch is less
@@ -192,7 +193,7 @@ bool DecoderPool::getInputFrames(int32_t &startFrameNumber, std::vector<SourceFi
 
 bool DecoderPool::putOutputFrames(qint32 startFrameNumber, const QVector<OutputFrame> &outputFrames)
 {
-    QMutexLocker locker(&outputMutex);
+    std::lock_guard<std::mutex> locker(outputMutex);
 
     for (qint32 i = 0; i < outputFrames.size(); i++) {
         if (!putOutputFrame(startFrameNumber + i, outputFrames[i])) {
@@ -239,7 +240,10 @@ bool DecoderPool::putOutputFrame(qint32 frameNumber, const OutputFrame &outputFr
         const qint32 outputCount = outputFrameNumber - startFrame;
         if ((outputCount % 32) == 0) {
             // Show an update to the user
-            double fps = outputCount / (static_cast<double>(totalTimer.elapsed()) / 1000.0);
+            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - totalTimerStart
+            ).count();
+            double fps = outputCount / (static_cast<double>(elapsed_ms) / 1000.0);
             qInfo() << outputCount << "frames processed -" << fps << "FPS";
         }
     }

@@ -55,14 +55,14 @@ int32_t NtscDecoder::getLookAhead() const
     return config.combConfig.getLookAhead();
 }
 
-QThread *NtscDecoder::makeThread(QAtomicInt& abort, DecoderPool& decoderPool)
+std::thread NtscDecoder::makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool)
 {
-    return new NtscThread(abort, decoderPool, config);
+    return std::thread(&NtscThread::run, NtscThread(abort, decoderPool, config));
 }
 
-NtscThread::NtscThread(QAtomicInt& _abort, DecoderPool &_decoderPool,
-                       const NtscDecoder::Configuration &_config, QObject *parent)
-    : DecoderThread(_abort, _decoderPool, parent), config(_config)
+NtscThread::NtscThread(std::atomic<bool>& _abort, DecoderPool &_decoderPool,
+                       const NtscDecoder::Configuration &_config)
+    : DecoderThread(_abort, _decoderPool), config(_config)
 {
     // Configure NTSC decoder
     comb.updateConfiguration(config.videoParameters, config.combConfig);

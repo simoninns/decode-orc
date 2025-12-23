@@ -54,13 +54,13 @@ int32_t PalDecoder::getLookAhead() const
     return config.pal.getLookAhead();
 }
 
-QThread *PalDecoder::makeThread(QAtomicInt& abort, DecoderPool& decoderPool) {
-    return new PalThread(abort, decoderPool, config);
+std::thread PalDecoder::makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) {
+    return std::thread(&PalThread::run, PalThread(abort, decoderPool, config));
 }
 
-PalThread::PalThread(QAtomicInt& _abort, DecoderPool& _decoderPool,
-                     const PalDecoder::Configuration &_config, QObject *parent)
-    : DecoderThread(_abort, _decoderPool, parent), config(_config)
+PalThread::PalThread(std::atomic<bool>& _abort, DecoderPool& _decoderPool,
+                     const PalDecoder::Configuration &_config)
+    : DecoderThread(_abort, _decoderPool), config(_config)
 {
     // Configure PALcolour
     palColour.updateConfiguration(config.videoParameters, config.pal);

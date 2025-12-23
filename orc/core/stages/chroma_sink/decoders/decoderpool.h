@@ -28,11 +28,11 @@
 #include <vector>
 #include <cstdint>
 #include <QObject>
-#include <QAtomicInt>
-#include <QElapsedTimer>
+#include <atomic>
+#include <chrono>
 #include <QMap>
-#include <QMutex>
-#include <QThread>
+#include <mutex>
+#include <thread>
 #include <QVector>
 
 #include "lddecodemetadata.h"
@@ -102,10 +102,10 @@ private:
 
     // Atomic abort flag shared by worker threads; workers watch this, and shut
     // down as soon as possible if it becomes true
-    QAtomicInt abort;
+    std::atomic<bool> abort;
 
     // Input stream information (all guarded by inputMutex while threads are running)
-    QMutex inputMutex;
+    std::mutex inputMutex;
     qint32 decoderLookBehind;
     qint32 decoderLookAhead;
     qint32 inputFrameNumber;
@@ -114,12 +114,12 @@ private:
     SourceVideo sourceVideo;
 
     // Output stream information (all guarded by outputMutex while threads are running)
-    QMutex outputMutex;
+    std::mutex outputMutex;
     qint32 outputFrameNumber;
     QMap<qint32, OutputFrame> pendingOutputFrames;
     OutputWriter outputWriter;
     QFile targetVideo;
-    QElapsedTimer totalTimer;
+    std::chrono::steady_clock::time_point totalTimerStart;
 };
 
 #endif // DECODERPOOL_H

@@ -23,6 +23,9 @@
 #include <QFile>
 #include <fstream>
 #include <algorithm>
+#include <thread>
+#include <mutex>
+#include <atomic>
 
 namespace orc {
 
@@ -621,64 +624,165 @@ bool ChromaSinkStage::trigger(
         inputFields.push_back(sf2);
     }
     
-    // 10. Process frames ONE AT A TIME to match standalone behavior
+    // 10. Process frames in parallel using worker threads
     // CRITICAL: Transform3D is a 3D temporal FFT filter that processes frames at specific
     // Z-positions (temporal indices). Each frame MUST be at the SAME Z-position (field indices
     // lookBehind*2 to lookBehind*2+2) regardless of its frame number, otherwise the FFT results
-    // will differ. This matches how the standalone decoder processes frames.
+    // will differ. Workers process frames independently with proper context.
+    //
+    // THREAD SAFETY: Each worker thread creates its own decoder instance to avoid state conflicts.
+    // Transform PAL decoders use FFT buffers that cannot be shared between threads.
     
     qint32 numFrames = (end_frame - start_frame);
     std::vector<ComponentFrame> outputFrames;
     outputFrames.resize(numFrames);
     
-    ORC_LOG_INFO("ChromaSink: Processing {} frames one at a time (to match standalone)", numFrames);
+    // Determine number of threads to use
+    int32_t numThreads = threads_;
+    if (numThreads <= 0) {
+        numThreads = std::thread::hardware_concurrency();
+        if (numThreads <= 0) numThreads = 4;  // Fallback
+    }
+    // Don't use more threads than frames
+    numThreads = std::min(numThreads, numFrames);
     
-    for (qint32 frameIdx = 0; frameIdx < numFrames; frameIdx++) {
-        // Build a field array for this ONE frame:
-        // [lookbehind fields... target frame fields... lookahead fields...]
-        std::vector<SourceField> frameFields;
+    ORC_LOG_INFO("ChromaSink: Processing {} frames using {} worker threads", numFrames, numThreads);
+    
+    // Shared state for work distribution
+    std::atomic<int32_t> nextFrameIdx{0};
+    std::atomic<bool> abortFlag{false};
+    
+    // CRITICAL: FFTW plan creation with FFTW_MEASURE is NOT thread-safe
+    // (see FFTW docs: http://www.fftw.org/fftw3_doc/Thread-safety.html)
+    // We must serialize all decoder instantiations that create FFTW plans
+    std::mutex fftwPlanMutex;
+    
+    // Worker thread function - each worker creates its own decoder instance
+    auto workerFunc = [&]() {
+        // Create thread-local decoder instance
+        std::unique_ptr<MonoDecoder> threadMonoDecoder;
+        std::unique_ptr<PalColour> threadPalDecoder;
+        std::unique_ptr<Comb> threadNtscDecoder;
         
-        // The actual frame number we're processing
-        qint32 actualFrameNum = static_cast<qint32>(start_frame) + frameIdx;
-        
-        // Position in inputFields where this frame's fields start
-        // inputFields starts at extended_start_frame, so offset by (actualFrameNum - extended_start_frame) frames
-        qint32 frameStartIdx = (actualFrameNum - extended_start_frame) * 2;
-        
-        // Calculate the range to copy: lookbehind + target + lookahead
-        qint32 copyStartIdx = frameStartIdx - (lookBehindFrames * 2);
-        qint32 copyEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);
-        
-        // Clamp to valid range and copy
-        copyStartIdx = std::max(0, copyStartIdx);
-        copyEndIdx = std::min(static_cast<qint32>(inputFields.size()), copyEndIdx);
-        
-        for (qint32 i = copyStartIdx; i < copyEndIdx; i++) {
-            frameFields.push_back(inputFields[i]);
-        }
-        
-        // The target frame's position within frameFields depends on how much lookbehind we actually got
-        qint32 actualLookbehindFields = (frameStartIdx - copyStartIdx);
-        qint32 frameStartIndex = actualLookbehindFields;
-        qint32 frameEndIndex = frameStartIndex + 2;
-        
-        // Prepare single-frame output buffer
-        std::vector<ComponentFrame> singleOutput;
-        singleOutput.resize(1);
-        
-        // Decoding frame with context fields
-        
-        // Decode this ONE frame
         if (monoDecoder) {
-            monoDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+            // Clone configuration from main decoder
+            MonoDecoder::MonoConfiguration config;
+            config.yNRLevel = luma_nr_;
+            config.videoParameters = ldVideoParams;
+            threadMonoDecoder = std::make_unique<MonoDecoder>(config);
         } else if (palDecoder) {
-            palDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+            // Clone configuration from main decoder
+            PalColour::Configuration config;
+            config.chromaGain = chroma_gain_;
+            config.chromaPhase = chroma_phase_;
+            config.yNRLevel = luma_nr_;
+            config.simplePAL = simple_pal_;
+            config.showFFTs = false;
+            
+            if (decoder_type_ == "transform3d") {
+                config.chromaFilter = PalColour::transform3DFilter;
+            } else if (decoder_type_ == "transform2d") {
+                config.chromaFilter = PalColour::transform2DFilter;
+            } else {
+                config.chromaFilter = PalColour::palColourFilter;
+            }
+            
+            // CRITICAL: Protect FFTW plan creation (Transform PAL uses FFTW_MEASURE which is not thread-safe)
+            {
+                std::lock_guard<std::mutex> lock(fftwPlanMutex);
+                threadPalDecoder = std::make_unique<PalColour>();
+                threadPalDecoder->updateConfiguration(ldVideoParams, config);
+            }
         } else if (ntscDecoder) {
-            ntscDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+            // Clone configuration from main decoder
+            Comb::Configuration config;
+            config.chromaGain = chroma_gain_;
+            config.chromaPhase = chroma_phase_;
+            config.cNRLevel = chroma_nr_;
+            config.yNRLevel = luma_nr_;
+            config.phaseCompensation = ntsc_phase_comp_;
+            config.showMap = false;
+            
+            if (decoder_type_ == "ntsc1d") {
+                config.dimensions = 1;
+                config.adaptive = false;
+            } else if (decoder_type_ == "ntsc3d") {
+                config.dimensions = 3;
+                config.adaptive = true;
+            } else if (decoder_type_ == "ntsc3dnoadapt") {
+                config.dimensions = 3;
+                config.adaptive = false;
+            } else {
+                config.dimensions = 2;
+                config.adaptive = false;
+            }
+            
+            threadNtscDecoder = std::make_unique<Comb>();
+            threadNtscDecoder->updateConfiguration(ldVideoParams, config);
         }
         
-        // Store the result
-        outputFrames[frameIdx] = singleOutput[0];
+        while (!abortFlag) {
+            // Get next frame to process
+            int32_t frameIdx = nextFrameIdx.fetch_add(1);
+            if (frameIdx >= numFrames) {
+                break;  // No more frames to process
+            }
+            
+            // Build a field array for this ONE frame:
+            // [lookbehind fields... target frame fields... lookahead fields...]
+            std::vector<SourceField> frameFields;
+            
+            // The actual frame number we're processing
+            qint32 actualFrameNum = static_cast<qint32>(start_frame) + frameIdx;
+            
+            // Position in inputFields where this frame's fields start
+            qint32 frameStartIdx = (actualFrameNum - extended_start_frame) * 2;
+            
+            // Calculate the range to copy: lookbehind + target + lookahead
+            qint32 copyStartIdx = frameStartIdx - (lookBehindFrames * 2);
+            qint32 copyEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);
+            
+            // Clamp to valid range and copy
+            copyStartIdx = std::max(0, copyStartIdx);
+            copyEndIdx = std::min(static_cast<qint32>(inputFields.size()), copyEndIdx);
+            
+            for (qint32 i = copyStartIdx; i < copyEndIdx; i++) {
+                frameFields.push_back(inputFields[i]);
+            }
+            
+            // The target frame's position within frameFields depends on how much lookbehind we actually got
+            qint32 actualLookbehindFields = (frameStartIdx - copyStartIdx);
+            qint32 frameStartIndex = actualLookbehindFields;
+            qint32 frameEndIndex = frameStartIndex + 2;
+            
+            // Prepare single-frame output buffer
+            std::vector<ComponentFrame> singleOutput;
+            singleOutput.resize(1);
+            
+            // Decode this ONE frame using thread-local decoder
+            if (threadMonoDecoder) {
+                threadMonoDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+            } else if (threadPalDecoder) {
+                threadPalDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+            } else if (threadNtscDecoder) {
+                threadNtscDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+            }
+            
+            // Store the result (no mutex needed - each thread writes to a different index)
+            outputFrames[frameIdx] = singleOutput[0];
+        }
+    };
+    
+    // Create and start worker threads
+    std::vector<std::thread> workers;
+    workers.reserve(numThreads);
+    for (int32_t i = 0; i < numThreads; i++) {
+        workers.emplace_back(workerFunc);
+    }
+    
+    // Wait for all workers to finish
+    for (auto& worker : workers) {
+        worker.join();
     }
     
     ORC_LOG_INFO("ChromaSink: Decoded {} frames", outputFrames.size());

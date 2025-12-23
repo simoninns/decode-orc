@@ -27,9 +27,9 @@
 
 #include <vector>
 #include <cstdint>
-#include <QAtomicInt>
+#include <atomic>
+#include <thread>
 #include <QDebug>
-#include <QThread>
 #include <cassert>
 
 #include "lddecodemetadata.h"
@@ -77,7 +77,7 @@ public:
     virtual int32_t getLookAhead() const;
 
     // Construct a new worker thread
-    virtual QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) = 0;
+    virtual std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) = 0;
 
     // Parameters used by the decoder and its threads.
     // This may be subclassed by decoders to add extra parameters.
@@ -87,20 +87,19 @@ public:
 };
 
 // Abstract base class for chroma decoder worker threads.
-class DecoderThread : public QThread {
-    Q_OBJECT
+class DecoderThread {
 public:
-    explicit DecoderThread(QAtomicInt &abort, DecoderPool &decoderPool, QObject *parent = nullptr);
+    explicit DecoderThread(std::atomic<bool> &abort, DecoderPool &decoderPool);
 
-protected:
-    void run() override;
+    // Thread entry point (called by std::thread)
+    void run();
 
     // Decode a sequence of composite fields into a sequence of component frames
     virtual void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
                               std::vector<ComponentFrame> &componentFrames) = 0;
 
     // Decoder pool
-    QAtomicInt &abort;
+    std::atomic<bool> &abort;
     DecoderPool &decoderPool;
 
     // Output writer

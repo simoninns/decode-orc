@@ -108,11 +108,13 @@ private:
     int start_frame_;
     int length_;
     int threads_;
-    bool reverse_fields_;
     double luma_nr_;
     double chroma_nr_;
     bool ntsc_phase_comp_;
+    bool simple_pal_;
     int output_padding_;
+    int first_active_frame_line_;  // -1 means use source default
+    int last_active_frame_line_;   // -1 means use source default
     
     // Status tracking
     std::string trigger_status_;

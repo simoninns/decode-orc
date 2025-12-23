@@ -40,11 +40,13 @@ ChromaSinkStage::ChromaSinkStage()
     , start_frame_(1)
     , length_(-1)
     , threads_(0)  // 0 means auto-detect
-    , reverse_fields_(false)
     , luma_nr_(0.0)
     , chroma_nr_(0.0)
     , ntsc_phase_comp_(false)
+    , simple_pal_(false)
     , output_padding_(8)
+    , first_active_frame_line_(-1)
+    , last_active_frame_line_(-1)
 {
 }
 
@@ -132,13 +134,6 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() co
             {0, 64, 0, {}, false}
         },
         ParameterDescriptor{
-            "reverse_fields",
-            "Reverse Fields",
-            "Reverse field order to second/first (default is first/second)",
-            ParameterType::BOOL,
-            {{}, {}, false, {}, false}
-        },
-        ParameterDescriptor{
             "luma_nr",
             "Luma Noise Reduction",
             "Luma noise reduction level in dB. 0 = disabled. Range: 0.0-10.0",
@@ -160,12 +155,31 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() co
             {{}, {}, false, {}, false}
         },
         ParameterDescriptor{
+            "simple_pal",
+            "Simple PAL",
+            "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false}
+        },
+        ParameterDescriptor{
             "output_padding",
             "Output Padding",
             "Pad output to multiple of this many pixels on both axes. Range: 1-32",
             ParameterType::INT32,
-            {1, 32, 8, {}, false}
-        }
+            {1, 32, 8, {}, false}        },
+        ParameterDescriptor{
+            "first_active_frame_line",
+            "First Active Frame Line",
+            "Override first visible line of frame (-1 uses source default). Range: -1 to 620",
+            ParameterType::INT32,
+            {-1, 620, -1, {}, false}
+        },
+        ParameterDescriptor{
+            "last_active_frame_line",
+            "Last Active Frame Line",
+            "Override last visible line of frame (-1 uses source default). Range: -1 to 620",
+            ParameterType::INT32,
+            {-1, 620, -1, {}, false}        }
     };
 }
 
@@ -180,11 +194,13 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["start_frame"] = start_frame_;
     params["length"] = length_;
     params["threads"] = threads_;
-    params["reverse_fields"] = reverse_fields_;
     params["luma_nr"] = luma_nr_;
     params["chroma_nr"] = chroma_nr_;
     params["ntsc_phase_comp"] = ntsc_phase_comp_;
+    params["simple_pal"] = simple_pal_;
     params["output_padding"] = output_padding_;
+    params["first_active_frame_line"] = first_active_frame_line_;
+    params["last_active_frame_line"] = last_active_frame_line_;
     return params;
 }
 
@@ -225,10 +241,7 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             if (std::holds_alternative<int>(value)) {
                 threads_ = std::get<int>(value);
             }
-        } else if (key == "reverse_fields") {
-            if (std::holds_alternative<bool>(value)) {
-                reverse_fields_ = std::get<bool>(value);
-            }
+
         } else if (key == "luma_nr") {
             if (std::holds_alternative<double>(value)) {
                 luma_nr_ = std::get<double>(value);
@@ -241,11 +254,21 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             if (std::holds_alternative<bool>(value)) {
                 ntsc_phase_comp_ = std::get<bool>(value);
             }
+        } else if (key == "simple_pal") {
+            if (std::holds_alternative<bool>(value)) {
+                simple_pal_ = std::get<bool>(value);
+            }
         } else if (key == "output_padding") {
             if (std::holds_alternative<int>(value)) {
                 output_padding_ = std::get<int>(value);
+            }        } else if (key == "first_active_frame_line") {
+            if (std::holds_alternative<int32_t>(value)) {
+                first_active_frame_line_ = std::get<int32_t>(value);
             }
-        }
+        } else if (key == "last_active_frame_line") {
+            if (std::holds_alternative<int32_t>(value)) {
+                last_active_frame_line_ = std::get<int32_t>(value);
+            }        }
     }
     
     // Parameters updated
@@ -325,6 +348,16 @@ bool ChromaSinkStage::trigger(
     LdDecodeMetaData::LineParameters lineParams;
     lineParams.applyTo(ldVideoParams);
     
+    // Apply overrides AFTER lineParams.applyTo() so they won't be overwritten
+    if (first_active_frame_line_ >= 0) {
+        ldVideoParams.firstActiveFrameLine = first_active_frame_line_;
+        ORC_LOG_INFO("ChromaSink: Overriding firstActiveFrameLine to {}", first_active_frame_line_);
+    }
+    if (last_active_frame_line_ >= 0) {
+        ldVideoParams.lastActiveFrameLine = last_active_frame_line_;
+        ORC_LOG_INFO("ChromaSink: Overriding lastActiveFrameLine to {}", last_active_frame_line_);
+    }
+    
     // Apply padding adjustments to active video region BEFORE configuring decoder
     // This ensures the decoder processes the correct region that will be written to output
     {
@@ -363,6 +396,7 @@ bool ChromaSinkStage::trigger(
         config.chromaGain = chroma_gain_;
         config.chromaPhase = chroma_phase_;
         config.yNRLevel = luma_nr_;
+        config.simplePAL = simple_pal_;
         config.showFFTs = false;
         
         // Set filter mode based on decoder type
@@ -483,8 +517,10 @@ bool ChromaSinkStage::trigger(
     qint32 extended_end_frame = static_cast<qint32>(end_frame) + lookAheadFrames;
     
     // 8. Create dummy LdDecodeMetaData for decoder compatibility
+    // NOTE: This metadata object is NOT used - all metadata comes from VFR hints.
+    //       It exists only for API compatibility with legacy decoder interfaces.
+    //       Do NOT add code that relies on this metadata object!
     LdDecodeMetaData metadata;
-    // Note: In Step 4, we'll remove this and use VFR directly
     
     // 9. Collect fields including lookbehind/lookahead padding
     std::vector<SourceField> inputFields;
@@ -513,10 +549,10 @@ bool ChromaSinkStage::trigger(
         }
         
         // Frame N (1-based numbering) consists of fields (2*N-2) and (2*N-1) in 0-based indexing
-        // Fields are ALWAYS in chronological order: 0, 1, 2, 3, 4, 5...
-        // The first field of frame N is at index (2*N-2), second field at (2*N-1)
-        FieldID firstFieldId = FieldID((metadataFrameNumber * 2) - 2);
-        FieldID secondFieldId = FieldID((metadataFrameNumber * 2) - 1);
+        // Fields are ALWAYS in chronological order in the input array
+        // The isFirstField flag in each SourceField indicates logical field order
+        FieldID firstFieldId = FieldID((metadataFrameNumber * 2) - 2);   // Even field (chronologically first)
+        FieldID secondFieldId = FieldID((metadataFrameNumber * 2) - 1);  // Odd field (chronologically second)
         
         // For blank frames, skip field scanning - just use metadata from frame 1
         if (!useBlankFrame) {
@@ -578,8 +614,6 @@ bool ChromaSinkStage::trigger(
                 sf2.data.remove(0, 2);
                 sf2.data.append(black);
                 sf2.data.append(black);
-                if (frame < 3) {
-                }
             }
         }
         

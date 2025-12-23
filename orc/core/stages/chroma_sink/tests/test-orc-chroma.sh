@@ -109,23 +109,35 @@ calculate_checksum() {
 
 # Create ORC project file dynamically
 create_project_file() {
-    local system="$1"        # "PAL" or "NTSC"
-    local decoder="$2"       # "pal2d", "ntsc2d", etc.
-    local output_format="$3" # "rgb", "yuv", "y4m"
-    local extra_params="$4"  # Additional parameters (YAML fragment)
-    local output_file="$5"
+    local test_name="$1"      # Test name for CAV detection
+    local system="$2"        # "PAL" or "NTSC"
+    local decoder="$3"       # "pal2d", "ntsc2d", etc.
+    local output_format="$4" # "rgb", "yuv", "y4m"
+    local extra_params="$5"  # Additional parameters (YAML fragment)
+    local output_file="$6"
     
     local source_stage="LD${system}Source"
     local tbc_path
     
     if [[ "$system" == "PAL" ]]; then
-        tbc_path="$TEST_DATA_ROOT/pal/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc"
+        # Check if this is a CAV test based on test name
+        if [[ "$test_name" == *"CAV"* ]]; then
+            tbc_path="$TEST_DATA_ROOT/pal/ggv1011/1005-1205/ggv1011_pal_cav_1005-1205.tbc"
+        else
+            tbc_path="$TEST_DATA_ROOT/pal/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc"
+        fi
     else
-        tbc_path="$TEST_DATA_ROOT/ntsc/bambi/18100-18306/bambi_ntsc_clv_18100-18306.tbc"
+        # Check if this is a CAV test for NTSC
+        if [[ "$test_name" == *"CAV"* ]]; then
+            tbc_path="$TEST_DATA_ROOT/ntsc/ggv1069/716-914/ggv1069_ntsc_cav_716-914.tbc"
+        else
+            tbc_path="$TEST_DATA_ROOT/ntsc/bambi/18100-18306/bambi_ntsc_clv_18100-18306.tbc"
+        fi
     fi
     
     local system_lower=$(echo "$system" | tr '[:upper:]' '[:lower:]')
-    local project_file="$TEMP_DIR/test-${system_lower}-${decoder}.orcprj"
+    local test_name_lower=$(echo "$test_name" | tr '[:upper:]' '[:lower:]')
+    local project_file="$TEMP_DIR/test-${test_name_lower}.orcprj"
     
     # Start project file
     cat > "$project_file" << EOF
@@ -173,15 +185,20 @@ EOF
 
     # Add extra parameters if provided
     if [[ -n "$extra_params" ]]; then
-        echo "$extra_params" | while IFS=: read -r key value; do
+        # Split on pipe character to handle multiple parameters
+        IFS='|' read -ra PARAMS <<< "$extra_params"
+        for param in "${PARAMS[@]}"; do
+            # Split each parameter on first colon
+            key="${param%%:*}"
+            value="${param#*:}"
             key=$(echo "$key" | xargs)  # trim whitespace
             value=$(echo "$value" | xargs)
             
             # Determine type based on value
             local param_type="string"
-            if [[ "$value" =~ ^[0-9]+$ ]]; then
+            if [[ "$value" =~ ^-?[0-9]+$ ]]; then
                 param_type="integer"
-            elif [[ "$value" =~ ^[0-9]+\.[0-9]+$ ]]; then
+            elif [[ "$value" =~ ^-?[0-9]+\.[0-9]+$ ]]; then
                 param_type="double"
             elif [[ "$value" == "true" || "$value" == "false" ]]; then
                 param_type="bool"
@@ -225,7 +242,7 @@ run_orc_test() {
     local test_name_lower=$(echo "$test_name" | tr '[:upper:]' '[:lower:]')
     local output_file="$OUTPUT_DIR/orc-${test_name_lower}.${output_format}"
     local project_file
-    project_file=$(create_project_file "$system" "$decoder" "$output_format" "$extra_params" "$output_file")
+    project_file=$(create_project_file "$test_name" "$system" "$decoder" "$output_format" "$extra_params" "$output_file")
     
     if [[ -z "$project_file" || ! -f "$project_file" ]]; then
         log_error "Failed to create project file for test: $test_name"
@@ -449,7 +466,7 @@ main() {
     run_orc_test "PAL_Transform3D_RGB" "PAL" "transform3d" "rgb" ""
     run_orc_test "PAL_2D_YUV" "PAL" "pal2d" "yuv" ""
     run_orc_test "PAL_2D_Y4M" "PAL" "pal2d" "y4m" ""
-    run_orc_test "PAL_2D_Mono" "PAL" "mono" "rgb" ""
+    run_orc_test "PAL_2D_Mono" "PAL" "pal2d" "rgb" "chroma_gain: 0.0"
     run_orc_test "PAL_2D_ChromaGain" "PAL" "pal2d" "rgb" "chroma_gain: 1.5"
     run_orc_test "PAL_2D_ChromaPhase" "PAL" "pal2d" "rgb" "chroma_phase: 90.0"
     run_orc_test "PAL_Transform2D_Simple" "PAL" "transform2d" "rgb" "simple_pal: true"
@@ -465,9 +482,9 @@ main() {
     run_orc_test "NTSC_3D_NoAdapt_RGB" "NTSC" "ntsc3dnoadapt" "rgb" ""
     run_orc_test "NTSC_2D_YUV" "NTSC" "ntsc2d" "yuv" ""
     run_orc_test "NTSC_2D_Y4M" "NTSC" "ntsc2d" "y4m" ""
-    run_orc_test "NTSC_2D_Mono" "NTSC" "mono" "rgb" ""
-    run_orc_test "NTSC_2D_ChromaNR" "NTSC" "ntsc2d" "rgb" "chroma_nr: 1.0"
-    run_orc_test "NTSC_2D_LumaNR" "NTSC" "ntsc2d" "rgb" "luma_nr: 1.0"
+    run_orc_test "NTSC_2D_Mono" "NTSC" "ntsc2d" "rgb" "chroma_gain: 0.0"
+    run_orc_test "NTSC_2D_ChromaNR" "NTSC" "ntsc2d" "rgb" "chroma_nr: 3.0"
+    run_orc_test "NTSC_2D_LumaNR" "NTSC" "ntsc2d" "rgb" "luma_nr: 2.0"
     run_orc_test "NTSC_2D_PhaseComp" "NTSC" "ntsc2d" "rgb" "ntsc_phase_comp: true"
     
     # Multiple Input Formats
@@ -475,18 +492,16 @@ main() {
     log_info "Testing Multiple Input Formats..."
     log_info "-------------------------------------------"
     
-    # TODO: These require CAV test data - skip for now or implement when available
-    # run_orc_test "PAL_CAV_2D" "PAL" "pal2d" "rgb" ""
-    # run_orc_test "NTSC_CAV_2D" "NTSC" "ntsc2d" "rgb" ""
+    run_orc_test "PAL_CAV_2D" "PAL" "pal2d" "rgb" "length: 5"
+    run_orc_test "NTSC_CAV_2D" "NTSC" "ntsc2d" "rgb" "length: 5"
     
     # Edge Cases
     log_info ""
     log_info "Testing Edge Cases..."
     log_info "-------------------------------------------"
     
-    run_orc_test "PAL_ReverseFields" "PAL" "pal2d" "rgb" "reverse_fields: true"
-    run_orc_test "PAL_Padding" "PAL" "pal2d" "rgb" "output_padding: 16"
-    # TODO: PAL_CustomLines requires start_frame/length parameters - implement when available
+    run_orc_test "PAL_Padding" "PAL" "pal2d" "rgb" "output_padding: 8"
+    run_orc_test "PAL_CustomLines" "PAL" "pal2d" "rgb" "first_active_frame_line: 50|last_active_frame_line: 600"
     
     # Summary
     log_info ""

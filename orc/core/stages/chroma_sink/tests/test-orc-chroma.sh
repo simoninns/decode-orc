@@ -197,7 +197,7 @@ run_orc_test() {
     log_info "  Executing orc-cli..."
     
     local exit_code=0
-    "$ORC_CLI" process "$project_file" > "$TEMP_DIR/${test_name}.log" 2>&1 || exit_code=$?
+    "$ORC_CLI" process "$project_file" --log-level debug > "$TEMP_DIR/${test_name}.log" 2>&1 || exit_code=$?
     
     log_info "  Exit code: $exit_code"
     

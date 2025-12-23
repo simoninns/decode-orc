@@ -459,100 +459,151 @@ bool ChromaSinkStage::trigger(
     auto field_range = vfr->field_range();
     ORC_LOG_DEBUG("ChromaSink: Field range is {}-{}", field_range.start.value(), field_range.end.value());
     
-    // 6. Determine field ordering from first field's parity hint
-    bool is_first_field_first = true;  // Default assumption
-    if (field_range.start.value() < field_range.end.value()) {
-        auto first_parity_hint = vfr->get_field_parity_hint(field_range.start);
-        if (first_parity_hint.has_value()) {
-            // Check if field 0 is marked as "first field"
-            is_first_field_first = first_parity_hint->is_first_field;
-            ORC_LOG_DEBUG("ChromaSink: Field ordering determined from metadata: is_first_field_first={}", 
-                         is_first_field_first);
-        } else {
-            ORC_LOG_WARN("ChromaSink: No field parity hint available, assuming first field first");
+    // 6. Field ordering and interlacing structure
+    // In interlaced video, each frame consists of two fields captured sequentially.
+    // Fields are stored in chronological order: 0, 1, 2, 3, 4, 5...
+    // 
+    // Field parity is assigned based on field index:
+    //   - Even field indices (0, 2, 4...) → FieldParity::Top    → first field
+    //   - Odd field indices (1, 3, 5...)  → FieldParity::Bottom → second field
+    // 
+    // This relationship is consistent across both NTSC and PAL systems.
+    // Frame N (1-based) consists of fields (2*N-2, 2*N-1) in 0-based indexing.
+    
+    // 6. Determine decoder lookbehind/lookahead requirements
+    qint32 lookBehindFrames = 0;
+    qint32 lookAheadFrames = 0;
+    
+    if (palDecoder) {
+        // PalColour internally uses Transform3D which needs lookbehind/lookahead
+        if (decoder_type_ == "transform3d" || decoder_type_ == "transform2d") {
+            // Transform PAL decoders need extra fields for FFT overlap
+            // These values come from TransformPal3D::getLookBehind/Ahead()
+            lookBehindFrames = (decoder_type_ == "transform3d") ? 2 : 0;  // (HALFZTILE + 1) / 2
+            lookAheadFrames = (decoder_type_ == "transform3d") ? 4 : 0;   // (ZTILE - 1 + 1) / 2
+        }
+    } else if (ntscDecoder) {
+        // NTSC 3D decoder might need lookbehind/lookahead
+        if (decoder_type_ == "ntsc3d" || decoder_type_ == "ntsc3dnoadapt") {
+            lookBehindFrames = 1;  // From Comb::Configuration::getLookBehind()
+            lookAheadFrames = 2;   // From Comb::Configuration::getLookAhead()
         }
     }
     
-    // 7. Create dummy LdDecodeMetaData for decoder compatibility
+    ORC_LOG_INFO("ChromaSink: Decoder requires lookBehind={} frames, lookAhead={} frames",
+                 lookBehindFrames, lookAheadFrames);
+    
+    // 7. Calculate extended frame range including lookbehind/lookahead
+    // Note: extended_start_frame can be negative (will use black padding)
+    qint32 extended_start_frame = static_cast<qint32>(start_frame) - lookBehindFrames;
+    qint32 extended_end_frame = static_cast<qint32>(end_frame) + lookAheadFrames;
+    
+    // 8. Create dummy LdDecodeMetaData for decoder compatibility
     LdDecodeMetaData metadata;
     // Note: In Step 4, we'll remove this and use VFR directly
     
-    // 7. Collect all fields for batch decoding
+    // 9. Collect fields including lookbehind/lookahead padding
     QVector<SourceField> inputFields;
-    inputFields.reserve((end_frame - start_frame) * 2);
+    qint32 total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
+    inputFields.reserve(total_fields_needed);
     
-    ORC_LOG_INFO("ChromaSink: Collecting {} fields for decode", (end_frame - start_frame) * 2);
+    ORC_LOG_INFO("ChromaSink: Collecting {} fields (frames {}-{}) for decode",
+                 total_fields_needed, extended_start_frame + 1, extended_end_frame);
     
-    for (size_t frame = start_frame; frame < end_frame; frame++) {
-        // Determine field IDs using the same algorithm as LdDecodeMetaData::getFieldNumber()
-        // Frame numbering is 1-based in the algorithm, but our frame variable is 0-based
-        int32_t frameNumber = frame + 1;  // Convert to 1-based
+    for (qint32 frame = extended_start_frame; frame < extended_end_frame; frame++) {
+        // Determine if this frame is outside the valid range (need black padding)
+        int32_t frameNumber = frame + 1;  // Convert to 1-based for field numbering
+        bool useBlankFrame = (frameNumber < 1) || (frameNumber > static_cast<int32_t>(total_frames));
         
-        FieldID firstFieldId, secondFieldId;
+        // If outside bounds, use frame 1 for metadata but black for data
+        int32_t metadataFrameNumber = useBlankFrame ? 1 : frameNumber;
         
-        if (is_first_field_first) {
-            // Standard order: frame N uses fields (N*2-1, N*2) in 1-based numbering
-            // Convert to 0-based: fields (N*2-2, N*2-1)
-            firstFieldId = FieldID((frameNumber * 2) - 2);
-            secondFieldId = FieldID((frameNumber * 2) - 1);
-        } else {
-            // Reversed order: frame N uses fields (N*2, N*2-1) in 1-based numbering
-            // Convert to 0-based: fields (N*2-1, N*2-2)
-            secondFieldId = FieldID((frameNumber * 2) - 2);
-            firstFieldId = FieldID((frameNumber * 2) - 1);
-        }
+        // Frame N (1-based numbering) consists of fields (2*N-2) and (2*N-1) in 0-based indexing
+        // Fields are ALWAYS in chronological order: 0, 1, 2, 3, 4, 5...
+        // The first field of frame N is at index (2*N-2), second field at (2*N-1)
+        FieldID firstFieldId = FieldID((metadataFrameNumber * 2) - 2);
+        FieldID secondFieldId = FieldID((metadataFrameNumber * 2) - 1);
         
-        // Scan forward to find actual field with is_first_field=true
-        // (handles dropped/repeated fields in the source)
-        bool found_first_field = false;
-        FieldID scan_id = firstFieldId;
-        int max_scan = 10;  // Don't scan too far
-        
-        for (int scan = 0; scan < max_scan && scan_id.value() < field_range.end.value(); scan++) {
-            if (!vfr->has_field(scan_id)) {
+        // For blank frames, skip field scanning - just use metadata from frame 1
+        if (!useBlankFrame) {
+            // Verify the calculated field IDs point to valid fields
+            // If not, scan forward to find the next valid field pair
+            // (handles dropped/repeated fields in the source)
+            bool found_valid_pair = false;
+            FieldID scan_id = firstFieldId;
+            int max_scan = 10;  // Don't scan too far
+            
+            for (int scan = 0; scan < max_scan && scan_id.value() < field_range.end.value(); scan++) {
+                if (!vfr->has_field(scan_id)) {
+                    scan_id = FieldID(scan_id.value() + 1);
+                    continue;
+                }
+                
+                // Check if this field has Top parity (first field)
+                auto desc_opt = vfr->get_descriptor(scan_id);
+                if (desc_opt.has_value() && desc_opt->parity == FieldParity::Top) {
+                    firstFieldId = scan_id;
+                    secondFieldId = FieldID(scan_id.value() + 1);
+                    found_valid_pair = true;
+                    break;
+                }
                 scan_id = FieldID(scan_id.value() + 1);
-                continue;
             }
             
-            auto parity_hint = vfr->get_field_parity_hint(scan_id);
-            if (parity_hint.has_value() && parity_hint->is_first_field) {
-                firstFieldId = scan_id;
-                secondFieldId = FieldID(scan_id.value() + 1);
-                found_first_field = true;
-                break;
+            if (!found_valid_pair) {
+                ORC_LOG_DEBUG("ChromaSink: Could not find valid field pair via scan, using calculated IDs for frame {}", 
+                             frame + 1);
             }
-            scan_id = FieldID(scan_id.value() + 1);
+            
+            // Check if fields exist
+            if (!vfr->has_field(firstFieldId) || !vfr->has_field(secondFieldId)) {
+                ORC_LOG_WARN("ChromaSink: Skipping frame {} (missing fields {}/{})", 
+                            frame + 1, firstFieldId.value(), secondFieldId.value());
+                continue;
+            }
         }
         
-        if (!found_first_field) {
-            ORC_LOG_DEBUG("ChromaSink: Could not find first field via scan, using calculated IDs for frame {}", 
-                         frame + 1);
-        }
-        
-        ORC_LOG_DEBUG("ChromaSink: User frame {} -> fields {},{}", 
-                      frame + 1, firstFieldId.value(), secondFieldId.value());
-        
-        // Check if fields exist
-        if (!vfr->has_field(firstFieldId) || !vfr->has_field(secondFieldId)) {
-            ORC_LOG_WARN("ChromaSink: Skipping frame {} (missing fields {}/{})", 
-                        frame + 1, firstFieldId.value(), secondFieldId.value());
-            continue;
-        }
+        ORC_LOG_DEBUG("ChromaSink: Frame {} ({}) -> fields {},{}", 
+                      frame + 1, useBlankFrame ? "black padding" : "real",
+                      firstFieldId.value(), secondFieldId.value());
         
         // Convert fields to SourceField format
-        SourceField sf1 = convertToSourceField(vfr.get(), firstFieldId, metadata);
-        SourceField sf2 = convertToSourceField(vfr.get(), secondFieldId, metadata);
+        SourceField sf1, sf2;
+        
+        if (useBlankFrame) {
+            // Create blank fields with metadata from frame 1 but black data
+            sf1 = convertToSourceField(vfr.get(), firstFieldId, metadata);
+            sf2 = convertToSourceField(vfr.get(), secondFieldId, metadata);
+            
+            // Fill with black
+            uint16_t black = ldVideoParams.black16bIre;
+            size_t field_length = sf1.data.size();
+            sf1.data.fill(black, field_length);
+            sf2.data.fill(black, field_length);
+        } else {
+            sf1 = convertToSourceField(vfr.get(), firstFieldId, metadata);
+            sf2 = convertToSourceField(vfr.get(), secondFieldId, metadata);
+        }
         
         inputFields.append(sf1);
         inputFields.append(sf2);
     }
     
-    // 8. Prepare output buffer
-    qint32 numFrames = inputFields.size() / 2;
+    // 10. Calculate startIndex and endIndex for decoder
+    // These point to where the "real" fields start/end within inputFields
+    qint32 startIndex = lookBehindFrames * 2;  // Skip lookbehind fields
+    qint32 endIndex = startIndex + ((end_frame - start_frame) * 2);  // Process requested frames
+    
+    ORC_LOG_INFO("ChromaSink: inputFields has {} fields, startIndex={}, endIndex={}",
+                 inputFields.size(), startIndex, endIndex);
+    
+    // 11. Prepare output buffer (only for the frames we actually want, not padding)
+    qint32 numFrames = (end_frame - start_frame);
     QVector<ComponentFrame> outputFrames;
     outputFrames.resize(numFrames);  // Just resize, don't init - decodeFrames will do that
     
-    ORC_LOG_INFO("ChromaSink: Decoding {} frames ({} fields)", numFrames, inputFields.size());
+    ORC_LOG_INFO("ChromaSink: Decoding {} frames from {} fields (startIndex={}, endIndex={})",
+                 numFrames, inputFields.size(), startIndex, endIndex);
     
     // Debug: Log all fields being decoded
     for (int i = 0; i < inputFields.size(); i += 2) {
@@ -562,8 +613,9 @@ bool ChromaSinkStage::trigger(
             for (int j = 0; j < inputFields[i].data.size(); j++) {
                 checksum += inputFields[i].data[j];
             }
-            ORC_LOG_DEBUG("ChromaSink: Frame {} will be decoded from fields seqNo={},{} (checksum={}, first 4: {} {} {} {})", 
-                          i/2, inputFields[i].field.seqNo, inputFields[i+1].field.seqNo,
+            const char* zone = (i < startIndex) ? "lookbehind" : (i >= endIndex) ? "lookahead" : "active";
+            ORC_LOG_DEBUG("ChromaSink: Field {} ({}) seqNo={},{} (checksum={}, first 4: {} {} {} {})", 
+                          i/2, zone, inputFields[i].field.seqNo, inputFields[i+1].field.seqNo,
                           checksum,
                           inputFields[i].data.size() > 0 ? inputFields[i].data[0] : 0,
                           inputFields[i].data.size() > 1 ? inputFields[i].data[1] : 0,
@@ -572,25 +624,26 @@ bool ChromaSinkStage::trigger(
         }
     }
     
-    // 9. Decode all frames in one batch
+    // 12. Decode frames using the appropriate decoder
+    // Pass startIndex and endIndex so decoder knows which fields are "real" vs padding
     if (monoDecoder) {
-        monoDecoder->decodeFrames(inputFields, 0, inputFields.size(), outputFrames);
+        monoDecoder->decodeFrames(inputFields, startIndex, endIndex, outputFrames);
     } else if (palDecoder) {
-        palDecoder->decodeFrames(inputFields, 0, inputFields.size(), outputFrames);
+        palDecoder->decodeFrames(inputFields, startIndex, endIndex, outputFrames);
     } else if (ntscDecoder) {
-        ntscDecoder->decodeFrames(inputFields, 0, inputFields.size(), outputFrames);
+        ntscDecoder->decodeFrames(inputFields, startIndex, endIndex, outputFrames);
     }
     
     ORC_LOG_INFO("ChromaSink: Decoded {} frames", outputFrames.size());
     
-    // 10. Convert to std::vector for output writer
+    // 13. Convert to std::vector for output writer
     std::vector<ComponentFrame> stdOutputFrames;
     stdOutputFrames.reserve(outputFrames.size());
     for (const auto& frame : outputFrames) {
         stdOutputFrames.push_back(frame);
     }
     
-    // 11. Write output file
+    // 14. Write output file
     if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &ldVideoParams)) {
         ORC_LOG_ERROR("ChromaSink: Failed to write output file: {}", output_path_);
         trigger_status_ = "Error: Failed to write output";
@@ -640,7 +693,29 @@ SourceField ChromaSinkStage::convertToSourceField(
     // Set field metadata
     // Note: seqNo must be 1-based to match LdDecodeMetaData field numbering
     // ORC uses 0-based FieldID, so add 1
+    
+    // Determine if this is the "first field" or "second field" from field parity
+    // Field parity determines field ordering (same for both NTSC and PAL):
+    //   - Top field (even field indices)    → first field
+    //   - Bottom field (odd field indices)  → second field
+    // This relationship is consistent across video systems.
     sf.field.isFirstField = (desc.parity == FieldParity::Top);
+    
+    ORC_LOG_TRACE("ChromaSink: Field {} parity={} → isFirstField={}",
+                 field_id.value(),
+                 desc.parity == FieldParity::Top ? "Top" : "Bottom",
+                 sf.field.isFirstField);
+    
+    // Get field_phase_id from phase hint (from TBC metadata)
+    auto phase_hint = vfr->get_field_phase_hint(field_id);
+    if (phase_hint.has_value()) {
+        sf.field.fieldPhaseID = phase_hint->field_phase_id;
+        ORC_LOG_TRACE("ChromaSink: Field {} has fieldPhaseID={}", field_id.value(), sf.field.fieldPhaseID);
+    } else {
+        // Leave as default -1 (unknown)
+        sf.field.fieldPhaseID = -1;
+    }
+    
     sf.field.seqNo = static_cast<qint32>(field_id.value()) + 1;
     
     ORC_LOG_TRACE("ChromaSink: Field {} (1-based seqNo={}) parity={} -> isFirstField={}", 

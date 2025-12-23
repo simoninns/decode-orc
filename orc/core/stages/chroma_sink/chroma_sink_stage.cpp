@@ -247,8 +247,7 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         }
     }
     
-    ORC_LOG_DEBUG("ChromaSink: Parameters updated (decoder={}, format={})", 
-                  decoder_type_, output_format_);
+    // Parameters updated
     
     return true;
 }
@@ -325,18 +324,6 @@ bool ChromaSinkStage::trigger(
     LdDecodeMetaData::LineParameters lineParams;
     lineParams.applyTo(ldVideoParams);
     
-    ORC_LOG_DEBUG("ChromaSink: Video parameters: {}x{}, active_video {}-{}, active_frame_lines {}-{}", 
-                  ldVideoParams.fieldWidth, ldVideoParams.fieldHeight,
-                  ldVideoParams.activeVideoStart, ldVideoParams.activeVideoEnd,
-                  ldVideoParams.firstActiveFrameLine, ldVideoParams.lastActiveFrameLine);
-    
-    ORC_LOG_DEBUG("ChromaSink: Color burst: {}-{}, IRE levels: white={} black={}", 
-                  ldVideoParams.colourBurstStart, ldVideoParams.colourBurstEnd,
-                  ldVideoParams.white16bIre, ldVideoParams.black16bIre);
-    
-    ORC_LOG_DEBUG("ChromaSink: Sample rate: {}, fSC: {}, isSubcarrierLocked: {}", 
-                  ldVideoParams.sampleRate, ldVideoParams.fSC, ldVideoParams.isSubcarrierLocked);
-    
     // Apply padding adjustments to active video region BEFORE configuring decoder
     // This ensures the decoder processes the correct region that will be written to output
     {
@@ -348,10 +335,6 @@ bool ChromaSinkStage::trigger(
         tempWriter.updateConfiguration(ldVideoParams, writerConfig);
         // ldVideoParams now has adjusted activeVideoStart/End values
     }
-    
-    ORC_LOG_DEBUG("ChromaSink: After padding adjustment: activeVideoStart={}, activeVideoEnd={}, width={}", 
-                  ldVideoParams.activeVideoStart, ldVideoParams.activeVideoEnd,
-                  ldVideoParams.activeVideoEnd - ldVideoParams.activeVideoStart);
     
     // 4. Create appropriate decoder
     // Note: We'll use the decoder classes directly (synchronously)
@@ -457,7 +440,7 @@ bool ChromaSinkStage::trigger(
     
     // Debug: Check field range
     auto field_range = vfr->field_range();
-    ORC_LOG_DEBUG("ChromaSink: Field range is {}-{}", field_range.start.value(), field_range.end.value());
+    // Field range determined
     
     // 6. Field ordering and interlacing structure
     // In interlaced video, each frame consists of two fields captured sequentially.
@@ -525,8 +508,7 @@ bool ChromaSinkStage::trigger(
         int32_t metadataFrameNumber = useBlankFrame ? 1 : frameNumberFor1BasedTBC;
         
         if (frame < 5 || frame > static_cast<int32_t>(start_frame_ + length_ - 3)) {
-            ORC_LOG_DEBUG("ChromaSink: Frame loop: frame={}, useBlankFrame={}, metadataFrameNumber={}", 
-                         frame, useBlankFrame, metadataFrameNumber);
+            // Processing frame
         }
         
         // Frame N (1-based numbering) consists of fields (2*N-2) and (2*N-1) in 0-based indexing
@@ -540,7 +522,6 @@ bool ChromaSinkStage::trigger(
             // Verify the calculated field IDs point to valid fields
             // If not, scan forward to find the next valid field pair
             // (handles dropped/repeated fields in the source)
-            bool found_valid_pair = false;
             FieldID scan_id = firstFieldId;
             int max_scan = 10;  // Don't scan too far
             
@@ -555,15 +536,9 @@ bool ChromaSinkStage::trigger(
                 if (desc_opt.has_value() && desc_opt->parity == FieldParity::Top) {
                     firstFieldId = scan_id;
                     secondFieldId = FieldID(scan_id.value() + 1);
-                    found_valid_pair = true;
                     break;
                 }
                 scan_id = FieldID(scan_id.value() + 1);
-            }
-            
-            if (!found_valid_pair) {
-                ORC_LOG_DEBUG("ChromaSink: Could not find valid field pair via scan, using calculated IDs for frame {}", 
-                             frame + 1);
             }
             
             // Check if fields exist
@@ -573,10 +548,6 @@ bool ChromaSinkStage::trigger(
                 continue;
             }
         }
-        
-        ORC_LOG_DEBUG("ChromaSink: Frame {} ({}) -> fields {},{}", 
-                      frame + 1, useBlankFrame ? "black padding" : "real",
-                      firstFieldId.value(), secondFieldId.value());
         
         // Convert fields to SourceField format
         SourceField sf1, sf2;
@@ -603,20 +574,11 @@ bool ChromaSinkStage::trigger(
                 ldVideoParams.isSubcarrierLocked) {
                 // Remove first 2 samples and append 2 black samples at the end
                 uint16_t black = ldVideoParams.black16bIre;
-                int orig_size = sf2.data.size();
                 sf2.data.remove(0, 2);
                 sf2.data.append(black);
                 sf2.data.append(black);
                 if (frame < 3) {
-                    ORC_LOG_DEBUG("ChromaSink: Applied PAL subcarrier shift to second field of frame {}: size {} -> {}, removed samples [{}, {}], appended black={}", 
-                                  frame + 1, orig_size, sf2.data.size(), 
-                                  sf2.data.size() > 0 ? sf2.data[0] : 0,
-                                  sf2.data.size() > 1 ? sf2.data[1] : 0,
-                                  black);
                 }
-            } else if (frame < 3) {
-                ORC_LOG_DEBUG("ChromaSink: No PAL subcarrier shift: system={}, isSubcarrierLocked={}",
-                              static_cast<int>(ldVideoParams.system), ldVideoParams.isSubcarrierLocked);
             }
         }
         
@@ -637,8 +599,6 @@ bool ChromaSinkStage::trigger(
     ORC_LOG_INFO("ChromaSink: Processing {} frames one at a time (to match standalone)", numFrames);
     
     for (qint32 frameIdx = 0; frameIdx < numFrames; frameIdx++) {
-        qint32 currentFrame = start_frame + frameIdx;
-        
         // Build a field array for this ONE frame:
         // [lookbehind fields... target frame fields... lookahead fields...]
         QVector<SourceField> frameFields;
@@ -659,8 +619,7 @@ bool ChromaSinkStage::trigger(
         QVector<ComponentFrame> singleOutput;
         singleOutput.resize(1);
         
-        ORC_LOG_DEBUG("ChromaSink: Frame {}: frameFields.size()={}, startIndex={}, endIndex={}",
-                      currentFrame, frameFields.size(), frameStartIndex, frameEndIndex);
+        // Decoding frame with context fields
         
         // Decode this ONE frame
         if (monoDecoder) {
@@ -730,7 +689,7 @@ ChromaSinkStage::render_preview_field(
 {
     // TODO: Implement in Step 9
     // For now, just return input unchanged (passthrough)
-    ORC_LOG_DEBUG("ChromaSink: Preview requested (returning input unchanged)");
+    // Preview not yet implemented - returning input unchanged
     
     return input;
 }
@@ -739,7 +698,7 @@ ChromaSinkStage::render_preview_field(
 SourceField ChromaSinkStage::convertToSourceField(
     const VideoFieldRepresentation* vfr,
     FieldID field_id,
-    LdDecodeMetaData& metadata) const
+    LdDecodeMetaData& /*metadata*/) const
 {
     SourceField sf;
     
@@ -830,9 +789,7 @@ SourceField ChromaSinkStage::convertToSourceField(
                       sf.data.size() > 3 ? sf.data[3] : 0);
     }
     
-    ORC_LOG_DEBUG("ChromaSink: Converted field {} ({} samples)", 
-                  static_cast<uint64_t>(field_id.value()), sf.data.size());
-    
+
     return sf;
 }
 
@@ -899,26 +856,12 @@ bool ChromaSinkStage::writeOutputFile(
         OutputFrame outputFrame;
         writer.convert(frame, outputFrame);
         
-        ORC_LOG_DEBUG("ChromaSink: Writing frame {} (index {}), output size = {}", frameIdx + 1, frameIdx, outputFrame.size());
-        
-        // Debug: Log first RGB values (pixel 0) and a middle pixel
-        if (outputFrame.size() >= 3) {
-            ORC_LOG_DEBUG("ChromaSink: Frame {} Pixel 0: R={} G={} B={}", 
-                          frameIdx + 1, outputFrame[0], outputFrame[1], outputFrame[2]);
-        }
-        if (outputFrame.size() >= 3000) {
-            ORC_LOG_DEBUG("ChromaSink: Frame {} Pixel 1000: R={} G={} B={}", 
-                          frameIdx + 1, outputFrame[3000], outputFrame[3001], outputFrame[3002]);
-        }
-        
         frameIdx++;
         
         // Write output data
         const char* data = reinterpret_cast<const char*>(outputFrame.constData());
         qint64 size = outputFrame.size() * sizeof(quint16);
         qint64 written = outputFile.write(data, size);
-        
-        ORC_LOG_DEBUG("ChromaSink: Wrote {} of {} bytes", written, size);
         
         if (written != size) {
             ORC_LOG_ERROR("ChromaSink: Failed to write frame data (wrote {} of {} bytes)", written, size);

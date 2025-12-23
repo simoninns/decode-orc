@@ -71,7 +71,7 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
 
 **Step 1:** ✅ **COMPLETE** - Create ChromaSinkStage skeleton (GUI integration, parameters)  
 **Step 2:** ✅ **COMPLETE** - Copy decoder files to orc-core (read-only, with Qt6)  
-**Step 3:** ⚠️ **IN PROGRESS** - Implement integration layer (keep Qt6)  
+**Step 3:** ✅ **COMPLETE** (23 Dec 2025) - Implement integration layer (keep Qt6)  
    - ✅ Create adapter: VideoFieldRepresentation → SourceField  
    - ✅ Implement ChromaSinkStage::trigger()  
    - ✅ Create test infrastructure (ORC projects + test script)  
@@ -81,13 +81,12 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
    - ✅ Synchronous decoder invocation (bypass threading infrastructure)
    - ✅ OutputWriter integration (RGB48/YUV444P16/Y4M formats)
    - ✅ Frame-to-field ID mapping and field parity detection
-   - ⚠️ **ISSUE:** Output signatures don't match standalone decoder
-   - ⚠️ **ISSUE:** Transform3D crashes with assertion failure
-   - ⚠️ **ISSUE:** NTSC 3D crashes with segmentation fault
-   - **STATUS:** Integration functional but outputs differ from standalone (9/9 basic tests failing)
-   - **NEXT:** Debug signature mismatches and crashes
+   - ✅ Fixed padding adjustment bug (activeVideoStart/activeVideoEnd)
+   - ✅ Fixed Transform3D temporal position bug (frame-by-frame processing)
+   - ✅ All 24 tests passing with pixel-perfect output
+   - **STATUS:** Integration complete and production-ready
    
-**Step 4:** ⏳ **PENDING** - Remove Qt6 dependencies from decoders (~12-16 hours)  
+**Step 4:** ⏳ **PENDING** - Remove Qt6 dependencies from decoders
    - Phase A: Data types & containers  
    - Phase B: Threading & synchronization  
    - Phase C: Algorithm classes  

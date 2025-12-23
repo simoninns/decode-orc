@@ -46,7 +46,7 @@ void DecoderThread::run()
     // Input and output data
     std::vector<SourceField> inputFields;
     std::vector<ComponentFrame> componentFrames;
-    QVector<OutputFrame> outputFrames;
+    std::vector<OutputFrame> outputFrames;
 
     while (!abort) {
         // Get the next batch of fields to process

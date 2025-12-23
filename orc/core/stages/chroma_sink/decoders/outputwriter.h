@@ -26,9 +26,9 @@
 #ifndef OUTPUTWRITER_H
 #define OUTPUTWRITER_H
 
-#include <QtGlobal>
-#include <QByteArray>
-#include <QVector>
+#include <cstdint>
+#include <vector>
+#include <string>
 
 #include "lddecodemetadata.h"
 
@@ -37,7 +37,7 @@ class ComponentFrame;
 // A frame (two interlaced fields), converted to one of the supported output formats.
 // Since all the formats currently supported use 16-bit samples, this is just a
 // vector of 16-bit numbers.
-using OutputFrame = QVector<quint16>;
+using OutputFrame = std::vector<uint16_t>;
 
 class OutputWriter {
 public:
@@ -50,7 +50,7 @@ public:
 
     // Output settings
     struct Configuration {
-        qint32 paddingAmount = 8;
+        int32_t paddingAmount = 8;
         PixelFormat pixelFormat = RGB48;
         bool outputY4m = false;
     };
@@ -59,14 +59,14 @@ public:
     // (If usePadding is disabled, this will not change the VideoParameters.)
     void updateConfiguration(LdDecodeMetaData::VideoParameters &videoParameters, const Configuration &config);
 
-    // Print a qInfo message about the output format
+    // Print an info message about the output format
     void printOutputInfo() const;
 
     // Get the header data to be written at the start of the stream
-    QByteArray getStreamHeader() const;
+    std::string getStreamHeader() const;
 
     // Get the header data to be written before each frame
-    QByteArray getFrameHeader() const;
+    std::string getFrameHeader() const;
 
     // For worker threads: convert a component frame to the configured output format
     void convert(const ComponentFrame &componentFrame, OutputFrame &outputFrame) const;

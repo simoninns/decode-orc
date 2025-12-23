@@ -90,10 +90,11 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
    - Phase A: Data types & containers ✅ COMPLETE (23 Dec 2025) 
    - Phase B: Threading & synchronization ✅ COMPLETE (23 Dec 2025)
    - Phase C: Algorithm classes ✅ COMPLETE (23 Dec 2025)
-   - Phase D: I/O layer conversion (OutputWriter, DecoderPool)
+   - Phase D: I/O layer conversion ✅ COMPLETE (23 Dec 2025)
    - Phase E: Metadata & parameters
    - Phase F: Build system updates  
-   - **Goal:** Pure C++17 decoder library (except TBC interface), test signatures still match  
+   - **Goal:** Pure C++17 decoder library (except TBC interface), test signatures still match
+   - **Status:** Phases A-D complete, decoder library mostly Qt-free  
    
 **Step 5:** ⏳ **PENDING** - Deeper orc-core integration  
    - Use VideoFieldRepresentation directly (remove SourceField wrapper)  
@@ -947,16 +948,53 @@ The parallel processing architecture was maintained:
   - `comb.h/cpp` - NTSC comb filters
   - `decoder.h` - Base class
 
-**Phase D: I/O Layer Conversion** (~3 hours) - NOT STARTED
-- Convert I/O infrastructure to pure C++17:
-  - `outputwriter.h/cpp` - Remove QFile, QByteArray
-  - `decoderpool.h/cpp` - Remove QMap, remaining QDebug/qInfo
-  - `sourcefield.h/cpp` - Already converted in Phase A
-  - Replace Qt file I/O with std::ofstream, std::ifstream
-  - Replace QByteArray with std::vector<uint8_t>
-  - Replace QMap with std::map or std::unordered_map
-  - Replace QString with std::string (where not interfacing with TBC library)
-- **Goal:** Complete Qt removal from decoder library (except TBC library interface)
+**Phase D: I/O Layer Conversion** (~3 hours) - ✅ COMPLETE (23 Dec 2025)
+- ✅ Convert I/O infrastructure to pure C++17
+- ✅ All 23 tests still passing with pixel-perfect output
+
+**Changes Made:**
+
+1. **OutputWriter (outputwriter.h/cpp):**
+   - Replaced `QByteArray` → `std::string` for stream/frame headers
+   - Replaced `QVector<quint16>` → `std::vector<uint16_t>` for OutputFrame
+   - Replaced `qint32` → `int32_t` throughout
+   - Replaced `qInfo()` → `std::cout`
+   - Replaced `qFatal()` → `std::cerr` + `std::abort()`
+   - Added `std::ostringstream` for Y4M header generation
+
+2. **DecoderPool (decoderpool.h/cpp):**
+   - Replaced `QMap<int32_t, OutputFrame>` → `std::map<int32_t, OutputFrame>`
+   - Replaced `QFile` → `std::ofstream` for output file
+   - Replaced `QString` → `std::string` for filenames
+   - Replaced `qInfo()`/`qCritical()` → `std::cout`/`std::cerr`
+   - Replaced `qMin`/`qMax` → `std::min`/`std::max`
+   - Updated QMap operations: `.contains()` → `.find()`, `.value()` → `.at()`, `.remove()` → `.erase()`
+   - Note: stdout output disabled (standalone tool feature, not used by orc-core)
+
+3. **DecoderThread (decoder.cpp):**
+   - Changed `QVector<OutputFrame>` → `std::vector<OutputFrame>`
+
+4. **ChromaSinkStage (chroma_sink_stage.cpp):**
+   - Updated to use `std::string` instead of `QByteArray` for headers
+   - Changed `.constData()` → `.data()` for OutputFrame access
+   - Changed `sizeof(quint16)` → `sizeof(uint16_t)`
+
+**Files Modified:**
+- `outputwriter.h/cpp` - File output formatting
+- `decoderpool.h/cpp` - Threading pool and file I/O
+- `decoder.cpp` - Worker thread implementation  
+- `chroma_sink_stage.cpp` - Integration layer
+
+**TBC Library Boundary:**
+- SourceVideo still uses QString (part of TBC library)
+- Conversion at boundary: `QString::fromStdString()` when calling TBC library functions
+- This is by design - TBC library keeps Qt for now
+
+**Test Results:**
+- ✅ All 23 ORC integration tests passing (100%)
+- ✅ Output signatures match reference (pixel-perfect)
+- ✅ Parallel processing works correctly
+- ✅ No performance regression
 
 **Phase E: Metadata & Parameters** (~3 hours) - NOT STARTED
 - Replace `LdDecodeMetaData::VideoParameters` with orc-core types

@@ -27,13 +27,13 @@
 
 #include <vector>
 #include <cstdint>
-#include <QObject>
 #include <atomic>
 #include <chrono>
-#include <QMap>
+#include <map>
 #include <mutex>
 #include <thread>
-#include <QVector>
+#include <string>
+#include <fstream>
 
 #include "lddecodemetadata.h"
 #include "sourcevideo.h"
@@ -45,10 +45,10 @@
 class DecoderPool
 {
 public:
-    explicit DecoderPool(Decoder &decoder, QString inputFileName,
+    explicit DecoderPool(Decoder &decoder, std::string inputFileName,
                          LdDecodeMetaData &ldDecodeMetaData,
-                         OutputWriter::Configuration &outputConfig, QString outputFileName,
-                         qint32 startFrame, qint32 length, qint32 maxThreads);
+                         OutputWriter::Configuration &outputConfig, std::string outputFileName,
+                         int32_t startFrame, int32_t length, int32_t maxThreads);
 
     // Decode fields to frames as specified by the constructor args.
     // Returns true on success; on failure, prints a message and returns false.
@@ -83,22 +83,22 @@ public:
     // with the first frame being startFrameNumber.
     //
     // Returns true on success, false on failure.
-    bool putOutputFrames(qint32 startFrameNumber, const QVector<OutputFrame> &outputFrames);
+    bool putOutputFrames(int32_t startFrameNumber, const std::vector<OutputFrame> &outputFrames);
 
 private:
-    bool putOutputFrame(qint32 frameNumber, const OutputFrame &outputFrame);
+    bool putOutputFrame(int32_t frameNumber, const OutputFrame &outputFrame);
 
     // Default batch size, in frames
-    static constexpr qint32 DEFAULT_BATCH_SIZE = 16;
+    static constexpr int32_t DEFAULT_BATCH_SIZE = 16;
 
     // Parameters
     Decoder &decoder;
-    QString inputFileName;
+    std::string inputFileName;
     OutputWriter::Configuration outputConfig;
-    QString outputFileName;
-    qint32 startFrame;
-    qint32 length;
-    qint32 maxThreads;
+    std::string outputFileName;
+    int32_t startFrame;
+    int32_t length;
+    int32_t maxThreads;
 
     // Atomic abort flag shared by worker threads; workers watch this, and shut
     // down as soon as possible if it becomes true
@@ -106,19 +106,19 @@ private:
 
     // Input stream information (all guarded by inputMutex while threads are running)
     std::mutex inputMutex;
-    qint32 decoderLookBehind;
-    qint32 decoderLookAhead;
-    qint32 inputFrameNumber;
-    qint32 lastFrameNumber;
+    int32_t decoderLookBehind;
+    int32_t decoderLookAhead;
+    int32_t inputFrameNumber;
+    int32_t lastFrameNumber;
     LdDecodeMetaData &ldDecodeMetaData;
     SourceVideo sourceVideo;
 
     // Output stream information (all guarded by outputMutex while threads are running)
     std::mutex outputMutex;
-    qint32 outputFrameNumber;
-    QMap<qint32, OutputFrame> pendingOutputFrames;
+    int32_t outputFrameNumber;
+    std::map<int32_t, OutputFrame> pendingOutputFrames;
     OutputWriter outputWriter;
-    QFile targetVideo;
+    std::ofstream targetVideo;
     std::chrono::steady_clock::time_point totalTimerStart;
 };
 

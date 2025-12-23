@@ -25,11 +25,14 @@
 ************************************************************************/
 
 #include "decoderpool.h"
+#include <iostream>
+#include <fstream>
+#include <algorithm>
 
-DecoderPool::DecoderPool(Decoder &_decoder, QString _inputFileName,
+DecoderPool::DecoderPool(Decoder &_decoder, std::string _inputFileName,
                          LdDecodeMetaData &_ldDecodeMetaData,
-                         OutputWriter::Configuration &_outputConfig, QString _outputFileName,
-                         qint32 _startFrame, qint32 _length, qint32 _maxThreads)
+                         OutputWriter::Configuration &_outputConfig, std::string _outputFileName,
+                         int32_t _startFrame, int32_t _length, int32_t _maxThreads)
     : decoder(_decoder), inputFileName(_inputFileName),
       outputConfig(_outputConfig), outputFileName(_outputFileName),
       startFrame(_startFrame), length(_length), maxThreads(_maxThreads),
@@ -57,9 +60,9 @@ bool DecoderPool::process()
     decoderLookAhead = decoder.getLookAhead();
 
     // Open the source video file
-    if (!sourceVideo.open(inputFileName, videoParameters.fieldWidth * videoParameters.fieldHeight)) {
+    if (!sourceVideo.open(QString::fromStdString(inputFileName), videoParameters.fieldWidth * videoParameters.fieldHeight)) {
         // Could not open source video file
-        qInfo() << "Unable to open ld-decode video file";
+        std::cout << "INFO: Unable to open ld-decode video file" << std::endl;
         return false;
     }
 
@@ -67,7 +70,7 @@ bool DecoderPool::process()
     if (startFrame == -1) startFrame = 1;
 
     if (startFrame > ldDecodeMetaData.getNumberOfFrames()) {
-        qInfo() << "Specified start frame is out of bounds, only" << ldDecodeMetaData.getNumberOfFrames() << "frames available";
+        std::cout << "INFO: Specified start frame is out of bounds, only " << ldDecodeMetaData.getNumberOfFrames() << " frames available" << std::endl;
         return false;
     }
 
@@ -76,41 +79,41 @@ bool DecoderPool::process()
         length = ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1);
     } else {
         if (length + (startFrame - 1) > ldDecodeMetaData.getNumberOfFrames()) {
-            qInfo() << "Specified length of" << length << "exceeds the number of available frames, setting to" << ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1);
+            std::cout << "INFO: Specified length of " << length << " exceeds the number of available frames, setting to " << ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1) << std::endl;
             length = ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1);
         }
     }
 
     // Open the output file
     if (outputFileName == "-") {
-        // No output filename, use stdout instead
-        if (!targetVideo.open(stdout, QIODevice::WriteOnly)) {
-            // Failed to open stdout
-            qCritical() << "Could not open stdout for output";
-            sourceVideo.close();
-            return false;
-        }
-        qInfo() << "Writing output to stdout";
+        // stdout not supported with std::ofstream approach
+        // This is used by standalone tool, not by orc-core integration
+        std::cerr << "ERROR: stdout output not supported in this mode" << std::endl;
+        sourceVideo.close();
+        return false;
     } else {
         // Open output file
-        targetVideo.setFileName(outputFileName);
-        if (!targetVideo.open(QIODevice::WriteOnly)) {
+        targetVideo.open(outputFileName, std::ios::binary | std::ios::out);
+        if (!targetVideo.is_open()) {
             // Failed to open output file
-            qCritical() << "Could not open" << outputFileName << "for output";
+            std::cerr << "ERROR: Could not open " << outputFileName << " for output" << std::endl;
             sourceVideo.close();
             return false;
         }
     }
 
     // Write the stream header (if there is one)
-    const QByteArray streamHeader = outputWriter.getStreamHeader();
-    if (streamHeader.size() != 0 && targetVideo.write(streamHeader) == -1) {
-        qCritical() << "Writing to the output video file failed";
-        return false;
+    const std::string streamHeader = outputWriter.getStreamHeader();
+    if (!streamHeader.empty()) {
+        targetVideo.write(streamHeader.data(), streamHeader.size());
+        if (!targetVideo.good()) {
+            std::cerr << "ERROR: Writing to the output video file failed" << std::endl;
+            return false;
+        }
     }
 
-    qInfo() << "Using" << maxThreads << "threads";
-    qInfo() << "Processing from start frame #" << startFrame << "with a length of" << length << "frames";
+    std::cout << "INFO: Using " << maxThreads << " threads" << std::endl;
+    std::cout << "INFO: Processing from start frame #" << startFrame << " with a length of " << length << " frames" << std::endl;
 
     // Initialise processing state
     inputFrameNumber = startFrame;
@@ -121,7 +124,7 @@ bool DecoderPool::process()
     // Start a vector of filtering threads to process the video
     std::vector<std::thread> threads;
     threads.reserve(maxThreads);
-    for (qint32 i = 0; i < maxThreads; i++) {
+    for (int32_t i = 0; i < maxThreads; i++) {
         threads.push_back(decoder.makeThread(abort, *this));
     }
 
@@ -140,7 +143,7 @@ bool DecoderPool::process()
     // Check we've processed all the frames, now the workers have finished
     if (inputFrameNumber != (lastFrameNumber + 1) || outputFrameNumber != (lastFrameNumber + 1)
         || !pendingOutputFrames.empty()) {
-        qCritical() << "Incorrect state at end of processing";
+        std::cerr << "ERROR: Incorrect state at end of processing" << std::endl;
         sourceVideo.close();
         targetVideo.close();
         return false;
@@ -150,8 +153,8 @@ bool DecoderPool::process()
         std::chrono::steady_clock::now() - totalTimerStart
     ).count();
     double totalSecs = static_cast<double>(total_ms) / 1000.0;
-    qInfo() << "Processing complete -" << length << "frames in" << totalSecs << "seconds (" <<
-               length / totalSecs << "FPS )";
+    std::cout << "INFO: Processing complete - " << length << " frames in " << totalSecs << " seconds ("
+              << length / totalSecs << " FPS)" << std::endl;
 
     // Close the source video
     sourceVideo.close();
@@ -170,10 +173,10 @@ bool DecoderPool::getInputFrames(int32_t &startFrameNumber, std::vector<SourceFi
     // This assumes that the synchronisation to get a new batch is less
     // expensive than computing a single frame, so a batch size of 1 is
     // reasonable.
-    const qint32 maxBatchSize = qMin(DEFAULT_BATCH_SIZE, qMax(1, length / maxThreads));
+    const int32_t maxBatchSize = std::min(DEFAULT_BATCH_SIZE, std::max(1, length / maxThreads));
 
     // Work out how many frames will be in this batch
-    qint32 batchFrames = qMin(maxBatchSize, lastFrameNumber + 1 - inputFrameNumber);
+    int32_t batchFrames = std::min(maxBatchSize, lastFrameNumber + 1 - inputFrameNumber);
     if (batchFrames == 0) {
         // No more input frames
         return false;
@@ -191,11 +194,11 @@ bool DecoderPool::getInputFrames(int32_t &startFrameNumber, std::vector<SourceFi
     return true;
 }
 
-bool DecoderPool::putOutputFrames(qint32 startFrameNumber, const QVector<OutputFrame> &outputFrames)
+bool DecoderPool::putOutputFrames(int32_t startFrameNumber, const std::vector<OutputFrame> &outputFrames)
 {
     std::lock_guard<std::mutex> locker(outputMutex);
 
-    for (qint32 i = 0; i < outputFrames.size(); i++) {
+    for (int32_t i = 0; i < static_cast<int32_t>(outputFrames.size()); i++) {
         if (!putOutputFrame(startFrameNumber + i, outputFrames[i])) {
             return false;
         }
@@ -212,39 +215,43 @@ bool DecoderPool::putOutputFrames(qint32 startFrameNumber, const QVector<OutputF
 // whether we can now write some of them out.
 //
 // Returns true on success, false on failure.
-bool DecoderPool::putOutputFrame(qint32 frameNumber, const OutputFrame &outputFrame)
+bool DecoderPool::putOutputFrame(int32_t frameNumber, const OutputFrame &outputFrame)
 {
     // Put this frame into the map
     pendingOutputFrames[frameNumber] = outputFrame;
 
     // Write out as many frames as possible
-    while (pendingOutputFrames.contains(outputFrameNumber)) {
-        const OutputFrame& outputData = pendingOutputFrames.value(outputFrameNumber);
+    while (pendingOutputFrames.find(outputFrameNumber) != pendingOutputFrames.end()) {
+        const OutputFrame& outputData = pendingOutputFrames.at(outputFrameNumber);
 
         // Write the frame header (if there is one)
-        const QByteArray frameHeader = outputWriter.getFrameHeader();
-        if (frameHeader.size() != 0 && targetVideo.write(frameHeader) == -1) {
-            qCritical() << "Writing to the output video file failed";
-            return false;
+        const std::string frameHeader = outputWriter.getFrameHeader();
+        if (!frameHeader.empty()) {
+            targetVideo.write(frameHeader.data(), frameHeader.size());
+            if (!targetVideo.good()) {
+                std::cerr << "ERROR: Writing to the output video file failed" << std::endl;
+                return false;
+            }
         }
 
         // Write the frame data
-        if (targetVideo.write(reinterpret_cast<const char *>(outputData.data()), outputData.size() * 2) == -1) {
-            qCritical() << "Writing to the output video file failed";
+        targetVideo.write(reinterpret_cast<const char *>(outputData.data()), outputData.size() * 2);
+        if (!targetVideo.good()) {
+            std::cerr << "ERROR: Writing to the output video file failed" << std::endl;
             return false;
         }
 
-        pendingOutputFrames.remove(outputFrameNumber);
+        pendingOutputFrames.erase(outputFrameNumber);
         outputFrameNumber++;
 
-        const qint32 outputCount = outputFrameNumber - startFrame;
+        const int32_t outputCount = outputFrameNumber - startFrame;
         if ((outputCount % 32) == 0) {
             // Show an update to the user
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - totalTimerStart
             ).count();
             double fps = outputCount / (static_cast<double>(elapsed_ms) / 1000.0);
-            qInfo() << outputCount << "frames processed -" << fps << "FPS";
+            std::cout << "INFO: " << outputCount << " frames processed - " << fps << " FPS" << std::endl;
         }
     }
 

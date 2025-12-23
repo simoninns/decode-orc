@@ -989,18 +989,18 @@ bool ChromaSinkStage::writeOutputFile(
     writer.printOutputInfo();  // Show output format info
     
     // Write stream header if needed
-    QByteArray streamHeader = writer.getStreamHeader();
-    if (!streamHeader.isEmpty()) {
-        outputFile.write(streamHeader);
+    std::string streamHeader = writer.getStreamHeader();
+    if (!streamHeader.empty()) {
+        outputFile.write(streamHeader.data(), streamHeader.size());
     }
     
     // Write frames
     int frameIdx = 0;
     for (const auto& frame : frames) {
         // Write frame header if needed
-        QByteArray frameHeader = writer.getFrameHeader();
-        if (!frameHeader.isEmpty()) {
-            outputFile.write(frameHeader);
+        std::string frameHeader = writer.getFrameHeader();
+        if (!frameHeader.empty()) {
+            outputFile.write(frameHeader.data(), frameHeader.size());
         }
         
         // Convert frame to output format
@@ -1010,8 +1010,8 @@ bool ChromaSinkStage::writeOutputFile(
         frameIdx++;
         
         // Write output data
-        const char* data = reinterpret_cast<const char*>(outputFrame.constData());
-        qint64 size = outputFrame.size() * sizeof(quint16);
+        const char* data = reinterpret_cast<const char*>(outputFrame.data());
+        qint64 size = outputFrame.size() * sizeof(uint16_t);
         qint64 written = outputFile.write(data, size);
         
         if (written != size) {

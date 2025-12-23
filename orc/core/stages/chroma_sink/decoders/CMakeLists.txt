@@ -21,13 +21,6 @@ set(DECODER_SOURCES
     outputwriter.cpp
 )
 
-# Define encoder library sources
-set(ENCODER_SOURCES
-    encoder/encoder.cpp
-    encoder/ntscencoder.cpp
-    encoder/palencoder.cpp
-)
-
 # Define TBC library sources (from legacy-tools)
 set(TBC_LIB_SOURCES
     lib/tbc/lddecodemetadata.cpp
@@ -46,7 +39,6 @@ set(TBC_LIB_SOURCES
 # Create static library
 add_library(orc_chroma_decoders STATIC
     ${DECODER_SOURCES}
-    ${ENCODER_SOURCES}
     ${TBC_LIB_SOURCES}
 )
 
@@ -72,7 +64,6 @@ target_compile_definitions(orc_chroma_decoders PRIVATE
 target_include_directories(orc_chroma_decoders
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/encoder
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/tbc
         ${CMAKE_CURRENT_SOURCE_DIR}/lib/filter
         ${CMAKE_SOURCE_DIR}/orc/core/include  # For ORC logging

@@ -512,11 +512,22 @@ bool ChromaSinkStage::trigger(
     
     for (qint32 frame = extended_start_frame; frame < extended_end_frame; frame++) {
         // Determine if this frame is outside the valid range (need black padding)
-        int32_t frameNumber = frame + 1;  // Convert to 1-based for field numbering
-        bool useBlankFrame = (frameNumber < 1) || (frameNumber > static_cast<int32_t>(total_frames));
+        // Note: 'frame' is in 0-based indexing after conversion from user's 1-based start_frame_
+        // Valid frames are 0 to (total_frames - 1) in 0-based indexing
+        // Frames < 0 or >= total_frames need black padding
+        bool useBlankFrame = (frame < 0) || (frame >= static_cast<int32_t>(total_frames));
         
-        // If outside bounds, use frame 1 for metadata but black for data
-        int32_t metadataFrameNumber = useBlankFrame ? 1 : frameNumber;
+        // Convert frame to 1-based for field ID calculation (TBC uses 1-based frame numbering)
+        // For metadata lookup, use frame+1 to match TBC's 1-based system
+        int32_t frameNumberFor1BasedTBC = frame + 1;
+        
+        // If outside bounds, use frame 1 (first frame) for metadata but black for data
+        int32_t metadataFrameNumber = useBlankFrame ? 1 : frameNumberFor1BasedTBC;
+        
+        if (frame < 5 || frame > static_cast<int32_t>(start_frame_ + length_ - 3)) {
+            ORC_LOG_DEBUG("ChromaSink: Frame loop: frame={}, useBlankFrame={}, metadataFrameNumber={}", 
+                         frame, useBlankFrame, metadataFrameNumber);
+        }
         
         // Frame N (1-based numbering) consists of fields (2*N-2) and (2*N-1) in 0-based indexing
         // Fields are ALWAYS in chronological order: 0, 1, 2, 3, 4, 5...
@@ -583,58 +594,109 @@ bool ChromaSinkStage::trigger(
         } else {
             sf1 = convertToSourceField(vfr.get(), firstFieldId, metadata);
             sf2 = convertToSourceField(vfr.get(), secondFieldId, metadata);
+            
+            // Apply PAL subcarrier shift: With subcarrier-locked 4fSC PAL sampling,
+            // we have four "extra" samples over the course of the frame, so the two
+            // fields will be horizontally misaligned by two samples. Shift the
+            // second field to the left to compensate.
+            if ((ldVideoParams.system == PAL || ldVideoParams.system == PAL_M) && 
+                ldVideoParams.isSubcarrierLocked) {
+                // Remove first 2 samples and append 2 black samples at the end
+                uint16_t black = ldVideoParams.black16bIre;
+                int orig_size = sf2.data.size();
+                sf2.data.remove(0, 2);
+                sf2.data.append(black);
+                sf2.data.append(black);
+                if (frame < 3) {
+                    ORC_LOG_DEBUG("ChromaSink: Applied PAL subcarrier shift to second field of frame {}: size {} -> {}, removed samples [{}, {}], appended black={}", 
+                                  frame + 1, orig_size, sf2.data.size(), 
+                                  sf2.data.size() > 0 ? sf2.data[0] : 0,
+                                  sf2.data.size() > 1 ? sf2.data[1] : 0,
+                                  black);
+                }
+            } else if (frame < 3) {
+                ORC_LOG_DEBUG("ChromaSink: No PAL subcarrier shift: system={}, isSubcarrierLocked={}",
+                              static_cast<int>(ldVideoParams.system), ldVideoParams.isSubcarrierLocked);
+            }
         }
         
         inputFields.append(sf1);
         inputFields.append(sf2);
     }
     
-    // 10. Calculate startIndex and endIndex for decoder
-    // These point to where the "real" fields start/end within inputFields
-    qint32 startIndex = lookBehindFrames * 2;  // Skip lookbehind fields
-    qint32 endIndex = startIndex + ((end_frame - start_frame) * 2);  // Process requested frames
+    // 10. Process frames ONE AT A TIME to match standalone behavior
+    // CRITICAL: Transform3D is a 3D temporal FFT filter that processes frames at specific
+    // Z-positions (temporal indices). Each frame MUST be at the SAME Z-position (field indices
+    // lookBehind*2 to lookBehind*2+2) regardless of its frame number, otherwise the FFT results
+    // will differ. This matches how the standalone decoder processes frames.
     
-    ORC_LOG_INFO("ChromaSink: inputFields has {} fields, startIndex={}, endIndex={}",
-                 inputFields.size(), startIndex, endIndex);
-    
-    // 11. Prepare output buffer (only for the frames we actually want, not padding)
     qint32 numFrames = (end_frame - start_frame);
     QVector<ComponentFrame> outputFrames;
-    outputFrames.resize(numFrames);  // Just resize, don't init - decodeFrames will do that
+    outputFrames.resize(numFrames);
     
-    ORC_LOG_INFO("ChromaSink: Decoding {} frames from {} fields (startIndex={}, endIndex={})",
-                 numFrames, inputFields.size(), startIndex, endIndex);
+    ORC_LOG_INFO("ChromaSink: Processing {} frames one at a time (to match standalone)", numFrames);
     
-    // Debug: Log all fields being decoded
-    for (int i = 0; i < inputFields.size(); i += 2) {
-        if (i + 1 < inputFields.size()) {
-            // Calculate checksum of first field in pair
-            uint32_t checksum = 0;
-            for (int j = 0; j < inputFields[i].data.size(); j++) {
-                checksum += inputFields[i].data[j];
-            }
-            const char* zone = (i < startIndex) ? "lookbehind" : (i >= endIndex) ? "lookahead" : "active";
-            ORC_LOG_DEBUG("ChromaSink: Field {} ({}) seqNo={},{} (checksum={}, first 4: {} {} {} {})", 
-                          i/2, zone, inputFields[i].field.seqNo, inputFields[i+1].field.seqNo,
-                          checksum,
-                          inputFields[i].data.size() > 0 ? inputFields[i].data[0] : 0,
-                          inputFields[i].data.size() > 1 ? inputFields[i].data[1] : 0,
-                          inputFields[i].data.size() > 2 ? inputFields[i].data[2] : 0,
-                          inputFields[i].data.size() > 3 ? inputFields[i].data[3] : 0);
+    for (qint32 frameIdx = 0; frameIdx < numFrames; frameIdx++) {
+        qint32 currentFrame = start_frame + frameIdx;
+        
+        // Build a field array for this ONE frame:
+        // [lookbehind fields... target frame fields... lookahead fields...]
+        QVector<SourceField> frameFields;
+        qint32 frameStartIdx = frameIdx * 2;  // Position in inputFields where this frame's data starts
+        qint32 lookbehindIdx = frameStartIdx;  // Where lookbehind starts in inputFields
+        qint32 lookaheadEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);  // Where we need to read up to
+        
+        // Copy lookbehind + target + lookahead fields for this frame
+        for (qint32 i = lookbehindIdx; i < lookaheadEndIdx && i < inputFields.size(); i++) {
+            frameFields.append(inputFields[i]);
         }
-    }
-    
-    // 12. Decode frames using the appropriate decoder
-    // Pass startIndex and endIndex so decoder knows which fields are "real" vs padding
-    if (monoDecoder) {
-        monoDecoder->decodeFrames(inputFields, startIndex, endIndex, outputFrames);
-    } else if (palDecoder) {
-        palDecoder->decodeFrames(inputFields, startIndex, endIndex, outputFrames);
-    } else if (ntscDecoder) {
-        ntscDecoder->decodeFrames(inputFields, startIndex, endIndex, outputFrames);
+        
+        // The target frame is always at the same Z-position: after lookbehind fields
+        qint32 frameStartIndex = lookBehindFrames * 2;
+        qint32 frameEndIndex = frameStartIndex + 2;
+        
+        // Prepare single-frame output buffer
+        QVector<ComponentFrame> singleOutput;
+        singleOutput.resize(1);
+        
+        ORC_LOG_DEBUG("ChromaSink: Frame {}: frameFields.size()={}, startIndex={}, endIndex={}",
+                      currentFrame, frameFields.size(), frameStartIndex, frameEndIndex);
+        
+        // Decode this ONE frame
+        if (monoDecoder) {
+            monoDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+        } else if (palDecoder) {
+            palDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+        } else if (ntscDecoder) {
+            ntscDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
+        }
+        
+        // Store the result
+        outputFrames[frameIdx] = singleOutput[0];
     }
     
     ORC_LOG_INFO("ChromaSink: Decoded {} frames", outputFrames.size());
+    
+    // DEBUG: Log ComponentFrame Y checksums using accessor method
+    for (int k = 0; k < outputFrames.size() && k < 3; k++) {
+        // Access Y data using line accessor
+        qint32 firstLine = ldVideoParams.firstActiveFrameLine;
+        const double* yLinePtr = outputFrames[k].y(firstLine);
+        qint32 width = outputFrames[k].getWidth();
+        
+        if (yLinePtr && width > 0) {
+            uint64_t yChecksum = 0;
+            for (int i = 0; i < std::min(100, width); i++) {
+                yChecksum += static_cast<uint64_t>(yLinePtr[i] * 1000);
+            }
+            ORC_LOG_INFO("ChromaSink: ComponentFrame[{}] Y line {} checksum (first 100 pixels)={}, width={}, first 4: {:.2f} {:.2f} {:.2f} {:.2f}", 
+                         k, firstLine, yChecksum, width,
+                         width > 0 ? yLinePtr[0] : 0.0,
+                         width > 1 ? yLinePtr[1] : 0.0,
+                         width > 2 ? yLinePtr[2] : 0.0,
+                         width > 3 ? yLinePtr[3] : 0.0);
+        }
+    }
     
     // 13. Convert to std::vector for output writer
     std::vector<ComponentFrame> stdOutputFrames;
@@ -747,6 +809,25 @@ SourceField ChromaSinkStage::convertToSourceField(
         sf.data.append(black);
         sf.data.append(black);
         ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to field {}", field_id.value());
+    }
+    
+    // Log complete Field structure for debugging (first 6 fields only)
+    if (field_id.value() < 6) {
+        ORC_LOG_DEBUG("ChromaSink: Field {} FULL metadata:", field_id.value());
+        ORC_LOG_DEBUG("  seqNo={} isFirstField={} fieldPhaseID={}", 
+                      sf.field.seqNo, sf.field.isFirstField, sf.field.fieldPhaseID);
+        ORC_LOG_DEBUG("  syncConf={} medianBurstIRE={:.2f} pad={}", 
+                      sf.field.syncConf, sf.field.medianBurstIRE, sf.field.pad);
+        ORC_LOG_DEBUG("  audioSamples={} diskLoc={:.1f} fileLoc={}", 
+                      sf.field.audioSamples, sf.field.diskLoc, sf.field.fileLoc);
+        ORC_LOG_DEBUG("  decodeFaults={} efmTValues={}", 
+                      sf.field.decodeFaults, sf.field.efmTValues);
+        ORC_LOG_DEBUG("  data.size()={} first4=[{},{},{},{}]",
+                      sf.data.size(),
+                      sf.data.size() > 0 ? sf.data[0] : 0,
+                      sf.data.size() > 1 ? sf.data[1] : 0,
+                      sf.data.size() > 2 ? sf.data[2] : 0,
+                      sf.data.size() > 3 ? sf.data[3] : 0);
     }
     
     ORC_LOG_DEBUG("ChromaSink: Converted field {} ({} samples)", 

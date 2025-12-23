@@ -132,6 +132,12 @@ void TransformPal3D::filterFields(const QVector<SourceField> &inputFields, qint3
         chromaBuf[i].fill(0.0);
 
         outputFields[i] = chromaBuf[i].data();
+        
+        // DEBUG: Log chromaBuf allocation
+        if (i < 4) {
+            qInfo() << "DEBUG Transform3D: chromaBuf[" << i << "] allocated, size=" << chromaBuf[i].size()
+                    << "outputFields[" << i << "] = " << (void*)outputFields[i];
+        }
     }
 
     // Iterate through the overlapping tile positions, covering the active area.
@@ -150,6 +156,20 @@ void TransformPal3D::filterFields(const QVector<SourceField> &inputFields, qint3
                 inverseFFTTile(tileX, tileY, tileZ, startIndex, endIndex);
             }
         }
+    }
+    
+    // DEBUG: Log chromaBuf checksums after processing
+    for (qint32 i = 0; i < std::min(4, static_cast<int>(chromaBuf.size())); i++) {
+        double checksum = 0.0;
+        qint32 activeStart = videoParameters.activeVideoStart;
+        qint32 firstActiveLine = videoParameters.firstActiveFrameLine / 2;  // Convert to field line
+        qint32 startIdx = (firstActiveLine * videoParameters.fieldWidth) + activeStart;
+        
+        for (qint32 j = startIdx; j < std::min(startIdx + 1000, static_cast<int>(chromaBuf[i].size())); j++) {
+            checksum += chromaBuf[i][j];
+        }
+        qInfo() << "DEBUG Transform3D: After FFT, chromaBuf[" << i << "] checksum (1k samples from active region)=" << checksum
+                << "first 4 in active:" << chromaBuf[i][startIdx] << chromaBuf[i][startIdx+1] << chromaBuf[i][startIdx+2] << chromaBuf[i][startIdx+3];
     }
 }
 

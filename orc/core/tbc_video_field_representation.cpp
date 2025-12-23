@@ -35,6 +35,20 @@ void TBCVideoFieldRepresentation::ensure_video_parameters() {
         auto params_opt = metadata_reader_->read_video_parameters();
         if (params_opt) {
             video_params_ = *params_opt;
+            
+            // Apply FSC defaults if not set in metadata
+            // FSC is not stored in TBC database - use standard format values
+            if (video_params_.fsc <= 0.0) {
+                if (video_params_.system == VideoSystem::PAL) {
+                    video_params_.fsc = (283.75 * 15625.0) + 25.0;  // 4433618.75 Hz
+                } else if (video_params_.system == VideoSystem::NTSC) {
+                    video_params_.fsc = 315.0e6 / 88.0;  // 3579545.454... Hz
+                } else if (video_params_.system == VideoSystem::PAL_M) {
+                    video_params_.fsc = 5.0e6 * (63.0 / 88.0) * (909.0 / 910.0);  // ~3575611.89 Hz
+                }
+                ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Applied format-default FSC = {} Hz", 
+                             video_params_.fsc);
+            }
         }
     }
 }

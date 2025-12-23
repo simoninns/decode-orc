@@ -25,10 +25,9 @@
 #ifndef MONODECODER_H
 #define MONODECODER_H
 
-#include <QObject>
 #include <atomic>
 #include <thread>
-#include <QDebug>
+#include <iostream>
 
 #include "componentframe.h"
 #include "lddecodemetadata.h"

@@ -89,10 +89,11 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
 **Step 4:** ⏳ **IN PROGRESS** - Remove Qt6 dependencies from decoders
    - Phase A: Data types & containers ✅ COMPLETE (23 Dec 2025) 
    - Phase B: Threading & synchronization ✅ COMPLETE (23 Dec 2025)
-   - Phase C: Algorithm classes  
-   - Phase D: Metadata & parameters  
-   - Phase E: Build system updates  
-   - **Goal:** Pure C++17 decoder algorithms, test signatures still match  
+   - Phase C: Algorithm classes ✅ COMPLETE (23 Dec 2025)
+   - Phase D: I/O layer conversion (OutputWriter, DecoderPool)
+   - Phase E: Metadata & parameters
+   - Phase F: Build system updates  
+   - **Goal:** Pure C++17 decoder library (except TBC interface), test signatures still match  
    
 **Step 5:** ⏳ **PENDING** - Deeper orc-core integration  
    - Use VideoFieldRepresentation directly (remove SourceField wrapper)  
@@ -933,24 +934,37 @@ The parallel processing architecture was maintained:
   QMutexLocker → std::lock_guard<std::mutex>
   ```
 
-**Phase C: Algorithm Classes** (~4 hours)
-- Convert decoder algorithm classes (no I/O dependencies):
-  - `componentframe.h/cpp` - Frame buffer
+**Phase C: Algorithm Classes** (~4 hours) - ✅ COMPLETE (23 Dec 2025)
+- ✅ Remove QDebug and QObject from decoder headers
+- ✅ Remove QtMath, replace with <cmath>
+- ✅ Replace qCritical/qInfo with std::cerr in algorithm files
+- ✅ All 23 tests still passing with pixel-perfect output
+- Files converted:
   - `paldecoder.h/cpp` - PAL decoding
   - `ntscdecoder.h/cpp` - NTSC decoding
   - `monodecoder.h/cpp` - Mono decoder
-  - `palcolour.h/cpp` - PAL color processing
+  - `palcolour.h` - PAL color processing
   - `comb.h/cpp` - NTSC comb filters
-  - `transformpal.h/cpp` - Transform PAL base
-  - `transformpal2d.h/cpp` - 2D transform
-  - `transformpal3d.h/cpp` - 3D transform
+  - `decoder.h` - Base class
 
-**Phase D: Metadata & Parameters** (~3 hours)
+**Phase D: I/O Layer Conversion** (~3 hours) - NOT STARTED
+- Convert I/O infrastructure to pure C++17:
+  - `outputwriter.h/cpp` - Remove QFile, QByteArray
+  - `decoderpool.h/cpp` - Remove QMap, remaining QDebug/qInfo
+  - `sourcefield.h/cpp` - Already converted in Phase A
+  - Replace Qt file I/O with std::ofstream, std::ifstream
+  - Replace QByteArray with std::vector<uint8_t>
+  - Replace QMap with std::map or std::unordered_map
+  - Replace QString with std::string (where not interfacing with TBC library)
+- **Goal:** Complete Qt removal from decoder library (except TBC library interface)
+
+**Phase E: Metadata & Parameters** (~3 hours) - NOT STARTED
 - Replace `LdDecodeMetaData::VideoParameters` with orc-core types
 - Replace `LdDecodeMetaData::Field` with orc-core FieldMetadata
 - Remove TBC library dependencies from algorithm code
+- **Note:** May be deferred to Step 5 (deeper integration)
 
-**Phase E: Build System** (~2 hours)
+**Phase F: Build System** (~2 hours) - NOT STARTED
 - Update CMakeLists.txt to remove Qt6 dependencies:
   ```cmake
   # Remove:
@@ -977,11 +991,11 @@ The parallel processing architecture was maintained:
 - transformpal2d.h/cpp
 - transformpal3d.h/cpp
 
-**I/O Layer (will be replaced, low priority):**
-- decoder.h/cpp - Base class with QThread
-- decoderpool.h/cpp - Threading pool
-- sourcefield.h/cpp - Field loading
-- outputwriter.h/cpp - File output
+**I/O Layer (convert to C++17 in Phase D):**
+- decoder.h/cpp - Base class (threading already converted)
+- decoderpool.h/cpp - Threading pool (convert QMap, QFile I/O, qInfo)
+- outputwriter.h/cpp - File output (convert QFile, QByteArray)
+- sourcefield.h/cpp - Field loading (already converted in Phase A)
 - framecanvas.h/cpp - Canvas utilities
 
 **TBC Library (keep Qt for now, used by metadata):**

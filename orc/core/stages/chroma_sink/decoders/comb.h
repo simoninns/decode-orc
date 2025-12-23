@@ -28,10 +28,9 @@
 #ifndef COMB_H
 #define COMB_H
 
-#include <QCoreApplication>
-#include <QDebug>
-#include <QFile>
-#include <QtMath>
+#include <iostream>
+#include <fstream>
+#include <cmath>
 
 #include "lddecodemetadata.h"
 

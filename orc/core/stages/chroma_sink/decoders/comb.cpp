@@ -117,18 +117,24 @@ void Comb::updateConfiguration(const LdDecodeMetaData::VideoParameters &_videoPa
     configuration = _configuration;
 
     // Range check the frame dimensions
-    if (videoParameters.fieldWidth > MAX_WIDTH) qCritical() << "Comb::Comb(): Frame width exceeds allowed maximum!";
-    if (((videoParameters.fieldHeight * 2) - 1) > MAX_HEIGHT) qCritical() << "Comb::Comb(): Frame height exceeds allowed maximum!";
+    if (videoParameters.fieldWidth > MAX_WIDTH) {
+        std::cerr << "ERROR: Comb::Comb(): Frame width exceeds allowed maximum!" << std::endl;
+    }
+    if (((videoParameters.fieldHeight * 2) - 1) > MAX_HEIGHT) {
+        std::cerr << "ERROR: Comb::Comb(): Frame height exceeds allowed maximum!" << std::endl;
+    }
 
     // Range check the video start
-    if (videoParameters.activeVideoStart < 16) qCritical() << "Comb::Comb(): activeVideoStart must be > 16!";
+    if (videoParameters.activeVideoStart < 16) {
+        std::cerr << "ERROR: Comb::Comb(): activeVideoStart must be > 16!" << std::endl;
+    }
 
     // Check the sample rate is close to 4 * fSC.
     // Older versions of ld-decode used integer approximations, so this needs
     // to be an approximate comparison.
     if (fabs((videoParameters.sampleRate / videoParameters.fSC) - 4.0) > 1.0e-6)
     {
-        qCritical() << "Data is not in 4fsc sample rate, color decoding will not work properly!";
+        std::cerr << "ERROR: Data is not in 4fsc sample rate, color decoding will not work properly!" << std::endl;
     }
 
     configurationSet = true;

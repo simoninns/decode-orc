@@ -28,8 +28,8 @@
 
 #include <cstdint>
 #include <vector>
-#include <QDebug>
-#include <QtMath>
+#include <iostream>
+#include <cmath>
 #include <memory>
 
 #include "lddecodemetadata.h"

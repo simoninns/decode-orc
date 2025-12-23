@@ -27,10 +27,9 @@
 #ifndef NTSCDECODER_H
 #define NTSCDECODER_H
 
-#include <QObject>
 #include <atomic>
 #include <thread>
-#include <QDebug>
+#include <iostream>
 
 #include "componentframe.h"
 #include "lddecodemetadata.h"

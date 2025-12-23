@@ -26,10 +26,9 @@
 #ifndef PALDECODER_H
 #define PALDECODER_H
 
-#include <QObject>
 #include <atomic>
 #include <thread>
-#include <QDebug>
+#include <iostream>
 
 #include "componentframe.h"
 #include "lddecodemetadata.h"

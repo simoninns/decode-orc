@@ -29,7 +29,7 @@
 #include <cstdint>
 #include <atomic>
 #include <thread>
-#include <QDebug>
+#include <iostream>
 #include <cassert>
 
 #include "lddecodemetadata.h"

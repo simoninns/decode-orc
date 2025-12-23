@@ -46,8 +46,8 @@ class PalDecoder : public Decoder {
 public:
     PalDecoder(const PalColour::Configuration &palConfig);
     bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
-    qint32 getLookBehind() const override;
-    qint32 getLookAhead() const override;
+    int32_t getLookBehind() const override;
+    int32_t getLookAhead() const override;
     QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) override;
 
     // Parameters used by PalDecoder and PalThread
@@ -68,8 +68,8 @@ public:
                        QObject *parent = nullptr);
 
 protected:
-    void decodeFrames(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                      QVector<ComponentFrame> &componentFrames) override;
+    void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                      std::vector<ComponentFrame> &componentFrames) override;
 
 private:
     // Settings

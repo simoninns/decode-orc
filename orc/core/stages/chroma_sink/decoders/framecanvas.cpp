@@ -32,27 +32,27 @@ FrameCanvas::FrameCanvas(ComponentFrame &_componentFrame, const LdDecodeMetaData
 {
 }
 
-qint32 FrameCanvas::top()
+int32_t FrameCanvas::top()
 {
     return videoParameters.firstActiveFrameLine;
 }
 
-qint32 FrameCanvas::bottom()
+int32_t FrameCanvas::bottom()
 {
     return videoParameters.lastActiveFrameLine;
 }
 
-qint32 FrameCanvas::left()
+int32_t FrameCanvas::left()
 {
     return videoParameters.activeVideoStart;
 }
 
-qint32 FrameCanvas::right()
+int32_t FrameCanvas::right()
 {
     return videoParameters.activeVideoEnd;
 }
 
-FrameCanvas::Colour FrameCanvas::rgb(quint16 r, quint16 g, quint16 b)
+FrameCanvas::Colour FrameCanvas::rgb(uint16_t r, uint16_t g, uint16_t b)
 {
     // Scale R'G'B' to match the IRE range
     const double sr = (r / 65535.0) * ireRange;
@@ -67,41 +67,41 @@ FrameCanvas::Colour FrameCanvas::rgb(quint16 r, quint16 g, quint16 b)
     };
 }
 
-FrameCanvas::Colour FrameCanvas::grey(quint16 value)
+FrameCanvas::Colour FrameCanvas::grey(uint16_t value)
 {
     // Scale Y to match the IRE range
     return Colour {((value / 65535.0) * ireRange) + blackIre, 0.0, 0.0};
 }
 
-void FrameCanvas::drawPoint(qint32 x, qint32 y, const Colour& colour)
+void FrameCanvas::drawPoint(int32_t x, int32_t y, const Colour& colour)
 {
     if (x < 0 || x >= width || y < 0 || y >= height) {
         // Outside the frame
         return;
     }
 
-    const qint32 offset = (y * width) + x;
+    const int32_t offset = (y * width) + x;
     yData[offset] = colour.y;
     uData[offset] = colour.u;
     vData[offset] = colour.v;
 }
 
-void FrameCanvas::drawRectangle(qint32 xStart, qint32 yStart, qint32 w, qint32 h, const Colour& colour)
+void FrameCanvas::drawRectangle(int32_t xStart, int32_t yStart, int32_t w, int32_t h, const Colour& colour)
 {
-    for (qint32 y = yStart; y < yStart + h; y++) {
+    for (int32_t y = yStart; y < yStart + h; y++) {
         drawPoint(xStart, y, colour);
         drawPoint(xStart + w - 1, y, colour);
     }
-    for (qint32 x = xStart + 1; x < xStart + w - 1; x++) {
+    for (int32_t x = xStart + 1; x < xStart + w - 1; x++) {
         drawPoint(x, yStart, colour);
         drawPoint(x, yStart + h - 1, colour);
     }
 }
 
-void FrameCanvas::fillRectangle(qint32 xStart, qint32 yStart, qint32 w, qint32 h, const Colour& colour)
+void FrameCanvas::fillRectangle(int32_t xStart, int32_t yStart, int32_t w, int32_t h, const Colour& colour)
 {
-    for (qint32 y = yStart; y < yStart + h; y++) {
-        for (qint32 x = xStart; x < xStart + w; x++) {
+    for (int32_t y = yStart; y < yStart + h; y++) {
+        for (int32_t x = xStart; x < xStart + w; x++) {
             drawPoint(x, y, colour);
         }
     }

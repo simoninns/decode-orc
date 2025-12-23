@@ -27,16 +27,35 @@
 #   SINGLE_TEST=1 ./test-orc-chroma.sh     # Run only test #1 (PAL_2D_RGB)
 #   SINGLE_TEST=5 VERBOSE=1 ./test-orc-chroma.sh  # Run test #5 with verbose output
 #
-# Test List:
-#   1. PAL_2D_RGB
-#   2. PAL_Transform2D_RGB
-#   3. PAL_Transform3D_RGB
-#   4. PAL_2D_YUV
-#   5. PAL_2D_Y4M
-#   6. NTSC_1D_RGB
-#   7. NTSC_2D_RGB
-#   8. NTSC_3D_RGB
-#   9. NTSC_2D_YUV
+# Test List (24 tests total):
+#   PAL Decoders:
+#     1. PAL_2D_RGB
+#     2. PAL_Transform2D_RGB
+#     3. PAL_Transform3D_RGB
+#     4. PAL_2D_YUV
+#     5. PAL_2D_Y4M
+#     6. PAL_2D_Mono
+#     7. PAL_2D_ChromaGain
+#     8. PAL_2D_ChromaPhase
+#     9. PAL_Transform2D_Simple
+#   NTSC Decoders:
+#    10. NTSC_1D_RGB
+#    11. NTSC_2D_RGB
+#    12. NTSC_3D_RGB
+#    13. NTSC_3D_NoAdapt_RGB
+#    14. NTSC_2D_YUV
+#    15. NTSC_2D_Y4M
+#    16. NTSC_2D_Mono
+#    17. NTSC_2D_ChromaNR
+#    18. NTSC_2D_LumaNR
+#    19. NTSC_2D_PhaseComp
+#   Multiple Input Formats:
+#    20. PAL_CAV_2D
+#    21. NTSC_CAV_2D
+#   Edge Cases:
+#    22. PAL_ReverseFields
+#    23. PAL_Padding
+#    24. PAL_CustomLines
 #
 # Test Strategy:
 #   This script runs the same 24 tests as the standalone orc-chroma-decoder test suite.
@@ -108,6 +127,7 @@ create_project_file() {
     local system_lower=$(echo "$system" | tr '[:upper:]' '[:lower:]')
     local project_file="$TEMP_DIR/test-${system_lower}-${decoder}.orcprj"
     
+    # Start project file
     cat > "$project_file" << EOF
 # ORC Project File - Auto-generated test
 # Version: 1.0
@@ -148,7 +168,35 @@ dag:
           value: 1
         length:
           type: integer
-          value: 10${extra_params}
+          value: 10
+EOF
+
+    # Add extra parameters if provided
+    if [[ -n "$extra_params" ]]; then
+        echo "$extra_params" | while IFS=: read -r key value; do
+            key=$(echo "$key" | xargs)  # trim whitespace
+            value=$(echo "$value" | xargs)
+            
+            # Determine type based on value
+            local param_type="string"
+            if [[ "$value" =~ ^[0-9]+$ ]]; then
+                param_type="integer"
+            elif [[ "$value" =~ ^[0-9]+\.[0-9]+$ ]]; then
+                param_type="double"
+            elif [[ "$value" == "true" || "$value" == "false" ]]; then
+                param_type="bool"
+            fi
+            
+            cat >> "$project_file" << PARAM
+        ${key}:
+          type: ${param_type}
+          value: ${value}
+PARAM
+        done
+    fi
+    
+    # Complete the project file
+    cat >> "$project_file" << 'EOF'
   edges:
     - from: source
       to: chroma
@@ -401,6 +449,10 @@ main() {
     run_orc_test "PAL_Transform3D_RGB" "PAL" "transform3d" "rgb" ""
     run_orc_test "PAL_2D_YUV" "PAL" "pal2d" "yuv" ""
     run_orc_test "PAL_2D_Y4M" "PAL" "pal2d" "y4m" ""
+    run_orc_test "PAL_2D_Mono" "PAL" "mono" "rgb" ""
+    run_orc_test "PAL_2D_ChromaGain" "PAL" "pal2d" "rgb" "chroma_gain: 1.5"
+    run_orc_test "PAL_2D_ChromaPhase" "PAL" "pal2d" "rgb" "chroma_phase: 90.0"
+    run_orc_test "PAL_Transform2D_Simple" "PAL" "transform2d" "rgb" "simple_pal: true"
     
     # NTSC Basic Tests (should match standalone)
     log_info ""
@@ -410,14 +462,31 @@ main() {
     run_orc_test "NTSC_1D_RGB" "NTSC" "ntsc1d" "rgb" ""
     run_orc_test "NTSC_2D_RGB" "NTSC" "ntsc2d" "rgb" ""
     run_orc_test "NTSC_3D_RGB" "NTSC" "ntsc3d" "rgb" ""
+    run_orc_test "NTSC_3D_NoAdapt_RGB" "NTSC" "ntsc3dnoadapt" "rgb" ""
     run_orc_test "NTSC_2D_YUV" "NTSC" "ntsc2d" "yuv" ""
+    run_orc_test "NTSC_2D_Y4M" "NTSC" "ntsc2d" "y4m" ""
+    run_orc_test "NTSC_2D_Mono" "NTSC" "mono" "rgb" ""
+    run_orc_test "NTSC_2D_ChromaNR" "NTSC" "ntsc2d" "rgb" "chroma_nr: 1.0"
+    run_orc_test "NTSC_2D_LumaNR" "NTSC" "ntsc2d" "rgb" "luma_nr: 1.0"
+    run_orc_test "NTSC_2D_PhaseComp" "NTSC" "ntsc2d" "rgb" "ntsc_phase_comp: true"
     
-    # TODO: Add remaining tests once basic integration is working
-    # - Mono decoder tests
-    # - Chroma gain/phase tests
-    # - Noise reduction tests
-    # - CAV disc tests
-    # - Reverse fields, padding, custom lines tests
+    # Multiple Input Formats
+    log_info ""
+    log_info "Testing Multiple Input Formats..."
+    log_info "-------------------------------------------"
+    
+    # TODO: These require CAV test data - skip for now or implement when available
+    # run_orc_test "PAL_CAV_2D" "PAL" "pal2d" "rgb" ""
+    # run_orc_test "NTSC_CAV_2D" "NTSC" "ntsc2d" "rgb" ""
+    
+    # Edge Cases
+    log_info ""
+    log_info "Testing Edge Cases..."
+    log_info "-------------------------------------------"
+    
+    run_orc_test "PAL_ReverseFields" "PAL" "pal2d" "rgb" "reverse_fields: true"
+    run_orc_test "PAL_Padding" "PAL" "pal2d" "rgb" "output_padding: 16"
+    # TODO: PAL_CustomLines requires start_frame/length parameters - implement when available
     
     # Summary
     log_info ""

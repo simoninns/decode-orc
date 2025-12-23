@@ -25,6 +25,8 @@
 #ifndef DECODERPOOL_H
 #define DECODERPOOL_H
 
+#include <vector>
+#include <cstdint>
 #include <QObject>
 #include <QAtomicInt>
 #include <QElapsedTimer>
@@ -73,7 +75,7 @@ public:
     //
     // Returns true if a frame was returned, false if the end of the input has
     // been reached.
-    bool getInputFrames(qint32 &startFrameNumber, QVector<SourceField> &fields, qint32 &startIndex, qint32 &endIndex);
+    bool getInputFrames(int32_t &startFrameNumber, std::vector<SourceField> &fields, int32_t &startIndex, int32_t &endIndex);
 
     // For worker threads: return decoded frames to write to the output file.
     //

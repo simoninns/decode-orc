@@ -60,24 +60,24 @@ QThread *MonoDecoder::makeThread(QAtomicInt& abort, DecoderPool& decoderPool) {
     return new MonoThread(abort, decoderPool, monoConfig);
 }
 
-void MonoDecoder::decodeFrames(const QVector<SourceField>& inputFields,
-                               qint32 startIndex,
-                               qint32 endIndex,
-                               QVector<ComponentFrame>& componentFrames)
+void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
+                               int32_t startIndex,
+                               int32_t endIndex,
+                               std::vector<ComponentFrame>& componentFrames)
 {
 	const LdDecodeMetaData::VideoParameters &videoParameters = monoConfig.videoParameters;
 	bool ignoreUV = false;
 	
 	
-	for (qint32 fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
+	for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
 		componentFrames[frameIndex].init(videoParameters, ignoreUV);
-		for (qint32 y = videoParameters.firstActiveFrameLine; y < videoParameters.lastActiveFrameLine; y++) {
+		for (int32_t y = videoParameters.firstActiveFrameLine; y < videoParameters.lastActiveFrameLine; y++) {
 			const SourceVideo::Data &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data :inputFields[fieldIndex+1].data;
-			const quint16 *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.fieldWidth);
+			const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.fieldWidth);
 
 			// Copy the whole composite signal to Y (leaving U and V blank)
 			double *outY = componentFrames[frameIndex].y(y);
-			for (qint32 x = videoParameters.activeVideoStart; x < videoParameters.activeVideoEnd; x++) {
+			for (int32_t x = videoParameters.activeVideoStart; x < videoParameters.activeVideoEnd; x++) {
 				outY[x] = inputLine[x];
 			}
 		}
@@ -155,9 +155,9 @@ MonoThread::MonoThread(QAtomicInt& _abort, DecoderPool& _decoderPool,
 {
 }
 
-void MonoThread::decodeFrames(const QVector<SourceField>& inputFields,
-                              qint32 startIndex, qint32 endIndex,
-                              QVector<ComponentFrame>& componentFrames)
+void MonoThread::decodeFrames(const std::vector<SourceField>& inputFields,
+                              int32_t startIndex, int32_t endIndex,
+                              std::vector<ComponentFrame>& componentFrames)
 {
     // Delegate to the centralized, public API
     auto &baseDecoder = static_cast<MonoDecoder&>(decoderPool.getDecoder());

@@ -38,22 +38,22 @@ struct SourceField {
     // fields will contain {lookbehind fields... [startIndex] real fields... [endIndex] lookahead fields...}.
     // Fields requested outside the bounds of the file will have dummy metadata and black data.
     static void loadFields(SourceVideo &sourceVideo, LdDecodeMetaData &ldDecodeMetaData,
-                           qint32 firstFrameNumber, qint32 numFrames,
-                           qint32 lookBehindFrames, qint32 lookAheadFrames,
-                           QVector<SourceField> &fields, qint32 &startIndex, qint32 &endIndex);
+                           int32_t firstFrameNumber, int32_t numFrames,
+                           int32_t lookBehindFrames, int32_t lookAheadFrames,
+                           std::vector<SourceField> &fields, int32_t &startIndex, int32_t &endIndex);
 
     // Return the vertical offset of this field within the interlaced frame
     // (i.e. 0 for the top field, 1 for the bottom field).
-    qint32 getOffset() const {
+    int32_t getOffset() const {
         return field.isFirstField ? 0 : 1;
     }
 
     // Return the first/last active line numbers within this field's data,
     // given the video parameters.
-    qint32 getFirstActiveLine(const LdDecodeMetaData::VideoParameters &videoParameters) const {
+    int32_t getFirstActiveLine(const LdDecodeMetaData::VideoParameters &videoParameters) const {
         return (videoParameters.firstActiveFrameLine + 1 - getOffset()) / 2;
     }
-    qint32 getLastActiveLine(const LdDecodeMetaData::VideoParameters &videoParameters) const {
+    int32_t getLastActiveLine(const LdDecodeMetaData::VideoParameters &videoParameters) const {
         return (videoParameters.lastActiveFrameLine + 1 - getOffset()) / 2;
     }
 };

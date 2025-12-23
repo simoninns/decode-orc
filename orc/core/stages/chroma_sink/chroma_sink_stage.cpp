@@ -22,6 +22,7 @@
 
 #include <QFile>
 #include <fstream>
+#include <algorithm>
 
 namespace orc {
 
@@ -486,7 +487,7 @@ bool ChromaSinkStage::trigger(
     // Note: In Step 4, we'll remove this and use VFR directly
     
     // 9. Collect fields including lookbehind/lookahead padding
-    QVector<SourceField> inputFields;
+    std::vector<SourceField> inputFields;
     qint32 total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
     inputFields.reserve(total_fields_needed);
     
@@ -582,8 +583,8 @@ bool ChromaSinkStage::trigger(
             }
         }
         
-        inputFields.append(sf1);
-        inputFields.append(sf2);
+        inputFields.push_back(sf1);
+        inputFields.push_back(sf2);
     }
     
     // 10. Process frames ONE AT A TIME to match standalone behavior
@@ -593,7 +594,7 @@ bool ChromaSinkStage::trigger(
     // will differ. This matches how the standalone decoder processes frames.
     
     qint32 numFrames = (end_frame - start_frame);
-    QVector<ComponentFrame> outputFrames;
+    std::vector<ComponentFrame> outputFrames;
     outputFrames.resize(numFrames);
     
     ORC_LOG_INFO("ChromaSink: Processing {} frames one at a time (to match standalone)", numFrames);
@@ -601,22 +602,34 @@ bool ChromaSinkStage::trigger(
     for (qint32 frameIdx = 0; frameIdx < numFrames; frameIdx++) {
         // Build a field array for this ONE frame:
         // [lookbehind fields... target frame fields... lookahead fields...]
-        QVector<SourceField> frameFields;
-        qint32 frameStartIdx = frameIdx * 2;  // Position in inputFields where this frame's data starts
-        qint32 lookbehindIdx = frameStartIdx;  // Where lookbehind starts in inputFields
-        qint32 lookaheadEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);  // Where we need to read up to
+        std::vector<SourceField> frameFields;
         
-        // Copy lookbehind + target + lookahead fields for this frame
-        for (qint32 i = lookbehindIdx; i < lookaheadEndIdx && i < inputFields.size(); i++) {
-            frameFields.append(inputFields[i]);
+        // The actual frame number we're processing
+        qint32 actualFrameNum = static_cast<qint32>(start_frame) + frameIdx;
+        
+        // Position in inputFields where this frame's fields start
+        // inputFields starts at extended_start_frame, so offset by (actualFrameNum - extended_start_frame) frames
+        qint32 frameStartIdx = (actualFrameNum - extended_start_frame) * 2;
+        
+        // Calculate the range to copy: lookbehind + target + lookahead
+        qint32 copyStartIdx = frameStartIdx - (lookBehindFrames * 2);
+        qint32 copyEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);
+        
+        // Clamp to valid range and copy
+        copyStartIdx = std::max(0, copyStartIdx);
+        copyEndIdx = std::min(static_cast<qint32>(inputFields.size()), copyEndIdx);
+        
+        for (qint32 i = copyStartIdx; i < copyEndIdx; i++) {
+            frameFields.push_back(inputFields[i]);
         }
         
-        // The target frame is always at the same Z-position: after lookbehind fields
-        qint32 frameStartIndex = lookBehindFrames * 2;
+        // The target frame's position within frameFields depends on how much lookbehind we actually got
+        qint32 actualLookbehindFields = (frameStartIdx - copyStartIdx);
+        qint32 frameStartIndex = actualLookbehindFields;
         qint32 frameEndIndex = frameStartIndex + 2;
         
         // Prepare single-frame output buffer
-        QVector<ComponentFrame> singleOutput;
+        std::vector<ComponentFrame> singleOutput;
         singleOutput.resize(1);
         
         // Decoding frame with context fields

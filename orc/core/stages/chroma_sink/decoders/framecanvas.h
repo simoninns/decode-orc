@@ -25,7 +25,8 @@
 #ifndef FRAMECANVAS_H
 #define FRAMECANVAS_H
 
-#include <QtGlobal>
+#include <cstdint>
+#include <vector>
 
 #include "lddecodemetadata.h"
 
@@ -39,10 +40,10 @@ public:
     FrameCanvas(ComponentFrame &componentFrame, const LdDecodeMetaData::VideoParameters &videoParameters);
 
     // Return the edges of the active area.
-    qint32 top();
-    qint32 bottom();
-    qint32 left();
-    qint32 right();
+    int32_t top();
+    int32_t bottom();
+    int32_t left();
+    int32_t right();
 
     // Colour representation
     struct Colour {
@@ -50,23 +51,23 @@ public:
     };
 
     // Convert a 16-bit R'G'B' colour to Colour form
-    Colour rgb(quint16 r, quint16 g, quint16 b);
+    Colour rgb(uint16_t r, uint16_t g, uint16_t b);
 
     // Convert a 16-bit greyscale value to Colour form
-    Colour grey(quint16 value);
+    Colour grey(uint16_t value);
 
     // Plot a pixel
-    void drawPoint(qint32 x, qint32 y, const Colour& colour);
+    void drawPoint(int32_t x, int32_t y, const Colour& colour);
 
     // Draw an empty rectangle
-    void drawRectangle(qint32 x, qint32 y, qint32 w, qint32 h, const Colour& colour);
+    void drawRectangle(int32_t x, int32_t y, int32_t w, int32_t h, const Colour& colour);
 
     // Draw a filled rectangle
-    void fillRectangle(qint32 x, qint32 y, qint32 w, qint32 h, const Colour& colour);
+    void fillRectangle(int32_t x, int32_t y, int32_t w, int32_t h, const Colour& colour);
 
 private:
     double *yData, *uData, *vData;
-    qint32 width, height;
+    int32_t width, height;
     double ireRange, blackIre;
     const LdDecodeMetaData::VideoParameters &videoParameters;
 };

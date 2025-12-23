@@ -28,7 +28,6 @@
 #ifndef TRANSFORMPAL_H
 #define TRANSFORMPAL_H
 
-#include <QVector>
 #include <fftw3.h>
 
 #include "lddecodemetadata.h"
@@ -41,7 +40,7 @@
 // Abstract base class for Transform PAL filters.
 class TransformPal {
 public:
-    TransformPal(qint32 xComplex, qint32 yComplex, qint32 zComplex);
+    TransformPal(int32_t xComplex, int32_t yComplex, int32_t zComplex);
     virtual ~TransformPal();
 
     // Configure TransformPal.
@@ -50,44 +49,44 @@ public:
     // are meaningful, with higher values requiring signals to be more similar
     // to be considered chroma.
     void updateConfiguration(const LdDecodeMetaData::VideoParameters &videoParameters,
-                             double threshold, const QVector<double> &thresholds);
+                             double threshold, const std::vector<double> &thresholds);
 
     // Filter input fields.
     //
     // For each input frame between startFieldIndex and endFieldIndex, a
     // pointer will be placed in outputFields to an array of the same size
     // (owned by this object) containing the chroma signal.
-    virtual void filterFields(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                              QVector<const double *> &outputFields) = 0;
+    virtual void filterFields(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                              std::vector<const double *> &outputFields) = 0;
 
     // Draw a visualisation of the FFT over component frames.
     //
     // The FFT is computed for each field, so this visualises only the first
     // field in each frame. positionX/Y specify the location to visualise in
     // frame coordinates.
-    void overlayFFT(qint32 positionX, qint32 positionY,
-                    const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                    QVector<ComponentFrame> &componentFrames);
+    void overlayFFT(int32_t positionX, int32_t positionY,
+                    const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                    std::vector<ComponentFrame> &componentFrames);
 
 protected:
     // Overlay a visualisation of one field's FFT.
     // Calls back to overlayFFTArrays to draw the arrays.
-    virtual void overlayFFTFrame(qint32 positionX, qint32 positionY,
-                                 const QVector<SourceField> &inputFields, qint32 fieldIndex,
+    virtual void overlayFFTFrame(int32_t positionX, int32_t positionY,
+                                 const std::vector<SourceField> &inputFields, int32_t fieldIndex,
                                  ComponentFrame &componentFrame) = 0;
 
     void overlayFFTArrays(const fftw_complex *fftIn, const fftw_complex *fftOut,
                           FrameCanvas &canvas);
 
     // FFT size
-    qint32 xComplex;
-    qint32 yComplex;
-    qint32 zComplex;
+    int32_t xComplex;
+    int32_t yComplex;
+    int32_t zComplex;
 
     // Configuration parameters
     bool configurationSet;
     LdDecodeMetaData::VideoParameters videoParameters;
-    QVector<double> thresholds;
+    std::vector<double> thresholds;
 };
 
 #endif

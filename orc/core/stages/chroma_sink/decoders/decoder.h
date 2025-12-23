@@ -25,8 +25,9 @@
 #ifndef DECODER_H
 #define DECODER_H
 
+#include <vector>
+#include <cstdint>
 #include <QAtomicInt>
-#include <QByteArray>
 #include <QDebug>
 #include <QThread>
 #include <cassert>
@@ -68,12 +69,12 @@ public:
     // After configuration, return the number of frames that the decoder needs
     // to be able to see into the past (each frame being two SourceFields).
     // The default implementation returns 0, which is appropriate for 1D/2D decoders.
-    virtual qint32 getLookBehind() const;
+    virtual int32_t getLookBehind() const;
 
     // After configuration, return the number of frames that the decoder needs
     // to be able to see into the future (each frame being two SourceFields).
     // The default implementation returns 0, which is appropriate for 1D/2D decoders.
-    virtual qint32 getLookAhead() const;
+    virtual int32_t getLookAhead() const;
 
     // Construct a new worker thread
     virtual QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) = 0;
@@ -95,8 +96,8 @@ protected:
     void run() override;
 
     // Decode a sequence of composite fields into a sequence of component frames
-    virtual void decodeFrames(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                              QVector<ComponentFrame> &componentFrames) = 0;
+    virtual void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                              std::vector<ComponentFrame> &componentFrames) = 0;
 
     // Decoder pool
     QAtomicInt &abort;

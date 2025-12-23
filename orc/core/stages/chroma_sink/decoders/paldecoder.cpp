@@ -44,12 +44,12 @@ bool PalDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParamet
     return true;
 }
 
-qint32 PalDecoder::getLookBehind() const
+int32_t PalDecoder::getLookBehind() const
 {
     return config.pal.getLookBehind();
 }
 
-qint32 PalDecoder::getLookAhead() const
+int32_t PalDecoder::getLookAhead() const
 {
     return config.pal.getLookAhead();
 }
@@ -66,8 +66,8 @@ PalThread::PalThread(QAtomicInt& _abort, DecoderPool& _decoderPool,
     palColour.updateConfiguration(config.videoParameters, config.pal);
 }
 
-void PalThread::decodeFrames(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                             QVector<ComponentFrame> &componentFrames)
+void PalThread::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                             std::vector<ComponentFrame> &componentFrames)
 {
     palColour.decodeFrames(inputFields, startIndex, endIndex, componentFrames);
 }

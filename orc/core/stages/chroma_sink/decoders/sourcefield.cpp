@@ -27,9 +27,9 @@
 #include "sourcevideo.h"
 
 void SourceField::loadFields(SourceVideo &sourceVideo, LdDecodeMetaData &ldDecodeMetaData,
-                             qint32 firstFrameNumber, qint32 numFrames,
-                             qint32 lookBehindFrames, qint32 lookAheadFrames,
-                             QVector<SourceField> &fields, qint32 &startIndex, qint32 &endIndex)
+                             int32_t firstFrameNumber, int32_t numFrames,
+                             int32_t lookBehindFrames, int32_t lookAheadFrames,
+                             std::vector<SourceField> &fields, int32_t &startIndex, int32_t &endIndex)
 {
     const LdDecodeMetaData::VideoParameters &videoParameters = ldDecodeMetaData.getVideoParameters();
 
@@ -40,23 +40,23 @@ void SourceField::loadFields(SourceVideo &sourceVideo, LdDecodeMetaData &ldDecod
     fields.resize(endIndex + (2 * lookAheadFrames));
 
     // Populate fields
-    const qint32 numInputFrames = ldDecodeMetaData.getNumberOfFrames();
-    qint32 frameNumber = firstFrameNumber - lookBehindFrames;
-    for (qint32 i = 0; i < fields.size(); i += 2) {
+    const int32_t numInputFrames = ldDecodeMetaData.getNumberOfFrames();
+    int32_t frameNumber = firstFrameNumber - lookBehindFrames;
+    for (int32_t i = 0; i < static_cast<int32_t>(fields.size()); i += 2) {
 
         // Is this frame outside the bounds of the input file?
         // If so, use real metadata (from frame 1) and black fields.
         const bool useBlankFrame = frameNumber < 1 || frameNumber > numInputFrames;
 
         // Get the first frame from the file (using frame 1 if outside bounds)
-        qint32 firstFieldNumber = ldDecodeMetaData.getFirstFieldNumber(useBlankFrame ? 1 : frameNumber);
-        qint32 secondFieldNumber = ldDecodeMetaData.getSecondFieldNumber(useBlankFrame ? 1 : frameNumber);
+        int32_t firstFieldNumber = ldDecodeMetaData.getFirstFieldNumber(useBlankFrame ? 1 : frameNumber);
+        int32_t secondFieldNumber = ldDecodeMetaData.getSecondFieldNumber(useBlankFrame ? 1 : frameNumber);
 
         // Fetch the input metadata
         fields[i].field = ldDecodeMetaData.getField(firstFieldNumber);
         fields[i + 1].field = ldDecodeMetaData.getField(secondFieldNumber);
 
-        const quint16 black = videoParameters.black16bIre;
+        const uint16_t black = videoParameters.black16bIre;
 
         if (useBlankFrame) {
             // Fill both fields with black

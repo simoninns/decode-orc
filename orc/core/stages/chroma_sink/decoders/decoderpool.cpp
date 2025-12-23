@@ -161,7 +161,7 @@ bool DecoderPool::process()
     return true;
 }
 
-bool DecoderPool::getInputFrames(qint32 &startFrameNumber, QVector<SourceField> &fields, qint32 &startIndex, qint32 &endIndex)
+bool DecoderPool::getInputFrames(int32_t &startFrameNumber, std::vector<SourceField> &fields, int32_t &startIndex, int32_t &endIndex)
 {
     QMutexLocker locker(&inputMutex);
 

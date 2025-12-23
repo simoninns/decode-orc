@@ -48,7 +48,7 @@ public:
     struct Configuration {
         double chromaGain = 1.0;
         double chromaPhase = 0.0;
-        qint32 dimensions = 2;
+        int32_t dimensions = 2;
         bool adaptive = true;
         bool showMap = false;
         bool phaseCompensation = false;
@@ -56,8 +56,8 @@ public:
         double cNRLevel = 0.0;
         double yNRLevel = 0.0;
 
-        qint32 getLookBehind() const;
-        qint32 getLookAhead() const;
+        int32_t getLookBehind() const;
+        int32_t getLookAhead() const;
     };
 
     const Configuration &getConfiguration() const;
@@ -65,12 +65,12 @@ public:
                              const Configuration &configuration);
 
     // Decode a sequence of fields into a sequence of interlaced frames
-    void decodeFrames(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                      QVector<ComponentFrame> &componentFrames);
+    void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                      std::vector<ComponentFrame> &componentFrames);
 
     // Maximum frame size
-    static constexpr qint32 MAX_WIDTH = 910;
-    static constexpr qint32 MAX_HEIGHT = 525;
+    static constexpr int32_t MAX_WIDTH = 910;
+    static constexpr int32_t MAX_HEIGHT = 525;
 
 protected:
 
@@ -111,7 +111,7 @@ private:
         const Configuration &configuration;
 
         // Calculated frame height
-        qint32 frameHeight;
+        int32_t frameHeight;
 
         // IRE scaling
         double irescale;
@@ -120,8 +120,8 @@ private:
         SourceVideo::Data rawbuffer;
 
         // Chroma phase of the frame's two fields
-        qint32 firstFieldPhaseID;
-        qint32 secondFieldPhaseID;
+        int32_t firstFieldPhaseID;
+        int32_t secondFieldPhaseID;
 
         // 1D, 2D and 3D-filtered chroma samples
         struct Sample {
@@ -137,13 +137,13 @@ private:
         // The component frame for output (if there is one)
         ComponentFrame *componentFrame;
 
-        inline qint32 getFieldID(qint32 lineNumber) const;
-        inline bool getLinePhase(qint32 lineNumber) const;
-        void getBestCandidate(qint32 lineNumber, qint32 h,
+        inline int32_t getFieldID(int32_t lineNumber) const;
+        inline bool getLinePhase(int32_t lineNumber) const;
+        void getBestCandidate(int32_t lineNumber, int32_t h,
                               const FrameBuffer &previousFrame, const FrameBuffer &nextFrame,
-                              qint32 &bestIndex, double &bestSample) const;
-        Candidate getCandidate(qint32 refLineNumber, qint32 refH,
-                               const FrameBuffer &frameBuffer, qint32 lineNumber, qint32 h,
+                              int32_t &bestIndex, double &bestSample) const;
+        Candidate getCandidate(int32_t refLineNumber, int32_t refH,
+                               const FrameBuffer &frameBuffer, int32_t lineNumber, int32_t h,
                                double adjustPenalty) const;
     };
 };

@@ -23,6 +23,7 @@
 ************************************************************************/
 
 #include "componentframe.h"
+#include <algorithm>
 
 ComponentFrame::ComponentFrame()
     : width(-1), height(-1)
@@ -34,23 +35,23 @@ void ComponentFrame::init(const LdDecodeMetaData::VideoParameters &videoParamete
     width = videoParameters.fieldWidth;
     height = (videoParameters.fieldHeight * 2) - 1;
 
-    const qint32 size = width * height;
+    const int32_t size = width * height;
 
     yData.resize(size);
-    yData.fill(0.0);
+    std::fill(yData.begin(), yData.end(), 0.0);
 
     if(!mono) {
         uData.resize(size);
-        uData.fill(0.0);
+        std::fill(uData.begin(), uData.end(), 0.0);
 
         vData.resize(size);
-        vData.fill(0.0);
+        std::fill(vData.begin(), vData.end(), 0.0);
     } else {
         // Clear and deallocate U/V if they're not used.
         uData.clear();
-        uData.squeeze();
+        uData.shrink_to_fit();
 
         vData.clear();
-        vData.squeeze();
+        vData.shrink_to_fit();
     }
 }

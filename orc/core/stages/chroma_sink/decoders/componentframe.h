@@ -25,8 +25,8 @@
 #ifndef COMPONENTFRAME_H
 #define COMPONENTFRAME_H
 
-#include <QtGlobal>
-#include <QVector>
+#include <vector>
+#include <cstdint>
 #include <cassert>
 
 #include "lddecodemetadata.h"
@@ -48,77 +48,77 @@ public:
     // Get a pointer to a line of samples. Line numbers are 0-based within the frame.
     // Lines are stored in a contiguous array, so it's safe to get a pointer to
     // line 0 and use it to refer to later lines.
-    double *y(qint32 line) {
+    double *y(int32_t line) {
         return yData.data() + getLineOffset(line);
     }
-    double *u(qint32 line) {
+    double *u(int32_t line) {
         return uData.data() + getLineOffsetUV(line);
     }
-    double *v(qint32 line) {
+    double *v(int32_t line) {
         return vData.data() + getLineOffsetUV(line);
     }
-    const double *y(qint32 line) const {
+    const double *y(int32_t line) const {
         return yData.data() + getLineOffset(line);
     }
-    const double *u(qint32 line) const {
+    const double *u(int32_t line) const {
         return uData.data() + getLineOffsetUV(line);
     }
-    const double *v(qint32 line) const {
+    const double *v(int32_t line) const {
         return vData.data() + getLineOffsetUV(line);
     }
 	
-	QVector<double>* getY(){
+	std::vector<double>* getY(){
 		return &yData;
 	}
 	
-	QVector<double>* getU(){
+	std::vector<double>* getU(){
 		return &uData;
 	}
 	
-	QVector<double>* getV(){
+	std::vector<double>* getV(){
 		return &vData;
 	}
 	
-	void setY(QVector<double>& _yData){
+	void setY(std::vector<double>& _yData){
 		yData = _yData;
 	}
 	
-	void setU(QVector<double>& _uData){
+	void setU(std::vector<double>& _uData){
 		uData = _uData;
 	}
 	
-	void setV(QVector<double>& _vData){
+	void setV(std::vector<double>& _vData){
 		vData = _vData;
 	}
 
-    qint32 getWidth() const {
+    int32_t getWidth() const {
         return width;
     }
-    qint32 getHeight() const {
+    int32_t getHeight() const {
         return height;
     }
 
 private:
-    qint32 getLineOffset(qint32 line) const {
+    int32_t getLineOffset(int32_t line) const {
         assert(line >= 0);
-        assert(line < yData.size());
+        assert(line < static_cast<int32_t>(yData.size()));
         return line * width;
     }
 
-    qint32 getLineOffsetUV(qint32 line) const {
+    int32_t getLineOffsetUV(int32_t line) const {
         assert(line >= 0);
-        assert(line < uData.size());
+        assert(line < static_cast<int32_t>(uData.size()));
         return line * width;
     }
 
     // Size of the frame
-    qint32 width;
-    qint32 height;
+    int32_t width;
+    int32_t height;
 
     // Samples for Y, U and V
-    QVector<double> yData;
-    QVector<double> uData;
-    QVector<double> vData;
+    std::vector<double> yData;
+    std::vector<double> uData;
+    std::vector<double> vData;
 };
 
 #endif // COMPONENTFRAME_H

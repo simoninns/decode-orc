@@ -26,12 +26,12 @@
 
 #include "decoderpool.h"
 
-qint32 Decoder::getLookBehind() const
+int32_t Decoder::getLookBehind() const
 {
     return 0;
 }
 
-qint32 Decoder::getLookAhead() const
+int32_t Decoder::getLookAhead() const
 {
     return 0;
 }
@@ -44,20 +44,20 @@ DecoderThread::DecoderThread(QAtomicInt& _abort, DecoderPool& _decoderPool, QObj
 void DecoderThread::run()
 {
     // Input and output data
-    QVector<SourceField> inputFields;
-    QVector<ComponentFrame> componentFrames;
+    std::vector<SourceField> inputFields;
+    std::vector<ComponentFrame> componentFrames;
     QVector<OutputFrame> outputFrames;
 
     while (!abort) {
         // Get the next batch of fields to process
-        qint32 startFrameNumber, startIndex, endIndex;
+        int32_t startFrameNumber, startIndex, endIndex;
         if (!decoderPool.getInputFrames(startFrameNumber, inputFields, startIndex, endIndex)) {
             // No more input frames -- exit
             break;
         }
 
         // Adjust the temporary arrays to the right size
-        const qint32 numFrames = (endIndex - startIndex) / 2;
+        const int32_t numFrames = (endIndex - startIndex) / 2;
         componentFrames.resize(numFrames);
         outputFrames.resize(numFrames);
 
@@ -65,7 +65,7 @@ void DecoderThread::run()
         decodeFrames(inputFields, startIndex, endIndex, componentFrames);
 
         // Convert the component frames to the output format
-        for (qint32 i = 0; i < numFrames; i++) {
+        for (int32_t i = 0; i < numFrames; i++) {
             outputWriter.convert(componentFrames[i], outputFrames[i]);
         }
 

@@ -54,10 +54,10 @@ public:
 	bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
     QThread *makeThread(QAtomicInt& abort, DecoderPool& decoderPool) override;
 	/// Synchronously decode luma-only frames (no filtering)
-	void decodeFrames(const QVector<SourceField>& inputFields,
-                    qint32 startIndex,
-                    qint32 endIndex,
-                    QVector<ComponentFrame>& componentFrames);
+	void decodeFrames(const std::vector<SourceField>& inputFields,
+                    int32_t startIndex,
+                    int32_t endIndex,
+                    std::vector<ComponentFrame>& componentFrames);
 	void doYNR(ComponentFrame &componentFrame);				
 
 private:
@@ -73,8 +73,8 @@ public:
                        QObject *parent = nullptr);
 
 protected:
-    void decodeFrames(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                      QVector<ComponentFrame> &componentFrames) override;
+    void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                      std::vector<ComponentFrame> &componentFrames) override;
 
 private:
     // Settings

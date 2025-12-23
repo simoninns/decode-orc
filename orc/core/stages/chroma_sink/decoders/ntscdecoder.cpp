@@ -45,12 +45,12 @@ bool NtscDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParame
     return true;
 }
 
-qint32 NtscDecoder::getLookBehind() const
+int32_t NtscDecoder::getLookBehind() const
 {
     return config.combConfig.getLookBehind();
 }
 
-qint32 NtscDecoder::getLookAhead() const
+int32_t NtscDecoder::getLookAhead() const
 {
     return config.combConfig.getLookAhead();
 }
@@ -68,8 +68,8 @@ NtscThread::NtscThread(QAtomicInt& _abort, DecoderPool &_decoderPool,
     comb.updateConfiguration(config.videoParameters, config.combConfig);
 }
 
-void NtscThread::decodeFrames(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                              QVector<ComponentFrame> &componentFrames)
+void NtscThread::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                              std::vector<ComponentFrame> &componentFrames)
 {
     // Decode fields to frames
     comb.decodeFrames(inputFields, startIndex, endIndex, componentFrames);

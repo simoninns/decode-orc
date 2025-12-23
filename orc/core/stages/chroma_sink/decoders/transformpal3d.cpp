@@ -1,4 +1,5 @@
 /************************************************************************
+#include <algorithm>
 
     transformpal3d.cpp
 
@@ -27,6 +28,7 @@
 
 #include "transformpal3d.h"
 
+#include <algorithm>
 #include <QtMath>
 #include <cassert>
 #include <cmath>
@@ -49,7 +51,7 @@
 // the FFT to reduce edge effects. This is a symmetrical raised-cosine
 // function, which means that the overlapping inverse-FFT blocks can be summed
 // directly without needing an inverse window function.
-static double computeWindow(qint32 element, qint32 limit)
+static double computeWindow(int32_t element, int32_t limit)
 {
     return 0.5 - (0.5 * cos((2 * M_PI * (element + 0.5)) / limit));
 }
@@ -58,11 +60,11 @@ TransformPal3D::TransformPal3D()
     : TransformPal(XCOMPLEX, YCOMPLEX, ZCOMPLEX)
 {
     // Compute the window function.
-    for (qint32 z = 0; z < ZTILE; z++) {
+    for (int32_t z = 0; z < ZTILE; z++) {
         const double windowZ = computeWindow(z, ZTILE);
-        for (qint32 y = 0; y < YTILE; y++) {
+        for (int32_t y = 0; y < YTILE; y++) {
             const double windowY = computeWindow(y, YTILE);
-            for (qint32 x = 0; x < XTILE; x++) {
+            for (int32_t x = 0; x < XTILE; x++) {
                 const double windowX = computeWindow(x, XTILE);
                 windowFunction[z][y][x] = windowZ * windowY * windowX;
             }
@@ -90,32 +92,32 @@ TransformPal3D::~TransformPal3D()
     fftw_free(fftComplexOut);
 }
 
-qint32 TransformPal3D::getThresholdsSize()
+int32_t TransformPal3D::getThresholdsSize()
 {
     // On the X axis, include only the bins we actually use in applyFilter
     return ZCOMPLEX * YCOMPLEX * ((XCOMPLEX / 4) + 1);
 }
 
-qint32 TransformPal3D::getLookBehind()
+int32_t TransformPal3D::getLookBehind()
 {
     // We overlap at most half a tile (in frames) into the past...
     return (HALFZTILE + 1) / 2;
 }
 
-qint32 TransformPal3D::getLookAhead()
+int32_t TransformPal3D::getLookAhead()
 {
     // ... and at most a tile minus one bin into the future.
     return (ZTILE - 1 + 1) / 2;
 }
 
-void TransformPal3D::filterFields(const QVector<SourceField> &inputFields, qint32 startIndex, qint32 endIndex,
-                                  QVector<const double *> &outputFields)
+void TransformPal3D::filterFields(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                                  std::vector<const double *> &outputFields)
 {
     assert(configurationSet);
 
     // Check we have a valid vector of input fields, and a matching output vector
     assert((inputFields.size() % 2) == 0);
-    for (qint32 i = 0; i < inputFields.size(); i++) {
+    for (int32_t i = 0; i < inputFields.size(); i++) {
         assert(!inputFields[i].data.empty());
     }
     assert(outputFields.size() == (endIndex - startIndex));
@@ -127,18 +129,18 @@ void TransformPal3D::filterFields(const QVector<SourceField> &inputFields, qint3
 
     // Allocate and clear output buffers
     chromaBuf.resize(endIndex - startIndex);
-    for (qint32 i = 0; i < chromaBuf.size(); i++) {
+    for (int32_t i = 0; i < static_cast<int32_t>(chromaBuf.size()); i++) {
         chromaBuf[i].resize(videoParameters.fieldWidth * videoParameters.fieldHeight);
-        chromaBuf[i].fill(0.0);
+        std::fill(chromaBuf[i].begin(), chromaBuf[i].end(), 0.0);
         outputFields[i] = chromaBuf[i].data();
     }
 
     // Iterate through the overlapping tile positions, covering the active area.
     // (See TransformPal3D member variable documentation for how the tiling works;
     // if you change the Z tiling here, also review getLookBehind/getLookAhead above.)
-    for (qint32 tileZ = startIndex - HALFZTILE; tileZ < endIndex; tileZ += HALFZTILE) {
-        for (qint32 tileY = videoParameters.firstActiveFrameLine - HALFYTILE; tileY < videoParameters.lastActiveFrameLine; tileY += HALFYTILE) {
-            for (qint32 tileX = videoParameters.activeVideoStart - HALFXTILE; tileX < videoParameters.activeVideoEnd; tileX += HALFXTILE) {
+    for (int32_t tileZ = startIndex - HALFZTILE; tileZ < endIndex; tileZ += HALFZTILE) {
+        for (int32_t tileY = videoParameters.firstActiveFrameLine - HALFYTILE; tileY < videoParameters.lastActiveFrameLine; tileY += HALFYTILE) {
+            for (int32_t tileX = videoParameters.activeVideoStart - HALFXTILE; tileX < videoParameters.activeVideoEnd; tileX += HALFXTILE) {
                 // Compute the forward FFT
                 forwardFFTTile(tileX, tileY, tileZ, inputFields);
 
@@ -153,32 +155,32 @@ void TransformPal3D::filterFields(const QVector<SourceField> &inputFields, qint3
 }
 
 // Apply the forward FFT to an input tile, populating fftComplexIn
-void TransformPal3D::forwardFFTTile(qint32 tileX, qint32 tileY, qint32 tileZ, const QVector<SourceField> &inputFields)
+void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, const std::vector<SourceField> &inputFields)
 {
     // Work out which lines of this tile are within the active region
-    const qint32 startY = qMax(videoParameters.firstActiveFrameLine - tileY, 0);
-    const qint32 endY = qMin(videoParameters.lastActiveFrameLine - tileY, YTILE);
+    const int32_t startY = qMax(videoParameters.firstActiveFrameLine - tileY, 0);
+    const int32_t endY = qMin(videoParameters.lastActiveFrameLine - tileY, YTILE);
 
     // Copy the input signal into fftReal, applying the window function
-    for (qint32 z = 0; z < ZTILE; z++) {
-        const qint32 fieldIndex = tileZ + z;
-        const quint16 *inputPtr = inputFields[fieldIndex].data.data();
+    for (int32_t z = 0; z < ZTILE; z++) {
+        const int32_t fieldIndex = tileZ + z;
+        const uint16_t *inputPtr = inputFields[fieldIndex].data.data();
 
-        for (qint32 y = 0; y < YTILE; y++) {
+        for (int32_t y = 0; y < YTILE; y++) {
             // If this frame line is not available in the field
             // we're reading from (either because it's above/below
             // the active region, or because it's in the other
             // field), fill it with black instead.
             if (y < startY || y >= endY || ((tileY + y) % 2) != (fieldIndex % 2)) {
-                for (qint32 x = 0; x < XTILE; x++) {
+                for (int32_t x = 0; x < XTILE; x++) {
                     fftReal[(((z * YTILE) + y) * XTILE) + x] = videoParameters.black16bIre * windowFunction[z][y][x];
                 }
                 continue;
             }
 
-            const qint32 fieldLine = (tileY + y) / 2;
-            const quint16 *b = inputPtr + (fieldLine * videoParameters.fieldWidth);
-            for (qint32 x = 0; x < XTILE; x++) {
+            const int32_t fieldLine = (tileY + y) / 2;
+            const uint16_t *b = inputPtr + (fieldLine * videoParameters.fieldWidth);
+            for (int32_t x = 0; x < XTILE; x++) {
                 fftReal[(((z * YTILE) + y) * XTILE) + x] = b[tileX + x] * windowFunction[z][y][x];
             }
         }
@@ -189,33 +191,33 @@ void TransformPal3D::forwardFFTTile(qint32 tileX, qint32 tileY, qint32 tileZ, co
 }
 
 // Apply the inverse FFT to fftComplexOut, overlaying the result into chromaBuf
-void TransformPal3D::inverseFFTTile(qint32 tileX, qint32 tileY, qint32 tileZ, qint32 startIndex, qint32 endIndex)
+void TransformPal3D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, int32_t startIndex, int32_t endIndex)
 {
     // Work out what portion of this tile is inside the active area
-    const qint32 startX = qMax(videoParameters.activeVideoStart - tileX, 0);
-    const qint32 endX = qMin(videoParameters.activeVideoEnd - tileX, XTILE);
-    const qint32 startY = qMax(videoParameters.firstActiveFrameLine - tileY, 0);
-    const qint32 endY = qMin(videoParameters.lastActiveFrameLine - tileY, YTILE);
-    const qint32 startZ = qMax(startIndex - tileZ, 0);
-    const qint32 endZ = qMin(endIndex - tileZ, ZTILE);
+    const int32_t startX = qMax(videoParameters.activeVideoStart - tileX, 0);
+    const int32_t endX = qMin(videoParameters.activeVideoEnd - tileX, XTILE);
+    const int32_t startY = qMax(videoParameters.firstActiveFrameLine - tileY, 0);
+    const int32_t endY = qMin(videoParameters.lastActiveFrameLine - tileY, YTILE);
+    const int32_t startZ = qMax(startIndex - tileZ, 0);
+    const int32_t endZ = qMin(endIndex - tileZ, ZTILE);
 
     // Convert frequency domain in fftComplexOut back to time domain in fftReal
     fftw_execute(inversePlan);
 
     // Overlay the result, normalising the FFTW output, into the chroma buffers
-    for (qint32 z = startZ; z < endZ; z++) {
-        const qint32 outputIndex = tileZ + z - startIndex;
+    for (int32_t z = startZ; z < endZ; z++) {
+        const int32_t outputIndex = tileZ + z - startIndex;
         double *outputPtr = chromaBuf[outputIndex].data();
 
-        for (qint32 y = startY; y < endY; y++) {
+        for (int32_t y = startY; y < endY; y++) {
             // If this frame line is not part of this field, ignore it.
             if (((tileY + y) % 2) != (outputIndex % 2)) {
                 continue;
             }
 
-            const qint32 outputLine = (tileY + y) / 2;
+            const int32_t outputLine = (tileY + y) / 2;
             double *b = outputPtr + (outputLine * videoParameters.fieldWidth);
-            for (qint32 x = startX; x < endX; x++) {
+            for (int32_t x = startX; x < endX; x++) {
                 b[tileX + x] += fftReal[(((z * YTILE) + y) * XTILE) + x] / (ZTILE * YTILE * XTILE);
             }
         }
@@ -236,7 +238,7 @@ void TransformPal3D::applyFilter()
 
     // Clear fftComplexOut. We discard values by default; the filter only
     // copies values that look like chroma.
-    for (qint32 i = 0; i < ZCOMPLEX * YCOMPLEX * XCOMPLEX; i++) {
+    for (int32_t i = 0; i < ZCOMPLEX * YCOMPLEX * XCOMPLEX; i++) {
         fftComplexOut[i][0] = 0.0;
         fftComplexOut[i][1] = 0.0;
     }
@@ -257,14 +259,14 @@ void TransformPal3D::applyFilter()
     // The Y axis covers 0 to 576 c/aph;  72 c/aph is 1/8 * YTILE.
     // The X axis covers 0 to 4fSC Hz;    fSC HZ   is 1/4 * XTILE.
 
-    for (qint32 z = 0; z < ZTILE; z++) {
+    for (int32_t z = 0; z < ZTILE; z++) {
         // Reflect around 18.75 Hz temporally.
         // XXX Why ZTILE / 4? It should be (6 * ZTILE) / 8...
-        const qint32 z_ref = ((ZTILE / 4) + ZTILE - z) % ZTILE;
+        const int32_t z_ref = ((ZTILE / 4) + ZTILE - z) % ZTILE;
 
-        for (qint32 y = 0; y < YTILE; y++) {
+        for (int32_t y = 0; y < YTILE; y++) {
             // Reflect around 72 c/aph vertically.
-            const qint32 y_ref = ((YTILE / 4) + YTILE - y) % YTILE;
+            const int32_t y_ref = ((YTILE / 4) + YTILE - y) % YTILE;
 
             // Input data for this line and its reflection
             const fftw_complex *bi = fftComplexIn + (((z * YCOMPLEX) + y) * XCOMPLEX);
@@ -275,9 +277,9 @@ void TransformPal3D::applyFilter()
             fftw_complex *bo_ref = fftComplexOut + (((z_ref * YCOMPLEX) + y_ref) * XCOMPLEX);
 
             // We only need to look at horizontal frequencies that might be chroma (0.5fSC to 1.5fSC).
-            for (qint32 x = XTILE / 8; x <= XTILE / 4; x++) {
+            for (int32_t x = XTILE / 8; x <= XTILE / 4; x++) {
                 // Reflect around fSC horizontally
-                const qint32 x_ref = (XTILE / 2) - x;
+                const int32_t x_ref = (XTILE / 2) - x;
 
                 // Get the threshold for this bin
                 const double threshold_sq = *thresholdsPtr++;
@@ -315,8 +317,8 @@ void TransformPal3D::applyFilter()
     assert(thresholdsPtr == thresholds.data() + thresholds.size());
 }
 
-void TransformPal3D::overlayFFTFrame(qint32 positionX, qint32 positionY,
-                                     const QVector<SourceField> &inputFields, qint32 fieldIndex,
+void TransformPal3D::overlayFFTFrame(int32_t positionX, int32_t positionY,
+                                     const std::vector<SourceField> &inputFields, int32_t fieldIndex,
                                      ComponentFrame &componentFrame)
 {
     // Do nothing if the tile isn't within the frame

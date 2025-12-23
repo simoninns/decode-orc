@@ -28,7 +28,6 @@
 #ifndef TRANSFORMPAL3D_H
 #define TRANSFORMPAL3D_H
 
-#include <QVector>
 #include <fftw3.h>
 
 #include "componentframe.h"
@@ -42,22 +41,22 @@ public:
     ~TransformPal3D();
 
     // Return the expected size of the thresholds array.
-    static qint32 getThresholdsSize();
+    static int32_t getThresholdsSize();
 
     // Return the number of frames that the decoder needs to be able to see
     // into the past and future (each frame being two SourceFields).
-    static qint32 getLookBehind();
-    static qint32 getLookAhead();
+    static int32_t getLookBehind();
+    static int32_t getLookAhead();
 
-    void filterFields(const QVector<SourceField> &inputFields, qint32 startFieldIndex, qint32 endFieldIndex,
-                      QVector<const double *> &outputFields) override;
+    void filterFields(const std::vector<SourceField> &inputFields, int32_t startFieldIndex, int32_t endFieldIndex,
+                      std::vector<const double *> &outputFields) override;
 
 protected:
-    void forwardFFTTile(qint32 tileX, qint32 tileY, qint32 tileZ, const QVector<SourceField> &inputFields);
-    void inverseFFTTile(qint32 tileX, qint32 tileY, qint32 tileZ, qint32 startFieldIndex, qint32 endFieldIndex);
+    void forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, const std::vector<SourceField> &inputFields);
+    void inverseFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, int32_t startFieldIndex, int32_t endFieldIndex);
     void applyFilter();
-    void overlayFFTFrame(qint32 positionX, qint32 positionY,
-                         const QVector<SourceField> &inputFields, qint32 fieldIndex,
+    void overlayFFTFrame(int32_t positionX, int32_t positionY,
+                         const std::vector<SourceField> &inputFields, int32_t fieldIndex,
                          ComponentFrame &componentFrame) override;
 
     // FFT input and output sizes.
@@ -69,20 +68,20 @@ protected:
     // Interlacing is handled by inserting blank lines to expand each field to
     // the size of a frame, maintaining the original lines in the right spatial
     // positions.
-    static constexpr qint32 ZTILE = 8;
-    static constexpr qint32 HALFZTILE = ZTILE / 2;
-    static constexpr qint32 YTILE = 32;
-    static constexpr qint32 HALFYTILE = YTILE / 2;
-    static constexpr qint32 XTILE = 16;
-    static constexpr qint32 HALFXTILE = XTILE / 2;
+    static constexpr int32_t ZTILE = 8;
+    static constexpr int32_t HALFZTILE = ZTILE / 2;
+    static constexpr int32_t YTILE = 32;
+    static constexpr int32_t HALFYTILE = YTILE / 2;
+    static constexpr int32_t XTILE = 16;
+    static constexpr int32_t HALFXTILE = XTILE / 2;
 
     // Each tile is converted to the frequency domain using forwardPlan, which
     // gives a complex result of size XCOMPLEX x YCOMPLEX x ZCOMPLEX (roughly
     // half the size of the input, because the input data was real, i.e.
     // contained no negative frequencies).
-    static constexpr qint32 ZCOMPLEX = ZTILE;
-    static constexpr qint32 YCOMPLEX = YTILE;
-    static constexpr qint32 XCOMPLEX = (XTILE / 2) + 1;
+    static constexpr int32_t ZCOMPLEX = ZTILE;
+    static constexpr int32_t YCOMPLEX = YTILE;
+    static constexpr int32_t XCOMPLEX = (XTILE / 2) + 1;
 
     // Window function applied before the FFT
     double windowFunction[ZTILE][YTILE][XTILE];
@@ -97,7 +96,7 @@ protected:
 
     // The combined result of all the FFT processing for each input field.
     // Inverse-FFT results are accumulated into these buffers.
-    QVector<QVector<double>> chromaBuf;
+    std::vector<std::vector<double>> chromaBuf;
 };
 
 #endif

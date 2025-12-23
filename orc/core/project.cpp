@@ -128,8 +128,13 @@ Project load_project(const std::string& filename) {
                     auto param_map = param.second;
                     std::string type = param_map["type"].as<std::string>("string");
                     
-                    if (type == "int32" || type == "int") {
-                        node.parameters[param_name] = param_map["value"].as<int>();
+                    ORC_LOG_INFO("Loading parameter '{}' for node '{}', type={}", 
+                                 param_name, node.node_id, type);
+                    
+                    if (type == "int32" || type == "int" || type == "integer") {
+                        int value = param_map["value"].as<int>();
+                        node.parameters[param_name] = value;
+                        ORC_LOG_INFO("  Set to int: {}", value);
                     } else if (type == "uint32") {
                         node.parameters[param_name] = param_map["value"].as<uint32_t>();
                     } else if (type == "double") {

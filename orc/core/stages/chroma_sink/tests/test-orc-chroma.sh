@@ -269,6 +269,8 @@ verify_with_reference() {
     
     if [[ "$orc_checksum" == "$ref_checksum" ]]; then
         log_success "Test passed (matches reference): $test_name"
+        log_info "  ORC:       $orc_checksum"
+        log_info "  Reference: $ref_checksum"
         TESTS_PASSED=$((TESTS_PASSED + 1))
         return 0
     else
@@ -320,6 +322,8 @@ compare_with_standalone() {
     
     if [[ "$orc_checksum" == "$standalone_checksum" ]]; then
         log_success "Test passed (matches standalone): $test_name"
+        log_info "  ORC:        $orc_checksum"
+        log_info "  Standalone: $standalone_checksum"
         TESTS_PASSED=$((TESTS_PASSED + 1))
         return 0
     else

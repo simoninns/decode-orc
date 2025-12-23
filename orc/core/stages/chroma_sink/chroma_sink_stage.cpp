@@ -213,10 +213,12 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "start_frame") {
             if (std::holds_alternative<int>(value)) {
                 start_frame_ = std::get<int>(value);
+                ORC_LOG_INFO("ChromaSink: Parameter start_frame set to {}", start_frame_);
             }
         } else if (key == "length") {
             if (std::holds_alternative<int>(value)) {
                 length_ = std::get<int>(value);
+                ORC_LOG_INFO("ChromaSink: Parameter length set to {}", length_);
             }
         } else if (key == "threads") {
             if (std::holds_alternative<int>(value)) {
@@ -442,6 +444,9 @@ bool ChromaSinkStage::trigger(
     // 5. Determine frame range to process
     size_t total_fields = vfr->field_count();
     size_t total_frames = total_fields / 2;
+    
+    ORC_LOG_INFO("ChromaSink: Frame range parameters: start_frame_={}, length_={}, total_frames={}", 
+                 start_frame_, length_, total_frames);
     
     size_t start_frame = (start_frame_ > 0) ? (start_frame_ - 1) : 0;  // Convert to 0-based
     size_t num_frames = (length_ > 0) ? length_ : (total_frames - start_frame);

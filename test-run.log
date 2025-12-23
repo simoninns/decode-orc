@@ -1,0 +1,401 @@
+=========================================
+Field Mapping Test Automation
+=========================================
+
+[1/49] Processing: amawaab_pal_clv_6001-6205_heavy-repeat
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,46,202,0,0
+
+[2/49] Processing: amawaab_pal_clv_6001-6205_heavy-skip
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,3,161,0,0
+
+[3/49] Processing: amawaab_pal_clv_6001-6205_mixed-heavy
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,3,144,0,0
+
+[4/49] Processing: amawaab_pal_clv_6001-6205_mixed-light
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,6,184,0,0
+
+[5/49] Processing: amawaab_pal_clv_6001-6205_simple-repeat
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,12,202,0,0
+
+[6/49] Processing: amawaab_pal_clv_6001-6205_simple-skip
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,5,184,0,0
+
+[7/49] Processing: amawaab_pal_clv_6001-6205_skip-with-gap
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,197,0,0
+
+[8/49] Processing: bambi_ntsc_clv_18100-18306_heavy-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[9/49] Processing: bambi_ntsc_clv_18100-18306_heavy-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[10/49] Processing: bambi_ntsc_clv_18100-18306_mixed-heavy
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,4,8,45
+
+[11/49] Processing: bambi_ntsc_clv_18100-18306_mixed-light
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[12/49] Processing: bambi_ntsc_clv_18100-18306_simple-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[13/49] Processing: bambi_ntsc_clv_18100-18306_simple-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[14/49] Processing: bambi_ntsc_clv_18100-18306_skip-with-gap
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,2,15
+
+[15/49] Processing: bambi_ntsc_clv_8000-8200_heavy-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[16/49] Processing: bambi_ntsc_clv_8000-8200_heavy-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[17/49] Processing: bambi_ntsc_clv_8000-8200_mixed-heavy
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[18/49] Processing: bambi_ntsc_clv_8000-8200_mixed-light
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[19/49] Processing: bambi_ntsc_clv_8000-8200_simple-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[20/49] Processing: bambi_ntsc_clv_8000-8200_simple-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,4,10
+
+[21/49] Processing: bambi_ntsc_clv_8000-8200_skip-with-gap
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,1,5
+
+[22/49] Processing: cinder_ntsc_clv_21200-21410_heavy-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[23/49] Processing: cinder_ntsc_clv_21200-21410_heavy-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,2,15
+
+[24/49] Processing: cinder_ntsc_clv_21200-21410_mixed-heavy
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,10,60
+
+[25/49] Processing: cinder_ntsc_clv_21200-21410_mixed-light
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[26/49] Processing: cinder_ntsc_clv_21200-21410_simple-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[27/49] Processing: cinder_ntsc_clv_21200-21410_simple-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[28/49] Processing: cinder_ntsc_clv_21200-21410_skip-with-gap
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,3,15
+
+[29/49] Processing: cinder_ntsc_clv_9000-9210_heavy-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[30/49] Processing: cinder_ntsc_clv_9000-9210_heavy-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[31/49] Processing: cinder_ntsc_clv_9000-9210_mixed-heavy
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,15,75
+
+[32/49] Processing: cinder_ntsc_clv_9000-9210_mixed-light
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[33/49] Processing: cinder_ntsc_clv_9000-9210_simple-repeat
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[34/49] Processing: cinder_ntsc_clv_9000-9210_simple-skip
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,4,10
+
+[35/49] Processing: cinder_ntsc_clv_9000-9210_skip-with-gap
+  Format: NTSC
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✓ PASS
+
+[36/49] Processing: gpb_pal_clv_14005-14206_heavy-repeat
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,30,0,0,0
+
+[37/49] Processing: gpb_pal_clv_14005-14206_heavy-skip
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,3,0,4,33
+
+[38/49] Processing: gpb_pal_clv_14005-14206_mixed-heavy
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,5,0,12,69
+
+[39/49] Processing: gpb_pal_clv_14005-14206_mixed-light
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,5,0,5,13
+
+[40/49] Processing: gpb_pal_clv_14005-14206_simple-repeat
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,6,0,0,0
+
+[41/49] Processing: gpb_pal_clv_14005-14206_simple-skip
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,1,3
+
+[42/49] Processing: gpb_pal_clv_14005-14206_skip-with-gap
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,0,0,1,5
+
+[43/49] Processing: gpb_pal_clv_18500-18700_heavy-repeat
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,30,0,0,0
+
+[44/49] Processing: gpb_pal_clv_18500-18700_heavy-skip
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,3,0,6,48
+
+[45/49] Processing: gpb_pal_clv_18500-18700_mixed-heavy
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,8,0,14,83
+
+[46/49] Processing: gpb_pal_clv_18500-18700_mixed-light
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,2,0,7,16
+
+[47/49] Processing: gpb_pal_clv_18500-18700_simple-repeat
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,9,0,0,0
+
+[48/49] Processing: gpb_pal_clv_18500-18700_simple-skip
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,2,0,3,10
+
+[49/49] Processing: gpb_pal_clv_18500-18700_skip-with-gap
+  Format: PAL
+  Running ld-discmap...
+  Running ORC analysis...
+  Result: ✗ FAIL
+    ld-discmap: 0,0,0,0,0
+    ORC:        0,2,0,2,12
+
+=========================================
+Test Summary
+=========================================
+Total tests: 49
+Passed: 19
+Failed: 30
+
+Detailed results: /home/sdi/Coding/github/decode-orc/test-results/comparison.csv
+
+Failed tests:
+amawaab_pal_clv_6001-6205_heavy-repeat
+amawaab_pal_clv_6001-6205_heavy-skip
+amawaab_pal_clv_6001-6205_mixed-heavy
+amawaab_pal_clv_6001-6205_mixed-light
+amawaab_pal_clv_6001-6205_simple-repeat
+amawaab_pal_clv_6001-6205_simple-skip
+amawaab_pal_clv_6001-6205_skip-with-gap
+bambi_ntsc_clv_18100-18306_mixed-heavy
+bambi_ntsc_clv_18100-18306_skip-with-gap
+bambi_ntsc_clv_8000-8200_simple-skip
+bambi_ntsc_clv_8000-8200_skip-with-gap
+cinder_ntsc_clv_21200-21410_heavy-skip
+cinder_ntsc_clv_21200-21410_mixed-heavy
+cinder_ntsc_clv_21200-21410_skip-with-gap
+cinder_ntsc_clv_9000-9210_mixed-heavy
+cinder_ntsc_clv_9000-9210_simple-skip
+gpb_pal_clv_14005-14206_heavy-repeat
+gpb_pal_clv_14005-14206_heavy-skip
+gpb_pal_clv_14005-14206_mixed-heavy
+gpb_pal_clv_14005-14206_mixed-light
+gpb_pal_clv_14005-14206_simple-repeat
+gpb_pal_clv_14005-14206_simple-skip
+gpb_pal_clv_14005-14206_skip-with-gap
+gpb_pal_clv_18500-18700_heavy-repeat
+gpb_pal_clv_18500-18700_heavy-skip
+gpb_pal_clv_18500-18700_mixed-heavy
+gpb_pal_clv_18500-18700_mixed-light
+gpb_pal_clv_18500-18700_simple-repeat
+gpb_pal_clv_18500-18700_simple-skip
+gpb_pal_clv_18500-18700_skip-with-gap
+
+Results directory: /home/sdi/Coding/github/decode-orc/test-results
+Projects directory: /home/sdi/Coding/github/decode-orc/test-projects

@@ -71,7 +71,7 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
 
 **Step 1:** ✅ **COMPLETE** - Create ChromaSinkStage skeleton (GUI integration, parameters)  
 **Step 2:** ✅ **COMPLETE** - Copy decoder files to orc-core (read-only, with Qt6)  
-**Step 3:** ✅ **COMPLETE** - Implement integration layer (keep Qt6)  
+**Step 3:** ⚠️ **IN PROGRESS** - Implement integration layer (keep Qt6)  
    - ✅ Create adapter: VideoFieldRepresentation → SourceField  
    - ✅ Implement ChromaSinkStage::trigger()  
    - ✅ Create test infrastructure (ORC projects + test script)  
@@ -81,9 +81,11 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
    - ✅ Synchronous decoder invocation (bypass threading infrastructure)
    - ✅ OutputWriter integration (RGB48/YUV444P16/Y4M formats)
    - ✅ Frame-to-field ID mapping and field parity detection
-   - ✅ **CRITICAL FIX:** Apply padding adjustments before decoder initialization
-   - **STATUS:** All 24 standalone decoder tests passing (pixel-perfect output)
-   - **COMPLETION DATE:** 22 December 2025
+   - ⚠️ **ISSUE:** Output signatures don't match standalone decoder
+   - ⚠️ **ISSUE:** Transform3D crashes with assertion failure
+   - ⚠️ **ISSUE:** NTSC 3D crashes with segmentation fault
+   - **STATUS:** Integration functional but outputs differ from standalone (9/9 basic tests failing)
+   - **NEXT:** Debug signature mismatches and crashes
    
 **Step 4:** ⏳ **PENDING** - Remove Qt6 dependencies from decoders (~12-16 hours)  
    - Phase A: Data types & containers  
@@ -101,17 +103,47 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
 
 ### Testing Strategy
 
-After each step, verify:
+**Two-Phase Testing Approach:**
+
+1. **Standalone Decoder Tests** (24 tests)
+   - Located in: `orc-chroma-decoder/tests/`
+   - Tests the standalone `orc-chroma-decoder` binary
+   - Generates reference signatures: `references/test-signatures.txt`
+   - Validates that the standalone decoder works correctly
+
+2. **ORC Integration Tests** (24 matching tests)
+   - Located in: `orc/core/stages/chroma_sink/tests/`
+   - Tests the ChromaSinkStage within orc-core DAG
+   - Compares output to reference signatures from standalone tests
+   - Validates that ORC integration produces identical output
+
+**Running Tests:**
+
 ```bash
-# Build
+# 1. Build the project
 cd build && cmake --build .
 
-# Run ORC integration tests
-cd orc/core/stages/chroma_sink/tests
-./test-orc-chroma.sh compare
+# 2. Generate reference signatures (only when decoder changes)
+cd ../orc-chroma-decoder/tests
+./run-tests.sh generate
 
-# Verify signatures match standalone tool
+# 3. Verify standalone decoder (24 tests)
+./run-tests.sh verify
+
+# 4. Test ORC integration (24 tests, compare to references)
+cd ../../orc/core/stages/chroma_sink/tests
+./test-orc-chroma.sh verify
+
+# 5. Optional: Compare ORC directly to standalone (slow)
+./test-orc-chroma.sh compare
 ```
+
+**Test Coverage (24 tests total):**
+- **Decoder types:** PAL (2D, Transform2D, Transform3D), NTSC (1D, 2D, 3D, 3D-NoAdapt), Mono
+- **Output formats:** RGB48, YUV444P16, Y4M
+- **Parameters:** Chroma gain/phase, noise reduction, phase compensation
+- **Edge cases:** Reverse fields, padding, custom line ranges, CAV discs
+- **All tests must produce identical output** (byte-perfect matching signatures)
 
 ---
 

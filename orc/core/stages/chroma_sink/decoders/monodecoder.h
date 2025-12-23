@@ -30,14 +30,11 @@
 #include <iostream>
 
 #include "componentframe.h"
-#include "lddecodemetadata.h"
-#include "sourcevideo.h"
+#include "tbc_metadata.h"
 
 #include "comb.h"
 #include "decoder.h"
 #include "sourcefield.h"
-
-class DecoderPool;
 
 // Decoder that passes all input through as luma, for purely monochrome sources
 class MonoDecoder : public Decoder {
@@ -45,37 +42,22 @@ public:
 
 	struct MonoConfiguration {
 		double yNRLevel = 0.0;
-		LdDecodeMetaData::VideoParameters videoParameters;
+		::orc::VideoParameters videoParameters;
 	};
 	MonoDecoder();
 	MonoDecoder(const MonoDecoder::MonoConfiguration &config);
-	bool updateConfiguration(const LdDecodeMetaData::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
-	bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
-    std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) override;
-	/// Synchronously decode luma-only frames (no filtering)
+	bool updateConfiguration(const ::orc::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
+	bool configure(const ::orc::VideoParameters &videoParameters) override;
+
+	/// Decode luma-only frames (no filtering)
 	void decodeFrames(const std::vector<SourceField>& inputFields,
                     int32_t startIndex,
                     int32_t endIndex,
-                    std::vector<ComponentFrame>& componentFrames);
+                    std::vector<ComponentFrame>& componentFrames) override;
 	void doYNR(ComponentFrame &componentFrame);				
 
 private:
     MonoConfiguration monoConfig;
-};
-
-class MonoThread : public DecoderThread
-{
-public:
-    explicit MonoThread(std::atomic<bool> &abort, DecoderPool &decoderPool,
-                       const MonoDecoder::MonoConfiguration &monoConfig);
-
-protected:
-    void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                      std::vector<ComponentFrame> &componentFrames) override;
-
-private:
-    // Settings
-    const MonoDecoder::MonoConfiguration &monoConfig;
 };
 
 #endif // MONODECODER

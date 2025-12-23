@@ -25,7 +25,6 @@
 #include "monodecoder.h"
 
 #include "comb.h"
-#include "decoderpool.h"
 #include "palcolour.h"
 
 #include "deemp.h"
@@ -40,7 +39,7 @@ MonoDecoder::MonoDecoder(const MonoDecoder::MonoConfiguration &config)
     monoConfig = config;
 }
 
-bool MonoDecoder::updateConfiguration(const LdDecodeMetaData::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration) {
+bool MonoDecoder::updateConfiguration(const ::orc::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration) {
     // This decoder works for both PAL and NTSC.
 	monoConfig.yNRLevel = configuration.yNRLevel;
     monoConfig.videoParameters = videoParameters;
@@ -48,7 +47,7 @@ bool MonoDecoder::updateConfiguration(const LdDecodeMetaData::VideoParameters &v
     return true;
 }
 
-bool MonoDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParameters) {
+bool MonoDecoder::configure(const ::orc::VideoParameters &videoParameters) {
     // This decoder works for both PAL and NTSC.
 
     monoConfig.videoParameters = videoParameters;
@@ -56,28 +55,24 @@ bool MonoDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParame
     return true;
 }
 
-std::thread MonoDecoder::makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) {
-    return std::thread(&MonoThread::run, MonoThread(abort, decoderPool, monoConfig));
-}
-
 void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
                                int32_t startIndex,
                                int32_t endIndex,
                                std::vector<ComponentFrame>& componentFrames)
 {
-	const LdDecodeMetaData::VideoParameters &videoParameters = monoConfig.videoParameters;
+	const ::orc::VideoParameters &videoParameters = monoConfig.videoParameters;
 	bool ignoreUV = false;
 	
 	
 	for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
 		componentFrames[frameIndex].init(videoParameters, ignoreUV);
-		for (int32_t y = videoParameters.firstActiveFrameLine; y < videoParameters.lastActiveFrameLine; y++) {
-			const SourceVideo::Data &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data :inputFields[fieldIndex+1].data;
-			const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.fieldWidth);
+		for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
+			const QVector<quint16> &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
+			const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
 
 			// Copy the whole composite signal to Y (leaving U and V blank)
 			double *outY = componentFrames[frameIndex].y(y);
-			for (int32_t x = videoParameters.activeVideoStart; x < videoParameters.activeVideoEnd; x++) {
+			for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
 				outY[x] = inputLine[x];
 			}
 		}
@@ -90,12 +85,12 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
         return;
 
     // 1. Compute coring level (same formula in both existing routines)
-    double irescale = (monoConfig.videoParameters.white16bIre
-                     - monoConfig.videoParameters.black16bIre) / 100.0;
+    double irescale = (monoConfig.videoParameters.white_16b_ire
+                     - monoConfig.videoParameters.black_16b_ire) / 100.0;
     double nr_y     = monoConfig.yNRLevel * irescale;
 
     // 2. Choose filter taps & descriptor based on system
-    bool usePal = (monoConfig.videoParameters.system == PAL || monoConfig.videoParameters.system == PAL_M);
+    bool usePal = (monoConfig.videoParameters.system == orc::VideoSystem::PAL || monoConfig.videoParameters.system == orc::VideoSystem::PAL_M);
     const auto& taps       = usePal ? c_nrpal_b
                                     : c_nr_b;
     const auto& descriptor = usePal ? f_nrpal
@@ -104,41 +99,41 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
     const int delay = static_cast<int>(taps.size()) / 2;
 
     // 3. Process each active scanline in the frame
-    for (int line = monoConfig.videoParameters.firstActiveFrameLine;
-             line < monoConfig.videoParameters.lastActiveFrameLine;
+    for (int line = monoConfig.videoParameters.first_active_frame_line;
+             line < monoConfig.videoParameters.last_active_frame_line;
            ++line)
     {
         double* Y = componentFrame.y(line);
 
         // 4. High‑pass buffer & FIR filter
-        std::vector<double> hpY(monoConfig.videoParameters.activeVideoEnd + delay);
+        std::vector<double> hpY(monoConfig.videoParameters.active_video_end + delay);
         auto yFilter(descriptor);  // uses the chosen taps internally
 
         // Flush zeros before active start
-        for (int x = monoConfig.videoParameters.activeVideoStart - delay;
-                 x < monoConfig.videoParameters.activeVideoStart;
+        for (int x = monoConfig.videoParameters.active_video_start - delay;
+                 x < monoConfig.videoParameters.active_video_start;
                ++x)
         {
             yFilter.feed(0.0);
         }
         // Filter active region
-        for (int x = monoConfig.videoParameters.activeVideoStart;
-                 x < monoConfig.videoParameters.activeVideoEnd;
+        for (int x = monoConfig.videoParameters.active_video_start;
+                 x < monoConfig.videoParameters.active_video_end;
                ++x)
         {
             hpY[x] = yFilter.feed(Y[x]);
         }
         // Flush zeros after active end
-        for (int x = monoConfig.videoParameters.activeVideoEnd;
-                 x < monoConfig.videoParameters.activeVideoEnd + delay;
+        for (int x = monoConfig.videoParameters.active_video_end;
+                 x < monoConfig.videoParameters.active_video_end + delay;
                ++x)
         {
             yFilter.feed(0.0);
         }
 
         // 5. Clamp & subtract
-        for (int x = monoConfig.videoParameters.activeVideoStart;
-                 x < monoConfig.videoParameters.activeVideoEnd;
+        for (int x = monoConfig.videoParameters.active_video_start;
+                 x < monoConfig.videoParameters.active_video_end;
                ++x)
         {
             double a = hpY[x + delay];
@@ -149,17 +144,4 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
     }
 }
 
-MonoThread::MonoThread(std::atomic<bool>& _abort, DecoderPool& _decoderPool,
-                       const MonoDecoder::MonoConfiguration &_monoConfig)
-    : DecoderThread(_abort, _decoderPool), monoConfig(_monoConfig)
-{
-}
 
-void MonoThread::decodeFrames(const std::vector<SourceField>& inputFields,
-                              int32_t startIndex, int32_t endIndex,
-                              std::vector<ComponentFrame>& componentFrames)
-{
-    // Delegate to the centralized, public API
-    auto &baseDecoder = static_cast<MonoDecoder&>(decoderPool.getDecoder());
-    baseDecoder.decodeFrames(inputFields, startIndex, endIndex, componentFrames);
-}

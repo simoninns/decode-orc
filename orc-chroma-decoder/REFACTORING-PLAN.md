@@ -996,11 +996,11 @@ The parallel processing architecture was maintained:
 - ✅ Parallel processing works correctly
 - ✅ No performance regression
 
-**Phase E: Metadata & Parameters** (~3 hours) - NOT STARTED
+**Phase E: Metadata & Parameters** (~3 hours) - IN PROGRESS
 - Replace `LdDecodeMetaData::VideoParameters` with orc-core types
 - Replace `LdDecodeMetaData::Field` with orc-core FieldMetadata
 - Remove TBC library dependencies from algorithm code
-- **Note:** May be deferred to Step 5 (deeper integration)
+- Update all decoder algorithm files to use orc-core metadata
 
 **Phase F: Build System** (~2 hours) - NOT STARTED
 - Update CMakeLists.txt to remove Qt6 dependencies:

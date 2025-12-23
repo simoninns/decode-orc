@@ -35,7 +35,7 @@
 #include <string>
 #include <fstream>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
 #include "sourcevideo.h"
 
 #include "decoder.h"
@@ -46,7 +46,9 @@ class DecoderPool
 {
 public:
     explicit DecoderPool(Decoder &decoder, std::string inputFileName,
-                         LdDecodeMetaData &ldDecodeMetaData,
+                         const orc::VideoParameters &videoParameters,
+                         FieldMetadataProvider getFieldMetadata,
+                         int32_t totalFrames,
                          OutputWriter::Configuration &outputConfig, std::string outputFileName,
                          int32_t startFrame, int32_t length, int32_t maxThreads);
 
@@ -110,7 +112,9 @@ private:
     int32_t decoderLookAhead;
     int32_t inputFrameNumber;
     int32_t lastFrameNumber;
-    LdDecodeMetaData &ldDecodeMetaData;
+    orc::VideoParameters videoParameters;  // Mutable copy, may be adjusted by OutputWriter
+    FieldMetadataProvider getFieldMetadata;
+    int32_t totalFrames;
     SourceVideo sourceVideo;
 
     // Output stream information (all guarded by outputMutex while threads are running)

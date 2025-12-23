@@ -24,32 +24,32 @@
 
 #include "framecanvas.h"
 
-FrameCanvas::FrameCanvas(ComponentFrame &_componentFrame, const LdDecodeMetaData::VideoParameters &_videoParameters)
+FrameCanvas::FrameCanvas(ComponentFrame &_componentFrame, const ::orc::VideoParameters &_videoParameters)
     : yData(_componentFrame.y(0)), uData(_componentFrame.u(0)), vData(_componentFrame.v(0)),
       width(_componentFrame.getWidth()), height(_componentFrame.getHeight()),
-      ireRange(_videoParameters.white16bIre - _videoParameters.black16bIre), blackIre(_videoParameters.black16bIre),
+      ireRange(_videoParameters.white_16b_ire - _videoParameters.black_16b_ire), blackIre(_videoParameters.black_16b_ire),
       videoParameters(_videoParameters)
 {
 }
 
 int32_t FrameCanvas::top()
 {
-    return videoParameters.firstActiveFrameLine;
+    return videoParameters.first_active_frame_line;
 }
 
 int32_t FrameCanvas::bottom()
 {
-    return videoParameters.lastActiveFrameLine;
+    return videoParameters.last_active_frame_line;
 }
 
 int32_t FrameCanvas::left()
 {
-    return videoParameters.activeVideoStart;
+    return videoParameters.active_video_start;
 }
 
 int32_t FrameCanvas::right()
 {
-    return videoParameters.activeVideoEnd;
+    return videoParameters.active_video_end;
 }
 
 FrameCanvas::Colour FrameCanvas::rgb(uint16_t r, uint16_t g, uint16_t b)

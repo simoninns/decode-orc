@@ -30,7 +30,7 @@
 #include <vector>
 #include <string>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
 
 class ComponentFrame;
 
@@ -57,7 +57,7 @@ public:
 
     // Set the output configuration, and adjust the VideoParameters to suit.
     // (If usePadding is disabled, this will not change the VideoParameters.)
-    void updateConfiguration(LdDecodeMetaData::VideoParameters &videoParameters, const Configuration &config);
+    void updateConfiguration(::orc::VideoParameters &videoParameters, const Configuration &config);
 
     // Print an info message about the output format
     void printOutputInfo() const;
@@ -78,25 +78,25 @@ public:
 private:
     // Configuration parameters
     Configuration config;
-    LdDecodeMetaData::VideoParameters videoParameters;
+    ::orc::VideoParameters videoParameters;
 
     // Number of blank lines to add at the top and bottom of the output
-    qint32 topPadLines;
-    qint32 bottomPadLines;
+    int32_t topPadLines;
+    int32_t bottomPadLines;
 
     // Output size
-    qint32 activeWidth;
-    qint32 activeHeight;
-    qint32 outputHeight;
+    int32_t activeWidth;
+    int32_t activeHeight;
+    int32_t outputHeight;
 
     // Get a string representing the pixel format
     const char *getPixelName() const;
 
     // Clear padding lines
-    void clearPadLines(qint32 firstLine, qint32 numLines, OutputFrame &outputFrame) const;
+    void clearPadLines(int32_t firstLine, int32_t numLines, OutputFrame &outputFrame) const;
 
     // Convert one line
-    void convertLine(qint32 lineNumber, const ComponentFrame &componentFrame, OutputFrame &outputFrame) const;
+    void convertLine(int32_t lineNumber, const ComponentFrame &componentFrame, OutputFrame &outputFrame) const;
 };
 
 #endif // OUTPUTWRITER_H

@@ -26,6 +26,7 @@
 
 #include "outputwriter.h"
 
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <cstdlib>
@@ -53,7 +54,7 @@ static constexpr double ONE_MINUS_Kr = 1.0 - 0.299;
 static constexpr double kB = 0.49211104112248356308804691718185;
 static constexpr double kR = 0.87728321993817866838972487283129;
 
-void OutputWriter::updateConfiguration(LdDecodeMetaData::VideoParameters &_videoParameters,
+void OutputWriter::updateConfiguration(::orc::VideoParameters &_videoParameters,
                                        const OutputWriter::Configuration &_config)
 {
     config = _config;
@@ -61,8 +62,8 @@ void OutputWriter::updateConfiguration(LdDecodeMetaData::VideoParameters &_video
     topPadLines = 0;
     bottomPadLines = 0;
 
-    activeWidth = videoParameters.activeVideoEnd - videoParameters.activeVideoStart;
-    activeHeight = videoParameters.lastActiveFrameLine - videoParameters.firstActiveFrameLine;
+    activeWidth = videoParameters.active_video_end - videoParameters.active_video_start;
+    activeHeight = videoParameters.last_active_frame_line - videoParameters.first_active_frame_line;
     outputHeight = activeHeight;
 
     if (config.paddingAmount > 1) {
@@ -71,16 +72,16 @@ void OutputWriter::updateConfiguration(LdDecodeMetaData::VideoParameters &_video
         
         // Expand horizontal active region so the width is divisible by the specified padding factor.
         while (true) {
-            activeWidth = videoParameters.activeVideoEnd - videoParameters.activeVideoStart;
+            activeWidth = videoParameters.active_video_end - videoParameters.active_video_start;
             if ((activeWidth % config.paddingAmount) == 0) {
                 break;
             }
 
             // Add pixels to the right and left sides in turn, to keep the active area centred
             if ((activeWidth % 2) == 0) {
-                videoParameters.activeVideoEnd++;
+                videoParameters.active_video_end++;
             } else {
-                videoParameters.activeVideoStart--;
+                videoParameters.active_video_start--;
             }
         }
 
@@ -121,8 +122,8 @@ const char *OutputWriter::getPixelName() const
 void OutputWriter::printOutputInfo() const
 {
     // Show output information to the user
-    const int32_t frameHeight = (videoParameters.fieldHeight * 2) - 1;
-    std::cout << "INFO: Input video of " << videoParameters.fieldWidth << "x" << frameHeight
+    const int32_t frameHeight = (videoParameters.field_height * 2) - 1;
+    std::cout << "INFO: Input video of " << videoParameters.field_width << "x" << frameHeight
               << " will be colourised and trimmed to " << activeWidth << "x" << outputHeight
               << " " << getPixelName() << " frames" << std::endl;
 }
@@ -143,14 +144,14 @@ std::string OutputWriter::getStreamHeader() const
     str << " H" << outputHeight;
 
     // Frame rate
-    if (videoParameters.system == PAL) {
+    if (videoParameters.system == orc::VideoSystem::PAL) {
         str << " F25:1";
     } else {
         str << " F30000:1001";
     }
 
     // Field order
-    if (videoParameters.firstActiveFrameLine % 2 ^ topPadLines % 2) {
+    if (videoParameters.first_active_frame_line % 2 ^ topPadLines % 2) {
         str << " Ib";
     } else {
         str << " It";
@@ -159,14 +160,14 @@ std::string OutputWriter::getStreamHeader() const
     // Pixel aspect ratio
     // Follows EBU R92 and SMPTE RP 187 except that values are scaled from
     // BT.601 sampling (13.5 MHz) to 4fSC
-    if (videoParameters.system == PAL) {
-        if (videoParameters.isWidescreen) {
+    if (videoParameters.system == orc::VideoSystem::PAL) {
+        if (videoParameters.is_widescreen) {
             str << " A865:779"; // (16 / 9) * (576 / (702 * 4*fSC / 13.5))
         } else {
             str << " A259:311"; // (4 / 3) * (576 / (702 * 4*fSC / 13.5))
         }
     } else {
-        if (videoParameters.isWidescreen) {
+        if (videoParameters.is_widescreen) {
             str << " A25:22"; // (16 / 9) * (480 / (708 * 4*fSC / 13.5))
         } else {
             str << " A352:413"; // (4 / 3) * (480 / (708 * 4*fSC / 13.5))
@@ -268,18 +269,20 @@ void OutputWriter::clearPadLines(int32_t firstLine, int32_t numLines, OutputFram
 void OutputWriter::convertLine(int32_t lineNumber, const ComponentFrame &componentFrame, OutputFrame &outputFrame) const
 {
     // Get pointers to the component data for the active region
-    const int32_t inputLine = videoParameters.firstActiveFrameLine + lineNumber;
-    const double *inY = componentFrame.y(inputLine) + videoParameters.activeVideoStart;
+    const int32_t inputLine = videoParameters.first_active_frame_line + lineNumber;
+    ORC_LOG_DEBUG("OutputWriter::convertLine: lineNumber={}, first_active_frame_line={}, inputLine={}", 
+                  lineNumber, videoParameters.first_active_frame_line, inputLine);
+    const double *inY = componentFrame.y(inputLine) + videoParameters.active_video_start;
     // Not used if output is GRAY16
     const double *inU = (config.pixelFormat != GRAY16) ?
-                            componentFrame.u(inputLine) + videoParameters.activeVideoStart : nullptr;
+                            componentFrame.u(inputLine) + videoParameters.active_video_start : nullptr;
     const double *inV = (config.pixelFormat != GRAY16) ?
-                            componentFrame.v(inputLine) + videoParameters.activeVideoStart : nullptr;
+                            componentFrame.v(inputLine) + videoParameters.active_video_start : nullptr;
 
     const int32_t outputLine = topPadLines + lineNumber;
 
-    const double yOffset = videoParameters.black16bIre;
-    double yRange = videoParameters.white16bIre - videoParameters.black16bIre;
+    const double yOffset = videoParameters.black_16b_ire;
+    double yRange = videoParameters.white_16b_ire - videoParameters.black_16b_ire;
     const double uvRange = yRange;
 
     switch (config.pixelFormat) {
@@ -292,15 +295,15 @@ void OutputWriter::convertLine(int32_t lineNumber, const ComponentFrame &compone
 
             for (int32_t x = 0; x < activeWidth; x++) {
                 // Scale Y'UV to 0-65535
-                const double rY = qBound(0.0, (inY[x] - yOffset) * yScale, 65535.0);
+                const double rY = std::clamp((inY[x] - yOffset) * yScale, 0.0, 65535.0);
                 const double rU = inU[x] * uvScale;
                 const double rV = inV[x] * uvScale;
 
                 // Convert Y'UV to R'G'B'
                 const int32_t pos = x * 3;
-                out[pos]     = static_cast<uint16_t>(qBound(0.0, rY                    + (1.139883 * rV),  65535.0));
-                out[pos + 1] = static_cast<uint16_t>(qBound(0.0, rY + (-0.394642 * rU) + (-0.580622 * rV), 65535.0));
-                out[pos + 2] = static_cast<uint16_t>(qBound(0.0, rY + (2.032062 * rU),                     65535.0));
+                out[pos]     = static_cast<uint16_t>(std::clamp(rY                    + (1.139883 * rV), 0.0,  65535.0));
+                out[pos + 1] = static_cast<uint16_t>(std::clamp(rY + (-0.394642 * rU) + (-0.580622 * rV), 0.0, 65535.0));
+                out[pos + 2] = static_cast<uint16_t>(std::clamp(rY + (2.032062 * rU), 0.0,                     65535.0));
             }
 
             break;
@@ -316,9 +319,9 @@ void OutputWriter::convertLine(int32_t lineNumber, const ComponentFrame &compone
             const double crScale = (C_SCALE / (ONE_MINUS_Kr * kR)) / uvRange;
 
             for (int32_t x = 0; x < activeWidth; x++) {
-                outY[x]  = static_cast<uint16_t>(qBound(Y_MIN, ((inY[x] - yOffset) * yScale)  + Y_ZERO, Y_MAX));
-                outCB[x] = static_cast<uint16_t>(qBound(C_MIN, (inU[x]             * cbScale) + C_ZERO, C_MAX));
-                outCR[x] = static_cast<uint16_t>(qBound(C_MIN, (inV[x]             * crScale) + C_ZERO, C_MAX));
+                outY[x]  = static_cast<uint16_t>(std::clamp(((inY[x] - yOffset) * yScale)  + Y_ZERO, Y_MIN, Y_MAX));
+                outCB[x] = static_cast<uint16_t>(std::clamp((inU[x]             * cbScale) + C_ZERO, C_MIN, C_MAX));
+                outCR[x] = static_cast<uint16_t>(std::clamp((inV[x]             * crScale) + C_ZERO, C_MIN, C_MAX));
             }
 
             break;
@@ -330,7 +333,7 @@ void OutputWriter::convertLine(int32_t lineNumber, const ComponentFrame &compone
             const double yScale = Y_SCALE / yRange;
 
             for (int32_t x = 0; x < activeWidth; x++) {
-                out[x] = static_cast<uint16_t>(qBound(Y_MIN, ((inY[x] - yOffset) * yScale) + Y_ZERO, Y_MAX));
+                out[x] = static_cast<uint16_t>(std::clamp(((inY[x] - yOffset) * yScale) + Y_ZERO, Y_MIN, Y_MAX));
             }
 
             break;

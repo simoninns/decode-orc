@@ -25,16 +25,15 @@
 
 #include "paldecoder.h"
 
-#include "decoderpool.h"
 
 PalDecoder::PalDecoder(const PalColour::Configuration &palConfig)
 {
     config.pal = palConfig;
 }
 
-bool PalDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParameters) {
+bool PalDecoder::configure(const ::orc::VideoParameters &videoParameters) {
     // Ensure the source video is PAL
-    if (videoParameters.system != PAL && videoParameters.system != PAL_M) {
+    if (videoParameters.system != orc::VideoSystem::PAL && videoParameters.system != orc::VideoSystem::PAL_M) {
         std::cerr << "ERROR: This decoder is for PAL video sources only" << std::endl;
         return false;
     }
@@ -54,20 +53,5 @@ int32_t PalDecoder::getLookAhead() const
     return config.pal.getLookAhead();
 }
 
-std::thread PalDecoder::makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) {
-    return std::thread(&PalThread::run, PalThread(abort, decoderPool, config));
-}
 
-PalThread::PalThread(std::atomic<bool>& _abort, DecoderPool& _decoderPool,
-                     const PalDecoder::Configuration &_config)
-    : DecoderThread(_abort, _decoderPool), config(_config)
-{
-    // Configure PALcolour
-    palColour.updateConfiguration(config.videoParameters, config.pal);
-}
 
-void PalThread::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                             std::vector<ComponentFrame> &componentFrames)
-{
-    palColour.decodeFrames(inputFields, startIndex, endIndex, componentFrames);
-}

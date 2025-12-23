@@ -31,23 +31,20 @@
 #include <iostream>
 
 #include "componentframe.h"
-#include "lddecodemetadata.h"
-#include "sourcevideo.h"
+#include "tbc_metadata.h"
 
 #include "decoder.h"
 #include "palcolour.h"
 #include "sourcefield.h"
 
-class DecoderPool;
 
 // 2D PAL decoder using PALcolour
 class PalDecoder : public Decoder {
 public:
     PalDecoder(const PalColour::Configuration &palConfig);
-    bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
+    bool configure(const ::orc::VideoParameters &videoParameters) override;
     int32_t getLookBehind() const override;
     int32_t getLookAhead() const override;
-    std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) override;
 
     // Parameters used by PalDecoder and PalThread
     struct Configuration : public Decoder::Configuration {
@@ -58,22 +55,5 @@ private:
     Configuration config;
 };
 
-class PalThread : public DecoderThread
-{
-public:
-    explicit PalThread(std::atomic<bool> &abort, DecoderPool &decoderPool,
-                       const PalDecoder::Configuration &config);
-
-protected:
-    void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                      std::vector<ComponentFrame> &componentFrames) override;
-
-private:
-    // Settings
-    const PalDecoder::Configuration &config;
-
-    // PAL colour object
-    PalColour palColour;
-};
 
 #endif // PALDECODER

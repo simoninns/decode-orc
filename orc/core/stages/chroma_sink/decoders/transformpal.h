@@ -30,7 +30,7 @@
 
 #include <fftw3.h>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
 
 #include "componentframe.h"
 #include "framecanvas.h"
@@ -48,7 +48,7 @@ public:
     // threshold is the similarity threshold for the filter. Values from 0-1
     // are meaningful, with higher values requiring signals to be more similar
     // to be considered chroma.
-    void updateConfiguration(const LdDecodeMetaData::VideoParameters &videoParameters,
+    void updateConfiguration(const ::orc::VideoParameters &videoParameters,
                              double threshold, const std::vector<double> &thresholds);
 
     // Filter input fields.
@@ -85,7 +85,7 @@ protected:
 
     // Configuration parameters
     bool configurationSet;
-    LdDecodeMetaData::VideoParameters videoParameters;
+    ::orc::VideoParameters videoParameters;
     std::vector<double> thresholds;
 };
 

@@ -32,23 +32,20 @@
 #include <iostream>
 
 #include "componentframe.h"
-#include "lddecodemetadata.h"
-#include "sourcevideo.h"
+#include "tbc_metadata.h"
 
 #include "comb.h"
 #include "decoder.h"
 #include "sourcefield.h"
 
-class DecoderPool;
 
 // 2D/3D NTSC decoder using Comb
 class NtscDecoder : public Decoder {
 public:
     NtscDecoder(const Comb::Configuration &combConfig);
-    bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) override;
+    bool configure(const ::orc::VideoParameters &videoParameters) override;
     int32_t getLookBehind() const override;
     int32_t getLookAhead() const override;
-    std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) override;
 
     // Parameters used by NtscDecoder and NtscThread
     struct Configuration : public Decoder::Configuration {
@@ -59,22 +56,5 @@ private:
     Configuration config;
 };
 
-class NtscThread : public DecoderThread
-{
-public:
-    explicit NtscThread(std::atomic<bool> &abort, DecoderPool &decoderPool,
-                        const NtscDecoder::Configuration &config);
-
-protected:
-    void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                      std::vector<ComponentFrame> &componentFrames) override;
-
-private:
-    // Settings
-    const NtscDecoder::Configuration &config;
-
-    // NTSC decoder
-    Comb comb;
-};
 
 #endif // NTSCDECODER_H

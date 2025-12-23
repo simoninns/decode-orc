@@ -32,39 +32,28 @@
 #include <iostream>
 #include <cassert>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
 
 #include "componentframe.h"
 #include "outputwriter.h"
 #include "sourcefield.h"
 
-class DecoderPool;
-
 // Abstract base class for chroma decoders.
 //
-// For each chroma decoder in ld-chroma-decoder, there is a subclass of this
-// class, and a corresponding subclass of DecoderThread -- let's say
-// SecamDecoder and SecamThread.
+// ChromaSinkStage creates decoder instances and calls:
+// 1. configure() with video parameters
+// 2. getLookBehind()/getLookAhead() to determine field context needed
+// 3. decodeFrames() to decode fields into component frames
 //
-// main() creates an instance of SecamDecoder and passes it to DecoderPool.
-// DecoderPool calls SecamDecoder::configure with the input video parameters,
-// then calls SecamDecoder::makeThread repeatedly to populate its thread pool.
-//
-// SecamThread::run fetches input frames from DecoderPool and writes completed
-// output frames back to DecoderPool; it keeps going until there are no input
-// frames left, or until abort becomes true. If it detects that something's
-// gone wrong, it sets abort to true and returns.
-//
-// This means that you can have state shared between all the decoder threads,
-// in SecamDecoder, or specific to each thread, in SecamThread -- and
-// DecoderPool doesn't need to know anything specific about the decoder.
+// For multi-threading, ChromaSinkStage creates multiple decoder instances
+// (one per worker thread), each operating independently.
 class Decoder {
 public:
     virtual ~Decoder() = default;
 
     // Configure the decoder given input video parameters.
     // If the video is not compatible, print an error message and return false.
-    virtual bool configure(const LdDecodeMetaData::VideoParameters &videoParameters) = 0;
+    virtual bool configure(const ::orc::VideoParameters &videoParameters) = 0;
 
     // After configuration, return the number of frames that the decoder needs
     // to be able to see into the past (each frame being two SourceFields).
@@ -76,34 +65,15 @@ public:
     // The default implementation returns 0, which is appropriate for 1D/2D decoders.
     virtual int32_t getLookAhead() const;
 
-    // Construct a new worker thread
-    virtual std::thread makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool) = 0;
-
-    // Parameters used by the decoder and its threads.
-    // This may be subclassed by decoders to add extra parameters.
-    struct Configuration {
-        LdDecodeMetaData::VideoParameters videoParameters;
-    };
-};
-
-// Abstract base class for chroma decoder worker threads.
-class DecoderThread {
-public:
-    explicit DecoderThread(std::atomic<bool> &abort, DecoderPool &decoderPool);
-
-    // Thread entry point (called by std::thread)
-    void run();
-
     // Decode a sequence of composite fields into a sequence of component frames
     virtual void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
                               std::vector<ComponentFrame> &componentFrames) = 0;
 
-    // Decoder pool
-    std::atomic<bool> &abort;
-    DecoderPool &decoderPool;
-
-    // Output writer
-    OutputWriter &outputWriter;
+    // Parameters used by the decoder and its threads.
+    // This may be subclassed by decoders to add extra parameters.
+    struct Configuration {
+        ::orc::VideoParameters videoParameters;
+    };
 };
 
 #endif

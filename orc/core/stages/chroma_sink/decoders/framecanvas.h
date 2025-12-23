@@ -28,7 +28,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
 
 #include "componentframe.h"
 
@@ -37,7 +37,7 @@ class FrameCanvas {
 public:
     // componentFrame is the frame to draw upon, and videoParameters gives its parameters.
     // (Both parameters are captured by reference, not copied.)
-    FrameCanvas(ComponentFrame &componentFrame, const LdDecodeMetaData::VideoParameters &videoParameters);
+    FrameCanvas(ComponentFrame &componentFrame, const ::orc::VideoParameters &videoParameters);
 
     // Return the edges of the active area.
     int32_t top();
@@ -69,7 +69,7 @@ private:
     double *yData, *uData, *vData;
     int32_t width, height;
     double ireRange, blackIre;
-    const LdDecodeMetaData::VideoParameters &videoParameters;
+    const ::orc::VideoParameters &videoParameters;
 };
 
 #endif

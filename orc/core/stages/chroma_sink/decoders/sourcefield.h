@@ -25,36 +25,29 @@
 #ifndef SOURCEFIELD_H
 #define SOURCEFIELD_H
 
-#include "lddecodemetadata.h"
-#include "sourcevideo.h"
+#include "tbc_metadata.h"
+#include <QVector>
+#include <cstdint>
 
-// A field read from the input, with metadata and data
+// A field with metadata and data
+// Data comes from VFR (VideoFieldRepresentation) in orc-core
 struct SourceField {
-    LdDecodeMetaData::Field field;
-    SourceVideo::Data data;
-
-    // Load a sequence of frames from the input files.
-    //
-    // fields will contain {lookbehind fields... [startIndex] real fields... [endIndex] lookahead fields...}.
-    // Fields requested outside the bounds of the file will have dummy metadata and black data.
-    static void loadFields(SourceVideo &sourceVideo, LdDecodeMetaData &ldDecodeMetaData,
-                           int32_t firstFrameNumber, int32_t numFrames,
-                           int32_t lookBehindFrames, int32_t lookAheadFrames,
-                           std::vector<SourceField> &fields, int32_t &startIndex, int32_t &endIndex);
+    orc::FieldMetadata field;
+    QVector<quint16> data;
 
     // Return the vertical offset of this field within the interlaced frame
     // (i.e. 0 for the top field, 1 for the bottom field).
     int32_t getOffset() const {
-        return field.isFirstField ? 0 : 1;
+        return (field.is_first_field.value_or(true)) ? 0 : 1;
     }
 
     // Return the first/last active line numbers within this field's data,
     // given the video parameters.
-    int32_t getFirstActiveLine(const LdDecodeMetaData::VideoParameters &videoParameters) const {
-        return (videoParameters.firstActiveFrameLine + 1 - getOffset()) / 2;
+    int32_t getFirstActiveLine(const ::orc::VideoParameters &videoParameters) const {
+        return (videoParameters.first_active_frame_line + 1 - getOffset()) / 2;
     }
-    int32_t getLastActiveLine(const LdDecodeMetaData::VideoParameters &videoParameters) const {
-        return (videoParameters.lastActiveFrameLine + 1 - getOffset()) / 2;
+    int32_t getLastActiveLine(const ::orc::VideoParameters &videoParameters) const {
+        return (videoParameters.last_active_frame_line + 1 - getOffset()) / 2;
     }
 };
 

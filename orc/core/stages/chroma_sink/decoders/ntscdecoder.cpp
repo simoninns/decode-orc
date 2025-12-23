@@ -26,16 +26,15 @@
 
 #include "ntscdecoder.h"
 
-#include "decoderpool.h"
 
 NtscDecoder::NtscDecoder(const Comb::Configuration &combConfig)
 {
     config.combConfig = combConfig;
 }
 
-bool NtscDecoder::configure(const LdDecodeMetaData::VideoParameters &videoParameters) {
+bool NtscDecoder::configure(const ::orc::VideoParameters &videoParameters) {
     // Ensure the source video is NTSC
-    if (videoParameters.system != NTSC) {
+    if (videoParameters.system != orc::VideoSystem::NTSC) {
         std::cerr << "ERROR: This decoder is for NTSC video sources only" << std::endl;
         return false;
     }
@@ -55,22 +54,5 @@ int32_t NtscDecoder::getLookAhead() const
     return config.combConfig.getLookAhead();
 }
 
-std::thread NtscDecoder::makeThread(std::atomic<bool>& abort, DecoderPool& decoderPool)
-{
-    return std::thread(&NtscThread::run, NtscThread(abort, decoderPool, config));
-}
 
-NtscThread::NtscThread(std::atomic<bool>& _abort, DecoderPool &_decoderPool,
-                       const NtscDecoder::Configuration &_config)
-    : DecoderThread(_abort, _decoderPool), config(_config)
-{
-    // Configure NTSC decoder
-    comb.updateConfiguration(config.videoParameters, config.combConfig);
-}
 
-void NtscThread::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                              std::vector<ComponentFrame> &componentFrames)
-{
-    // Decode fields to frames
-    comb.decodeFrames(inputFields, startIndex, endIndex, componentFrames);
-}

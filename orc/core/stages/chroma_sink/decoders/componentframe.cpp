@@ -30,10 +30,10 @@ ComponentFrame::ComponentFrame()
 {
 }
 
-void ComponentFrame::init(const LdDecodeMetaData::VideoParameters &videoParameters, bool mono)
+void ComponentFrame::init(const ::orc::VideoParameters &videoParameters, bool mono)
 {
-    width = videoParameters.fieldWidth;
-    height = (videoParameters.fieldHeight * 2) - 1;
+    width = videoParameters.field_width;
+    height = (videoParameters.field_height * 2) - 1;
 
     const int32_t size = width * height;
 

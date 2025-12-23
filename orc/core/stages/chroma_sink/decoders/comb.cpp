@@ -1,3 +1,4 @@
+#include "logging.h"
 /************************************************************************
 
     comb.cpp
@@ -110,29 +111,29 @@ const Comb::Configuration &Comb::getConfiguration() const {
 }
 
 // Set the comb filter configuration parameters
-void Comb::updateConfiguration(const LdDecodeMetaData::VideoParameters &_videoParameters, const Comb::Configuration &_configuration)
+void Comb::updateConfiguration(const ::orc::VideoParameters &_videoParameters, const Comb::Configuration &_configuration)
 {
     // Copy the configuration parameters
     videoParameters = _videoParameters;
     configuration = _configuration;
 
     // Range check the frame dimensions
-    if (videoParameters.fieldWidth > MAX_WIDTH) {
+    if (videoParameters.field_width > MAX_WIDTH) {
         std::cerr << "ERROR: Comb::Comb(): Frame width exceeds allowed maximum!" << std::endl;
     }
-    if (((videoParameters.fieldHeight * 2) - 1) > MAX_HEIGHT) {
+    if (((videoParameters.field_height * 2) - 1) > MAX_HEIGHT) {
         std::cerr << "ERROR: Comb::Comb(): Frame height exceeds allowed maximum!" << std::endl;
     }
 
     // Range check the video start
-    if (videoParameters.activeVideoStart < 16) {
+    if (videoParameters.active_video_start < 16) {
         std::cerr << "ERROR: Comb::Comb(): activeVideoStart must be > 16!" << std::endl;
     }
 
     // Check the sample rate is close to 4 * fSC.
     // Older versions of ld-decode used integer approximations, so this needs
     // to be an approximate comparison.
-    if (fabs((videoParameters.sampleRate / videoParameters.fSC) - 4.0) > 1.0e-6)
+    if (fabs((videoParameters.sample_rate / videoParameters.fsc) - 4.0) > 1.0e-6)
     {
         std::cerr << "ERROR: Data is not in 4fsc sample rate, color decoding will not work properly!" << std::endl;
     }
@@ -221,15 +222,15 @@ void Comb::decodeFrames(const std::vector<SourceField> &inputFields, int32_t sta
 
 // Private methods ----------------------------------------------------------------------------------------------------
 
-Comb::FrameBuffer::FrameBuffer(const LdDecodeMetaData::VideoParameters &videoParameters_,
+Comb::FrameBuffer::FrameBuffer(const ::orc::VideoParameters &videoParameters_,
                                const Configuration &configuration_)
     : videoParameters(videoParameters_), configuration(configuration_)
 {
     // Set the frame height
-    frameHeight = ((videoParameters.fieldHeight * 2) - 1);
+    frameHeight = ((videoParameters.field_height * 2) - 1);
 
     // Set the IRE scale
-    irescale = (videoParameters.white16bIre - videoParameters.black16bIre) / 100;
+    irescale = (videoParameters.white_16b_ire - videoParameters.black_16b_ire) / 100;
 }
 
 /*
@@ -271,14 +272,14 @@ void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceFi
     int32_t fieldLine = 0;
     rawbuffer.clear();
     for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
-        rawbuffer.append(firstField.data.mid(fieldLine * videoParameters.fieldWidth, videoParameters.fieldWidth));
-        rawbuffer.append(secondField.data.mid(fieldLine * videoParameters.fieldWidth, videoParameters.fieldWidth));
+        rawbuffer.append(firstField.data.mid(fieldLine * videoParameters.field_width, videoParameters.field_width));
+        rawbuffer.append(secondField.data.mid(fieldLine * videoParameters.field_width, videoParameters.field_width));
         fieldLine++;
     }
 
     // Set the phase IDs for the frame
-    firstFieldPhaseID = firstField.field.fieldPhaseID;
-    secondFieldPhaseID = secondField.field.fieldPhaseID;
+    firstFieldPhaseID = firstField.field.field_phase_id.value_or(-1);
+    secondFieldPhaseID = secondField.field.field_phase_id.value_or(-1);
 
     // Clear clpbuffer
     for (int32_t buf = 0; buf < 3; buf++) {
@@ -303,11 +304,11 @@ void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceFi
 // splitIQ, so we use its result for split2D rather than the raw signal.
 void Comb::FrameBuffer::split1D()
 {
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         // Get a pointer to the line's data
-        const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.fieldWidth);
+        const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.field_width);
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             double tc1 = (line[h] - ((line[h - 2] + line[h + 2]) / 2.0)) / 2.0;
 
             // Record the 1D C value
@@ -331,20 +332,20 @@ void Comb::FrameBuffer::split2D()
     // Dummy black line
     static constexpr double blackLine[MAX_WIDTH] = {0};
 
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         // Get pointers to the surrounding lines of 1D chroma.
         // If a line we need is outside the active area, use blackLine instead.
         const double *previousLine = blackLine;
-        if (lineNumber - 2 >= videoParameters.firstActiveFrameLine) {
+        if (lineNumber - 2 >= videoParameters.first_active_frame_line) {
             previousLine = clpbuffer[0].pixel[lineNumber - 2];
         }
         const double *currentLine = clpbuffer[0].pixel[lineNumber];
         const double *nextLine = blackLine;
-        if (lineNumber + 2 < videoParameters.lastActiveFrameLine) {
+        if (lineNumber + 2 < videoParameters.last_active_frame_line) {
             nextLine = clpbuffer[0].pixel[lineNumber + 2];
         }
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             double kp, kn;
 
             // Summing the differences of the *absolute* values of the 1D chroma samples
@@ -407,8 +408,8 @@ void Comb::FrameBuffer::split2D()
 // candidate.
 void Comb::FrameBuffer::split3D(const FrameBuffer &previousFrame, const FrameBuffer &nextFrame)
 {
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             // Select the best candidate
             int32_t bestIndex;
             double bestSample;
@@ -483,7 +484,7 @@ Comb::FrameBuffer::Candidate Comb::FrameBuffer::getCandidate(int32_t refLineNumb
     result.sample = frameBuffer.clpbuffer[0].pixel[lineNumber][h];
 
     // If the candidate is outside the active region (vertically), it's not viable
-    if (lineNumber < videoParameters.firstActiveFrameLine || lineNumber >= videoParameters.lastActiveFrameLine) {
+    if (lineNumber < videoParameters.first_active_frame_line || lineNumber >= videoParameters.last_active_frame_line) {
         result.penalty = 1000.0;
         return result;
     }
@@ -498,8 +499,8 @@ Comb::FrameBuffer::Candidate Comb::FrameBuffer::getCandidate(int32_t refLineNumb
     }
 
     // Pointers to the baseband data
-    const uint16_t *refLine = rawbuffer.data() + (refLineNumber * videoParameters.fieldWidth);
-    const uint16_t *candidateLine = frameBuffer.rawbuffer.data() + (lineNumber * videoParameters.fieldWidth);
+    const uint16_t *refLine = rawbuffer.data() + (refLineNumber * videoParameters.field_width);
+    const uint16_t *candidateLine = frameBuffer.rawbuffer.data() + (lineNumber * videoParameters.field_width);
 
     // Penalty based on mean luma difference in IRE over surrounding three samples
     double yPenalty = 0.0;
@@ -544,7 +545,7 @@ namespace {
     constexpr double ROTATE_COS = 0.838670567945424;
 
     BurstInfo detectBurst(const uint16_t* lineData,
-                          const LdDecodeMetaData::VideoParameters& videoParameters)
+                          const ::orc::VideoParameters& videoParameters)
     {
         double bsin = 0, bcos = 0;
 
@@ -552,13 +553,13 @@ namespace {
         // product detection.
         // For now we just use the burst on the current line, but we could possibly do some averaging with
         // neighbouring lines later if needed.
-        for (int32_t i = videoParameters.colourBurstStart; i < videoParameters.colourBurstEnd; i++) {
+        for (int32_t i = videoParameters.colour_burst_start; i < videoParameters.colour_burst_end; i++) {
             bsin += lineData[i] * sin4fsc(i);
             bcos += lineData[i] * cos4fsc(i);
         }
 
         // Normalise the sums above
-        const int32_t colourBurstLength = videoParameters.colourBurstEnd - videoParameters.colourBurstStart;
+        const int32_t colourBurstLength = videoParameters.colour_burst_end - videoParameters.colour_burst_start;
         bsin /= colourBurstLength;
         bcos /= colourBurstLength;
 
@@ -575,9 +576,9 @@ namespace {
 // Split I and Q, taking burst phase into account.
 void Comb::FrameBuffer::splitIQlocked()
 {
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         // Get a pointer to the line's data
-        const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.fieldWidth);
+        const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.field_width);
         // Calculate burst phase
         const auto info = detectBurst(line, videoParameters);
 
@@ -585,7 +586,7 @@ void Comb::FrameBuffer::splitIQlocked()
         double *I = componentFrame->u(lineNumber);
         double *Q = componentFrame->v(lineNumber);
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             const auto val = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
 
             // Demodulate the sine and cosine components.
@@ -609,9 +610,9 @@ void Comb::FrameBuffer::splitIQlocked()
 // Spilt the I and Q
 void Comb::FrameBuffer::splitIQ()
 {
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         // Get a pointer to the line's data
-        const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.fieldWidth);
+        const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.field_width);
 
         double *Y = componentFrame->y(lineNumber);
         double *I = componentFrame->u(lineNumber);
@@ -620,7 +621,7 @@ void Comb::FrameBuffer::splitIQ()
         bool linePhase = getLinePhase(lineNumber);
 
         double si = 0, sq = 0;
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             int32_t phase = h % 4;
 
             double cavg = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
@@ -648,12 +649,12 @@ void Comb::FrameBuffer::filterIQ()
     auto iqFilter = makeFIRFilter(c_colorlp_b);
 
     // Temporary output buffer for the filter
-    const int width = videoParameters.activeVideoEnd - videoParameters.activeVideoStart;
+    const int width = videoParameters.active_video_end - videoParameters.active_video_start;
     std::vector<double> tempBuf(width);
 
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
-        double *I = componentFrame->u(lineNumber) + videoParameters.activeVideoStart;
-        double *Q = componentFrame->v(lineNumber) + videoParameters.activeVideoStart;
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
+        double *I = componentFrame->u(lineNumber) + videoParameters.active_video_start;
+        double *Q = componentFrame->v(lineNumber) + videoParameters.active_video_start;
 
         // Apply filter to I
         iqFilter.apply(I, tempBuf.data(), width);
@@ -669,14 +670,14 @@ void Comb::FrameBuffer::filterIQ()
 void Comb::FrameBuffer::adjustY()
 {
     // remove color data from baseband (Y)
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         double *Y = componentFrame->y(lineNumber);
         double *I = componentFrame->u(lineNumber);
         double *Q = componentFrame->v(lineNumber);
 
         bool linePhase = getLinePhase(lineNumber);
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             double comp = 0;
             int32_t phase = h % 4;
 
@@ -718,29 +719,29 @@ void Comb::FrameBuffer::doCNR()
 
     // High-pass result
     // TODO: Cache arrays instead of reallocating every field.
-    std::vector<double> hpI(videoParameters.activeVideoEnd + delay);
-    std::vector<double> hpQ(videoParameters.activeVideoEnd + delay);
+    std::vector<double> hpI(videoParameters.active_video_end + delay);
+    std::vector<double> hpQ(videoParameters.active_video_end + delay);
 
 
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         double *I = componentFrame->u(lineNumber);
         double *Q = componentFrame->v(lineNumber);
 
         // Feed zeros into the filter outside the active area
-        for (int32_t h = videoParameters.activeVideoStart - delay; h < videoParameters.activeVideoStart; h++) {
+        for (int32_t h = videoParameters.active_video_start - delay; h < videoParameters.active_video_start; h++) {
             iFilter.feed(0.0);
             qFilter.feed(0.0);
         }
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             hpI[h] = iFilter.feed(I[h]);
             hpQ[h] = qFilter.feed(Q[h]);
         }
-        for (int32_t h = videoParameters.activeVideoEnd; h < videoParameters.activeVideoEnd + delay; h++) {
+        for (int32_t h = videoParameters.active_video_end; h < videoParameters.active_video_end + delay; h++) {
             hpI[h] = iFilter.feed(0.0);
             hpQ[h] = qFilter.feed(0.0);
         }
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             // Offset to cover the filter delay
             double ai = hpI[h + delay];
             double aq = hpQ[h + delay];
@@ -773,23 +774,23 @@ void Comb::FrameBuffer::doYNR()
     const int32_t delay = c_nr_b.size() / 2;
 
     // High-pass result
-    std::vector<double> hpY(videoParameters.activeVideoEnd + delay);
+    std::vector<double> hpY(videoParameters.active_video_end + delay);
 
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         double *Y = componentFrame->y(lineNumber);
 
         // Feed zeros into the filter outside the active area
-        for (int32_t h = videoParameters.activeVideoStart - delay; h < videoParameters.activeVideoStart; h++) {
+        for (int32_t h = videoParameters.active_video_start - delay; h < videoParameters.active_video_start; h++) {
             yFilter.feed(0.0);
         }
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             hpY[h] = yFilter.feed(Y[h]);
         }
-        for (int32_t h = videoParameters.activeVideoEnd; h < videoParameters.activeVideoEnd + delay; h++) {
+        for (int32_t h = videoParameters.active_video_end; h < videoParameters.active_video_end + delay; h++) {
             hpY[h] = yFilter.feed(0.0);
         }
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             // Offset to cover the filter delay
             double a = hpY[h + delay];
 
@@ -812,11 +813,11 @@ void Comb::FrameBuffer::transformIQ(double chromaGain, double chromaPhase)
     const double bq = cos(theta) * chromaGain;
 
     // Apply the vector to all the samples
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         double *I = componentFrame->u(lineNumber);
         double *Q = componentFrame->v(lineNumber);
 
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             double U = (-bp * I[h]) + (bq * Q[h]);
             double V = ( bq * I[h]) + (bp * Q[h]);
 
@@ -829,7 +830,7 @@ void Comb::FrameBuffer::transformIQ(double chromaGain, double chromaPhase)
 // Overlay the 3D filter map onto the output
 void Comb::FrameBuffer::overlayMap(const FrameBuffer &previousFrame, const FrameBuffer &nextFrame)
 {
-    tbcDebugStream() << "Comb::FrameBuffer::overlayMap(): Overlaying map onto output";
+    ORC_LOG_DEBUG("Comb::FrameBuffer::overlayMap(): Overlaying map onto output");
 
     // Create a canvas for colour conversion
     FrameCanvas canvas(*componentFrame, videoParameters);
@@ -846,12 +847,12 @@ void Comb::FrameBuffer::overlayMap(const FrameBuffer &previousFrame, const Frame
     }
 
     // For each sample in the frame...
-    for (int32_t lineNumber = videoParameters.firstActiveFrameLine; lineNumber < videoParameters.lastActiveFrameLine; lineNumber++) {
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
         double *U = componentFrame->u(lineNumber);
         double *V = componentFrame->v(lineNumber);
 
         // Fill the output frame with the RGB values
-        for (int32_t h = videoParameters.activeVideoStart; h < videoParameters.activeVideoEnd; h++) {
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             // Select the best candidate
             int32_t bestIndex;
             double bestSample;

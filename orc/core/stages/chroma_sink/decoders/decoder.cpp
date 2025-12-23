@@ -24,8 +24,6 @@
 
 #include "decoder.h"
 
-#include "decoderpool.h"
-
 int32_t Decoder::getLookBehind() const
 {
     return 0;
@@ -34,45 +32,4 @@ int32_t Decoder::getLookBehind() const
 int32_t Decoder::getLookAhead() const
 {
     return 0;
-}
-
-DecoderThread::DecoderThread(std::atomic<bool>& _abort, DecoderPool& _decoderPool)
-    : abort(_abort), decoderPool(_decoderPool), outputWriter(_decoderPool.getOutputWriter())
-{
-}
-
-void DecoderThread::run()
-{
-    // Input and output data
-    std::vector<SourceField> inputFields;
-    std::vector<ComponentFrame> componentFrames;
-    std::vector<OutputFrame> outputFrames;
-
-    while (!abort) {
-        // Get the next batch of fields to process
-        int32_t startFrameNumber, startIndex, endIndex;
-        if (!decoderPool.getInputFrames(startFrameNumber, inputFields, startIndex, endIndex)) {
-            // No more input frames -- exit
-            break;
-        }
-
-        // Adjust the temporary arrays to the right size
-        const int32_t numFrames = (endIndex - startIndex) / 2;
-        componentFrames.resize(numFrames);
-        outputFrames.resize(numFrames);
-
-        // Decode the fields to component frames
-        decodeFrames(inputFields, startIndex, endIndex, componentFrames);
-
-        // Convert the component frames to the output format
-        for (int32_t i = 0; i < numFrames; i++) {
-            outputWriter.convert(componentFrames[i], outputFrames[i]);
-        }
-
-        // Write the frames to the output file
-        if (!decoderPool.putOutputFrames(startFrameNumber, outputFrames)) {
-            abort = true;
-            break;
-        }
-    }
 }

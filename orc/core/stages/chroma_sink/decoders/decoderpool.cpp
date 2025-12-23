@@ -30,13 +30,16 @@
 #include <algorithm>
 
 DecoderPool::DecoderPool(Decoder &_decoder, std::string _inputFileName,
-                         LdDecodeMetaData &_ldDecodeMetaData,
+                         const orc::VideoParameters &_videoParameters,
+                         FieldMetadataProvider _getFieldMetadata,
+                         int32_t _totalFrames,
                          OutputWriter::Configuration &_outputConfig, std::string _outputFileName,
                          int32_t _startFrame, int32_t _length, int32_t _maxThreads)
     : decoder(_decoder), inputFileName(_inputFileName),
       outputConfig(_outputConfig), outputFileName(_outputFileName),
       startFrame(_startFrame), length(_length), maxThreads(_maxThreads),
-      abort(false), ldDecodeMetaData(_ldDecodeMetaData)
+      abort(false), videoParameters(_videoParameters),  // Copy, not reference
+      getFieldMetadata(_getFieldMetadata), totalFrames(_totalFrames)
 {
 }
 
@@ -44,8 +47,6 @@ Decoder& DecoderPool::getDecoder() { return decoder; }
 
 bool DecoderPool::process()
 {
-    LdDecodeMetaData::VideoParameters videoParameters = ldDecodeMetaData.getVideoParameters();
-
     // Configure the OutputWriter, adjusting videoParameters
     outputWriter.updateConfiguration(videoParameters, outputConfig);
     outputWriter.printOutputInfo();
@@ -60,7 +61,7 @@ bool DecoderPool::process()
     decoderLookAhead = decoder.getLookAhead();
 
     // Open the source video file
-    if (!sourceVideo.open(QString::fromStdString(inputFileName), videoParameters.fieldWidth * videoParameters.fieldHeight)) {
+    if (!sourceVideo.open(QString::fromStdString(inputFileName), videoParameters.field_width * videoParameters.field_height)) {
         // Could not open source video file
         std::cout << "INFO: Unable to open ld-decode video file" << std::endl;
         return false;
@@ -69,18 +70,18 @@ bool DecoderPool::process()
     // If no startFrame parameter was specified, set the start frame to 1
     if (startFrame == -1) startFrame = 1;
 
-    if (startFrame > ldDecodeMetaData.getNumberOfFrames()) {
-        std::cout << "INFO: Specified start frame is out of bounds, only " << ldDecodeMetaData.getNumberOfFrames() << " frames available" << std::endl;
+    if (startFrame > totalFrames) {
+        std::cout << "INFO: Specified start frame is out of bounds, only " << totalFrames << " frames available" << std::endl;
         return false;
     }
 
     // If no length parameter was specified set the length to the number of available frames
     if (length == -1) {
-        length = ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1);
+        length = totalFrames - (startFrame - 1);
     } else {
-        if (length + (startFrame - 1) > ldDecodeMetaData.getNumberOfFrames()) {
-            std::cout << "INFO: Specified length of " << length << " exceeds the number of available frames, setting to " << ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1) << std::endl;
-            length = ldDecodeMetaData.getNumberOfFrames() - (startFrame - 1);
+        if (length + (startFrame - 1) > totalFrames) {
+            std::cout << "INFO: Specified length of " << length << " exceeds the number of available frames, setting to " << totalFrames - (startFrame - 1) << std::endl;
+            length = totalFrames - (startFrame - 1);
         }
     }
 
@@ -187,7 +188,7 @@ bool DecoderPool::getInputFrames(int32_t &startFrameNumber, std::vector<SourceFi
     inputFrameNumber += batchFrames;
 
     // Load the fields
-    SourceField::loadFields(sourceVideo, ldDecodeMetaData,
+    SourceField::loadFields(sourceVideo, videoParameters, getFieldMetadata, totalFrames,
                             startFrameNumber, batchFrames, decoderLookBehind, decoderLookAhead,
                             fields, startIndex, endIndex);
 

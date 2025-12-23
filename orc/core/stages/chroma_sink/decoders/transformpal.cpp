@@ -40,7 +40,7 @@ TransformPal::~TransformPal()
 {
 }
 
-void TransformPal::updateConfiguration(const LdDecodeMetaData::VideoParameters &_videoParameters,
+void TransformPal::updateConfiguration(const ::orc::VideoParameters &_videoParameters,
                                        double threshold, const std::vector<double> &_thresholds)
 {
     videoParameters = _videoParameters;

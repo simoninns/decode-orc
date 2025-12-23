@@ -20,7 +20,6 @@
 
 // Forward declarations for decoder classes
 class SourceField;
-class LdDecodeMetaData;
 class Decoder;
 class ComponentFrame;
 
@@ -122,8 +121,7 @@ private:
     // Helper methods for integration
     SourceField convertToSourceField(
         const VideoFieldRepresentation* vfr,
-        FieldID field_id,
-        LdDecodeMetaData& metadata
+        FieldID field_id
     ) const;
     
     bool writeOutputFile(

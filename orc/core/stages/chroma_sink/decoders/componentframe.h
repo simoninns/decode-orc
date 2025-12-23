@@ -29,7 +29,8 @@
 #include <cstdint>
 #include <cassert>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
+#include "logging.h"
 
 // Two complete, interlaced fields' worth of decoded luma and chroma information.
 //
@@ -43,12 +44,15 @@ public:
 
     // Set the frame's size and clear it to black
     // If mono is true, only Y set to black, while U and V are cleared.
-    void init(const LdDecodeMetaData::VideoParameters &videoParameters, bool mono=false);
+    void init(const ::orc::VideoParameters &videoParameters, bool mono=false);
 
     // Get a pointer to a line of samples. Line numbers are 0-based within the frame.
     // Lines are stored in a contiguous array, so it's safe to get a pointer to
     // line 0 and use it to refer to later lines.
     double *y(int32_t line) {
+        if (line < 0) {
+            ORC_LOG_ERROR("ComponentFrame::y() called with negative line: {}", line);
+        }
         return yData.data() + getLineOffset(line);
     }
     double *u(int32_t line) {
@@ -100,6 +104,9 @@ public:
 
 private:
     int32_t getLineOffset(int32_t line) const {
+        if (line < 0) {
+            ORC_LOG_ERROR("ComponentFrame::getLineOffset called with negative line: {}, yData.size={}, height={}", line, yData.size(), height);
+        }
         assert(line >= 0);
         assert(line < static_cast<int32_t>(yData.size()));
         return line * width;

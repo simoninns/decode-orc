@@ -13,7 +13,6 @@
 
 // Decoder includes (relative to this file)
 #include "decoders/sourcefield.h"
-#include "decoders/lib/tbc/lddecodemetadata.h"
 #include "decoders/monodecoder.h"
 #include "decoders/palcolour.h"
 #include "decoders/comb.h"
@@ -310,55 +309,17 @@ bool ChromaSinkStage::trigger(
         return false;
     }
     
-    // 3. Convert orc-core VideoParameters to LdDecodeMetaData::VideoParameters
-    LdDecodeMetaData::VideoParameters ldVideoParams;
-    const auto& orcParams = *video_params_opt;
+    // 3. Use orc-core VideoParameters directly
+    auto videoParams = *video_params_opt;  // Make a copy so we can modify it
     
-    // Map video system
-    if (orcParams.system == VideoSystem::PAL) {
-        ldVideoParams.system = PAL;
-    } else if (orcParams.system == VideoSystem::NTSC) {
-        ldVideoParams.system = NTSC;
-    } else {
-        ldVideoParams.system = PAL_M;
-    }
-    
-    ldVideoParams.fieldWidth = orcParams.field_width;
-    ldVideoParams.fieldHeight = orcParams.field_height;
-    ldVideoParams.sampleRate = orcParams.sample_rate;
-    ldVideoParams.fSC = orcParams.fsc;
-    ldVideoParams.isSubcarrierLocked = orcParams.is_subcarrier_locked;
-    ldVideoParams.isWidescreen = orcParams.is_widescreen;
-    
-    // Map active region parameters (required for OutputWriter)
-    ldVideoParams.activeVideoStart = orcParams.active_video_start;
-    ldVideoParams.activeVideoEnd = orcParams.active_video_end;
-    ldVideoParams.firstActiveFieldLine = orcParams.first_active_field_line;
-    ldVideoParams.lastActiveFieldLine = orcParams.last_active_field_line;
-    ldVideoParams.firstActiveFrameLine = orcParams.first_active_frame_line;
-    ldVideoParams.lastActiveFrameLine = orcParams.last_active_frame_line;
-    
-    // Map color burst and IRE levels
-    ldVideoParams.colourBurstStart = orcParams.colour_burst_start;
-    ldVideoParams.colourBurstEnd = orcParams.colour_burst_end;
-    ldVideoParams.white16bIre = orcParams.white_16b_ire;
-    ldVideoParams.black16bIre = orcParams.black_16b_ire;
-    
-    ldVideoParams.isValid = true;
-    
-    // Apply default line parameters if they're not set (-1)
-    // This will compute frame lines from field lines using system defaults
-    LdDecodeMetaData::LineParameters lineParams;
-    lineParams.applyTo(ldVideoParams);
-    
-    // Apply overrides AFTER lineParams.applyTo() so they won't be overwritten
+    // Apply line parameter overrides if specified
     if (first_active_frame_line_ >= 0) {
-        ldVideoParams.firstActiveFrameLine = first_active_frame_line_;
-        ORC_LOG_INFO("ChromaSink: Overriding firstActiveFrameLine to {}", first_active_frame_line_);
+        videoParams.first_active_frame_line = first_active_frame_line_;
+        ORC_LOG_INFO("ChromaSink: Overriding first_active_frame_line to {}", first_active_frame_line_);
     }
     if (last_active_frame_line_ >= 0) {
-        ldVideoParams.lastActiveFrameLine = last_active_frame_line_;
-        ORC_LOG_INFO("ChromaSink: Overriding lastActiveFrameLine to {}", last_active_frame_line_);
+        videoParams.last_active_frame_line = last_active_frame_line_;
+        ORC_LOG_INFO("ChromaSink: Overriding last_active_frame_line to {}", last_active_frame_line_);
     }
     
     // Apply padding adjustments to active video region BEFORE configuring decoder
@@ -367,10 +328,16 @@ bool ChromaSinkStage::trigger(
         OutputWriter::Configuration writerConfig;
         writerConfig.paddingAmount = 8;  // Same as used later for actual output
         
+        ORC_LOG_DEBUG("ChromaSink: BEFORE padding adjustment: first_active_frame_line={}, last_active_frame_line={}", 
+                      videoParams.first_active_frame_line, videoParams.last_active_frame_line);
+        
         // Create temporary output writer just to apply padding adjustments
         OutputWriter tempWriter;
-        tempWriter.updateConfiguration(ldVideoParams, writerConfig);
-        // ldVideoParams now has adjusted activeVideoStart/End values
+        tempWriter.updateConfiguration(videoParams, writerConfig);
+        // videoParams now has adjusted activeVideoStart/End values
+        
+        ORC_LOG_DEBUG("ChromaSink: AFTER padding adjustment: first_active_frame_line={}, last_active_frame_line={}", 
+                      videoParams.first_active_frame_line, videoParams.last_active_frame_line);
     }
     
     // 4. Create appropriate decoder
@@ -382,15 +349,15 @@ bool ChromaSinkStage::trigger(
     std::unique_ptr<Comb> ntscDecoder;
     
     bool useMonoDecoder = (decoder_type_ == "mono");
-    bool usePalDecoder = (decoder_type_ == "auto" && ldVideoParams.system == PAL) ||
+    bool usePalDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::PAL) ||
                          (decoder_type_ == "pal2d" || decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
-    bool useNtscDecoder = (decoder_type_ == "auto" && ldVideoParams.system == NTSC) ||
+    bool useNtscDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::NTSC) ||
                           (decoder_type_.find("ntsc") == 0);
     
     if (useMonoDecoder) {
         MonoDecoder::MonoConfiguration config;
         config.yNRLevel = luma_nr_;
-        config.videoParameters = ldVideoParams;
+        config.videoParameters = videoParams;
         monoDecoder = std::make_unique<MonoDecoder>(config);
         ORC_LOG_INFO("ChromaSink: Using decoder: mono");
     }
@@ -420,7 +387,7 @@ bool ChromaSinkStage::trigger(
         }
         
         palDecoder = std::make_unique<PalColour>();
-        palDecoder->updateConfiguration(ldVideoParams, config);
+        palDecoder->updateConfiguration(videoParams, config);
         ORC_LOG_INFO("ChromaSink: Using decoder: {} (PAL)", filterName);
     }
     else if (useNtscDecoder) {
@@ -453,7 +420,7 @@ bool ChromaSinkStage::trigger(
         }
         
         ntscDecoder = std::make_unique<Comb>();
-        ntscDecoder->updateConfiguration(ldVideoParams, config);
+        ntscDecoder->updateConfiguration(videoParams, config);
         ORC_LOG_INFO("ChromaSink: Using decoder: {} (NTSC)", decoderName);
     }
     else {
@@ -519,13 +486,7 @@ bool ChromaSinkStage::trigger(
     qint32 extended_start_frame = static_cast<qint32>(start_frame) - lookBehindFrames;
     qint32 extended_end_frame = static_cast<qint32>(end_frame) + lookAheadFrames;
     
-    // 8. Create dummy LdDecodeMetaData for decoder compatibility
-    // NOTE: This metadata object is NOT used - all metadata comes from VFR hints.
-    //       It exists only for API compatibility with legacy decoder interfaces.
-    //       Do NOT add code that relies on this metadata object!
-    LdDecodeMetaData metadata;
-    
-    // 9. Collect fields including lookbehind/lookahead padding
+    // 8. Collect fields including lookbehind/lookahead padding
     std::vector<SourceField> inputFields;
     qint32 total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
     inputFields.reserve(total_fields_needed);
@@ -594,26 +555,26 @@ bool ChromaSinkStage::trigger(
         
         if (useBlankFrame) {
             // Create blank fields with metadata from frame 1 but black data
-            sf1 = convertToSourceField(vfr.get(), firstFieldId, metadata);
-            sf2 = convertToSourceField(vfr.get(), secondFieldId, metadata);
+            sf1 = convertToSourceField(vfr.get(), firstFieldId);
+            sf2 = convertToSourceField(vfr.get(), secondFieldId);
             
             // Fill with black
-            uint16_t black = ldVideoParams.black16bIre;
+            uint16_t black = videoParams.black_16b_ire;
             size_t field_length = sf1.data.size();
             sf1.data.fill(black, field_length);
             sf2.data.fill(black, field_length);
         } else {
-            sf1 = convertToSourceField(vfr.get(), firstFieldId, metadata);
-            sf2 = convertToSourceField(vfr.get(), secondFieldId, metadata);
+            sf1 = convertToSourceField(vfr.get(), firstFieldId);
+            sf2 = convertToSourceField(vfr.get(), secondFieldId);
             
             // Apply PAL subcarrier shift: With subcarrier-locked 4fSC PAL sampling,
             // we have four "extra" samples over the course of the frame, so the two
             // fields will be horizontally misaligned by two samples. Shift the
             // second field to the left to compensate.
-            if ((ldVideoParams.system == PAL || ldVideoParams.system == PAL_M) && 
-                ldVideoParams.isSubcarrierLocked) {
+            if ((videoParams.system == orc::VideoSystem::PAL || videoParams.system == orc::VideoSystem::PAL_M) && 
+                videoParams.is_subcarrier_locked) {
                 // Remove first 2 samples and append 2 black samples at the end
-                uint16_t black = ldVideoParams.black16bIre;
+                uint16_t black = videoParams.black_16b_ire;
                 sf2.data.remove(0, 2);
                 sf2.data.append(black);
                 sf2.data.append(black);
@@ -668,7 +629,7 @@ bool ChromaSinkStage::trigger(
             // Clone configuration from main decoder
             MonoDecoder::MonoConfiguration config;
             config.yNRLevel = luma_nr_;
-            config.videoParameters = ldVideoParams;
+            config.videoParameters = videoParams;
             threadMonoDecoder = std::make_unique<MonoDecoder>(config);
         } else if (palDecoder) {
             // Clone configuration from main decoder
@@ -691,7 +652,7 @@ bool ChromaSinkStage::trigger(
             {
                 std::lock_guard<std::mutex> lock(fftwPlanMutex);
                 threadPalDecoder = std::make_unique<PalColour>();
-                threadPalDecoder->updateConfiguration(ldVideoParams, config);
+                threadPalDecoder->updateConfiguration(videoParams, config);
             }
         } else if (ntscDecoder) {
             // Clone configuration from main decoder
@@ -718,7 +679,7 @@ bool ChromaSinkStage::trigger(
             }
             
             threadNtscDecoder = std::make_unique<Comb>();
-            threadNtscDecoder->updateConfiguration(ldVideoParams, config);
+            threadNtscDecoder->updateConfiguration(videoParams, config);
         }
         
         while (!abortFlag) {
@@ -787,10 +748,15 @@ bool ChromaSinkStage::trigger(
     
     ORC_LOG_INFO("ChromaSink: Decoded {} frames", outputFrames.size());
     
+    ORC_LOG_DEBUG("ChromaSink: videoParams.first_active_frame_line={}, last_active_frame_line={}", 
+                  videoParams.first_active_frame_line, videoParams.last_active_frame_line);
+    
     // DEBUG: Log ComponentFrame Y checksums using accessor method
     for (int k = 0; k < outputFrames.size() && k < 3; k++) {
         // Access Y data using line accessor
-        qint32 firstLine = ldVideoParams.firstActiveFrameLine;
+        qint32 firstLine = videoParams.first_active_frame_line;
+        ORC_LOG_DEBUG("ChromaSink: About to access ComponentFrame[{}].y({}) (height={})", 
+                      k, firstLine, outputFrames[k].getHeight());
         const double* yLinePtr = outputFrames[k].y(firstLine);
         qint32 width = outputFrames[k].getWidth();
         
@@ -816,7 +782,7 @@ bool ChromaSinkStage::trigger(
     }
     
     // 14. Write output file
-    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &ldVideoParams)) {
+    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams)) {
         ORC_LOG_ERROR("ChromaSink: Failed to write output file: {}", output_path_);
         trigger_status_ = "Error: Failed to write output";
         return false;
@@ -848,8 +814,7 @@ ChromaSinkStage::render_preview_field(
 // Helper method: Convert VideoFieldRepresentation field to SourceField
 SourceField ChromaSinkStage::convertToSourceField(
     const VideoFieldRepresentation* vfr,
-    FieldID field_id,
-    LdDecodeMetaData& /*metadata*/) const
+    FieldID field_id) const
 {
     SourceField sf;
     
@@ -863,38 +828,32 @@ SourceField ChromaSinkStage::convertToSourceField(
     const auto& desc = *desc_opt;
     
     // Set field metadata
-    // Note: seqNo must be 1-based to match LdDecodeMetaData field numbering
-    // ORC uses 0-based FieldID, so add 1
+    // Note: seq_no must be 1-based (ORC uses 0-based FieldID, so add 1)
+    sf.field.seq_no = static_cast<int32_t>(field_id.value()) + 1;
     
     // Determine if this is the "first field" or "second field" from field parity
     // Field parity determines field ordering (same for both NTSC and PAL):
     //   - Top field (even field indices)    → first field
     //   - Bottom field (odd field indices)  → second field
-    // This relationship is consistent across video systems.
-    sf.field.isFirstField = (desc.parity == FieldParity::Top);
+    sf.field.is_first_field = (desc.parity == FieldParity::Top);
     
     ORC_LOG_TRACE("ChromaSink: Field {} parity={} → isFirstField={}",
                  field_id.value(),
                  desc.parity == FieldParity::Top ? "Top" : "Bottom",
-                 sf.field.isFirstField);
+                 sf.field.is_first_field.value_or(false));
     
     // Get field_phase_id from phase hint (from TBC metadata)
     auto phase_hint = vfr->get_field_phase_hint(field_id);
     if (phase_hint.has_value()) {
-        sf.field.fieldPhaseID = phase_hint->field_phase_id;
-        ORC_LOG_TRACE("ChromaSink: Field {} has fieldPhaseID={}", field_id.value(), sf.field.fieldPhaseID);
-    } else {
-        // Leave as default -1 (unknown)
-        sf.field.fieldPhaseID = -1;
+        sf.field.field_phase_id = phase_hint->field_phase_id;
+        ORC_LOG_TRACE("ChromaSink: Field {} has fieldPhaseID={}", field_id.value(), sf.field.field_phase_id.value());
     }
-    
-    sf.field.seqNo = static_cast<qint32>(field_id.value()) + 1;
     
     ORC_LOG_TRACE("ChromaSink: Field {} (1-based seqNo={}) parity={} -> isFirstField={}", 
                   field_id.value(),
-                  sf.field.seqNo,
+                  sf.field.seq_no,
                   (desc.parity == FieldParity::Top ? "Top" : "Bottom"),
-                  sf.field.isFirstField);
+                  sf.field.is_first_field.value_or(false));
     
     // Get field data
     std::vector<uint16_t> field_data = vfr->get_field(field_id);
@@ -924,14 +883,10 @@ SourceField ChromaSinkStage::convertToSourceField(
     // Log complete Field structure for debugging (first 6 fields only)
     if (field_id.value() < 6) {
         ORC_LOG_DEBUG("ChromaSink: Field {} FULL metadata:", field_id.value());
-        ORC_LOG_DEBUG("  seqNo={} isFirstField={} fieldPhaseID={}", 
-                      sf.field.seqNo, sf.field.isFirstField, sf.field.fieldPhaseID);
-        ORC_LOG_DEBUG("  syncConf={} medianBurstIRE={:.2f} pad={}", 
-                      sf.field.syncConf, sf.field.medianBurstIRE, sf.field.pad);
-        ORC_LOG_DEBUG("  audioSamples={} diskLoc={:.1f} fileLoc={}", 
-                      sf.field.audioSamples, sf.field.diskLoc, sf.field.fileLoc);
-        ORC_LOG_DEBUG("  decodeFaults={} efmTValues={}", 
-                      sf.field.decodeFaults, sf.field.efmTValues);
+        ORC_LOG_DEBUG("  seq_no={} is_first_field={} field_phase_id={}", 
+                      sf.field.seq_no, 
+                      sf.field.is_first_field.value_or(false), 
+                      sf.field.field_phase_id.value_or(-1));
         ORC_LOG_DEBUG("  data.size()={} first4=[{},{},{},{}]",
                       sf.data.size(),
                       sf.data.size() > 0 ? sf.data[0] : 0,
@@ -951,7 +906,7 @@ bool ChromaSinkStage::writeOutputFile(
     const std::vector<ComponentFrame>& frames,
     const void* videoParamsPtr) const
 {
-    const auto& videoParams = *static_cast<const LdDecodeMetaData::VideoParameters*>(videoParamsPtr);
+    const auto& videoParams = *static_cast<const orc::VideoParameters*>(videoParamsPtr);
     if (frames.empty()) {
         ORC_LOG_ERROR("ChromaSink: No frames to write");
         return false;
@@ -984,7 +939,7 @@ bool ChromaSinkStage::writeOutputFile(
     
     // Create output writer
     OutputWriter writer;
-    LdDecodeMetaData::VideoParameters mutableParams = videoParams;
+    orc::VideoParameters mutableParams = videoParams;
     writer.updateConfiguration(mutableParams, writerConfig);
     writer.printOutputInfo();  // Show output format info
     

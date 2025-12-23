@@ -130,7 +130,7 @@ void TransformPal3D::filterFields(const std::vector<SourceField> &inputFields, i
     // Allocate and clear output buffers
     chromaBuf.resize(endIndex - startIndex);
     for (int32_t i = 0; i < static_cast<int32_t>(chromaBuf.size()); i++) {
-        chromaBuf[i].resize(videoParameters.fieldWidth * videoParameters.fieldHeight);
+        chromaBuf[i].resize(videoParameters.field_width * videoParameters.field_height);
         std::fill(chromaBuf[i].begin(), chromaBuf[i].end(), 0.0);
         outputFields[i] = chromaBuf[i].data();
     }
@@ -139,8 +139,8 @@ void TransformPal3D::filterFields(const std::vector<SourceField> &inputFields, i
     // (See TransformPal3D member variable documentation for how the tiling works;
     // if you change the Z tiling here, also review getLookBehind/getLookAhead above.)
     for (int32_t tileZ = startIndex - HALFZTILE; tileZ < endIndex; tileZ += HALFZTILE) {
-        for (int32_t tileY = videoParameters.firstActiveFrameLine - HALFYTILE; tileY < videoParameters.lastActiveFrameLine; tileY += HALFYTILE) {
-            for (int32_t tileX = videoParameters.activeVideoStart - HALFXTILE; tileX < videoParameters.activeVideoEnd; tileX += HALFXTILE) {
+        for (int32_t tileY = videoParameters.first_active_frame_line - HALFYTILE; tileY < videoParameters.last_active_frame_line; tileY += HALFYTILE) {
+            for (int32_t tileX = videoParameters.active_video_start - HALFXTILE; tileX < videoParameters.active_video_end; tileX += HALFXTILE) {
                 // Compute the forward FFT
                 forwardFFTTile(tileX, tileY, tileZ, inputFields);
 
@@ -158,8 +158,8 @@ void TransformPal3D::filterFields(const std::vector<SourceField> &inputFields, i
 void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, const std::vector<SourceField> &inputFields)
 {
     // Work out which lines of this tile are within the active region
-    const int32_t startY = qMax(videoParameters.firstActiveFrameLine - tileY, 0);
-    const int32_t endY = qMin(videoParameters.lastActiveFrameLine - tileY, YTILE);
+    const int32_t startY = qMax(videoParameters.first_active_frame_line - tileY, 0);
+    const int32_t endY = qMin(videoParameters.last_active_frame_line - tileY, YTILE);
 
     // Copy the input signal into fftReal, applying the window function
     for (int32_t z = 0; z < ZTILE; z++) {
@@ -173,13 +173,13 @@ void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ,
             // field), fill it with black instead.
             if (y < startY || y >= endY || ((tileY + y) % 2) != (fieldIndex % 2)) {
                 for (int32_t x = 0; x < XTILE; x++) {
-                    fftReal[(((z * YTILE) + y) * XTILE) + x] = videoParameters.black16bIre * windowFunction[z][y][x];
+                    fftReal[(((z * YTILE) + y) * XTILE) + x] = videoParameters.black_16b_ire * windowFunction[z][y][x];
                 }
                 continue;
             }
 
             const int32_t fieldLine = (tileY + y) / 2;
-            const uint16_t *b = inputPtr + (fieldLine * videoParameters.fieldWidth);
+            const uint16_t *b = inputPtr + (fieldLine * videoParameters.field_width);
             for (int32_t x = 0; x < XTILE; x++) {
                 fftReal[(((z * YTILE) + y) * XTILE) + x] = b[tileX + x] * windowFunction[z][y][x];
             }
@@ -194,10 +194,10 @@ void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ,
 void TransformPal3D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, int32_t startIndex, int32_t endIndex)
 {
     // Work out what portion of this tile is inside the active area
-    const int32_t startX = qMax(videoParameters.activeVideoStart - tileX, 0);
-    const int32_t endX = qMin(videoParameters.activeVideoEnd - tileX, XTILE);
-    const int32_t startY = qMax(videoParameters.firstActiveFrameLine - tileY, 0);
-    const int32_t endY = qMin(videoParameters.lastActiveFrameLine - tileY, YTILE);
+    const int32_t startX = qMax(videoParameters.active_video_start - tileX, 0);
+    const int32_t endX = qMin(videoParameters.active_video_end - tileX, XTILE);
+    const int32_t startY = qMax(videoParameters.first_active_frame_line - tileY, 0);
+    const int32_t endY = qMin(videoParameters.last_active_frame_line - tileY, YTILE);
     const int32_t startZ = qMax(startIndex - tileZ, 0);
     const int32_t endZ = qMin(endIndex - tileZ, ZTILE);
 
@@ -216,7 +216,7 @@ void TransformPal3D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ,
             }
 
             const int32_t outputLine = (tileY + y) / 2;
-            double *b = outputPtr + (outputLine * videoParameters.fieldWidth);
+            double *b = outputPtr + (outputLine * videoParameters.field_width);
             for (int32_t x = startX; x < endX; x++) {
                 b[tileX + x] += fftReal[(((z * YTILE) + y) * XTILE) + x] / (ZTILE * YTILE * XTILE);
             }
@@ -322,8 +322,8 @@ void TransformPal3D::overlayFFTFrame(int32_t positionX, int32_t positionY,
                                      ComponentFrame &componentFrame)
 {
     // Do nothing if the tile isn't within the frame
-    if (positionX < 0 || positionX + XTILE > videoParameters.fieldWidth
-        || positionY < 0 || positionY + YTILE > (2 * videoParameters.fieldHeight) + 1) {
+    if (positionX < 0 || positionX + XTILE > videoParameters.field_width
+        || positionY < 0 || positionY + YTILE > (2 * videoParameters.field_height) + 1) {
         return;
     }
 

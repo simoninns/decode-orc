@@ -222,8 +222,25 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         // Will be populated by source stage based on video system
         params.fsc = -1.0;
         
-        // Vertical field line boundaries must be inferred from format
-        // first_active_field_line and last_active_field_line remain -1 (not in database)
+        // Vertical field line boundaries must be inferred from video system format defaults
+        // These match the values from legacy-tools/library/tbc/lddecodemetadata.cpp
+        if (params.system == VideoSystem::PAL) {
+            params.first_active_field_line = 22;
+            params.last_active_field_line = 308;
+            params.first_active_frame_line = 44;
+            params.last_active_frame_line = 620;
+        } else if (params.system == VideoSystem::NTSC) {
+            params.first_active_field_line = 20;
+            params.last_active_field_line = 259;
+            params.first_active_frame_line = 40;
+            params.last_active_frame_line = 525;
+        } else if (params.system == VideoSystem::PAL_M) {
+            // PAL-M uses same line boundaries as NTSC
+            params.first_active_field_line = 20;
+            params.last_active_field_line = 259;
+            params.first_active_frame_line = 40;
+            params.last_active_frame_line = 525;
+        }
         
         sqlite3_finalize(stmt);
         return params;

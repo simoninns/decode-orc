@@ -32,7 +32,7 @@
 #include <fstream>
 #include <cmath>
 
-#include "lddecodemetadata.h"
+#include "tbc_metadata.h"
 
 #include "componentframe.h"
 #include "decoder.h"
@@ -60,7 +60,7 @@ public:
     };
 
     const Configuration &getConfiguration() const;
-    void updateConfiguration(const LdDecodeMetaData::VideoParameters &videoParameters,
+    void updateConfiguration(const ::orc::VideoParameters &videoParameters,
                              const Configuration &configuration);
 
     // Decode a sequence of fields into a sequence of interlaced frames
@@ -77,12 +77,12 @@ private:
     // Comb-filter configuration parameters
     bool configurationSet;
     Configuration configuration;
-    LdDecodeMetaData::VideoParameters videoParameters;
+    ::orc::VideoParameters videoParameters;
 
     // An input frame in the process of being decoded
     class FrameBuffer {
     public:
-        FrameBuffer(const LdDecodeMetaData::VideoParameters &videoParameters_, const Configuration &configuration_);
+        FrameBuffer(const ::orc::VideoParameters &videoParameters_, const Configuration &configuration_);
 
         void loadFields(const SourceField &firstField, const SourceField &secondField);
 
@@ -106,7 +106,7 @@ private:
         void overlayMap(const FrameBuffer &previousFrame, const FrameBuffer &nextFrame);
 
     private:
-        const LdDecodeMetaData::VideoParameters &videoParameters;
+        const ::orc::VideoParameters &videoParameters;
         const Configuration &configuration;
 
         // Calculated frame height
@@ -116,7 +116,7 @@ private:
         double irescale;
 
         // Baseband samples (interlaced to form a complete frame)
-        SourceVideo::Data rawbuffer;
+        QVector<quint16> rawbuffer;
 
         // Chroma phase of the frame's two fields
         int32_t firstFieldPhaseID;

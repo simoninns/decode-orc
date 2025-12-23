@@ -108,7 +108,7 @@ void TransformPal2D::filterFields(const std::vector<SourceField> &inputFields, i
     chromaBuf.resize(endIndex - startIndex);
     
     for (int32_t i = 0; i < static_cast<int32_t>(chromaBuf.size()); i++) {
-        chromaBuf[i].resize(videoParameters.fieldWidth * videoParameters.fieldHeight);
+        chromaBuf[i].resize(videoParameters.field_width * videoParameters.field_height);
         std::fill(chromaBuf[i].begin(), chromaBuf[i].end(), 0.0);
 
         outputFields[i] = chromaBuf[i].data();
@@ -132,7 +132,7 @@ void TransformPal2D::filterField(const SourceField& inputField, int32_t outputIn
         const int32_t startY = qMax(firstFieldLine - tileY, 0);
         const int32_t endY = qMin(lastFieldLine - tileY, YTILE);
 
-        for (int32_t tileX = videoParameters.activeVideoStart - HALFXTILE; tileX < videoParameters.activeVideoEnd; tileX += HALFXTILE) {
+        for (int32_t tileX = videoParameters.active_video_start - HALFXTILE; tileX < videoParameters.active_video_end; tileX += HALFXTILE) {
             // Compute the forward FFT
             forwardFFTTile(tileX, tileY, startY, endY, inputField);
 
@@ -155,12 +155,12 @@ void TransformPal2D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t startY
         // black instead.
         if (y < startY || y >= endY) {
             for (int32_t x = 0; x < XTILE; x++) {
-                fftReal[(y * XTILE) + x] = videoParameters.black16bIre * windowFunction[y][x];
+                fftReal[(y * XTILE) + x] = videoParameters.black_16b_ire * windowFunction[y][x];
             }
             continue;
         }
 
-        const uint16_t *b = inputPtr + ((tileY + y) * videoParameters.fieldWidth);
+        const uint16_t *b = inputPtr + ((tileY + y) * videoParameters.field_width);
         for (int32_t x = 0; x < XTILE; x++) {
             fftReal[(y * XTILE) + x] = b[tileX + x] * windowFunction[y][x];
         }
@@ -174,8 +174,8 @@ void TransformPal2D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t startY
 void TransformPal2D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t startY, int32_t endY, int32_t outputIndex)
 {
     // Work out what X range of this tile is inside the active area
-    const int32_t startX = qMax(videoParameters.activeVideoStart - tileX, 0);
-    const int32_t endX = qMin(videoParameters.activeVideoEnd - tileX, XTILE);
+    const int32_t startX = qMax(videoParameters.active_video_start - tileX, 0);
+    const int32_t endX = qMin(videoParameters.active_video_end - tileX, XTILE);
 
     // Convert frequency domain in fftComplexOut back to time domain in fftReal
     fftw_execute(inversePlan);
@@ -183,7 +183,7 @@ void TransformPal2D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t startY
     // Overlay the result, normalising the FFTW output, into chromaBuf
     double *outputPtr = chromaBuf[outputIndex].data();
     for (int32_t y = startY; y < endY; y++) {
-        double *b = outputPtr + ((tileY + y) * videoParameters.fieldWidth);
+        double *b = outputPtr + ((tileY + y) * videoParameters.field_width);
         for (int32_t x = startX; x < endX; x++) {
             b[tileX + x] += fftReal[(y * XTILE) + x] / (YTILE * XTILE);
         }
@@ -281,8 +281,8 @@ void TransformPal2D::overlayFFTFrame(int32_t positionX, int32_t positionY,
                                      ComponentFrame &componentFrame)
 {
     // Do nothing if the tile isn't within the frame
-    if (positionX < 0 || positionX + XTILE > videoParameters.fieldWidth
-        || positionY < 0 || positionY + YTILE > (2 * videoParameters.fieldHeight) + 1) {
+    if (positionX < 0 || positionX + XTILE > videoParameters.field_width
+        || positionY < 0 || positionY + YTILE > (2 * videoParameters.field_height) + 1) {
         return;
     }
 

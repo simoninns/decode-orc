@@ -8,6 +8,7 @@
  */
 
 #include "preview_renderer.h"
+#include "previewable_stage.h"
 #include "logging.h"
 #include <algorithm>
 #include <cstdio>
@@ -148,28 +149,32 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
             "Field",
             1,  // Single placeholder item
             true,
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
             "Frame",
             1,  // Single placeholder item
             true,
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
             "Frame (Reversed)",
             1,  // Single placeholder item
             true,
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
             "Split",
             1,  // Single placeholder item
             true,
-            0.7
+            0.7,
+            ""
         });
         return outputs;
     }
@@ -178,7 +183,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
         return outputs;
     }
     
-    // Check if this is a previewable sink node
+    // Check if this is a previewable stage or sink node
     if (dag_) {
         const auto& dag_nodes = dag_->nodes();
         auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
@@ -186,6 +191,13 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
         
         if (node_it != dag_nodes.end() && node_it->stage) {
             auto node_type = node_it->stage->get_node_type_info().type;
+            
+            // Check if this stage implements PreviewableStage (sources/transforms)
+            auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+            if (previewable_stage && previewable_stage->supports_preview()) {
+                // Stage supports preview - get outputs from stage options
+                return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+            }
             
             if (node_type == NodeType::SINK) {
                 // Check if this sink implements PreviewableSink
@@ -214,28 +226,32 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
             "Field",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
             "Frame",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
             "Frame (Reversed)",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
             "Split",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         return outputs;
     }
@@ -250,28 +266,32 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
             "Field",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
             "Frame",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
             "Frame (Reversed)",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
             "Split",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7
+            0.7,
+            ""
         });
         return outputs;
     }
@@ -282,7 +302,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
         "Field",
         field_count,
         true,
-        0.7  // PAL/NTSC standard (accounts for horizontal blanking)
+        0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+        ""
     });
     
     // Frame outputs - available if we have at least 2 fields
@@ -308,7 +329,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
                 "Frame",
                 frame_count,
                 true,
-                0.7  // PAL/NTSC standard (accounts for horizontal blanking)
+                0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+                ""
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -316,7 +338,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
                 "Frame (Reversed)",
                 frame_count,
                 true,
-                0.7  // PAL/NTSC standard (accounts for horizontal blanking)
+                0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+                ""
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -324,7 +347,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
                 "Split",
                 frame_count,
                 true,
-                0.7  // PAL/NTSC standard (accounts for horizontal blanking)
+                0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+                ""
             });
         }
     }
@@ -352,8 +376,12 @@ uint64_t PreviewRenderer::get_output_count(const std::string& node_id, PreviewOu
 PreviewRenderResult PreviewRenderer::render_output(
     const std::string& node_id,
     PreviewOutputType type,
-    uint64_t index)
+    uint64_t index,
+    const std::string& option_id)
 {
+    ORC_LOG_DEBUG("render_output: node='{}', type={}, option_id='{}', index={}",
+                  node_id, static_cast<int>(type), option_id, index);
+    
     PreviewRenderResult result;
     result.node_id = node_id;
     result.output_type = type;
@@ -367,18 +395,33 @@ PreviewRenderResult PreviewRenderer::render_output(
         return result;
     }
     
-    // Check if this is a previewable sink node
+    // Check if this is a previewable stage or sink node
     if (dag_) {
         const auto& dag_nodes = dag_->nodes();
         auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
             [&node_id](const auto& n) { return n.node_id == node_id; });
         
         if (node_it != dag_nodes.end() && node_it->stage) {
-            auto* previewable = dynamic_cast<const PreviewableSink*>(node_it->stage.get());
+            auto node_type = node_it->stage->get_node_type_info().type;
             
-            if (previewable && previewable->supports_preview()) {
-                // Render sink preview
-                return render_sink_preview(node_id, *node_it, *previewable, type, index);
+            // Check for PreviewableStage interface (sources/transforms)
+            if (node_type == NodeType::SOURCE || node_type == NodeType::TRANSFORM) {
+                auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                
+                if (previewable_stage && previewable_stage->supports_preview()) {
+                    // Render using stage's new preview interface
+                    return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id);
+                }
+            }
+            
+            // Check for PreviewableSink interface (sinks)
+            if (node_type == NodeType::SINK) {
+                auto* previewable = dynamic_cast<const PreviewableSink*>(node_it->stage.get());
+                
+                if (previewable && previewable->supports_preview()) {
+                    // Render sink preview
+                    return render_sink_preview(node_id, *node_it, *previewable, type, index);
+                }
             }
         }
     }
@@ -1198,7 +1241,9 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
     uint64_t frame_count = field_count / 2;
     
     // Check if this sink only outputs frames (e.g., chroma decoder)
-    bool frame_only = previewable.is_frame_only();
+    // Sink previews are temporarily disabled
+    // All sinks return supports_preview() == false
+    bool frame_only = false;
     
     // Provide standard output types for sink preview
     ORC_LOG_DEBUG("Sink node '{}' preview: {} fields, {} frames available (frame_only={})", 
@@ -1211,7 +1256,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
             "Field (Sink Preview)",
             field_count,
             true,
-            0.7
+            0.7,
+            ""
         });
     }
     
@@ -1223,7 +1269,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
             "Frame (Sink Preview)",
             frame_count,
             true,
-            0.7
+            0.7,
+            ""
         });
         
         if (!frame_only) {
@@ -1232,7 +1279,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
                 "Frame Reversed (Sink Preview)",
                 frame_count,
                 true,
-                0.7
+                0.7,
+                ""
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -1240,12 +1288,85 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
                 "Split (Sink Preview)",
                 frame_count,
                 true,
-                0.7
+                0.7,
+                ""
             });
         }
     }
     
     return outputs;
+}
+
+// ============================================================================
+// Stage preview support (new interface for sources/transforms)
+// ============================================================================
+
+std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
+    const std::string& stage_node_id,
+    const DAGNode& stage_node,
+    const PreviewableStage& previewable)
+{
+    std::vector<PreviewOutputInfo> outputs;
+    
+    ORC_LOG_DEBUG("get_stage_preview_outputs called for node '{}'", stage_node_id);
+    
+    // Get options from the stage
+    auto options = previewable.get_preview_options();
+    
+    if (options.empty()) {
+        ORC_LOG_DEBUG("Stage node '{}' has no preview options", stage_node_id);
+        return outputs;
+    }
+    
+    // Convert each option to a PreviewOutputInfo
+    for (const auto& option : options) {
+        outputs.push_back(PreviewOutputInfo{
+            PreviewOutputType::Frame,  // Stages output frames
+            option.display_name,
+            option.count,
+            true,  // If stage advertises it, it's available
+            0.7,   // Standard DAR correction
+            option.id  // Store original option ID
+        });
+    }
+    
+    ORC_LOG_DEBUG("Stage node '{}' has {} preview options", stage_node_id, outputs.size());
+    
+    return outputs;
+}
+
+PreviewRenderResult PreviewRenderer::render_stage_preview(
+    const std::string& stage_node_id,
+    const DAGNode& stage_node,
+    const PreviewableStage& previewable,
+    PreviewOutputType type,
+    uint64_t index,
+    const std::string& requested_option_id)
+{
+    ORC_LOG_DEBUG("render_stage_preview called for node '{}', type={}, index={}, option_id='{}'", 
+                  stage_node_id, static_cast<int>(type), index, requested_option_id);
+    
+    PreviewRenderResult result;
+    result.node_id = stage_node_id;
+    result.output_type = type;
+    result.output_index = index;
+    result.success = false;
+    
+    // Get preview image from the stage
+    auto stage_result = previewable.render_preview(requested_option_id, index);
+    
+    if (!stage_result.is_valid()) {
+        result.image = create_placeholder_image(type, "Rendering failed");
+        result.success = true;
+        result.error_message = "Failed to render stage preview";
+        return result;
+    }
+    
+    // Stage returned a valid image
+    result.image = std::move(stage_result);
+    result.success = true;
+    
+    return result;
 }
 
 PreviewRenderResult PreviewRenderer::render_sink_preview(
@@ -1270,7 +1391,8 @@ PreviewRenderResult PreviewRenderer::render_sink_preview(
     }
     
     // For frame-only sinks (e.g., chroma decoder), force unsupported modes to Frame
-    if (previewable.is_frame_only()) {
+    // Sink previews are temporarily disabled
+    if (false) {  // Old: previewable.is_frame_only()
         if (type == PreviewOutputType::Field) {
             ORC_LOG_DEBUG("render_sink_preview: Frame-only sink requested Field mode, forcing to Frame");
             type = PreviewOutputType::Frame;
@@ -1300,11 +1422,8 @@ PreviewRenderResult PreviewRenderer::render_sink_preview(
                 return result;
             }
             
-            // Apply sink's transformation for preview
-            auto transformed = previewable.render_preview_field(
-                field_result.representation, 
-                field_id
-            );
+            // Apply sink's transformation for preview (temporarily disabled)
+            auto transformed = field_result.representation;
             
             if (!transformed) {
                 result.image = create_placeholder_image(type, "Transform failed");
@@ -1360,8 +1479,9 @@ PreviewRenderResult PreviewRenderer::render_sink_preview(
             }
             
             // Apply sink transformations to both fields
-            auto transformed_a = previewable.render_preview_field(result_a.representation, field_a);
-            auto transformed_b = previewable.render_preview_field(result_b.representation, field_b);
+            // Sink previews are temporarily disabled
+            auto transformed_a = result_a.representation;  // Old: previewable.render_preview_field()
+            auto transformed_b = result_b.representation;  // Old: previewable.render_preview_field()
             
             if (!transformed_a || !transformed_b) {
                 result.image = create_placeholder_image(type, "Transform failed");

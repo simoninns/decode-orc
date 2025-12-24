@@ -9,6 +9,7 @@
 
 #include "ld_sink_stage.h"
 #include "stage_registry.h"
+#include "preview_renderer.h"
 #include "tbc_metadata_writer.h"
 #include "observation_history.h"
 #include "biphase_observer.h"
@@ -152,16 +153,6 @@ bool LDSinkStage::trigger(
 std::string LDSinkStage::get_trigger_status() const
 {
     return trigger_status_;
-}
-
-std::shared_ptr<const VideoFieldRepresentation> LDSinkStage::render_preview_field(
-    std::shared_ptr<const VideoFieldRepresentation> input,
-    FieldID field_id) const
-{
-    // LaserDisc sink writes TBC unchanged to disk
-    // For preview, simply return the input as-is to show what will be written
-    (void)field_id;  // Unused - we return the entire representation
-    return input;
 }
 
 bool LDSinkStage::write_tbc_and_metadata(

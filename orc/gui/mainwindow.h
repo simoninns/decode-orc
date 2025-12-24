@@ -128,6 +128,7 @@ private:
     
     // Preview state (UI only - all data comes from core)
     orc::PreviewOutputType current_output_type_;
+    std::string current_option_id_;  ///< Current option ID for PreviewableStage rendering
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
 };
 

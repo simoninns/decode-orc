@@ -14,6 +14,7 @@
 #include <dag_executor.h>
 #include <tbc_video_field_representation.h>
 #include <stage_parameter.h>
+#include <previewable_stage.h>
 #include <string>
 
 namespace orc {
@@ -30,7 +31,7 @@ namespace orc {
  * 
  * This is a source stage with no inputs.
  */
-class LDPALSourceStage : public DAGStage, public ParameterizedStage {
+class LDPALSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
     LDPALSourceStage() = default;
     ~LDPALSourceStage() override = default;
@@ -61,6 +62,11 @@ public:
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+    
+    // PreviewableStage interface
+    bool supports_preview() const override;
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
     
     // Stage inspection
     std::optional<StageReport> generate_report() const override;

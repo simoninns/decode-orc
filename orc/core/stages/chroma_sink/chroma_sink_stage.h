@@ -90,15 +90,8 @@ public:
     
     std::string get_trigger_status() const override;
     
-    // PreviewableSink interface
-    std::shared_ptr<const VideoFieldRepresentation> render_preview_field(
-        std::shared_ptr<const VideoFieldRepresentation> input,
-        FieldID field_id
-    ) const override;
-    
-    bool supports_preview() const override { return true; }
-    
-    bool is_frame_only() const override { return true; }
+    // PreviewableSink interface (disabled for now)
+    bool supports_preview() const override { return false; }
     
 private:
     // Current parameters

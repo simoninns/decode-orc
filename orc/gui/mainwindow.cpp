@@ -557,8 +557,9 @@ void MainWindow::onPreviewModeChanged(int index)
     auto previous_type = current_output_type_;
     int current_position = preview_dialog_->previewSlider()->value();
     
-    // Update to new type
+    // Update to new type and option ID
     current_output_type_ = available_outputs_[index].type;
+    current_option_id_ = available_outputs_[index].option_id;
     
     // Ask core for equivalent index in new output type
     uint64_t new_position = preview_renderer_->get_equivalent_index(
@@ -855,6 +856,22 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             current_view_node_id_ = node_id;
             available_outputs_ = outputs;
             
+            // Initialize current_output_type_ and current_option_id_ to first available output
+            // This ensures we have valid values when switching nodes
+            bool found_match = false;
+            for (const auto& output : outputs) {
+                if (output.type == current_output_type_) {
+                    current_option_id_ = output.option_id;
+                    found_match = true;
+                    break;
+                }
+            }
+            // If current type not available, use first output
+            if (!found_match && !outputs.empty()) {
+                current_output_type_ = outputs[0].type;
+                current_option_id_ = outputs[0].option_id;
+            }
+            
             // Show preview dialog only if:
             // 1) Not already visible
             // 2) Node has valid outputs that are truly available (not placeholders)
@@ -1028,10 +1045,10 @@ void MainWindow::updatePreview()
     
     int current_index = preview_dialog_->previewSlider()->value();
     
-    ORC_LOG_DEBUG("updatePreview: rendering output type {} index {} at node '{}'", 
-                  static_cast<int>(current_output_type_), current_index, current_view_node_id_);
+    ORC_LOG_DEBUG("updatePreview: rendering output type {} option_id '{}' index {} at node '{}'", 
+                  static_cast<int>(current_output_type_), current_option_id_, current_index, current_view_node_id_);
     
-    auto result = preview_renderer_->render_output(current_view_node_id_, current_output_type_, current_index);
+    auto result = preview_renderer_->render_output(current_view_node_id_, current_output_type_, current_index, current_option_id_);
     
     if (result.success) {
         preview_dialog_->previewWidget()->setImage(result.image);
@@ -1061,8 +1078,9 @@ void MainWindow::updatePreviewModeCombo()
         const auto& output = available_outputs_[i];
         preview_dialog_->previewModeCombo()->addItem(QString::fromStdString(output.display_name));
         
-        // Track which index matches current output type
-        if (output.type == current_output_type_) {
+        // Track which index matches current output type AND option_id
+        // (multiple outputs can have same type, e.g., Split (Y) and Split (Raw))
+        if (output.type == current_output_type_ && output.option_id == current_option_id_) {
             current_type_index = static_cast<int>(i);
         }
     }
@@ -1129,10 +1147,10 @@ void MainWindow::refreshViewerControls()
     // Update the preview mode combo box
     updatePreviewModeCombo();
     
-    // Get count for current output type
+    // Get count for current output type and option_id
     int new_total = 0;
     for (const auto& output : available_outputs_) {
-        if (output.type == current_output_type_) {
+        if (output.type == current_output_type_ && output.option_id == current_option_id_) {
             new_total = output.count;
             break;
         }

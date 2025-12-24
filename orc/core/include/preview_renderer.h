@@ -71,6 +71,7 @@ struct PreviewOutputInfo {
     uint64_t count;                 ///< Number of outputs available (e.g., 100 fields, 50 frames)
     bool is_available;              ///< Whether this type is available for this node
     double dar_aspect_correction;   ///< Width scaling factor for 4:3 DAR (e.g., 0.7 for PAL/NTSC)
+    std::string option_id;          ///< Original option ID from PreviewableStage (for direct rendering)
 };
 
 /**
@@ -196,7 +197,8 @@ public:
     PreviewRenderResult render_output(
         const std::string& node_id,
         PreviewOutputType type,
-        uint64_t index
+        uint64_t index,
+        const std::string& option_id = ""
     );
     
     /**
@@ -400,7 +402,44 @@ private:
     uint8_t tbc_sample_to_8bit(uint16_t sample);
     
     // ========================================================================
-    // Sink preview support
+    // Stage preview support (new interface for sources/transforms)
+    // ========================================================================
+    
+    /**
+     * @brief Get available outputs for a previewable stage (source/transform)
+     * 
+     * @param stage_node_id The stage node ID
+     * @param stage_node The DAG node for the stage
+     * @param previewable The PreviewableStage interface
+     * @return Vector of available output types
+     */
+    std::vector<PreviewOutputInfo> get_stage_preview_outputs(
+        const std::string& stage_node_id,
+        const DAGNode& stage_node,
+        const class PreviewableStage& previewable
+    );
+    
+    /**
+     * @brief Render preview output from a previewable stage
+     * 
+     * @param stage_node_id The stage node ID
+     * @param stage_node The DAG node for the stage
+     * @param previewable The PreviewableStage interface
+     * @param type The output type to render
+     * @param index The output index
+     * @return Rendered preview result
+     */
+    PreviewRenderResult render_stage_preview(
+        const std::string& stage_node_id,
+        const DAGNode& stage_node,
+        const class PreviewableStage& previewable,
+        PreviewOutputType type,
+        uint64_t index,
+        const std::string& requested_option_id = ""
+    );
+    
+    // ========================================================================
+    // Sink preview support (old interface - temporarily disabled)
     // ========================================================================
     
     /**

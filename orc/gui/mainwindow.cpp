@@ -43,6 +43,8 @@
 #include <QSplitter>
 #include <QCloseEvent>
 #include <QShowEvent>
+#include <QDateTime>
+#include <QTimer>
 #include <QMoveEvent>
 #include <QResizeEvent>
 
@@ -65,7 +67,24 @@ MainWindow::MainWindow(QWidget *parent)
     , current_view_node_id_()
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
+    , preview_update_timer_(nullptr)
+    , pending_preview_index_(-1)
+    , preview_update_pending_(false)
+    , last_preview_update_time_(0)
 {
+    // Create preview update throttling timer
+    preview_update_timer_ = new QTimer(this);
+    preview_update_timer_->setSingleShot(false);  // Repeating for smooth throttling
+    preview_update_timer_->setInterval(33);  // ~30fps max update rate for smooth scrubbing
+    connect(preview_update_timer_, &QTimer::timeout, this, [this]() {
+        if (preview_update_pending_) {
+            updatePreview();
+            updatePreviewInfo();
+            preview_update_pending_ = false;
+            last_preview_update_time_ = QDateTime::currentMSecsSinceEpoch();
+        }
+    });
+    
     setupUI();
     setupMenus();
     setupToolbar();
@@ -523,9 +542,26 @@ void MainWindow::updateUIState()
 
 void MainWindow::onPreviewIndexChanged(int index)
 {
-    // Slider changed - update the preview at the current node
-    updatePreview();
-    updatePreviewInfo();
+    // Throttle preview updates to avoid excessive rendering during slider scrubbing
+    // Use throttling (not debouncing) for smooth real-time feedback
+    
+    pending_preview_index_ = index;
+    preview_update_pending_ = true;
+    
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+    qint64 time_since_last_update = now - last_preview_update_time_;
+    
+    // If enough time has passed, update immediately
+    if (time_since_last_update >= preview_update_timer_->interval()) {
+        updatePreview();
+        updatePreviewInfo();
+        preview_update_pending_ = false;
+        last_preview_update_time_ = now;
+    } else if (!preview_update_timer_->isActive()) {
+        // Start timer if not already running
+        preview_update_timer_->start();
+    }
+    // Otherwise, timer is already running and will pick up the pending update
 }
 
 void MainWindow::onNavigatePreview(int delta)

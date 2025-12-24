@@ -90,6 +90,10 @@ void PreviewDialog::setupUI()
     slider_max_label_ = new QLabel("0");
     preview_slider_ = new QSlider(Qt::Horizontal);
     preview_slider_->setEnabled(false);
+    // Set tracking to false for better performance during scrubbing
+    // This makes the slider only emit valueChanged when released, not during drag
+    // For real-time preview during drag, we can use sliderMoved signal separately
+    preview_slider_->setTracking(true);  // Keep true for now, but we'll throttle updates in MainWindow
     
     sliderLayout->addWidget(first_button_);
     sliderLayout->addWidget(prev_button_);

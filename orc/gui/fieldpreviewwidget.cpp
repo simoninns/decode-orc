@@ -31,13 +31,27 @@ void FieldPreviewWidget::setImage(const orc::PreviewImage& image)
     if (image.rgb_data.empty() || image.width == 0 || image.height == 0) {
         current_image_ = QImage();
     } else {
-        current_image_ = QImage(image.width, image.height, QImage::Format_RGB888);
+        // Check if we need to reuse existing image buffer (avoid reallocation)
+        if (current_image_.width() != static_cast<int>(image.width) ||
+            current_image_.height() != static_cast<int>(image.height) ||
+            current_image_.format() != QImage::Format_RGB888) {
+            current_image_ = QImage(image.width, image.height, QImage::Format_RGB888);
+        }
         
-        // Copy RGB data line by line
-        for (size_t y = 0; y < image.height; ++y) {
-            auto* scan_line = current_image_.scanLine(y);
-            const uint8_t* src = &image.rgb_data[y * image.width * 3];
-            std::memcpy(scan_line, src, image.width * 3);
+        // QImage aligns scanlines to 4-byte boundaries, so we need to check stride
+        const int source_bytes_per_line = static_cast<int>(image.width * 3);
+        const int qimage_bytes_per_line = current_image_.bytesPerLine();
+        
+        if (source_bytes_per_line == qimage_bytes_per_line) {
+            // Fast path: strides match, bulk copy
+            std::memcpy(current_image_.bits(), image.rgb_data.data(), image.rgb_data.size());
+        } else {
+            // Strides don't match due to alignment - copy line by line
+            for (size_t y = 0; y < image.height; ++y) {
+                auto* scan_line = current_image_.scanLine(y);
+                const uint8_t* src = &image.rgb_data[y * source_bytes_per_line];
+                std::memcpy(scan_line, src, source_bytes_per_line);
+            }
         }
     }
     
@@ -91,6 +105,10 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
         scaled_size.height()
     );
     
+    // Use fast transformation for better performance during scrubbing
+    // Note: Qt::SmoothTransformation is slow, Qt::FastTransformation is much faster
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(dest_rect, current_image_);
 }
 

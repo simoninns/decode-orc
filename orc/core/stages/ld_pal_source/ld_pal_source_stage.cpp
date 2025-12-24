@@ -324,7 +324,8 @@ std::vector<PreviewOption> LDPALSourceStage::get_preview_options() const
     return options;
 }
 
-PreviewImage LDPALSourceStage::render_preview(const std::string& option_id, uint64_t index) const
+PreviewImage LDPALSourceStage::render_preview(const std::string& option_id, uint64_t index,
+                                            PreviewNavigationHint hint) const
 {
     return PreviewHelpers::render_standard_preview(cached_representation_, option_id, index);
 }

@@ -17,6 +17,7 @@
 #include "video_field_representation.h"
 #include "tbc_metadata.h"
 #include "previewable_stage.h"
+#include "preview_renderer.h"  // For PreviewImage definition
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
 
 // Forward declarations for decoder classes
@@ -93,10 +94,25 @@ public:
     // PreviewableStage interface
     bool supports_preview() const override { return true; }
     std::vector<PreviewOption> get_preview_options() const override;
-    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index,
+                               PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
     
 private:
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
+    
+    // Preview batch decode cache
+    struct PreviewCacheEntry {
+        uint64_t frame_index;
+        PreviewImage image;
+    };
+    mutable std::vector<PreviewCacheEntry> preview_cache_;
+    mutable uint64_t preview_cache_input_id_ = 0;  // Track input changes
+    mutable uint64_t last_preview_frame_ = UINT64_MAX;  // Track last requested frame for pattern detection
+    static constexpr size_t PREVIEW_BATCH_SIZE = 100;  // Decode 100 frames at once
+    static constexpr size_t PREVIEW_PREFETCH_THRESHOLD = 50;  // Re-fill when less than 50 frames remain
+    
+    // Helper: Decode a batch of frames for preview
+    void decode_preview_batch(uint64_t start_frame, uint64_t frame_count) const;
     
     // Helper for preview: decode a pair of fields to RGB
     std::shared_ptr<VideoFieldRepresentation> decode_field_pair_to_rgb(

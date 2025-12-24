@@ -47,6 +47,7 @@ public:
 
 Q_SIGNALS:
     void previewIndexChanged(int index);
+    void sequentialPreviewRequested(int index);  // Emitted when next/prev button clicked
     void previewModeChanged(int index);
     void aspectRatioModeChanged(int index);
     void exportPNGRequested();

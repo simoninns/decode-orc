@@ -132,16 +132,24 @@ void PreviewDialog::setupUI()
     
     // Connect navigation buttons
     connect(first_button_, &QPushButton::clicked, [this]() {
-        preview_slider_->setValue(preview_slider_->minimum());
+        int new_value = preview_slider_->minimum();
+        preview_slider_->setValue(new_value);
+        emit sequentialPreviewRequested(new_value);
     });
     connect(prev_button_, &QPushButton::clicked, [this]() {
-        preview_slider_->setValue(preview_slider_->value() - 1);
+        int new_value = preview_slider_->value() - 1;
+        preview_slider_->setValue(new_value);
+        emit sequentialPreviewRequested(new_value);
     });
     connect(next_button_, &QPushButton::clicked, [this]() {
-        preview_slider_->setValue(preview_slider_->value() + 1);
+        int new_value = preview_slider_->value() + 1;
+        preview_slider_->setValue(new_value);
+        emit sequentialPreviewRequested(new_value);
     });
     connect(last_button_, &QPushButton::clicked, [this]() {
-        preview_slider_->setValue(preview_slider_->maximum());
+        int new_value = preview_slider_->maximum();
+        preview_slider_->setValue(new_value);
+        emit sequentialPreviewRequested(new_value);
     });
 }
 

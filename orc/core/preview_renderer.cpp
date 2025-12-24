@@ -369,10 +369,12 @@ PreviewRenderResult PreviewRenderer::render_output(
     const std::string& node_id,
     PreviewOutputType type,
     uint64_t index,
-    const std::string& option_id)
+    const std::string& option_id,
+    PreviewNavigationHint hint)
 {
-    ORC_LOG_DEBUG("render_output: node='{}', type={}, option_id='{}', index={}",
-                  node_id, static_cast<int>(type), option_id, index);
+    ORC_LOG_DEBUG("render_output: node='{}', type={}, option_id='{}', index={}, hint={}",
+                  node_id, static_cast<int>(type), option_id, index,
+                  (hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
     
     PreviewRenderResult result;
     result.node_id = node_id;
@@ -399,7 +401,7 @@ PreviewRenderResult PreviewRenderer::render_output(
             
             if (previewable_stage && previewable_stage->supports_preview()) {
                 // Render using stage's preview interface
-                return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id);
+                return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id, hint);
             }
         }
     }
@@ -1242,10 +1244,12 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     const PreviewableStage& previewable,
     PreviewOutputType type,
     uint64_t index,
-    const std::string& requested_option_id)
+    const std::string& requested_option_id,
+    PreviewNavigationHint hint)
 {
-    ORC_LOG_DEBUG("render_stage_preview called for node '{}', type={}, index={}, option_id='{}'", 
-                  stage_node_id, static_cast<int>(type), index, requested_option_id);
+    ORC_LOG_DEBUG("render_stage_preview called for node '{}', type={}, index={}, option_id='{}', hint={}", 
+                  stage_node_id, static_cast<int>(type), index, requested_option_id,
+                  (hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
     
     PreviewRenderResult result;
     result.node_id = stage_node_id;
@@ -1254,7 +1258,7 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     result.success = false;
     
     // Get preview image from the stage
-    auto stage_result = previewable.render_preview(requested_option_id, index);
+    auto stage_result = previewable.render_preview(requested_option_id, index, hint);
     
     if (!stage_result.is_valid()) {
         result.image = create_placeholder_image(type, "Rendering failed");

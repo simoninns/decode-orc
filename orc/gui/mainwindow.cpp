@@ -71,6 +71,7 @@ MainWindow::MainWindow(QWidget *parent)
     , pending_preview_index_(-1)
     , preview_update_pending_(false)
     , last_preview_update_time_(0)
+    , last_update_was_sequential_(false)
 {
     // Create preview update throttling timer
     preview_update_timer_ = new QTimer(this);
@@ -148,6 +149,8 @@ void MainWindow::setupUI()
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
             this, &MainWindow::onPreviewIndexChanged);
+    connect(preview_dialog_, &PreviewDialog::sequentialPreviewRequested,
+            this, [this](int) { last_update_was_sequential_ = true; });
     connect(preview_dialog_, &PreviewDialog::previewModeChanged,
             this, &MainWindow::onPreviewModeChanged);
     connect(preview_dialog_, &PreviewDialog::aspectRatioModeChanged,
@@ -1098,10 +1101,18 @@ void MainWindow::updatePreview()
     
     int current_index = preview_dialog_->previewSlider()->value();
     
-    ORC_LOG_DEBUG("updatePreview: rendering output type {} option_id '{}' index {} at node '{}'", 
-                  static_cast<int>(current_output_type_), current_option_id_, current_index, current_view_node_id_);
+    // Determine navigation hint based on how the update was triggered
+    orc::PreviewNavigationHint hint = last_update_was_sequential_ ? 
+        orc::PreviewNavigationHint::Sequential : orc::PreviewNavigationHint::Random;
     
-    auto result = preview_renderer_->render_output(current_view_node_id_, current_output_type_, current_index, current_option_id_);
+    ORC_LOG_DEBUG("updatePreview: rendering output type {} option_id '{}' index {} at node '{}' hint={}", 
+                  static_cast<int>(current_output_type_), current_option_id_, current_index, current_view_node_id_,
+                  (hint == orc::PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
+    
+    auto result = preview_renderer_->render_output(current_view_node_id_, current_output_type_, current_index, current_option_id_, hint);
+    
+    // Reset the sequential flag after use
+    last_update_was_sequential_ = false;
     
     if (result.success) {
         preview_dialog_->previewWidget()->setImage(result.image);

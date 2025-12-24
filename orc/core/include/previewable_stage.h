@@ -19,6 +19,17 @@ namespace orc {
 struct PreviewImage;
 
 /**
+ * @brief Hint about how preview frames are being requested
+ * 
+ * Allows GUI to inform stage whether to optimize for sequential playback
+ * or random access (scrubbing)
+ */
+enum class PreviewNavigationHint {
+    Sequential,  ///< Next/Previous buttons - optimize with pre-fetching
+    Random       ///< Slider scrubbing - single frame only, no pre-fetch
+};
+
+/**
  * @brief Preview option provided by a stage
  * 
  * Each option represents a different way to preview the stage's output
@@ -83,13 +94,15 @@ public:
      * 
      * @param option_id Option ID from get_preview_options() (e.g., "field", "frame")
      * @param index Item index (0-based, must be < option.count)
+     * @param hint Navigation hint - Sequential for buttons, Random for slider (default: Random)
      * @return Rendered preview image (RGB888), invalid if rendering failed
      * 
      * Example:
      * - render_preview("field", 100) -> RGB888 of field 100
      * - render_preview("frame", 50) -> RGB888 of frame 50 (fields 100+101 woven)
      */
-    virtual PreviewImage render_preview(const std::string& option_id, uint64_t index) const = 0;
+    virtual PreviewImage render_preview(const std::string& option_id, uint64_t index,
+                                       PreviewNavigationHint hint = PreviewNavigationHint::Random) const = 0;
 };
 
 } // namespace orc

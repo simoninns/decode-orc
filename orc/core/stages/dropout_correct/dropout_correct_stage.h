@@ -128,7 +128,8 @@ public:
     // PreviewableStage interface
     bool supports_preview() const override { return true; }
     std::vector<PreviewOption> get_preview_options() const override;
-    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index,
+                               PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
     
     /// Process a single field and apply dropout corrections
     /// 

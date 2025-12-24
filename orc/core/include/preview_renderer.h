@@ -12,6 +12,7 @@
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"
 #include "field_id.h"
+#include "previewable_stage.h"  // For PreviewNavigationHint enum
 #include <memory>
 #include <string>
 #include <vector>
@@ -197,7 +198,8 @@ public:
         const std::string& node_id,
         PreviewOutputType type,
         uint64_t index,
-        const std::string& option_id = ""
+        const std::string& option_id = "",
+        PreviewNavigationHint hint = PreviewNavigationHint::Random
     );
     
     /**
@@ -440,7 +442,8 @@ private:
         const class PreviewableStage& previewable,
         PreviewOutputType type,
         uint64_t index,
-        const std::string& requested_option_id = ""
+        const std::string& requested_option_id = "",
+        PreviewNavigationHint hint = PreviewNavigationHint::Random
     );
 };
 

@@ -65,7 +65,8 @@ std::vector<PreviewOption> PassthroughStage::get_preview_options() const
     return PreviewHelpers::get_standard_preview_options(cached_output_);
 }
 
-PreviewImage PassthroughStage::render_preview(const std::string& option_id, uint64_t index) const
+PreviewImage PassthroughStage::render_preview(const std::string& option_id, uint64_t index,
+                                            PreviewNavigationHint hint) const
 {
     return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
 }

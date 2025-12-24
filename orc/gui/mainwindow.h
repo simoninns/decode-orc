@@ -137,6 +137,7 @@ private:
     int pending_preview_index_;
     bool preview_update_pending_;
     qint64 last_preview_update_time_;  // Timestamp of last update for throttling
+    bool last_update_was_sequential_;  // Track if last update was from next/prev buttons
 };
 
 #endif // MAINWINDOW_H

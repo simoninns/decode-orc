@@ -98,6 +98,8 @@ public:
     
     bool supports_preview() const override { return true; }
     
+    bool is_frame_only() const override { return true; }
+    
 private:
     // Current parameters
     std::string output_path_;

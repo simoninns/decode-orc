@@ -513,6 +513,43 @@ PreviewImage PreviewRenderer::render_field(
         return image;
     }
     
+    // Check if this is an RGB field representation from chroma decoder
+    if (repr->type_name() == "RGBFieldRepresentation") {
+        ORC_LOG_DEBUG("render_field: Detected RGBFieldRepresentation for field {}", field_id.value());
+        
+        // Special handling for RGB data
+        auto desc_opt = repr->get_descriptor(field_id);
+        if (!desc_opt) {
+            return image;
+        }
+        
+        const auto& desc = *desc_opt;
+        
+        // Try to get RGB888 data directly
+        // We need to dynamic_cast to access the get_rgb888_data() method
+        // This is a bit hacky, but works for the local class
+        // Get the field data which contains RGB in 16-bit format
+        auto field_data = repr->get_field(field_id);
+        if (field_data.empty() || field_data.size() < desc.width * desc.height * 3) {
+            return image;
+        }
+        
+        // Initialize image
+        image.width = desc.width;
+        image.height = desc.height;
+        image.rgb_data.resize(image.width * image.height * 3);
+        
+        // Convert 16-bit RGB to 8-bit RGB
+        for (size_t i = 0; i < image.rgb_data.size(); ++i) {
+            if (i < field_data.size()) {
+                // Scale from 16-bit to 8-bit
+                image.rgb_data[i] = static_cast<uint8_t>(field_data[i] >> 8);
+            }
+        }
+        
+        return image;
+    }
+    
     // Get field descriptor for dimensions
     auto desc_opt = repr->get_descriptor(field_id);
     if (!desc_opt) {
@@ -564,6 +601,42 @@ PreviewImage PreviewRenderer::render_frame(
     PreviewImage image;
     
     if (!repr || !repr->has_field(field_a) || !repr->has_field(field_b)) {
+        return image;
+    }
+    
+    // Check if this is RGB data from chroma decoder
+    if (repr->type_name() == "RGBFieldRepresentation") {
+        ORC_LOG_DEBUG("render_frame: Detected RGBFieldRepresentation, using RGB rendering");
+        
+        // For RGB preview, the representation contains a full decoded frame
+        // Both fields should return the same RGB data
+        auto desc_opt = repr->get_descriptor(field_a);
+        if (!desc_opt) {
+            return image;
+        }
+        
+        const auto& desc = *desc_opt;
+        auto field_data = repr->get_field(field_a);
+        
+        if (field_data.empty() || field_data.size() < desc.width * desc.height * 3) {
+            ORC_LOG_WARN("render_frame: RGB field data size mismatch: got {}, expected {}", 
+                         field_data.size(), desc.width * desc.height * 3);
+            return image;
+        }
+        
+        // Initialize image
+        image.width = desc.width;
+        image.height = desc.height;
+        image.rgb_data.resize(image.width * image.height * 3);
+        
+        ORC_LOG_DEBUG("render_frame: Converting RGB frame {}x{}, {} bytes", 
+                      image.width, image.height, field_data.size());
+        
+        // Convert 16-bit RGB to 8-bit RGB
+        for (size_t i = 0; i < image.rgb_data.size() && i < field_data.size(); ++i) {
+            image.rgb_data[i] = static_cast<uint8_t>(field_data[i] >> 8);
+        }
+        
         return image;
     }
     
@@ -1124,19 +1197,27 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
     // Calculate frame count (assuming interlaced fields)
     uint64_t frame_count = field_count / 2;
     
-    // Provide standard output types for sink preview
-    ORC_LOG_DEBUG("Sink node '{}' preview: {} fields, {} frames available", 
-                  sink_node_id, field_count, frame_count);
+    // Check if this sink only outputs frames (e.g., chroma decoder)
+    bool frame_only = previewable.is_frame_only();
     
-    outputs.push_back(PreviewOutputInfo{
-        PreviewOutputType::Field,
-        "Field (Sink Preview)",
-        field_count,
-        true,
-        0.7
-    });
+    // Provide standard output types for sink preview
+    ORC_LOG_DEBUG("Sink node '{}' preview: {} fields, {} frames available (frame_only={})", 
+                  sink_node_id, field_count, frame_count, frame_only);
+    
+    // Only offer Field mode if sink supports it
+    if (!frame_only) {
+        outputs.push_back(PreviewOutputInfo{
+            PreviewOutputType::Field,
+            "Field (Sink Preview)",
+            field_count,
+            true,
+            0.7
+        });
+    }
     
     if (frame_count > 0) {
+        // For frame-only sinks (e.g., chroma decoder), only offer Frame mode
+        // since fields have already been combined and there's nothing to reverse/split
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
             "Frame (Sink Preview)",
@@ -1145,21 +1226,23 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
             0.7
         });
         
-        outputs.push_back(PreviewOutputInfo{
-            PreviewOutputType::Frame_Reversed,
-            "Frame Reversed (Sink Preview)",
-            frame_count,
-            true,
-            0.7
-        });
-        
-        outputs.push_back(PreviewOutputInfo{
-            PreviewOutputType::Split,
-            "Split (Sink Preview)",
-            frame_count,
-            true,
-            0.7
-        });
+        if (!frame_only) {
+            outputs.push_back(PreviewOutputInfo{
+                PreviewOutputType::Frame_Reversed,
+                "Frame Reversed (Sink Preview)",
+                frame_count,
+                true,
+                0.7
+            });
+            
+            outputs.push_back(PreviewOutputInfo{
+                PreviewOutputType::Split,
+                "Split (Sink Preview)",
+                frame_count,
+                true,
+                0.7
+            });
+        }
     }
     
     return outputs;
@@ -1172,6 +1255,9 @@ PreviewRenderResult PreviewRenderer::render_sink_preview(
     PreviewOutputType type,
     uint64_t index)
 {
+    ORC_LOG_DEBUG("render_sink_preview called for node '{}', type={}, index={}", 
+                  sink_node_id, static_cast<int>(type), index);
+    
     PreviewRenderResult result;
     result.node_id = sink_node_id;
     result.output_type = type;
@@ -1181,6 +1267,20 @@ PreviewRenderResult PreviewRenderer::render_sink_preview(
     if (sink_node.input_node_ids.empty()) {
         result.error_message = "Sink has no input";
         return result;
+    }
+    
+    // For frame-only sinks (e.g., chroma decoder), force unsupported modes to Frame
+    if (previewable.is_frame_only()) {
+        if (type == PreviewOutputType::Field) {
+            ORC_LOG_DEBUG("render_sink_preview: Frame-only sink requested Field mode, forcing to Frame");
+            type = PreviewOutputType::Frame;
+            result.output_type = type;
+        } else if (type == PreviewOutputType::Frame_Reversed || type == PreviewOutputType::Split) {
+            ORC_LOG_DEBUG("render_sink_preview: Frame-only sink requested {} mode, forcing to Frame", 
+                         static_cast<int>(type));
+            type = PreviewOutputType::Frame;
+            result.output_type = type;
+        }
     }
     
     const std::string& input_node_id = sink_node.input_node_ids[0];
@@ -1270,12 +1370,27 @@ PreviewRenderResult PreviewRenderer::render_sink_preview(
                 return result;
             }
             
-            // Render frame using transformed fields
-            if (type == PreviewOutputType::Split) {
-                result.image = render_split_frame(transformed_a, field_a, field_b);
+            // Check if this is RGB data from chroma decoder
+            // The chroma decoder returns the SAME representation for both fields
+            // (both fields are part of the same decoded frame)
+            if (transformed_a->type_name() == "RGBFieldRepresentation" && 
+                transformed_a == transformed_b) {
+                ORC_LOG_DEBUG("render_sink_preview: RGB representation detected, using RGB frame rendering");
+                // Use the RGB representation which contains both fields
+                if (type == PreviewOutputType::Split) {
+                    result.image = render_split_frame(transformed_a, field_a, field_b);
+                } else {
+                    bool first_field_first = (type == PreviewOutputType::Frame);
+                    result.image = render_frame(transformed_a, field_a, field_b, first_field_first);
+                }
             } else {
-                bool first_field_first = (type == PreviewOutputType::Frame);
-                result.image = render_frame(transformed_a, field_a, field_b, first_field_first);
+                // Normal grayscale field rendering
+                if (type == PreviewOutputType::Split) {
+                    result.image = render_split_frame(transformed_a, field_a, field_b);
+                } else {
+                    bool first_field_first = (type == PreviewOutputType::Frame);
+                    result.image = render_frame(transformed_a, field_a, field_b, first_field_first);
+                }
             }
             
             result.success = result.image.is_valid();

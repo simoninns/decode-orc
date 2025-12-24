@@ -80,6 +80,20 @@ public:
      * is conditional (e.g., depends on parameters or capabilities).
      */
     virtual bool supports_preview() const { return true; }
+    
+    /**
+     * @brief Check if this sink only outputs frames (not individual fields)
+     * 
+     * @return True if sink produces frame-based output (e.g., chroma decoder)
+     * 
+     * When true, the preview system will only offer Frame/Frame_Reversed/Split
+     * output modes, not Field mode. This is appropriate for sinks that decode
+     * pairs of fields into frames (like chroma decoders) where individual
+     * field viewing doesn't make sense.
+     * 
+     * Default implementation returns false (supports all output modes).
+     */
+    virtual bool is_frame_only() const { return false; }
 };
 
 } // namespace orc

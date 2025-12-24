@@ -27,7 +27,7 @@
 #   SINGLE_TEST=1 ./test-orc-chroma.sh     # Run only test #1 (PAL_2D_RGB)
 #   SINGLE_TEST=5 VERBOSE=1 ./test-orc-chroma.sh  # Run test #5 with verbose output
 #
-# Test List (24 tests total):
+# Test List (23 tests total):
 #   PAL Decoders:
 #     1. PAL_2D_RGB
 #     2. PAL_Transform2D_RGB
@@ -53,12 +53,11 @@
 #    20. PAL_CAV_2D
 #    21. NTSC_CAV_2D
 #   Edge Cases:
-#    22. PAL_ReverseFields
-#    23. PAL_Padding
-#    24. PAL_CustomLines
+#    22. PAL_Padding
+#    23. PAL_CustomLines
 #
 # Test Strategy:
-#   This script runs the same 24 tests as the standalone orc-chroma-decoder test suite.
+#   This script runs the same 23 tests as the standalone orc-chroma-decoder test suite.
 #   Each test exercises different decoder types, output formats, and parameters.
 #   In 'verify' mode (default), output signatures are compared to pre-generated references.
 #   In 'compare' mode, the standalone decoder is run and outputs are compared directly.

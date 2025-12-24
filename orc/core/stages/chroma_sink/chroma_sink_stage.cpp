@@ -55,6 +55,8 @@ ChromaSinkStage::ChromaSinkStage()
 {
 }
 
+ChromaSinkStage::~ChromaSinkStage() = default;  // Defined in .cpp where types are complete
+
 NodeTypeInfo ChromaSinkStage::get_node_type_info() const
 {
     return NodeTypeInfo{
@@ -1152,11 +1154,6 @@ std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_
         return nullptr;
     }
     
-    // Create decoder instance based on type (non-threaded for preview)
-    std::unique_ptr<MonoDecoder> monoDecoder;
-    std::unique_ptr<PalColour> palDecoder;
-    std::unique_ptr<Comb> ntscDecoder;
-    
     // Determine decoder type
     std::string effectiveDecoderType = decoder_type_;
     if (effectiveDecoderType == "auto") {
@@ -1167,68 +1164,86 @@ std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_
         }
     }
     
-    // Create appropriate decoder
-    if (effectiveDecoderType == "mono") {
-        MonoDecoder::MonoConfiguration config;
-        config.yNRLevel = luma_nr_;
-        config.videoParameters = videoParams;
-        monoDecoder = std::make_unique<MonoDecoder>(config);
-    } else if (effectiveDecoderType == "pal2d" || effectiveDecoderType == "transform2d" || effectiveDecoderType == "transform3d") {
-        PalColour::Configuration config;
-        config.chromaGain = chroma_gain_;
-        config.chromaPhase = chroma_phase_;
-        config.yNRLevel = luma_nr_;
-        config.simplePAL = simple_pal_;
-        config.showFFTs = false;
+    // Check if cached decoder matches current configuration
+    if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_, 
+                                                chroma_phase_, luma_nr_, chroma_nr_,
+                                                ntsc_phase_comp_, simple_pal_)) {
+        // Configuration changed - clear old decoders and create new ones
+        ORC_LOG_DEBUG("ChromaSink: Decoder configuration changed, recreating decoder (type={})", effectiveDecoderType);
+        preview_decoder_cache_.mono_decoder.reset();
+        preview_decoder_cache_.pal_decoder.reset();
+        preview_decoder_cache_.ntsc_decoder.reset();
+        preview_decoder_cache_.decoder_type = effectiveDecoderType;
+        preview_decoder_cache_.chroma_gain = chroma_gain_;
+        preview_decoder_cache_.chroma_phase = chroma_phase_;
+        preview_decoder_cache_.luma_nr = luma_nr_;
+        preview_decoder_cache_.chroma_nr = chroma_nr_;
+        preview_decoder_cache_.ntsc_phase_comp = ntsc_phase_comp_;
+        preview_decoder_cache_.simple_pal = simple_pal_;
         
-        if (effectiveDecoderType == "transform3d") {
-            config.chromaFilter = PalColour::transform3DFilter;
-        } else if (effectiveDecoderType == "transform2d") {
-            config.chromaFilter = PalColour::transform2DFilter;
+        // Create appropriate decoder based on type
+        if (effectiveDecoderType == "mono") {
+            MonoDecoder::MonoConfiguration config;
+            config.yNRLevel = luma_nr_;
+            config.videoParameters = videoParams;
+            preview_decoder_cache_.mono_decoder = std::make_unique<MonoDecoder>(config);
+        } else if (effectiveDecoderType == "pal2d" || effectiveDecoderType == "transform2d" || effectiveDecoderType == "transform3d") {
+            PalColour::Configuration config;
+            config.chromaGain = chroma_gain_;
+            config.chromaPhase = chroma_phase_;
+            config.yNRLevel = luma_nr_;
+            config.simplePAL = simple_pal_;
+            config.showFFTs = false;
+            
+            if (effectiveDecoderType == "transform3d") {
+                config.chromaFilter = PalColour::transform3DFilter;
+            } else if (effectiveDecoderType == "transform2d") {
+                config.chromaFilter = PalColour::transform2DFilter;
+            } else {
+                config.chromaFilter = PalColour::palColourFilter;
+            }
+            
+            preview_decoder_cache_.pal_decoder = std::make_unique<PalColour>();
+            preview_decoder_cache_.pal_decoder->updateConfiguration(videoParams, config);
         } else {
-            config.chromaFilter = PalColour::palColourFilter;
+            // NTSC decoders
+            Comb::Configuration config;
+            config.chromaGain = chroma_gain_;
+            config.chromaPhase = chroma_phase_;
+            config.cNRLevel = chroma_nr_;
+            config.yNRLevel = luma_nr_;
+            config.phaseCompensation = ntsc_phase_comp_;
+            config.showMap = false;
+            
+            if (effectiveDecoderType == "ntsc1d") {
+                config.dimensions = 1;
+                config.adaptive = false;
+            } else if (effectiveDecoderType == "ntsc3d") {
+                config.dimensions = 3;
+                config.adaptive = true;
+            } else if (effectiveDecoderType == "ntsc3dnoadapt") {
+                config.dimensions = 3;
+                config.adaptive = false;
+            } else {
+                config.dimensions = 2;
+                config.adaptive = false;
+            }
+            
+            preview_decoder_cache_.ntsc_decoder = std::make_unique<Comb>();
+            preview_decoder_cache_.ntsc_decoder->updateConfiguration(videoParams, config);
         }
-        
-        palDecoder = std::make_unique<PalColour>();
-        palDecoder->updateConfiguration(videoParams, config);
-    } else {
-        // NTSC decoders
-        Comb::Configuration config;
-        config.chromaGain = chroma_gain_;
-        config.chromaPhase = chroma_phase_;
-        config.cNRLevel = chroma_nr_;
-        config.yNRLevel = luma_nr_;
-        config.phaseCompensation = ntsc_phase_comp_;
-        config.showMap = false;
-        
-        if (effectiveDecoderType == "ntsc1d") {
-            config.dimensions = 1;
-            config.adaptive = false;
-        } else if (effectiveDecoderType == "ntsc3d") {
-            config.dimensions = 3;
-            config.adaptive = true;
-        } else if (effectiveDecoderType == "ntsc3dnoadapt") {
-            config.dimensions = 3;
-            config.adaptive = false;
-        } else {
-            config.dimensions = 2;
-            config.adaptive = false;
-        }
-        
-        ntscDecoder = std::make_unique<Comb>();
-        ntscDecoder->updateConfiguration(videoParams, config);
     }
     
-    // Decode the field pair
+    // Decode the field pair using cached decoder
     std::vector<SourceField> fields = {sourceField_a, sourceField_b};
     std::vector<ComponentFrame> outputFrames(1);
     
-    if (monoDecoder) {
-        monoDecoder->decodeFrames(fields, 0, 2, outputFrames);
-    } else if (palDecoder) {
-        palDecoder->decodeFrames(fields, 0, 2, outputFrames);
-    } else if (ntscDecoder) {
-        ntscDecoder->decodeFrames(fields, 0, 2, outputFrames);
+    if (preview_decoder_cache_.mono_decoder) {
+        preview_decoder_cache_.mono_decoder->decodeFrames(fields, 0, 2, outputFrames);
+    } else if (preview_decoder_cache_.pal_decoder) {
+        preview_decoder_cache_.pal_decoder->decodeFrames(fields, 0, 2, outputFrames);
+    } else if (preview_decoder_cache_.ntsc_decoder) {
+        preview_decoder_cache_.ntsc_decoder->decodeFrames(fields, 0, 2, outputFrames);
     }
     
     // Convert ComponentFrame YUV to RGB

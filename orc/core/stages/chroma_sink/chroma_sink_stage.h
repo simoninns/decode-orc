@@ -24,6 +24,9 @@
 class SourceField;
 class Decoder;
 class ComponentFrame;
+class MonoDecoder;
+class PalColour;
+class Comb;
 
 #include <string>
 #include <memory>
@@ -64,7 +67,7 @@ class ChromaSinkStage : public DAGStage,
                        public PreviewableStage {
 public:
     ChromaSinkStage();
-    ~ChromaSinkStage() override = default;
+    ~ChromaSinkStage() override;  // Need custom destructor for unique_ptr with incomplete types
     
     // DAGStage interface
     std::string version() const override { return "1.0"; }
@@ -110,6 +113,29 @@ private:
     mutable uint64_t last_preview_frame_ = UINT64_MAX;  // Track last requested frame for pattern detection
     static constexpr size_t PREVIEW_BATCH_SIZE = 100;  // Decode 100 frames at once
     static constexpr size_t PREVIEW_PREFETCH_THRESHOLD = 50;  // Re-fill when less than 50 frames remain
+    
+    // Cached decoder for preview (avoid recreating expensive FFTW plans)
+    struct PreviewDecoderCache {
+        std::string decoder_type;
+        double chroma_gain;
+        double chroma_phase;
+        double luma_nr;
+        double chroma_nr;
+        bool ntsc_phase_comp;
+        bool simple_pal;
+        
+        std::unique_ptr<MonoDecoder> mono_decoder;
+        std::unique_ptr<PalColour> pal_decoder;
+        std::unique_ptr<Comb> ntsc_decoder;
+        
+        bool matches_config(const std::string& dec_type, double cg, double cp, 
+                           double ln, double cn, bool npc, bool sp) const {
+            return decoder_type == dec_type && chroma_gain == cg && 
+                   chroma_phase == cp && luma_nr == ln && chroma_nr == cn &&
+                   ntsc_phase_comp == npc && simple_pal == sp;
+        }
+    };
+    mutable PreviewDecoderCache preview_decoder_cache_;
     
     // Helper: Decode a batch of frames for preview
     void decode_preview_batch(uint64_t start_frame, uint64_t frame_count) const;

@@ -147,19 +147,24 @@ void TransformPal2D::forwardFFTTile(qint32 tileX, qint32 tileY, qint32 startY, q
 {
     // Copy the input signal into fftReal, applying the window function
     const quint16 *inputPtr = inputField.data.data();
+    const double blackValue = videoParameters.black16bIre;
+    double *fftPtr = fftReal;
+    
     for (qint32 y = 0; y < YTILE; y++) {
+        const double *winPtr = windowFunction[y];
+        
         // If this frame line is above/below the active region, fill it with
         // black instead.
         if (y < startY || y >= endY) {
             for (qint32 x = 0; x < XTILE; x++) {
-                fftReal[(y * XTILE) + x] = videoParameters.black16bIre * windowFunction[y][x];
+                *fftPtr++ = blackValue * winPtr[x];
             }
             continue;
         }
 
-        const quint16 *b = inputPtr + ((tileY + y) * videoParameters.fieldWidth);
+        const quint16 *b = inputPtr + ((tileY + y) * videoParameters.fieldWidth) + tileX;
         for (qint32 x = 0; x < XTILE; x++) {
-            fftReal[(y * XTILE) + x] = b[tileX + x] * windowFunction[y][x];
+            *fftPtr++ = b[x] * winPtr[x];
         }
     }
 
@@ -177,12 +182,17 @@ void TransformPal2D::inverseFFTTile(qint32 tileX, qint32 tileY, qint32 startY, q
     // Convert frequency domain in fftComplexOut back to time domain in fftReal
     fftw_execute(inversePlan);
 
+    // Precompute normalization factor
+    const double normFactor = 1.0 / (YTILE * XTILE);
+
     // Overlay the result, normalising the FFTW output, into chromaBuf
     double *outputPtr = chromaBuf[outputIndex].data();
     for (qint32 y = startY; y < endY; y++) {
-        double *b = outputPtr + ((tileY + y) * videoParameters.fieldWidth);
+        double *b = outputPtr + ((tileY + y) * videoParameters.fieldWidth) + tileX;
+        const double *fftPtr = &fftReal[(y * XTILE) + startX];
+        
         for (qint32 x = startX; x < endX; x++) {
-            b[tileX + x] += fftReal[(y * XTILE) + x] / (YTILE * XTILE);
+            b[x] += fftPtr[x] * normFactor;
         }
     }
 }
@@ -201,10 +211,8 @@ void TransformPal2D::applyFilter()
 
     // Clear fftComplexOut. We discard values by default; the filter only
     // copies values that look like chroma.
-    for (qint32 i = 0; i < XCOMPLEX * YCOMPLEX; i++) {
-        fftComplexOut[i][0] = 0.0;
-        fftComplexOut[i][1] = 0.0;
-    }
+    // Use memset for faster clearing (all-zero is a valid zero for doubles on most platforms)
+    std::memset(fftComplexOut, 0, sizeof(fftw_complex) * XCOMPLEX * YCOMPLEX);
 
     // This is a direct translation of transform_filter from pyctools-pal.
     // The main simplification is that we don't need to worry about
@@ -241,32 +249,38 @@ void TransformPal2D::applyFilter()
             // Get the threshold for this bin
             const double threshold_sq = *thresholdsPtr++;
 
-            const fftw_complex &in_val = bi[x];
-            const fftw_complex &ref_val = bi_ref[x_ref];
+            // Load input values once
+            const double in_val0 = bi[x][0];
+            const double in_val1 = bi[x][1];
+            const double ref_val0 = bi_ref[x_ref][0];
+            const double ref_val1 = bi_ref[x_ref][1];
 
             if (x == x_ref && y == y_ref) {
                 // This bin is its own reflection (i.e. it's a carrier). Keep it!
-                bo[x][0] = in_val[0];
-                bo[x][1] = in_val[1];
+                bo[x][0] = in_val0;
+                bo[x][1] = in_val1;
                 continue;
             }
 
             // Get the squares of the magnitudes (to minimise the number of sqrts)
-            const double m_in_sq = fftwAbsSq(in_val);
-            const double m_ref_sq = fftwAbsSq(ref_val);
+            const double m_in_sq = (in_val0 * in_val0) + (in_val1 * in_val1);
+            const double m_ref_sq = (ref_val0 * ref_val0) + (ref_val1 * ref_val1);
 
             // Compare the magnitudes of the two values, and discard both
             // if they are more different than the threshold for this
             // bin.
-            if (m_in_sq < m_ref_sq * threshold_sq || m_ref_sq < m_in_sq * threshold_sq) {
-                // Probably not a chroma signal; throw it away.
-            } else {
+            // Rearrange to avoid extra multiplication in common case (rejection)
+            const double m_in_thresh = m_ref_sq * threshold_sq;
+            const double m_ref_thresh = m_in_sq * threshold_sq;
+            
+            if (m_in_sq >= m_in_thresh && m_ref_sq >= m_ref_thresh) {
                 // They're similar. Keep it!
-                bo[x][0] = in_val[0];
-                bo[x][1] = in_val[1];
-                bo_ref[x_ref][0] = ref_val[0];
-                bo_ref[x_ref][1] = ref_val[1];
+                bo[x][0] = in_val0;
+                bo[x][1] = in_val1;
+                bo_ref[x_ref][0] = ref_val0;
+                bo_ref[x_ref][1] = ref_val1;
             }
+            // else: Probably not a chroma signal; already cleared to zero
         }
     }
 

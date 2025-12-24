@@ -1,0 +1,41 @@
+[2025-12-24 14:24:18.182] [core] [info] Loading project: /home/sdi/Coding/github/decode-orc/orc/core/stages/chroma_sink/tests/profile-temp/PAL_Transform2D.orcprj
+[2025-12-24 14:24:18.183] [core] [info] Loading parameter 'tbc_path' for node 'source', type=string
+[2025-12-24 14:24:18.183] [core] [info] Loading parameter 'output_path' for node 'chroma', type=string
+[2025-12-24 14:24:18.183] [core] [info] Loading parameter 'decoder_type' for node 'chroma', type=string
+[2025-12-24 14:24:18.183] [core] [info] Loading parameter 'output_format' for node 'chroma', type=string
+[2025-12-24 14:24:18.183] [core] [info] Loading parameter 'start_frame' for node 'chroma', type=integer
+[2025-12-24 14:24:18.183] [core] [info]   Set to int: 1
+[2025-12-24 14:24:18.183] [core] [info] Loading parameter 'length' for node 'chroma', type=integer
+[2025-12-24 14:24:18.183] [core] [info]   Set to int: 100
+[2025-12-24 14:24:18.183] [core] [info] Project loaded: PAL Chroma Profile - transform2d (version 1.0)
+[2025-12-24 14:24:18.183] [core] [info] Project contains 2 nodes and 1 edges
+[2025-12-24 14:24:18.183] [core] [info] Found triggerable node: chroma (chroma_sink)
+[2025-12-24 14:24:18.183] [core] [info] ========================================
+[2025-12-24 14:24:18.183] [core] [info] Triggering node: chroma
+[2025-12-24 14:24:18.183] [core] [info] ========================================
+[2025-12-24 14:24:18.183] [core] [info] Executing DAG to collect 1 input nodes
+[2025-12-24 14:24:18.183] [core] [info] LDPALSource: Loading TBC file: /home/sdi/Coding/github/decode-orc/test-data/laserdisc/pal/amawaab/6001-6205/amawaab_pal_clv_6001-6205.tbc
+[2025-12-24 14:24:18.183] [core] [info]   Decoder: ld-decode
+[2025-12-24 14:24:18.183] [core] [info]   System: PAL
+[2025-12-24 14:24:18.183] [core] [info]   Fields: 408 (1135x313 pixels)
+[2025-12-24 14:24:18.183] [core] [info] Calling trigger() with 1 inputs
+[2025-12-24 14:24:18.183] [core] [info] ChromaSink: Trigger called - starting decode
+[2025-12-24 14:24:18.183] [core] [info] ChromaSink: Parameter length set to 100
+[2025-12-24 14:24:18.183] [core] [info] ChromaSink: Parameter start_frame set to 1
+[2025-12-24 14:24:18.199] [core] [info] ChromaSink: Using decoder: transform2d (PAL)
+[2025-12-24 14:24:18.199] [core] [info] ChromaSink: Frame range parameters: start_frame_=1, length_=100, total_frames=204
+[2025-12-24 14:24:18.199] [core] [info] ChromaSink: Processing frames 1 to 100 (of 204)
+[2025-12-24 14:24:18.199] [core] [info] ChromaSink: Decoder requires lookBehind=0 frames, lookAhead=0 frames
+[2025-12-24 14:24:18.199] [core] [info] ChromaSink: Collecting 200 fields (frames 1-100) for decode
+[2025-12-24 14:24:18.364] [core] [info] ChromaSink: Processing 100 frames using 16 worker threads
+[2025-12-24 14:24:19.879] [core] [info] ChromaSink: Decoded 100 frames
+[2025-12-24 14:24:19.879] [core] [info] ChromaSink: ComponentFrame[0] Y line 44 checksum (first 100 pixels)=0, width=1135, first 4: 0.00 0.00 0.00 0.00
+[2025-12-24 14:24:19.879] [core] [info] ChromaSink: ComponentFrame[1] Y line 44 checksum (first 100 pixels)=0, width=1135, first 4: 0.00 0.00 0.00 0.00
+[2025-12-24 14:24:19.879] [core] [info] ChromaSink: ComponentFrame[2] Y line 44 checksum (first 100 pixels)=0, width=1135, first 4: 0.00 0.00 0.00 0.00
+[2025-12-24 14:24:20.548] [core] [info] Input video of 1135x625 will be colourised and trimmed to 928x576 RGB48 frames
+[2025-12-24 14:24:22.121] [core] [info] ChromaSink: Wrote 100 frames to /home/sdi/Coding/github/decode-orc/test-output/profile/PAL_Transform2D.rgb
+[2025-12-24 14:24:22.121] [core] [info] ChromaSink: Output written to: /home/sdi/Coding/github/decode-orc/test-output/profile/PAL_Transform2D.rgb
+[2025-12-24 14:24:22.359] [core] [info] Trigger SUCCESS: Decode complete: 100 frames
+[2025-12-24 14:24:22.359] [core] [info] ========================================
+[2025-12-24 14:24:22.359] [core] [info] All sink nodes triggered successfully
+[2025-12-24 14:24:22.359] [core] [info] ========================================

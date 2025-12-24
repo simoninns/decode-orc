@@ -9,6 +9,7 @@
 
 #include <stacker_stage.h>
 #include <stage_registry.h>
+#include <preview_helpers.h>
 #include <logging.h>
 #include <algorithm>
 #include <cmath>
@@ -64,6 +65,7 @@ std::vector<ArtifactPtr> StackerStage::execute(
     // Process the fields
     auto result = process(sources);
     
+    cached_output_ = result;
     // Return as artifact
     return {std::const_pointer_cast<VideoFieldRepresentation>(
         std::const_pointer_cast<const VideoFieldRepresentation>(result))};
@@ -585,5 +587,13 @@ std::optional<StageReport> StackerStage::generate_report() const {
     
     return report;
 }
+std::vector<PreviewOption> StackerStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_output_);
+}
 
+PreviewImage StackerStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
+}
 } // namespace orc

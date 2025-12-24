@@ -13,6 +13,7 @@
 #include "video_field_representation.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
+#include "previewable_stage.h"
 #include <memory>
 
 namespace orc {
@@ -29,7 +30,7 @@ namespace orc {
  * - Testing DAG execution flow
  * - Benchmarking overhead of stage infrastructure
  */
-class PassthroughStage : public DAGStage, public ParameterizedStage {
+class PassthroughStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
     PassthroughStage() = default;
     
@@ -65,6 +66,14 @@ public:
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+    
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
+
+private:
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
 } // namespace orc

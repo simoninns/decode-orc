@@ -14,6 +14,7 @@
 #include "dropout_decision.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
+#include "previewable_stage.h"
 #include <memory>
 #include <vector>
 #include <cstdint>
@@ -99,7 +100,7 @@ private:
 /// 
 /// Signal-transforming stage that corrects dropouts by replacing
 /// corrupted samples with data from other lines/fields.
-class DropoutCorrectStage : public DAGStage, public ParameterizedStage {
+class DropoutCorrectStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
     explicit DropoutCorrectStage(const DropoutCorrectionConfig& config = DropoutCorrectionConfig())
         : config_(config) {}
@@ -123,6 +124,11 @@ public:
     
     size_t required_input_count() const override { return 1; }
     size_t output_count() const override { return 1; }
+    
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
     
     /// Process a single field and apply dropout corrections
     /// 
@@ -210,6 +216,9 @@ private:
         const uint16_t* line_data,
         size_t width,
         const DropoutRegion& dropout) const;
+    
+    // Cached output for preview rendering
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
 } // namespace orc

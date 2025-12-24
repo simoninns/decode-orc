@@ -64,6 +64,7 @@ MainWindow::MainWindow(QWidget *parent)
     , preview_renderer_(nullptr)
     , current_view_node_id_()
     , current_output_type_(orc::PreviewOutputType::Frame)
+    , current_option_id_("frame")  // Default to "Frame (Y)" option
 {
     setupUI();
     setupMenus();
@@ -856,20 +857,36 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             current_view_node_id_ = node_id;
             available_outputs_ = outputs;
             
-            // Initialize current_output_type_ and current_option_id_ to first available output
-            // This ensures we have valid values when switching nodes
+            // Try to preserve the current option_id when switching nodes
+            // This allows users to stay in the same preview mode (e.g., "frame") across different stages
+            ORC_LOG_DEBUG("onNodeClicked: trying to preserve option_id '{}'", current_option_id_);
             bool found_match = false;
             for (const auto& output : outputs) {
-                if (output.type == current_output_type_) {
-                    current_option_id_ = output.option_id;
+                if (output.option_id == current_option_id_) {
+                    current_output_type_ = output.type;
                     found_match = true;
+                    ORC_LOG_DEBUG("onNodeClicked: found match for option_id '{}', output_type={}", 
+                                  current_option_id_, static_cast<int>(current_output_type_));
                     break;
                 }
             }
-            // If current type not available, use first output
+            
+            // If current option not available, try to find a sensible default
             if (!found_match && !outputs.empty()) {
-                current_output_type_ = outputs[0].type;
-                current_option_id_ = outputs[0].option_id;
+                // Prefer "frame" (Frame (Y)) if available, otherwise use first output
+                bool found_frame = false;
+                for (const auto& output : outputs) {
+                    if (output.option_id == "frame") {
+                        current_output_type_ = output.type;
+                        current_option_id_ = output.option_id;
+                        found_frame = true;
+                        break;
+                    }
+                }
+                if (!found_frame) {
+                    current_output_type_ = outputs[0].type;
+                    current_option_id_ = outputs[0].option_id;
+                }
             }
             
             // Show preview dialog only if:
@@ -1066,6 +1083,9 @@ void MainWindow::updatePreview()
 
 void MainWindow::updatePreviewModeCombo()
 {
+    ORC_LOG_DEBUG("updatePreviewModeCombo: current_output_type={}, current_option_id='{}'",
+                  static_cast<int>(current_output_type_), current_option_id_);
+    
     // Block signals while updating combo box
     preview_dialog_->previewModeCombo()->blockSignals(true);
     
@@ -1078,12 +1098,18 @@ void MainWindow::updatePreviewModeCombo()
         const auto& output = available_outputs_[i];
         preview_dialog_->previewModeCombo()->addItem(QString::fromStdString(output.display_name));
         
+        ORC_LOG_DEBUG("  output[{}]: type={}, option_id='{}', display_name='{}'",
+                      i, static_cast<int>(output.type), output.option_id, output.display_name);
+        
         // Track which index matches current output type AND option_id
         // (multiple outputs can have same type, e.g., Split (Y) and Split (Raw))
         if (output.type == current_output_type_ && output.option_id == current_option_id_) {
             current_type_index = static_cast<int>(i);
+            ORC_LOG_DEBUG("  -> MATCH at index {}", i);
         }
     }
+    
+    ORC_LOG_DEBUG("updatePreviewModeCombo: setting combo to index {}", current_type_index);
     
     // Set current selection to match current output type
     if (!available_outputs_.empty()) {

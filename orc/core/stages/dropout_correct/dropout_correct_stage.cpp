@@ -18,6 +18,7 @@
 #include "tbc_metadata.h"
 #include "tbc_video_field_representation.h"
 #include "stage_registry.h"
+#include "preview_helpers.h"
 #include "logging.h"
 #include <algorithm>
 #include <cmath>
@@ -72,6 +73,7 @@ std::vector<ArtifactPtr> DropoutCorrectStage::execute(
         config_.highlight_corrections
     );
     
+    cached_output_ = corrected;
     std::vector<ArtifactPtr> outputs;
     outputs.push_back(std::static_pointer_cast<VideoFieldRepresentation>(corrected));
     return outputs;
@@ -646,6 +648,16 @@ bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterVa
     }
     
     return true;
+}
+
+std::vector<PreviewOption> DropoutCorrectStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_output_);
+}
+
+PreviewImage DropoutCorrectStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
 }
 
 } // namespace orc

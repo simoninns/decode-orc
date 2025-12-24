@@ -345,8 +345,14 @@ private:
     /// Current DAG reference
     std::shared_ptr<const DAG> dag_;
     
+    /// DAG executor for on-demand execution
+    mutable DAGExecutor dag_executor_;
+    
     /// Current aspect ratio display mode
     AspectRatioMode aspect_ratio_mode_ = AspectRatioMode::DAR_4_3;
+    
+    /// Ensure node has been executed (execute on-demand if needed)
+    void ensure_node_executed(const std::string& node_id) const;
     
     // ========================================================================
     // Internal rendering functions

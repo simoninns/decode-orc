@@ -10,6 +10,7 @@
 
 #include "field_map_stage.h"
 #include "stage_registry.h"
+#include "preview_helpers.h"
 #include "logging.h"
 #include <sstream>
 #include <algorithm>
@@ -234,6 +235,7 @@ std::vector<ArtifactPtr> FieldMapStage::execute(
     
     // Create wrapped representation with remapped fields
     auto result = std::make_shared<FieldMappedRepresentation>(source, std::move(field_mapping), range_spec);
+    cached_output_ = result;
     return {result};
 }
 
@@ -416,6 +418,16 @@ std::vector<FieldID> FieldMapStage::build_field_mapping(
     }
     
     return mapping;
+}
+
+std::vector<PreviewOption> FieldMapStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_output_);
+}
+
+PreviewImage FieldMapStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
 }
 
 } // namespace orc

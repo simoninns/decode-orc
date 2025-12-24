@@ -9,6 +9,7 @@
 
 #include "preview_renderer.h"
 #include "previewable_stage.h"
+#include "dag_executor.h"
 #include "logging.h"
 #include <algorithm>
 #include <cstdio>
@@ -404,8 +405,8 @@ PreviewRenderResult PreviewRenderer::render_output(
         if (node_it != dag_nodes.end() && node_it->stage) {
             auto node_type = node_it->stage->get_node_type_info().type;
             
-            // Check for PreviewableStage interface (sources/transforms)
-            if (node_type == NodeType::SOURCE || node_type == NodeType::TRANSFORM) {
+            // Check for PreviewableStage interface (any stage with output, i.e., not a sink)
+            if (node_type != NodeType::SINK) {
                 auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
                 
                 if (previewable_stage && previewable_stage->supports_preview()) {
@@ -1301,6 +1302,22 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
 // Stage preview support (new interface for sources/transforms)
 // ============================================================================
 
+void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
+{
+    if (!dag_) {
+        return;
+    }
+    
+    // Execute the DAG up to this node to ensure it has cached output
+    // The DAGExecutor caches results, so repeated calls are cheap
+    try {
+        const_cast<DAGExecutor&>(dag_executor_).execute_to_node(*dag_, node_id);
+        ORC_LOG_DEBUG("Executed DAG up to node '{}' for preview", node_id);
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to execute node '{}' for preview: {}", node_id, e.what());
+    }
+}
+
 std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     const std::string& stage_node_id,
     const DAGNode& stage_node,
@@ -1309,6 +1326,9 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     std::vector<PreviewOutputInfo> outputs;
     
     ORC_LOG_DEBUG("get_stage_preview_outputs called for node '{}'", stage_node_id);
+    
+    // Ensure the node has been executed so it has cached output
+    ensure_node_executed(stage_node_id);
     
     // Get options from the stage
     auto options = previewable.get_preview_options();

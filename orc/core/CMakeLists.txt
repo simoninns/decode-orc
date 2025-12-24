@@ -6,6 +6,7 @@ add_library(orc-core STATIC
     dag_executor.cpp
     dag_field_renderer.cpp
     preview_renderer.cpp
+    preview_helpers.cpp
     
     # Logging
     logging.cpp

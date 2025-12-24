@@ -12,6 +12,7 @@
 #include "video_field_representation.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
+#include "previewable_stage.h"
 #include <memory>
 #include <vector>
 
@@ -37,7 +38,7 @@ namespace orc {
  * - Improving signal quality by selecting best source per pixel
  * - Reducing noise through intelligent multi-source processing
  */
-class StackerStage : public DAGStage, public ParameterizedStage {
+class StackerStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
     StackerStage();
     
@@ -58,6 +59,11 @@ public:
         const std::map<std::string, ParameterValue>& parameters) override;
     
     size_t required_input_count() const override { return 1; }  // At least 1 input (passthrough mode)
+    
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
     size_t output_count() const override { return 1; }
     
     // Stage inspection
@@ -156,6 +162,9 @@ private:
     std::vector<uint16_t> diff_dod(
         const std::vector<uint16_t>& input_values,
         const VideoParameters& video_params) const;
+    
+    // Cached output for preview rendering
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
 } // namespace orc

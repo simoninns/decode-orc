@@ -12,6 +12,7 @@
 #include "tbc_video_field_representation.h"
 #include "tbc_metadata.h"
 #include "stage_registry.h"
+#include "preview_helpers.h"
 #include "logging.h"
 #include <stdexcept>
 #include <algorithm>
@@ -161,6 +162,7 @@ std::vector<ArtifactPtr> OverwriteStage::execute(
     }
     
     auto result = process(source);
+    cached_output_ = result;
     std::vector<ArtifactPtr> outputs;
     outputs.push_back(std::const_pointer_cast<Artifact>(std::static_pointer_cast<const Artifact>(result)));
     return outputs;
@@ -294,6 +296,16 @@ bool OverwriteStage::set_parameters(const std::map<std::string, ParameterValue>&
         return false;
     }
     return true;
+}
+
+std::vector<PreviewOption> OverwriteStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_output_);
+}
+
+PreviewImage OverwriteStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
 }
 
 // Register the stage

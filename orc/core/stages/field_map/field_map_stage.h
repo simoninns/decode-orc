@@ -13,6 +13,7 @@
 #include "video_field_representation.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
+#include "previewable_stage.h"
 #include <memory>
 #include <vector>
 #include <string>
@@ -37,7 +38,7 @@ namespace orc {
  * - Skipping bad field ranges
  * - Rearranging field sequences for processing
  */
-class FieldMapStage : public DAGStage, public ParameterizedStage {
+class FieldMapStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
     FieldMapStage() = default;
     
@@ -58,6 +59,11 @@ public:
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
         const std::map<std::string, ParameterValue>& parameters) override;
+    
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
     
     size_t required_input_count() const override { return 1; }
     size_t output_count() const override { return 1; }
@@ -86,6 +92,9 @@ private:
     
     // Cached parsed ranges (updated when range_spec_ changes)
     std::vector<std::pair<uint64_t, uint64_t>> cached_ranges_;
+    
+    // Cached output for preview rendering
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
 } // namespace orc

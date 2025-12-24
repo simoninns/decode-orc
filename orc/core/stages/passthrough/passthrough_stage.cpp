@@ -9,6 +9,9 @@
 
 
 #include "passthrough_stage.h"
+#include "preview_renderer.h"
+#include "preview_helpers.h"
+#include "logging.h"
 #include "stage_registry.h"
 
 namespace orc {
@@ -25,6 +28,9 @@ std::vector<ArtifactPtr> PassthroughStage::execute(
     if (inputs.empty()) {
         throw DAGExecutionError("PassthroughStage requires one input");
     }
+    
+    // Cache the output for preview
+    cached_output_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
     
     // Return input unchanged
     return {inputs[0]};
@@ -53,4 +59,15 @@ bool PassthroughStage::set_parameters(const std::map<std::string, ParameterValue
     // Accept empty parameter set, reject any attempts to set parameters
     return params.empty();
 }
+
+std::vector<PreviewOption> PassthroughStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_output_);
+}
+
+PreviewImage PassthroughStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
+}
+
 } // namespace orc

@@ -13,6 +13,7 @@
 #include "video_field_representation.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
+#include "previewable_stage.h"
 #include <memory>
 
 namespace orc {
@@ -29,7 +30,7 @@ namespace orc {
  * - Verifying visualization pipeline
  * - Creating test patterns with known values
  */
-class OverwriteStage : public DAGStage, public ParameterizedStage {
+class OverwriteStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
     OverwriteStage();
     
@@ -52,6 +53,11 @@ public:
     size_t required_input_count() const override { return 1; }
     size_t output_count() const override { return 1; }
     
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
+    
     /**
      * @brief Process a field by overwriting all samples with constant value
      * 
@@ -68,6 +74,9 @@ public:
 
 private:
     double ire_value_ = 50.0;  // Default to mid-gray (50 IRE)
+    
+    // Cached output for preview rendering
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
 } // namespace orc

@@ -792,8 +792,30 @@ void MainWindow::onEditParameters(const std::string& node_id)
         return;
     }
     
-    auto stage = registry.create_stage(stage_name);
-    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+    // Try to get the stage instance from the DAG first (so it has cached input data)
+    // If that fails, create a new temporary instance
+    std::shared_ptr<orc::DAGStage> stage;
+    orc::ParameterizedStage* param_stage = nullptr;
+    
+    auto dag = project_.getDAG();
+    if (dag) {
+        auto dag_nodes = dag->nodes();
+        auto dag_node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+            [&node_id](const orc::DAGNode& n) { return n.node_id == node_id; });
+        
+        if (dag_node_it != dag_nodes.end()) {
+            stage = dag_node_it->stage;
+            param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+            ORC_LOG_DEBUG("Using DAG stage instance for parameter descriptors (has cached data)");
+        }
+    }
+    
+    // Fallback to creating new instance if DAG stage not available
+    if (!param_stage) {
+        stage = registry.create_stage(stage_name);
+        param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+        ORC_LOG_DEBUG("Using new stage instance for parameter descriptors (no cached data)");
+    }
     
     if (!param_stage) {
         QMessageBox::information(this, "Edit Parameters",

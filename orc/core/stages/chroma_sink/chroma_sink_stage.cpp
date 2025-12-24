@@ -52,16 +52,10 @@ ChromaSinkStage::ChromaSinkStage()
     , output_padding_(8)
     , first_active_frame_line_(-1)
     , last_active_frame_line_(-1)
-    , adaptive_preview_quality_(true)  // Enabled by default
 {
 }
 
 ChromaSinkStage::~ChromaSinkStage() {
-    // Cancel any pending quality upgrade
-    quality_upgrade_pending_ = false;
-    if (quality_upgrade_thread_.joinable()) {
-        quality_upgrade_thread_.join();
-    }
 }
 
 NodeTypeInfo ChromaSinkStage::get_node_type_info() const
@@ -95,6 +89,31 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
 
 std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() const
 {
+    // Determine available decoder types based on input video system
+    std::vector<std::string> decoder_options;
+    
+    if (cached_input_) {
+        auto video_params = cached_input_->get_video_parameters();
+        if (video_params) {
+            if (video_params->system == VideoSystem::PAL || video_params->system == VideoSystem::PAL_M) {
+                // PAL-specific decoders
+                decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+            } else if (video_params->system == VideoSystem::NTSC) {
+                // NTSC-specific decoders
+                decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+            } else {
+                // Unknown system - show all
+                decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+            }
+        } else {
+            // No video params yet - show all
+            decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        }
+    } else {
+        // No input yet - show all
+        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+    }
+    
     return {
         ParameterDescriptor{
             "output_path",
@@ -108,7 +127,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() co
             "Decoder Type",
             "Chroma decoder to use: auto, pal2d, transform2d, transform3d, ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt, mono",
             ParameterType::STRING,
-            {{}, {}, {}, {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"}, false}
+            {{}, {}, {}, decoder_options, false}
         },
         ParameterDescriptor{
             "output_format",
@@ -199,13 +218,6 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() co
             "Override last visible line of frame (-1 uses source default). Range: -1 to 620",
             ParameterType::INT32,
             {-1, 620, -1, {}, false}
-        },
-        ParameterDescriptor{
-            "adaptive_preview_quality",
-            "Adaptive Preview Quality",
-            "Use fast decoder (2D) during navigation, upgrade to high quality (3D) after 250ms pause",
-            ParameterType::BOOL,
-            {{}, {}, true, {}, false}
         }
     };
 }
@@ -228,12 +240,13 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["output_padding"] = output_padding_;
     params["first_active_frame_line"] = first_active_frame_line_;
     params["last_active_frame_line"] = last_active_frame_line_;
-    params["adaptive_preview_quality"] = adaptive_preview_quality_;
     return params;
 }
 
 bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
+    bool decoder_config_changed = false;
+    
     for (const auto& [key, value] : params) {
         if (key == "output_path") {
             if (std::holds_alternative<std::string>(value)) {
@@ -241,7 +254,12 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             }
         } else if (key == "decoder_type") {
             if (std::holds_alternative<std::string>(value)) {
-                decoder_type_ = std::get<std::string>(value);
+                auto new_val = std::get<std::string>(value);
+                if (new_val != decoder_type_) {
+                    ORC_LOG_DEBUG("ChromaSink: decoder_type changed from '{}' to '{}'", decoder_type_, new_val);
+                    decoder_type_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "output_format") {
             if (std::holds_alternative<std::string>(value)) {
@@ -249,11 +267,21 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             }
         } else if (key == "chroma_gain") {
             if (std::holds_alternative<double>(value)) {
-                chroma_gain_ = std::get<double>(value);
+                auto new_val = std::get<double>(value);
+                if (new_val != chroma_gain_) {
+                    ORC_LOG_DEBUG("ChromaSink: chroma_gain changed from {} to {}", chroma_gain_, new_val);
+                    chroma_gain_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "chroma_phase") {
             if (std::holds_alternative<double>(value)) {
-                chroma_phase_ = std::get<double>(value);
+                auto new_val = std::get<double>(value);
+                if (new_val != chroma_phase_) {
+                    ORC_LOG_DEBUG("ChromaSink: chroma_phase changed from {} to {}", chroma_phase_, new_val);
+                    chroma_phase_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "start_frame") {
             if (std::holds_alternative<int>(value)) {
@@ -272,19 +300,39 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
 
         } else if (key == "luma_nr") {
             if (std::holds_alternative<double>(value)) {
-                luma_nr_ = std::get<double>(value);
+                auto new_val = std::get<double>(value);
+                if (new_val != luma_nr_) {
+                    ORC_LOG_DEBUG("ChromaSink: luma_nr changed from {} to {}", luma_nr_, new_val);
+                    luma_nr_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "chroma_nr") {
             if (std::holds_alternative<double>(value)) {
-                chroma_nr_ = std::get<double>(value);
+                auto new_val = std::get<double>(value);
+                if (new_val != chroma_nr_) {
+                    ORC_LOG_DEBUG("ChromaSink: chroma_nr changed from {} to {}", chroma_nr_, new_val);
+                    chroma_nr_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "ntsc_phase_comp") {
             if (std::holds_alternative<bool>(value)) {
-                ntsc_phase_comp_ = std::get<bool>(value);
+                auto new_val = std::get<bool>(value);
+                if (new_val != ntsc_phase_comp_) {
+                    ORC_LOG_DEBUG("ChromaSink: ntsc_phase_comp changed from {} to {}", ntsc_phase_comp_, new_val);
+                    ntsc_phase_comp_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "simple_pal") {
             if (std::holds_alternative<bool>(value)) {
-                simple_pal_ = std::get<bool>(value);
+                auto new_val = std::get<bool>(value);
+                if (new_val != simple_pal_) {
+                    ORC_LOG_DEBUG("ChromaSink: simple_pal changed from {} to {}", simple_pal_, new_val);
+                    simple_pal_ = new_val;
+                    decoder_config_changed = true;
+                }
             }
         } else if (key == "output_padding") {
             if (std::holds_alternative<int>(value)) {
@@ -297,14 +345,13 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             if (std::holds_alternative<int32_t>(value)) {
                 last_active_frame_line_ = std::get<int32_t>(value);
             }
-        } else if (key == "adaptive_preview_quality") {
-            if (std::holds_alternative<bool>(value)) {
-                adaptive_preview_quality_ = std::get<bool>(value);
-            }
         }
     }
     
-    // Parameters updated
+    // Log if decoder configuration was changed
+    if (decoder_config_changed) {
+        ORC_LOG_INFO("ChromaSink: Decoder configuration changed - cached decoder will be recreated on next preview");
+    }
     
     return true;
 }
@@ -1029,158 +1076,49 @@ std::vector<PreviewOption> ChromaSinkStage::get_preview_options() const
 }
 
 PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint64_t index,
-                                            PreviewNavigationHint hint) const
+                                            PreviewNavigationHint hint [[maybe_unused]]) const
 {
     PreviewImage result;
     
-    ORC_LOG_DEBUG("ChromaSink render_preview: option_id='{}', index={}, hint={}", 
-                 option_id, index, (hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
+    ORC_LOG_DEBUG("ChromaSink: render_preview called for frame {}", index);
     
     if (!cached_input_ || option_id != "frame") {
-        ORC_LOG_WARN("ChromaSink render_preview: Invalid input or option");
+        ORC_LOG_WARN("ChromaSink: Invalid preview request (cached_input={}, option='{}')", 
+                     cached_input_ ? "valid" : "null", option_id);
         return result;
-    }
-    
-    // Check if input changed (invalidate cache)
-    uint64_t current_input_id = reinterpret_cast<uint64_t>(cached_input_.get());
-    if (current_input_id != preview_cache_input_id_) {
-        preview_cache_.clear();
-        preview_cache_input_id_ = current_input_id;
-        last_preview_frame_ = UINT64_MAX;
-        ORC_LOG_DEBUG("ChromaSink: Preview cache cleared (input changed)");
-    }
-    
-    uint64_t total_frames = cached_input_->field_count() / 2;
-    
-    // Determine navigation direction from previous frame for sequential hint
-    int navigation_direction = 0;  // -1 = backward, 0 = first/unknown, +1 = forward
-    
-    if (hint == PreviewNavigationHint::Sequential && last_preview_frame_ != UINT64_MAX) {
-        int64_t frame_delta = static_cast<int64_t>(index) - static_cast<int64_t>(last_preview_frame_);
-        if (frame_delta > 0) {
-            navigation_direction = 1;  // Forward
-        } else if (frame_delta < 0) {
-            navigation_direction = -1;  // Backward
-        }
-    }
-    
-    last_preview_frame_ = index;
-    
-    // Check cache first
-    bool cache_hit = false;
-    PreviewImage cached_result;
-    for (const auto& entry : preview_cache_) {
-        if (entry.frame_index == index) {
-            cache_hit = true;
-            cached_result = entry.image;
-            ORC_LOG_DEBUG("ChromaSink: Preview cache HIT for frame {}", index);
-            break;
-        }
-    }
-    
-    // Simple strategy based on explicit hint from GUI:
-    // - Random hint: decode just this one frame (responsive scrubbing)
-    // - Sequential hint + cache miss: decode batch ahead/behind (prepare for continued navigation)
-    // - Sequential hint + cache hit: pre-fetch next batch when getting close to edge
-    
-    if (!cache_hit) {
-        if (hint == PreviewNavigationHint::Sequential && navigation_direction == 1) {
-            // Sequential forward: decode batch ahead
-            uint64_t batch_count = std::min(PREVIEW_BATCH_SIZE, total_frames - index);
-            ORC_LOG_DEBUG("ChromaSink: Cache miss + forward navigation, decoding batch from frame {} (count={})", index, batch_count);
-            decode_preview_batch(index, batch_count);
-        } else if (hint == PreviewNavigationHint::Sequential && navigation_direction == -1) {
-            // Sequential backward: decode batch behind
-            uint64_t batch_start = (index >= PREVIEW_BATCH_SIZE) ? index - PREVIEW_BATCH_SIZE + 1 : 0;
-            uint64_t batch_count = index - batch_start + 1;
-            ORC_LOG_DEBUG("ChromaSink: Cache miss + backward navigation, decoding batch from frame {} (count={})", batch_start, batch_count);
-            decode_preview_batch(batch_start, batch_count);
-        } else {
-            // Random scrubbing or first sequential request: decode only the requested frame for instant response
-            ORC_LOG_DEBUG("ChromaSink: Cache miss + random/scrubbing, decoding single frame {}", index);
-            decode_preview_batch(index, 1);
-        }
-    } else if (hint == PreviewNavigationHint::Sequential) {
-        // Cache hit with sequential navigation - pre-fetch the next batch
-        if (navigation_direction == 1) {
-            // Forward navigation: find maximum cached frame and pre-fetch ahead
-            uint64_t max_cached_frame = 0;
-            for (const auto& entry : preview_cache_) {
-                max_cached_frame = std::max(max_cached_frame, entry.frame_index);
-            }
-            
-            uint64_t frames_ahead = max_cached_frame - index;
-            if (frames_ahead < PREVIEW_PREFETCH_THRESHOLD && max_cached_frame + 1 < total_frames) {
-                uint64_t batch_count = std::min(PREVIEW_BATCH_SIZE, total_frames - max_cached_frame - 1);
-                ORC_LOG_DEBUG("ChromaSink: Pre-fetching next batch (current={}, max_cached={}, frames_ahead={}, count={})",
-                             index, max_cached_frame, frames_ahead, batch_count);
-                decode_preview_batch(max_cached_frame + 1, batch_count);
-            }
-        } else if (navigation_direction == -1) {
-            // Backward navigation: find minimum cached frame and pre-fetch behind
-            uint64_t min_cached_frame = UINT64_MAX;
-            for (const auto& entry : preview_cache_) {
-                min_cached_frame = std::min(min_cached_frame, entry.frame_index);
-            }
-            
-            uint64_t frames_behind = (min_cached_frame != UINT64_MAX) ? index - min_cached_frame : 0;
-            if (min_cached_frame != UINT64_MAX && frames_behind < PREVIEW_PREFETCH_THRESHOLD && min_cached_frame > 0) {
-                uint64_t prefetch_start = (min_cached_frame >= PREVIEW_BATCH_SIZE) ? 
-                                         min_cached_frame - PREVIEW_BATCH_SIZE : 0;
-                uint64_t batch_count = min_cached_frame - prefetch_start;
-                ORC_LOG_DEBUG("ChromaSink: Pre-fetching previous batch (current={}, min_cached={}, frames_behind={}, start={}, count={})",
-                             index, min_cached_frame, frames_behind, prefetch_start, batch_count);
-                decode_preview_batch(prefetch_start, batch_count);
-            }
-        }
-    }
-    
-    // Return the result
-    if (cache_hit) {
-        // Start adaptive quality upgrade timer if enabled
-        if (adaptive_preview_quality_ && hint == PreviewNavigationHint::Sequential) {
-            schedule_quality_upgrade(index);
-        }
-        return cached_result;
-    }
-    
-    // If it was a cache miss, the decode should have populated it - check again
-    for (const auto& entry : preview_cache_) {
-        if (entry.frame_index == index) {
-            // Start adaptive quality upgrade timer if enabled
-            if (adaptive_preview_quality_ && hint == PreviewNavigationHint::Sequential) {
-                schedule_quality_upgrade(index);
-            }
-            return entry.image;
-        }
-    }
-    
-    // Still not in cache - decode failed
-    ORC_LOG_WARN("ChromaSink render_preview: Frame decode failed for frame {}", index);
-    return result;
-}
-
-std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_rgb(
-    FieldID field_a,
-    FieldID field_b) const
-{
-    if (!cached_input_) {
-        return nullptr;
     }
     
     // Get video parameters
     auto video_params_opt = cached_input_->get_video_parameters();
     if (!video_params_opt) {
-        return nullptr;
+        return result;
     }
     const VideoParameters& videoParams = *video_params_opt;
+    
+    // Calculate first field offset
+    uint64_t first_field_offset = 0;
+    auto parity_hint = cached_input_->get_field_parity_hint(FieldID(0));
+    if (parity_hint.has_value() && !parity_hint->is_first_field) {
+        first_field_offset = 1;
+    }
+    
+    // Get the two fields for this frame
+    uint64_t field_a_index = first_field_offset + (index * 2);
+    uint64_t field_b_index = field_a_index + 1;
+    
+    FieldID field_a(field_a_index);
+    FieldID field_b(field_b_index);
+    
+    if (!cached_input_->has_field(field_a) || !cached_input_->has_field(field_b)) {
+        return result;
+    }
     
     // Convert both fields to SourceFields
     SourceField sourceField_a = convertToSourceField(cached_input_.get(), field_a);
     SourceField sourceField_b = convertToSourceField(cached_input_.get(), field_b);
     
     if (sourceField_a.data.empty() || sourceField_b.data.empty()) {
-        return nullptr;
+        return result;
     }
     
     // Determine decoder type
@@ -1193,12 +1131,14 @@ std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_
         }
     }
     
+    ORC_LOG_DEBUG("ChromaSink: decoder_type_='{}', effectiveDecoderType='{}'", decoder_type_, effectiveDecoderType);
+    
     // Check if cached decoder matches current configuration
     if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_, 
                                                 chroma_phase_, luma_nr_, chroma_nr_,
                                                 ntsc_phase_comp_, simple_pal_)) {
         // Configuration changed - clear old decoders and create new ones
-        ORC_LOG_DEBUG("ChromaSink: Decoder configuration changed, recreating decoder (type={})", effectiveDecoderType);
+        ORC_LOG_DEBUG("ChromaSink: Decoder config changed, recreating '{}' decoder", effectiveDecoderType);
         preview_decoder_cache_.mono_decoder.reset();
         preview_decoder_cache_.pal_decoder.reset();
         preview_decoder_cache_.ntsc_decoder.reset();
@@ -1261,34 +1201,56 @@ std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_
             preview_decoder_cache_.ntsc_decoder = std::make_unique<Comb>();
             preview_decoder_cache_.ntsc_decoder->updateConfiguration(videoParams, config);
         }
+        ORC_LOG_DEBUG("ChromaSink: Created new '{}' decoder for preview", effectiveDecoderType);
+    } else {
+        ORC_LOG_DEBUG("ChromaSink: Reusing cached '{}' decoder", effectiveDecoderType);
     }
     
     // Decode the field pair using cached decoder
     std::vector<SourceField> fields = {sourceField_a, sourceField_b};
     std::vector<ComponentFrame> outputFrames(1);
     
+    auto decode_start = std::chrono::high_resolution_clock::now();
+    
+    std::string active_decoder = "none";
     if (preview_decoder_cache_.mono_decoder) {
+        active_decoder = "mono";
         preview_decoder_cache_.mono_decoder->decodeFrames(fields, 0, 2, outputFrames);
     } else if (preview_decoder_cache_.pal_decoder) {
+        active_decoder = "pal";
         preview_decoder_cache_.pal_decoder->decodeFrames(fields, 0, 2, outputFrames);
     } else if (preview_decoder_cache_.ntsc_decoder) {
+        active_decoder = "ntsc";
         preview_decoder_cache_.ntsc_decoder->decodeFrames(fields, 0, 2, outputFrames);
     }
+    
+    auto decode_end = std::chrono::high_resolution_clock::now();
+    auto decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(decode_end - decode_start).count();
+    ORC_LOG_DEBUG("ChromaSink: Frame {} decoded using '{}' decoder in {} ms", index, active_decoder, decode_ms);
     
     // Convert ComponentFrame YUV to RGB
     ComponentFrame& frame = outputFrames[0];
     int32_t width = frame.getWidth();
     int32_t height = frame.getHeight();
     
+    if (width == 0 || height == 0) {
+        ORC_LOG_WARN("ChromaSink: Frame {} decode failed ({}x{})", index, width, height);
+        return result;
+    }
+    
+    ORC_LOG_DEBUG("ChromaSink: Converting frame {} ({}x{}) YUV->RGB", index, width, height);
+    
     // Get IRE levels for proper scaling
     double blackIRE = videoParams.black_16b_ire;
     double whiteIRE = videoParams.white_16b_ire;
     double ireRange = whiteIRE - blackIRE;
     
-    // Create RGB data as 16-bit samples (R,G,B triplets)
-    std::vector<uint16_t> rgbData(width * height * 3);
+    // Create preview image
+    result.width = width;
+    result.height = height;
+    result.rgb_data.resize(width * height * 3);
     
-    // Convert YUV to RGB
+    // Convert YUV to RGB (8-bit)
     for (int32_t y = 0; y < height; y++) {
         const double* yLine = frame.y(y);
         const double* uLine = frame.u(y);
@@ -1299,420 +1261,32 @@ std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_
             double U = uLine[x];
             double V = vLine[x];
             
-            // Scale Y'UV to 0-65535 (from IRE range)
-            const double yScale = 65535.0 / ireRange;
-            const double uvScale = 65535.0 / ireRange;
+            // Scale Y'UV to 0-1 (from IRE range)
+            const double yScale = 1.0 / ireRange;
+            const double uvScale = 1.0 / ireRange;
             
-            const double rY = std::max(0.0, std::min(65535.0, (Y - blackIRE) * yScale));
-            const double rU = U * uvScale;
-            const double rV = V * uvScale;
+            Y = (Y - blackIRE) * yScale;
+            U = U * uvScale;
+            V = V * uvScale;
             
-            // Convert Y'UV to R'G'B'
-            double R = rY + (1.139883 * rV);
-            double G = rY + (-0.394642 * rU) + (-0.580622 * rV);
-            double B = rY + (2.032062 * rU);
+            // BT.601 YUV to RGB conversion
+            double R = Y + 1.402 * V;
+            double G = Y - 0.344136 * U - 0.714136 * V;
+            double B = Y + 1.772 * U;
             
-            // Clamp and store as 16-bit
-            R = std::max(0.0, std::min(65535.0, R));
-            G = std::max(0.0, std::min(65535.0, G));
-            B = std::max(0.0, std::min(65535.0, B));
+            // Clamp to 0-1 and convert to 8-bit
+            R = std::max(0.0, std::min(1.0, R));
+            G = std::max(0.0, std::min(1.0, G));
+            B = std::max(0.0, std::min(1.0, B));
             
-            int offset = (y * width + x) * 3;
-            rgbData[offset + 0] = static_cast<uint16_t>(R);
-            rgbData[offset + 1] = static_cast<uint16_t>(G);
-            rgbData[offset + 2] = static_cast<uint16_t>(B);
+            size_t pixel_offset = (y * width + x) * 3;
+            result.rgb_data[pixel_offset + 0] = static_cast<uint8_t>(R * 255.0);
+            result.rgb_data[pixel_offset + 1] = static_cast<uint8_t>(G * 255.0);
+            result.rgb_data[pixel_offset + 2] = static_cast<uint8_t>(B * 255.0);
         }
     }
     
-    // Create a simple RGB field representation (inline class)
-    class RGBFieldRepresentation : public VideoFieldRepresentation {
-    private:
-        FieldID field_a_;
-        FieldID field_b_;
-        FieldDescriptor descriptor_;
-        std::vector<uint16_t> data_;
-        VideoParameters video_params_;
-        
-    public:
-        RGBFieldRepresentation(FieldID fa, FieldID fb, const FieldDescriptor& desc, 
-                              std::vector<uint16_t> data, const VideoParameters& vp)
-            : VideoFieldRepresentation(
-                ArtifactID("chroma_preview_" + std::to_string(fa.value())),
-                Provenance{
-                    "ChromaSinkStage",
-                    "1.0",
-                    {},
-                    {},
-                    std::chrono::system_clock::now(),
-                    "",
-                    "",
-                    {}
-                }
-              ),
-              field_a_(fa), field_b_(fb), descriptor_(desc), data_(std::move(data)), video_params_(vp) {}
-        
-        FieldIDRange field_range() const override {
-            return {field_a_, FieldID(field_b_.value() + 1)};
-        }
-        
-        size_t field_count() const override { return 2; }
-        
-        bool has_field(FieldID id) const override { 
-            return id == field_a_ || id == field_b_; 
-        }
-        
-        std::optional<FieldDescriptor> get_descriptor(FieldID id) const override {
-            if (id == field_a_ || id == field_b_) return descriptor_;
-            return std::nullopt;
-        }
-        
-        const sample_type* get_line(FieldID id, size_t line) const override {
-            if ((id != field_a_ && id != field_b_) || line >= descriptor_.height) return nullptr;
-            return &data_[line * descriptor_.width * 3];
-        }
-        
-        std::vector<sample_type> get_field(FieldID id) const override {
-            if (id == field_a_ || id == field_b_) return data_;
-            return {};
-        }
-        
-        std::optional<VideoParameters> get_video_parameters() const override {
-            return video_params_;
-        }
-        
-        std::string type_name() const override { return "RGBFieldRepresentation"; }
-    };
-    
-    // Create field descriptor
-    auto desc_opt = cached_input_->get_descriptor(field_a);
-    if (!desc_opt) {
-        return nullptr;
-    }
-    
-    FieldDescriptor rgbDesc = *desc_opt;
-    rgbDesc.width = width;
-    rgbDesc.height = height;
-    
-    return std::make_shared<RGBFieldRepresentation>(field_a, field_b, rgbDesc, std::move(rgbData), videoParams);
-}
-
-void ChromaSinkStage::decode_preview_batch(uint64_t start_frame, uint64_t frame_count) const
-{
-    if (!cached_input_ || frame_count == 0) {
-        return;
-    }
-    
-    auto batch_start_time = std::chrono::high_resolution_clock::now();
-    
-    ORC_LOG_INFO("ChromaSink: Decoding preview batch of {} frames starting at frame {}", 
-                 frame_count, start_frame);
-    
-    // Get video parameters
-    auto video_params_opt = cached_input_->get_video_parameters();
-    if (!video_params_opt) {
-        return;
-    }
-    const VideoParameters& videoParams = *video_params_opt;
-    
-    // Calculate first field offset
-    uint64_t first_field_offset = 0;
-    auto parity_hint = cached_input_->get_field_parity_hint(FieldID(0));
-    if (parity_hint.has_value() && !parity_hint->is_first_field) {
-        first_field_offset = 1;
-    }
-    
-    auto field_conversion_start = std::chrono::high_resolution_clock::now();
-    
-    // Collect all source fields for the batch
-    std::vector<SourceField> sourceFields;
-    sourceFields.reserve(frame_count * 2);
-    
-    for (uint64_t i = 0; i < frame_count; ++i) {
-        uint64_t frame_index = start_frame + i;
-        uint64_t field_a_index = first_field_offset + (frame_index * 2);
-        uint64_t field_b_index = field_a_index + 1;
-        
-        FieldID field_a(field_a_index);
-        FieldID field_b(field_b_index);
-        
-        if (!cached_input_->has_field(field_a) || !cached_input_->has_field(field_b)) {
-            continue;
-        }
-        
-        sourceFields.push_back(convertToSourceField(cached_input_.get(), field_a));
-        sourceFields.push_back(convertToSourceField(cached_input_.get(), field_b));
-    }
-    
-    if (sourceFields.empty()) {
-        return;
-    }
-    
-    auto field_conversion_end = std::chrono::high_resolution_clock::now();
-    auto field_conversion_ms = std::chrono::duration_cast<std::chrono::milliseconds>(field_conversion_end - field_conversion_start).count();
-    ORC_LOG_DEBUG("ChromaSink: Field conversion took {} ms for {} fields", field_conversion_ms, sourceFields.size());
-    
-    auto decoder_creation_start = std::chrono::high_resolution_clock::now();
-    
-    // Create decoder instance based on type
-    std::unique_ptr<MonoDecoder> monoDecoder;
-    std::unique_ptr<PalColour> palDecoder;
-    std::unique_ptr<Comb> ntscDecoder;
-    
-    // Determine decoder type
-    std::string effectiveDecoderType = decoder_type_;
-    if (effectiveDecoderType == "auto") {
-        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
-            effectiveDecoderType = "transform2d";
-        } else {
-            effectiveDecoderType = "ntsc2d";
-        }
-    }
-    
-    // Apply adaptive quality: use fast decoder for batch previews if enabled
-    std::string requestedDecoder = effectiveDecoderType;
-    if (adaptive_preview_quality_ && is_slow_decoder(effectiveDecoderType)) {
-        std::string fastDecoder = get_fast_decoder_type(effectiveDecoderType);
-        ORC_LOG_INFO("ChromaSink PREVIEW: Using FALLBACK decoder '{}' (requested: '{}') for responsive preview",
-                     fastDecoder, requestedDecoder);
-        effectiveDecoderType = fastDecoder;
-    } else {
-        ORC_LOG_INFO("ChromaSink PREVIEW: Using REQUESTED decoder '{}'", requestedDecoder);
-    }
-    
-    // Create appropriate decoder
-    if (effectiveDecoderType == "mono") {
-        MonoDecoder::MonoConfiguration config;
-        config.yNRLevel = luma_nr_;
-        config.videoParameters = videoParams;
-        monoDecoder = std::make_unique<MonoDecoder>(config);
-    } else if (effectiveDecoderType == "pal2d" || effectiveDecoderType == "transform2d" || effectiveDecoderType == "transform3d") {
-        PalColour::Configuration config;
-        config.chromaGain = chroma_gain_;
-        config.chromaPhase = chroma_phase_;
-        config.yNRLevel = luma_nr_;
-        config.simplePAL = simple_pal_;
-        config.showFFTs = false;
-        
-        if (effectiveDecoderType == "transform3d") {
-            config.chromaFilter = PalColour::transform3DFilter;
-        } else if (effectiveDecoderType == "transform2d") {
-            config.chromaFilter = PalColour::transform2DFilter;
-        } else {
-            config.chromaFilter = PalColour::palColourFilter;
-        }
-        
-        palDecoder = std::make_unique<PalColour>();
-        palDecoder->updateConfiguration(videoParams, config);
-    } else {
-        // NTSC decoders
-        Comb::Configuration config;
-        config.chromaGain = chroma_gain_;
-        config.chromaPhase = chroma_phase_;
-        config.cNRLevel = chroma_nr_;
-        config.yNRLevel = luma_nr_;
-        config.phaseCompensation = ntsc_phase_comp_;
-        config.showMap = false;
-        
-        if (effectiveDecoderType == "ntsc1d") {
-            config.dimensions = 1;
-            config.adaptive = false;
-        } else if (effectiveDecoderType == "ntsc3d") {
-            config.dimensions = 3;
-            config.adaptive = true;
-        } else if (effectiveDecoderType == "ntsc3dnoadapt") {
-            config.dimensions = 3;
-            config.adaptive = false;
-        } else {
-            config.dimensions = 2;
-            config.adaptive = false;
-        }
-        
-        ntscDecoder = std::make_unique<Comb>();
-        ntscDecoder->updateConfiguration(videoParams, config);
-    }
-    
-    auto decoder_creation_end = std::chrono::high_resolution_clock::now();
-    auto decoder_creation_ms = std::chrono::duration_cast<std::chrono::milliseconds>(decoder_creation_end - decoder_creation_start).count();
-    ORC_LOG_DEBUG("ChromaSink: Decoder creation took {} ms", decoder_creation_ms);
-    
-    auto decoding_start = std::chrono::high_resolution_clock::now();
-    
-    // Decode all frames in one call
-    size_t num_frames = sourceFields.size() / 2;
-    std::vector<ComponentFrame> outputFrames(num_frames);
-    
-    if (monoDecoder) {
-        monoDecoder->decodeFrames(sourceFields, 0, sourceFields.size(), outputFrames);
-    } else if (palDecoder) {
-        palDecoder->decodeFrames(sourceFields, 0, sourceFields.size(), outputFrames);
-    } else if (ntscDecoder) {
-        ntscDecoder->decodeFrames(sourceFields, 0, sourceFields.size(), outputFrames);
-    }
-    
-    auto decoding_end = std::chrono::high_resolution_clock::now();
-    auto decoding_ms = std::chrono::duration_cast<std::chrono::milliseconds>(decoding_end - decoding_start).count();
-    ORC_LOG_DEBUG("ChromaSink: Actual decoding took {} ms for {} frames", decoding_ms, num_frames);
-    
-    auto rgb_conversion_start = std::chrono::high_resolution_clock::now();
-    
-    // Get IRE levels for proper scaling
-    double blackIRE = videoParams.black_16b_ire;
-    double whiteIRE = videoParams.white_16b_ire;
-    double ireRange = whiteIRE - blackIRE;
-    
-    // Convert each decoded frame to RGB and cache
-    for (size_t i = 0; i < num_frames; ++i) {
-        uint64_t frame_index = start_frame + i;
-        ComponentFrame& frame = outputFrames[i];
-        
-        int32_t width = frame.getWidth();
-        int32_t height = frame.getHeight();
-        
-        if (width == 0 || height == 0) {
-            ORC_LOG_WARN("ChromaSink: Failed to decode frame {} in batch", frame_index);
-            continue;
-        }
-        
-        // Create preview image
-        PreviewImage preview;
-        preview.width = width;
-        preview.height = height;
-        preview.rgb_data.resize(width * height * 3);
-        
-        // Convert YUV to RGB (8-bit)
-        for (int32_t y = 0; y < height; y++) {
-            const double* yLine = frame.y(y);
-            const double* uLine = frame.u(y);
-            const double* vLine = frame.v(y);
-            
-            for (int32_t x = 0; x < width; x++) {
-                double Y = yLine[x];
-                double U = uLine[x];
-                double V = vLine[x];
-                
-                // Scale Y'UV to 0-1 (from IRE range)
-                const double yScale = 1.0 / ireRange;
-                const double uvScale = 1.0 / ireRange;
-                
-                Y = (Y - blackIRE) * yScale;
-                U = U * uvScale;
-                V = V * uvScale;
-                
-                // BT.601 YUV to RGB conversion
-                double R = Y + 1.402 * V;
-                double G = Y - 0.344136 * U - 0.714136 * V;
-                double B = Y + 1.772 * U;
-                
-                // Clamp to 0-1 and convert to 8-bit
-                R = std::max(0.0, std::min(1.0, R));
-                G = std::max(0.0, std::min(1.0, G));
-                B = std::max(0.0, std::min(1.0, B));
-                
-                size_t pixel_offset = (y * width + x) * 3;
-                preview.rgb_data[pixel_offset + 0] = static_cast<uint8_t>(R * 255.0);
-                preview.rgb_data[pixel_offset + 1] = static_cast<uint8_t>(G * 255.0);
-                preview.rgb_data[pixel_offset + 2] = static_cast<uint8_t>(B * 255.0);
-            }
-        }
-        
-        // Add to cache
-        preview_cache_.emplace_back(PreviewCacheEntry{frame_index, std::move(preview)});
-        
-        ORC_LOG_DEBUG("ChromaSink: Cached preview for frame {}", frame_index);
-    }
-    
-    auto rgb_conversion_end = std::chrono::high_resolution_clock::now();
-    auto rgb_conversion_ms = std::chrono::duration_cast<std::chrono::milliseconds>(rgb_conversion_end - rgb_conversion_start).count();
-    ORC_LOG_DEBUG("ChromaSink: RGB conversion took {} ms", rgb_conversion_ms);
-    
-    auto batch_end_time = std::chrono::high_resolution_clock::now();
-    auto total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(batch_end_time - batch_start_time).count();
-    
-    ORC_LOG_INFO("ChromaSink: Batch decode complete, {} frames now in cache (total time: {} ms)", 
-                 preview_cache_.size(), total_ms);
-}
-
-// Helper: Determine fast decoder type for adaptive preview
-std::string ChromaSinkStage::get_fast_decoder_type(const std::string& requested_type) const
-{
-    // Map slow 3D decoders to their fast 2D equivalents
-    if (requested_type == "transform3d") {
-        return "transform2d";
-    } else if (requested_type == "ntsc3d" || requested_type == "ntsc3dnoadapt") {
-        return "ntsc2d";
-    }
-    // Already fast or unknown - return as-is
-    return requested_type;
-}
-
-// Helper: Check if decoder is a slow 3D variant
-bool ChromaSinkStage::is_slow_decoder(const std::string& decoder_type) const
-{
-    return decoder_type == "transform3d" || 
-           decoder_type == "ntsc3d" || 
-           decoder_type == "ntsc3dnoadapt";
-}
-
-// Helper: Schedule quality upgrade after navigation stops
-void ChromaSinkStage::schedule_quality_upgrade(uint64_t frame_index) const
-{
-    // Only upgrade if using a slow decoder
-    if (!is_slow_decoder(decoder_type_)) {
-        return;
-    }
-    
-    // Cancel any pending upgrade
-    quality_upgrade_pending_ = false;
-    if (quality_upgrade_thread_.joinable()) {
-        quality_upgrade_thread_.join();
-    }
-    
-    // Record this preview request
-    last_preview_request_frame_ = frame_index;
-    last_preview_request_time_ = std::chrono::steady_clock::now();
-    
-    // Start upgrade thread
-    quality_upgrade_pending_ = true;
-    quality_upgrade_thread_ = std::thread([this, frame_index]() {
-        // Wait for the delay period
-        std::this_thread::sleep_for(std::chrono::milliseconds(QUALITY_UPGRADE_DELAY_MS));
-        
-        // Check if we should still upgrade (no new requests came in)
-        if (!quality_upgrade_pending_) {
-            return;  // Cancelled
-        }
-        
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - last_preview_request_time_).count();
-        
-        // Verify this is still the current frame and enough time has passed
-        if (last_preview_request_frame_ != frame_index || elapsed_ms < QUALITY_UPGRADE_DELAY_MS) {
-            quality_upgrade_pending_ = false;
-            return;  // User navigated away or timing issue
-        }
-        
-        ORC_LOG_DEBUG("ChromaSink: Upgrading frame {} to high quality after {}ms pause", 
-                     frame_index, elapsed_ms);
-        
-        // Clear only this frame from cache so it gets re-decoded with high quality
-        auto& cache = const_cast<std::vector<PreviewCacheEntry>&>(preview_cache_);
-        cache.erase(std::remove_if(cache.begin(), cache.end(),
-                                   [frame_index](const PreviewCacheEntry& entry) {
-                                       return entry.frame_index == frame_index;
-                                   }), cache.end());
-        
-        // Force re-decode with high quality decoder (temporarily disable adaptive mode)
-        bool original_adaptive = const_cast<ChromaSinkStage*>(this)->adaptive_preview_quality_;
-        const_cast<ChromaSinkStage*>(this)->adaptive_preview_quality_ = false;
-        
-        decode_preview_batch(frame_index, 1);
-        
-        const_cast<ChromaSinkStage*>(this)->adaptive_preview_quality_ = original_adaptive;
-        quality_upgrade_pending_ = false;
-        
-        ORC_LOG_INFO("ChromaSink PREVIEW: Quality upgrade complete - frame {} now using REQUESTED decoder", frame_index);
-    });
+    return result;
 }
 
 } // namespace orc

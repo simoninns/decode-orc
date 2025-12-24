@@ -50,6 +50,14 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
             }, value);
         }
         
+        // Apply parameters to the stage instance if it's parameterized
+        auto* param_stage = dynamic_cast<ParameterizedStage*>(dag_node.stage.get());
+        if (param_stage && !dag_node.parameters.empty()) {
+            param_stage->set_parameters(dag_node.parameters);
+            ORC_LOG_DEBUG("Node '{}': Applied {} parameters to stage instance", 
+                         proj_node.node_id, dag_node.parameters.size());
+        }
+        
         // Find input edges for this node
         for (const auto& edge : project.get_edges()) {
             if (edge.target_node_id == proj_node.node_id) {

@@ -13,14 +13,14 @@
 #define SOURCEFIELD_H
 
 #include "tbc_metadata.h"
-#include <QVector>
+#include <vector>
 #include <cstdint>
 
 // A field with metadata and data
 // Data comes from VFR (VideoFieldRepresentation) in orc-core
 struct SourceField {
     orc::FieldMetadata field;
-    QVector<quint16> data;
+    std::vector<uint16_t> data;
 
     // Return the vertical offset of this field within the interlaced frame
     // (i.e. 0 for the top field, 1 for the bottom field).

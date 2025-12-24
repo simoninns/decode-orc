@@ -2,7 +2,7 @@
 
 **Document Status:** Active Development Plan  
 **Created:** December 2025  
-**Last Updated:** 22 December 2025
+**Last Updated:** 24 December 2025
 
 ---
 
@@ -86,15 +86,15 @@ VideoFieldRepresentation → ChromaSinkStage::execute() → (no output, preview 
    - ✅ All 24 tests passing with pixel-perfect output
    - **STATUS:** Integration complete and production-ready
    
-**Step 4:** ⏳ **IN PROGRESS** - Remove Qt6 dependencies from decoders
+**Step 4:** ✅ **COMPLETE** (24 Dec 2025) - Remove Qt6 dependencies from decoders
    - Phase A: Data types & containers ✅ COMPLETE (23 Dec 2025) 
    - Phase B: Threading & synchronization ✅ COMPLETE (23 Dec 2025)
    - Phase C: Algorithm classes ✅ COMPLETE (23 Dec 2025)
    - Phase D: I/O layer conversion ✅ COMPLETE (23 Dec 2025)
-   - Phase E: Metadata & parameters
-   - Phase F: Build system updates  
-   - **Goal:** Pure C++17 decoder library (except TBC interface), test signatures still match
-   - **Status:** Phases A-D complete, decoder library mostly Qt-free  
+   - Phase E: Metadata & parameters ✅ COMPLETE (24 Dec 2025)
+   - Phase F: Build system updates ✅ COMPLETE (24 Dec 2025)
+   - **Goal:** Pure C++17 decoder library, test signatures still match
+   - **Status:** All phases complete! Decoder library is pure C++17 with zero Qt6 dependencies, all 23 tests passing  
    
 **Step 5:** ⏳ **PENDING** - Deeper orc-core integration  
    - Use VideoFieldRepresentation directly (remove SourceField wrapper)  
@@ -752,9 +752,17 @@ The major blocker was a subtle bug where `activeVideoStart` and `activeVideoEnd`
 
 ### Step 4: Remove Qt6 Dependencies from Decoder Algorithms
 
-**Status:** Phase A Complete (23 Dec 2025)
-**Risk:** MEDIUM-HIGH  
-**Duration:** Phase A: ~4 hours (actual)
+**Status:** ✅ ALL PHASES COMPLETE (24 Dec 2025)
+**Risk:** MEDIUM-HIGH (Successfully Mitigated)
+**Duration:** ~12 hours total across all phases
+
+#### Summary
+
+Successfully removed all Qt6 dependencies from the chroma decoder library. The library is now pure C++17 with:
+- Zero Qt6 includes or types
+- No Qt6 build dependencies
+- All 23 integration tests passing with pixel-perfect output
+- Clean, self-contained build within orc-core
 
 #### Why This Step Was Deferred
 
@@ -996,25 +1004,85 @@ The parallel processing architecture was maintained:
 - ✅ Parallel processing works correctly
 - ✅ No performance regression
 
-**Phase E: Metadata & Parameters** (~3 hours) - IN PROGRESS
-- Replace `LdDecodeMetaData::VideoParameters` with orc-core types
-- Replace `LdDecodeMetaData::Field` with orc-core FieldMetadata
-- Remove TBC library dependencies from algorithm code
-- Update all decoder algorithm files to use orc-core metadata
+**Phase E: Metadata & Parameters** (~3 hours) - ✅ COMPLETE (24 Dec 2025)
+- ✅ Replaced all `std::cout`/`std::cerr` with spdlog logging macros
+- ✅ Added `logging.h` includes to all decoder files
+- ✅ Removed unused `decoderpool.h/cpp` (legacy code referencing old SourceVideo)
+- ✅ Removed legacy TBC library include path from CMakeLists.txt
+- ✅ All 23 integration tests passing with new logging system
+- Note: LdDecodeMetaData replacement deferred to Step 5 (deeper integration)
 
-**Phase F: Build System** (~2 hours) - NOT STARTED
-- Update CMakeLists.txt to remove Qt6 dependencies:
-  ```cmake
-  # Remove:
-  find_package(Qt6 COMPONENTS Core Concurrent Sql REQUIRED)
-  target_link_libraries(orc_chroma_decoders Qt6::Core Qt6::Concurrent Qt6::Sql)
-  
-  # Keep only:
-  target_link_libraries(orc_chroma_decoders SQLite::SQLite3)
-  ```
-- Split library if needed:
-  - `orc_chroma_algorithms` - Pure C++17, no Qt
-  - `orc_chroma_io` - Qt6 for legacy file I/O (if still needed)
+**Logging Conversion Details:**
+- decoderpool.cpp: 13 replacements (INFO → ORC_LOG_INFO, ERROR → ORC_LOG_ERROR, WARN → ORC_LOG_WARN)
+- ntscdecoder.cpp: 1 replacement (ERROR → ORC_LOG_ERROR)
+- paldecoder.cpp: 1 replacement (ERROR → ORC_LOG_ERROR)
+- outputwriter.cpp: 2 replacements (INFO → ORC_LOG_INFO, FATAL → ORC_LOG_CRITICAL)
+- comb.cpp: 4 replacements (ERROR → ORC_LOG_ERROR)
+
+**Files Removed:**
+- decoderpool.h/decoderpool.cpp - Unused legacy thread pool referencing old TBC SourceVideo class
+
+**Test Results:**
+- ✅ All 23 ORC integration tests passing (100%)
+- ✅ Output signatures match reference (pixel-perfect)
+- ✅ Logging properly uses spdlog throughout decoder library
+- ✅ No broken includes or references to removed files
+
+**Phase F: Build System** (~2 hours) - ✅ COMPLETE (24 Dec 2025)
+- ✅ Removed ALL Qt6 dependencies from decoder library code
+- ✅ Updated CMakeLists.txt to remove Qt6 find_package, linking, and AUTOMOC
+- ✅ Replaced QVector → std::vector, QString → std::string
+- ✅ Replaced qMin/qMax/qBound → std::min/std::max/std::clamp
+- ✅ Replaced QFile → std::ofstream for file I/O
+- ✅ Replaced qint32/quint16 → int32_t/uint16_t
+- ✅ Replaced QVector methods: .append() → .push_back(), .remove() → .erase(), .fill() → .assign(), .mid() → manual range copy
+- ✅ Removed QtMath includes, using <cmath> instead
+- ✅ All 23 integration tests passing (100%)
+
+**Qt6 Removal Details:**
+
+1. **Type Replacements:**
+   - QVector<quint16> → std::vector<uint16_t> (sourcefield.h, comb.h, monodecoder.cpp)
+   - qint32 → int32_t (chroma_sink_stage.cpp)
+   - quint16 → uint16_t (chroma_sink_stage.cpp)
+   - QString → std::string (chroma_sink_stage.cpp)
+   - QFile → std::ofstream (chroma_sink_stage.cpp)
+
+2. **Function Replacements:**
+   - qMin() → std::min() (palcolour.cpp, transformpal.cpp, transformpal2d.cpp, transformpal3d.cpp)
+   - qMax() → std::max() (palcolour.cpp, transformpal.cpp, transformpal2d.cpp, transformpal3d.cpp)
+   - qBound() → std::clamp() (transformpal.cpp)
+   - QtMath includes → <cmath> (transformpal2d.cpp, transformpal3d.cpp)
+
+3. **Container Method Replacements:**
+   - .append(value) → .push_back(value)
+   - .append(vector) → .insert(end(), vector.begin(), vector.end())
+   - .mid(start, len) → manual iterator range copy
+   - .remove(start, count) → .erase(begin() + start, begin() + start + count)
+   - .fill(value, size) → .assign(size, value)
+
+4. **Build System Updates:**
+   - Removed: find_package(Qt6 COMPONENTS Core)
+   - Removed: target_link_libraries(orc_chroma_decoders Qt6::Core)
+   - Removed: set_target_properties AUTOMOC
+   - Result: Pure C++17 decoder library with no Qt dependencies
+
+**Files Modified:**
+- CMakeLists.txt - Removed Qt6 dependencies
+- sourcefield.h - QVector → std::vector
+- comb.h/cpp - QVector → std::vector, method conversions
+- monodecoder.cpp - QVector → std::vector
+- transformpal.cpp - qBound/qMax → std::clamp/std::max
+- transformpal2d.cpp - QtMath → cmath, qMin/qMax → std::min/std::max
+- transformpal3d.cpp - QtMath → cmath, qMin/qMax → std::min/std::max
+- palcolour.cpp - qMin/qMax → std::min/std::max
+- chroma_sink_stage.cpp - QFile → std::ofstream, qint32/quint16 → int32_t/uint16_t, QVector methods
+
+**Test Results:**
+- ✅ All 23 ORC integration tests passing (100%)
+- ✅ Output signatures match reference (pixel-perfect)
+- ✅ Clean build with no Qt6 dependencies
+- ✅ No performance regression
 
 #### Files to Convert (29 total)
 

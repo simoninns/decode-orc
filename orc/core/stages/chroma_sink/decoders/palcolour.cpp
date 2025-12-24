@@ -183,10 +183,10 @@ void PalColour::buildLookUpTables()
     double cdiv = 0, ydiv = 0;
     for (int32_t f = 0; f <= FILTER_SIZE; f++) {
         // 0-2-4-6 sequence here because we're only processing one field.
-        const double fc   = qMin(ca, static_cast<double>(f));
-        const double ff   = qMin(ca, sqrt(f * f + 2 * 2));
-        const double fff  = qMin(ca, sqrt(f * f + 4 * 4));
-        const double ffff = qMin(ca, sqrt(f * f + 6 * 6));
+        const double fc   = std::min(ca, static_cast<double>(f));
+        const double ff   = std::min(ca, sqrt(f * f + 2 * 2));
+        const double fff  = std::min(ca, sqrt(f * f + 4 * 4));
+        const double ffff = std::min(ca, sqrt(f * f + 6 * 6));
 
         // We will sum the zero-th horizontal tap twice later (when b == 0 in
         // the filter loop), so halve the coefficient to compensate
@@ -205,8 +205,8 @@ void PalColour::buildLookUpTables()
         // others are applied to pairs of lines.
         cdiv += 2 * (1 * cfilt[f][0] + 2 * cfilt[f][2] + 2 * cfilt[f][1] + 2 * cfilt[f][3]);
 
-        const double fy   = qMin(ya, static_cast<double>(f));
-        const double fffy = qMin(ya, sqrt(f * f + 4 * 4));
+        const double fy   = std::min(ya, static_cast<double>(f));
+        const double fffy = std::min(ya, sqrt(f * f + 4 * 4));
 
         // For Y, only use lines n, n+/-2: the others cancel!!!
         //  *have tried* using lines +/-1 & 3 --- can be made to work, but
@@ -362,7 +362,7 @@ void PalColour::detectBurst(LineInfo &line, const uint16_t *inputData)
     // Normalise the magnitude of the bp/bq vector to 1.
     // Kill colour if burst too weak.
     // XXX magic number 130000 !!! check!
-    const double burstNorm = qMax(sqrt(line.bp * line.bp + line.bq * line.bq), 130000.0 / 128);
+    const double burstNorm = std::max(sqrt(line.bp * line.bp + line.bq * line.bq), 130000.0 / 128);
     line.bp /= burstNorm;
     line.bq /= burstNorm;
 }

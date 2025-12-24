@@ -54,7 +54,7 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
 	for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
 		componentFrames[frameIndex].init(videoParameters, ignoreUV);
 		for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
-			const QVector<quint16> &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
+			const std::vector<uint16_t> &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
 			const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
 
 			// Copy the whole composite signal to Y (leaving U and V blank)

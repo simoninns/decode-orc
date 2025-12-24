@@ -12,7 +12,6 @@
 #include "transformpal3d.h"
 
 #include <algorithm>
-#include <QtMath>
 #include <cassert>
 #include <cmath>
 #include <cstring>
@@ -141,8 +140,8 @@ void TransformPal3D::filterFields(const std::vector<SourceField> &inputFields, i
 void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, const std::vector<SourceField> &inputFields)
 {
     // Work out which lines of this tile are within the active region
-    const int32_t startY = qMax(videoParameters.first_active_frame_line - tileY, 0);
-    const int32_t endY = qMin(videoParameters.last_active_frame_line - tileY, YTILE);
+    const int32_t startY = std::max(videoParameters.first_active_frame_line - tileY, 0);
+    const int32_t endY = std::min(videoParameters.last_active_frame_line - tileY, YTILE);
 
     // Copy the input signal into fftReal, applying the window function
     for (int32_t z = 0; z < ZTILE; z++) {
@@ -177,12 +176,12 @@ void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ,
 void TransformPal3D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ, int32_t startIndex, int32_t endIndex)
 {
     // Work out what portion of this tile is inside the active area
-    const int32_t startX = qMax(videoParameters.active_video_start - tileX, 0);
-    const int32_t endX = qMin(videoParameters.active_video_end - tileX, XTILE);
-    const int32_t startY = qMax(videoParameters.first_active_frame_line - tileY, 0);
-    const int32_t endY = qMin(videoParameters.last_active_frame_line - tileY, YTILE);
-    const int32_t startZ = qMax(startIndex - tileZ, 0);
-    const int32_t endZ = qMin(endIndex - tileZ, ZTILE);
+    const int32_t startX = std::max(videoParameters.active_video_start - tileX, 0);
+    const int32_t endX = std::min(videoParameters.active_video_end - tileX, XTILE);
+    const int32_t startY = std::max(videoParameters.first_active_frame_line - tileY, 0);
+    const int32_t endY = std::min(videoParameters.last_active_frame_line - tileY, YTILE);
+    const int32_t startZ = std::max(startIndex - tileZ, 0);
+    const int32_t endZ = std::min(endIndex - tileZ, ZTILE);
 
     // Convert frequency domain in fftComplexOut back to time domain in fftReal
     fftw_execute(inversePlan);

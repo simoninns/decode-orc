@@ -257,8 +257,14 @@ void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceFi
     int32_t fieldLine = 0;
     rawbuffer.clear();
     for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
-        rawbuffer.append(firstField.data.mid(fieldLine * videoParameters.field_width, videoParameters.field_width));
-        rawbuffer.append(secondField.data.mid(fieldLine * videoParameters.field_width, videoParameters.field_width));
+        // Insert first field line
+        auto firstStart = firstField.data.begin() + fieldLine * videoParameters.field_width;
+        auto firstEnd = firstStart + videoParameters.field_width;
+        rawbuffer.insert(rawbuffer.end(), firstStart, firstEnd);
+        // Insert second field line
+        auto secondStart = secondField.data.begin() + fieldLine * videoParameters.field_width;
+        auto secondEnd = secondStart + videoParameters.field_width;
+        rawbuffer.insert(rawbuffer.end(), secondStart, secondEnd);
         fieldLine++;
     }
 
@@ -348,8 +354,8 @@ void Comb::FrameBuffer::split2D()
             // Map the difference into a weighting 0-1.
             // 1 means in phase or unknown; 0 means out of phase (more than kRange difference).
             const double kRange = 45 * irescale;
-            kp = qBound(0.0, 1 - (kp / kRange), 1.0);
-            kn = qBound(0.0, 1 - (kn / kRange), 1.0);
+            kp = std::clamp(1 - (kp / kRange), 0.0, 1.0);
+            kn = std::clamp(1 - (kn / kRange), 0.0, 1.0);
 
             double sc = 1.0;
 
@@ -548,7 +554,7 @@ namespace {
         bsin /= colourBurstLength;
         bcos /= colourBurstLength;
 
-        const double burstNorm = qMax(sqrt(bsin * bsin + bcos * bcos), 130000.0 / 128);
+        const double burstNorm = std::max(sqrt(bsin * bsin + bcos * bcos), 130000.0 / 128);
 
         bsin /= burstNorm;
         bcos /= burstNorm;

@@ -75,8 +75,8 @@ void TransformPal::overlayFFTArrays(const fftw_complex *fftIn, const fftw_comple
     // Work out a scaling factor to make all values visible.
     double maxValue = 0;
     for (int32_t i = 0; i < xComplex * yComplex * zComplex; i++) {
-        maxValue = qMax(maxValue, fabs(fftIn[i][0]));
-        maxValue = qMax(maxValue, fabs(fftOut[i][0]));
+        maxValue = std::max(maxValue, fabs(fftIn[i][0]));
+        maxValue = std::max(maxValue, fabs(fftOut[i][0]));
     }
     const double valueScale = 65535.0 / log2(maxValue);
 
@@ -97,7 +97,7 @@ void TransformPal::overlayFFTArrays(const fftw_complex *fftIn, const fftw_comple
                 for (int32_t x = 0; x < xComplex; x++) {
                     const double value = fabs(fftData[(((z * yComplex) + y) * xComplex) + x][0]);
                     const double shade = value <= 0 ? 0 : log2(value) * valueScale;
-                    const uint16_t shade16 = static_cast<uint16_t>(qBound(0.0, shade, 65535.0));
+                    const uint16_t shade16 = static_cast<uint16_t>(std::clamp(shade, 0.0, 65535.0));
                     canvas.fillRectangle(xStart + (x * xScale) + 1, yStart + (y * yScale) + 1, xScale, yScale, canvas.grey(shade16));
                 }
             }

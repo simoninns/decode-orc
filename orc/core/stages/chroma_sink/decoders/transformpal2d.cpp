@@ -11,7 +11,6 @@
 #include "transformpal2d.h"
 
 #include <algorithm>
-#include <QtMath>
 #include <cassert>
 #include <cmath>
 
@@ -111,8 +110,8 @@ void TransformPal2D::filterField(const SourceField& inputField, int32_t outputIn
     // (See TransformPal2D member variable documentation for how the tiling works.)
     for (int32_t tileY = firstFieldLine - HALFYTILE; tileY < lastFieldLine; tileY += HALFYTILE) {
         // Work out which lines of these tiles are within the active region
-        const int32_t startY = qMax(firstFieldLine - tileY, 0);
-        const int32_t endY = qMin(lastFieldLine - tileY, YTILE);
+        const int32_t startY = std::max(firstFieldLine - tileY, 0);
+        const int32_t endY = std::min(lastFieldLine - tileY, YTILE);
 
         for (int32_t tileX = videoParameters.active_video_start - HALFXTILE; tileX < videoParameters.active_video_end; tileX += HALFXTILE) {
             // Compute the forward FFT
@@ -156,8 +155,8 @@ void TransformPal2D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t startY
 void TransformPal2D::inverseFFTTile(int32_t tileX, int32_t tileY, int32_t startY, int32_t endY, int32_t outputIndex)
 {
     // Work out what X range of this tile is inside the active area
-    const int32_t startX = qMax(videoParameters.active_video_start - tileX, 0);
-    const int32_t endX = qMin(videoParameters.active_video_end - tileX, XTILE);
+    const int32_t startX = std::max(videoParameters.active_video_start - tileX, 0);
+    const int32_t endX = std::min(videoParameters.active_video_end - tileX, XTILE);
 
     // Convert frequency domain in fftComplexOut back to time domain in fftReal
     fftw_execute(inversePlan);
@@ -273,8 +272,8 @@ void TransformPal2D::overlayFFTFrame(int32_t positionX, int32_t positionY,
     const int32_t firstFieldLine = inputField.getFirstActiveLine(videoParameters);
     const int32_t lastFieldLine = inputField.getLastActiveLine(videoParameters);
     const int32_t tileY = positionY / 2;
-    const int32_t startY = qMax(firstFieldLine - tileY, 0);
-    const int32_t endY = qMin(lastFieldLine - tileY, YTILE);
+    const int32_t startY = std::max(firstFieldLine - tileY, 0);
+    const int32_t endY = std::min(lastFieldLine - tileY, YTILE);
 
     // Compute the forward FFT
     forwardFFTTile(positionX, tileY, startY, endY, inputField);

@@ -101,7 +101,7 @@ private:
         double irescale;
 
         // Baseband samples (interlaced to form a complete frame)
-        QVector<quint16> rawbuffer;
+        std::vector<uint16_t> rawbuffer;
 
         // Chroma phase of the frame's two fields
         int32_t firstFieldPhaseID;

@@ -20,7 +20,6 @@
 #include "decoders/outputwriter.h"
 #include "decoders/componentframe.h"
 
-#include <QFile>
 #include <fstream>
 #include <algorithm>
 #include <thread>
@@ -460,8 +459,8 @@ bool ChromaSinkStage::trigger(
     // Frame N (1-based) consists of fields (2*N-2, 2*N-1) in 0-based indexing.
     
     // 6. Determine decoder lookbehind/lookahead requirements
-    qint32 lookBehindFrames = 0;
-    qint32 lookAheadFrames = 0;
+    int32_t lookBehindFrames = 0;
+    int32_t lookAheadFrames = 0;
     
     if (palDecoder) {
         // PalColour internally uses Transform3D which needs lookbehind/lookahead
@@ -484,18 +483,18 @@ bool ChromaSinkStage::trigger(
     
     // 7. Calculate extended frame range including lookbehind/lookahead
     // Note: extended_start_frame can be negative (will use black padding)
-    qint32 extended_start_frame = static_cast<qint32>(start_frame) - lookBehindFrames;
-    qint32 extended_end_frame = static_cast<qint32>(end_frame) + lookAheadFrames;
+    int32_t extended_start_frame = static_cast<int32_t>(start_frame) - lookBehindFrames;
+    int32_t extended_end_frame = static_cast<int32_t>(end_frame) + lookAheadFrames;
     
     // 8. Collect fields including lookbehind/lookahead padding
     std::vector<SourceField> inputFields;
-    qint32 total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
+    int32_t total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
     inputFields.reserve(total_fields_needed);
     
     ORC_LOG_INFO("ChromaSink: Collecting {} fields (frames {}-{}) for decode",
                  total_fields_needed, extended_start_frame + 1, extended_end_frame);
     
-    for (qint32 frame = extended_start_frame; frame < extended_end_frame; frame++) {
+    for (int32_t frame = extended_start_frame; frame < extended_end_frame; frame++) {
         // Determine if this frame is outside the valid range (need black padding)
         // Note: 'frame' is in 0-based indexing after conversion from user's 1-based start_frame_
         // Valid frames are 0 to (total_frames - 1) in 0-based indexing
@@ -562,8 +561,8 @@ bool ChromaSinkStage::trigger(
             // Fill with black
             uint16_t black = videoParams.black_16b_ire;
             size_t field_length = sf1.data.size();
-            sf1.data.fill(black, field_length);
-            sf2.data.fill(black, field_length);
+            sf1.data.assign(field_length, black);
+            sf2.data.assign(field_length, black);
         } else {
             sf1 = convertToSourceField(vfr.get(), firstFieldId);
             sf2 = convertToSourceField(vfr.get(), secondFieldId);
@@ -576,9 +575,9 @@ bool ChromaSinkStage::trigger(
                 videoParams.is_subcarrier_locked) {
                 // Remove first 2 samples and append 2 black samples at the end
                 uint16_t black = videoParams.black_16b_ire;
-                sf2.data.remove(0, 2);
-                sf2.data.append(black);
-                sf2.data.append(black);
+                sf2.data.erase(sf2.data.begin(), sf2.data.begin() + 2);
+                sf2.data.push_back(black);
+                sf2.data.push_back(black);
             }
         }
         
@@ -595,7 +594,7 @@ bool ChromaSinkStage::trigger(
     // THREAD SAFETY: Each worker thread creates its own decoder instance to avoid state conflicts.
     // Transform PAL decoders use FFT buffers that cannot be shared between threads.
     
-    qint32 numFrames = (end_frame - start_frame);
+    int32_t numFrames = (end_frame - start_frame);
     std::vector<ComponentFrame> outputFrames;
     outputFrames.resize(numFrames);
     
@@ -695,27 +694,27 @@ bool ChromaSinkStage::trigger(
             std::vector<SourceField> frameFields;
             
             // The actual frame number we're processing
-            qint32 actualFrameNum = static_cast<qint32>(start_frame) + frameIdx;
+            int32_t actualFrameNum = static_cast<int32_t>(start_frame) + frameIdx;
             
             // Position in inputFields where this frame's fields start
-            qint32 frameStartIdx = (actualFrameNum - extended_start_frame) * 2;
+            int32_t frameStartIdx = (actualFrameNum - extended_start_frame) * 2;
             
             // Calculate the range to copy: lookbehind + target + lookahead
-            qint32 copyStartIdx = frameStartIdx - (lookBehindFrames * 2);
-            qint32 copyEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);
+            int32_t copyStartIdx = frameStartIdx - (lookBehindFrames * 2);
+            int32_t copyEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);
             
             // Clamp to valid range and copy
             copyStartIdx = std::max(0, copyStartIdx);
-            copyEndIdx = std::min(static_cast<qint32>(inputFields.size()), copyEndIdx);
+            copyEndIdx = std::min(static_cast<int32_t>(inputFields.size()), copyEndIdx);
             
-            for (qint32 i = copyStartIdx; i < copyEndIdx; i++) {
+            for (int32_t i = copyStartIdx; i < copyEndIdx; i++) {
                 frameFields.push_back(inputFields[i]);
             }
             
             // The target frame's position within frameFields depends on how much lookbehind we actually got
-            qint32 actualLookbehindFields = (frameStartIdx - copyStartIdx);
-            qint32 frameStartIndex = actualLookbehindFields;
-            qint32 frameEndIndex = frameStartIndex + 2;
+            int32_t actualLookbehindFields = (frameStartIdx - copyStartIdx);
+            int32_t frameStartIndex = actualLookbehindFields;
+            int32_t frameEndIndex = frameStartIndex + 2;
             
             // Prepare single-frame output buffer
             std::vector<ComponentFrame> singleOutput;
@@ -755,11 +754,11 @@ bool ChromaSinkStage::trigger(
     // DEBUG: Log ComponentFrame Y checksums using accessor method
     for (int k = 0; k < outputFrames.size() && k < 3; k++) {
         // Access Y data using line accessor
-        qint32 firstLine = videoParams.first_active_frame_line;
+        int32_t firstLine = videoParams.first_active_frame_line;
         ORC_LOG_DEBUG("ChromaSink: About to access ComponentFrame[{}].y({}) (height={})", 
                       k, firstLine, outputFrames[k].getHeight());
         const double* yLinePtr = outputFrames[k].y(firstLine);
-        qint32 width = outputFrames[k].getWidth();
+        int32_t width = outputFrames[k].getWidth();
         
         if (yLinePtr && width > 0) {
             uint64_t yChecksum = 0;
@@ -859,11 +858,8 @@ SourceField ChromaSinkStage::convertToSourceField(
     // Get field data
     std::vector<uint16_t> field_data = vfr->get_field(field_id);
     
-    // Convert std::vector<uint16_t> to QVector<quint16>
-    sf.data.reserve(field_data.size());
-    for (uint16_t sample : field_data) {
-        sf.data.append(sample);
-    }
+    // Copy field data to SourceField
+    sf.data = field_data;
     
     // Apply PAL subcarrier-locked field shift (matches standalone decoder behavior)
     // With 4fSC PAL sampling, the two fields are misaligned by 2 samples
@@ -874,10 +870,10 @@ SourceField ChromaSinkStage::convertToSourceField(
     
     if (isPal && videoParams.is_subcarrier_locked && isSecondField) {
         // Shift second field left by 2 samples (remove first 2, add 2 black samples at end)
-        sf.data.remove(0, 2);
-        quint16 black = static_cast<quint16>(videoParams.black_16b_ire);
-        sf.data.append(black);
-        sf.data.append(black);
+        sf.data.erase(sf.data.begin(), sf.data.begin() + 2);
+        uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
+        sf.data.push_back(black);
+        sf.data.push_back(black);
         ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to field {}", field_id.value());
     }
     
@@ -914,8 +910,8 @@ bool ChromaSinkStage::writeOutputFile(
     }
     
     // Open output file
-    QFile outputFile(QString::fromStdString(output_path));
-    if (!outputFile.open(QIODevice::WriteOnly)) {
+    std::ofstream outputFile(output_path, std::ios::binary);
+    if (!outputFile.is_open()) {
         ORC_LOG_ERROR("ChromaSink: Failed to open output file: {}", output_path);
         return false;
     }
@@ -967,11 +963,11 @@ bool ChromaSinkStage::writeOutputFile(
         
         // Write output data
         const char* data = reinterpret_cast<const char*>(outputFrame.data());
-        qint64 size = outputFrame.size() * sizeof(uint16_t);
-        qint64 written = outputFile.write(data, size);
+        std::streamsize size = outputFrame.size() * sizeof(uint16_t);
+        outputFile.write(data, size);
         
-        if (written != size) {
-            ORC_LOG_ERROR("ChromaSink: Failed to write frame data (wrote {} of {} bytes)", written, size);
+        if (!outputFile.good()) {
+            ORC_LOG_ERROR("ChromaSink: Failed to write frame data");
             outputFile.close();
             return false;
         }

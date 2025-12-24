@@ -16,6 +16,7 @@
 #include <sstream>
 #include <cstdlib>
 #include "componentframe.h"
+#include "logging.h"
 
 // Limits, zero points and scaling factors (from 0-1) for Y'CbCr colour representations
 // [Poynton ch25 p305] [BT.601-7 sec 2.5.3]
@@ -108,9 +109,8 @@ void OutputWriter::printOutputInfo() const
 {
     // Show output information to the user
     const int32_t frameHeight = (videoParameters.field_height * 2) - 1;
-    std::cout << "INFO: Input video of " << videoParameters.field_width << "x" << frameHeight
-              << " will be colourised and trimmed to " << activeWidth << "x" << outputHeight
-              << " " << getPixelName() << " frames" << std::endl;
+    ORC_LOG_INFO("Input video of {}x{} will be colourised and trimmed to {}x{} {} frames",
+                 videoParameters.field_width, frameHeight, activeWidth, outputHeight, getPixelName());
 }
 
 std::string OutputWriter::getStreamHeader() const
@@ -168,7 +168,7 @@ std::string OutputWriter::getStreamHeader() const
         str << " Cmono16 XCOLORRANGE=LIMITED";
         break;
     default:
-        std::cerr << "FATAL: pixel format not supported in yuv4mpeg header" << std::endl;
+        ORC_LOG_CRITICAL("pixel format not supported in yuv4mpeg header");
         std::abort();
         break;
     }

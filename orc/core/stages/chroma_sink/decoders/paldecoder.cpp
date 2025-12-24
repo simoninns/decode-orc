@@ -10,6 +10,7 @@
 
 
 #include "paldecoder.h"
+#include "logging.h"
 
 
 PalDecoder::PalDecoder(const PalColour::Configuration &palConfig)
@@ -20,7 +21,7 @@ PalDecoder::PalDecoder(const PalColour::Configuration &palConfig)
 bool PalDecoder::configure(const ::orc::VideoParameters &videoParameters) {
     // Ensure the source video is PAL
     if (videoParameters.system != orc::VideoSystem::PAL && videoParameters.system != orc::VideoSystem::PAL_M) {
-        std::cerr << "ERROR: This decoder is for PAL video sources only" << std::endl;
+        ORC_LOG_ERROR("This decoder is for PAL video sources only");
         return false;
     }
 

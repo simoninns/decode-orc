@@ -104,15 +104,15 @@ void Comb::updateConfiguration(const ::orc::VideoParameters &_videoParameters, c
 
     // Range check the frame dimensions
     if (videoParameters.field_width > MAX_WIDTH) {
-        std::cerr << "ERROR: Comb::Comb(): Frame width exceeds allowed maximum!" << std::endl;
+        ORC_LOG_ERROR("Comb::Comb(): Frame width exceeds allowed maximum!");
     }
     if (((videoParameters.field_height * 2) - 1) > MAX_HEIGHT) {
-        std::cerr << "ERROR: Comb::Comb(): Frame height exceeds allowed maximum!" << std::endl;
+        ORC_LOG_ERROR("Comb::Comb(): Frame height exceeds allowed maximum!");
     }
 
     // Range check the video start
     if (videoParameters.active_video_start < 16) {
-        std::cerr << "ERROR: Comb::Comb(): activeVideoStart must be > 16!" << std::endl;
+        ORC_LOG_ERROR("Comb::Comb(): activeVideoStart must be > 16!");
     }
 
     // Check the sample rate is close to 4 * fSC.
@@ -120,7 +120,7 @@ void Comb::updateConfiguration(const ::orc::VideoParameters &_videoParameters, c
     // to be an approximate comparison.
     if (fabs((videoParameters.sample_rate / videoParameters.fsc) - 4.0) > 1.0e-6)
     {
-        std::cerr << "ERROR: Data is not in 4fsc sample rate, color decoding will not work properly!" << std::endl;
+        ORC_LOG_ERROR("Data is not in 4fsc sample rate, color decoding will not work properly!");
     }
 
     configurationSet = true;

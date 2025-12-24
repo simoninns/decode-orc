@@ -10,6 +10,7 @@
 
 
 #include "ntscdecoder.h"
+#include "logging.h"
 
 
 NtscDecoder::NtscDecoder(const Comb::Configuration &combConfig)
@@ -20,7 +21,7 @@ NtscDecoder::NtscDecoder(const Comb::Configuration &combConfig)
 bool NtscDecoder::configure(const ::orc::VideoParameters &videoParameters) {
     // Ensure the source video is NTSC
     if (videoParameters.system != orc::VideoSystem::NTSC) {
-        std::cerr << "ERROR: This decoder is for NTSC video sources only" << std::endl;
+        ORC_LOG_ERROR("This decoder is for NTSC video sources only");
         return false;
     }
 

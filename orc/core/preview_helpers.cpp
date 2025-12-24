@@ -35,7 +35,18 @@ std::vector<PreviewOption> get_standard_preview_options(
     
     uint32_t width = video_params->field_width;
     uint32_t height = video_params->field_height;
-    double dar_correction = 0.7;  // Standard PAL/NTSC DAR correction
+    
+    // Calculate DAR correction based on active video region
+    // For 4:3 DAR, we want: (active_width / height) * correction = 4/3
+    // Therefore: correction = (4/3) * (height / active_width)
+    // But we render the full field width, so we need to scale to show active portion at 4:3
+    double dar_correction = 0.7;  // Default fallback
+    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start) {
+        uint32_t active_width = video_params->active_video_end - video_params->active_video_start;
+        // Target DAR is 4:3, so correction = (4/3) * height / active_width
+        // But since we render full width including blanking, we scale by active/full ratio
+        dar_correction = (4.0 / 3.0) * height / active_width * (static_cast<double>(active_width) / width);
+    }
     
     // Field previews
     options.push_back(PreviewOption{

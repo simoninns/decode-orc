@@ -16,7 +16,7 @@
 #include "node_type.h"
 #include "video_field_representation.h"
 #include "tbc_metadata.h"
-#include "previewable_sink.h"
+#include "previewable_stage.h"
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
 
 // Forward declarations for decoder classes
@@ -60,7 +60,7 @@ namespace orc {
 class ChromaSinkStage : public DAGStage, 
                        public ParameterizedStage, 
                        public TriggerableStage, 
-                       public PreviewableSink {
+                       public PreviewableStage {
 public:
     ChromaSinkStage();
     ~ChromaSinkStage() override = default;
@@ -90,10 +90,19 @@ public:
     
     std::string get_trigger_status() const override;
     
-    // PreviewableSink interface (disabled for now)
-    bool supports_preview() const override { return false; }
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index) const override;
     
 private:
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
+    
+    // Helper for preview: decode a pair of fields to RGB
+    std::shared_ptr<VideoFieldRepresentation> decode_field_pair_to_rgb(
+        FieldID field_a,
+        FieldID field_b) const;
+    
     // Current parameters
     std::string output_path_;
     std::string decoder_type_;

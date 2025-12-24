@@ -12,6 +12,7 @@
 #include "stage_registry.h"
 #include "logging.h"
 #include "preview_renderer.h"
+#include "preview_helpers.h"
 
 // Decoder includes (relative to this file)
 #include "decoders/sourcefield.h"
@@ -68,12 +69,17 @@ NodeTypeInfo ChromaSinkStage::get_node_type_info() const
 }
 
 std::vector<ArtifactPtr> ChromaSinkStage::execute(
-    const std::vector<ArtifactPtr>& inputs [[maybe_unused]],
+    const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
 {
+    // Cache input for preview rendering
+    if (!inputs.empty()) {
+        cached_input_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+    }
+    
     // Sink stages don't produce outputs during normal execution
     // They are triggered manually to write data
-    ORC_LOG_DEBUG("ChromaSink execute called (no-op - use trigger to export)");
+    ORC_LOG_DEBUG("ChromaSink execute called (cached input for preview)");
     return {};  // No outputs
 }
 
@@ -966,6 +972,328 @@ bool ChromaSinkStage::writeOutputFile(
     
     ORC_LOG_INFO("ChromaSink: Wrote {} frames to {}", frames.size(), output_path);
     return true;
+}
+
+std::vector<PreviewOption> ChromaSinkStage::get_preview_options() const
+{
+    if (!cached_input_) {
+        return {};
+    }
+    
+    auto video_params = cached_input_->get_video_parameters();
+    if (!video_params) {
+        return {};
+    }
+    
+    uint64_t field_count = cached_input_->field_count();
+    if (field_count < 2) {
+        return {};  // Need at least 2 fields to decode a frame
+    }
+    
+    uint32_t width = video_params->field_width;
+    uint32_t height = video_params->field_height;
+    uint64_t frame_count = field_count / 2;
+    double dar_correction = 0.7;
+    
+    // Only offer Frame mode for chroma decoder (fields are combined into RGB frames)
+    std::vector<PreviewOption> options;
+    options.push_back(PreviewOption{
+        "frame", "Frame (RGB)", false, width, height * 2, frame_count, dar_correction
+    });
+    
+    return options;
+}
+
+PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    PreviewImage result;
+    
+    ORC_LOG_DEBUG("ChromaSink render_preview: option_id='{}', index={}", option_id, index);
+    
+    if (!cached_input_ || option_id != "frame") {
+        ORC_LOG_WARN("ChromaSink render_preview: Invalid input or option");
+        return result;
+    }
+    
+    // Calculate which fields make up this frame
+    uint64_t first_field_offset = 0;
+    
+    // Check field parity to determine offset
+    auto parity_hint = cached_input_->get_field_parity_hint(FieldID(0));
+    if (parity_hint.has_value() && !parity_hint->is_first_field) {
+        first_field_offset = 1;
+    }
+    
+    uint64_t field_a_index = first_field_offset + (index * 2);
+    uint64_t field_b_index = field_a_index + 1;
+    
+    FieldID field_a(field_a_index);
+    FieldID field_b(field_b_index);
+    
+    if (!cached_input_->has_field(field_a) || !cached_input_->has_field(field_b)) {
+        return result;
+    }
+    
+    // Decode the field pair to RGB
+    auto decoded_rgb = decode_field_pair_to_rgb(field_a, field_b);
+    
+    if (!decoded_rgb) {
+        ORC_LOG_WARN("ChromaSink render_preview: Failed to decode field pair");
+        return result;
+    }
+    
+    ORC_LOG_DEBUG("ChromaSink render_preview: Successfully decoded fields {}/{}", field_a.value(), field_b.value());
+    
+    // Get RGB data from the decoded representation
+    auto desc_opt = decoded_rgb->get_descriptor(field_a);
+    if (!desc_opt) {
+        return result;
+    }
+    
+    const auto& desc = *desc_opt;
+    auto field_data = decoded_rgb->get_field(field_a);
+    
+    if (field_data.empty() || field_data.size() < desc.width * desc.height * 3) {
+        return result;
+    }
+    
+    // Initialize preview image
+    result.width = desc.width;
+    result.height = desc.height;
+    result.rgb_data.resize(result.width * result.height * 3);
+    
+    // Convert 16-bit RGB to 8-bit RGB
+    for (size_t i = 0; i < result.rgb_data.size() && i < field_data.size(); ++i) {
+        result.rgb_data[i] = static_cast<uint8_t>(field_data[i] >> 8);
+    }
+    
+    ORC_LOG_DEBUG("ChromaSink render_preview: Converted RGB frame {}x{}, {} bytes", 
+                  result.width, result.height, result.rgb_data.size());
+    
+    return result;
+}
+
+std::shared_ptr<VideoFieldRepresentation> ChromaSinkStage::decode_field_pair_to_rgb(
+    FieldID field_a,
+    FieldID field_b) const
+{
+    if (!cached_input_) {
+        return nullptr;
+    }
+    
+    // Get video parameters
+    auto video_params_opt = cached_input_->get_video_parameters();
+    if (!video_params_opt) {
+        return nullptr;
+    }
+    const VideoParameters& videoParams = *video_params_opt;
+    
+    // Convert both fields to SourceFields
+    SourceField sourceField_a = convertToSourceField(cached_input_.get(), field_a);
+    SourceField sourceField_b = convertToSourceField(cached_input_.get(), field_b);
+    
+    if (sourceField_a.data.empty() || sourceField_b.data.empty()) {
+        return nullptr;
+    }
+    
+    // Create decoder instance based on type (non-threaded for preview)
+    std::unique_ptr<MonoDecoder> monoDecoder;
+    std::unique_ptr<PalColour> palDecoder;
+    std::unique_ptr<Comb> ntscDecoder;
+    
+    // Determine decoder type
+    std::string effectiveDecoderType = decoder_type_;
+    if (effectiveDecoderType == "auto") {
+        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
+            effectiveDecoderType = "transform2d";
+        } else {
+            effectiveDecoderType = "ntsc2d";
+        }
+    }
+    
+    // Create appropriate decoder
+    if (effectiveDecoderType == "mono") {
+        MonoDecoder::MonoConfiguration config;
+        config.yNRLevel = luma_nr_;
+        config.videoParameters = videoParams;
+        monoDecoder = std::make_unique<MonoDecoder>(config);
+    } else if (effectiveDecoderType == "pal2d" || effectiveDecoderType == "transform2d" || effectiveDecoderType == "transform3d") {
+        PalColour::Configuration config;
+        config.chromaGain = chroma_gain_;
+        config.chromaPhase = chroma_phase_;
+        config.yNRLevel = luma_nr_;
+        config.simplePAL = simple_pal_;
+        config.showFFTs = false;
+        
+        if (effectiveDecoderType == "transform3d") {
+            config.chromaFilter = PalColour::transform3DFilter;
+        } else if (effectiveDecoderType == "transform2d") {
+            config.chromaFilter = PalColour::transform2DFilter;
+        } else {
+            config.chromaFilter = PalColour::palColourFilter;
+        }
+        
+        palDecoder = std::make_unique<PalColour>();
+        palDecoder->updateConfiguration(videoParams, config);
+    } else {
+        // NTSC decoders
+        Comb::Configuration config;
+        config.chromaGain = chroma_gain_;
+        config.chromaPhase = chroma_phase_;
+        config.cNRLevel = chroma_nr_;
+        config.yNRLevel = luma_nr_;
+        config.phaseCompensation = ntsc_phase_comp_;
+        config.showMap = false;
+        
+        if (effectiveDecoderType == "ntsc1d") {
+            config.dimensions = 1;
+            config.adaptive = false;
+        } else if (effectiveDecoderType == "ntsc3d") {
+            config.dimensions = 3;
+            config.adaptive = true;
+        } else if (effectiveDecoderType == "ntsc3dnoadapt") {
+            config.dimensions = 3;
+            config.adaptive = false;
+        } else {
+            config.dimensions = 2;
+            config.adaptive = false;
+        }
+        
+        ntscDecoder = std::make_unique<Comb>();
+        ntscDecoder->updateConfiguration(videoParams, config);
+    }
+    
+    // Decode the field pair
+    std::vector<SourceField> fields = {sourceField_a, sourceField_b};
+    std::vector<ComponentFrame> outputFrames(1);
+    
+    if (monoDecoder) {
+        monoDecoder->decodeFrames(fields, 0, 2, outputFrames);
+    } else if (palDecoder) {
+        palDecoder->decodeFrames(fields, 0, 2, outputFrames);
+    } else if (ntscDecoder) {
+        ntscDecoder->decodeFrames(fields, 0, 2, outputFrames);
+    }
+    
+    // Convert ComponentFrame YUV to RGB
+    ComponentFrame& frame = outputFrames[0];
+    int32_t width = frame.getWidth();
+    int32_t height = frame.getHeight();
+    
+    // Get IRE levels for proper scaling
+    double blackIRE = videoParams.black_16b_ire;
+    double whiteIRE = videoParams.white_16b_ire;
+    double ireRange = whiteIRE - blackIRE;
+    
+    // Create RGB data as 16-bit samples (R,G,B triplets)
+    std::vector<uint16_t> rgbData(width * height * 3);
+    
+    // Convert YUV to RGB
+    for (int32_t y = 0; y < height; y++) {
+        const double* yLine = frame.y(y);
+        const double* uLine = frame.u(y);
+        const double* vLine = frame.v(y);
+        
+        for (int32_t x = 0; x < width; x++) {
+            double Y = yLine[x];
+            double U = uLine[x];
+            double V = vLine[x];
+            
+            // Scale Y'UV to 0-65535 (from IRE range)
+            const double yScale = 65535.0 / ireRange;
+            const double uvScale = 65535.0 / ireRange;
+            
+            const double rY = std::max(0.0, std::min(65535.0, (Y - blackIRE) * yScale));
+            const double rU = U * uvScale;
+            const double rV = V * uvScale;
+            
+            // Convert Y'UV to R'G'B'
+            double R = rY + (1.139883 * rV);
+            double G = rY + (-0.394642 * rU) + (-0.580622 * rV);
+            double B = rY + (2.032062 * rU);
+            
+            // Clamp and store as 16-bit
+            R = std::max(0.0, std::min(65535.0, R));
+            G = std::max(0.0, std::min(65535.0, G));
+            B = std::max(0.0, std::min(65535.0, B));
+            
+            int offset = (y * width + x) * 3;
+            rgbData[offset + 0] = static_cast<uint16_t>(R);
+            rgbData[offset + 1] = static_cast<uint16_t>(G);
+            rgbData[offset + 2] = static_cast<uint16_t>(B);
+        }
+    }
+    
+    // Create a simple RGB field representation (inline class)
+    class RGBFieldRepresentation : public VideoFieldRepresentation {
+    private:
+        FieldID field_a_;
+        FieldID field_b_;
+        FieldDescriptor descriptor_;
+        std::vector<uint16_t> data_;
+        VideoParameters video_params_;
+        
+    public:
+        RGBFieldRepresentation(FieldID fa, FieldID fb, const FieldDescriptor& desc, 
+                              std::vector<uint16_t> data, const VideoParameters& vp)
+            : VideoFieldRepresentation(
+                ArtifactID("chroma_preview_" + std::to_string(fa.value())),
+                Provenance{
+                    "ChromaSinkStage",
+                    "1.0",
+                    {},
+                    {},
+                    std::chrono::system_clock::now(),
+                    "",
+                    "",
+                    {}
+                }
+              ),
+              field_a_(fa), field_b_(fb), descriptor_(desc), data_(std::move(data)), video_params_(vp) {}
+        
+        FieldIDRange field_range() const override {
+            return {field_a_, FieldID(field_b_.value() + 1)};
+        }
+        
+        size_t field_count() const override { return 2; }
+        
+        bool has_field(FieldID id) const override { 
+            return id == field_a_ || id == field_b_; 
+        }
+        
+        std::optional<FieldDescriptor> get_descriptor(FieldID id) const override {
+            if (id == field_a_ || id == field_b_) return descriptor_;
+            return std::nullopt;
+        }
+        
+        const sample_type* get_line(FieldID id, size_t line) const override {
+            if ((id != field_a_ && id != field_b_) || line >= descriptor_.height) return nullptr;
+            return &data_[line * descriptor_.width * 3];
+        }
+        
+        std::vector<sample_type> get_field(FieldID id) const override {
+            if (id == field_a_ || id == field_b_) return data_;
+            return {};
+        }
+        
+        std::optional<VideoParameters> get_video_parameters() const override {
+            return video_params_;
+        }
+        
+        std::string type_name() const override { return "RGBFieldRepresentation"; }
+    };
+    
+    // Create field descriptor
+    auto desc_opt = cached_input_->get_descriptor(field_a);
+    if (!desc_opt) {
+        return nullptr;
+    }
+    
+    FieldDescriptor rgbDesc = *desc_opt;
+    rgbDesc.width = width;
+    rgbDesc.height = height;
+    
+    return std::make_shared<RGBFieldRepresentation>(field_a, field_b, rgbDesc, std::move(rgbData), videoParams);
 }
 
 // Helper method: Create decoder based on type

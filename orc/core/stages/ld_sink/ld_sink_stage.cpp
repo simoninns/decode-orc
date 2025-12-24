@@ -10,6 +10,7 @@
 #include "ld_sink_stage.h"
 #include "stage_registry.h"
 #include "preview_renderer.h"
+#include "preview_helpers.h"
 #include "tbc_metadata_writer.h"
 #include "observation_history.h"
 #include "biphase_observer.h"
@@ -52,12 +53,17 @@ NodeTypeInfo LDSinkStage::get_node_type_info() const
 }
 
 std::vector<ArtifactPtr> LDSinkStage::execute(
-    const std::vector<ArtifactPtr>& inputs [[maybe_unused]],
+    const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
 {
+    // Cache input for preview rendering
+    if (!inputs.empty()) {
+        cached_input_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+    }
+    
     // Sink stages don't produce outputs during normal execution
     // They are triggered manually to write data
-    ORC_LOG_DEBUG("LDSink execute called (no-op - use trigger to write)");
+    ORC_LOG_DEBUG("LDSink execute called (cached input for preview)");
     return {};  // No outputs
 }
 
@@ -415,6 +421,16 @@ bool LDSinkStage::write_metadata_file(
         ORC_LOG_ERROR("Exception writing metadata file: {}", e.what());
         return false;
     }
+}
+
+std::vector<PreviewOption> LDSinkStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_input_);
+}
+
+PreviewImage LDSinkStage::render_preview(const std::string& option_id, uint64_t index) const
+{
+    return PreviewHelpers::render_standard_preview(cached_input_, option_id, index);
 }
 
 } // namespace orc

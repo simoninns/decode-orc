@@ -191,27 +191,18 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
             [&node_id](const auto& n) { return n.node_id == node_id; });
         
         if (node_it != dag_nodes.end() && node_it->stage) {
-            auto node_type = node_it->stage->get_node_type_info().type;
-            
-            // Check if this stage implements PreviewableStage (sources/transforms)
+            // Check if this stage implements PreviewableStage (sources/transforms/sinks)
             auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
             if (previewable_stage && previewable_stage->supports_preview()) {
                 // Stage supports preview - get outputs from stage options
                 return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
             }
             
+            auto node_type = node_it->stage->get_node_type_info().type;
             if (node_type == NodeType::SINK) {
-                // Check if this sink implements PreviewableSink
-                auto* previewable = dynamic_cast<const PreviewableSink*>(node_it->stage.get());
-                
-                if (previewable && previewable->supports_preview()) {
-                    // Sink supports preview - get outputs from its input
-                    return get_sink_preview_outputs(node_id, *node_it, *previewable);
-                } else {
-                    // Sink doesn't support preview - return empty (no preview available)
-                    ORC_LOG_DEBUG("Sink node '{}' does not support preview", node_id);
-                    return outputs;
-                }
+                // Sink doesn't support preview - return empty (no preview available)
+                ORC_LOG_DEBUG("Sink node '{}' does not support preview", node_id);
+                return outputs;
             }
         }
     }
@@ -403,26 +394,12 @@ PreviewRenderResult PreviewRenderer::render_output(
             [&node_id](const auto& n) { return n.node_id == node_id; });
         
         if (node_it != dag_nodes.end() && node_it->stage) {
-            auto node_type = node_it->stage->get_node_type_info().type;
+            // Check for PreviewableStage interface (any stage including sinks)
+            auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
             
-            // Check for PreviewableStage interface (any stage with output, i.e., not a sink)
-            if (node_type != NodeType::SINK) {
-                auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
-                
-                if (previewable_stage && previewable_stage->supports_preview()) {
-                    // Render using stage's new preview interface
-                    return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id);
-                }
-            }
-            
-            // Check for PreviewableSink interface (sinks)
-            if (node_type == NodeType::SINK) {
-                auto* previewable = dynamic_cast<const PreviewableSink*>(node_it->stage.get());
-                
-                if (previewable && previewable->supports_preview()) {
-                    // Render sink preview
-                    return render_sink_preview(node_id, *node_it, *previewable, type, index);
-                }
+            if (previewable_stage && previewable_stage->supports_preview()) {
+                // Render using stage's preview interface
+                return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id);
             }
         }
     }
@@ -1177,13 +1154,13 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
         }
     }
     
-    // Priority 3: First PREVIEWABLE SINK node
+    // Priority 3: First previewable SINK node
     for (const auto& node : dag_nodes) {
         if (node.stage) {
             auto node_type_info = node.stage->get_node_type_info();
             if (node_type_info.type == NodeType::SINK) {
-                auto* previewable = dynamic_cast<const PreviewableSink*>(node.stage.get());
-                if (previewable && previewable->supports_preview()) {
+                auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node.stage.get());
+                if (previewable_stage && previewable_stage->supports_preview()) {
                     return SuggestedViewNode{
                         node.node_id,
                         true,
@@ -1203,103 +1180,7 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
 }
 
 // ============================================================================
-// Sink Preview Support
-// ============================================================================
-
-std::vector<PreviewOutputInfo> PreviewRenderer::get_sink_preview_outputs(
-    const std::string& sink_node_id,
-    const DAGNode& sink_node,
-    const PreviewableSink& previewable)
-{
-    std::vector<PreviewOutputInfo> outputs;
-    
-    // Get input node
-    if (sink_node.input_node_ids.empty()) {
-        ORC_LOG_DEBUG("Sink node '{}' has no input", sink_node_id);
-        return outputs;  // No input, no preview
-    }
-    
-    // Get the first input node (sinks typically have one input)
-    const std::string& input_node_id = sink_node.input_node_ids[0];
-    
-    // Render from input node to check availability
-    auto result = field_renderer_->render_field_at_node(input_node_id, FieldID(0));
-    
-    if (!result.is_valid || !result.representation) {
-        ORC_LOG_DEBUG("Sink node '{}' input '{}' has no valid output", sink_node_id, input_node_id);
-        return outputs;  // Input has no data
-    }
-    
-    // Get field count from input
-    auto field_count = result.representation->field_count();
-    
-    if (field_count == 0) {
-        ORC_LOG_DEBUG("Sink node '{}' input has 0 fields", sink_node_id);
-        return outputs;
-    }
-    
-    // Calculate frame count (assuming interlaced fields)
-    uint64_t frame_count = field_count / 2;
-    
-    // Check if this sink only outputs frames (e.g., chroma decoder)
-    // Sink previews are temporarily disabled
-    // All sinks return supports_preview() == false
-    bool frame_only = false;
-    
-    // Provide standard output types for sink preview
-    ORC_LOG_DEBUG("Sink node '{}' preview: {} fields, {} frames available (frame_only={})", 
-                  sink_node_id, field_count, frame_count, frame_only);
-    
-    // Only offer Field mode if sink supports it
-    if (!frame_only) {
-        outputs.push_back(PreviewOutputInfo{
-            PreviewOutputType::Field,
-            "Field (Sink Preview)",
-            field_count,
-            true,
-            0.7,
-            ""
-        });
-    }
-    
-    if (frame_count > 0) {
-        // For frame-only sinks (e.g., chroma decoder), only offer Frame mode
-        // since fields have already been combined and there's nothing to reverse/split
-        outputs.push_back(PreviewOutputInfo{
-            PreviewOutputType::Frame,
-            "Frame (Sink Preview)",
-            frame_count,
-            true,
-            0.7,
-            ""
-        });
-        
-        if (!frame_only) {
-            outputs.push_back(PreviewOutputInfo{
-                PreviewOutputType::Frame_Reversed,
-                "Frame Reversed (Sink Preview)",
-                frame_count,
-                true,
-                0.7,
-                ""
-            });
-            
-            outputs.push_back(PreviewOutputInfo{
-                PreviewOutputType::Split,
-                "Split (Sink Preview)",
-                frame_count,
-                true,
-                0.7,
-                ""
-            });
-        }
-    }
-    
-    return outputs;
-}
-
-// ============================================================================
-// Stage preview support (new interface for sources/transforms)
+// Stage preview support
 // ============================================================================
 
 void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
@@ -1385,170 +1266,6 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     // Stage returned a valid image
     result.image = std::move(stage_result);
     result.success = true;
-    
-    return result;
-}
-
-PreviewRenderResult PreviewRenderer::render_sink_preview(
-    const std::string& sink_node_id,
-    const DAGNode& sink_node,
-    const PreviewableSink& previewable,
-    PreviewOutputType type,
-    uint64_t index)
-{
-    ORC_LOG_DEBUG("render_sink_preview called for node '{}', type={}, index={}", 
-                  sink_node_id, static_cast<int>(type), index);
-    
-    PreviewRenderResult result;
-    result.node_id = sink_node_id;
-    result.output_type = type;
-    result.output_index = index;
-    result.success = false;
-    
-    if (sink_node.input_node_ids.empty()) {
-        result.error_message = "Sink has no input";
-        return result;
-    }
-    
-    // For frame-only sinks (e.g., chroma decoder), force unsupported modes to Frame
-    // Sink previews are temporarily disabled
-    if (false) {  // Old: previewable.is_frame_only()
-        if (type == PreviewOutputType::Field) {
-            ORC_LOG_DEBUG("render_sink_preview: Frame-only sink requested Field mode, forcing to Frame");
-            type = PreviewOutputType::Frame;
-            result.output_type = type;
-        } else if (type == PreviewOutputType::Frame_Reversed || type == PreviewOutputType::Split) {
-            ORC_LOG_DEBUG("render_sink_preview: Frame-only sink requested {} mode, forcing to Frame", 
-                         static_cast<int>(type));
-            type = PreviewOutputType::Frame;
-            result.output_type = type;
-        }
-    }
-    
-    const std::string& input_node_id = sink_node.input_node_ids[0];
-    
-    switch (type) {
-        case PreviewOutputType::Field:
-        case PreviewOutputType::Luma:
-        {
-            FieldID field_id(index);
-            
-            // Get field from input node
-            auto field_result = field_renderer_->render_field_at_node(input_node_id, field_id);
-            if (!field_result.is_valid || !field_result.representation) {
-                result.image = create_placeholder_image(type, "Nothing to output");
-                result.success = true;
-                result.error_message = "Failed to render input field";
-                return result;
-            }
-            
-            // Apply sink's transformation for preview (temporarily disabled)
-            auto transformed = field_result.representation;
-            
-            if (!transformed) {
-                result.image = create_placeholder_image(type, "Transform failed");
-                result.success = true;
-                result.error_message = "Sink preview transformation failed";
-                return result;
-            }
-            
-            // Render transformed field
-            result.image = render_field(transformed, field_id);
-            result.success = result.image.is_valid();
-            
-            if (!result.success) {
-                result.image = create_placeholder_image(type, "Nothing to output");
-                result.success = true;
-                result.error_message = "Failed to render transformed field";
-            }
-            break;
-        }
-        
-        case PreviewOutputType::Frame:
-        case PreviewOutputType::Frame_Reversed:
-        case PreviewOutputType::Split:
-        {
-            // Determine first field offset (same logic as regular rendering)
-            uint64_t first_field_offset = 0;
-            
-            auto probe_result = field_renderer_->render_field_at_node(input_node_id, FieldID(0));
-            if (probe_result.is_valid && probe_result.representation) {
-                auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
-                if (parity_hint.has_value() && !parity_hint->is_first_field) {
-                    first_field_offset = 1;
-                }
-            }
-            
-            // Calculate field IDs for this frame
-            uint64_t field_a_index = first_field_offset + (index * 2);
-            uint64_t field_b_index = field_a_index + 1;
-            
-            FieldID field_a(field_a_index);
-            FieldID field_b(field_b_index);
-            
-            // Render both fields from input
-            auto result_a = field_renderer_->render_field_at_node(input_node_id, field_a);
-            auto result_b = field_renderer_->render_field_at_node(input_node_id, field_b);
-            
-            if (!result_a.is_valid || !result_a.representation ||
-                !result_b.is_valid || !result_b.representation) {
-                result.image = create_placeholder_image(type, "Nothing to output");
-                result.success = true;
-                result.error_message = "Failed to render input fields for frame";
-                return result;
-            }
-            
-            // Apply sink transformations to both fields
-            // Sink previews are temporarily disabled
-            auto transformed_a = result_a.representation;  // Old: previewable.render_preview_field()
-            auto transformed_b = result_b.representation;  // Old: previewable.render_preview_field()
-            
-            if (!transformed_a || !transformed_b) {
-                result.image = create_placeholder_image(type, "Transform failed");
-                result.success = true;
-                result.error_message = "Sink preview transformation failed for frame";
-                return result;
-            }
-            
-            // Check if this is RGB data from chroma decoder
-            // The chroma decoder returns the SAME representation for both fields
-            // (both fields are part of the same decoded frame)
-            if (transformed_a->type_name() == "RGBFieldRepresentation" && 
-                transformed_a == transformed_b) {
-                ORC_LOG_DEBUG("render_sink_preview: RGB representation detected, using RGB frame rendering");
-                // Use the RGB representation which contains both fields
-                if (type == PreviewOutputType::Split) {
-                    result.image = render_split_frame(transformed_a, field_a, field_b);
-                } else {
-                    bool first_field_first = (type == PreviewOutputType::Frame);
-                    result.image = render_frame(transformed_a, field_a, field_b, first_field_first);
-                }
-            } else {
-                // Normal grayscale field rendering
-                if (type == PreviewOutputType::Split) {
-                    result.image = render_split_frame(transformed_a, field_a, field_b);
-                } else {
-                    bool first_field_first = (type == PreviewOutputType::Frame);
-                    result.image = render_frame(transformed_a, field_a, field_b, first_field_first);
-                }
-            }
-            
-            result.success = result.image.is_valid();
-            
-            if (!result.success) {
-                result.image = create_placeholder_image(type, "Nothing to output");
-                result.success = true;
-                result.error_message = "Failed to render transformed frame";
-            }
-            break;
-        }
-        
-        case PreviewOutputType::Chroma:
-        case PreviewOutputType::Composite:
-        default:
-            result.error_message = "Output type not supported for sink preview";
-            break;
-    }
     
     return result;
 }

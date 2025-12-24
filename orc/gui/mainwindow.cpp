@@ -632,8 +632,18 @@ void MainWindow::onAspectRatioModeChanged(int index)
     // Update the aspect ratio mode in the renderer
     preview_renderer_->set_aspect_ratio_mode(available_modes[index].mode);
     
-    // Get the correction factor from core (not calculated by GUI)
+    // Get the correction factor - use per-output DAR correction if in DAR mode
     double aspect_correction = available_modes[index].correction_factor;
+    if (available_modes[index].mode == orc::AspectRatioMode::DAR_4_3 && !available_outputs_.empty()) {
+        // Find current output and use its dar_aspect_correction
+        for (const auto& output : available_outputs_) {
+            if (output.option_id == current_option_id_) {
+                aspect_correction = output.dar_aspect_correction;
+                ORC_LOG_DEBUG("Using per-output DAR correction: {}", aspect_correction);
+                break;
+            }
+        }
+    }
     preview_dialog_->previewWidget()->setAspectCorrection(aspect_correction);
     
     // Refresh the display
@@ -1242,13 +1252,21 @@ void MainWindow::refreshViewerControls()
     // Update the preview mode combo box
     updatePreviewModeCombo();
     
-    // Get count for current output type and option_id
+    // Get count for current output type and option_id, and update aspect correction
     int new_total = 0;
+    double dar_correction = 0.7;  // Default fallback
     for (const auto& output : available_outputs_) {
         if (output.type == current_output_type_ && output.option_id == current_option_id_) {
             new_total = output.count;
+            dar_correction = output.dar_aspect_correction;
             break;
         }
+    }
+    
+    // Update aspect correction if in DAR mode
+    if (preview_renderer_->get_aspect_ratio_mode() == orc::AspectRatioMode::DAR_4_3) {
+        preview_dialog_->previewWidget()->setAspectCorrection(dar_correction);
+        ORC_LOG_DEBUG("Updated DAR correction to {} for current output", dar_correction);
     }
     
     // Update slider range and labels
@@ -1297,10 +1315,9 @@ void MainWindow::updatePreviewRenderer()
             // Create new renderer - works with null DAG
             preview_renderer_ = std::make_unique<orc::PreviewRenderer>(dag);
             
-            // Populate aspect ratio combo from core and initialize aspect correction
+            // Populate aspect ratio combo from core
+            // Note: aspect correction will be set when first node is selected
             updateAspectRatioCombo();
-            auto aspect_info = preview_renderer_->get_current_aspect_ratio_mode_info();
-            preview_dialog_->previewWidget()->setAspectCorrection(aspect_info.correction_factor);
         }
         
         // Check if current node is still valid, or if we need to switch

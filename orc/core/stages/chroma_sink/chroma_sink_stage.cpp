@@ -1061,15 +1061,57 @@ std::vector<PreviewOption> ChromaSinkStage::get_preview_options() const
         return {};  // Need at least 2 fields to decode a frame
     }
     
-    uint32_t width = video_params->field_width;
-    uint32_t height = video_params->field_height;
     uint64_t frame_count = field_count / 2;
-    double dar_correction = 0.7;
+    
+    // Decode a test frame to get the actual full frame dimensions (with padding)
+    uint32_t full_width = 0;
+    uint32_t full_height = 0;
+    
+    if (frame_count > 0) {
+        auto test_preview = render_preview("frame", 0, PreviewNavigationHint::Random);
+        if (test_preview.width > 0 && test_preview.height > 0) {
+            full_width = test_preview.width;
+            full_height = test_preview.height;
+        }
+    }
+    
+    // Fallback to typical dimensions if decode failed
+    if (full_width == 0 || full_height == 0) {
+        full_width = 1135;  // Typical PAL with padding
+        full_height = 625;
+        if (video_params->system == VideoSystem::NTSC) {
+            full_height = 505;  // Typical NTSC with padding
+        }
+    }
+    
+    // Get active picture area dimensions from metadata
+    // These are used to calculate the DAR correction, not for the preview dimensions
+    uint32_t active_width = 702;   // Fallback PAL active picture width
+    uint32_t active_height = 576;  // Fallback PAL active picture height
+    
+    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start) {
+        active_width = video_params->active_video_end - video_params->active_video_start;
+    }
+    if (video_params->first_active_frame_line >= 0 && video_params->last_active_frame_line > video_params->first_active_frame_line) {
+        active_height = video_params->last_active_frame_line - video_params->first_active_frame_line;
+    }
+    
+    // Calculate DAR correction based on active area for 4:3 display
+    // The active picture area should display at 4:3 aspect ratio
+    // Example: PAL 702x576 active → target ratio 4:3 = 1.333
+    //          Current ratio: 702/576 = 1.219
+    //          Need to multiply width by: 1.333/1.219 = 1.094 to reach proper 4:3
+    double active_ratio = static_cast<double>(active_width) / static_cast<double>(active_height);
+    double target_ratio = 4.0 / 3.0;
+    double dar_correction = target_ratio / active_ratio;
+    
+    ORC_LOG_DEBUG("ChromaSink: Preview dimensions: {}x{} (full frame), active area ~{}x{} (ratio={:.3f}), DAR correction = {:.3f} (target ratio=1.333)", 
+                  full_width, full_height, active_width, active_height, active_ratio, dar_correction);
     
     // Only offer Frame mode for chroma decoder (fields are combined into RGB frames)
     std::vector<PreviewOption> options;
     options.push_back(PreviewOption{
-        "frame", "Frame (RGB)", false, width, height * 2, frame_count, dar_correction
+        "frame", "Frame (RGB)", false, full_width, full_height, frame_count, dar_correction
     });
     
     return options;

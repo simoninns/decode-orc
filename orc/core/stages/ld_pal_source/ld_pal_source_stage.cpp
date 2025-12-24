@@ -247,7 +247,17 @@ std::vector<PreviewOption> LDPALSourceStage::get_preview_options() const
     
     uint32_t width = video_params->field_width;
     uint32_t height = video_params->field_height;
-    double dar_correction = 0.7;  // Standard PAL/NTSC DAR correction
+    
+    // Calculate DAR correction based on active video region (same as PreviewHelpers)
+    double dar_correction = 0.7;  // Default fallback
+    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start &&
+        video_params->first_active_frame_line >= 0 && video_params->last_active_frame_line > video_params->first_active_frame_line) {
+        uint32_t active_width = video_params->active_video_end - video_params->active_video_start;
+        uint32_t active_height = video_params->last_active_frame_line - video_params->first_active_frame_line;
+        double active_ratio = static_cast<double>(active_width) / static_cast<double>(active_height);
+        double target_ratio = 4.0 / 3.0;
+        dar_correction = target_ratio / active_ratio;
+    }
     
     // Option 1: Individual fields (Y component with IRE scaling)
     options.push_back(PreviewOption{

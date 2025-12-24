@@ -37,15 +37,23 @@ std::vector<PreviewOption> get_standard_preview_options(
     uint32_t height = video_params->field_height;
     
     // Calculate DAR correction based on active video region
-    // For 4:3 DAR, we want: (active_width / height) * correction = 4/3
-    // Therefore: correction = (4/3) * (height / active_width)
-    // But we render the full field width, so we need to scale to show active portion at 4:3
+    // For 4:3 DAR, we want the active area to display at 4:3 ratio
     double dar_correction = 0.7;  // Default fallback
-    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start) {
+    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start &&
+        video_params->first_active_frame_line >= 0 && video_params->last_active_frame_line > video_params->first_active_frame_line) {
         uint32_t active_width = video_params->active_video_end - video_params->active_video_start;
-        // Target DAR is 4:3, so correction = (4/3) * height / active_width
-        // But since we render full width including blanking, we scale by active/full ratio
-        dar_correction = (4.0 / 3.0) * height / active_width * (static_cast<double>(active_width) / width);
+        uint32_t active_height = video_params->last_active_frame_line - video_params->first_active_frame_line;
+        // Calculate DAR correction: active area should display at 4:3
+        // Example: PAL 702x576 → ratio 1.219, target 1.333, multiply width by 1.333/1.219 = 1.094
+        double active_ratio = static_cast<double>(active_width) / static_cast<double>(active_height);
+        double target_ratio = 4.0 / 3.0;
+        dar_correction = target_ratio / active_ratio;
+        ORC_LOG_DEBUG("PreviewHelpers: Calculated DAR correction = {:.3f} (active {}x{}, ratio {:.3f})",
+                     dar_correction, active_width, active_height, active_ratio);
+    } else {
+        ORC_LOG_WARN("PreviewHelpers: Using fallback DAR 0.7 (active_video: {}-{}, active_frame_line: {}-{})",
+                    video_params->active_video_start, video_params->active_video_end,
+                    video_params->first_active_frame_line, video_params->last_active_frame_line);
     }
     
     // Field previews

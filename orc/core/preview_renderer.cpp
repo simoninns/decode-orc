@@ -1228,7 +1228,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             option.display_name,
             option.count,
             true,  // If stage advertises it, it's available
-            0.7,   // Standard DAR correction
+            option.dar_aspect_correction,  // Use stage-provided DAR correction
             option.id  // Store original option ID
         });
     }

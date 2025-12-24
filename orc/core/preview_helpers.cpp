@@ -215,6 +215,7 @@ PreviewImage render_frame_preview(
     uint64_t frame_index,
     bool apply_ire_scaling)
 {
+    auto start_time = std::chrono::high_resolution_clock::now();
     PreviewImage result;
     
     if (!representation) {
@@ -271,7 +272,14 @@ PreviewImage render_frame_preview(
         }
     }
     
+    // Pre-compute scaling as integers for faster conversion (16-bit fixed-point)
+    int32_t ire_black = static_cast<int32_t>(blackIRE);
+    int32_t ire_mult = static_cast<int32_t>(ire_scale * 65536.0);  // Fixed-point 0.16
+    int32_t raw_mult = static_cast<int32_t>(raw_scale * 65536.0);  // Fixed-point 0.16
+    
     // Weave the two fields into a frame
+    auto weave_start = std::chrono::high_resolution_clock::now();
+    int get_line_calls = 0;
     for (uint32_t y = 0; y < result.height; ++y) {
         bool is_even_line = (y % 2 == 0);
         bool use_first_field = (is_even_line == first_field_on_even_lines);
@@ -280,25 +288,39 @@ PreviewImage render_frame_preview(
         uint32_t source_y = y / 2;
         
         const uint16_t* line = representation->get_line(source_field, source_y);
+        get_line_calls++;
         if (!line) continue;
         
-        for (uint32_t x = 0; x < result.width; ++x) {
-            double sample = static_cast<double>(line[x]);
-            uint8_t gray;
-            
-            if (apply_ire_scaling) {
-                double scaled = std::max(0.0, std::min(255.0, (sample - blackIRE) * ire_scale));
-                gray = static_cast<uint8_t>(scaled);
-            } else {
-                gray = static_cast<uint8_t>(sample * raw_scale);
+        uint8_t* rgb_line = &result.rgb_data[y * result.width * 3];
+        
+        if (apply_ire_scaling) {
+            // Optimized IRE scaling using integer math
+            for (uint32_t x = 0; x < result.width; ++x) {
+                int32_t sample = static_cast<int32_t>(line[x]) - ire_black;
+                int32_t scaled = (sample * ire_mult) >> 16;  // Fixed-point multiply with 16-bit fraction
+                uint8_t gray = static_cast<uint8_t>(std::max(0, std::min(255, scaled)));
+                rgb_line[x * 3 + 0] = gray;
+                rgb_line[x * 3 + 1] = gray;
+                rgb_line[x * 3 + 2] = gray;
             }
-            
-            size_t offset = (y * result.width + x) * 3;
-            result.rgb_data[offset + 0] = gray;
-            result.rgb_data[offset + 1] = gray;
-            result.rgb_data[offset + 2] = gray;
+        } else {
+            // Optimized raw scaling using integer math
+            for (uint32_t x = 0; x < result.width; ++x) {
+                int32_t scaled = (static_cast<int32_t>(line[x]) * raw_mult) >> 16;  // Fixed-point multiply with 16-bit fraction
+                uint8_t gray = static_cast<uint8_t>(scaled);
+                rgb_line[x * 3 + 0] = gray;
+                rgb_line[x * 3 + 1] = gray;
+                rgb_line[x * 3 + 2] = gray;
+            }
         }
     }
+    auto weave_end = std::chrono::high_resolution_clock::now();
+    auto weave_ms = std::chrono::duration_cast<std::chrono::milliseconds>(weave_end - weave_start).count();
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    ORC_LOG_DEBUG("PreviewHelpers::render_frame_preview: frame {} rendered in {} ms ({}x{} px) - weave: {}ms ({} get_line calls)",
+                 frame_index, duration_ms, result.width, result.height, weave_ms, get_line_calls);
     
     return result;
 }
@@ -306,7 +328,8 @@ PreviewImage render_frame_preview(
 PreviewImage render_standard_preview(
     const std::shared_ptr<const VideoFieldRepresentation>& representation,
     const std::string& option_id,
-    uint64_t index)
+    uint64_t index,
+    PreviewNavigationHint hint)
 {
     if (!representation) {
         PreviewImage result;

@@ -52,10 +52,17 @@ ChromaSinkStage::ChromaSinkStage()
     , output_padding_(8)
     , first_active_frame_line_(-1)
     , last_active_frame_line_(-1)
+    , adaptive_preview_quality_(true)  // Enabled by default
 {
 }
 
-ChromaSinkStage::~ChromaSinkStage() = default;  // Defined in .cpp where types are complete
+ChromaSinkStage::~ChromaSinkStage() {
+    // Cancel any pending quality upgrade
+    quality_upgrade_pending_ = false;
+    if (quality_upgrade_thread_.joinable()) {
+        quality_upgrade_thread_.join();
+    }
+}
 
 NodeTypeInfo ChromaSinkStage::get_node_type_info() const
 {
@@ -191,7 +198,15 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() co
             "Last Active Frame Line",
             "Override last visible line of frame (-1 uses source default). Range: -1 to 620",
             ParameterType::INT32,
-            {-1, 620, -1, {}, false}        }
+            {-1, 620, -1, {}, false}
+        },
+        ParameterDescriptor{
+            "adaptive_preview_quality",
+            "Adaptive Preview Quality",
+            "Use fast decoder (2D) during navigation, upgrade to high quality (3D) after 250ms pause",
+            ParameterType::BOOL,
+            {{}, {}, true, {}, false}
+        }
     };
 }
 
@@ -213,6 +228,7 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["output_padding"] = output_padding_;
     params["first_active_frame_line"] = first_active_frame_line_;
     params["last_active_frame_line"] = last_active_frame_line_;
+    params["adaptive_preview_quality"] = adaptive_preview_quality_;
     return params;
 }
 
@@ -280,7 +296,12 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "last_active_frame_line") {
             if (std::holds_alternative<int32_t>(value)) {
                 last_active_frame_line_ = std::get<int32_t>(value);
-            }        }
+            }
+        } else if (key == "adaptive_preview_quality") {
+            if (std::holds_alternative<bool>(value)) {
+                adaptive_preview_quality_ = std::get<bool>(value);
+            }
+        }
     }
     
     // Parameters updated
@@ -1116,12 +1137,20 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     
     // Return the result
     if (cache_hit) {
+        // Start adaptive quality upgrade timer if enabled
+        if (adaptive_preview_quality_ && hint == PreviewNavigationHint::Sequential) {
+            schedule_quality_upgrade(index);
+        }
         return cached_result;
     }
     
     // If it was a cache miss, the decode should have populated it - check again
     for (const auto& entry : preview_cache_) {
         if (entry.frame_index == index) {
+            // Start adaptive quality upgrade timer if enabled
+            if (adaptive_preview_quality_ && hint == PreviewNavigationHint::Sequential) {
+                schedule_quality_upgrade(index);
+            }
             return entry.image;
         }
     }
@@ -1439,6 +1468,17 @@ void ChromaSinkStage::decode_preview_batch(uint64_t start_frame, uint64_t frame_
         }
     }
     
+    // Apply adaptive quality: use fast decoder for batch previews if enabled
+    std::string requestedDecoder = effectiveDecoderType;
+    if (adaptive_preview_quality_ && is_slow_decoder(effectiveDecoderType)) {
+        std::string fastDecoder = get_fast_decoder_type(effectiveDecoderType);
+        ORC_LOG_INFO("ChromaSink PREVIEW: Using FALLBACK decoder '{}' (requested: '{}') for responsive preview",
+                     fastDecoder, requestedDecoder);
+        effectiveDecoderType = fastDecoder;
+    } else {
+        ORC_LOG_INFO("ChromaSink PREVIEW: Using REQUESTED decoder '{}'", requestedDecoder);
+    }
+    
     // Create appropriate decoder
     if (effectiveDecoderType == "mono") {
         MonoDecoder::MonoConfiguration config;
@@ -1590,6 +1630,89 @@ void ChromaSinkStage::decode_preview_batch(uint64_t start_frame, uint64_t frame_
     
     ORC_LOG_INFO("ChromaSink: Batch decode complete, {} frames now in cache (total time: {} ms)", 
                  preview_cache_.size(), total_ms);
+}
+
+// Helper: Determine fast decoder type for adaptive preview
+std::string ChromaSinkStage::get_fast_decoder_type(const std::string& requested_type) const
+{
+    // Map slow 3D decoders to their fast 2D equivalents
+    if (requested_type == "transform3d") {
+        return "transform2d";
+    } else if (requested_type == "ntsc3d" || requested_type == "ntsc3dnoadapt") {
+        return "ntsc2d";
+    }
+    // Already fast or unknown - return as-is
+    return requested_type;
+}
+
+// Helper: Check if decoder is a slow 3D variant
+bool ChromaSinkStage::is_slow_decoder(const std::string& decoder_type) const
+{
+    return decoder_type == "transform3d" || 
+           decoder_type == "ntsc3d" || 
+           decoder_type == "ntsc3dnoadapt";
+}
+
+// Helper: Schedule quality upgrade after navigation stops
+void ChromaSinkStage::schedule_quality_upgrade(uint64_t frame_index) const
+{
+    // Only upgrade if using a slow decoder
+    if (!is_slow_decoder(decoder_type_)) {
+        return;
+    }
+    
+    // Cancel any pending upgrade
+    quality_upgrade_pending_ = false;
+    if (quality_upgrade_thread_.joinable()) {
+        quality_upgrade_thread_.join();
+    }
+    
+    // Record this preview request
+    last_preview_request_frame_ = frame_index;
+    last_preview_request_time_ = std::chrono::steady_clock::now();
+    
+    // Start upgrade thread
+    quality_upgrade_pending_ = true;
+    quality_upgrade_thread_ = std::thread([this, frame_index]() {
+        // Wait for the delay period
+        std::this_thread::sleep_for(std::chrono::milliseconds(QUALITY_UPGRADE_DELAY_MS));
+        
+        // Check if we should still upgrade (no new requests came in)
+        if (!quality_upgrade_pending_) {
+            return;  // Cancelled
+        }
+        
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - last_preview_request_time_).count();
+        
+        // Verify this is still the current frame and enough time has passed
+        if (last_preview_request_frame_ != frame_index || elapsed_ms < QUALITY_UPGRADE_DELAY_MS) {
+            quality_upgrade_pending_ = false;
+            return;  // User navigated away or timing issue
+        }
+        
+        ORC_LOG_DEBUG("ChromaSink: Upgrading frame {} to high quality after {}ms pause", 
+                     frame_index, elapsed_ms);
+        
+        // Clear only this frame from cache so it gets re-decoded with high quality
+        auto& cache = const_cast<std::vector<PreviewCacheEntry>&>(preview_cache_);
+        cache.erase(std::remove_if(cache.begin(), cache.end(),
+                                   [frame_index](const PreviewCacheEntry& entry) {
+                                       return entry.frame_index == frame_index;
+                                   }), cache.end());
+        
+        // Force re-decode with high quality decoder (temporarily disable adaptive mode)
+        bool original_adaptive = const_cast<ChromaSinkStage*>(this)->adaptive_preview_quality_;
+        const_cast<ChromaSinkStage*>(this)->adaptive_preview_quality_ = false;
+        
+        decode_preview_batch(frame_index, 1);
+        
+        const_cast<ChromaSinkStage*>(this)->adaptive_preview_quality_ = original_adaptive;
+        quality_upgrade_pending_ = false;
+        
+        ORC_LOG_INFO("ChromaSink PREVIEW: Quality upgrade complete - frame {} now using REQUESTED decoder", frame_index);
+    });
 }
 
 } // namespace orc

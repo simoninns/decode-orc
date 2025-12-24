@@ -24,7 +24,7 @@ TBCVideoFieldRepresentation::TBCVideoFieldRepresentation(
 ) : VideoFieldRepresentation(std::move(artifact_id), std::move(provenance)),
     tbc_reader_(std::move(tbc_reader)),
     metadata_reader_(std::move(metadata_reader)),
-    last_cached_field_(FieldID::INVALID)
+    field_data_cache_(MAX_CACHED_TBC_FIELDS)
 {
     ensure_video_parameters();
     // Metadata loaded lazily on first access
@@ -130,35 +130,34 @@ const TBCVideoFieldRepresentation::sample_type* TBCVideoFieldRepresentation::get
         return nullptr;
     }
     
-    // Check if we have this field cached
-    if (last_cached_field_ != id) {
-        // Load the entire field
+    // Check LRU cache for this field
+    auto cached_field = field_data_cache_.get(id);
+    if (!cached_field.has_value()) {
+        // Load the entire field and cache it
         try {
             auto field_data = tbc_reader_->read_field(id);
-            field_data_cache_[id] = std::move(field_data);
-            last_cached_field_ = id;
+            field_data_cache_.put(id, std::move(field_data));
+            cached_field = field_data_cache_.get(id);
+            if (!cached_field.has_value()) {
+                return nullptr;
+            }
         } catch (const std::exception&) {
             return nullptr;
         }
     }
     
     // Return pointer to requested line
-    auto it = field_data_cache_.find(id);
-    if (it == field_data_cache_.end()) {
-        return nullptr;
-    }
-    
     size_t line_length = tbc_reader_->get_line_length();
     if (line_length == 0) {
         line_length = video_params_.field_width;
     }
     
     size_t offset = line * line_length;
-    if (offset + line_length > it->second.size()) {
+    if (offset + line_length > cached_field->size()) {
         return nullptr;
     }
     
-    return &it->second[offset];
+    return &(*cached_field)[offset];
 }
 
 std::vector<TBCVideoFieldRepresentation::sample_type> 

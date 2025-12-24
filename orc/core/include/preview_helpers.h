@@ -86,12 +86,14 @@ PreviewImage render_frame_preview(
  * @param representation The video field representation
  * @param option_id The preview option identifier
  * @param index The item index (field, pair, or frame depending on option)
+ * @param hint Navigation hint for prefetching optimization
  * @return Preview image (invalid if option unknown or rendering fails)
  */
 PreviewImage render_standard_preview(
     const std::shared_ptr<const VideoFieldRepresentation>& representation,
     const std::string& option_id,
-    uint64_t index);
+    uint64_t index,
+    PreviewNavigationHint hint = PreviewNavigationHint::Random);
 
 } // namespace PreviewHelpers
 

@@ -19,6 +19,7 @@ DAGFieldRenderer::DAGFieldRenderer(std::shared_ptr<const DAG> dag)
     : dag_(std::move(dag))
     , dag_version_(1)
     , cache_enabled_(true)
+    , render_cache_(MAX_CACHED_RENDERS)
     , node_index_valid_(false)
 {
     if (!dag_) {
@@ -115,13 +116,12 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
     // Check cache
     if (cache_enabled_) {
         CacheKey key{node_id, field_id.value(), dag_version_};
-        auto it = render_cache_.find(key);
-        if (it != render_cache_.end()) {
+        auto cached_result = render_cache_.get(key);
+        if (cached_result.has_value()) {
             // Return cached result
             ORC_LOG_DEBUG("Node '{}': Returning cached result for field {}", node_id, field_id.value());
-            auto result = it->second;
-            result.from_cache = true;
-            return result;
+            cached_result->from_cache = true;
+            return *cached_result;
         }
         ORC_LOG_DEBUG("Node '{}': Cache miss, will execute DAG", node_id);
     }
@@ -132,7 +132,7 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
     // Cache the result
     if (cache_enabled_ && result.is_valid) {
         CacheKey key{node_id, field_id.value(), dag_version_};
-        render_cache_[key] = result;
+        render_cache_.put(key, result);
     }
     
     return result;

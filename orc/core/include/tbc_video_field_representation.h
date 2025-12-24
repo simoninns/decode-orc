@@ -13,6 +13,7 @@
 #include "video_field_representation.h"
 #include "tbc_reader.h"
 #include "tbc_metadata.h"
+#include "lru_cache.h"
 #include <memory>
 
 namespace orc {
@@ -90,8 +91,9 @@ private:
     const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
     
     // Line data cache (for get_line calls)
-    mutable std::map<FieldID, std::vector<sample_type>> field_data_cache_;
-    mutable FieldID last_cached_field_;
+    // Cache size: 500 fields × ~1.4MB/field = ~700MB max for preview navigation
+    mutable LRUCache<FieldID, std::vector<sample_type>> field_data_cache_;
+    static constexpr size_t MAX_CACHED_TBC_FIELDS = 500;
     
     void ensure_video_parameters();
     void ensure_field_metadata();

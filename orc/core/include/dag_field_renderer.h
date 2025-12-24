@@ -13,10 +13,12 @@
 #include "dag_executor.h"
 #include "video_field_representation.h"
 #include "field_id.h"
+#include "lru_cache.h"
 #include <memory>
 #include <string>
 #include <optional>
 #include <stdexcept>
+#include <functional>
 
 namespace orc {
 
@@ -218,15 +220,27 @@ private:
         uint64_t field_id_value;
         uint64_t dag_version;
         
-        bool operator<(const CacheKey& other) const {
-            if (dag_version != other.dag_version) return dag_version < other.dag_version;
-            if (node_id != other.node_id) return node_id < other.node_id;
-            return field_id_value < other.field_id_value;
+        bool operator==(const CacheKey& other) const {
+            return dag_version == other.dag_version &&
+                   node_id == other.node_id &&
+                   field_id_value == other.field_id_value;
         }
     };
     
-    /// Render result cache
-    std::map<CacheKey, FieldRenderResult> render_cache_;
+    /// Hash function for CacheKey
+    struct CacheKeyHash {
+        std::size_t operator()(const CacheKey& key) const {
+            std::size_t h1 = std::hash<std::string>{}(key.node_id);
+            std::size_t h2 = std::hash<uint64_t>{}(key.field_id_value);
+            std::size_t h3 = std::hash<uint64_t>{}(key.dag_version);
+            return h1 ^ (h2 << 1) ^ (h3 << 2);
+        }
+    };
+    
+    /// Render result cache (LRU, max 1000 entries)
+    /// Each entry is ~8KB (mostly pointers), so 1000 entries ≈ 8MB
+    static constexpr size_t MAX_CACHED_RENDERS = 1000;
+    LRUCache<CacheKey, FieldRenderResult, CacheKeyHash> render_cache_;
     
     /// Node index for fast lookup
     mutable std::map<std::string, size_t> node_index_;

@@ -86,38 +86,68 @@ CorrectedVideoFieldRepresentation::CorrectedVideoFieldRepresentation(
     DropoutCorrectStage* stage,
     bool highlight_corrections)
     : VideoFieldRepresentationWrapper(source, ArtifactID("corrected_field"), Provenance{})
-    , stage_(stage), highlight_corrections_(highlight_corrections)
+    , stage_(stage)
+    , highlight_corrections_(highlight_corrections)
+    , corrected_fields_(MAX_CACHED_FIELDS)  // Initialize LRU cache with max size
 {
 }
 
 void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id) const {
-    // Check if already processed
-    if (processed_fields_.count(field_id)) {
+    // Check if field data is in cache - if so, nothing to do
+    // The LRU cache handles access tracking automatically
+    if (corrected_fields_.contains(field_id)) {
         return;
     }
     
-    ORC_LOG_DEBUG("CorrectedVideoFieldRepresentation: processing field {}", field_id.value());
+    ORC_LOG_DEBUG("CorrectedVideoFieldRepresentation: processing field {} (NOT in cache)", field_id.value());
     
-    // Mark as processed
-    processed_fields_.insert(field_id);
+    // OPTIMIZATION: Pre-process neighboring fields to avoid cascading lazy evaluation
+    // When we process a field, we'll likely need data from neighbors for dropout correction
+    // Processing them now avoids deep recursion later
+    int64_t start_field = std::max<int64_t>(0, static_cast<int64_t>(field_id.value()) - 15);
+    int64_t end_field = field_id.value() + 15;
     
-    // Correct this field
-    stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, field_id);
+    ORC_LOG_DEBUG("  -> Will process batch: fields {} to {}", start_field, end_field);
+    
+    int newly_processed = 0;
+    for (int64_t fid = start_field; fid <= end_field; ++fid) {
+        FieldID neighbor(static_cast<uint64_t>(fid));
+        
+        // Skip if already in cache
+        if (corrected_fields_.contains(neighbor)) {
+            continue;
+        }
+        
+        // Check if this field exists in source
+        if (!source_->has_field(neighbor)) {
+            continue;
+        }
+        
+        newly_processed++;
+        
+        // Correct this field (will add to cache)
+        stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, neighbor);
+    }
+    
+    ORC_LOG_DEBUG("  -> Batch complete: {} new fields processed (cache now has {} fields)", 
+                  newly_processed, corrected_fields_.size());
 }
 
 const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {
-    // Ensure this field has been corrected
+    // Ensure this field has been corrected (lazy processing + batch prefetch)
     ensure_field_corrected(id);
     
-    // Check if we have a corrected version of this line
-    auto key = std::make_pair(id, static_cast<uint32_t>(line));
-    auto it = corrected_lines_.find(key);
-    
-    if (it != corrected_lines_.end()) {
-        return it->second.data();
+    // Check if we have a corrected version of this field in LRU cache
+    auto cached_field = corrected_fields_.get(id);
+    if (cached_field.has_value()) {
+        // Return pointer to line within the cached corrected field data
+        auto descriptor = source_->get_descriptor(id);
+        if (descriptor && line < descriptor->height) {
+            return &(*cached_field)[line * descriptor->width];
+        }
     }
     
-    // Return original line
+    // Return original line (no corrections for this field, or cache miss)
     return source_->get_line(id, line);
 }
 
@@ -408,9 +438,23 @@ void DropoutCorrectStage::correct_single_field(
     ORC_LOG_DEBUG("DropoutCorrectStage: field {} has {} dropout hints", 
                   field_id.value(), dropouts.size());
     
+    // ALWAYS cache fields to avoid expensive source->get_line() calls during preview
+    // Even fields with no dropouts benefit from caching because source lookups
+    // can be very slow in deep DAG chains (370us per line!)
+    
+    // Initialize field data - EAGERLY copy ALL source lines
+    std::vector<uint16_t> field_data;
+    field_data.reserve(descriptor.width * descriptor.height);
+    for (uint32_t line = 0; line < descriptor.height; ++line) {
+        const uint16_t* line_data = source->get_line(field_id, line);
+        field_data.insert(field_data.end(), line_data, line_data + descriptor.width);
+    }
+    
     if (dropouts.empty()) {
-        ORC_LOG_DEBUG("DropoutCorrectStage: field {} has no dropouts to correct", field_id.value());
-        return;  // No dropouts to correct
+        ORC_LOG_DEBUG("DropoutCorrectStage: field {} has no dropouts - caching original data", field_id.value());
+        // Store the uncorrected field data in LRU cache for fast access
+        corrected->corrected_fields_.put(field_id, std::move(field_data));
+        return;
     }
     
     // Log first few dropouts for debugging
@@ -445,18 +489,8 @@ void DropoutCorrectStage::correct_single_field(
     // Process each dropout
     size_t corrections_applied = 0;
     for (const auto& dropout : split_dropouts) {
-        // Get current line data (either already corrected or original)
-        auto line_key = std::make_pair(field_id, dropout.line);
-        std::vector<uint16_t> line_data;
-        
-        if (corrected->corrected_lines_.count(line_key)) {
-            // Use the already-corrected version
-            line_data = corrected->corrected_lines_[line_key];
-        } else {
-            // Get original line data
-            const uint16_t* original_data = source->get_line(field_id, dropout.line);
-            line_data.assign(original_data, original_data + descriptor.width);
-        }
+        // Get pointer to the line within field_data
+        uint16_t* line_data = &field_data[dropout.line * descriptor.width];
         
         // Find replacement line
         bool use_intrafield = config_.intrafield_only;
@@ -468,26 +502,35 @@ void DropoutCorrectStage::correct_single_field(
         }
         
         if (replacement.found) {
-            // Apply the correction
+            // Apply the correction directly to field_data
             const uint16_t* replacement_data = source->get_line(replacement.source_field, replacement.source_line);
-            apply_correction(line_data, dropout, replacement_data, corrected->highlight_corrections_);
+            
+            // Copy samples from replacement line to field data
+            for (uint32_t sample = dropout.start_sample; sample <= dropout.end_sample && sample < descriptor.width; ++sample) {
+                if (corrected->highlight_corrections_) {
+                    line_data[sample] = 65535;  // Highlight correction
+                } else {
+                    line_data[sample] = replacement_data[sample];
+                }
+            }
             corrections_applied++;
             
-            ORC_LOG_DEBUG("  Applied correction to line {} samples {}-{} from field {} line {} (quality={:.2f}, highlight={})",
+            ORC_LOG_DEBUG("  Applied correction to line {} samples {}-{} from field {} line {} (quality={:.2f})",
                           dropout.line, dropout.start_sample, dropout.end_sample,
                           replacement.source_field.value(), replacement.source_line,
-                          replacement.quality, corrected->highlight_corrections_);
-            
-            // Store corrected line
-            corrected->corrected_lines_[std::make_pair(field_id, dropout.line)] = line_data;
+                          replacement.quality);
         } else {
             ORC_LOG_DEBUG("  No replacement found for line {} samples {}-{}",
                           dropout.line, dropout.start_sample, dropout.end_sample);
         }
     }
     
-    ORC_LOG_DEBUG("DropoutCorrectStage: field {} complete - applied {} corrections out of {} regions",
-                  field_id.value(), corrections_applied, split_dropouts.size());
+    // Store the corrected field in LRU cache
+    // LRUCache automatically handles eviction when size exceeds max
+    corrected->corrected_fields_.put(field_id, std::move(field_data));
+    
+    ORC_LOG_DEBUG("DropoutCorrectStage: field {} complete - applied {} corrections out of {} regions (cache: {} fields)",
+                  field_id.value(), corrections_applied, split_dropouts.size(), corrected->corrected_fields_.size());
 }
 
 // Parameter interface implementation
@@ -658,7 +701,13 @@ std::vector<PreviewOption> DropoutCorrectStage::get_preview_options() const
 PreviewImage DropoutCorrectStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint) const
 {
-    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto result = PreviewHelpers::render_standard_preview(cached_output_, option_id, index, hint);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    ORC_LOG_INFO("DropoutCorrect PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
+                 option_id, index, duration_ms, hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
+    return result;
 }
 
 } // namespace orc

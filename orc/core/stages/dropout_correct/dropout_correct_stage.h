@@ -15,13 +15,23 @@
 #include "stage_parameter.h"
 #include "dag_executor.h"
 #include "previewable_stage.h"
+#include "lru_cache.h"
 #include <memory>
 #include <vector>
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 #include <set>
 
 namespace orc {
+
+// Hash function for std::pair<FieldID, uint32_t> to use in unordered_map
+struct FieldLineHash {
+    std::size_t operator()(const std::pair<FieldID, uint32_t>& key) const {
+        // Combine field ID and line number into a single hash
+        return std::hash<uint64_t>{}(key.first.value()) ^ (std::hash<uint32_t>{}(key.second) << 1);
+    }
+};
 
 // Forward declarations
 class DropoutCorrectStage;
@@ -86,11 +96,12 @@ private:
     DropoutCorrectStage* stage_;  // Non-owning pointer to stage for lazy correction
     bool highlight_corrections_;
     
-    // Corrected line data (sparse - only lines with corrections)
-    mutable std::map<std::pair<FieldID, uint32_t>, std::vector<uint16_t>> corrected_lines_;
-    
-    // Cache of processed fields to avoid reprocessing
-    mutable std::set<FieldID> processed_fields_;
+    // Corrected field data - LRU cache of whole fields for fast access
+    // Cache size: 300 fields × ~1.4MB/field = ~420MB max
+    // For 200,000 field videos, this caches ~0.15% of total, focused on preview navigation area
+    // Cache also serves as the "processed" indicator - if field is in cache, it's been processed
+    mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_fields_;
+    static constexpr size_t MAX_CACHED_FIELDS = 300;
     
     // Ensure field is corrected (lazy)
     void ensure_field_corrected(FieldID field_id) const;

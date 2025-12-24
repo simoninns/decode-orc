@@ -595,6 +595,12 @@ std::vector<PreviewOption> StackerStage::get_preview_options() const
 PreviewImage StackerStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint) const
 {
-    return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto result = PreviewHelpers::render_standard_preview(cached_output_, option_id, index, hint);
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    ORC_LOG_INFO("Stacker PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
+                 option_id, index, duration_ms, hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
+    return result;
 }
 } // namespace orc

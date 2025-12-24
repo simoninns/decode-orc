@@ -20,6 +20,9 @@
 #include "preview_renderer.h"  // For PreviewImage definition
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
 
+#include <atomic>
+#include <thread>
+
 // Forward declarations for decoder classes
 class SourceField;
 class Decoder;
@@ -114,6 +117,13 @@ private:
     static constexpr size_t PREVIEW_BATCH_SIZE = 100;  // Decode 100 frames at once
     static constexpr size_t PREVIEW_PREFETCH_THRESHOLD = 50;  // Re-fill when less than 50 frames remain
     
+    // Adaptive quality upgrade state
+    mutable uint64_t last_preview_request_frame_ = UINT64_MAX;
+    mutable std::chrono::steady_clock::time_point last_preview_request_time_;
+    mutable std::atomic<bool> quality_upgrade_pending_{false};
+    mutable std::thread quality_upgrade_thread_;
+    static constexpr int QUALITY_UPGRADE_DELAY_MS = 250;  // Wait 250ms before upgrading
+    
     // Cached decoder for preview (avoid recreating expensive FFTW plans)
     struct PreviewDecoderCache {
         std::string decoder_type;
@@ -140,6 +150,15 @@ private:
     // Helper: Decode a batch of frames for preview
     void decode_preview_batch(uint64_t start_frame, uint64_t frame_count) const;
     
+    // Helper: Schedule quality upgrade after navigation stops
+    void schedule_quality_upgrade(uint64_t frame_index) const;
+    
+    // Helper: Determine fast decoder type for adaptive preview
+    std::string get_fast_decoder_type(const std::string& requested_type) const;
+    
+    // Helper: Check if decoder is a slow 3D variant
+    bool is_slow_decoder(const std::string& decoder_type) const;
+    
     // Helper for preview: decode a pair of fields to RGB
     std::shared_ptr<VideoFieldRepresentation> decode_field_pair_to_rgb(
         FieldID field_a,
@@ -161,6 +180,7 @@ private:
     int output_padding_;
     int first_active_frame_line_;  // -1 means use source default
     int last_active_frame_line_;   // -1 means use source default
+    bool adaptive_preview_quality_;  // Use fast decoder during navigation, upgrade after delay
     
     // Status tracking
     std::string trigger_status_;

@@ -115,16 +115,17 @@ private:
         double chroma_nr;
         bool ntsc_phase_comp;
         bool simple_pal;
+        bool blackandwhite;
         
         std::unique_ptr<MonoDecoder> mono_decoder;
         std::unique_ptr<PalColour> pal_decoder;
         std::unique_ptr<Comb> ntsc_decoder;
         
         bool matches_config(const std::string& dec_type, double cg, double cp, 
-                           double ln, double cn, bool npc, bool sp) const {
+                           double ln, double cn, bool npc, bool sp, bool bw) const {
             return decoder_type == dec_type && chroma_gain == cg && 
                    chroma_phase == cp && luma_nr == ln && chroma_nr == cn &&
-                   ntsc_phase_comp == npc && simple_pal == sp;
+                   ntsc_phase_comp == npc && simple_pal == sp && blackandwhite == bw;
         }
     };
     mutable PreviewDecoderCache preview_decoder_cache_;
@@ -142,6 +143,7 @@ private:
     double chroma_nr_;
     bool ntsc_phase_comp_;
     bool simple_pal_;
+    bool blackandwhite_;  // Filter out chroma subcarrier for monochrome output (ld-chroma-decoder -b mode)
     int output_padding_;
     int first_active_frame_line_;  // -1 means use source default
     int last_active_frame_line_;   // -1 means use source default

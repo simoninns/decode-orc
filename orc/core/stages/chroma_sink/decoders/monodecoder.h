@@ -29,6 +29,7 @@ public:
 
 	struct MonoConfiguration {
 		double yNRLevel = 0.0;
+		bool filterChroma = false;  // If true, use comb filter to remove chroma subcarrier (ld-chroma-decoder -b mode)
 		::orc::VideoParameters videoParameters;
 	};
 	MonoDecoder();
@@ -36,7 +37,7 @@ public:
 	bool updateConfiguration(const ::orc::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
 	bool configure(const ::orc::VideoParameters &videoParameters) override;
 
-	/// Decode luma-only frames (no filtering)
+	/// Decode luma-only frames (optionally filtering out chroma)
 	void decodeFrames(const std::vector<SourceField>& inputFields,
                     int32_t startIndex,
                     int32_t endIndex,
@@ -45,6 +46,7 @@ public:
 
 private:
     MonoConfiguration monoConfig;
+    std::unique_ptr<Comb> combFilter;  // Used when filterChroma is true
 };
 
 #endif // MONODECODER

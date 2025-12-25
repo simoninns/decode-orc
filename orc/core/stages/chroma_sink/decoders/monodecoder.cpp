@@ -24,12 +24,41 @@ MonoDecoder::MonoDecoder()
 MonoDecoder::MonoDecoder(const MonoDecoder::MonoConfiguration &config)
 {
     monoConfig = config;
+    
+    // Initialize comb filter if filterChroma is enabled
+    if (monoConfig.filterChroma) {
+        Comb::Configuration combConfig;
+        combConfig.dimensions = 2;  // Use 2D comb filter
+        combConfig.yNRLevel = 0.0;  // YNR handled separately in doYNR
+        combConfig.cNRLevel = 0.0;  // No chroma NR needed for mono
+        combConfig.chromaGain = 1.0;
+        combConfig.chromaPhase = 0.0;
+        combConfig.phaseCompensation = false;
+        combConfig.showMap = false;
+        combFilter = std::make_unique<Comb>();
+        combFilter->updateConfiguration(monoConfig.videoParameters, combConfig);
+    }
 }
 
 bool MonoDecoder::updateConfiguration(const ::orc::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration) {
     // This decoder works for both PAL and NTSC.
 	monoConfig.yNRLevel = configuration.yNRLevel;
+	monoConfig.filterChroma = configuration.filterChroma;
     monoConfig.videoParameters = videoParameters;
+
+    // Create comb filter if needed
+    if (monoConfig.filterChroma && !combFilter) {
+        Comb::Configuration combConfig;
+        combConfig.dimensions = 2;  // Use 2D comb filter
+        combConfig.yNRLevel = 0.0;  // YNR handled separately in doYNR
+        combConfig.cNRLevel = 0.0;  // No chroma NR needed for mono
+        combConfig.chromaGain = 1.0;
+        combConfig.chromaPhase = 0.0;
+        combConfig.phaseCompensation = false;
+        combConfig.showMap = false;
+        combFilter = std::make_unique<Comb>();
+        combFilter->updateConfiguration(videoParameters, combConfig);
+    }
 
     return true;
 }
@@ -48,23 +77,43 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
                                std::vector<ComponentFrame>& componentFrames)
 {
 	const ::orc::VideoParameters &videoParameters = monoConfig.videoParameters;
-	bool ignoreUV = false;
 	
-	
-	for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
-		componentFrames[frameIndex].init(videoParameters, ignoreUV);
-		for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
-			const std::vector<uint16_t> &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
-			const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
-
-			// Copy the whole composite signal to Y (leaving U and V blank)
-			double *outY = componentFrames[frameIndex].y(y);
-			for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
-				outY[x] = inputLine[x];
+	if (monoConfig.filterChroma && combFilter) {
+		// Use comb filter to separate and remove chroma, like ld-chroma-decoder -b
+		// This provides clean luma by filtering out the color subcarrier
+		combFilter->decodeFrames(inputFields, startIndex, endIndex, componentFrames);
+		
+		// The comb decoder outputs Y, U, V - we only want Y for monochrome
+		// Zero out the U and V channels
+		for (size_t frameIndex = 0; frameIndex < componentFrames.size(); frameIndex++) {
+			for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
+				double *outU = componentFrames[frameIndex].u(y);
+				double *outV = componentFrames[frameIndex].v(y);
+				for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
+					outU[x] = 0.0;
+					outV[x] = 0.0;
+				}
 			}
 		}
-		doYNR(componentFrames[frameIndex]);
-    }
+	} else {
+		// Simple mode: just copy composite signal to Y (includes chroma subcarrier)
+		bool ignoreUV = false;
+		
+		for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
+			componentFrames[frameIndex].init(videoParameters, ignoreUV);
+			for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
+				const std::vector<uint16_t> &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
+				const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
+
+				// Copy the whole composite signal to Y (leaving U and V blank)
+				double *outY = componentFrames[frameIndex].y(y);
+				for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
+					outY[x] = inputLine[x];
+				}
+			}
+			doYNR(componentFrames[frameIndex]);
+		}
+	}
 }
 
 void MonoDecoder::doYNR(ComponentFrame &componentFrame) {

@@ -458,6 +458,7 @@ Nodes in the DAG are classified by connectivity pattern:
 **Current Implemented Stages**:
 - `Source` (SOURCE): TBC input - auto-created by core, not user-creatable
 - `DropoutCorrect` (TRANSFORM): Dropout correction - 1 input, 1 output
+- `FieldInvert` (TRANSFORM): Field order inversion - 1 input, 1 output
 - `Splitter` (SPLITTER): Fanout stage - 1 input, 2-8 outputs (configurable)
 
 **GUI Integration**:

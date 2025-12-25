@@ -194,7 +194,6 @@ To fully complete the Stacker stage:
 
 - Legacy tool: `legacy-tools/ld-disc-stacker/`
 - Design docs: `docs/DESIGN.md`, `docs/DAG-FIELD-RENDERING.md`
-- Related stages: `orc/core/stages/passthrough_merger/`
 - Video field format: `orc/core/include/video_field_representation.h`
 - Dropout system: `orc/core/include/dropout_decision.h`
 

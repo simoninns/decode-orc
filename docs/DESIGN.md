@@ -443,7 +443,7 @@ Nodes in the DAG are classified by connectivity pattern:
 **Node Types** (defined in `orc-core`):
 - **SOURCE**: No inputs, produces outputs (e.g., Source nodes for TBC input)
 - **SINK**: Consumes inputs, no outputs (e.g., export to file)
-- **TRANSFORM**: One input, one output (e.g., DropoutCorrect, Passthrough)
+- **TRANSFORM**: One input, one output (e.g., DropoutCorrect)
 - **SPLITTER**: One input, multiple outputs (e.g., fanout for parallel processing)
 - **MERGER**: Multiple inputs, one output (e.g., stacking, blending)
 - **COMPLEX**: Multiple inputs, multiple outputs (e.g., advanced processing)
@@ -457,11 +457,8 @@ Nodes in the DAG are classified by connectivity pattern:
 
 **Current Implemented Stages**:
 - `Source` (SOURCE): TBC input - auto-created by core, not user-creatable
-- `Passthrough` (TRANSFORM): No-op for testing - 1 input, 1 output
 - `DropoutCorrect` (TRANSFORM): Dropout correction - 1 input, 1 output
-- `PassthroughSplitter` (SPLITTER): Test fanout - 1 input, 3 outputs
-- `PassthroughMerger` (MERGER): Test merge - 2-8 inputs, 1 output
-- `PassthroughComplex` (COMPLEX): Test multi-path - 2-4 inputs, 2-4 outputs
+- `Splitter` (SPLITTER): Fanout stage - 1 input, 2-8 outputs (configurable)
 
 **GUI Integration**:
 - GUI queries `orc::get_node_type_info()` to determine rendering

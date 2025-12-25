@@ -1,7 +1,7 @@
 /*
- * File:        passthrough_splitter_stage.h
+ * File:        splitter_stage.h
  * Module:      orc-core
- * Purpose:     Passthrough splitter stage
+ * Purpose:     Splitter stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
@@ -18,30 +18,31 @@
 namespace orc {
 
 /**
- * @brief Passthrough splitter stage - duplicates input to multiple outputs
+ * @brief Splitter stage - duplicates input to multiple outputs
  * 
- * This is a test stage that demonstrates SPLITTER node type (1 input, N outputs).
+ * This stage demonstrates SPLITTER node type (1 input, N outputs).
  * It returns the same input field representation as multiple outputs.
  * 
  * Use cases:
+ * - Connecting input to multiple sink types in a DAG chain
  * - GUI testing of splitter node rendering
  * - Testing parallel processing paths in DAG
  * - Demonstrating fanout patterns
  */
-class PassthroughSplitterStage : public DAGStage, public ParameterizedStage {
+class SplitterStage : public DAGStage, public ParameterizedStage {
 public:
-    PassthroughSplitterStage() = default;
+    SplitterStage();
     
     // DAGStage interface
     std::string version() const override { return "1.0"; }    
     NodeTypeInfo get_node_type_info() const override {
         return NodeTypeInfo{
             NodeType::SPLITTER,
-            "passthrough_splitter",
-            "Pass-through Splitter",
-            "Duplicate input to multiple outputs (test stage for fanout patterns)",
+            "splitter",
+            "Splitter",
+            "Duplicate input to multiple outputs for parallel processing",
             1, 1,  // Exactly one input
-            3, 3   // Exactly three outputs
+            2, 8   // 2 to 8 outputs
         };
     }    
     std::vector<ArtifactPtr> execute(
@@ -49,7 +50,7 @@ public:
         const std::map<std::string, ParameterValue>& parameters) override;
     
     size_t required_input_count() const override { return 1; }
-    size_t output_count() const override { return 3; }  // Fixed at 3 outputs
+    size_t output_count() const override { return num_outputs_; }
     
     /**
      * @brief Process a field (returns input duplicated to multiple outputs)
@@ -64,6 +65,9 @@ public:
     std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+
+private:
+    size_t num_outputs_ = 2;  // Default to 2 outputs
 };
 
 } // namespace orc

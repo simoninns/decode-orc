@@ -56,7 +56,7 @@ std::vector<std::string> StageRegistry::get_registered_stages() const {
 }
 
 std::string StageRegistry::get_default_transform_stage() {
-    return "passthrough";
+    return "dropout_correct";
 }
 
 void StageRegistry::clear() {

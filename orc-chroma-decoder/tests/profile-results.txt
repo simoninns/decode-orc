@@ -1,8 +1,0 @@
-ORC Chroma Decoder Performance Profile
-=======================================
-Date: Wed 24 Dec 14:10:32 CET 2025
-Decoder: /home/sdi/Coding/github/decode-orc/orc-chroma-decoder/build/bin/orc-chroma-decoder
-Frames per test: 100
-
-[1;33m=== PAL Decoders ===[0m
-

@@ -255,6 +255,19 @@ std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors() cons
                 {},  // no allowed strings
                 false  // not required
             }
+        },
+        ParameterDescriptor{
+            "seed",
+            "Random Seed",
+            "Random seed used to generate field corruption pattern (for reproducibility)",
+            ParameterType::INT32,
+            ParameterConstraints{
+                std::nullopt,  // no min
+                std::nullopt,  // no max
+                ParameterValue{int32_t(0)},  // default: 0 (not set)
+                {},  // no allowed strings
+                false  // not required
+            }
         }
     };
 }
@@ -262,7 +275,8 @@ std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors() cons
 std::map<std::string, ParameterValue> FieldMapStage::get_parameters() const
 {
     return {
-        {"ranges", ParameterValue{range_spec_}}
+        {"ranges", ParameterValue{range_spec_}},
+        {"seed", ParameterValue{seed_}}
     };
 }
 
@@ -285,6 +299,12 @@ bool FieldMapStage::set_parameters(const std::map<std::string, ParameterValue>& 
                 } else {
                     cached_ranges_.clear();
                 }
+            } else {
+                return false;
+            }
+        } else if (key == "seed") {
+            if (auto* int_val = std::get_if<int32_t>(&value)) {
+                seed_ = *int_val;
             } else {
                 return false;
             }

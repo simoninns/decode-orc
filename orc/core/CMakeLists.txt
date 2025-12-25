@@ -44,6 +44,10 @@ add_library(orc-core STATIC
     analysis/field_mapping/field_mapping_analyzer.cpp
     analysis/field_mapping/field_mapping_analysis.cpp
     
+    # Field corruption analysis (testing tool)
+    analysis/field_corruption/field_corruption_analyzer.cpp
+    analysis/field_corruption/field_corruption_analysis.cpp
+    
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp

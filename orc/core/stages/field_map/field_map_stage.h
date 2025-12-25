@@ -90,6 +90,7 @@ private:
     
     // Current parameters
     std::string range_spec_;
+    int32_t seed_ = 0;
     
     // Cached parsed ranges (updated when range_spec_ changes)
     std::vector<std::pair<uint64_t, uint64_t>> cached_ranges_;

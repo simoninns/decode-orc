@@ -47,6 +47,16 @@ public:
     virtual std::vector<ParameterDescriptor> parameters() const = 0;
 
     /**
+     * @brief Get parameter definitions for this tool with context
+     * @param ctx Analysis context (can be used to show/hide parameters)
+     * @return Parameter descriptors (default: calls parameters())
+     */
+    virtual std::vector<ParameterDescriptor> parametersForContext(const AnalysisContext& ctx) const {
+        (void)ctx;
+        return parameters();
+    }
+
+    /**
      * @brief Check if this tool can analyze the given source type
      */
     virtual bool canAnalyze(AnalysisSourceType source_type) const = 0;

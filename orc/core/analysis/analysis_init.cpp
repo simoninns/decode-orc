@@ -8,6 +8,7 @@
  */
 
 #include "field_mapping/field_mapping_analysis.h"
+#include "field_corruption/field_corruption_analysis.h"
 #include "logging.h"
 #include <memory>
 
@@ -25,6 +26,7 @@ void force_analysis_tool_linking() {
     // Create dummy instances to force vtable instantiation
     // This ensures the object files are linked and static initializers run
     [[maybe_unused]] auto dummy1 = std::make_unique<FieldMappingAnalysisTool>();
+    [[maybe_unused]] auto dummy2 = std::make_unique<FieldCorruptionAnalysisTool>();
     ORC_LOG_DEBUG("Analysis tool linking complete");
 }
 

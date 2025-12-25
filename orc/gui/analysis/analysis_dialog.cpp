@@ -6,6 +6,7 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QTextStream>
+#include <QComboBox>
 
 namespace orc {
 namespace gui {
@@ -80,7 +81,7 @@ void AnalysisDialog::setupUI() {
 }
 
 void AnalysisDialog::populateParameters() {
-    for (const auto& param : tool_->parameters()) {
+    for (const auto& param : tool_->parametersForContext(context_)) {
         QWidget* widget = createParameterWidget(param);
         parametersLayout_->addRow(QString::fromStdString(param.name), widget);
         
@@ -122,7 +123,25 @@ QWidget* AnalysisDialog::createParameterWidget(const ParameterDescriptor& param)
             }
             return spin;
         }
-        case ParameterType::STRING:
+        case ParameterType::STRING: {
+            // Check if we have allowed_strings - if so, use combo box
+            if (!param.constraints.allowed_strings.empty()) {
+                auto* combo = new QComboBox();
+                for (const auto& allowed : param.constraints.allowed_strings) {
+                    combo->addItem(QString::fromStdString(allowed));
+                }
+                if (param.constraints.default_value && std::holds_alternative<std::string>(*param.constraints.default_value)) {
+                    combo->setCurrentText(QString::fromStdString(std::get<std::string>(*param.constraints.default_value)));
+                }
+                return combo;
+            } else {
+                auto* edit = new QLineEdit();
+                if (param.constraints.default_value && std::holds_alternative<std::string>(*param.constraints.default_value)) {
+                    edit->setText(QString::fromStdString(std::get<std::string>(*param.constraints.default_value)));
+                }
+                return edit;
+            }
+        }
         default: {
             auto* edit = new QLineEdit();
             if (param.constraints.default_value && std::holds_alternative<std::string>(*param.constraints.default_value)) {
@@ -155,8 +174,15 @@ void AnalysisDialog::collectParameters() {
                 break;
             }
             case ParameterType::STRING: {
-                auto* edit = qobject_cast<QLineEdit*>(pw.widget);
-                if (edit) context_.parameters[name] = edit->text().toStdString();
+                // Try combo box first (for allowed_strings)
+                auto* combo = qobject_cast<QComboBox*>(pw.widget);
+                if (combo) {
+                    context_.parameters[name] = combo->currentText().toStdString();
+                } else {
+                    // Fall back to line edit
+                    auto* edit = qobject_cast<QLineEdit*>(pw.widget);
+                    if (edit) context_.parameters[name] = edit->text().toStdString();
+                }
                 break;
             }
             default:

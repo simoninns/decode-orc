@@ -252,9 +252,17 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
     ORC_LOG_DEBUG("Node '{}': Executing stage '{}'", node.node_id, node.stage->get_node_type_info().stage_name);
     auto outputs = node.stage->execute(inputs, node.parameters);
     
-    if (outputs.empty()) {
+    // Sink stages are allowed to return empty outputs (they consume inputs without producing outputs)
+    bool is_sink = (node.stage->get_node_type_info().type == NodeType::SINK);
+    
+    if (outputs.empty() && !is_sink) {
         ORC_LOG_ERROR("Node '{}': Stage '{}' produced no outputs", node.node_id, node.stage->get_node_type_info().stage_name);
         throw DAGExecutionError("Stage '" + node.stage->get_node_type_info().stage_name + "' produced no outputs");
+    }
+    
+    if (outputs.empty() && is_sink) {
+        ORC_LOG_DEBUG("Node '{}': Sink stage executed (no outputs expected)", node.node_id);
+        return nullptr;  // Sink stages don't produce artifacts
     }
     
     // Cache result
@@ -365,7 +373,13 @@ std::map<std::string, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
         
         // Execute or retrieve from cache
         auto outputs = get_cached_or_execute(node, inputs);
-        node_outputs[node_id] = {outputs};
+        
+        // Sink stages return nullptr (no outputs)
+        if (outputs) {
+            node_outputs[node_id] = {outputs};
+        } else {
+            node_outputs[node_id] = {};  // Empty vector for sink nodes
+        }
     }
     
     return node_outputs;

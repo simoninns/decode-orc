@@ -15,6 +15,7 @@
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
 #include "analysis/analysis_dialog.h"
+#include "analysis/vectorscope_dialog.h"
 #include "orcgraphicsview.h"
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
@@ -22,6 +23,7 @@
 #include "../core/include/stage_registry.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/project_to_dag.h"
+#include "../core/stages/chroma_sink/chroma_sink_stage.h"
 #include "../core/analysis/analysis_registry.h"
 #include "../core/analysis/analysis_context.h"
 
@@ -103,6 +105,29 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+    // Explicitly disconnect and delete DAG scene/model/view to avoid Qt teardown assertions
+    if (dag_scene_) {
+        dag_scene_->disconnect();
+        delete dag_scene_;
+        dag_scene_ = nullptr;
+    }
+    if (dag_model_) {
+        delete dag_model_;
+        dag_model_ = nullptr;
+    }
+    if (dag_view_) {
+        delete dag_view_;
+        dag_view_ = nullptr;
+    }
+    
+    if (vbi_dialog_) {
+        delete vbi_dialog_;
+        vbi_dialog_ = nullptr;
+    }
+    if (preview_dialog_) {
+        delete preview_dialog_;
+        preview_dialog_ = nullptr;
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event)
@@ -163,7 +188,7 @@ void MainWindow::setupUI()
             this, &MainWindow::onAspectRatioModeChanged);
     connect(preview_dialog_, &PreviewDialog::exportPNGRequested,
             this, &MainWindow::onExportPNG);
-    connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
+        connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
             this, &MainWindow::onShowVBIDialog);
     
     // Create QtNodes DAG editor
@@ -1161,6 +1186,7 @@ void MainWindow::updatePreview()
     
     if (result.success) {
         preview_dialog_->previewWidget()->setImage(result.image);
+        updateVectorscope(current_view_node_id_, result.image);
     } else {
         // Rendering failed - show in status bar
         preview_dialog_->previewWidget()->clearImage();
@@ -1171,6 +1197,37 @@ void MainWindow::updatePreview()
             5000
         );
     }
+    
+    // Also update vectorscope dialogs for other nodes (not the current view node)
+    for (const auto& [vs_node_id, vs_dialog] : vectorscope_dialogs_) {
+        if (vs_node_id == current_view_node_id_) continue;  // Already updated above
+        if (!vs_dialog || !vs_dialog->isVisible()) continue;
+        
+        // Render this node's preview for the vectorscope
+        auto vs_result = preview_renderer_->render_output(vs_node_id, orc::PreviewOutputType::Frame, current_index, "frame", hint);
+        if (vs_result.success) {
+            updateVectorscope(vs_node_id, vs_result.image);
+        }
+    }
+}
+
+void MainWindow::updateVectorscope(const std::string& node_id, const orc::PreviewImage& image)
+{
+    auto it = vectorscope_dialogs_.find(node_id);
+    if (it == vectorscope_dialogs_.end()) return;
+    auto* dialog = it->second;
+    if (!dialog || !dialog->isVisible()) return;
+    if (!image.vectorscope_data.has_value()) return;
+
+    uint64_t field_number = 0;
+    if (current_output_type_ == orc::PreviewOutputType::Frame ||
+        current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+        current_output_type_ == orc::PreviewOutputType::Split) {
+        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value()) * 2 + 1;
+    } else {
+        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value()) + 1;
+    }
+    dialog->updateForField(field_number, &*image.vectorscope_data);
 }
 
 void MainWindow::updatePreviewModeCombo()
@@ -1548,6 +1605,64 @@ void MainWindow::onInspectStage(const std::string& node_id)
 void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& node_id, const std::string& stage_name)
 {
     ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool->name(), node_id);
+
+    // Special-case: Vectorscope is a live visualization dialog, not a batch analysis
+    if (tool->id() == "vectorscope") {
+        // Look up the stage for this node and ensure it's a chroma sink
+        auto dag = project_.getDAG();
+        if (!dag) {
+            ORC_LOG_WARN("No DAG available to open vectorscope for node '{}'", node_id);
+            return;
+        }
+        const auto& dag_nodes = dag->nodes();
+        auto it = std::find_if(dag_nodes.begin(), dag_nodes.end(), [&node_id](const auto& n){ return n.node_id == node_id; });
+        if (it == dag_nodes.end()) {
+            ORC_LOG_WARN("Node '{}' not found to open vectorscope", node_id);
+            return;
+        }
+        auto* chroma = dynamic_cast<orc::ChromaSinkStage*>(it->stage.get());
+        if (!chroma) {
+            ORC_LOG_WARN("Vectorscope requested for non-chroma stage '{}'", stage_name);
+            return;
+        }
+
+        // Reuse existing dialog for this node if present; else create new
+        VectorscopeDialog* dialog = nullptr;
+        auto dit = vectorscope_dialogs_.find(node_id);
+        if (dit != vectorscope_dialogs_.end()) {
+            dialog = dit->second;
+        } else {
+            dialog = new VectorscopeDialog(this);
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            dialog->setStage(node_id, chroma);
+            // Remove from map when closed/destroyed
+            connect(dialog, &VectorscopeDialog::closed, [this, node_id]() {
+                auto it2 = vectorscope_dialogs_.find(node_id);
+                if (it2 != vectorscope_dialogs_.end()) {
+                    vectorscope_dialogs_.erase(it2);
+                }
+            });
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                auto it2 = vectorscope_dialogs_.find(node_id);
+                if (it2 != vectorscope_dialogs_.end()) {
+                    vectorscope_dialogs_.erase(it2);
+                }
+            });
+            vectorscope_dialogs_[node_id] = dialog;
+        }
+
+        // Ensure correct stage context set (node might have changed)
+        dialog->setStage(node_id, chroma);
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+
+        // If we're currently previewing this node, trigger an immediate update
+        if (current_view_node_id_ == node_id) {
+            updatePreview();
+        }
+        return;
+    }
     
     // Create analysis context
     orc::AnalysisContext context;
@@ -1558,7 +1673,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
     // Create DAG from project for analysis
     context.dag = orc::project_to_dag(project_.coreProject());
     
-    // Show analysis dialog which handles the actual analysis execution
+    // Default path: show analysis dialog which handles batch analysis and apply
     orc::gui::AnalysisDialog dialog(tool, context, this);
     
     // Connect apply signal to handle applying results to the node
@@ -1611,6 +1726,8 @@ void MainWindow::onShowVBIDialog()
     // Update VBI information after showing
     updateVBIDialog();
 }
+
+// Removed Vectorscope dialog launcher from Preview; vectorscope opens from node context menu
 
 void MainWindow::updateAllPreviewComponents()
 {

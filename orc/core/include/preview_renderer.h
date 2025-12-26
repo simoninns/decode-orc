@@ -13,10 +13,12 @@
 #include "video_field_representation.h"
 #include "field_id.h"
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
+#include "../analysis/vectorscope/vectorscope_data.h"
 #include <memory>
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <optional>
 
 namespace orc {
 
@@ -98,9 +100,14 @@ struct PreviewImage {
     uint32_t width;
     uint32_t height;
     std::vector<uint8_t> rgb_data;  ///< RGB888 format (width * height * 3 bytes)
+    std::optional<VectorscopeData> vectorscope_data;  ///< Optional UV scatter for chroma preview
     
     bool is_valid() const {
         return !rgb_data.empty() && rgb_data.size() == width * height * 3;
+    }
+
+    bool has_vectorscope() const {
+        return vectorscope_data.has_value() && !vectorscope_data->samples.empty();
     }
 };
 

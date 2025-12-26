@@ -1191,11 +1191,30 @@ void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
         return;
     }
     
-    // Execute the DAG up to this node to ensure it has cached output
-    // The DAGExecutor caches results, so repeated calls are cheap
+    // For sink nodes, we need to execute their inputs to populate cached_input_
+    // For other nodes, execute up to the node itself
+    const auto& dag_nodes = dag_->nodes();
+    auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+        [&node_id](const auto& n) { return n.node_id == node_id; });
+    
+    if (node_it == dag_nodes.end()) {
+        ORC_LOG_ERROR("Node '{}' not found in DAG", node_id);
+        return;
+    }
+    
+    bool is_sink = (node_it->stage && node_it->stage->get_node_type_info().type == NodeType::SINK);
+    
     try {
+        // For both sink and non-sink nodes, use the same dag_executor_ instance
+        // This ensures stage instances maintain their cached state (especially cached_input_ for sinks)
+        const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(true);
         const_cast<DAGExecutor&>(dag_executor_).execute_to_node(*dag_, node_id);
-        ORC_LOG_DEBUG("Executed DAG up to node '{}' for preview", node_id);
+        
+        if (is_sink) {
+            ORC_LOG_DEBUG("Executed inputs for sink node '{}' (sink's cached_input_ should now be populated)", node_id);
+        } else {
+            ORC_LOG_DEBUG("Executed DAG up to node '{}'", node_id);
+        }
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Failed to execute node '{}' for preview: {}", node_id, e.what());
     }
@@ -1268,6 +1287,9 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     result.output_type = type;
     result.output_index = index;
     result.success = false;
+    
+    // Ensure the node and its inputs have been executed so the stage has cached input data
+    ensure_node_executed(stage_node_id);
     
     // Get preview image from the stage
     auto stage_result = previewable.render_preview(requested_option_id, index, hint);

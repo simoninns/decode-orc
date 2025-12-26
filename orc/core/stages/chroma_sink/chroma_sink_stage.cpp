@@ -21,6 +21,7 @@
 #include "decoders/comb.h"
 #include "decoders/outputwriter.h"
 #include "decoders/componentframe.h"
+#include "../../analysis/vectorscope/vectorscope_analysis.h"
 
 #include <fstream>
 #include <chrono>
@@ -84,7 +85,7 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
     
     // Sink stages don't produce outputs during normal execution
     // They are triggered manually to write data
-    ORC_LOG_DEBUG("ChromaSink execute called (cached input for preview)");
+    ORC_LOG_DEBUG("ChromaSink execute called on instance {} (cached input for preview)", static_cast<void*>(this));
     return {};  // No outputs
 }
 
@@ -1182,7 +1183,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
 {
     PreviewImage result;
     
-    ORC_LOG_DEBUG("ChromaSink: render_preview called for frame {}", index);
+    ORC_LOG_DEBUG("ChromaSink: render_preview called on instance {} for frame {}, has_cached_input={}", 
+                  static_cast<const void*>(this), index, (cached_input_ != nullptr));
     
     if (!cached_input_ || option_id != "frame") {
         ORC_LOG_WARN("ChromaSink: Invalid preview request (cached_input={}, option='{}')", 
@@ -1208,20 +1210,66 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     uint64_t field_a_index = first_field_offset + (index * 2);
     uint64_t field_b_index = field_a_index + 1;
     
-    FieldID field_a(field_a_index);
-    FieldID field_b(field_b_index);
+    // For 3D decoding, we also need look-behind and look-ahead frames
+    // Extract up to 10 fields (5 frames: -2, -1, 0, 1, 2) for 3D filtering support
+    std::vector<SourceField> inputFields;
     
-    if (!cached_input_->has_field(field_a) || !cached_input_->has_field(field_b)) {
-        return result;
+    // Determine how many fields to extract based on decoder type
+    int32_t num_lookbehind_fields = 0;
+    int32_t num_lookahead_fields = 0;
+    
+    // Check if we'll use 3D mode (will be determined below after checking decoder type)
+    std::string temp_decoder_type = decoder_type_;
+    if (temp_decoder_type == "auto") {
+        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
+            temp_decoder_type = "transform2d";
+        } else {
+            temp_decoder_type = "ntsc2d";
+        }
+    }
+    bool will_use_3d = (temp_decoder_type == "transform3d" || temp_decoder_type == "ntsc3d" || temp_decoder_type == "ntsc3dnoadapt");
+    
+    if (will_use_3d) {
+        // For 3D decoding: need 4 fields back, 4 fields forward (for the current frame at index 0,1,2,3)
+        num_lookbehind_fields = 4;
+        num_lookahead_fields = 4;
+    } else {
+        // For 2D decoding: need 1 field back, 1 field forward
+        num_lookbehind_fields = 2;
+        num_lookahead_fields = 2;
     }
     
-    // Convert both fields to SourceFields
-    SourceField sourceField_a = convertToSourceField(cached_input_.get(), field_a);
-    SourceField sourceField_b = convertToSourceField(cached_input_.get(), field_b);
+    // Extract the field range
+    int64_t start_field = static_cast<int64_t>(field_a_index) - num_lookbehind_fields;
+    int64_t end_field = static_cast<int64_t>(field_b_index) + num_lookahead_fields;
     
-    if (sourceField_a.data.empty() || sourceField_b.data.empty()) {
+    // Get video parameters for field metadata
+    auto video_desc = cached_input_->get_descriptor(FieldID(0));
+    if (!video_desc) {
+        return result;  // Can't get field descriptor
+    }
+    
+    for (int64_t f = start_field; f <= end_field; ++f) {
+        if (f >= 0 && cached_input_->has_field(FieldID(f))) {
+            SourceField sf = convertToSourceField(cached_input_.get(), FieldID(f));
+            if (!sf.data.empty()) {
+                inputFields.push_back(sf);
+            }
+        } else if (f < 0) {
+            // For negative indices (look-behind), create a blank field with proper metadata
+            SourceField blank_field;
+            blank_field.field.seq_no = static_cast<int32_t>(f) + 1;
+            blank_field.field.is_first_field = (f % 2 == 0);  // Even indices are first field
+            blank_field.data.resize(video_desc->width * video_desc->height, 0);  // Black fill
+            inputFields.push_back(blank_field);
+        }
+    }
+    
+    if (inputFields.size() < 2) {
+        // Not enough fields even with blanks
         return result;
     }
+
     
     // Determine decoder type
     std::string effectiveDecoderType = decoder_type_;
@@ -1310,22 +1358,29 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         ORC_LOG_DEBUG("ChromaSink: Reusing cached '{}' decoder", effectiveDecoderType);
     }
     
-    // Decode the field pair using cached decoder
-    std::vector<SourceField> fields = {sourceField_a, sourceField_b};
+    // Decode the field range using cached decoder
+    // For 3D mode, we need to calculate the proper start/end indices based on the extracted fields
     std::vector<ComponentFrame> outputFrames(1);
+    
+    // Calculate indices for the decoder:
+    // If we extracted lookbehind/lookahead, the target frame starts at a specific offset in the field array
+    int32_t frameStartIndex = num_lookbehind_fields;  // Offset to where the main frame starts
+    int32_t frameEndIndex = frameStartIndex + 2;      // We want to decode 2 fields (1 frame)
+    
+    // (Note: For 3D mode, we have look-behind and look-ahead frames which enable proper 3D filtering)
     
     auto decode_start = std::chrono::high_resolution_clock::now();
     
     std::string active_decoder = "none";
     if (preview_decoder_cache_.mono_decoder) {
         active_decoder = "mono";
-        preview_decoder_cache_.mono_decoder->decodeFrames(fields, 0, 2, outputFrames);
+        preview_decoder_cache_.mono_decoder->decodeFrames(inputFields, frameStartIndex, frameEndIndex, outputFrames);
     } else if (preview_decoder_cache_.pal_decoder) {
         active_decoder = "pal";
-        preview_decoder_cache_.pal_decoder->decodeFrames(fields, 0, 2, outputFrames);
+        preview_decoder_cache_.pal_decoder->decodeFrames(inputFields, frameStartIndex, frameEndIndex, outputFrames);
     } else if (preview_decoder_cache_.ntsc_decoder) {
         active_decoder = "ntsc";
-        preview_decoder_cache_.ntsc_decoder->decodeFrames(fields, 0, 2, outputFrames);
+        preview_decoder_cache_.ntsc_decoder->decodeFrames(inputFields, frameStartIndex, frameEndIndex, outputFrames);
     }
     
     auto decode_end = std::chrono::high_resolution_clock::now();
@@ -1353,8 +1408,10 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     result.width = width;
     result.height = height;
     result.rgb_data.resize(width * height * 3);
+    std::vector<uint16_t> rgb16_data;
+    rgb16_data.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 3);
     
-    // Convert YUV to RGB (8-bit)
+    // Convert YUV to RGB (16-bit for vectorscope, 8-bit for preview)
     for (int32_t y = 0; y < height; y++) {
         const double* yLine = frame.y(y);
         const double* uLine = frame.u(y);
@@ -1378,15 +1435,49 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             double G = Y - 0.344136 * U - 0.714136 * V;
             double B = Y + 1.772 * U;
             
-            // Clamp to 0-1 and convert to 8-bit
+            // Clamp to 0-1
             R = std::max(0.0, std::min(1.0, R));
             G = std::max(0.0, std::min(1.0, G));
             B = std::max(0.0, std::min(1.0, B));
+
+            // 16-bit representation for analysis
+            const auto clamp_to_u16 = [](double value) {
+                double scaled = value * 65535.0 + 0.5;
+                if (scaled < 0.0) scaled = 0.0;
+                if (scaled > 65535.0) scaled = 65535.0;
+                return static_cast<uint16_t>(scaled);
+            };
+            uint16_t r16 = clamp_to_u16(R);
+            uint16_t g16 = clamp_to_u16(G);
+            uint16_t b16 = clamp_to_u16(B);
             
-            size_t pixel_offset = (y * width + x) * 3;
-            result.rgb_data[pixel_offset + 0] = static_cast<uint8_t>(R * 255.0);
-            result.rgb_data[pixel_offset + 1] = static_cast<uint8_t>(G * 255.0);
-            result.rgb_data[pixel_offset + 2] = static_cast<uint8_t>(B * 255.0);
+            size_t pixel_offset = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 3;
+            rgb16_data[pixel_offset + 0] = r16;
+            rgb16_data[pixel_offset + 1] = g16;
+            rgb16_data[pixel_offset + 2] = b16;
+            
+            // Downscale to 8-bit for preview display
+            result.rgb_data[pixel_offset + 0] = static_cast<uint8_t>(r16 / 257);
+            result.rgb_data[pixel_offset + 1] = static_cast<uint8_t>(g16 / 257);
+            result.rgb_data[pixel_offset + 2] = static_cast<uint8_t>(b16 / 257);
+        }
+    }
+    
+    // Populate vectorscope payload (subsample to keep UI responsive)
+    result.vectorscope_data = VectorscopeAnalysisTool::extractFromRGB(
+        rgb16_data.data(),
+        static_cast<uint32_t>(width),
+        static_cast<uint32_t>(height),
+        field_a_index,
+        2  // sample every other pixel for speed
+    );
+    // Attach video parameters needed for graticule targets
+    if (result.vectorscope_data.has_value() && cached_input_) {
+        auto vparams = cached_input_->get_video_parameters();
+        if (vparams) {
+            result.vectorscope_data->system = vparams->system;
+            result.vectorscope_data->white_16b_ire = vparams->white_16b_ire;
+            result.vectorscope_data->black_16b_ire = vparams->black_16b_ire;
         }
     }
     

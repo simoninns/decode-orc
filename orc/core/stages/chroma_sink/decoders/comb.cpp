@@ -156,7 +156,7 @@ void Comb::decodeFrames(const std::vector<SourceField> &inputFields, int32_t sta
         }
 
         // If there's another input field, bring it into nextFrameBuffer
-        if (fieldIndex + 3 < inputFields.size()) {
+        if (fieldIndex + 3 >= 0 && fieldIndex + 3 < static_cast<int32_t>(inputFields.size())) {
             // Load fields into the buffer
             nextFrameBuffer->loadFields(inputFields[fieldIndex + 2], inputFields[fieldIndex + 3]);
 

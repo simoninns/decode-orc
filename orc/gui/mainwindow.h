@@ -23,6 +23,7 @@
 class OrcGraphicsView;
 class PreviewDialog;
 class VBIDialog;
+class VectorscopeDialog;
 
 namespace orc {
     class VideoFieldRepresentation;
@@ -101,7 +102,8 @@ private:
     void updatePreviewModeCombo();
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls();  // Update slider, combo, preview, and info for current node
-    void updateAllPreviewComponents();  // Update preview image, info label, and VBI dialog
+    void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
+    void updateVectorscope(const std::string& node_id, const orc::PreviewImage& image);
     void loadProjectDAG();  // Load DAG into embedded viewer
     void onEditParameters(const std::string& node_id);
     void onTriggerStage(const std::string& node_id);
@@ -123,6 +125,7 @@ private:
     // UI components
     PreviewDialog* preview_dialog_;
     VBIDialog* vbi_dialog_;
+    std::unordered_map<std::string, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;

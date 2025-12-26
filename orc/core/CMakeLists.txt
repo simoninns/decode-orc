@@ -42,6 +42,9 @@ add_library(orc-core STATIC
     analysis/analysis_registry.cpp
     analysis/analysis_init.cpp
     
+        # Vectorscope analysis
+        analysis/vectorscope/vectorscope_analysis.cpp
+    
     # Field mapping analysis
     analysis/field_mapping/field_mapping_analyzer.cpp
     analysis/field_mapping/field_mapping_analysis.cpp

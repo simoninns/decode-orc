@@ -101,36 +101,43 @@ void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id)
     
     ORC_LOG_DEBUG("CorrectedVideoFieldRepresentation: processing field {} (NOT in cache)", field_id.value());
     
-    // OPTIMIZATION: Pre-process neighboring fields to avoid cascading lazy evaluation
-    // When we process a field, we'll likely need data from neighbors for dropout correction
-    // Processing them now avoids deep recursion later
-    int64_t start_field = std::max<int64_t>(0, static_cast<int64_t>(field_id.value()) - 15);
-    int64_t end_field = field_id.value() + 15;
-    
-    ORC_LOG_DEBUG("  -> Will process batch: fields {} to {}", start_field, end_field);
-    
-    int newly_processed = 0;
-    for (int64_t fid = start_field; fid <= end_field; ++fid) {
-        FieldID neighbor(static_cast<uint64_t>(fid));
+    // Check if batch prefetch is enabled
+    if (stage_->is_batch_prefetch_enabled()) {
+        // OPTIMIZATION: Pre-process neighboring fields to avoid cascading lazy evaluation
+        // When we process a field, we'll likely need data from neighbors for dropout correction
+        // Processing them now avoids deep recursion later
+        int64_t start_field = std::max<int64_t>(0, static_cast<int64_t>(field_id.value()) - 15);
+        int64_t end_field = field_id.value() + 15;
         
-        // Skip if already in cache
-        if (corrected_fields_.contains(neighbor)) {
-            continue;
+        ORC_LOG_DEBUG("  -> Will process batch: fields {} to {}", start_field, end_field);
+        
+        int newly_processed = 0;
+        for (int64_t fid = start_field; fid <= end_field; ++fid) {
+            FieldID neighbor(static_cast<uint64_t>(fid));
+            
+            // Skip if already in cache
+            if (corrected_fields_.contains(neighbor)) {
+                continue;
+            }
+            
+            // Check if this field exists in source
+            if (!source_->has_field(neighbor)) {
+                continue;
+            }
+            
+            newly_processed++;
+            
+            // Correct this field (will add to cache)
+            stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, neighbor);
         }
         
-        // Check if this field exists in source
-        if (!source_->has_field(neighbor)) {
-            continue;
-        }
-        
-        newly_processed++;
-        
-        // Correct this field (will add to cache)
-        stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, neighbor);
+        ORC_LOG_DEBUG("  -> Batch complete: {} new fields processed (cache now has {} fields)", 
+                      newly_processed, corrected_fields_.size());
+    } else {
+        // Batch prefetch disabled: just process the requested field
+        ORC_LOG_DEBUG("  -> Batch prefetch disabled, processing single field");
+        stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, field_id);
     }
-    
-    ORC_LOG_DEBUG("  -> Batch complete: {} new fields processed (cache now has {} fields)", 
-                  newly_processed, corrected_fields_.size());
 }
 
 const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {
@@ -139,8 +146,9 @@ const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t l
     
     // Check if we have a corrected version of this field in LRU cache
     const auto* cached_field = corrected_fields_.get_ptr(id);
-    if (cached_field) {
+    if (cached_field && !cached_field->empty()) {
         // Return pointer to line within the cached corrected field data
+        // (empty vector is a marker for "no corrections applied", fetch from source instead)
         auto descriptor = source_->get_descriptor(id);
         if (descriptor && line < descriptor->height) {
             return &(*cached_field)[line * descriptor->width];
@@ -302,6 +310,7 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
     ReplacementLine best;
     best.found = false;
     best.quality = -1.0;
+    best.cached_data = nullptr;
     
     auto descriptor_opt = source.get_descriptor(field_id);
     if (!descriptor_opt) {
@@ -324,6 +333,7 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
                     best.source_line = candidate_line;
                     best.quality = quality;
                     best.distance = dist;
+                    best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
                 }
             }
             
@@ -339,6 +349,7 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
                     best.source_line = candidate_line;
                     best.quality = quality;
                     best.distance = dist;
+                    best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
                 }
             }
         }
@@ -359,6 +370,7 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
             best.source_line = line;
             best.quality = quality;
             best.distance = 1;  // One field away
+            best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
         }
     }
     
@@ -387,8 +399,8 @@ double DropoutCorrectStage::calculate_line_quality(
     size_t width,
     const DropoutRegion& dropout) const
 {
-    // Calculate quality based on variance in the dropout region
-    // Lower variance = better quality (more stable signal)
+    // OPTIMIZATION: Use mean absolute deviation instead of full variance for faster quality calculation.
+    // This is a good approximation for stability that avoids expensive squaring operations.
     
     if (dropout.start_sample >= dropout.end_sample || dropout.end_sample > width) {
         return 0.0;
@@ -402,17 +414,16 @@ double DropoutCorrectStage::calculate_line_quality(
     }
     double mean = sum / count;
     
-    // Calculate variance
-    double var_sum = 0.0;
+    // Calculate mean absolute deviation (simpler and faster than variance)
+    double mad_sum = 0.0;
     for (uint32_t i = dropout.start_sample; i < dropout.end_sample; ++i) {
-        double diff = line_data[i] - mean;
-        var_sum += diff * diff;
+        mad_sum += std::abs(line_data[i] - mean);
     }
-    double variance = var_sum / count;
+    double mad = mad_sum / count;
     
-    // Return inverse of variance (higher = better quality)
-    // Add small epsilon to avoid division by zero
-    return 1.0 / (variance + 1.0);
+    // Return inverse of MAD (higher = better quality, more stable signal)
+    // Add epsilon to avoid division by zero
+    return 1.0 / (mad + 1.0);
 }
 
 void DropoutCorrectStage::correct_single_field(
@@ -438,23 +449,22 @@ void DropoutCorrectStage::correct_single_field(
     ORC_LOG_DEBUG("DropoutCorrectStage: field {} has {} dropout hints", 
                   field_id.value(), dropouts.size());
     
-    // ALWAYS cache fields to avoid expensive source->get_line() calls during preview
-    // Even fields with no dropouts benefit from caching because source lookups
-    // can be very slow in deep DAG chains (370us per line!)
+    // OPTIMIZATION: If there are no dropouts, skip the expensive full field copy
+    // Instead, just mark field as processed without storing anything
+    if (dropouts.empty()) {
+        ORC_LOG_DEBUG("DropoutCorrectStage: field {} has no dropouts - storing empty marker", field_id.value());
+        // Store a marker (empty vector) to indicate this field was processed but has no corrections
+        corrected->corrected_fields_.put(field_id, std::vector<uint16_t>());
+        return;
+    }
     
-    // Initialize field data - EAGERLY copy ALL source lines
+    // OPTIMIZATION: Only copy field data when corrections are actually needed
+    // Initialize field data - copy ALL source lines (needed for corrections)
     std::vector<uint16_t> field_data;
     field_data.reserve(descriptor.width * descriptor.height);
     for (uint32_t line = 0; line < descriptor.height; ++line) {
         const uint16_t* line_data = source->get_line(field_id, line);
         field_data.insert(field_data.end(), line_data, line_data + descriptor.width);
-    }
-    
-    if (dropouts.empty()) {
-        ORC_LOG_DEBUG("DropoutCorrectStage: field {} has no dropouts - caching original data", field_id.value());
-        // Store the uncorrected field data in LRU cache for fast access
-        corrected->corrected_fields_.put(field_id, std::move(field_data));
-        return;
     }
     
     // Log first few dropouts for debugging
@@ -502,8 +512,13 @@ void DropoutCorrectStage::correct_single_field(
         }
         
         if (replacement.found) {
-            // Apply the correction directly to field_data
-            const uint16_t* replacement_data = source->get_line(replacement.source_field, replacement.source_line);
+            // OPTIMIZATION: Use cached pointer instead of calling get_line() again
+            // The replacement.cached_data was already retrieved during find_replacement_line()
+            const uint16_t* replacement_data = replacement.cached_data;
+            if (!replacement_data) {
+                // Fallback if cache missed (shouldn't happen)
+                replacement_data = source->get_line(replacement.source_field, replacement.source_line);
+            }
             
             // Copy samples from replacement line to field data
             for (uint32_t sample = dropout.start_sample; sample <= dropout.end_sample && sample < descriptor.width; ++sample) {
@@ -615,6 +630,18 @@ std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors(
         descriptors.push_back(desc);
     }
     
+    // Enable batch prefetch parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "enable_batch_prefetch";
+        desc.display_name = "Enable Batch Prefetch";
+        desc.description = "Pre-process neighboring fields to avoid cascading corrections (faster for browsing, slower for single field)";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = true;
+        desc.constraints.required = false;
+        descriptors.push_back(desc);
+    }
+    
     return descriptors;
 }
 
@@ -627,6 +654,7 @@ std::map<std::string, ParameterValue> DropoutCorrectStage::get_parameters() cons
     params["max_replacement_distance"] = config_.max_replacement_distance;
     params["match_chroma_phase"] = config_.match_chroma_phase;
     params["highlight_corrections"] = config_.highlight_corrections;
+    params["enable_batch_prefetch"] = config_.enable_batch_prefetch;
     return params;
 }
 
@@ -680,6 +708,13 @@ bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterVa
         else if (name == "highlight_corrections") {
             if (auto* val = std::get_if<bool>(&value)) {
                 config_.highlight_corrections = *val;
+            } else {
+                return false;
+            }
+        }
+        else if (name == "enable_batch_prefetch") {
+            if (auto* val = std::get_if<bool>(&value)) {
+                config_.enable_batch_prefetch = *val;
             } else {
                 return false;
             }

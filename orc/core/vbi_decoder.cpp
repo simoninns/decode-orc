@@ -12,18 +12,21 @@
 #include "video_field_representation.h"
 #include "biphase_observer.h"
 #include "logging.h"
-#include <sstream>
-#include <iomanip>
 
 namespace orc {
 
 VBIDecoder::VBIDecoder(std::shared_ptr<const DAG> dag)
     : dag_(dag)
+    , dag_version_(0)
+    , renderer_(dag ? std::make_unique<DAGFieldRenderer>(dag) : nullptr)
 {
 }
 
 void VBIDecoder::update_dag(std::shared_ptr<const DAG> dag) {
     dag_ = dag;
+    dag_version_++;
+    vbi_cache_.clear();
+    renderer_ = dag ? std::make_unique<DAGFieldRenderer>(dag) : nullptr;
 }
 
 std::optional<VBIFieldInfo> VBIDecoder::get_vbi_for_field(
@@ -35,9 +38,21 @@ std::optional<VBIFieldInfo> VBIDecoder::get_vbi_for_field(
         return std::nullopt;
     }
     
+    if (!renderer_) {
+        ORC_LOG_WARN("VBIDecoder: No renderer available");
+        return std::nullopt;
+    }
+    
+    // Check cache first (efficiency improvement #1: persistent caching)
+    VBICacheKey cache_key{node_id, field_id.value(), dag_version_};
+    if (auto cached = vbi_cache_.get(cache_key)) {
+        ORC_LOG_DEBUG("VBIDecoder: Cache hit for field {} at node {}", 
+                      field_id.value(), node_id);
+        return cached;
+    }
+    
     // Render the field at the specified node
-    DAGFieldRenderer renderer(dag_);
-    auto render_result = renderer.render_field_at_node(node_id, field_id);
+    auto render_result = renderer_->render_field_at_node(node_id, field_id);
     
     if (!render_result.is_valid) {
         ORC_LOG_WARN("VBIDecoder: Failed to render field {} at node {}: {}",
@@ -52,7 +67,14 @@ std::optional<VBIFieldInfo> VBIDecoder::get_vbi_for_field(
     }
     
     // Extract VBI from the representation
-    return extract_vbi_from_representation(render_result.representation.get(), field_id);
+    auto result = extract_vbi_from_representation(render_result.representation.get(), field_id);
+    
+    // Cache the result for future queries
+    if (result.has_value()) {
+        vbi_cache_.put(cache_key, *result);
+    }
+    
+    return result;
 }
 
 std::optional<VBIFieldInfo> VBIDecoder::extract_vbi_from_representation(
@@ -67,26 +89,27 @@ std::optional<VBIFieldInfo> VBIDecoder::extract_vbi_from_representation(
     // Get observations for this field (now provided by DAGFieldRenderer)
     auto observations = representation->get_observations(field_id);
     
-    ORC_LOG_INFO("VBIDecoder: Found {} observations for field {}", 
-                  observations.size(), field_id.value());
+    if (observations.empty()) {
+        ORC_LOG_DEBUG("VBIDecoder: No observations found for field {}", field_id.value());
+        VBIFieldInfo info;
+        info.field_id = field_id;
+        info.has_vbi_data = false;
+        info.vbi_data = {0, 0, 0};
+        info.error_message = "No VBI data available";
+        return info;
+    }
     
-    // Find BiphaseObservation
+    // Find BiphaseObservation (efficiency improvement #2: check type before casting)
     std::shared_ptr<BiphaseObservation> biphase_obs;
     for (const auto& obs : observations) {
-        if (obs) {
-            ORC_LOG_DEBUG("VBIDecoder: Observation type: {}", obs->observation_type());
-            if (auto bp = std::dynamic_pointer_cast<BiphaseObservation>(obs)) {
-                biphase_obs = bp;
-                break;
-            }
+        if (obs && obs->observation_type() == "Biphase") {
+            biphase_obs = std::dynamic_pointer_cast<BiphaseObservation>(obs);
+            if (biphase_obs) break;
         }
     }
     
     if (!biphase_obs) {
-        ORC_LOG_WARN("VBIDecoder: No BiphaseObservation found for field {} (found {} total observations)", 
-                     field_id.value(), observations.size());
-        
-        // Return empty VBI info indicating no data
+        ORC_LOG_DEBUG("VBIDecoder: No BiphaseObservation found for field {}", field_id.value());
         VBIFieldInfo info;
         info.field_id = field_id;
         info.has_vbi_data = false;
@@ -110,14 +133,7 @@ std::optional<VBIFieldInfo> VBIDecoder::extract_vbi_from_representation(
     info.programme_status = biphase_obs->programme_status;
     info.amendment2_status = biphase_obs->amendment2_status;
     
-    ORC_LOG_INFO("VBIDecoder: Successfully extracted VBI for field {}", field_id.value());
-    ORC_LOG_INFO("VBIDecoder: VBI data: [0x{:06X}, 0x{:06X}, 0x{:06X}]", 
-                 biphase_obs->vbi_data[0] > 0 ? biphase_obs->vbi_data[0] : 0,
-                 biphase_obs->vbi_data[1] > 0 ? biphase_obs->vbi_data[1] : 0,
-                 biphase_obs->vbi_data[2] > 0 ? biphase_obs->vbi_data[2] : 0);
-    if (info.picture_number.has_value()) {
-        ORC_LOG_INFO("VBIDecoder: Picture number: {}", info.picture_number.value());
-    }
+    ORC_LOG_DEBUG("VBIDecoder: Successfully extracted VBI for field {}", field_id.value());
     
     return info;
 }

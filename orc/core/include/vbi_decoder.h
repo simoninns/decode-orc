@@ -12,6 +12,7 @@
 
 #include "biphase_observer.h"
 #include "field_id.h"
+#include "lru_cache.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -106,7 +107,31 @@ private:
         const VideoFieldRepresentation* representation,
         FieldID field_id);
     
+    // Cache key for VBI results: (node_id, field_id, dag_version)
+    struct VBICacheKey {
+        std::string node_id;
+        uint64_t field_id_value;
+        uint64_t dag_version;
+        
+        bool operator==(const VBICacheKey& other) const {
+            return node_id == other.node_id && 
+                   field_id_value == other.field_id_value &&
+                   dag_version == other.dag_version;
+        }
+    };
+    
+    struct VBICacheKeyHash {
+        size_t operator()(const VBICacheKey& key) const {
+            return std::hash<std::string>()(key.node_id) ^ 
+                   (std::hash<uint64_t>()(key.field_id_value) << 1) ^
+                   (std::hash<uint64_t>()(key.dag_version) << 2);
+        }
+    };
+    
     std::shared_ptr<const DAG> dag_;
+    uint64_t dag_version_ = 0;
+    std::unique_ptr<class DAGFieldRenderer> renderer_;
+    LRUCache<VBICacheKey, VBIFieldInfo, VBICacheKeyHash> vbi_cache_{32};
 };
 
 } // namespace orc

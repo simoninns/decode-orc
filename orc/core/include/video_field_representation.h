@@ -220,7 +220,7 @@ public:
     }
     
     std::optional<VideoParameters> get_video_parameters() const override {
-        return source_ ? source_->get_video_parameters() : std::nullopt;
+        return cached_video_params_;
     }
     
     // Automatically propagate observations through the chain
@@ -237,12 +237,10 @@ protected:
     VideoFieldRepresentationWrapper(
         std::shared_ptr<const VideoFieldRepresentation> source,
         ArtifactID id,
-        Provenance prov)
-        : VideoFieldRepresentation(std::move(id), std::move(prov))
-        , source_(std::move(source))
-    {}
+        Provenance prov);
     
     std::shared_ptr<const VideoFieldRepresentation> source_;
+    std::optional<VideoParameters> cached_video_params_;
 };
 
 using VideoFieldRepresentationPtr = std::shared_ptr<VideoFieldRepresentation>;

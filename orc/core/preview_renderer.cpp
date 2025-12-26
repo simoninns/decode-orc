@@ -1206,6 +1206,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     const DAGNode& stage_node,
     const PreviewableStage& previewable)
 {
+    (void)stage_node;  // Unused for now
     std::vector<PreviewOutputInfo> outputs;
     
     ORC_LOG_DEBUG("get_stage_preview_outputs called for node '{}'", stage_node_id);
@@ -1223,8 +1224,18 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     
     // Convert each option to a PreviewOutputInfo
     for (const auto& option : options) {
+        // Infer the output type from the option ID
+        PreviewOutputType type = PreviewOutputType::Frame;  // Default
+        if (option.id == "field" || option.id == "field_raw") {
+            type = PreviewOutputType::Field;
+        } else if (option.id == "split" || option.id == "split_raw") {
+            type = PreviewOutputType::Split;
+        } else if (option.id == "frame" || option.id == "frame_raw") {
+            type = PreviewOutputType::Frame;
+        }
+        
         outputs.push_back(PreviewOutputInfo{
-            PreviewOutputType::Frame,  // Stages output frames
+            type,
             option.display_name,
             option.count,
             true,  // If stage advertises it, it's available
@@ -1247,6 +1258,7 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     const std::string& requested_option_id,
     PreviewNavigationHint hint)
 {
+    (void)stage_node;  // Unused for now
     ORC_LOG_DEBUG("render_stage_preview called for node '{}', type={}, index={}, option_id='{}', hint={}", 
                   stage_node_id, static_cast<int>(type), index, requested_option_id,
                   (hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random"));

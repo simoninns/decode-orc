@@ -306,6 +306,7 @@ std::vector<PreviewOption> OverwriteStage::get_preview_options() const
 PreviewImage OverwriteStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint) const
 {
+    (void)hint;  // Unused for now
     return PreviewHelpers::render_standard_preview(cached_output_, option_id, index);
 }
 

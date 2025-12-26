@@ -22,11 +22,13 @@
 
 class OrcGraphicsView;
 class PreviewDialog;
+class VBIDialog;
 
 namespace orc {
     class VideoFieldRepresentation;
     class DAG;
     class AnalysisTool;
+    class VBIDecoder;
 }
 
 class FieldPreviewWidget;
@@ -84,6 +86,8 @@ private slots:
     void onArrangeDAGToGrid();
     void onQtNodeSelected(QtNodes::NodeId nodeId);
     void onInspectStage(const std::string& node_id);
+    void onShowVBIDialog();
+    void updateVBIDialog();
 
 private:
     void setupUI();
@@ -97,6 +101,7 @@ private:
     void updatePreviewModeCombo();
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls();  // Update slider, combo, preview, and info for current node
+    void updateAllPreviewComponents();  // Update preview image, info label, and VBI dialog
     void loadProjectDAG();  // Load DAG into embedded viewer
     void onEditParameters(const std::string& node_id);
     void onTriggerStage(const std::string& node_id);
@@ -111,11 +116,13 @@ private:
     // Project management
     GUIProject project_;
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
+    std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
     std::string current_view_node_id_;  // Which node is being viewed
     QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
     
     // UI components
     PreviewDialog* preview_dialog_;
+    VBIDialog* vbi_dialog_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;

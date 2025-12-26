@@ -138,8 +138,8 @@ const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t l
     ensure_field_corrected(id);
     
     // Check if we have a corrected version of this field in LRU cache
-    auto cached_field = corrected_fields_.get(id);
-    if (cached_field.has_value()) {
+    const auto* cached_field = corrected_fields_.get_ptr(id);
+    if (cached_field) {
         // Return pointer to line within the cached corrected field data
         auto descriptor = source_->get_descriptor(id);
         if (descriptor && line < descriptor->height) {

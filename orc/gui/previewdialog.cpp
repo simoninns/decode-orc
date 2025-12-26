@@ -51,6 +51,12 @@ void PreviewDialog::setupUI()
     export_png_action_ = fileMenu->addAction("&Export PNG...");
     export_png_action_->setShortcut(QKeySequence("Ctrl+E"));
     connect(export_png_action_, &QAction::triggered, this, &PreviewDialog::exportPNGRequested);
+    
+    auto* observersMenu = menu_bar_->addMenu("&Observers");
+    show_vbi_action_ = observersMenu->addAction("&VBI Decoder");
+    show_vbi_action_->setShortcut(QKeySequence("Ctrl+V"));
+    connect(show_vbi_action_, &QAction::triggered, this, &PreviewDialog::showVBIDialogRequested);
+    
     mainLayout->setMenuBar(menu_bar_);
     
     // Preview widget

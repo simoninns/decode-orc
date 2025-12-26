@@ -61,8 +61,6 @@ struct DropoutCorrectionConfig {
 /// Corrected video field representation
 /// 
 /// This wraps the original field data with corrections applied on-demand
-/// Inherits from VideoFieldRepresentationWrapper to automatically propagate
-/// hints and metadata through the DAG chain
 class CorrectedVideoFieldRepresentation : public VideoFieldRepresentationWrapper {
 public:
     CorrectedVideoFieldRepresentation(

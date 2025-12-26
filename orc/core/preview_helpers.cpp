@@ -339,6 +339,7 @@ PreviewImage render_standard_preview(
     uint64_t index,
     PreviewNavigationHint hint)
 {
+    (void)hint;  // Unused for now
     if (!representation) {
         PreviewImage result;
         return result;

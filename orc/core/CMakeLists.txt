@@ -2,6 +2,7 @@ add_library(orc-core STATIC
     # Phase 1: Foundations
     field_id.cpp
     video_field_representation.cpp
+    observation_wrapper_representation.cpp
     artifact.cpp
     dag_executor.cpp
     dag_field_renderer.cpp
@@ -18,6 +19,7 @@ add_library(orc-core STATIC
     
     # VBI utilities
     vbi_utilities.cpp
+    vbi_decoder.cpp
     
     # Observers (organized in subdirectory)
     observers/observer.cpp

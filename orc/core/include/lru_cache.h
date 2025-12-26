@@ -43,6 +43,24 @@ public:
     }
     
     /**
+     * @brief Get pointer to value in cache (for large values like vectors)
+     * @param key Key to look up
+     * @return Pointer to value if found, nullptr otherwise
+     * @note The pointer is valid until the entry is evicted from cache
+     */
+    const Value* get_ptr(const Key& key) const {
+        auto it = map_.find(key);
+        if (it == map_.end()) {
+            return nullptr;
+        }
+        
+        // Move to front of LRU list (most recently used)
+        lru_list_.splice(lru_list_.begin(), lru_list_, it->second);
+        
+        return &(it->second->second);
+    }
+    
+    /**
      * @brief Insert or update value in cache
      * @param key Key to insert
      * @param value Value to store
@@ -104,10 +122,10 @@ private:
     size_t max_size_;
     
     // List of (key, value) pairs in LRU order (front = most recent)
-    std::list<std::pair<Key, Value>> lru_list_;
+    mutable std::list<std::pair<Key, Value>> lru_list_;
     
     // Map from key to iterator in lru_list_ (uses custom hash function)
-    std::unordered_map<Key, typename std::list<std::pair<Key, Value>>::iterator, Hash> map_;
+    mutable std::unordered_map<Key, typename std::list<std::pair<Key, Value>>::iterator, Hash> map_;
 };
 
 } // namespace orc

@@ -10,6 +10,7 @@
 #include "mainwindow.h"
 #include "fieldpreviewwidget.h"
 #include "previewdialog.h"
+#include "vbidialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
@@ -17,6 +18,7 @@
 #include "orcgraphicsview.h"
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
+#include "../core/include/vbi_decoder.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/project_to_dag.h"
@@ -54,6 +56,7 @@
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_dialog_(nullptr)
+    , vbi_dialog_(nullptr)
     , dag_view_(nullptr)
     , dag_model_(nullptr)
     , dag_scene_(nullptr)
@@ -64,6 +67,7 @@ MainWindow::MainWindow(QWidget *parent)
     , show_preview_action_(nullptr)
     , auto_show_preview_action_(nullptr)
     , preview_renderer_(nullptr)
+    , vbi_decoder_(nullptr)
     , current_view_node_id_()
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
@@ -79,8 +83,7 @@ MainWindow::MainWindow(QWidget *parent)
     preview_update_timer_->setInterval(33);  // ~30fps max update rate for smooth scrubbing
     connect(preview_update_timer_, &QTimer::timeout, this, [this]() {
         if (preview_update_pending_) {
-            updatePreview();
-            updatePreviewInfo();
+            updateAllPreviewComponents();
             preview_update_pending_ = false;
             last_preview_update_time_ = QDateTime::currentMSecsSinceEpoch();
         }
@@ -146,6 +149,9 @@ void MainWindow::setupUI()
     // Create preview dialog (initially hidden)
     preview_dialog_ = new PreviewDialog(this);
     
+    // Create VBI dialog (initially hidden)
+    vbi_dialog_ = new VBIDialog(this);
+    
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
             this, &MainWindow::onPreviewIndexChanged);
@@ -157,6 +163,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onAspectRatioModeChanged);
     connect(preview_dialog_, &PreviewDialog::exportPNGRequested,
             this, &MainWindow::onExportPNG);
+    connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
+            this, &MainWindow::onShowVBIDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -556,8 +564,7 @@ void MainWindow::onPreviewIndexChanged(int index)
     
     // If enough time has passed, update immediately
     if (time_since_last_update >= preview_update_timer_->interval()) {
-        updatePreview();
-        updatePreviewInfo();
+        updateAllPreviewComponents();
         preview_update_pending_ = false;
         last_preview_update_time_ = now;
     } else if (!preview_update_timer_->isActive()) {
@@ -700,11 +707,17 @@ void MainWindow::updatePreviewInfo()
     int current_index = preview_dialog_->previewSlider()->value();
     int total = preview_dialog_->previewSlider()->maximum() + 1;
     
+    ORC_LOG_DEBUG("updatePreviewInfo: current_output_type={}, index={}, total={}",
+                  static_cast<int>(current_output_type_), current_index, total);
+    
     auto display_info = preview_renderer_->get_preview_item_display_info(
         current_output_type_,
         current_index,
         total
     );
+    
+    ORC_LOG_DEBUG("updatePreviewInfo: display_info.type_name='{}', has_field_info={}",
+                  display_info.type_name, display_info.has_field_info);
     
     // Update slider labels with range
     preview_dialog_->sliderMinLabel()->setText(QString::number(1));
@@ -1281,11 +1294,8 @@ void MainWindow::refreshViewerControls()
         preview_dialog_->previewSlider()->setEnabled(true);
     }
     
-    // Update the preview image
-    updatePreview();
-    
-    // Update the info label and slider range labels (all done in one helper)
-    updatePreviewInfo();
+    // Update all preview-related components (image, info, VBI dialog)
+    updateAllPreviewComponents();
 }
 
 void MainWindow::updatePreviewRenderer()
@@ -1318,6 +1328,13 @@ void MainWindow::updatePreviewRenderer()
             // Populate aspect ratio combo from core
             // Note: aspect correction will be set when first node is selected
             updateAspectRatioCombo();
+        }
+        
+        // Create or update VBI decoder
+        if (vbi_decoder_) {
+            vbi_decoder_->update_dag(dag);
+        } else {
+            vbi_decoder_ = std::make_unique<orc::VBIDecoder>(dag);
         }
         
         // Check if current node is still valid, or if we need to switch
@@ -1578,4 +1595,79 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
     });
     
     dialog.exec();
+}
+
+void MainWindow::onShowVBIDialog()
+{
+    if (!vbi_dialog_) {
+        return;
+    }
+    
+    // Show the dialog first
+    vbi_dialog_->show();
+    vbi_dialog_->raise();
+    vbi_dialog_->activateWindow();
+    
+    // Update VBI information after showing
+    updateVBIDialog();
+}
+
+void MainWindow::updateAllPreviewComponents()
+{
+    updatePreview();
+    updatePreviewInfo();
+    updateVBIDialog();
+}
+
+void MainWindow::updateVBIDialog()
+{
+    // Only update if VBI dialog is visible
+    if (!vbi_dialog_ || !vbi_dialog_->isVisible() || !vbi_decoder_) {
+        return;
+    }
+    
+    // Get current field being displayed
+    if (current_view_node_id_.empty() || !preview_renderer_) {
+        vbi_dialog_->clearVBIInfo();
+        return;
+    }
+    
+    // Get the current index from the preview slider
+    int current_index = preview_dialog_->previewSlider()->value();
+    
+    // Check if we're in frame mode (any mode that shows two fields)
+    bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                         current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+                         current_output_type_ == orc::PreviewOutputType::Split);
+    
+    if (is_frame_mode) {
+        // Frame mode - slider index represents frames, convert to field IDs
+        // Frame 0 = fields 0,1; Frame 1 = fields 2,3; etc.
+        orc::FieldID field1_id(current_index * 2);
+        orc::FieldID field2_id(current_index * 2 + 1);
+        
+        auto vbi_info1 = vbi_decoder_->get_vbi_for_field(current_view_node_id_, field1_id);
+        auto vbi_info2 = vbi_decoder_->get_vbi_for_field(current_view_node_id_, field2_id);
+        
+        if (vbi_info1.has_value() && vbi_info2.has_value()) {
+            vbi_dialog_->updateVBIInfoFrame(vbi_info1.value(), vbi_info2.value());
+        } else if (vbi_info1.has_value()) {
+            vbi_dialog_->updateVBIInfo(vbi_info1.value());
+        } else if (vbi_info2.has_value()) {
+            vbi_dialog_->updateVBIInfo(vbi_info2.value());
+        } else {
+            vbi_dialog_->clearVBIInfo();
+        }
+    } else {
+        // Field mode - get VBI from single field
+        orc::FieldID field_id(current_index);
+        
+        auto vbi_info = vbi_decoder_->get_vbi_for_field(current_view_node_id_, field_id);
+        
+        if (vbi_info.has_value()) {
+            vbi_dialog_->updateVBIInfo(vbi_info.value());
+        } else {
+            vbi_dialog_->clearVBIInfo();
+        }
+    }
 }

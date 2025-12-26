@@ -37,15 +37,15 @@ std::vector<std::shared_ptr<Observation>> BiphaseObserver::process_field(
         return observations;
     }
     
-    // Get video parameters from TBC representation
-    auto* tbc_rep = dynamic_cast<const TBCVideoFieldRepresentation*>(&representation);
-    if (!tbc_rep) {
+    // Get video parameters using the standard interface
+    auto video_params_opt = representation.get_video_parameters();
+    if (!video_params_opt.has_value()) {
         observation->confidence = ConfidenceLevel::NONE;
         observations.push_back(observation);
         return observations;
     }
     
-    const auto& video_params = tbc_rep->video_parameters();
+    const auto& video_params = video_params_opt.value();
     if (!video_params.is_valid()) {
         observation->confidence = ConfidenceLevel::NONE;
         observations.push_back(observation);

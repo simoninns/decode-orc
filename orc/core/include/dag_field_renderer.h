@@ -254,6 +254,12 @@ private:
         const std::string& node_id,
         FieldID field_id
     );
+    
+    /// Attach computed observations to a field representation
+    std::shared_ptr<VideoFieldRepresentation> attach_observations(
+        std::shared_ptr<VideoFieldRepresentation> representation,
+        FieldID field_id
+    );
 };
 
 } // namespace orc

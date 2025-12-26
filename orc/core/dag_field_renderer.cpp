@@ -9,6 +9,19 @@
 
 
 #include "dag_field_renderer.h"
+#include "observation_wrapper_representation.h"
+#include "observers/biphase_observer.h"
+#include "observers/vitc_observer.h"
+#include "observers/closed_caption_observer.h"
+#include "observers/video_id_observer.h"
+#include "observers/fm_code_observer.h"
+#include "observers/white_flag_observer.h"
+#include "observers/vits_observer.h"
+#include "observers/burst_level_observer.h"
+#include "disc_quality_observer.h"
+#include "pulldown_observer.h"
+#include "lead_in_out_observer.h"
+#include "observers/observation_history.h"
 #include "logging.h"
 #include <sstream>
 #include <algorithm>
@@ -185,7 +198,12 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         
         result.is_valid = true;
         result.representation = video_field_repr;
-        ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully", node_id, field_id.to_string());
+        
+        // Run observers on the field and attach observations
+        result.representation = attach_observations(video_field_repr, field_id);
+        
+        ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully with observations", 
+                     node_id, field_id.to_string());
         
         return result;
         
@@ -196,6 +214,52 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
                      node_id, field_id.to_string(), e.what());
         return result;
     }
+}
+
+std::shared_ptr<VideoFieldRepresentation> DAGFieldRenderer::attach_observations(
+    std::shared_ptr<VideoFieldRepresentation> representation,
+    FieldID field_id)
+{
+    // Create observers (these should ideally be cached/reused)
+    std::vector<std::unique_ptr<Observer>> observers;
+    observers.push_back(std::make_unique<BiphaseObserver>());
+    observers.push_back(std::make_unique<VitcObserver>());
+    observers.push_back(std::make_unique<ClosedCaptionObserver>());
+    observers.push_back(std::make_unique<VideoIdObserver>());
+    observers.push_back(std::make_unique<FmCodeObserver>());
+    observers.push_back(std::make_unique<WhiteFlagObserver>());
+    observers.push_back(std::make_unique<VITSQualityObserver>());
+    observers.push_back(std::make_unique<BurstLevelObserver>());
+    observers.push_back(std::make_unique<DiscQualityObserver>());
+    observers.push_back(std::make_unique<PulldownObserver>());
+    observers.push_back(std::make_unique<LeadInOutObserver>());
+    
+    // Empty history for single-field rendering
+    ObservationHistory history;
+    
+    // Run all observers on this field
+    std::vector<std::shared_ptr<Observation>> all_observations;
+    for (const auto& observer : observers) {
+        try {
+            auto obs = observer->process_field(*representation, field_id, history);
+            all_observations.insert(all_observations.end(), obs.begin(), obs.end());
+        } catch (const std::exception& e) {
+            ORC_LOG_WARN("Observer '{}' failed for field {}: {}", 
+                        observer->observer_name(), field_id.value(), e.what());
+        }
+    }
+    
+    ORC_LOG_DEBUG("Computed {} observations for field {}", 
+                 all_observations.size(), field_id.value());
+    
+    // Wrap the representation with the observations
+    std::map<FieldID, std::vector<std::shared_ptr<Observation>>> obs_map;
+    obs_map[field_id] = std::move(all_observations);
+    
+    return std::make_shared<ObservationWrapperRepresentation>(
+        std::move(representation),
+        std::move(obs_map)
+    );
 }
 
 } // namespace orc

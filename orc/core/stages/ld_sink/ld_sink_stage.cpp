@@ -431,6 +431,7 @@ std::vector<PreviewOption> LDSinkStage::get_preview_options() const
 PreviewImage LDSinkStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint) const
 {
+    (void)hint;  // Unused for now
     return PreviewHelpers::render_standard_preview(cached_input_, option_id, index);
 }
 

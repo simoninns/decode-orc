@@ -248,6 +248,7 @@ std::vector<PreviewOption> LDNTSCSourceStage::get_preview_options() const
 PreviewImage LDNTSCSourceStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint) const
 {
+    (void)hint;  // Unused for now
     return PreviewHelpers::render_standard_preview(cached_representation_, option_id, index);
 }
 

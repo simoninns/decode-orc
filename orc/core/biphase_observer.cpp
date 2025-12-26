@@ -10,6 +10,7 @@
 #include "biphase_observer.h"
 #include "logging.h"
 #include "tbc_video_field_representation.h"
+#include "video_field_representation.h"
 #include "vbi_utilities.h"
 #include <cmath>
 
@@ -18,6 +19,8 @@ namespace orc {
 std::vector<std::shared_ptr<Observation>> BiphaseObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id) {
+    
+    ORC_LOG_DEBUG("BiphaseObserver::process_field ENTRY for field {}", field_id);
     
     std::vector<std::shared_ptr<Observation>> observations;
     auto observation = std::make_shared<BiphaseObservation>();
@@ -29,25 +32,34 @@ std::vector<std::shared_ptr<Observation>> BiphaseObserver::process_field(
     // Get field descriptor
     auto descriptor = representation.get_descriptor(field_id);
     if (!descriptor.has_value()) {
+        ORC_LOG_DEBUG("BiphaseObserver: No descriptor available for field {}", field_id);
         observation->confidence = ConfidenceLevel::NONE;
         observations.push_back(observation);
         return observations;
     }
     
-    // Get video parameters from TBC representation
-    auto* tbc_rep = dynamic_cast<const TBCVideoFieldRepresentation*>(&representation);
-    if (!tbc_rep) {
+    // Get video parameters from representation
+    auto video_params_opt = representation.get_video_parameters();
+    if (!video_params_opt.has_value()) {
+        ORC_LOG_DEBUG("BiphaseObserver: No video parameters available for field {}", field_id);
         observation->confidence = ConfidenceLevel::NONE;
         observations.push_back(observation);
         return observations;
     }
     
-    const auto& video_params = tbc_rep->video_parameters();
-    if (!video_params.is_valid()) {
+    if (!video_params_opt->is_valid()) {
+        ORC_LOG_DEBUG("BiphaseObserver: Invalid video parameters for field {} - system={}, field_width={}", 
+                      field_id, static_cast<int>(video_params_opt->system), video_params_opt->field_width);
         observation->confidence = ConfidenceLevel::NONE;
         observations.push_back(observation);
         return observations;
     }
+    
+    const auto& video_params = *video_params_opt;
+    
+    ORC_LOG_DEBUG("BiphaseObserver: Decoding VBI for field {} - zero_crossing={}, active_start={}, sample_rate={}",
+                  field_id, (video_params.white_16b_ire + video_params.black_16b_ire) / 2,
+                  video_params.active_video_start, video_params.sample_rate);
     
     // Calculate IRE zero-crossing point
     uint16_t zero_crossing = (video_params.white_16b_ire + video_params.black_16b_ire) / 2;

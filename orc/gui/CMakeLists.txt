@@ -50,6 +50,10 @@ add_executable(orc-gui
     # Inspection dialog
     inspection_dialog.cpp
     inspection_dialog.h
+    
+    # VBI dialog
+    vbidialog.cpp
+    vbidialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

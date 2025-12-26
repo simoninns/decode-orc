@@ -51,6 +51,7 @@ Q_SIGNALS:
     void previewModeChanged(int index);
     void aspectRatioModeChanged(int index);
     void exportPNGRequested();
+    void showVBIDialogRequested();  // Emitted when VBI Decoder menu item selected
 
 private:
     void setupUI();
@@ -66,6 +67,7 @@ private:
     QMenuBar* menu_bar_;
     QStatusBar* status_bar_;
     QAction* export_png_action_;
+    QAction* show_vbi_action_;
     
     // Navigation buttons
     QPushButton* first_button_;

@@ -1190,14 +1190,65 @@ void MainWindow::onArrangeDAGToGrid()
         levels[depth].push_back(node_id);
     }
     
-    // Position nodes: each depth level gets a column
+    // Build reverse edges (target -> sources) for ordering
+    std::map<std::string, std::vector<std::string>> reverse_edges;
+    for (const auto& edge : edges) {
+        reverse_edges[edge.target_node_id].push_back(edge.source_node_id);
+    }
+    
+    // Order nodes within each level to minimize edge crossings
+    // We'll use a simple heuristic: order by median position of connected nodes in previous/next layer
+    std::map<std::string, double> node_y_position;
+    
     for (const auto& [depth, level_nodes] : levels) {
+        std::vector<std::pair<double, std::string>> nodes_with_order;
+        
+        for (const auto& node_id : level_nodes) {
+            double order_key = 0.0;
+            int count = 0;
+            
+            // Consider inputs from previous layer
+            if (reverse_edges.count(node_id) > 0) {
+                for (const auto& input_id : reverse_edges[node_id]) {
+                    if (node_y_position.count(input_id) > 0) {
+                        order_key += node_y_position[input_id];
+                        count++;
+                    }
+                }
+            }
+            
+            // Consider outputs to next layer (also helps with ordering)
+            if (forward_edges.count(node_id) > 0) {
+                for (const auto& output_id : forward_edges[node_id]) {
+                    if (node_y_position.count(output_id) > 0) {
+                        order_key += node_y_position[output_id];
+                        count++;
+                    }
+                }
+            }
+            
+            // Use median position of connected nodes as ordering key
+            if (count > 0) {
+                order_key /= count;
+            } else {
+                // No connections yet, use arbitrary order
+                order_key = static_cast<double>(nodes_with_order.size());
+            }
+            
+            nodes_with_order.push_back({order_key, node_id});
+        }
+        
+        // Sort nodes by their order key
+        std::sort(nodes_with_order.begin(), nodes_with_order.end());
+        
+        // Position nodes: each depth level gets a column
         double x = depth * grid_spacing_x;
         
-        // Center nodes vertically within this level
-        for (size_t i = 0; i < level_nodes.size(); ++i) {
+        for (size_t i = 0; i < nodes_with_order.size(); ++i) {
+            const auto& node_id = nodes_with_order[i].second;
             double y = i * grid_spacing_y;
-            orc::project_io::set_node_position(project_.coreProject(), level_nodes[i], x, y);
+            node_y_position[node_id] = y;  // Remember position for next layer
+            orc::project_io::set_node_position(project_.coreProject(), node_id, x, y);
         }
     }
     

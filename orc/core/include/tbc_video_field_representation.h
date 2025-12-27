@@ -64,6 +64,7 @@ public:
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
     std::optional<FieldParityHint> get_field_parity_hint(FieldID id) const override;
     std::optional<FieldPhaseHint> get_field_phase_hint(FieldID id) const override;
+    std::optional<ActiveLineHint> get_active_line_hint() const override;
     
     std::optional<VideoParameters> get_video_parameters() const override {
         return video_params_;

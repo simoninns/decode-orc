@@ -377,8 +377,18 @@ bool ChromaSinkStage::trigger(
     // 3. Use orc-core VideoParameters directly
     auto videoParams = *video_params_opt;  // Make a copy so we can modify it
     
-    // Apply line parameter overrides if specified
-
+    // Apply line parameter overrides from hints
+    // Active line ranges should come from hints (source stage reads metadata)
+    auto active_line_hint = vfr->get_active_line_hint();
+    if (active_line_hint && active_line_hint->is_valid()) {
+        videoParams.first_active_frame_line = active_line_hint->first_active_frame_line;
+        videoParams.last_active_frame_line = active_line_hint->last_active_frame_line;
+        ORC_LOG_DEBUG("ChromaSink: Using active line hint: first={}, last={}", 
+                      active_line_hint->first_active_frame_line,
+                      active_line_hint->last_active_frame_line);
+    } else {
+        ORC_LOG_DEBUG("ChromaSink: No active line hint available, using metadata defaults");
+    }
     
     // Apply padding adjustments to active video region BEFORE configuring decoder
     // This ensures the decoder processes the correct region that will be written to output

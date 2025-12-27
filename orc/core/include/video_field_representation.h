@@ -16,6 +16,7 @@
 #include "tbc_metadata.h"
 #include "../hints/field_parity_hint.h"
 #include "../hints/pal_phase_hint.h"
+#include "../hints/active_line_hint.h"
 // Note: pal_phase_hint.h contains FieldPhaseHint (works for both PAL and NTSC)
 #include <cstddef>
 #include <cstdint>
@@ -119,6 +120,13 @@ public:
         return std::nullopt;  // Default: no hint
     }
     
+    // Active line range hint (from TBC metadata like ld-decode's active line ranges)
+    // Provides the vertical region containing visible video content
+    // Returns empty optional if source has no active line information
+    virtual std::optional<ActiveLineHint> get_active_line_hint() const {
+        return std::nullopt;  // Default: no hint
+    }
+    
     // ========================================================================
     // METADATA - Video parameters and configuration
     // ========================================================================
@@ -216,6 +224,10 @@ public:
     
     std::optional<FieldPhaseHint> get_field_phase_hint(FieldID id) const override {
         return source_ ? source_->get_field_phase_hint(id) : std::nullopt;
+    }
+    
+    std::optional<ActiveLineHint> get_active_line_hint() const override {
+        return source_ ? source_->get_active_line_hint() : std::nullopt;
     }
     
     std::optional<VideoParameters> get_video_parameters() const override {

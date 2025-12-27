@@ -351,6 +351,29 @@ std::optional<FieldPhaseHint> TBCVideoFieldRepresentation::get_field_phase_hint(
     return hint;
 }
 
+std::optional<ActiveLineHint> TBCVideoFieldRepresentation::get_active_line_hint() const {
+    // Active line ranges are constant for the video source (not per-field)
+    // They come from video parameters
+    if (!video_params_.is_valid()) {
+        return std::nullopt;
+    }
+    
+    // Check if active line information is available
+    if (video_params_.first_active_frame_line < 0 || 
+        video_params_.last_active_frame_line < 0) {
+        return std::nullopt;
+    }
+    
+    // Create hint from video parameters
+    ActiveLineHint hint;
+    hint.first_active_frame_line = video_params_.first_active_frame_line;
+    hint.last_active_frame_line = video_params_.last_active_frame_line;
+    hint.source = HintSource::METADATA;
+    hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;
+    
+    return hint;
+}
+
 std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {
     // TODO: Implement reading observations from TBC metadata database
     // This would convert metadata (VBI, VITC, field parity, etc.) into Observation objects

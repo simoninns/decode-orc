@@ -20,8 +20,55 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QCloseEvent>
+#include <QResizeEvent>
 #include <cmath>
 #include <random>
+
+// ============================================================================
+// AspectRatioLabel Implementation
+// ============================================================================
+
+AspectRatioLabel::AspectRatioLabel(QWidget* parent)
+    : QLabel(parent)
+{
+    setAlignment(Qt::AlignCenter);
+    setStyleSheet("border: 1px solid #ccc; background-color: black;");
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setMinimumSize(256, 256);  // Allow shrinking to a reasonable minimum
+}
+
+void AspectRatioLabel::setPixmap(const QPixmap& pixmap) {
+    original_pixmap_ = pixmap;
+    updateScaledPixmap();
+}
+
+void AspectRatioLabel::resizeEvent(QResizeEvent* event) {
+    QLabel::resizeEvent(event);
+    updateScaledPixmap();
+}
+
+void AspectRatioLabel::updateScaledPixmap() {
+    if (original_pixmap_.isNull()) {
+        QLabel::setPixmap(QPixmap());
+        return;
+    }
+    
+    // Calculate size to fit while maintaining aspect ratio
+    // For 1:1 aspect ratio, use the smaller dimension
+    int size = std::min(width(), height());
+    
+    QPixmap scaled = original_pixmap_.scaled(
+        size, size,
+        Qt::KeepAspectRatio,
+        Qt::SmoothTransformation
+    );
+    
+    QLabel::setPixmap(scaled);
+}
+
+// ============================================================================
+// VectorscopeDialog Implementation
+// ============================================================================
 
 VectorscopeDialog::VectorscopeDialog(QWidget *parent)
     : QDialog(parent)
@@ -57,13 +104,8 @@ void VectorscopeDialog::setupUI() {
     // Main content: display on left, controls on right
     QHBoxLayout* content_layout = new QHBoxLayout();
     
-    // Left side: Vectorscope display
-    scope_label_ = new QLabel();
-    // Allow scaling both up and down regardless of pixmap's size hint
-    scope_label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    scope_label_->setAlignment(Qt::AlignCenter);
-    scope_label_->setScaledContents(true);
-    scope_label_->setStyleSheet("border: 1px solid #ccc; background-color: black;");
+    // Left side: Vectorscope display with aspect ratio maintenance
+    scope_label_ = new AspectRatioLabel();
     content_layout->addWidget(scope_label_, 1);
     
     // Right side: Controls
@@ -129,10 +171,11 @@ void VectorscopeDialog::setupUI() {
     controls_layout->addWidget(graticule_group);
     controls_layout->addStretch();
     
-    // Set minimum width for controls panel to keep them from shrinking too much
+    // Set maximum width for controls panel to keep them from shrinking too much
     QWidget* controls_widget = new QWidget();
     controls_widget->setLayout(controls_layout);
     controls_widget->setMaximumWidth(200);
+    controls_widget->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     content_layout->addWidget(controls_widget);
     
     main_layout->addLayout(content_layout, 1);

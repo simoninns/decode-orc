@@ -21,6 +21,26 @@
 #include <optional>
 #include "../../core/analysis/vectorscope/vectorscope_data.h"
 
+/**
+ * @brief QLabel subclass that maintains aspect ratio of the displayed pixmap
+ */
+class AspectRatioLabel : public QLabel {
+    Q_OBJECT
+
+public:
+    explicit AspectRatioLabel(QWidget* parent = nullptr);
+    
+    void setPixmap(const QPixmap& pixmap);
+    
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+    
+private:
+    void updateScaledPixmap();
+    
+    QPixmap original_pixmap_;
+};
+
 namespace orc {
     struct VectorscopeData;
     class ChromaSinkStage;
@@ -81,7 +101,7 @@ private:
     orc::ChromaSinkStage* stage_;  // Not owned
     
     // UI components
-    QLabel* scope_label_;
+    AspectRatioLabel* scope_label_;
     QLabel* info_label_;
     
     // Display options

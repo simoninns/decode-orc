@@ -499,19 +499,21 @@ bool ChromaSinkStage::trigger(
     }
     
     // 5. Determine frame range to process
-    size_t total_fields = vfr->field_count();
-    size_t total_frames = total_fields / 2;
+    // Use the field_range from VFR (which may be filtered by upstream stages like field_map)
+    // If no upstream filtering, this returns the full source range
+    FieldIDRange field_range = vfr->field_range();
+    size_t total_source_fields = vfr->field_count();
+    size_t total_source_frames = total_source_fields / 2;
     
-    // Process all frames (hints will control frame range)
-    size_t start_frame = 0;
-    size_t end_frame = total_frames;
+    // Calculate frame range from field_range
+    // field_range.start and field_range.end are field IDs (0-based)
+    // Convert to frame numbers (also 0-based): frame = field / 2
+    size_t start_frame = field_range.start.value() / 2;
+    size_t end_frame = (field_range.end.value() + 1) / 2;  // +1 because end is inclusive in field IDs
     
-    ORC_LOG_INFO("ChromaSink: Processing frames {} to {} (of {})", 
-                 start_frame + 1, end_frame, total_frames);
-    
-    // Debug: Check field range
-    auto field_range = vfr->field_range();
-    // Field range determined
+    ORC_LOG_INFO("ChromaSink: Processing frames {} to {} (of {} in source, field range {}-{})", 
+                 start_frame + 1, end_frame, total_source_frames, 
+                 field_range.start.value(), field_range.end.value());
     
     // 6. Field ordering and interlacing structure
     // In interlaced video, each frame consists of two fields captured sequentially.
@@ -561,11 +563,17 @@ bool ChromaSinkStage::trigger(
                  total_fields_needed, extended_start_frame + 1, extended_end_frame);
     
     for (int32_t frame = extended_start_frame; frame < extended_end_frame; frame++) {
-        // Determine if this frame is outside the valid range (need black padding)
+        // Determine if this frame is outside the SOURCE TBC range (need black padding)
+        // Note: For decoder context (lookbehind/lookahead), we can use frames from the source
+        // even if they're outside the field_map filtered range. Only use black when the frame
+        // doesn't exist in the source TBC at all.
         // Note: 'frame' is in 0-based indexing
-        // Valid frames are 0 to (total_frames - 1) in 0-based indexing
-        // Frames < 0 or >= total_frames need black padding
-        bool useBlankFrame = (frame < 0) || (frame >= static_cast<int32_t>(total_frames));
+        bool useBlankFrame = (frame < 0) || (frame >= static_cast<int32_t>(total_source_frames));
+        
+        if (frame < 3 || frame > static_cast<int32_t>(end_frame) - 3) {
+            ORC_LOG_INFO("ChromaSink: Frame {} useBlankFrame={} (total_source_frames={})", 
+                        frame, useBlankFrame, total_source_frames);
+        }
         
         // Convert frame to 1-based for field ID calculation (TBC uses 1-based frame numbering)
         // For metadata lookup, use frame+1 to match TBC's 1-based system
@@ -629,6 +637,16 @@ bool ChromaSinkStage::trigger(
             sf1 = convertToSourceField(vfr.get(), firstFieldId);
             sf2 = convertToSourceField(vfr.get(), secondFieldId);
             
+            // Debug: check if we got data
+            if (frame < 3) {
+                size_t nonzero = 0;
+                for (size_t i = 0; i < std::min(sf1.data.size(), size_t(1000)); i++) {
+                    if (sf1.data[i] != videoParams.black_16b_ire) nonzero++;
+                }
+                ORC_LOG_INFO("ChromaSink: Frame {} field {} has {} non-black samples in first 1000", 
+                            frame, firstFieldId.value(), nonzero);
+            }
+            
             // Apply PAL subcarrier shift: With subcarrier-locked 4fSC PAL sampling,
             // we have four "extra" samples over the course of the frame, so the two
             // fields will be horizontally misaligned by two samples. Shift the
@@ -656,7 +674,14 @@ bool ChromaSinkStage::trigger(
     // THREAD SAFETY: Each worker thread creates its own decoder instance to avoid state conflicts.
     // Transform PAL decoders use FFT buffers that cannot be shared between threads.
     
-    int32_t numFrames = (end_frame - start_frame);
+    // Calculate how many frames to OUTPUT (excluding lookahead frames used only for context)
+    // The field_range may include extra frames for lookahead, but we only output up to end_frame - lookAheadFrames
+    int32_t numOutputFrames = (end_frame - start_frame) - lookAheadFrames;
+    int32_t numFrames = numOutputFrames;
+    
+    ORC_LOG_INFO("ChromaSink: Will output {} frames (total range {} - lookahead {})", 
+                 numOutputFrames, end_frame - start_frame, lookAheadFrames);
+    
     std::vector<ComponentFrame> outputFrames;
     outputFrames.resize(numFrames);
     
@@ -776,7 +801,39 @@ bool ChromaSinkStage::trigger(
             
             // The target frame's position within frameFields depends on how much lookbehind we actually got
             int32_t actualLookbehindFields = (frameStartIdx - copyStartIdx);
-            int32_t frameStartIndex = actualLookbehindFields;
+            
+            // CRITICAL: For Transform3D temporal consistency, all frames must be decoded at the
+            // SAME Z-position (temporal index) regardless of their frame number.
+            // Always decode at lookBehindFrames * 2 field indices, which is after the lookbehind context.
+            // If we don't have full lookbehind (edge frames), pad the frameFields with black to maintain position.
+            std::vector<SourceField> paddedFrameFields;
+            int32_t requiredLookbehindFields = lookBehindFrames * 2;
+            
+            if (actualLookbehindFields < requiredLookbehindFields) {
+                // Need to pad with black fields at the start
+                int32_t paddingNeeded = requiredLookbehindFields - actualLookbehindFields;
+                
+                // Create black fields for padding
+                for (int32_t p = 0; p < paddingNeeded; p++) {
+                    SourceField blackField;
+                    if (!frameFields.empty()) {
+                        blackField = frameFields[0];  // Copy structure
+                        uint16_t black = videoParams.black_16b_ire;
+                        blackField.data.assign(blackField.data.size(), black);
+                    }
+                    paddedFrameFields.push_back(blackField);
+                }
+                
+                // Add the actual fields
+                for (const auto& field : frameFields) {
+                    paddedFrameFields.push_back(field);
+                }
+                
+                frameFields = paddedFrameFields;
+            }
+            
+            // Now all frames decode at the same Z-position: after lookBehindFrames * 2 fields
+            int32_t frameStartIndex = requiredLookbehindFields;
             int32_t frameEndIndex = frameStartIndex + 2;
             
             // Prepare single-frame output buffer

@@ -42,7 +42,6 @@ std::vector<std::string> OutputBackendFactory::getSupportedFormats()
     
 #ifdef HAVE_FFMPEG
     formats.push_back("mp4-h264");
-    formats.push_back("mp4-h265");
     formats.push_back("mkv-ffv1");
 #endif
     

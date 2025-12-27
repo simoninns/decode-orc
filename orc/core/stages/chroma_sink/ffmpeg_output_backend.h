@@ -64,6 +64,7 @@ private:
     VideoSystem video_system_ = VideoSystem::PAL;
     double black_ire_ = 0.0;
     double white_ire_ = 0.0;
+    bool active_area_only_ = false;
     
     // Helper methods
     bool setupEncoder(const std::string& codec_id, const orc::VideoParameters& params);

@@ -65,6 +65,9 @@ void FFmpegOutputBackend::cleanup()
 
 bool FFmpegOutputBackend::initialize(const Configuration& config)
 {
+    // Store configuration
+    active_area_only_ = config.active_area_only;
+    
     // Parse format string (e.g., "mp4-h264", "mkv-ffv1")
     auto it = config.options.find("format");
     if (it == config.options.end()) {
@@ -81,6 +84,12 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     
     container_format_ = format_str.substr(0, dash_pos);
     codec_name_ = format_str.substr(dash_pos + 1);
+    
+    // Map user-friendly container names to FFmpeg format names
+    std::string ffmpeg_format = container_format_;
+    if (container_format_ == "mkv") {
+        ffmpeg_format = "matroska";
+    }
     
     ORC_LOG_INFO("FFmpegOutputBackend: Initializing {} output with {} codec", container_format_, codec_name_);
     
@@ -99,7 +108,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     }
     
     // Allocate format context
-    int ret = avformat_alloc_output_context2(&format_ctx_, nullptr, container_format_.c_str(), config.output_path.c_str());
+    int ret = avformat_alloc_output_context2(&format_ctx_, nullptr, ffmpeg_format.c_str(), config.output_path.c_str());
     if (ret < 0 || !format_ctx_) {
         char errbuf[AV_ERROR_MAX_STRING_SIZE];
         av_strerror(ret, errbuf, sizeof(errbuf));
@@ -196,9 +205,11 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     width_ = active_width_;
     height_ = active_height_;
     
-    // Pad to multiple of 16 (required by most codecs)
-    while (width_ % 16 != 0) width_++;
-    while (height_ % 16 != 0) height_++;
+    // Pad to multiple of 16 (required by most codecs) unless active area only
+    if (!active_area_only_) {
+        while (width_ % 16 != 0) width_++;
+        while (height_ % 16 != 0) height_++;
+    }
     
     // Set codec parameters
     codec_ctx_->codec_id = codec->id;

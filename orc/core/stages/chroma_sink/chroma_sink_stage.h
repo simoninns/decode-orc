@@ -142,6 +142,7 @@ private:
     bool ntsc_phase_comp_;
     bool simple_pal_;
     int output_padding_;
+    bool active_area_only_;
     
     // Status tracking
     std::string trigger_status_;

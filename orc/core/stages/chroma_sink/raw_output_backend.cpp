@@ -55,7 +55,7 @@ bool RawOutputBackend::initialize(const Configuration& config)
     // Create and configure OutputWriter
     writer_ = std::make_unique<OutputWriter>();
     OutputWriter::Configuration writer_config;
-    writer_config.paddingAmount = config.padding_amount;
+    writer_config.paddingAmount = config.active_area_only ? 1 : config.padding_amount;
     writer_config.pixelFormat = pixel_format_;
     writer_config.outputY4m = output_y4m_;
     

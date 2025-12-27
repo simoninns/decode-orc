@@ -52,6 +52,7 @@ ChromaSinkStage::ChromaSinkStage()
     , ntsc_phase_comp_(false)
     , simple_pal_(false)
     , output_padding_(8)
+    , active_area_only_(false)
 {
 }
 
@@ -124,7 +125,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Output Format",
             "Output format:\n"
             "  Raw: rgb (RGB48), yuv (YUV444P16), y4m (YUV444P16 with Y4M headers)\n"
-            "  Encoded: mp4-h264, mp4-h265, mkv-ffv1 (requires FFmpeg libraries)",
+            "  Encoded: mp4-h264, mkv-ffv1 (requires FFmpeg libraries)",
             ParameterType::STRING,
             {{}, {}, {}, OutputBackendFactory::getSupportedFormats(), false}
         },
@@ -169,6 +170,13 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Pad output to multiple of this many pixels on both axes. Range: 1-32",
             ParameterType::INT32,
             {1, 32, 8, {}, false}
+        },
+        ParameterDescriptor{
+            "active_area_only",
+            "Active Area Only",
+            "Output only the active video area without padding",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false}
         }
     };
     
@@ -224,6 +232,7 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["ntsc_phase_comp"] = ntsc_phase_comp_;
     params["simple_pal"] = simple_pal_;
     params["output_padding"] = output_padding_;
+    params["active_area_only"] = active_area_only_;
     return params;
 }
 
@@ -329,6 +338,13 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "output_padding") {
             if (std::holds_alternative<int>(value)) {
                 output_padding_ = std::get<int>(value);
+            }
+        } else if (key == "active_area_only") {
+            if (std::holds_alternative<bool>(value)) {
+                active_area_only_ = std::get<bool>(value);
+            } else if (std::holds_alternative<std::string>(value)) {
+                auto str_val = std::get<std::string>(value);
+                active_area_only_ = (str_val == "true" || str_val == "1" || str_val == "yes");
             }
         }
     }
@@ -1039,6 +1055,7 @@ bool ChromaSinkStage::writeOutputFile(
     config.output_path = output_path;
     config.video_params = videoParams;
     config.padding_amount = output_padding_;
+    config.active_area_only = active_area_only_;
     config.options["format"] = format;
     
     // Initialize backend

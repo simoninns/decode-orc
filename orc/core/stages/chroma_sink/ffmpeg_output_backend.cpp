@@ -85,6 +85,11 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     container_format_ = format_str.substr(0, dash_pos);
     codec_name_ = format_str.substr(dash_pos + 1);
     
+    // Store encoder quality settings
+    encoder_preset_ = config.encoder_preset;
+    encoder_crf_ = config.encoder_crf;
+    encoder_bitrate_ = config.encoder_bitrate;
+    
     // Map user-friendly container names to FFmpeg format names
     std::string ffmpeg_format = container_format_;
     if (container_format_ == "mkv") {
@@ -255,17 +260,38 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     
     // Codec-specific settings
     if (codec_id == "libx264" || codec_id == "libx265") {
-        // High quality archival settings (only for libx264/libx265)
-        av_opt_set(codec_ctx_->priv_data, "preset", "medium", 0);
-        av_opt_set(codec_ctx_->priv_data, "crf", "18", 0);  // Visually transparent
+        // Use user-specified preset and quality settings
+        av_opt_set(codec_ctx_->priv_data, "preset", encoder_preset_.c_str(), 0);
+        
+        // Use CRF or bitrate based on encoder_bitrate setting
+        if (encoder_bitrate_ > 0) {
+            // Explicit bitrate mode
+            codec_ctx_->bit_rate = encoder_bitrate_;
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Using bitrate mode: {} bps", encoder_bitrate_);
+        } else {
+            // CRF mode (constant quality)
+            char crf_str[16];
+            snprintf(crf_str, sizeof(crf_str), "%d", encoder_crf_);
+            av_opt_set(codec_ctx_->priv_data, "crf", crf_str, 0);
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Using CRF mode: {}", encoder_crf_);
+        }
     } else if (codec_id == "libopenh264") {
-        // OpenH264 doesn't support CRF, use high bitrate instead
-        codec_ctx_->bit_rate = 20000000;  // 20 Mbps for high quality
+        // OpenH264 doesn't support CRF, use bitrate
+        if (encoder_bitrate_ > 0) {
+            codec_ctx_->bit_rate = encoder_bitrate_;
+        } else {
+            // Default to high bitrate if CRF specified
+            codec_ctx_->bit_rate = 20000000;  // 20 Mbps for high quality
+        }
     } else if (codec_id.find("_vaapi") != std::string::npos || 
                codec_id.find("_qsv") != std::string::npos ||
                codec_id.find("_nvenc") != std::string::npos) {
-        // Hardware encoders - use high quality settings
-        codec_ctx_->bit_rate = 20000000;  // 20 Mbps
+        // Hardware encoders - use bitrate mode
+        if (encoder_bitrate_ > 0) {
+            codec_ctx_->bit_rate = encoder_bitrate_;
+        } else {
+            codec_ctx_->bit_rate = 20000000;  // 20 Mbps default
+        }
         if (codec_id.find("_vaapi") != std::string::npos) {
             av_opt_set(codec_ctx_->priv_data, "quality", "1", 0);  // Best quality for VAAPI
         } else if (codec_id.find("_nvenc") != std::string::npos) {

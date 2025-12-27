@@ -53,6 +53,9 @@ ChromaSinkStage::ChromaSinkStage()
     , simple_pal_(false)
     , output_padding_(8)
     , active_area_only_(false)
+    , encoder_preset_("medium")
+    , encoder_crf_(18)
+    , encoder_bitrate_(0)  // 0 = use CRF
 {
 }
 
@@ -177,6 +180,30 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Output only the active video area without padding",
             ParameterType::BOOL,
             {{}, {}, false, {}, false}
+        },
+        ParameterDescriptor{
+            "encoder_preset",
+            "Encoder Preset",
+            "Encoder speed/quality preset (for H.264/H.265): fast, medium, slow, veryslow",
+            ParameterType::STRING,
+            {{}, {}, {}, {"fast", "medium", "slow", "veryslow"}, false, 
+             ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
+        },
+        ParameterDescriptor{
+            "encoder_crf",
+            "Encoder CRF",
+            "Constant Rate Factor for quality (0-51, lower=better). Typical: 18-28. 0 = use bitrate instead",
+            ParameterType::INT32,
+            {0, 51, 18, {}, false,
+             ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
+        },
+        ParameterDescriptor{
+            "encoder_bitrate",
+            "Encoder Bitrate",
+            "Target bitrate in bits/sec (0 = use CRF instead). Example: 10000000 = 10 Mbps",
+            ParameterType::INT32,
+            {0, 100000000, 0, {}, false,
+             ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
         }
     };
     
@@ -233,6 +260,9 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["simple_pal"] = simple_pal_;
     params["output_padding"] = output_padding_;
     params["active_area_only"] = active_area_only_;
+    params["encoder_preset"] = encoder_preset_;
+    params["encoder_crf"] = encoder_crf_;
+    params["encoder_bitrate"] = encoder_bitrate_;
     return params;
 }
 
@@ -345,6 +375,18 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             } else if (std::holds_alternative<std::string>(value)) {
                 auto str_val = std::get<std::string>(value);
                 active_area_only_ = (str_val == "true" || str_val == "1" || str_val == "yes");
+            }
+        } else if (key == "encoder_preset") {
+            if (std::holds_alternative<std::string>(value)) {
+                encoder_preset_ = std::get<std::string>(value);
+            }
+        } else if (key == "encoder_crf") {
+            if (std::holds_alternative<int>(value)) {
+                encoder_crf_ = std::get<int>(value);
+            }
+        } else if (key == "encoder_bitrate") {
+            if (std::holds_alternative<int>(value)) {
+                encoder_bitrate_ = std::get<int>(value);
             }
         }
     }
@@ -1057,6 +1099,11 @@ bool ChromaSinkStage::writeOutputFile(
     config.padding_amount = output_padding_;
     config.active_area_only = active_area_only_;
     config.options["format"] = format;
+    
+    // Pass encoder quality settings
+    config.encoder_preset = encoder_preset_;
+    config.encoder_crf = encoder_crf_;
+    config.encoder_bitrate = encoder_bitrate_;
     
     // Initialize backend
     if (!backend->initialize(config)) {

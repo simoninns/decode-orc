@@ -75,10 +75,16 @@ private:
     struct ParameterWidget {
         orc::ParameterType type;
         QWidget* widget;  // Points to actual widget (QSpinBox, QCheckBox, etc.)
+        QLabel* label;    // Associated label widget (for enabling/disabling)
     };
     std::map<std::string, ParameterWidget> parameter_widgets_;
     
+    // Build UI from descriptors
     void build_ui(const std::map<std::string, orc::ParameterValue>& current_values);
+    
+    // Update widget enable/disable state based on dependencies
+    void update_dependencies();
+    
     void reset_to_defaults();
     bool validate_values();
     

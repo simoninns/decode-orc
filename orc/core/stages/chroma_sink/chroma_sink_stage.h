@@ -144,6 +144,11 @@ private:
     int output_padding_;
     bool active_area_only_;
     
+    // Encoder quality parameters (for FFmpeg output)
+    std::string encoder_preset_;   // "fast", "medium", "slow", "veryslow"
+    int encoder_crf_;              // 0-51, typically 18-28 for good quality
+    int encoder_bitrate_;          // bits per second, 0 = use CRF instead
+    
     // Status tracking
     std::string trigger_status_;
     

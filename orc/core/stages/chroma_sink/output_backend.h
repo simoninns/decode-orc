@@ -39,6 +39,11 @@ public:
         int padding_amount = 8;               ///< Padding for codec requirements
         bool active_area_only = false;        ///< Output only active area without padding
         std::map<std::string, std::string> options;  ///< Format-specific options
+        
+        // Encoder quality settings (for FFmpeg backends)
+        std::string encoder_preset = "medium";  ///< Encoder preset: fast, medium, slow, veryslow
+        int encoder_crf = 18;                   ///< Constant Rate Factor (0-51, lower=better)
+        int encoder_bitrate = 0;                ///< Bitrate in bits/sec (0 = use CRF)
     };
     
     /**

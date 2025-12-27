@@ -38,6 +38,12 @@ enum class ParameterType {
     FILE_PATH  // String representing a file path (GUI shows file browser)
 };
 
+/// Parameter dependency specification
+struct ParameterDependency {
+    std::string parameter_name;              // Name of parameter this depends on
+    std::vector<std::string> required_values; // Values that enable this parameter (empty = any non-default)
+};
+
 /// Parameter constraints
 struct ParameterConstraints {
     // For numeric types
@@ -50,6 +56,9 @@ struct ParameterConstraints {
     
     // Whether parameter is required
     bool required = false;
+    
+    // Parameter dependency (optional)
+    std::optional<ParameterDependency> depends_on;
 };
 
 /// Description of a stage parameter

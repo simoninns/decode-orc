@@ -66,6 +66,11 @@ private:
     double white_ire_ = 0.0;
     bool active_area_only_ = false;
     
+    // Encoder quality settings
+    std::string encoder_preset_ = "medium";
+    int encoder_crf_ = 18;
+    int encoder_bitrate_ = 0;
+    
     // Helper methods
     bool setupEncoder(const std::string& codec_id, const orc::VideoParameters& params);
     bool convertAndEncode(const ComponentFrame& component_frame);

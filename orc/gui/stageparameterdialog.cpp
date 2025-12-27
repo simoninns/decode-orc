@@ -16,6 +16,7 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <limits>
+#include <algorithm>
 
 StageParameterDialog::StageParameterDialog(
     const std::string& stage_name,
@@ -245,9 +246,40 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
             widget->setToolTip(QString::fromStdString(desc.description));
             
             form_layout_->addRow(label, widget);
-            parameter_widgets_[desc.name] = ParameterWidget{desc.type, widget};
+            parameter_widgets_[desc.name] = ParameterWidget{desc.type, widget, label};
+            
+            // Connect change signals to update dependencies
+            switch (desc.type) {
+                case orc::ParameterType::STRING:
+                    if (auto* combo = qobject_cast<QComboBox*>(widget)) {
+                        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                                this, &StageParameterDialog::update_dependencies);
+                    } else if (auto* edit = qobject_cast<QLineEdit*>(widget)) {
+                        connect(edit, &QLineEdit::textChanged,
+                                this, &StageParameterDialog::update_dependencies);
+                    }
+                    break;
+                case orc::ParameterType::INT32:
+                case orc::ParameterType::UINT32:
+                    connect(static_cast<QSpinBox*>(widget), QOverload<int>::of(&QSpinBox::valueChanged),
+                            this, &StageParameterDialog::update_dependencies);
+                    break;
+                case orc::ParameterType::DOUBLE:
+                    connect(static_cast<QDoubleSpinBox*>(widget), QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                            this, &StageParameterDialog::update_dependencies);
+                    break;
+                case orc::ParameterType::BOOL:
+                    connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
+                            this, &StageParameterDialog::update_dependencies);
+                    break;
+                default:
+                    break;
+            }
         }
     }
+    
+    // Initial dependency update
+    update_dependencies();
     
     // If no parameters, show message
     if (descriptors_.empty()) {
@@ -355,6 +387,46 @@ void StageParameterDialog::on_validate_and_accept()
     } else {
         QMessageBox::warning(this, "Invalid Parameters", 
                             "One or more parameter values are invalid.");
+    }
+}
+
+void StageParameterDialog::update_dependencies()
+{
+    // Get current values of all parameters
+    std::map<std::string, orc::ParameterValue> current_values;
+    for (const auto& desc : descriptors_) {
+        current_values[desc.name] = get_widget_value(desc.name);
+    }
+    
+    // Check each parameter's dependencies
+    for (const auto& desc : descriptors_) {
+        if (!desc.constraints.depends_on.has_value()) {
+            continue;  // No dependency, always enabled
+        }
+        
+        const auto& dep = *desc.constraints.depends_on;
+        bool should_enable = false;
+        
+        // Find the value of the parameter we depend on
+        auto it = current_values.find(dep.parameter_name);
+        if (it != current_values.end()) {
+            // Check if current value is in the list of required values
+            if (std::holds_alternative<std::string>(it->second)) {
+                std::string current_val = std::get<std::string>(it->second);
+                should_enable = std::find(dep.required_values.begin(), 
+                                         dep.required_values.end(), 
+                                         current_val) != dep.required_values.end();
+            }
+        }
+        
+        // Enable or disable the widget and label
+        auto widget_it = parameter_widgets_.find(desc.name);
+        if (widget_it != parameter_widgets_.end()) {
+            widget_it->second.widget->setEnabled(should_enable);
+            if (widget_it->second.label) {
+                widget_it->second.label->setEnabled(should_enable);
+            }
+        }
     }
 }
 

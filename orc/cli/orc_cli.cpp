@@ -168,21 +168,29 @@ int main(int argc, char* argv[]) {
     // Initialize logging
     orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
-    // Dispatch to command
-    if (command == "process") {
-        cli::ProcessOptions options;
-        options.project_path = project_path;
-        return cli::process_command(options);
-    } else if (command == "analyze-field-mapping") {
-        cli::AnalyzeFieldMappingOptions options;
-        options.project_path = project_path;
-        options.update_project = update_project;
-        options.pad_gaps = pad_gaps;
-        options.delete_unmappable = delete_unmappable;
-        return cli::analyze_field_mapping_command(options);
-    } else {
-        std::cerr << "Error: Unknown command: " << command << "\n";
-        print_usage(argv[0]);
+    // Dispatch to command with exception handling
+    try {
+        if (command == "process") {
+            cli::ProcessOptions options;
+            options.project_path = project_path;
+            return cli::process_command(options);
+        } else if (command == "analyze-field-mapping") {
+            cli::AnalyzeFieldMappingOptions options;
+            options.project_path = project_path;
+            options.update_project = update_project;
+            options.pad_gaps = pad_gaps;
+            options.delete_unmappable = delete_unmappable;
+            return cli::analyze_field_mapping_command(options);
+        } else {
+            std::cerr << "Error: Unknown command: " << command << "\n";
+            print_usage(argv[0]);
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "\nFATAL ERROR: " << e.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "\nFATAL ERROR: Unknown exception occurred\n";
         return 1;
     }
 }

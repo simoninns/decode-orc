@@ -96,51 +96,56 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
         ORC_LOG_INFO("Found connected field_map node: {}", field_map_node_id);
         
         // Execute DAG to get source representation
-        DAGExecutor executor;
-        auto results = executor.execute_to_node(*dag, source_node_id);
-        
-        auto source_it = results.find(source_node_id);
-        if (source_it == results.end() || source_it->second.empty()) {
-            ORC_LOG_ERROR("Failed to execute source node {}", source_node_id);
+        try {
+            DAGExecutor executor;
+            auto results = executor.execute_to_node(*dag, source_node_id);
+            
+            auto source_it = results.find(source_node_id);
+            if (source_it == results.end() || source_it->second.empty()) {
+                ORC_LOG_ERROR("Failed to execute source node {}", source_node_id);
+                continue;
+            }
+            
+            auto source_artifact = source_it->second[0];
+            auto* video_rep = dynamic_cast<VideoFieldRepresentation*>(source_artifact.get());
+            if (!video_rep) {
+                ORC_LOG_ERROR("Source node {} did not produce VideoFieldRepresentation", source_node_id);
+                continue;
+            }
+            
+            ORC_LOG_INFO("Running field mapping analysis...");
+            
+            // Run field mapping analysis
+            FieldMappingAnalyzer analyzer;
+            FieldMappingAnalyzer::Options analyzer_options;
+            analyzer_options.pad_gaps = options.pad_gaps;
+            analyzer_options.delete_unmappable_frames = options.delete_unmappable;
+            
+            auto decision = analyzer.analyze(*video_rep, analyzer_options);
+            
+            if (!decision.success) {
+                ORC_LOG_ERROR("Field mapping analysis failed for {}: {}", source_node_id, decision.rationale);
+                continue;
+            }
+            
+            ORC_LOG_INFO("Field mapping analysis successful");
+            ORC_LOG_INFO("Mapping specification: {}", decision.mapping_spec);
+            ORC_LOG_INFO("Statistics:");
+            ORC_LOG_INFO("  Input: {} fields", decision.stats.total_fields);
+            ORC_LOG_INFO("  Output: {} fields", (decision.stats.total_fields - decision.stats.removed_lead_in_out * 2 
+                         - decision.stats.removed_invalid_phase * 2 - decision.stats.removed_duplicates * 2 
+                         - decision.stats.removed_unmappable * 2 + decision.stats.padding_frames * 2));
+            ORC_LOG_INFO("  Removed: invalid_phase={} duplicates={} lead_in_out={}", 
+                         decision.stats.removed_invalid_phase, decision.stats.removed_duplicates, 
+                         decision.stats.removed_lead_in_out);
+            ORC_LOG_INFO("  Added: padding_frames={}", decision.stats.padding_frames);
+            
+            // Store decision for this field_map node
+            decisions[field_map_node_id] = decision;
+        } catch (const std::exception& e) {
+            ORC_LOG_ERROR("Failed to analyze source node {}: {}", source_node_id, e.what());
             continue;
         }
-        
-        auto source_artifact = source_it->second[0];
-        auto* video_rep = dynamic_cast<VideoFieldRepresentation*>(source_artifact.get());
-        if (!video_rep) {
-            ORC_LOG_ERROR("Source node {} did not produce VideoFieldRepresentation", source_node_id);
-            continue;
-        }
-        
-        ORC_LOG_INFO("Running field mapping analysis...");
-        
-        // Run field mapping analysis
-        FieldMappingAnalyzer analyzer;
-        FieldMappingAnalyzer::Options analyzer_options;
-        analyzer_options.pad_gaps = options.pad_gaps;
-        analyzer_options.delete_unmappable_frames = options.delete_unmappable;
-        
-        auto decision = analyzer.analyze(*video_rep, analyzer_options);
-        
-        if (!decision.success) {
-            ORC_LOG_ERROR("Field mapping analysis failed for {}: {}", source_node_id, decision.rationale);
-            continue;
-        }
-        
-        ORC_LOG_INFO("Field mapping analysis successful");
-        ORC_LOG_INFO("Mapping specification: {}", decision.mapping_spec);
-        ORC_LOG_INFO("Statistics:");
-        ORC_LOG_INFO("  Input: {} fields", decision.stats.total_fields);
-        ORC_LOG_INFO("  Output: {} fields", (decision.stats.total_fields - decision.stats.removed_lead_in_out * 2 
-                     - decision.stats.removed_invalid_phase * 2 - decision.stats.removed_duplicates * 2 
-                     - decision.stats.removed_unmappable * 2 + decision.stats.padding_frames * 2));
-        ORC_LOG_INFO("  Removed: invalid_phase={} duplicates={} lead_in_out={}", 
-                     decision.stats.removed_invalid_phase, decision.stats.removed_duplicates, 
-                     decision.stats.removed_lead_in_out);
-        ORC_LOG_INFO("  Added: padding_frames={}", decision.stats.padding_frames);
-        
-        // Store decision for this field_map node
-        decisions[field_map_node_id] = decision;
     }
     
     if (decisions.empty()) {

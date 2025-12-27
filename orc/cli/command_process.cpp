@@ -116,20 +116,32 @@ int process_command(const ProcessOptions& options) {
         DAGExecutor executor;
         
         std::vector<ArtifactPtr> inputs;
+        bool inputs_failed = false;
         for (const auto& input_node_id : node_it->input_node_ids) {
-            ORC_LOG_DEBUG("Executing to input node '{}'", input_node_id);
-            auto results = executor.execute_to_node(*dag, input_node_id);
-            
-            auto input_it = results.find(input_node_id);
-            if (input_it != results.end() && !input_it->second.empty()) {
-                ORC_LOG_DEBUG("Collected input from node '{}': {} outputs", 
-                             input_node_id, input_it->second.size());
-                inputs.push_back(input_it->second[0]);
-            } else {
-                ORC_LOG_ERROR("No output found for input node '{}'", input_node_id);
-                all_success = false;
-                continue;
+            try {
+                ORC_LOG_DEBUG("Executing to input node '{}'", input_node_id);
+                auto results = executor.execute_to_node(*dag, input_node_id);
+                
+                auto input_it = results.find(input_node_id);
+                if (input_it != results.end() && !input_it->second.empty()) {
+                    ORC_LOG_DEBUG("Collected input from node '{}': {} outputs", 
+                                 input_node_id, input_it->second.size());
+                    inputs.push_back(input_it->second[0]);
+                } else {
+                    ORC_LOG_ERROR("No output found for input node '{}'", input_node_id);
+                    inputs_failed = true;
+                    break;
+                }
+            } catch (const std::exception& e) {
+                ORC_LOG_ERROR("Failed to execute node '{}': {}", input_node_id, e.what());
+                inputs_failed = true;
+                break;
             }
+        }
+        
+        if (inputs_failed) {
+            all_success = false;
+            continue;
         }
         
         if (inputs.size() != node_it->input_node_ids.size()) {
@@ -139,15 +151,20 @@ int process_command(const ProcessOptions& options) {
         }
         
         // Trigger the stage
-        ORC_LOG_INFO("Calling trigger() with {} inputs", inputs.size());
-        bool success = trigger_stage->trigger(inputs, node_it->parameters);
-        
-        if (success) {
-            std::string status = trigger_stage->get_trigger_status();
-            ORC_LOG_INFO("Trigger SUCCESS: {}", status);
-        } else {
-            std::string status = trigger_stage->get_trigger_status();
-            ORC_LOG_ERROR("Trigger FAILED: {}", status);
+        try {
+            ORC_LOG_INFO("Calling trigger() with {} inputs", inputs.size());
+            bool success = trigger_stage->trigger(inputs, node_it->parameters);
+            
+            if (success) {
+                std::string status = trigger_stage->get_trigger_status();
+                ORC_LOG_INFO("Trigger SUCCESS: {}", status);
+            } else {
+                std::string status = trigger_stage->get_trigger_status();
+                ORC_LOG_ERROR("Trigger FAILED: {}", status);
+                all_success = false;
+            }
+        } catch (const std::exception& e) {
+            ORC_LOG_ERROR("Trigger failed with exception: {}", e.what());
             all_success = false;
         }
     }

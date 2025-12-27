@@ -1,7 +1,7 @@
 /*
  * File:        ld_sink_stage.h
  * Module:      orc-core
- * Purpose:     LaserDisc Sink Stage - writes TBC and metadata to disk
+ * Purpose:     ld-decode sink Stage - writes TBC and metadata to disk
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
@@ -53,7 +53,7 @@ public:
 };
 
 /**
- * @brief LaserDisc Sink Stage
+ * @brief ld-decode Sink Stage
  * 
  * Writes TBC fields and metadata to disk in format compatible with legacy tools.
  * This is a SINK stage - it has inputs but no outputs.
@@ -85,7 +85,7 @@ public:
     size_t output_count() const override { return 0; }  // Sink has no outputs
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     

@@ -12,8 +12,20 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include "tbc_metadata.h"
 
 namespace orc {
+
+/**
+ * @brief Video format compatibility for stages
+ * 
+ * Defines which video formats (NTSC/PAL) a stage supports.
+ */
+enum class VideoFormatCompatibility {
+    ALL,        // Works with any format (NTSC, PAL, PAL-M, etc.)
+    NTSC_ONLY,  // Only works with NTSC
+    PAL_ONLY,   // Only works with PAL or PAL-M
+};
 
 /**
  * @brief Node connectivity pattern
@@ -56,6 +68,7 @@ struct NodeTypeInfo {
     uint32_t max_inputs;        // Maximum number of inputs (0 for SOURCE, UINT32_MAX for unlimited)
     uint32_t min_outputs;       // Minimum number of outputs (0 for SINK)
     uint32_t max_outputs;       // Maximum number of outputs (0 for SINK, UINT32_MAX for unlimited)
+    VideoFormatCompatibility compatible_formats;  // Video format compatibility
 };
 
 /**
@@ -81,5 +94,14 @@ const std::vector<NodeTypeInfo>& get_all_node_types();
  * @return true if connection is allowed
  */
 bool is_connection_valid(const std::string& source_stage, const std::string& target_stage);
+
+/**
+ * @brief Check if a stage is compatible with a video format
+ * 
+ * @param stage_name Stage identifier
+ * @param format Video format to check
+ * @return true if stage is compatible with the format
+ */
+bool is_stage_compatible_with_format(const std::string& stage_name, VideoSystem format);
 
 } // namespace orc

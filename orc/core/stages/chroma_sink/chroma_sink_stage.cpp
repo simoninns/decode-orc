@@ -70,7 +70,8 @@ NodeTypeInfo ChromaSinkStage::get_node_type_info() const
         1,  // min_inputs
         1,  // max_inputs
         0,  // min_outputs
-        0   // max_outputs
+        0,  // max_outputs
+        VideoFormatCompatibility::ALL
     };
 }
 
@@ -89,30 +90,19 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
     return {};  // No outputs
 }
 
-std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(VideoSystem project_format) const
 {
-    // Determine available decoder types based on input video system
+    // Determine available decoder types based on project video format
     std::vector<std::string> decoder_options;
     
-    if (cached_input_) {
-        auto video_params = cached_input_->get_video_parameters();
-        if (video_params) {
-            if (video_params->system == VideoSystem::PAL || video_params->system == VideoSystem::PAL_M) {
-                // PAL-specific decoders
-                decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
-            } else if (video_params->system == VideoSystem::NTSC) {
-                // NTSC-specific decoders
-                decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
-            } else {
-                // Unknown system - show all
-                decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
-            }
-        } else {
-            // No video params yet - show all
-            decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
-        }
+    if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
+        // PAL-specific decoders
+        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+    } else if (project_format == VideoSystem::NTSC) {
+        // NTSC-specific decoders
+        decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
     } else {
-        // No input yet - show all
+        // Unknown system - show all (for backwards compatibility or if not set)
         decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
     }
     
@@ -1255,8 +1245,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             if (!sf.data.empty()) {
                 inputFields.push_back(sf);
             }
-        } else if (f < 0) {
-            // For negative indices (look-behind), create a blank field with proper metadata
+        } else {
+            // For out-of-bounds indices (look-behind or look-ahead), create a blank field with proper metadata
             SourceField blank_field;
             blank_field.field.seq_no = static_cast<int32_t>(f) + 1;
             blank_field.field.is_first_field = (f % 2 == 0);  // Even indices are first field

@@ -233,9 +233,15 @@ void MainWindow::setupMenus()
 {
     auto* file_menu = menuBar()->addMenu("&File");
     
-    auto* new_project_action = file_menu->addAction("&New Project...");
-    new_project_action->setShortcut(QKeySequence::New);
-    connect(new_project_action, &QAction::triggered, this, &MainWindow::onNewProject);
+    // New Project submenu with NTSC and PAL options
+    auto* new_project_menu = file_menu->addMenu("&New Project");
+    
+    auto* new_ntsc_project_action = new_project_menu->addAction("New &NTSC Project...");
+    new_ntsc_project_action->setShortcut(QKeySequence::New);
+    connect(new_ntsc_project_action, &QAction::triggered, this, &MainWindow::onNewNTSCProject);
+    
+    auto* new_pal_project_action = new_project_menu->addAction("New &PAL Project...");
+    connect(new_pal_project_action, &QAction::triggered, this, &MainWindow::onNewPALProject);
     
     auto* open_project_action = file_menu->addAction("&Open Project...");
     open_project_action->setShortcut(QKeySequence::Open);
@@ -315,7 +321,18 @@ void MainWindow::setupToolbar()
 
 void MainWindow::onNewProject()
 {
-    newProject();
+    // Default to NTSC for backward compatibility
+    newProject(orc::VideoSystem::NTSC);
+}
+
+void MainWindow::onNewNTSCProject()
+{
+    newProject(orc::VideoSystem::NTSC);
+}
+
+void MainWindow::onNewPALProject()
+{
+    newProject(orc::VideoSystem::PAL);
 }
 
 void MainWindow::onOpenProject()
@@ -387,7 +404,7 @@ void MainWindow::onEditProject()
 }
 
 
-void MainWindow::newProject()
+void MainWindow::newProject(orc::VideoSystem video_format)
 {
     QString filename = QFileDialog::getSaveFileName(
         this,
@@ -421,7 +438,7 @@ void MainWindow::newProject()
     QString project_name = QFileInfo(filename).completeBaseName();
     
     QString error;
-    if (!project_.newEmptyProject(project_name, &error)) {
+    if (!project_.newEmptyProject(project_name, video_format, &error)) {
         ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
@@ -872,8 +889,8 @@ void MainWindow::onEditParameters(const std::string& node_id)
         return;
     }
     
-    // Get parameter descriptors
-    auto param_descriptors = param_stage->get_parameter_descriptors();
+    // Get parameter descriptors with project video format context
+    auto param_descriptors = param_stage->get_parameter_descriptors(project_.coreProject().get_video_format());
     
     if (param_descriptors.empty()) {
         QMessageBox::information(this, "Edit Parameters",

@@ -258,8 +258,9 @@ std::shared_ptr<const VideoFieldRepresentation> OverwriteStage::process(
     );
 }
 
-std::vector<ParameterDescriptor> OverwriteStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> OverwriteStage::get_parameter_descriptors(VideoSystem project_format) const
 {
+    (void)project_format;  // Unused - overwrite works with all formats
     std::vector<ParameterDescriptor> descriptors;
     
     ParameterDescriptor desc;

@@ -1,7 +1,7 @@
 /*
  * File:        ld_sink_stage.cpp
  * Module:      orc-core
- * Purpose:     LaserDisc Sink Stage implementation
+ * Purpose:     ld-decode sink Stage implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
@@ -43,12 +43,13 @@ NodeTypeInfo LDSinkStage::get_node_type_info() const
     return NodeTypeInfo{
         NodeType::SINK,              // type
         "ld_sink",                   // stage_name
-        "LaserDisc Sink",            // display_name
+        "ld-decode Sink",            // display_name
         "Writes TBC fields and metadata to disk. Trigger to export all fields.",  // description
         1,                           // min_inputs
         1,                           // max_inputs
         0,                           // min_outputs
-        0                            // max_outputs
+        0,                           // max_outputs
+        VideoFormatCompatibility::ALL
     };
 }
 
@@ -67,8 +68,9 @@ std::vector<ArtifactPtr> LDSinkStage::execute(
     return {};  // No outputs
 }
 
-std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors(VideoSystem project_format) const
 {
+    (void)project_format;  // Unused - LD sink works with all formats
     return {
         ParameterDescriptor{
             "tbc_path",

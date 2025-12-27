@@ -44,7 +44,14 @@ public:
     }
     
     // Project operations
-    bool newEmptyProject(const QString& project_name, QString* error = nullptr);
+    /**
+     * Create a new empty project
+     * @param project_name Name for the project
+     * @param video_format Video format (NTSC or PAL)
+     * @param error Optional error message output
+     * @return true if successful, false otherwise
+     */
+    bool newEmptyProject(const QString& project_name, orc::VideoSystem video_format = orc::VideoSystem::Unknown, QString* error = nullptr);
     bool saveToFile(const QString& path, QString* error = nullptr);
     bool loadFromFile(const QString& path, QString* error = nullptr);
     void clear();

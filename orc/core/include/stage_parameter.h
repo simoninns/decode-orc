@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include "tbc_metadata.h"  // For VideoSystem enum
 #include <string>
 #include <variant>
 #include <vector>
@@ -66,7 +67,8 @@ public:
     virtual ~ParameterizedStage() = default;
     
     /// Get list of parameters this stage supports
-    virtual std::vector<ParameterDescriptor> get_parameter_descriptors() const = 0;
+    /// @param project_format Optional video format from project context for filtering options
+    virtual std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const = 0;
     
     /// Get current parameter values
     virtual std::map<std::string, ParameterValue> get_parameters() const = 0;

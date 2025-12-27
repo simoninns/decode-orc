@@ -141,8 +141,9 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     }
 }
 
-std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors(VideoSystem project_format) const
 {
+    (void)project_format;  // Unused - source stages don't need project format
     std::vector<ParameterDescriptor> descriptors;
     
     // tbc_path parameter

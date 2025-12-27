@@ -43,7 +43,8 @@ public:
             "Overwrite",
             "Replace all field data with constant IRE value (for testing)",
             1, 1,  // Exactly one input
-            1, 1   // Exactly one output
+            1, 1,  // Exactly one output
+            VideoFormatCompatibility::ALL
         };
     }    
     std::vector<ArtifactPtr> execute(
@@ -69,7 +70,7 @@ public:
         std::shared_ptr<const VideoFieldRepresentation> source) const;
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 

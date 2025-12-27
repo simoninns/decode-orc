@@ -113,8 +113,9 @@ std::vector<ArtifactPtr> LDPALSourceStage::execute(
     }
 }
 
-std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors(VideoSystem project_format) const
 {
+    (void)project_format;  // Unused - source stages don't need project format
     std::vector<ParameterDescriptor> descriptors;
     
     // tbc_path parameter

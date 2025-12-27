@@ -60,7 +60,7 @@ public:
     ~MainWindow();
     
     // Project operations
-    void newProject();
+    void newProject(orc::VideoSystem video_format = orc::VideoSystem::Unknown);
     void openProject(const QString& filename);
     void saveProject();
     void saveProjectAs();
@@ -71,7 +71,9 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 private slots:
-    void onNewProject();
+    void onNewProject();  // Shows a submenu or default
+    void onNewNTSCProject();
+    void onNewPALProject();
     void onOpenProject();
     void onSaveProject();
     void onSaveProjectAs();

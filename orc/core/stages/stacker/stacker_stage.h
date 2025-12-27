@@ -51,7 +51,8 @@ public:
             "Stacker",
             "Combine multiple TBC sources by stacking fields for superior output quality (1 input = passthrough)",
             1, 16,  // 1 to 16 inputs
-            1, 1   // Exactly one output
+            1, 1,  // Exactly one output
+            VideoFormatCompatibility::ALL
         };
     }    
     std::vector<ArtifactPtr> execute(
@@ -90,7 +91,7 @@ public:
     static size_t max_input_count() { return 16; }
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 

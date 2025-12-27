@@ -46,7 +46,8 @@ public:
             "LD NTSC Source",
             "LaserDisc NTSC input source - loads NTSC TBC files from ld-decode",
             0, 0,  // No inputs
-            1, 1   // Exactly one output
+            1, 1,  // Exactly one output
+            VideoFormatCompatibility::NTSC_ONLY
         };
     }
     
@@ -59,7 +60,7 @@ public:
     size_t output_count() const override { return 1; }
 
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     

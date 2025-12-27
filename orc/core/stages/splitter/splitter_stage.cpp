@@ -47,8 +47,9 @@ SplitterStage::process(std::shared_ptr<const VideoFieldRepresentation> source) c
     return outputs;
 }
 
-std::vector<ParameterDescriptor> SplitterStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> SplitterStage::get_parameter_descriptors(VideoSystem project_format) const
 {
+    (void)project_format;  // Unused - splitter works with all formats
     return {
         ParameterDescriptor{
             "num_outputs",

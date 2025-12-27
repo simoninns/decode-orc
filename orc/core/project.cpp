@@ -91,15 +91,41 @@ NodeType string_to_node_type(const std::string& str) {
 } // anonymous namespace
 
 Project load_project(const std::string& filename) {
-    YAML::Node root = YAML::LoadFile(filename);
+    YAML::Node root;
+    
+    try {
+        root = YAML::LoadFile(filename);
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("Failed to parse YAML file '" + filename + "': " + e.what());
+    }
     
     Project project;
     
-    // Load project metadata
-    if (root["project"]) {
-        project.name_ = root["project"]["name"].as<std::string>("");
-        project.description_ = root["project"]["description"].as<std::string>("");
-        project.version_ = root["project"]["version"].as<std::string>("1.0");
+    // Validate project section exists
+    if (!root["project"]) {
+        throw std::runtime_error("Invalid project file '" + filename + "': missing required 'project' section");
+    }
+    
+    // Validate project name (required)
+    project.name_ = root["project"]["name"].as<std::string>("");
+    if (project.name_.empty()) {
+        throw std::runtime_error("Invalid project file '" + filename + "': project name is required");
+    }
+    
+    project.description_ = root["project"]["description"].as<std::string>("");
+    project.version_ = root["project"]["version"].as<std::string>("1.0");
+    
+    // Validate video format (required)
+    if (!root["project"]["video_format"]) {
+        throw std::runtime_error("Invalid project file '" + filename + "': missing required 'video_format' field. "
+                               "Please create a new project or manually add 'video_format: NTSC' or 'video_format: PAL' to the project section.");
+    }
+    
+    std::string format_str = root["project"]["video_format"].as<std::string>();
+    project.video_format_ = video_system_from_string(format_str);
+    if (project.video_format_ == VideoSystem::Unknown && format_str != "Unknown") {
+        throw std::runtime_error("Invalid project file '" + filename + "': invalid video_format '" + format_str + "'. "
+                               "Valid values are: NTSC, PAL, PAL-M, or Unknown");
     }
     
     // Load DAG nodes
@@ -179,6 +205,12 @@ void save_project(const Project& project, const std::string& filename) {
         out << YAML::Key << "description" << YAML::Value << project.description_;
     }
     out << YAML::Key << "version" << YAML::Value << project.version_;
+    
+    // Save video format if set
+    if (project.video_format_ != VideoSystem::Unknown) {
+        out << YAML::Key << "video_format" << YAML::Value << video_system_to_string(project.video_format_);
+    }
+    
     out << YAML::EndMap;
     
     // DAG
@@ -263,10 +295,11 @@ void save_project(const Project& project, const std::string& filename) {
     project.clear_modified_flag();
 }
 
-Project create_empty_project(const std::string& project_name) {
+Project create_empty_project(const std::string& project_name, VideoSystem video_format) {
     Project project;
     project.name_ = project_name;
     project.version_ = "1.0";
+    project.video_format_ = video_format;
     // Empty sources, nodes_, and edges
     return project;
 }
@@ -616,6 +649,11 @@ void set_project_name(Project& project, const std::string& name) {
 
 void set_project_description(Project& project, const std::string& description) {
     project.description_ = description;
+    project.is_modified_ = true;
+}
+
+void set_video_format(Project& project, VideoSystem video_format) {
+    project.video_format_ = video_format;
     project.is_modified_ = true;
 }
 

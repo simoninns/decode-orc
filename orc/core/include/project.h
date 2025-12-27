@@ -15,6 +15,7 @@
 #include <memory>
 #include "stage_parameter.h"
 #include "node_type.h"
+#include "tbc_metadata.h"
 
 namespace orc {
 
@@ -45,7 +46,7 @@ struct NodeCapabilities {
 namespace project_io {
     Project load_project(const std::string& filename);
     void save_project(const Project& project, const std::string& filename);
-    Project create_empty_project(const std::string& project_name);
+    Project create_empty_project(const std::string& project_name, VideoSystem video_format = VideoSystem::Unknown);
     void update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
     std::string generate_unique_node_id(const Project& project);
     std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
@@ -67,6 +68,7 @@ namespace project_io {
     // Project metadata setters
     void set_project_name(Project& project, const std::string& name);
     void set_project_description(Project& project, const std::string& description);
+    void set_video_format(Project& project, VideoSystem video_format);
 }
 
 /**
@@ -135,6 +137,7 @@ public:
     const std::string& get_name() const { return name_; }
     const std::string& get_description() const { return description_; }
     const std::string& get_version() const { return version_; }
+    VideoSystem get_video_format() const { return video_format_; }
     const std::vector<ProjectDAGNode>& get_nodes() const { return nodes_; }
     const std::vector<ProjectDAGEdge>& get_edges() const { return edges_; }
     
@@ -151,6 +154,7 @@ private:
     std::string name_;
     std::string description_;
     std::string version_;
+    VideoSystem video_format_ = VideoSystem::Unknown;  // NTSC or PAL
     std::vector<ProjectDAGNode> nodes_;
     std::vector<ProjectDAGEdge> edges_;
     mutable bool is_modified_ = false;
@@ -158,7 +162,7 @@ private:
     // Grant project_io namespace functions access (declared below)
     friend Project project_io::load_project(const std::string& filename);
     friend void project_io::save_project(const Project& project, const std::string& filename);
-    friend Project project_io::create_empty_project(const std::string& project_name);
+    friend Project project_io::create_empty_project(const std::string& project_name, VideoSystem video_format);
     friend void project_io::update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
     friend std::string project_io::generate_unique_node_id(const Project& project);
     friend std::string project_io::add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
@@ -176,6 +180,7 @@ private:
     friend NodeCapabilities project_io::get_node_capabilities(const Project& project, const std::string& node_id);
     friend void project_io::set_project_name(Project& project, const std::string& name);
     friend void project_io::set_project_description(Project& project, const std::string& description);
+    friend void project_io::set_video_format(Project& project, VideoSystem video_format);
 };
 
 /**
@@ -201,9 +206,10 @@ namespace project_io {
     /**
      * Create a new empty project with no sources
      * @param project_name Name for the project
+     * @param video_format Video format (NTSC or PAL), defaults to Unknown
      * @return Empty project structure
      */
-    Project create_empty_project(const std::string& project_name);
+    Project create_empty_project(const std::string& project_name, VideoSystem video_format);
     
     /**
      * Update project DAG nodes and edges

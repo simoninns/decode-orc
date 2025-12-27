@@ -52,7 +52,8 @@ public:
             "Field Map",
             "Reorder fields based on range specifications (e.g., 0-10,20-30,11-19)",
             1, 1,  // Exactly one input
-            1, 1   // Exactly one output
+            1, 1,  // Exactly one output
+            VideoFormatCompatibility::ALL
         };
     }
     
@@ -70,7 +71,7 @@ public:
     size_t output_count() const override { return 1; }
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors() const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 

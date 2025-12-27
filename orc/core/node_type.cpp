@@ -91,4 +91,29 @@ bool is_connection_valid(const std::string& source_stage, const std::string& tar
     return true;
 }
 
+bool is_stage_compatible_with_format(const std::string& stage_name, VideoSystem format) {
+    const NodeTypeInfo* info = get_node_type_info(stage_name);
+    if (!info) {
+        return false;  // Unknown stage
+    }
+    
+    // ALL is compatible with everything
+    if (info->compatible_formats == VideoFormatCompatibility::ALL) {
+        return true;
+    }
+    
+    // NTSC_ONLY is compatible with NTSC only
+    if (info->compatible_formats == VideoFormatCompatibility::NTSC_ONLY) {
+        return format == VideoSystem::NTSC;
+    }
+    
+    // PAL_ONLY is compatible with PAL and PAL-M
+    if (info->compatible_formats == VideoFormatCompatibility::PAL_ONLY) {
+        return format == VideoSystem::PAL || format == VideoSystem::PAL_M;
+    }
+    
+    // Unknown format or Unknown compatibility - allow it
+    return true;
+}
+
 } // namespace orc

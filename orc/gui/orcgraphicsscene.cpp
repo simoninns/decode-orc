@@ -64,8 +64,14 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
         add_node_menu->addAction("(No project loaded)")->setEnabled(false);
     } else {
         const auto& all_types = orc::get_all_node_types();
+        orc::VideoSystem project_format = graph_model_.project().get_video_format();
         
         for (const auto& type_info : all_types) {
+            // Filter stages by video format compatibility
+            if (!orc::is_stage_compatible_with_format(type_info.stage_name, project_format)) {
+                continue;
+            }
+            
             QString display_name = QString::fromStdString(type_info.display_name);
             QString tooltip = QString::fromStdString(type_info.description);
             

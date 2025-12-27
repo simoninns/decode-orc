@@ -550,8 +550,9 @@ void DropoutCorrectStage::correct_single_field(
 
 // Parameter interface implementation
 
-std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors() const
+std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors(VideoSystem project_format) const
 {
+    (void)project_format;  // Unused - dropout correction works with all formats
     std::vector<ParameterDescriptor> descriptors;
     
     // Overcorrect extension parameter

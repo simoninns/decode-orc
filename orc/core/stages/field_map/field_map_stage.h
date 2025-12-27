@@ -52,7 +52,7 @@ public:
             "Field Map",
             "Reorder fields based on range specifications (e.g., 0-10,20-30,11-19)",
             1, 1,  // Exactly one input
-            1, 1,  // Exactly one output
+            1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::ALL
         };
     }

@@ -46,7 +46,7 @@ public:
             "LD NTSC Source",
             "LaserDisc NTSC input source - loads NTSC TBC files from ld-decode",
             0, 0,  // No inputs
-            1, 1,  // Exactly one output
+            1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::NTSC_ONLY
         };
     }

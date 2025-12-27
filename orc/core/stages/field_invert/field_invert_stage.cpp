@@ -10,6 +10,7 @@
 #include <field_invert_stage.h>
 #include <stage_registry.h>
 #include <preview_helpers.h>
+#include <logging.h>
 
 namespace orc {
 
@@ -40,6 +41,8 @@ std::vector<ArtifactPtr> FieldInvertStage::execute(
     // Process and return
     auto output_vfr = process(input_vfr);
     cached_output_ = output_vfr;  // Cache for preview
+    ORC_LOG_DEBUG("FieldInvertStage::execute - Set cached_output_ on instance {} to {}", 
+                  static_cast<const void*>(this), static_cast<const void*>(output_vfr.get()));
     
     std::vector<ArtifactPtr> outputs;
     outputs.push_back(std::const_pointer_cast<VideoFieldRepresentation>(output_vfr));
@@ -76,6 +79,8 @@ bool FieldInvertStage::set_parameters(const std::map<std::string, ParameterValue
 
 std::vector<PreviewOption> FieldInvertStage::get_preview_options() const
 {
+    ORC_LOG_DEBUG("FieldInvertStage::get_preview_options - Called on instance {}, cached_output_ = {}", 
+                  static_cast<const void*>(this), static_cast<const void*>(cached_output_.get()));
     if (!cached_output_) {
         return {};
     }

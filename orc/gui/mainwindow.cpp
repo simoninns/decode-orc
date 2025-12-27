@@ -998,10 +998,10 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
             // Get available outputs for this node
             auto outputs = preview_renderer_->get_available_outputs(node_id);
             if (outputs.empty()) {
-                // Real sink node selected by user - show message but keep current view
-                statusBar()->showMessage(QString("Cannot view node '%1' - it has no outputs (sink node)")
+                // Node cannot be previewed - could be sink node or execution error
+                statusBar()->showMessage(QString("Cannot preview node '%1' - no preview available (may be a sink node or execution failed)")
                     .arg(QString::fromStdString(node_id)), 5000);
-                ORC_LOG_WARN("Cannot view sink node '{}' - no outputs", node_id);
+                ORC_LOG_WARN("Cannot preview node '{}' - no outputs available", node_id);
                 
                 // Don't change current_view_node_id_ or clear the preview
                 // Just keep showing what we were showing before

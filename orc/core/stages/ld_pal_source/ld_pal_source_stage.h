@@ -46,7 +46,7 @@ public:
             "LD PAL Source",
             "LaserDisc PAL input source - loads PAL TBC files from ld-decode",
             0, 0,  // No inputs
-            1, 1,  // Exactly one output
+            1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::PAL_ONLY
         };
     }

@@ -51,7 +51,7 @@ public:
             "Stacker",
             "Combine multiple TBC sources by stacking fields for superior output quality (1 input = passthrough)",
             1, 16,  // 1 to 16 inputs
-            1, 1,  // Exactly one output
+            1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::ALL
         };
     }    

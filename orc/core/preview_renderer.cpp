@@ -1210,19 +1210,23 @@ void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
     
     bool is_sink = (node_it->stage && node_it->stage->get_node_type_info().type == NodeType::SINK);
     
-    try {
-        // For both sink and non-sink nodes, use the same dag_executor_ instance
-        // This ensures stage instances maintain their cached state (especially cached_input_ for sinks)
-        const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(true);
-        const_cast<DAGExecutor&>(dag_executor_).execute_to_node(*dag_, node_id);
-        
-        if (is_sink) {
-            ORC_LOG_DEBUG("Executed inputs for sink node '{}' (sink's cached_input_ should now be populated)", node_id);
-        } else {
-            ORC_LOG_DEBUG("Executed DAG up to node '{}'", node_id);
-        }
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Failed to execute node '{}' for preview: {}", node_id, e.what());
+    // CRITICAL: Disable artifact caching for preview execution
+    // We need execute() to be called on the stage instance so it can populate
+    // its cached_output_ member for preview rendering. If artifact caching is enabled,
+    // the executor returns cached artifacts without calling execute(), leaving the
+    // stage's cached_output_ null.
+    bool prev_cache_state = dag_executor_.is_cache_enabled();
+    const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(false);
+    
+    const_cast<DAGExecutor&>(dag_executor_).execute_to_node(*dag_, node_id);
+    
+    // Restore previous cache state
+    const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(prev_cache_state);
+    
+    if (is_sink) {
+        ORC_LOG_DEBUG("Executed inputs for sink node '{}' (sink's cached_input_ should now be populated)", node_id);
+    } else {
+        ORC_LOG_DEBUG("Executed DAG up to node '{}' - stage instance should have cached_output_ set", node_id);
     }
 }
 
@@ -1243,7 +1247,9 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     auto options = previewable.get_preview_options();
     
     if (options.empty()) {
-        ORC_LOG_DEBUG("Stage node '{}' has no preview options", stage_node_id);
+        ORC_LOG_WARN("Stage node '{}' has no preview options after execution - cached output may be null", stage_node_id);
+        auto node_type_info = stage_node.stage->get_node_type_info();
+        ORC_LOG_WARN("Node '{}' is type '{}' ({})", stage_node_id, node_type_info.stage_name, node_type_info.display_name);
         return outputs;
     }
     

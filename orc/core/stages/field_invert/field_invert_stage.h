@@ -79,7 +79,7 @@ public:
             "Field Invert",
             "Invert field order (swap first/second field hints)",
             1, 1,  // Exactly one input
-            1, 1,  // Exactly one output
+            1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::ALL
         };
     }

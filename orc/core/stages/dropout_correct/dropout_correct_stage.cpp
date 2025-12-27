@@ -74,6 +74,8 @@ std::vector<ArtifactPtr> DropoutCorrectStage::execute(
     );
     
     cached_output_ = corrected;
+    ORC_LOG_DEBUG("DropoutCorrectStage::execute - Set cached_output_ on instance {} to {}", 
+                  static_cast<const void*>(this), static_cast<const void*>(corrected.get()));
     std::vector<ArtifactPtr> outputs;
     outputs.push_back(std::static_pointer_cast<VideoFieldRepresentation>(corrected));
     return outputs;
@@ -731,6 +733,8 @@ bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterVa
 
 std::vector<PreviewOption> DropoutCorrectStage::get_preview_options() const
 {
+    ORC_LOG_DEBUG("DropoutCorrectStage::get_preview_options - Called on instance {}, cached_output_ = {}", 
+                  static_cast<const void*>(this), static_cast<const void*>(cached_output_.get()));
     return PreviewHelpers::get_standard_preview_options(cached_output_);
 }
 

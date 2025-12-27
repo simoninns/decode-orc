@@ -128,7 +128,7 @@ public:
             "Dropout Correction",
             "Correct dropouts by replacing corrupted samples with data from other lines/fields",
             1, 1,  // Exactly one input
-            1, 1,  // Exactly one output
+            1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::ALL
         };
     }    

@@ -23,6 +23,9 @@
 #include "decoders/componentframe.h"
 #include "../../analysis/vectorscope/vectorscope_analysis.h"
 
+// Output backend includes
+#include "output_backend.h"
+
 #include <fstream>
 #include <chrono>
 #include <algorithm>
@@ -119,9 +122,11 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
         ParameterDescriptor{
             "output_format",
             "Output Format",
-            "Output pixel format: rgb (RGB48), yuv (YUV444P16), y4m (YUV444P16 with Y4M headers)",
+            "Output format:\n"
+            "  Raw: rgb (RGB48), yuv (YUV444P16), y4m (YUV444P16 with Y4M headers)\n"
+            "  Encoded: mp4-h264, mp4-h265, mkv-ffv1 (requires FFmpeg libraries)",
             ParameterType::STRING,
-            {{}, {}, {}, {"rgb", "yuv", "y4m"}, false}
+            {{}, {}, {}, OutputBackendFactory::getSupportedFormats(), false}
         },
         ParameterDescriptor{
             "chroma_gain",
@@ -902,9 +907,10 @@ bool ChromaSinkStage::trigger(
     }
     
     // 14. Write output file
-    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams)) {
+    std::string write_error;
+    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams, write_error)) {
         ORC_LOG_ERROR("ChromaSink: Failed to write output file: {}", output_path_);
-        trigger_status_ = "Error: Failed to write output";
+        trigger_status_ = write_error.empty() ? "Error: Failed to write output" : write_error;
         return false;
     }
     
@@ -1009,79 +1015,64 @@ bool ChromaSinkStage::writeOutputFile(
     const std::string& output_path,
     const std::string& format,
     const std::vector<ComponentFrame>& frames,
-    const void* videoParamsPtr) const
+    const void* videoParamsPtr,
+    std::string& error_message) const
 {
     const auto& videoParams = *static_cast<const orc::VideoParameters*>(videoParamsPtr);
     if (frames.empty()) {
         ORC_LOG_ERROR("ChromaSink: No frames to write");
+        error_message = "Error: No frames to write";
         return false;
     }
     
-    // Open output file
-    std::ofstream outputFile(output_path, std::ios::binary);
-    if (!outputFile.is_open()) {
-        ORC_LOG_ERROR("ChromaSink: Failed to open output file: {}", output_path);
+    // Create appropriate output backend
+    auto backend = OutputBackendFactory::create(format);
+    if (!backend) {
+        ORC_LOG_ERROR("ChromaSink: Unknown or unsupported output format: {}", format);
+        ORC_LOG_ERROR("ChromaSink: Available formats: rgb, yuv, y4m, mp4-h264, mp4-h265, mkv-ffv1");
+        error_message = "Error: Unknown format '" + format + "' - use rgb, yuv, y4m, or mp4-h264";
         return false;
     }
     
-    // Determine output format
-    OutputWriter::Configuration writerConfig;
-    writerConfig.paddingAmount = 8;
+    // Configure backend
+    OutputBackend::Configuration config;
+    config.output_path = output_path;
+    config.video_params = videoParams;
+    config.padding_amount = output_padding_;
+    config.options["format"] = format;
     
-    if (format == "rgb") {
-        writerConfig.pixelFormat = OutputWriter::RGB48;
-        writerConfig.outputY4m = false;
-    } else if (format == "yuv") {
-        writerConfig.pixelFormat = OutputWriter::YUV444P16;
-        writerConfig.outputY4m = false;
-    } else if (format == "y4m") {
-        writerConfig.pixelFormat = OutputWriter::YUV444P16;
-        writerConfig.outputY4m = true;
-    } else {
-        ORC_LOG_ERROR("ChromaSink: Unknown output format: {}", format);
-        return false;
-    }
-    
-    // Create output writer
-    OutputWriter writer;
-    orc::VideoParameters mutableParams = videoParams;
-    writer.updateConfiguration(mutableParams, writerConfig);
-    writer.printOutputInfo();  // Show output format info
-    
-    // Write stream header if needed
-    std::string streamHeader = writer.getStreamHeader();
-    if (!streamHeader.empty()) {
-        outputFile.write(streamHeader.data(), streamHeader.size());
-    }
-    
-    // Write frames
-    int frameIdx = 0;
-    for (const auto& frame : frames) {
-        // Write frame header if needed
-        std::string frameHeader = writer.getFrameHeader();
-        if (!frameHeader.empty()) {
-            outputFile.write(frameHeader.data(), frameHeader.size());
+    // Initialize backend
+    if (!backend->initialize(config)) {
+        ORC_LOG_ERROR("ChromaSink: Failed to initialize {} output backend", format);
+        ORC_LOG_ERROR("ChromaSink: Check log messages above for details");
+        
+        // Provide helpful error message based on format
+        if (format.find("mp4-") == 0 || format.find("mkv-") == 0) {
+            error_message = "Error: MP4/MKV encoder not installed - see logs. Use rgb/yuv/y4m instead.";
+        } else {
+            error_message = "Error: Failed to initialize " + format + " output - check logs";
         }
-        
-        // Convert frame to output format
-        OutputFrame outputFrame;
-        writer.convert(frame, outputFrame);
-        
-        frameIdx++;
-        
-        // Write output data
-        const char* data = reinterpret_cast<const char*>(outputFrame.data());
-        std::streamsize size = outputFrame.size() * sizeof(uint16_t);
-        outputFile.write(data, size);
-        
-        if (!outputFile.good()) {
-            ORC_LOG_ERROR("ChromaSink: Failed to write frame data");
-            outputFile.close();
+        return false;
+    }
+    
+    ORC_LOG_INFO("ChromaSink: Writing {} frames as {}", frames.size(), backend->getFormatInfo());
+    
+    // Write all frames
+    for (const auto& frame : frames) {
+        if (!backend->writeFrame(frame)) {
+            ORC_LOG_ERROR("ChromaSink: Failed to write frame");
+            backend->finalize();  // Try to close cleanly
+            error_message = "Error: Failed to write frame data - check logs";
             return false;
         }
     }
     
-    outputFile.close();
+    // Finalize output
+    if (!backend->finalize()) {
+        ORC_LOG_ERROR("ChromaSink: Failed to finalize output");
+        error_message = "Error: Failed to finalize output file - check logs";
+        return false;
+    }
     
     ORC_LOG_INFO("ChromaSink: Wrote {} frames to {}", frames.size(), output_path);
     return true;

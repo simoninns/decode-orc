@@ -156,7 +156,8 @@ private:
         const std::string& output_path,
         const std::string& format,
         const std::vector<ComponentFrame>& frames,
-        const void* videoParams  // Use void* to avoid incomplete type
+        const void* videoParams,
+        std::string& error_message  // Output parameter for detailed error
     ) const;
 };
 

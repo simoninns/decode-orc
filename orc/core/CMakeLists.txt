@@ -67,6 +67,9 @@ add_library(orc-core STATIC
     stages/field_map/field_map_stage.cpp
     stages/stacker/stacker_stage.cpp
     stages/chroma_sink/chroma_sink_stage.cpp
+    stages/chroma_sink/output_backend.cpp
+    stages/chroma_sink/raw_output_backend.cpp
+    stages/chroma_sink/ffmpeg_output_backend.cpp
     
     # Dropout decision utilities
     dropout_decision.cpp
@@ -142,3 +145,19 @@ target_link_libraries(orc-core PUBLIC PNG::PNG)
 # Add chroma decoder library subdirectory (Pure C++17, no Qt6 dependencies)
 add_subdirectory(stages/chroma_sink/decoders)
 target_link_libraries(orc-core PRIVATE orc_chroma_decoders)
+
+# Find and optionally link FFmpeg libraries (for MP4 output)
+find_package(PkgConfig)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(FFMPEG libavformat libavcodec libavutil libswscale)
+    if(FFMPEG_FOUND)
+        message(STATUS "FFmpeg libraries found - MP4 output will be available")
+        target_compile_definitions(orc-core PRIVATE HAVE_FFMPEG)
+        target_include_directories(orc-core PRIVATE ${FFMPEG_INCLUDE_DIRS})
+        target_link_libraries(orc-core PRIVATE ${FFMPEG_LIBRARIES})
+    else()
+        message(STATUS "FFmpeg libraries not found - MP4 output will be unavailable")
+    endif()
+else()
+    message(STATUS "pkg-config not found - skipping FFmpeg detection")
+endif()

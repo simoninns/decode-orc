@@ -26,8 +26,8 @@ namespace orc {
  * creating a VideoFieldRepresentation for NTSC video processing.
  * 
  * Parameters:
- * - tbc_path: Path to the .tbc file
- * - db_path: Path to the .tbc.db database file (optional, defaults to tbc_path + ".db")
+ * - input_path: Path to the .tbc file
+ * - db_path: Path to the .tbc.db database file (optional, defaults to input_path + ".db")
  * 
  * This is a source stage with no inputs.
  */
@@ -75,7 +75,7 @@ public:
 
 private:
     // Cache the loaded representation to avoid reloading
-    mutable std::string cached_tbc_path_;
+    mutable std::string cached_input_path_;
     mutable std::shared_ptr<TBCVideoFieldRepresentation> cached_representation_;
     
     // Store parameters for inspection

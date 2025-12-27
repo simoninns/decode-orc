@@ -34,7 +34,7 @@ static StageRegistration reg([]() {
 });
 
 LDSinkStage::LDSinkStage()
-    : tbc_path_("")
+    : output_path_("")
 {
 }
 
@@ -73,7 +73,7 @@ std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors(VideoSys
     (void)project_format;  // Unused - LD sink works with all formats
     return {
         ParameterDescriptor{
-            "tbc_path",
+            "output_path",
             "TBC Output Path",
             "Path to output TBC file (metadata will be written to .db)",
             ParameterType::FILE_PATH,
@@ -85,19 +85,19 @@ std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors(VideoSys
 std::map<std::string, ParameterValue> LDSinkStage::get_parameters() const
 {
     std::map<std::string, ParameterValue> params;
-    params["tbc_path"] = tbc_path_;
+    params["output_path"] = output_path_;
     return params;
 }
 
 bool LDSinkStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
-    auto it = params.find("tbc_path");
+    auto it = params.find("output_path");
     if (it != params.end()) {
         if (std::holds_alternative<std::string>(it->second)) {
-            tbc_path_ = std::get<std::string>(it->second);
-            ORC_LOG_DEBUG("LDSink: tbc_path set to '{}'", tbc_path_);
+            output_path_ = std::get<std::string>(it->second);
+            ORC_LOG_DEBUG("LDSink: output_path set to '{}'", output_path_);
         } else {
-            ORC_LOG_ERROR("LDSink: tbc_path parameter must be string");
+            ORC_LOG_ERROR("LDSink: output_path parameter must be string");
             return false;
         }
     }
@@ -113,17 +113,17 @@ bool LDSinkStage::trigger(
     trigger_status_ = "Starting export...";
     
     // Validate parameters
-    auto it = parameters.find("tbc_path");
+    auto it = parameters.find("output_path");
     if (it == parameters.end() || !std::holds_alternative<std::string>(it->second)) {
         trigger_status_ = "Error: No output path specified";
-        ORC_LOG_ERROR("LDSink: No tbc_path parameter");
+        ORC_LOG_ERROR("LDSink: No output_path parameter");
         return false;
     }
     
     std::string output_path = std::get<std::string>(it->second);
     if (output_path.empty()) {
         trigger_status_ = "Error: Output path is empty";
-        ORC_LOG_ERROR("LDSink: tbc_path is empty");
+        ORC_LOG_ERROR("LDSink: output_path is empty");
         return false;
     }
     

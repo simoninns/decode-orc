@@ -411,6 +411,13 @@ bool ChromaSinkStage::trigger(
     // Apply any parameter updates
     set_parameters(parameters);
     
+    // Validate output path is set
+    if (output_path_.empty()) {
+        ORC_LOG_ERROR("ChromaSink: No output path specified");
+        trigger_status_ = "Error: No output path specified";
+        return false;
+    }
+    
     // 1. Extract VideoFieldRepresentation from input
     if (inputs.empty()) {
         ORC_LOG_ERROR("ChromaSink: No input provided");

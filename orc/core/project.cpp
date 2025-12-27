@@ -458,14 +458,14 @@ void set_node_parameters(Project& project, const std::string& node_id,
     
     // Special validation for source nodes_
     if (node_it->node_type == NodeType::SOURCE) {
-        auto tbc_path_it = parameters.find("tbc_path");
-        if (tbc_path_it != parameters.end() && std::holds_alternative<std::string>(tbc_path_it->second)) {
-            std::string tbc_path = std::get<std::string>(tbc_path_it->second);
+        auto input_path_it = parameters.find("input_path");
+        if (input_path_it != parameters.end() && std::holds_alternative<std::string>(input_path_it->second)) {
+            std::string input_path = std::get<std::string>(input_path_it->second);
             
             // Only validate if a path is provided (empty is allowed)
-            if (!tbc_path.empty()) {
+            if (!input_path.empty()) {
                 // Validate using the existing add_source_to_project validation logic
-                std::string db_path = tbc_path + ".db";
+                std::string db_path = input_path + ".db";
                 
                 try {
                     // Load metadata to validate system
@@ -752,8 +752,8 @@ std::string find_source_file_for_node(const Project& project, const std::string&
         return "";
     }
     
-    // Check if this node has tbc_path
-    auto param_it = node_it->parameters.find("tbc_path");
+    // Check if this node has input_path
+    auto param_it = node_it->parameters.find("input_path");
     if (param_it != node_it->parameters.end()) {
         if (auto* path = std::get_if<std::string>(&param_it->second)) {
             return *path;
@@ -781,7 +781,7 @@ std::string find_source_file_for_node(const Project& project, const std::string&
             [&current_id](const ProjectDAGNode& n) { return n.node_id == current_id; });
         
         if (current_it != project.nodes_.end()) {
-            auto path_param = current_it->parameters.find("tbc_path");
+            auto path_param = current_it->parameters.find("input_path");
             if (path_param != current_it->parameters.end()) {
                 if (auto* path = std::get_if<std::string>(&path_param->second)) {
                     return *path;
@@ -838,6 +838,25 @@ NodeCapabilities get_node_capabilities(const Project& project, const std::string
             caps.can_trigger = (trigger_stage != nullptr);
             if (!caps.can_trigger) {
                 caps.trigger_reason = "Stage is not triggerable";
+            } else {
+                // For sink stages, check if output filename is set
+                auto node_type = stage->get_node_type_info().type;
+                if (node_type == NodeType::SINK) {
+                    // All sink stages use "output_path" parameter
+                    auto param_it = it->parameters.find("output_path");
+                    bool has_output = false;
+                    
+                    if (param_it != it->parameters.end() && 
+                        std::holds_alternative<std::string>(param_it->second)) {
+                        std::string path = std::get<std::string>(param_it->second);
+                        has_output = !path.empty();
+                    }
+                    
+                    if (!has_output) {
+                        caps.can_trigger = false;
+                        caps.trigger_reason = "No output filename specified";
+                    }
+                }
             }
             
             // Check can_inspect - must have generate_report

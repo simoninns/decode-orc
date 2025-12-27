@@ -32,15 +32,15 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
         throw std::runtime_error("LDNTSCSource stage should have no inputs");
     }
 
-    // Get tbc_path parameter
-    auto tbc_path_it = parameters.find("tbc_path");
-    if (tbc_path_it == parameters.end() || std::get<std::string>(tbc_path_it->second).empty()) {
+    // Get input_path parameter
+    auto input_path_it = parameters.find("input_path");
+    if (input_path_it == parameters.end() || std::get<std::string>(input_path_it->second).empty()) {
         // No file path configured - return empty artifact (0 fields)
         // This allows the node to exist in the DAG without a file, acting as a placeholder
-        ORC_LOG_DEBUG("LDNTSCSource: No tbc_path configured, returning empty output");
+        ORC_LOG_DEBUG("LDNTSCSource: No input_path configured, returning empty output");
         return {};
     }
-    std::string tbc_path = std::get<std::string>(tbc_path_it->second);
+    std::string input_path = std::get<std::string>(input_path_it->second);
 
     // Get db_path parameter (optional)
     std::string db_path;
@@ -48,26 +48,26 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     if (db_path_it != parameters.end()) {
         db_path = std::get<std::string>(db_path_it->second);
     } else {
-        // Default: tbc_path + ".db"
-        db_path = tbc_path + ".db";
+        // Default: input_path + ".db"
+        db_path = input_path + ".db";
     }
 
     // Check cache
-    if (cached_representation_ && cached_tbc_path_ == tbc_path) {
-        ORC_LOG_DEBUG("LDNTSCSource: Using cached representation for {}", tbc_path);
+    if (cached_representation_ && cached_input_path_ == input_path) {
+        ORC_LOG_DEBUG("LDNTSCSource: Using cached representation for {}", input_path);
         return {cached_representation_};
     }
 
     // Load the TBC file
-    ORC_LOG_INFO("LDNTSCSource: Loading TBC file: {}", tbc_path);
+    ORC_LOG_INFO("LDNTSCSource: Loading TBC file: {}", input_path);
     ORC_LOG_DEBUG("  Database: {}", db_path);
     
     try {
-        cached_representation_ = create_tbc_representation(tbc_path, db_path);
+        cached_representation_ = create_tbc_representation(input_path, db_path);
         if (!cached_representation_) {
             throw std::runtime_error("Failed to load TBC file (validation failed - see logs above)");
         }
-        cached_tbc_path_ = tbc_path;
+        cached_input_path_ = input_path;
         
         // Verify decoder and system
         auto video_params = cached_representation_->get_video_parameters();
@@ -99,7 +99,7 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
                                      sizeof(uint16_t);
         size_t expected_file_size = static_cast<size_t>(metadata_field_count) * expected_field_size;
         
-        std::ifstream tbc_file(tbc_path, std::ios::binary | std::ios::ate);
+        std::ifstream tbc_file(input_path, std::ios::binary | std::ios::ate);
         if (!tbc_file) {
             throw std::runtime_error("Cannot open TBC file to verify size");
         }
@@ -136,7 +136,7 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
         return {cached_representation_};
     } catch (const std::exception& e) {
         throw std::runtime_error(
-            std::string("Failed to load NTSC TBC file '") + tbc_path + "': " + e.what()
+            std::string("Failed to load NTSC TBC file '") + input_path + "': " + e.what()
         );
     }
 }
@@ -146,10 +146,10 @@ std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors(Vi
     (void)project_format;  // Unused - source stages don't need project format
     std::vector<ParameterDescriptor> descriptors;
     
-    // tbc_path parameter
+    // input_path parameter
     {
         ParameterDescriptor desc;
-        desc.name = "tbc_path";
+        desc.name = "input_path";
         desc.display_name = "TBC File Path";
         desc.description = "Path to the NTSC .tbc file from ld-decode (database file is automatically located)";
         desc.type = ParameterType::FILE_PATH;
@@ -167,9 +167,9 @@ std::map<std::string, ParameterValue> LDNTSCSourceStage::get_parameters() const
 
 bool LDNTSCSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
-    // Validate that tbc_path has correct type if present
-    auto tbc_path_it = params.find("tbc_path");
-    if (tbc_path_it != params.end() && !std::holds_alternative<std::string>(tbc_path_it->second)) {
+    // Validate that input_path has correct type if present
+    auto input_path_it = params.find("input_path");
+    if (input_path_it != params.end() && !std::holds_alternative<std::string>(input_path_it->second)) {
         return false;
     }
     
@@ -181,20 +181,20 @@ std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
     StageReport report;
     report.summary = "NTSC Source Status";
     
-    // Get tbc_path from parameters
-    std::string tbc_path;
-    auto tbc_path_it = parameters_.find("tbc_path");
-    if (tbc_path_it != parameters_.end()) {
-        tbc_path = std::get<std::string>(tbc_path_it->second);
+    // Get input_path from parameters
+    std::string input_path;
+    auto input_path_it = parameters_.find("input_path");
+    if (input_path_it != parameters_.end()) {
+        input_path = std::get<std::string>(input_path_it->second);
     }
     
-    if (tbc_path.empty()) {
+    if (input_path.empty()) {
         report.items.push_back({"Source File", "Not configured"});
         report.items.push_back({"Status", "No TBC file path set"});
         return report;
     }
     
-    report.items.push_back({"Source File", tbc_path});
+    report.items.push_back({"Source File", input_path});
     
     // Get db_path
     std::string db_path;
@@ -202,12 +202,12 @@ std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
     if (db_path_it != parameters_.end()) {
         db_path = std::get<std::string>(db_path_it->second);
     } else {
-        db_path = tbc_path + ".db";
+        db_path = input_path + ".db";
     }
     
     // Try to load the file to get actual information
     try {
-        auto representation = create_tbc_representation(tbc_path, db_path);
+        auto representation = create_tbc_representation(input_path, db_path);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             

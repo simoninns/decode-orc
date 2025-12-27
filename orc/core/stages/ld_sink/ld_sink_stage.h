@@ -65,7 +65,7 @@ public:
  * This sink supports preview - it shows what will be written to disk.
  * 
  * Parameters:
- * - tbc_path: Output file path (metadata will be tbc_path + ".db")
+ * - output_path: Output file path (metadata will be output_path + ".db")
  */
 class LDSinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage, public PreviewableStage {
 public:
@@ -104,7 +104,7 @@ public:
                                PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
     
 private:
-    std::string tbc_path_;
+    std::string output_path_;
     std::string trigger_status_;
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
     

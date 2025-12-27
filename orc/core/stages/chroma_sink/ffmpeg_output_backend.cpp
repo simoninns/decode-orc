@@ -15,6 +15,7 @@
 #include "logging.h"
 #include <algorithm>
 #include <cstring>
+#include <thread>
 
 namespace orc {
 
@@ -315,6 +316,18 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
         }
         codec_ctx_->color_range = AVCOL_RANGE_MPEG;  // Limited range (TV)
     }
+    
+    // Enable multi-threaded encoding for better performance
+    // Use all available CPU cores, but cap at 16 for efficiency
+    unsigned int thread_count = std::min(std::thread::hardware_concurrency(), 16u);
+    if (thread_count == 0) {
+        thread_count = 4;  // Fallback if hardware_concurrency returns 0
+    }
+    
+    codec_ctx_->thread_count = thread_count;
+    codec_ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;  // Enable both frame and slice threading
+    
+    ORC_LOG_INFO("FFmpegOutputBackend: Enabling multi-threaded encoding with {} threads", thread_count);
     
     // Some formats require global headers
     if (format_ctx_->oformat->flags & AVFMT_GLOBALHEADER) {

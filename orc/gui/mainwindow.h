@@ -14,7 +14,10 @@
 #include <QString>
 #include <QTabWidget>
 #include <QPointer>
+#include <QProgressDialog>
+#include <QTimer>
 #include <memory>
+#include <future>
 #include "guiproject.h"
 #include "preview_renderer.h"  // For PreviewOutputType
 #include "orcgraphmodel.h"
@@ -105,6 +108,9 @@ private slots:
     void updateDropoutAnalysisDialog();
     void onShowSNRAnalysisDialog();
     void updateSNRAnalysisDialog();
+    void onPollTriggerProgress();
+
+signals:
 
 private:
     void setupUI();
@@ -178,6 +184,15 @@ private:
     bool preview_update_pending_;
     qint64 last_preview_update_time_;  // Timestamp of last update for throttling
     bool last_update_was_sequential_;  // Track if last update was from next/prev buttons
+    
+    // Trigger progress tracking (for async trigger with polling)
+    std::future<std::pair<bool, std::string>> trigger_future_;
+    QProgressDialog* trigger_progress_dialog_;
+    QTimer* trigger_poll_timer_;
+    std::atomic<size_t> trigger_current_;
+    std::atomic<size_t> trigger_total_;
+    std::string trigger_message_;  // Only accessed from main thread after atomic checks
+    std::mutex trigger_message_mutex_;
 };
 
 #endif // MAINWINDOW_H

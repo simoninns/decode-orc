@@ -89,6 +89,10 @@ MainWindow::MainWindow(QWidget *parent)
     , preview_update_pending_(false)
     , last_preview_update_time_(0)
     , last_update_was_sequential_(false)
+    , trigger_progress_dialog_(nullptr)
+    , trigger_poll_timer_(nullptr)
+    , trigger_current_(0)
+    , trigger_total_(0)
 {
     // Create preview update throttling timer
     preview_update_timer_ = new QTimer(this);
@@ -963,26 +967,114 @@ void MainWindow::onTriggerStage(const std::string& node_id)
     ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id);
     
     try {
-        std::string status;
-        statusBar()->showMessage("Triggering stage...");
-        
-        bool success = orc::project_io::trigger_node(project_.coreProject(), node_id, status);
-        
-        statusBar()->showMessage(QString::fromStdString(status), success ? 5000 : 10000);
-        
-        if (success) {
-            QMessageBox::information(this, "Trigger Complete", 
-                QString::fromStdString(status));
-        } else {
-            QMessageBox::warning(this, "Trigger Failed", 
-                QString::fromStdString(status));
+        // Reset atomics
+        trigger_current_.store(0);
+        trigger_total_.store(0);
+        {
+            std::lock_guard<std::mutex> lock(trigger_message_mutex_);
+            trigger_message_ = "Starting...";
         }
         
+        // Create progress dialog
+        trigger_progress_dialog_ = new QProgressDialog("Starting trigger...", "Cancel", 0, 100, this);
+        trigger_progress_dialog_->setWindowTitle("Processing");
+        trigger_progress_dialog_->setWindowModality(Qt::WindowModal);
+        trigger_progress_dialog_->setMinimumDuration(0);
+        trigger_progress_dialog_->setValue(0);
+        
+        // Create progress callback (called from worker threads - only update atomics)
+        auto progress_callback = [this](size_t current, size_t total, const std::string& message) {
+            trigger_current_.store(current);
+            trigger_total_.store(total);
+            {
+                std::lock_guard<std::mutex> lock(trigger_message_mutex_);
+                trigger_message_ = message;
+            }
+        };
+        
+        // Start async trigger
+        trigger_future_ = orc::project_io::trigger_node_async(
+            project_.coreProject(),
+            node_id,
+            progress_callback
+        );
+        
+        // Create timer to poll progress from main thread
+        trigger_poll_timer_ = new QTimer(this);
+        connect(trigger_poll_timer_, &QTimer::timeout, this, &MainWindow::onPollTriggerProgress);
+        trigger_poll_timer_->start(100);  // Poll every 100ms
+        
     } catch (const std::exception& e) {
-        QString msg = QString("Error triggering stage: %1").arg(e.what());
+        QString msg = QString("Error starting trigger: %1").arg(e.what());
         ORC_LOG_ERROR("{}", msg.toStdString());
-        statusBar()->showMessage(msg, 5000);
         QMessageBox::critical(this, "Trigger Error", msg);
+        
+        if (trigger_progress_dialog_) {
+            delete trigger_progress_dialog_;
+            trigger_progress_dialog_ = nullptr;
+        }
+    }
+}
+
+void MainWindow::onPollTriggerProgress()
+{
+    // Update progress dialog from atomics (safe - we're on main thread)
+    size_t current = trigger_current_.load();
+    size_t total = trigger_total_.load();
+    
+    if (trigger_progress_dialog_ && total > 0) {
+        int percentage = static_cast<int>((current * 100) / total);
+        trigger_progress_dialog_->setValue(percentage);
+        
+        std::string msg;
+        {
+            std::lock_guard<std::mutex> lock(trigger_message_mutex_);
+            msg = trigger_message_;
+        }
+        trigger_progress_dialog_->setLabelText(QString::fromStdString(msg));
+    }
+    
+    // Check if completed
+    if (trigger_future_.valid() &&
+        trigger_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+        
+        // Stop polling
+        if (trigger_poll_timer_) {
+            trigger_poll_timer_->stop();
+            delete trigger_poll_timer_;
+            trigger_poll_timer_ = nullptr;
+        }
+        
+        // Get result
+        try {
+            auto [success, status] = trigger_future_.get();
+            
+            // Close progress dialog
+            if (trigger_progress_dialog_) {
+                delete trigger_progress_dialog_;
+                trigger_progress_dialog_ = nullptr;
+            }
+            
+            // Show result
+            if (success) {
+                statusBar()->showMessage(QString::fromStdString(status), 5000);
+                QMessageBox::information(this, "Trigger Complete", QString::fromStdString(status));
+            } else {
+                statusBar()->showMessage(QString::fromStdString(status), 10000);
+                QMessageBox::warning(this, "Trigger Failed", QString::fromStdString(status));
+            }
+            
+        } catch (const std::exception& e) {
+            QString msg = QString("Error during trigger: %1").arg(e.what());
+            ORC_LOG_ERROR("{}", msg.toStdString());
+            
+            if (trigger_progress_dialog_) {
+                delete trigger_progress_dialog_;
+                trigger_progress_dialog_ = nullptr;
+            }
+            
+            QMessageBox::critical(this, "Trigger Error", msg);
+        }
     }
 }
 

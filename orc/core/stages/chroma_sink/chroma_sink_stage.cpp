@@ -405,6 +405,10 @@ bool ChromaSinkStage::trigger(
 {
     ORC_LOG_INFO("ChromaSink: Trigger called - starting decode");
     
+    // Mark trigger as in progress and reset cancel flag
+    trigger_in_progress_.store(true);
+    cancel_requested_.store(false);
+    
     // Apply any parameter updates
     set_parameters(parameters);
     
@@ -412,6 +416,7 @@ bool ChromaSinkStage::trigger(
     if (output_path_.empty()) {
         ORC_LOG_ERROR("ChromaSink: No output path specified");
         trigger_status_ = "Error: No output path specified";
+        trigger_in_progress_.store(false);
         return false;
     }
     
@@ -419,6 +424,7 @@ bool ChromaSinkStage::trigger(
     if (inputs.empty()) {
         ORC_LOG_ERROR("ChromaSink: No input provided");
         trigger_status_ = "Error: No input";
+        trigger_in_progress_.store(false);
         return false;
     }
     
@@ -426,6 +432,7 @@ bool ChromaSinkStage::trigger(
     if (!vfr) {
         ORC_LOG_ERROR("ChromaSink: Input is not a VideoFieldRepresentation");
         trigger_status_ = "Error: Invalid input type";
+        trigger_in_progress_.store(false);
         return false;
     }
     
@@ -434,6 +441,7 @@ bool ChromaSinkStage::trigger(
     if (!video_params_opt) {
         ORC_LOG_ERROR("ChromaSink: Input has no video parameters");
         trigger_status_ = "Error: No video parameters";
+        trigger_in_progress_.store(false);
         return false;
     }
     
@@ -558,6 +566,7 @@ bool ChromaSinkStage::trigger(
     else {
         ORC_LOG_ERROR("ChromaSink: Unknown decoder type: {}", decoder_type_);
         trigger_status_ = "Error: Unknown decoder type";
+        trigger_in_progress_.store(false);
         return false;
     }
     
@@ -759,9 +768,15 @@ bool ChromaSinkStage::trigger(
     
     ORC_LOG_INFO("ChromaSink: Processing {} frames using {} worker threads", numFrames, numThreads);
     
+    // Report initial progress
+    if (progress_callback_) {
+        progress_callback_(0, numFrames, "Starting decoding...");
+    }
+    
     // Shared state for work distribution
     std::atomic<int32_t> nextFrameIdx{0};
     std::atomic<bool> abortFlag{false};
+    std::atomic<int32_t> completedFrames{0};
     
     // CRITICAL: FFTW plan creation with FFTW_MEASURE is NOT thread-safe
     // (see FFTW docs: http://www.fftw.org/fftw3_doc/Thread-safety.html)
@@ -834,6 +849,12 @@ bool ChromaSinkStage::trigger(
         }
         
         while (!abortFlag) {
+            // Check for cancellation
+            if (cancel_requested_.load()) {
+                abortFlag.store(true);
+                break;
+            }
+            
             // Get next frame to process
             int32_t frameIdx = nextFrameIdx.fetch_add(1);
             if (frameIdx >= numFrames) {
@@ -914,6 +935,13 @@ bool ChromaSinkStage::trigger(
             
             // Store the result (no mutex needed - each thread writes to a different index)
             outputFrames[frameIdx] = singleOutput[0];
+            
+            // Update progress
+            int32_t completed = completedFrames.fetch_add(1) + 1;
+            if (progress_callback_ && (completed % 10 == 0 || completed == numFrames)) {
+                progress_callback_(completed, numFrames, 
+                    "Decoding frames: " + std::to_string(completed) + "/" + std::to_string(numFrames));
+            }
         }
     };
     
@@ -927,6 +955,14 @@ bool ChromaSinkStage::trigger(
     // Wait for all workers to finish
     for (auto& worker : workers) {
         worker.join();
+    }
+    
+    // Check if cancelled
+    if (cancel_requested_.load()) {
+        ORC_LOG_WARN("ChromaSink: Decoding cancelled by user");
+        trigger_status_ = "Cancelled by user";
+        trigger_in_progress_.store(false);
+        return false;
     }
     
     ORC_LOG_INFO("ChromaSink: Decoded {} frames", outputFrames.size());
@@ -965,16 +1001,27 @@ bool ChromaSinkStage::trigger(
     }
     
     // 14. Write output file
+    if (progress_callback_) {
+        progress_callback_(numFrames, numFrames, "Writing output file...");
+    }
+    
     std::string write_error;
     if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams, write_error)) {
         ORC_LOG_ERROR("ChromaSink: Failed to write output file: {}", output_path_);
         trigger_status_ = write_error.empty() ? "Error: Failed to write output" : write_error;
+        trigger_in_progress_.store(false);
         return false;
     }
     
     ORC_LOG_INFO("ChromaSink: Output written to: {}", output_path_);
     
     trigger_status_ = "Decode complete: " + std::to_string(outputFrames.size()) + " frames";
+    trigger_in_progress_.store(false);
+    
+    if (progress_callback_) {
+        progress_callback_(numFrames, numFrames, trigger_status_);
+    }
+    
     return true;
 }
 

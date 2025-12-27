@@ -97,6 +97,18 @@ public:
     
     std::string get_trigger_status() const override;
     
+    void set_progress_callback(TriggerProgressCallback callback) override {
+        progress_callback_ = callback;
+    }
+    
+    bool is_trigger_in_progress() const override {
+        return trigger_in_progress_.load();
+    }
+    
+    void cancel_trigger() override {
+        cancel_requested_.store(true);
+    }
+    
     // PreviewableStage interface
     bool supports_preview() const override { return true; }
     std::vector<PreviewOption> get_preview_options() const override;
@@ -151,6 +163,9 @@ private:
     
     // Status tracking
     std::string trigger_status_;
+    std::atomic<bool> trigger_in_progress_{false};
+    std::atomic<bool> cancel_requested_{false};
+    TriggerProgressCallback progress_callback_;
     
     // Helper methods for integration
     SourceField convertToSourceField(

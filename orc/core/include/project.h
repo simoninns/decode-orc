@@ -13,6 +13,7 @@
 #include <vector>
 #include <map>
 #include <memory>
+#include <future>
 #include "stage_parameter.h"
 #include "node_type.h"
 #include "tbc_metadata.h"
@@ -43,6 +44,10 @@ struct NodeCapabilities {
     std::string node_label;
 };
 
+// Forward declaration from ld_sink_stage.h
+class TriggerableStage;
+using TriggerProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
+
 namespace project_io {
     Project load_project(const std::string& filename);
     void save_project(const Project& project, const std::string& filename);
@@ -59,7 +64,9 @@ namespace project_io {
     void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
     void clear_project(Project& project);
     bool can_trigger_node(const Project& project, const std::string& node_id, std::string* reason);
-    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out);
+    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback = nullptr);
+    std::future<std::pair<bool, std::string>> trigger_node_async(Project& project, const std::string& node_id, TriggerProgressCallback progress_callback = nullptr);
+    
     std::string find_source_file_for_node(const Project& project, const std::string& node_id);
     
     // Get all capabilities for a node in a single call
@@ -175,7 +182,7 @@ private:
     friend void project_io::remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
     friend void project_io::clear_project(Project& project);
     friend bool project_io::can_trigger_node(const Project& project, const std::string& node_id, std::string* reason);
-    friend bool project_io::trigger_node(Project& project, const std::string& node_id, std::string& status_out);
+    friend bool project_io::trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback);
     friend std::string project_io::find_source_file_for_node(const Project& project, const std::string& node_id);
     friend NodeCapabilities project_io::get_node_capabilities(const Project& project, const std::string& node_id);
     friend void project_io::set_project_name(Project& project, const std::string& name);
@@ -330,10 +337,23 @@ namespace project_io {
      * @param project Project containing the node
      * @param node_id ID of node to trigger
      * @param status_out Output parameter for status message
+     * @param progress_callback Optional callback for progress updates (current, total, message)
      * @return true if trigger succeeded, false otherwise
      * @throws std::runtime_error if node not found or not triggerable
      */
-    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out);
+    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback);
+    
+    /**
+     * Trigger a stage node asynchronously (for sink stages)
+     * Builds DAG, executes to get inputs, and calls trigger() on the stage in a background thread.
+     * The DAG is kept alive until the trigger operation completes.
+     * @param project Project containing the node
+     * @param node_id ID of node to trigger
+     * @param progress_callback Optional callback for progress updates (current, total, message)
+     * @return Future that resolves to pair<success, status_message>
+     * @throws std::runtime_error if node not found or not triggerable
+     */
+    std::future<std::pair<bool, std::string>> trigger_node_async(Project& project, const std::string& node_id, TriggerProgressCallback progress_callback);
     
     /**
      * Find source file for a node by tracing back through the DAG

@@ -18,8 +18,18 @@
 #include "previewable_stage.h"
 #include <string>
 #include <memory>
+#include <functional>
 
 namespace orc {
+
+/**
+ * @brief Progress callback for triggerable stages
+ * 
+ * @param current Current progress value (e.g., frames processed)
+ * @param total Total work to be done (e.g., total frames)
+ * @param message Status message describing current operation
+ */
+using TriggerProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
 
 /**
  * @brief Triggerable interface for stages that can be manually executed
@@ -50,6 +60,33 @@ public:
      * @return Status message describing what was done
      */
     virtual std::string get_trigger_status() const = 0;
+    
+    /**
+     * @brief Set progress callback for long-running trigger operations
+     * 
+     * @param callback Function to call with progress updates (current, total, message)
+     */
+    virtual void set_progress_callback(TriggerProgressCallback callback) {
+        (void)callback; // Default implementation does nothing
+    }
+    
+    /**
+     * @brief Check if trigger is currently in progress
+     * @return True if trigger is running, false otherwise
+     */
+    virtual bool is_trigger_in_progress() const {
+        return false; // Default implementation assumes no async operation
+    }
+    
+    /**
+     * @brief Cancel an in-progress trigger operation
+     * 
+     * Only relevant for stages that support async trigger operations.
+     * Default implementation does nothing.
+     */
+    virtual void cancel_trigger() {
+        // Default implementation does nothing
+    }
 };
 
 /**

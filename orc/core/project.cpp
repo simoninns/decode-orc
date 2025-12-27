@@ -44,6 +44,7 @@
 #include <algorithm>
 #include <queue>
 #include <set>
+#include <future>
 #include <yaml-cpp/yaml.h>
 
 namespace orc {
@@ -687,7 +688,7 @@ bool can_trigger_node(const Project& project, const std::string& node_id, std::s
     }
 }
 
-bool trigger_node(Project& project, const std::string& node_id, std::string& status_out) {
+bool trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback) {
     // Find the node
     auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
@@ -711,15 +712,24 @@ bool trigger_node(Project& project, const std::string& node_id, std::string& sta
         throw std::runtime_error("Stage is not triggerable");
     }
     
+    // Set progress callback if provided
+    if (progress_callback) {
+        trigger_stage->set_progress_callback(progress_callback);
+    }
+    
     // Build DAG
     auto dag = project_to_dag(project);
-    DAGExecutor executor;
+    
+    // CRITICAL: Keep executor alive during trigger to prevent dangling pointers
+    // Artifacts from execute_to_node may contain representations (like CorrectedVideoFieldRepresentation)
+    // that hold raw pointers to stages owned by the executor/DAG. These stages must outlive the trigger operation.
+    auto executor = std::make_shared<DAGExecutor>();
     
     // Get inputs by executing to predecessor nodes
     std::vector<ArtifactPtr> inputs;
     for (const auto& edge : project.edges_) {
         if (edge.target_node_id == node_id) {
-            auto node_outputs = executor.execute_to_node(*dag, edge.source_node_id);
+            auto node_outputs = executor->execute_to_node(*dag, edge.source_node_id);
             if (node_outputs.find(edge.source_node_id) != node_outputs.end()) {
                 auto& outputs = node_outputs[edge.source_node_id];
                 // For now, assume single output per stage (most common case)
@@ -735,10 +745,74 @@ bool trigger_node(Project& project, const std::string& node_id, std::string& sta
         throw std::runtime_error("No inputs for node '" + node_id + "'");
     }
     
-    // Trigger
+    // Trigger (DAG and executor stay alive, keeping stage instances valid)
     bool success = trigger_stage->trigger(inputs, it->parameters);
     status_out = trigger_stage->get_trigger_status();
+    
+    // DAG and executor destroyed here AFTER trigger completes, ensuring stages outlive artifacts
     return success;
+}
+
+std::future<std::pair<bool, std::string>> trigger_node_async(
+    Project& project,
+    const std::string& node_id,
+    TriggerProgressCallback progress_callback)
+{
+    // Build DAG and get inputs BEFORE launching async task
+    // This ensures the DAG's lifetime is managed by the async task
+    auto dag = project_to_dag(project);
+    auto executor = std::make_shared<DAGExecutor>();
+    
+    // Get inputs by executing to predecessor nodes
+    std::vector<ArtifactPtr> inputs;
+    const auto& edges = project.get_edges();
+    for (const auto& edge : edges) {
+        if (edge.target_node_id == node_id) {
+            auto node_outputs = executor->execute_to_node(*dag, edge.source_node_id);
+            if (node_outputs.find(edge.source_node_id) != node_outputs.end()) {
+                auto& outputs = node_outputs[edge.source_node_id];
+                if (!outputs.empty()) {
+                    inputs.push_back(outputs[0]);
+                }
+            }
+        }
+    }
+    
+    // Launch async task, capturing DAG and inputs to keep stages alive
+    return std::async(std::launch::async, [dag, node_id, inputs, progress_callback]() -> std::pair<bool, std::string> {
+        try {
+            // Find the target node in the DAG
+            const DAGNode* target_node = nullptr;
+            for (const auto& node : dag->nodes()) {
+                if (node.node_id == node_id) {
+                    target_node = &node;
+                    break;
+                }
+            }
+            
+            if (!target_node) {
+                return {false, "Node not found in DAG"};
+            }
+            
+            auto trigger_stage = dynamic_cast<TriggerableStage*>(target_node->stage.get());
+            if (!trigger_stage) {
+                return {false, "Stage is not triggerable"};
+            }
+            
+            if (progress_callback) {
+                trigger_stage->set_progress_callback(progress_callback);
+            }
+            
+            bool success = trigger_stage->trigger(inputs, target_node->parameters);
+            std::string status = trigger_stage->get_trigger_status();
+            
+            // DAG will be destroyed here, keeping stages alive throughout trigger
+            return {success, status};
+            
+        } catch (const std::exception& e) {
+            return {false, std::string("Exception: ") + e.what()};
+        }
+    });
 }
 
 std::string find_source_file_for_node(const Project& project, const std::string& node_id) {

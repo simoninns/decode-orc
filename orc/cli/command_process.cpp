@@ -153,6 +153,24 @@ int process_command(const ProcessOptions& options) {
         // Trigger the stage
         try {
             ORC_LOG_INFO("Calling trigger() with {} inputs", inputs.size());
+            
+            // Set up progress callback
+            std::string last_message;
+            size_t last_percent = 0;
+            auto progress_callback = [&last_message, &last_percent](size_t current, size_t total, const std::string& message) {
+                if (total > 0) {
+                    size_t percent = (current * 100) / total;
+                    // Only log on message change or significant progress change
+                    if (message != last_message || percent >= last_percent + 5) {
+                        std::cout << "[Progress: " << percent << "%] " << message << std::endl;
+                        last_message = message;
+                        last_percent = percent;
+                    }
+                }
+            };
+            
+            trigger_stage->set_progress_callback(progress_callback);
+            
             bool success = trigger_stage->trigger(inputs, node_it->parameters);
             
             if (success) {

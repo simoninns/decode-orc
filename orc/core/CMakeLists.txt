@@ -39,6 +39,9 @@ add_library(orc-core STATIC
     observers/lead_in_out_observer.cpp
     observers/dropout_analysis_observer.cpp
     
+    # SNR analysis observer
+    snr_analysis_observer.cpp
+    
     # Analysis framework
     analysis/analysis_registry.cpp
     analysis/analysis_init.cpp
@@ -75,6 +78,9 @@ add_library(orc-core STATIC
     
     # Dropout analysis decoder
     dropout_analysis_decoder.cpp
+    
+    # SNR analysis decoder
+    snr_analysis_decoder.cpp
     
     # Node type system
     node_type.cpp

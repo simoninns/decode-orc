@@ -61,6 +61,10 @@ void PreviewDialog::setupUI()
     show_dropout_analysis_action_->setShortcut(QKeySequence("Ctrl+D"));
     connect(show_dropout_analysis_action_, &QAction::triggered, this, &PreviewDialog::showDropoutAnalysisDialogRequested);
     
+    show_snr_analysis_action_ = observersMenu->addAction("&SNR Analysis");
+    show_snr_analysis_action_->setShortcut(QKeySequence("Ctrl+S"));
+    connect(show_snr_analysis_action_, &QAction::triggered, this, &PreviewDialog::showSNRAnalysisDialogRequested);
+    
     mainLayout->setMenuBar(menu_bar_);
     
     // Preview widget

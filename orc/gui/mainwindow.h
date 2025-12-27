@@ -24,11 +24,14 @@ class OrcGraphicsView;
 class PreviewDialog;
 class VBIDialog;
 class DropoutAnalysisDialog;
+class SNRAnalysisDialog;
 class VectorscopeDialog;
 
 namespace orc {
     class DropoutAnalysisDecoder;
     enum class DropoutAnalysisMode;
+    class SNRAnalysisDecoder;
+    enum class SNRAnalysisMode;
 }
 
 namespace orc {
@@ -100,6 +103,8 @@ private slots:
     void updateVBIDialog();
     void onShowDropoutAnalysisDialog();
     void updateDropoutAnalysisDialog();
+    void onShowSNRAnalysisDialog();
+    void updateSNRAnalysisDialog();
 
 private:
     void setupUI();
@@ -131,6 +136,7 @@ private:
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
     std::unique_ptr<orc::DropoutAnalysisDecoder> dropout_decoder_;
+    std::unique_ptr<orc::SNRAnalysisDecoder> snr_decoder_;
     std::string current_view_node_id_;  // Which node is being viewed
     QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
     
@@ -139,10 +145,16 @@ private:
     orc::DropoutAnalysisMode last_dropout_mode_;
     orc::PreviewOutputType last_dropout_output_type_;
     
+    // SNR analysis state tracking
+    std::string last_snr_node_id_;
+    orc::SNRAnalysisMode last_snr_mode_;
+    orc::PreviewOutputType last_snr_output_type_;
+    
     // UI components
     PreviewDialog* preview_dialog_;
     VBIDialog* vbi_dialog_;
     DropoutAnalysisDialog* dropout_analysis_dialog_;
+    SNRAnalysisDialog* snr_analysis_dialog_;
     std::unordered_map<std::string, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;

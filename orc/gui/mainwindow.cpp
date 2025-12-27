@@ -12,6 +12,7 @@
 #include "previewdialog.h"
 #include "vbidialog.h"
 #include "dropoutanalysisdialog.h"
+#include "snranalysisdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
@@ -22,6 +23,7 @@
 #include "../core/include/preview_renderer.h"
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/dropout_analysis_decoder.h"
+#include "../core/include/snr_analysis_decoder.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/project_to_dag.h"
@@ -77,6 +79,9 @@ MainWindow::MainWindow(QWidget *parent)
     , last_dropout_node_id_()
     , last_dropout_mode_(orc::DropoutAnalysisMode::FULL_FIELD)
     , last_dropout_output_type_(orc::PreviewOutputType::Frame)
+    , last_snr_node_id_()
+    , last_snr_mode_(orc::SNRAnalysisMode::WHITE_SNR)
+    , last_snr_output_type_(orc::PreviewOutputType::Frame)
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
     , preview_update_timer_(nullptr)
@@ -190,6 +195,13 @@ void MainWindow::setupUI()
     connect(dropout_analysis_dialog_, &DropoutAnalysisDialog::modeChanged,
             this, &MainWindow::updateDropoutAnalysisDialog);
     
+    // Create SNR analysis dialog (initially hidden)
+    snr_analysis_dialog_ = new SNRAnalysisDialog(this);
+    
+    // Connect SNR analysis dialog signals
+    connect(snr_analysis_dialog_, &SNRAnalysisDialog::modeChanged,
+            this, &MainWindow::updateSNRAnalysisDialog);
+    
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
             this, &MainWindow::onPreviewIndexChanged);
@@ -205,6 +217,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onShowVBIDialog);
     connect(preview_dialog_, &PreviewDialog::showDropoutAnalysisDialogRequested,
             this, &MainWindow::onShowDropoutAnalysisDialog);
+    connect(preview_dialog_, &PreviewDialog::showSNRAnalysisDialogRequested,
+            this, &MainWindow::onShowSNRAnalysisDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -1432,6 +1446,12 @@ void MainWindow::updatePreviewRenderer()
             dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(dag);
         }
         
+        if (snr_decoder_) {
+            snr_decoder_->update_dag(dag);
+        } else {
+            snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(dag);
+        }
+        
         // Check if current node is still valid, or if we need to switch
         bool need_to_switch = false;
         std::string target_node;
@@ -1773,6 +1793,7 @@ void MainWindow::updateAllPreviewComponents()
     updatePreviewInfo();
     updateVBIDialog();
     updateDropoutAnalysisDialog();
+    updateSNRAnalysisDialog();
 }
 
 void MainWindow::updateVBIDialog()
@@ -1943,5 +1964,133 @@ void MainWindow::updateDropoutAnalysisDialog()
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Error updating dropout analysis dialog: {}", e.what());
+    }
+}
+
+void MainWindow::onShowSNRAnalysisDialog()
+{
+    if (!snr_analysis_dialog_) {
+        return;
+    }
+    
+    // Show the dialog first
+    snr_analysis_dialog_->show();
+    snr_analysis_dialog_->raise();
+    snr_analysis_dialog_->activateWindow();
+    
+    // Update SNR analysis after showing
+    updateSNRAnalysisDialog();
+}
+
+void MainWindow::updateSNRAnalysisDialog()
+{
+    // Only update if dialog is visible
+    if (!snr_analysis_dialog_ || !snr_analysis_dialog_->isVisible()) {
+        return;
+    }
+    
+    // Get current node being displayed
+    if (current_view_node_id_.empty() || !preview_renderer_ || !snr_decoder_) {
+        return;
+    }
+    
+    try {
+        // Get current mode from the dialog
+        auto mode = snr_analysis_dialog_->getCurrentMode();
+        
+        // Get current index to show marker
+        int current_index = preview_dialog_->previewSlider()->value();
+        
+        // Check if we need to reload data (node, mode, or output type changed)
+        bool need_reload = (current_view_node_id_ != last_snr_node_id_ ||
+                           mode != last_snr_mode_ ||
+                           current_output_type_ != last_snr_output_type_);
+        
+        if (need_reload) {
+            ORC_LOG_INFO("Updating SNR analysis for node '{}' in {} mode",
+                        current_view_node_id_,
+                        mode == orc::SNRAnalysisMode::WHITE_SNR ? "WHITE_SNR" : 
+                        (mode == orc::SNRAnalysisMode::BLACK_PSNR ? "BLACK_PSNR" : "BOTH"));
+            
+            // Check if we're in frame mode
+            bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                                 current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+                                 current_output_type_ == orc::PreviewOutputType::Split);
+            
+            if (is_frame_mode) {
+                // Get frame-based SNR stats
+                auto frame_stats = snr_decoder_->get_snr_by_frames(current_view_node_id_, mode);
+                
+                if (!frame_stats.empty()) {
+                    snr_analysis_dialog_->startUpdate(frame_stats.size());
+                    
+                    for (const auto& stats : frame_stats) {
+                        if (stats.has_data) {
+                            double white_snr = stats.has_white_snr ? stats.white_snr : std::nan("");
+                            double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::nan("");
+                            
+                            snr_analysis_dialog_->addDataPoint(
+                                stats.frame_number,
+                                white_snr,
+                                black_psnr);
+                        }
+                    }
+                    
+                    // Pass 1-based frame number for marker positioning
+                    int32_t current_frame = current_index + 1;
+                    snr_analysis_dialog_->finishUpdate(current_frame);
+                    
+                    ORC_LOG_DEBUG("SNR analysis: Loaded {} frames, marker at frame {} (slider index {})", 
+                                 frame_stats.size(), current_frame, current_index);
+                } else {
+                    ORC_LOG_WARN("No SNR data available for node '{}'", current_view_node_id_);
+                    snr_analysis_dialog_->showNoDataMessage("Node produces no video output or no SNR data available");
+                }
+            } else {
+                // Field mode - get field-based stats but display as if they were frames
+                auto field_stats = snr_decoder_->get_snr_for_all_fields(current_view_node_id_, mode);
+                
+                if (!field_stats.empty()) {
+                    snr_analysis_dialog_->startUpdate(field_stats.size());
+                    
+                    for (const auto& stats : field_stats) {
+                        if (stats.has_data) {
+                            double white_snr = stats.has_white_snr ? stats.white_snr : std::nan("");
+                            double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::nan("");
+                            
+                            // Use field index + 1 as the "frame number" for display
+                            snr_analysis_dialog_->addDataPoint(
+                                stats.field_id.value() + 1,
+                                white_snr,
+                                black_psnr);
+                        }
+                    }
+                    
+                    // Pass 1-based field number for marker positioning
+                    int32_t current_field = current_index + 1;
+                    snr_analysis_dialog_->finishUpdate(current_field);
+                    
+                    ORC_LOG_DEBUG("SNR analysis: Loaded {} fields, marker at field {} (slider index {})", 
+                                 field_stats.size(), current_field, current_index);
+                } else {
+                    ORC_LOG_WARN("No SNR data available for node '{}'", current_view_node_id_);
+                    snr_analysis_dialog_->showNoDataMessage("Node produces no video output or no SNR data available");
+                }
+            }
+            
+            // Update tracking state
+            last_snr_node_id_ = current_view_node_id_;
+            last_snr_mode_ = mode;
+            last_snr_output_type_ = current_output_type_;
+            
+        } else {
+            // Just update the marker position without reloading data
+            int32_t marker_position = current_index + 1;  // 1-based
+            snr_analysis_dialog_->updateFrameMarker(marker_position);
+            ORC_LOG_DEBUG("SNR marker updated to position {} (slider index {})", marker_position, current_index);
+        }
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Error updating SNR analysis dialog: {}", e.what());
     }
 }

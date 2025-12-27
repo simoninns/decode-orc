@@ -64,6 +64,10 @@ add_executable(orc-gui
     # Dropout analysis dialog
     dropoutanalysisdialog.cpp
     dropoutanalysisdialog.h
+    
+    # SNR analysis dialog
+    snranalysisdialog.cpp
+    snranalysisdialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

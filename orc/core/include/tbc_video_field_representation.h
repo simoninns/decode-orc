@@ -77,15 +77,15 @@ public:
     const VideoParameters& video_parameters() const { return video_params_; }
     std::shared_ptr<TBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
     
+    // Metadata accessor - public to allow observers to access SNR/VITS metrics
+    std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
+    
 private:
     std::shared_ptr<TBCReader> tbc_reader_;
     std::shared_ptr<TBCMetadataReader> metadata_reader_;
     
     VideoParameters video_params_;
     std::map<FieldID, FieldMetadata> field_metadata_cache_;
-    
-    // Metadata is private - only accessible through observers
-    std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
     
     // Access to metadata reader for internal use only
     const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }

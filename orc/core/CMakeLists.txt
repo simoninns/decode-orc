@@ -37,6 +37,7 @@ add_library(orc-core STATIC
     observers/disc_quality_observer.cpp
     observers/pulldown_observer.cpp
     observers/lead_in_out_observer.cpp
+    observers/dropout_analysis_observer.cpp
     
     # Analysis framework
     analysis/analysis_registry.cpp
@@ -68,6 +69,12 @@ add_library(orc-core STATIC
     
     # Dropout decision utilities
     dropout_decision.cpp
+    
+    # Observation cache (shared by all analysis decoders)
+    observation_cache.cpp
+    
+    # Dropout analysis decoder
+    dropout_analysis_decoder.cpp
     
     # Node type system
     node_type.cpp

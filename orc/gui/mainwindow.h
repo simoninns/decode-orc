@@ -23,13 +23,20 @@
 class OrcGraphicsView;
 class PreviewDialog;
 class VBIDialog;
+class DropoutAnalysisDialog;
 class VectorscopeDialog;
+
+namespace orc {
+    class DropoutAnalysisDecoder;
+    enum class DropoutAnalysisMode;
+}
 
 namespace orc {
     class VideoFieldRepresentation;
     class DAG;
     class AnalysisTool;
     class VBIDecoder;
+    class DropoutAnalysisDecoder;
 }
 
 class FieldPreviewWidget;
@@ -91,6 +98,8 @@ private slots:
     void onInspectStage(const std::string& node_id);
     void onShowVBIDialog();
     void updateVBIDialog();
+    void onShowDropoutAnalysisDialog();
+    void updateDropoutAnalysisDialog();
 
 private:
     void setupUI();
@@ -121,12 +130,19 @@ private:
     GUIProject project_;
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
+    std::unique_ptr<orc::DropoutAnalysisDecoder> dropout_decoder_;
     std::string current_view_node_id_;  // Which node is being viewed
     QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
+    
+    // Dropout analysis state tracking
+    std::string last_dropout_node_id_;
+    orc::DropoutAnalysisMode last_dropout_mode_;
+    orc::PreviewOutputType last_dropout_output_type_;
     
     // UI components
     PreviewDialog* preview_dialog_;
     VBIDialog* vbi_dialog_;
+    DropoutAnalysisDialog* dropout_analysis_dialog_;
     std::unordered_map<std::string, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;

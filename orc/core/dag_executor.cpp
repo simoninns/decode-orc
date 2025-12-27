@@ -243,8 +243,11 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
     if (cache_enabled_) {
         auto it = artifact_cache_.find(expected_id);
         if (it != artifact_cache_.end()) {
-            ORC_LOG_DEBUG("Node '{}': Using cached result", node.node_id);
+            ORC_LOG_TRACE("Node '{}': Using cached result (cache size: {})", node.node_id, artifact_cache_.size());
             return it->second;
+        } else {
+            ORC_LOG_TRACE("Node '{}': Cache miss - expected_id='{}' (cache size: {})", 
+                         node.node_id, expected_id.value(), artifact_cache_.size());
         }
     }
     
@@ -265,9 +268,11 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
         return nullptr;  // Sink stages don't produce artifacts
     }
     
-    // Cache result
+    // Cache result using the expected_id (same key used for lookup)
     if (cache_enabled_) {
-        artifact_cache_[outputs[0]->id()] = outputs[0];
+        ORC_LOG_TRACE("Node '{}': Caching result with expected_id='{}' (cache will be size: {})", 
+                     node.node_id, expected_id.value(), artifact_cache_.size() + 1);
+        artifact_cache_[expected_id] = outputs[0];
     }
     
     return outputs[0];

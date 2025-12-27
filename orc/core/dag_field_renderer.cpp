@@ -48,6 +48,10 @@ DAGFieldRenderer::DAGFieldRenderer(std::shared_ptr<const DAG> dag)
         }
         throw DAGFieldRenderError(oss.str());
     }
+    
+    // Create persistent executor with caching enabled
+    executor_ = std::make_unique<DAGExecutor>();
+    executor_->set_cache_enabled(true);
 }
 
 void DAGFieldRenderer::ensure_node_index() const
@@ -101,6 +105,10 @@ void DAGFieldRenderer::update_dag(std::shared_ptr<const DAG> new_dag)
     
     // Clear cache - all previous results are now invalid
     render_cache_.clear();
+    
+    // Reset executor with fresh cache for new DAG
+    executor_ = std::make_unique<DAGExecutor>();
+    executor_->set_cache_enabled(true);
 }
 
 void DAGFieldRenderer::clear_cache()
@@ -163,12 +171,9 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
     ORC_LOG_DEBUG("Node '{}': Executing DAG for field {}", node_id, field_id.value());
     
     try {
-        // Create a DAG executor
-        DAGExecutor executor;
-        executor.set_cache_enabled(true);  // Use executor's cache for efficiency
-        
-        // Execute the DAG up to the target node
-        auto node_outputs = executor.execute_to_node(*dag_, node_id);
+        // Use the persistent executor (maintains cache across field requests)
+        // This is critical for performance - batch stages execute once for all fields
+        auto node_outputs = executor_->execute_to_node(*dag_, node_id);
         
         // Get the output from our target node
         auto it = node_outputs.find(node_id);

@@ -57,6 +57,10 @@ void PreviewDialog::setupUI()
     show_vbi_action_->setShortcut(QKeySequence("Ctrl+V"));
     connect(show_vbi_action_, &QAction::triggered, this, &PreviewDialog::showVBIDialogRequested);
     
+    show_dropout_analysis_action_ = observersMenu->addAction("&Dropout Analysis");
+    show_dropout_analysis_action_->setShortcut(QKeySequence("Ctrl+D"));
+    connect(show_dropout_analysis_action_, &QAction::triggered, this, &PreviewDialog::showDropoutAnalysisDialogRequested);
+    
     mainLayout->setMenuBar(menu_bar_);
     
     // Preview widget

@@ -11,6 +11,7 @@
 #include "fieldpreviewwidget.h"
 #include "previewdialog.h"
 #include "vbidialog.h"
+#include "dropoutanalysisdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
@@ -20,6 +21,7 @@
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/vbi_decoder.h"
+#include "../core/include/dropout_analysis_decoder.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/project_to_dag.h"
@@ -70,7 +72,11 @@ MainWindow::MainWindow(QWidget *parent)
     , auto_show_preview_action_(nullptr)
     , preview_renderer_(nullptr)
     , vbi_decoder_(nullptr)
+    , dropout_decoder_(nullptr)
     , current_view_node_id_()
+    , last_dropout_node_id_()
+    , last_dropout_mode_(orc::DropoutAnalysisMode::FULL_FIELD)
+    , last_dropout_output_type_(orc::PreviewOutputType::Frame)
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
     , preview_update_timer_(nullptr)
@@ -177,6 +183,13 @@ void MainWindow::setupUI()
     // Create VBI dialog (initially hidden)
     vbi_dialog_ = new VBIDialog(this);
     
+    // Create dropout analysis dialog (initially hidden)
+    dropout_analysis_dialog_ = new DropoutAnalysisDialog(this);
+    
+    // Connect dropout analysis dialog signals
+    connect(dropout_analysis_dialog_, &DropoutAnalysisDialog::modeChanged,
+            this, &MainWindow::updateDropoutAnalysisDialog);
+    
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
             this, &MainWindow::onPreviewIndexChanged);
@@ -190,6 +203,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onExportPNG);
         connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
             this, &MainWindow::onShowVBIDialog);
+    connect(preview_dialog_, &PreviewDialog::showDropoutAnalysisDialogRequested,
+            this, &MainWindow::onShowDropoutAnalysisDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -1411,6 +1426,12 @@ void MainWindow::updatePreviewRenderer()
             vbi_decoder_ = std::make_unique<orc::VBIDecoder>(dag);
         }
         
+        if (dropout_decoder_) {
+            dropout_decoder_->update_dag(dag);
+        } else {
+            dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(dag);
+        }
+        
         // Check if current node is still valid, or if we need to switch
         bool need_to_switch = false;
         std::string target_node;
@@ -1751,6 +1772,7 @@ void MainWindow::updateAllPreviewComponents()
     updatePreview();
     updatePreviewInfo();
     updateVBIDialog();
+    updateDropoutAnalysisDialog();
 }
 
 void MainWindow::updateVBIDialog()
@@ -1803,5 +1825,123 @@ void MainWindow::updateVBIDialog()
         } else {
             vbi_dialog_->clearVBIInfo();
         }
+    }
+}
+void MainWindow::onShowDropoutAnalysisDialog()
+{
+    if (!dropout_analysis_dialog_) {
+        return;
+    }
+    
+    // Show the dialog first
+    dropout_analysis_dialog_->show();
+    dropout_analysis_dialog_->raise();
+    dropout_analysis_dialog_->activateWindow();
+    
+    // Update dropout analysis after showing
+    updateDropoutAnalysisDialog();
+}
+
+void MainWindow::updateDropoutAnalysisDialog()
+{
+    // Only update if dialog is visible
+    if (!dropout_analysis_dialog_ || !dropout_analysis_dialog_->isVisible()) {
+        return;
+    }
+    
+    // Get current node being displayed
+    if (current_view_node_id_.empty() || !preview_renderer_ || !dropout_decoder_) {
+        return;
+    }
+    
+    try {
+        // Get current mode from the dialog
+        auto mode = dropout_analysis_dialog_->getCurrentMode();
+        
+        // Get current index to show marker
+        int current_index = preview_dialog_->previewSlider()->value();
+        
+        // Check if we need to reload data (node, mode, or output type changed)
+        bool need_reload = (current_view_node_id_ != last_dropout_node_id_ ||
+                           mode != last_dropout_mode_ ||
+                           current_output_type_ != last_dropout_output_type_);
+        
+        if (need_reload) {
+            ORC_LOG_INFO("Updating dropout analysis for node '{}' in {} mode",
+                        current_view_node_id_,
+                        mode == orc::DropoutAnalysisMode::FULL_FIELD ? "FULL_FIELD" : "VISIBLE_AREA");
+            
+            // Check if we're in frame mode
+            bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                                 current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+                                 current_output_type_ == orc::PreviewOutputType::Split);
+            
+            if (is_frame_mode) {
+                // Get frame-based dropout stats
+                auto frame_stats = dropout_decoder_->get_dropout_by_frames(current_view_node_id_, mode);
+                
+                if (!frame_stats.empty()) {
+                    dropout_analysis_dialog_->startUpdate(frame_stats.size());
+                    
+                    for (const auto& stats : frame_stats) {
+                        if (stats.has_data) {
+                            dropout_analysis_dialog_->addDataPoint(
+                                stats.frame_number,
+                                stats.total_dropout_length);
+                        }
+                    }
+                    
+                    // Pass 1-based frame number for marker positioning
+                    int32_t current_frame = current_index + 1;
+                    dropout_analysis_dialog_->finishUpdate(current_frame);
+                    
+                    ORC_LOG_DEBUG("Dropout analysis: Loaded {} frames, marker at frame {} (slider index {})", 
+                                 frame_stats.size(), current_frame, current_index);
+                } else {
+                    ORC_LOG_WARN("No dropout data available for node '{}'", current_view_node_id_);
+                    dropout_analysis_dialog_->showNoDataMessage("Node produces no video output");
+                }
+            } else {
+                // Field mode - get field-based stats but display as if they were frames
+                auto field_stats = dropout_decoder_->get_dropout_for_all_fields(current_view_node_id_, mode);
+                
+                if (!field_stats.empty()) {
+                    dropout_analysis_dialog_->startUpdate(field_stats.size());
+                    
+                    for (const auto& stats : field_stats) {
+                        if (stats.has_data) {
+                            // Use field index + 1 as the "frame number" for display
+                            dropout_analysis_dialog_->addDataPoint(
+                                stats.field_id.value() + 1,
+                                stats.total_dropout_length);
+                        }
+                    }
+                    
+                    // Pass 1-based field number for marker positioning
+                    int32_t current_field = current_index + 1;
+                    dropout_analysis_dialog_->finishUpdate(current_field);
+                    
+                    ORC_LOG_DEBUG("Dropout analysis: Loaded {} fields, marker at field {} (slider index {})", 
+                                 field_stats.size(), current_field, current_index);
+                } else {
+                    ORC_LOG_WARN("No dropout data available for node '{}'", current_view_node_id_);
+                    dropout_analysis_dialog_->showNoDataMessage("Node produces no video output");
+                }
+            }
+            
+            // Update tracking state
+            last_dropout_node_id_ = current_view_node_id_;
+            last_dropout_mode_ = mode;
+            last_dropout_output_type_ = current_output_type_;
+            
+        } else {
+            // Just update the marker position without reloading data
+            int32_t marker_position = current_index + 1;  // 1-based
+            dropout_analysis_dialog_->updateFrameMarker(marker_position);
+            ORC_LOG_DEBUG("Dropout marker updated to position {} (slider index {})", marker_position, current_index);
+        }
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Error updating dropout analysis dialog: {}", e.what());
     }
 }

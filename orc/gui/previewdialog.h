@@ -52,6 +52,7 @@ Q_SIGNALS:
     void aspectRatioModeChanged(int index);
     void exportPNGRequested();
     void showVBIDialogRequested();  // Emitted when VBI Decoder menu item selected
+    void showDropoutAnalysisDialogRequested();  // Emitted when Dropout Analysis menu item selected
 
 private:
     void setupUI();
@@ -68,6 +69,7 @@ private:
     QStatusBar* status_bar_;
     QAction* export_png_action_;
     QAction* show_vbi_action_;
+    QAction* show_dropout_analysis_action_;
     
     // Navigation buttons
     QPushButton* first_button_;

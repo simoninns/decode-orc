@@ -242,6 +242,9 @@ private:
     static constexpr size_t MAX_CACHED_RENDERS = 1000;
     LRUCache<CacheKey, FieldRenderResult, CacheKeyHash> render_cache_;
     
+    /// Persistent DAG executor (maintains stage execution cache across field requests)
+    std::unique_ptr<DAGExecutor> executor_;
+    
     /// Node index for fast lookup
     mutable std::map<std::string, size_t> node_index_;
     mutable bool node_index_valid_;

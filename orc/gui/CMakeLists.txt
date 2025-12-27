@@ -56,6 +56,14 @@ add_executable(orc-gui
     # VBI dialog
     vbidialog.cpp
     vbidialog.h
+    
+    # Plot widget
+    plotwidget.cpp
+    plotwidget.h
+    
+    # Dropout analysis dialog
+    dropoutanalysisdialog.cpp
+    dropoutanalysisdialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

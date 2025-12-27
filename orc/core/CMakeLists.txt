@@ -64,8 +64,6 @@ add_library(orc-core STATIC
     stages/ld_sink/tbc_metadata_writer.cpp
     stages/dropout_correct/dropout_correct_stage.cpp
     stages/field_invert/field_invert_stage.cpp
-    stages/splitter/splitter_stage.cpp
-    stages/overwrite/overwrite_stage.cpp
     stages/field_map/field_map_stage.cpp
     stages/stacker/stacker_stage.cpp
     stages/chroma_sink/chroma_sink_stage.cpp
@@ -111,7 +109,6 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_correct
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_invert
-    ${CMAKE_CURRENT_SOURCE_DIR}/stages/splitter
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_map
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink

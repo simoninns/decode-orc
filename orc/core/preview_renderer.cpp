@@ -58,6 +58,7 @@ static PreviewImage create_placeholder_image(PreviewOutputType type, const char*
     // Helper function to get character bitmap pattern
     auto get_char_pattern = [](char ch) -> const uint8_t* {
         static const uint8_t N[] = {0x00, 0x82, 0xC2, 0xA2, 0x92, 0x8A, 0x86, 0x00};
+        static const uint8_t R[] = {0x00, 0x7C, 0x42, 0x42, 0x7C, 0x48, 0x44, 0x00};
         static const uint8_t o[] = {0x00, 0x00, 0x3C, 0x42, 0x42, 0x42, 0x3C, 0x00};
         static const uint8_t s[] = {0x00, 0x00, 0x3C, 0x40, 0x3C, 0x02, 0x7C, 0x00};
         static const uint8_t u[] = {0x00, 0x00, 0x42, 0x42, 0x42, 0x46, 0x3A, 0x00};
@@ -74,10 +75,13 @@ static PreviewImage create_placeholder_image(PreviewOutputType type, const char*
         static const uint8_t g[] = {0x00, 0x00, 0x3E, 0x42, 0x3E, 0x02, 0x3C, 0x00};
         static const uint8_t p[] = {0x00, 0x00, 0x5C, 0x62, 0x62, 0x5C, 0x40, 0x00};
         static const uint8_t n[] = {0x00, 0x00, 0x5C, 0x62, 0x42, 0x42, 0x42, 0x00};
+        static const uint8_t d[] = {0x00, 0x02, 0x02, 0x3E, 0x42, 0x42, 0x3E, 0x00};
+        static const uint8_t f[] = {0x00, 0x0E, 0x10, 0x7C, 0x10, 0x10, 0x10, 0x00};
         static const uint8_t space[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
         
         switch (ch) {
             case 'N': return N;
+            case 'R': return R;
             case 'o': return o;
             case 's': return s;
             case 'u': return u;
@@ -94,6 +98,8 @@ static PreviewImage create_placeholder_image(PreviewOutputType type, const char*
             case 'g': return g;
             case 'p': return p;
             case 'n': return n;
+            case 'd': return d;
+            case 'f': return f;
             case ' ': return space;
             default: return space;
         }

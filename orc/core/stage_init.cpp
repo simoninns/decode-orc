@@ -13,8 +13,6 @@
 #include "stages/ld_sink/ld_sink_stage.h"
 #include "stages/dropout_correct/dropout_correct_stage.h"
 #include "stages/field_invert/field_invert_stage.h"
-#include "stages/splitter/splitter_stage.h"
-#include "stages/overwrite/overwrite_stage.h"
 #include "stages/field_map/field_map_stage.h"
 #include "stages/stacker/stacker_stage.h"
 #include "stages/chroma_sink/chroma_sink_stage.h"
@@ -36,12 +34,10 @@ void force_stage_linking() {
     [[maybe_unused]] auto dummy2 = std::make_shared<LDNTSCSourceStage>();
     [[maybe_unused]] auto dummy3 = std::make_shared<DropoutCorrectStage>();
     [[maybe_unused]] auto dummy4 = std::make_shared<FieldInvertStage>();
-    [[maybe_unused]] auto dummy5 = std::make_shared<SplitterStage>();
-    [[maybe_unused]] auto dummy6 = std::make_shared<OverwriteStage>();
-    [[maybe_unused]] auto dummy7 = std::make_shared<FieldMapStage>();
-    [[maybe_unused]] auto dummy8 = std::make_shared<LDSinkStage>();
-    [[maybe_unused]] auto dummy9 = std::make_shared<StackerStage>();
-    [[maybe_unused]] auto dummy10 = std::make_shared<ChromaSinkStage>();
+    [[maybe_unused]] auto dummy5 = std::make_shared<FieldMapStage>();
+    [[maybe_unused]] auto dummy6 = std::make_shared<LDSinkStage>();
+    [[maybe_unused]] auto dummy7 = std::make_shared<StackerStage>();
+    [[maybe_unused]] auto dummy8 = std::make_shared<ChromaSinkStage>();
 }
 
 } // namespace orc

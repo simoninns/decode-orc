@@ -70,7 +70,6 @@ std::string node_type_to_string(NodeType type) {
         case NodeType::SOURCE: return "SOURCE";
         case NodeType::SINK: return "SINK";
         case NodeType::TRANSFORM: return "TRANSFORM";
-        case NodeType::SPLITTER: return "SPLITTER";
         case NodeType::MERGER: return "MERGER";
         case NodeType::COMPLEX: return "COMPLEX";
         default: return "UNKNOWN";
@@ -82,7 +81,6 @@ NodeType string_to_node_type(const std::string& str) {
     if (str == "SOURCE") return NodeType::SOURCE;
     if (str == "SINK") return NodeType::SINK;
     if (str == "TRANSFORM") return NodeType::TRANSFORM;
-    if (str == "SPLITTER") return NodeType::SPLITTER;
     if (str == "MERGER") return NodeType::MERGER;
     if (str == "COMPLEX") return NodeType::COMPLEX;
     // Default to TRANSFORM for unknown types (backward compatibility)

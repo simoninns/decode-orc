@@ -175,9 +175,8 @@ protected:
  * 
  * - If a stage does NOT modify the hinted data, it inherits the default behavior
  *   which forwards hints unchanged. For example:
- *   * Overwrite stage preserves dropout hints (doesn't correct them)
- *   * Overwrite stage preserves video parameters (doesn't change geometry)
  *   * Brightness adjustment preserves all hints
+ *   * Color correction preserves dropout hints and geometry
  * 
  * Video parameters (active_video_start/end, field dimensions, etc.) are hints too
  * and follow the same semantic - they describe the output video geometry.

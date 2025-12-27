@@ -95,7 +95,7 @@ public:
      * @brief Number of output artifacts produced
      * 
      * The DAG executor validates that execute() returns this many outputs.
-     * Most stages return 1, but splitters may return multiple outputs.
+     * Most stages return 1, but mergers and complex stages may return multiple outputs.
      */
     virtual size_t output_count() const = 0;
     

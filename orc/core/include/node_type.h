@@ -43,9 +43,6 @@ enum class NodeType {
     /// Transform node - one input, one output (most common processing stages)
     TRANSFORM,
     
-    /// Splitter node - one input, multiple outputs (fanout, duplicate streams)
-    SPLITTER,
-    
     /// Merger node - multiple inputs, one output (stacking, blending)
     MERGER,
     

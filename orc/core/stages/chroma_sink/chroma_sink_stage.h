@@ -136,17 +136,12 @@ private:
     std::string output_format_;
     double chroma_gain_;
     double chroma_phase_;
-    int start_frame_;
-    int length_;
     int threads_;
     double luma_nr_;
     double chroma_nr_;
     bool ntsc_phase_comp_;
     bool simple_pal_;
-    bool blackandwhite_;  // Filter out chroma subcarrier for monochrome output (ld-chroma-decoder -b mode)
     int output_padding_;
-    int first_active_frame_line_;  // -1 means use source default
-    int last_active_frame_line_;   // -1 means use source default
     
     // Status tracking
     std::string trigger_status_;

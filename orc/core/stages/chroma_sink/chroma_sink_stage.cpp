@@ -43,17 +43,12 @@ ChromaSinkStage::ChromaSinkStage()
     , output_format_("rgb")
     , chroma_gain_(1.0)
     , chroma_phase_(0.0)
-    , start_frame_(1)
-    , length_(-1)
     , threads_(0)  // 0 means auto-detect
     , luma_nr_(0.0)
     , chroma_nr_(0.0)
     , ntsc_phase_comp_(false)
     , simple_pal_(false)
-    , blackandwhite_(false)
     , output_padding_(8)
-    , first_active_frame_line_(-1)
-    , last_active_frame_line_(-1)
 {
 }
 
@@ -106,7 +101,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
         decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
     }
     
-    return {
+    std::vector<ParameterDescriptor> params = {
         ParameterDescriptor{
             "output_path",
             "Output Path",
@@ -143,20 +138,6 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             {-180.0, 180.0, 0.0, {}, false}
         },
         ParameterDescriptor{
-            "start_frame",
-            "Start Frame",
-            "First frame to process (1-based). Default: 1",
-            ParameterType::INT32,
-            {1, {}, 1, {}, false}
-        },
-        ParameterDescriptor{
-            "length",
-            "Length",
-            "Number of frames to process. -1 means process all frames. Default: -1",
-            ParameterType::INT32,
-            {-1, {}, -1, {}, false}
-        },
-        ParameterDescriptor{
             "threads",
             "Threads",
             "Number of worker threads. 0 means auto-detect. Default: 0",
@@ -178,48 +159,50 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             {0.0, 10.0, 0.0, {}, false}
         },
         ParameterDescriptor{
-            "ntsc_phase_comp",
-            "NTSC Phase Compensation",
-            "Adjust phase per-line using burst phase (NTSC only)",
-            ParameterType::BOOL,
-            {{}, {}, false, {}, false}
-        },
-        ParameterDescriptor{
-            "simple_pal",
-            "Simple PAL",
-            "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
-            ParameterType::BOOL,
-            {{}, {}, false, {}, false}
-        },
-        ParameterDescriptor{
-            "blackandwhite",
-            "Black and White",
-            "Output in black and white (filters out chroma subcarrier for clean luma)",
-            ParameterType::BOOL,
-            {{}, {}, false, {}, false}
-        },
-        ParameterDescriptor{
             "output_padding",
             "Output Padding",
             "Pad output to multiple of this many pixels on both axes. Range: 1-32",
             ParameterType::INT32,
             {1, 32, 8, {}, false}
-        },
-        ParameterDescriptor{
-            "first_active_frame_line",
-            "First Active Frame Line",
-            "Override first visible line of frame (-1 uses source default). Range: -1 to 620",
-            ParameterType::INT32,
-            {-1, 620, -1, {}, false}
-        },
-        ParameterDescriptor{
-            "last_active_frame_line",
-            "Last Active Frame Line",
-            "Override last visible line of frame (-1 uses source default). Range: -1 to 620",
-            ParameterType::INT32,
-            {-1, 620, -1, {}, false}
         }
     };
+    
+    // Add format-specific parameters
+    if (project_format == VideoSystem::NTSC) {
+        params.push_back(ParameterDescriptor{
+            "ntsc_phase_comp",
+            "NTSC Phase Compensation",
+            "Adjust phase per-line using burst phase (NTSC only)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false}
+        });
+    } else if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
+        params.push_back(ParameterDescriptor{
+            "simple_pal",
+            "Simple PAL",
+            "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false}
+        });
+    } else {
+        // Unknown format - include both for backwards compatibility
+        params.push_back(ParameterDescriptor{
+            "ntsc_phase_comp",
+            "NTSC Phase Compensation",
+            "Adjust phase per-line using burst phase (NTSC only)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false}
+        });
+        params.push_back(ParameterDescriptor{
+            "simple_pal",
+            "Simple PAL",
+            "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false}
+        });
+    }
+    
+    return params;
 }
 
 std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
@@ -229,18 +212,13 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["decoder_type"] = decoder_type_;
     params["output_format"] = output_format_;
     params["chroma_gain"] = chroma_gain_;
-    params["blackandwhite"] = blackandwhite_;
     params["chroma_phase"] = chroma_phase_;
-    params["start_frame"] = start_frame_;
-    params["length"] = length_;
     params["threads"] = threads_;
     params["luma_nr"] = luma_nr_;
     params["chroma_nr"] = chroma_nr_;
     params["ntsc_phase_comp"] = ntsc_phase_comp_;
     params["simple_pal"] = simple_pal_;
     params["output_padding"] = output_padding_;
-    params["first_active_frame_line"] = first_active_frame_line_;
-    params["last_active_frame_line"] = last_active_frame_line_;
     return params;
 }
 
@@ -284,16 +262,6 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
                     decoder_config_changed = true;
                 }
             }
-        } else if (key == "start_frame") {
-            if (std::holds_alternative<int>(value)) {
-                start_frame_ = std::get<int>(value);
-                ORC_LOG_INFO("ChromaSink: Parameter start_frame set to {}", start_frame_);
-            }
-        } else if (key == "length") {
-            if (std::holds_alternative<int>(value)) {
-                length_ = std::get<int>(value);
-                ORC_LOG_INFO("ChromaSink: Parameter length set to {}", length_);
-            }
         } else if (key == "threads") {
             if (std::holds_alternative<int>(value)) {
                 threads_ = std::get<int>(value);
@@ -335,33 +303,6 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
                     decoder_config_changed = true;
                 }
             }
-        } else if (key == "blackandwhite") {
-            if (std::holds_alternative<bool>(value)) {
-                auto new_val = std::get<bool>(value);
-                if (new_val != blackandwhite_) {
-                    ORC_LOG_DEBUG("ChromaSink: blackandwhite changed from {} to {}", blackandwhite_, new_val);
-                    blackandwhite_ = new_val;
-                    decoder_config_changed = true;
-                }
-            } else if (std::holds_alternative<std::string>(value)) {
-                // Handle string representation of boolean (from YAML parsing)
-                auto str_val = std::get<std::string>(value);
-                bool new_val = (str_val == "true" || str_val == "1" || str_val == "yes");
-                if (new_val != blackandwhite_) {
-                    ORC_LOG_DEBUG("ChromaSink: blackandwhite changed from {} to {} (from string '{}')", blackandwhite_, new_val, str_val);
-                    blackandwhite_ = new_val;
-                    decoder_config_changed = true;
-                }
-            } else if (std::holds_alternative<int32_t>(value)) {
-                // Handle integer representation of boolean
-                auto int_val = std::get<int32_t>(value);
-                bool new_val = (int_val != 0);
-                if (new_val != blackandwhite_) {
-                    ORC_LOG_DEBUG("ChromaSink: blackandwhite changed from {} to {} (from int {})", blackandwhite_, new_val, int_val);
-                    blackandwhite_ = new_val;
-                    decoder_config_changed = true;
-                }
-            }
         } else if (key == "simple_pal") {
             if (std::holds_alternative<bool>(value)) {
                 auto new_val = std::get<bool>(value);
@@ -383,13 +324,6 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "output_padding") {
             if (std::holds_alternative<int>(value)) {
                 output_padding_ = std::get<int>(value);
-            }        } else if (key == "first_active_frame_line") {
-            if (std::holds_alternative<int32_t>(value)) {
-                first_active_frame_line_ = std::get<int32_t>(value);
-            }
-        } else if (key == "last_active_frame_line") {
-            if (std::holds_alternative<int32_t>(value)) {
-                last_active_frame_line_ = std::get<int32_t>(value);
             }
         }
     }
@@ -444,14 +378,7 @@ bool ChromaSinkStage::trigger(
     auto videoParams = *video_params_opt;  // Make a copy so we can modify it
     
     // Apply line parameter overrides if specified
-    if (first_active_frame_line_ >= 0) {
-        videoParams.first_active_frame_line = first_active_frame_line_;
-        ORC_LOG_INFO("ChromaSink: Overriding first_active_frame_line to {}", first_active_frame_line_);
-    }
-    if (last_active_frame_line_ >= 0) {
-        videoParams.last_active_frame_line = last_active_frame_line_;
-        ORC_LOG_INFO("ChromaSink: Overriding last_active_frame_line to {}", last_active_frame_line_);
-    }
+
     
     // Apply padding adjustments to active video region BEFORE configuring decoder
     // This ensures the decoder processes the correct region that will be written to output
@@ -485,9 +412,6 @@ bool ChromaSinkStage::trigger(
     bool useNtscDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::NTSC) ||
                           (decoder_type_.find("ntsc") == 0);
     
-    // When blackandwhite mode is enabled, set chroma gain to 0 (like ld-chroma-decoder -b)
-    double effectiveChromaGain = blackandwhite_ ? 0.0 : chroma_gain_;
-    
     if (useMonoDecoder) {
         MonoDecoder::MonoConfiguration config;
         config.yNRLevel = luma_nr_;
@@ -498,7 +422,7 @@ bool ChromaSinkStage::trigger(
     }
     else if (usePalDecoder) {
         PalColour::Configuration config;
-        config.chromaGain = effectiveChromaGain;  // Use 0.0 when blackandwhite=true
+        config.chromaGain = chroma_gain_;
         config.chromaPhase = chroma_phase_;
         config.yNRLevel = luma_nr_;
         config.simplePAL = simple_pal_;
@@ -527,7 +451,7 @@ bool ChromaSinkStage::trigger(
     }
     else if (useNtscDecoder) {
         Comb::Configuration config;
-        config.chromaGain = effectiveChromaGain;  // Use 0.0 when blackandwhite=true
+        config.chromaGain = chroma_gain_;
         config.chromaPhase = chroma_phase_;
         config.cNRLevel = chroma_nr_;
         config.yNRLevel = luma_nr_;
@@ -568,12 +492,9 @@ bool ChromaSinkStage::trigger(
     size_t total_fields = vfr->field_count();
     size_t total_frames = total_fields / 2;
     
-    ORC_LOG_INFO("ChromaSink: Frame range parameters: start_frame_={}, length_={}, total_frames={}", 
-                 start_frame_, length_, total_frames);
-    
-    size_t start_frame = (start_frame_ > 0) ? (start_frame_ - 1) : 0;  // Convert to 0-based
-    size_t num_frames = (length_ > 0) ? length_ : (total_frames - start_frame);
-    size_t end_frame = std::min(start_frame + num_frames, total_frames);
+    // Process all frames (hints will control frame range)
+    size_t start_frame = 0;
+    size_t end_frame = total_frames;
     
     ORC_LOG_INFO("ChromaSink: Processing frames {} to {} (of {})", 
                  start_frame + 1, end_frame, total_frames);
@@ -631,7 +552,7 @@ bool ChromaSinkStage::trigger(
     
     for (int32_t frame = extended_start_frame; frame < extended_end_frame; frame++) {
         // Determine if this frame is outside the valid range (need black padding)
-        // Note: 'frame' is in 0-based indexing after conversion from user's 1-based start_frame_
+        // Note: 'frame' is in 0-based indexing
         // Valid frames are 0 to (total_frames - 1) in 0-based indexing
         // Frames < 0 or >= total_frames need black padding
         bool useBlankFrame = (frame < 0) || (frame >= static_cast<int32_t>(total_frames));
@@ -642,10 +563,6 @@ bool ChromaSinkStage::trigger(
         
         // If outside bounds, use frame 1 (first frame) for metadata but black for data
         int32_t metadataFrameNumber = useBlankFrame ? 1 : frameNumberFor1BasedTBC;
-        
-        if (frame < 5 || frame > static_cast<int32_t>(start_frame_ + length_ - 3)) {
-            // Processing frame
-        }
         
         // Frame N (1-based numbering) consists of fields (2*N-2) and (2*N-1) in 0-based indexing
         // Fields are ALWAYS in chronological order in the input array
@@ -770,7 +687,7 @@ bool ChromaSinkStage::trigger(
         } else if (palDecoder) {
             // Clone configuration from main decoder
             PalColour::Configuration config;
-            config.chromaGain = blackandwhite_ ? 0.0 : chroma_gain_;
+            config.chromaGain = chroma_gain_;
             config.chromaPhase = chroma_phase_;
             config.yNRLevel = luma_nr_;
             config.simplePAL = simple_pal_;
@@ -793,7 +710,7 @@ bool ChromaSinkStage::trigger(
         } else if (ntscDecoder) {
             // Clone configuration from main decoder
             Comb::Configuration config;
-            config.chromaGain = blackandwhite_ ? 0.0 : chroma_gain_;
+            config.chromaGain = chroma_gain_;
             config.chromaPhase = chroma_phase_;
             config.cNRLevel = chroma_nr_;
             config.yNRLevel = luma_nr_;
@@ -1283,7 +1200,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     // Check if cached decoder matches current configuration
     if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_, 
                                                 chroma_phase_, luma_nr_, chroma_nr_,
-                                                ntsc_phase_comp_, simple_pal_, blackandwhite_)) {
+                                                ntsc_phase_comp_, simple_pal_, false)) {
         // Configuration changed - clear old decoders and create new ones
         ORC_LOG_DEBUG("ChromaSink: Decoder config changed, recreating '{}' decoder", effectiveDecoderType);
         preview_decoder_cache_.mono_decoder.reset();
@@ -1296,7 +1213,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         preview_decoder_cache_.chroma_nr = chroma_nr_;
         preview_decoder_cache_.ntsc_phase_comp = ntsc_phase_comp_;
         preview_decoder_cache_.simple_pal = simple_pal_;
-        preview_decoder_cache_.blackandwhite = blackandwhite_;
+        preview_decoder_cache_.blackandwhite = false;
         
         // Create appropriate decoder based on type
         if (effectiveDecoderType == "mono") {
@@ -1307,7 +1224,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             preview_decoder_cache_.mono_decoder = std::make_unique<MonoDecoder>(config);
         } else if (effectiveDecoderType == "pal2d" || effectiveDecoderType == "transform2d" || effectiveDecoderType == "transform3d") {
             PalColour::Configuration config;
-            config.chromaGain = blackandwhite_ ? 0.0 : chroma_gain_;
+            config.chromaGain = chroma_gain_;
             config.chromaPhase = chroma_phase_;
             config.yNRLevel = luma_nr_;
             config.simplePAL = simple_pal_;
@@ -1326,7 +1243,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         } else {
             // NTSC decoders
             Comb::Configuration config;
-            config.chromaGain = blackandwhite_ ? 0.0 : chroma_gain_;
+            config.chromaGain = chroma_gain_;
             config.chromaPhase = chroma_phase_;
             config.cNRLevel = chroma_nr_;
             config.yNRLevel = luma_nr_;

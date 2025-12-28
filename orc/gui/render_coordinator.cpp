@@ -1,0 +1,392 @@
+/*
+ * File:        render_coordinator.cpp
+ * Module:      orc-gui
+ * Purpose:     Thread-safe coordinator for core rendering operations
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025 Simon Inns
+ */
+
+#include "render_coordinator.h"
+#include "logging.h"
+#include "dag_executor.h"
+#include "project_to_dag.h"
+#include "project.h"
+#include "ld_sink_stage.h"  // For TriggerableStage
+
+RenderCoordinator::RenderCoordinator(QObject* parent)
+    : QObject(parent)
+{
+}
+
+RenderCoordinator::~RenderCoordinator()
+{
+    stop();
+}
+
+void RenderCoordinator::start()
+{
+    if (worker_thread_.joinable()) {
+        ORC_LOG_WARN("RenderCoordinator: Worker thread already running");
+        return;
+    }
+    
+    shutdown_requested_ = false;
+    worker_thread_ = std::thread(&RenderCoordinator::workerLoop, this);
+    
+    ORC_LOG_INFO("RenderCoordinator: Worker thread started");
+}
+
+void RenderCoordinator::stop()
+{
+    if (!worker_thread_.joinable()) {
+        return;
+    }
+    
+    ORC_LOG_INFO("RenderCoordinator: Requesting shutdown...");
+    
+    // Send shutdown request
+    shutdown_requested_ = true;
+    
+    // Wake up worker if waiting
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        queue_cv_.notify_one();
+    }
+    
+    // Wait for worker to finish
+    if (worker_thread_.joinable()) {
+        worker_thread_.join();
+    }
+    
+    ORC_LOG_INFO("RenderCoordinator: Worker thread stopped");
+}
+
+uint64_t RenderCoordinator::nextRequestId()
+{
+    return next_request_id_.fetch_add(1);
+}
+
+void RenderCoordinator::enqueueRequest(std::unique_ptr<RenderRequest> request)
+{
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        request_queue_.push(std::move(request));
+    }
+    queue_cv_.notify_one();
+}
+
+void RenderCoordinator::updateDAG(std::shared_ptr<const orc::DAG> dag)
+{
+    auto req = std::make_unique<UpdateDAGRequest>(nextRequestId(), std::move(dag));
+    enqueueRequest(std::move(req));
+}
+
+uint64_t RenderCoordinator::requestPreview(const std::string& node_id,
+                                          orc::PreviewOutputType output_type,
+                                          uint64_t output_index,
+                                          const std::string& option_id)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<RenderPreviewRequest>(id, node_id, output_type, output_index, option_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+uint64_t RenderCoordinator::requestVBIData(const std::string& node_id, orc::FieldID field_id)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetVBIDataRequest>(id, node_id, field_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+uint64_t RenderCoordinator::requestAvailableOutputs(const std::string& node_id)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetAvailableOutputsRequest>(id, node_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+uint64_t RenderCoordinator::requestTrigger(const std::string& node_id)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<TriggerStageRequest>(id, node_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+void RenderCoordinator::cancelTrigger()
+{
+    trigger_cancel_requested_ = true;
+    ORC_LOG_INFO("RenderCoordinator: Trigger cancellation requested");
+}
+
+// ============================================================================
+// Worker Thread Implementation
+// ============================================================================
+
+void RenderCoordinator::workerLoop()
+{
+    ORC_LOG_INFO("RenderCoordinator: Worker thread loop started");
+    
+    while (!shutdown_requested_) {
+        std::unique_ptr<RenderRequest> request;
+        
+        // Wait for a request
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            queue_cv_.wait(lock, [this] {
+                return !request_queue_.empty() || shutdown_requested_;
+            });
+            
+            if (shutdown_requested_) {
+                break;
+            }
+            
+            if (!request_queue_.empty()) {
+                request = std::move(request_queue_.front());
+                request_queue_.pop();
+            }
+        }
+        
+        // Process the request
+        if (request) {
+            try {
+                processRequest(std::move(request));
+            } catch (const std::exception& e) {
+                ORC_LOG_ERROR("RenderCoordinator: Exception processing request: {}", e.what());
+                emit error(request->request_id, QString::fromStdString(e.what()));
+            } catch (...) {
+                ORC_LOG_ERROR("RenderCoordinator: Unknown exception processing request");
+                emit error(request->request_id, "Unknown error");
+            }
+        }
+    }
+    
+    ORC_LOG_INFO("RenderCoordinator: Worker thread loop exiting");
+}
+
+void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
+{
+    switch (request->type) {
+        case RenderRequestType::UpdateDAG:
+            handleUpdateDAG(*static_cast<UpdateDAGRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::RenderPreview:
+            handleRenderPreview(*static_cast<RenderPreviewRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::GetVBIData:
+            handleGetVBIData(*static_cast<GetVBIDataRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::GetAvailableOutputs:
+            handleGetAvailableOutputs(*static_cast<GetAvailableOutputsRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::TriggerStage:
+            handleTriggerStage(*static_cast<TriggerStageRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::Shutdown:
+            shutdown_requested_ = true;
+            break;
+            
+        default:
+            ORC_LOG_WARN("RenderCoordinator: Unknown request type: {}", static_cast<int>(request->type));
+            break;
+    }
+}
+
+void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
+{
+    ORC_LOG_INFO("RenderCoordinator: Updating DAG (request {})", req.request_id);
+    
+    if (!req.dag) {
+        ORC_LOG_ERROR("RenderCoordinator: UpdateDAG received null DAG");
+        emit error(req.request_id, "Null DAG provided");
+        return;
+    }
+    
+    // Update DAG
+    worker_dag_ = req.dag;
+    
+    // Recreate all renderers/decoders with new DAG
+    try {
+        worker_preview_renderer_ = std::make_unique<orc::PreviewRenderer>(worker_dag_);
+        worker_field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(worker_dag_);
+        worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>(worker_dag_);
+        worker_dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(worker_dag_);
+        worker_snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(worker_dag_);
+        
+        ORC_LOG_INFO("RenderCoordinator: DAG updated successfully");
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Failed to create renderers: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleRenderPreview(const RenderPreviewRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Rendering preview for node '{}', type {}, index {} (request {})",
+                  req.node_id, static_cast<int>(req.output_type), req.output_index, req.request_id);
+    
+    if (!worker_preview_renderer_) {
+        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
+        emit error(req.request_id, "Preview renderer not initialized");
+        return;
+    }
+    
+    try {
+        auto result = worker_preview_renderer_->render_output(
+            req.node_id,
+            req.output_type,
+            req.output_index,
+            req.option_id
+        );
+        
+        ORC_LOG_DEBUG("RenderCoordinator: Preview render complete, success={}", result.success);
+        
+        // Emit result on GUI thread
+        emit previewReady(req.request_id, std::move(result));
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Preview render failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting VBI data for node '{}', field {} (request {})",
+                  req.node_id, req.field_id.value(), req.request_id);
+    
+    if (!worker_vbi_decoder_) {
+        ORC_LOG_ERROR("RenderCoordinator: VBI decoder not initialized");
+        emit error(req.request_id, "VBI decoder not initialized");
+        return;
+    }
+    
+    try {
+        auto vbi_info_opt = worker_vbi_decoder_->get_vbi_for_field(req.node_id, req.field_id);
+        
+        if (vbi_info_opt.has_value()) {
+            ORC_LOG_DEBUG("RenderCoordinator: VBI decode complete");
+            emit vbiDataReady(req.request_id, std::move(vbi_info_opt.value()));
+        } else {
+            ORC_LOG_WARN("RenderCoordinator: No VBI data available for field");
+            // Emit empty VBI info
+            emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
+        }
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting available outputs for node '{}' (request {})",
+                  req.node_id, req.request_id);
+    
+    if (!worker_preview_renderer_) {
+        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
+        emit error(req.request_id, "Preview renderer not initialized");
+        return;
+    }
+    
+    try {
+        auto outputs = worker_preview_renderer_->get_available_outputs(req.node_id);
+        
+        ORC_LOG_DEBUG("RenderCoordinator: Found {} available outputs", outputs.size());
+        
+        // Emit result on GUI thread
+        emit availableOutputsReady(req.request_id, std::move(outputs));
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Get available outputs failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
+{
+    ORC_LOG_INFO("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id, req.request_id);
+    
+    if (!worker_dag_) {
+        ORC_LOG_ERROR("RenderCoordinator: DAG not initialized");
+        emit error(req.request_id, "DAG not initialized");
+        return;
+    }
+    
+    trigger_cancel_requested_ = false;
+    
+    try {
+        // Build executor
+        auto executor = std::make_shared<orc::DAGExecutor>();
+        
+        // Get inputs by executing to predecessor nodes
+        std::vector<orc::ArtifactPtr> inputs;
+        
+        // Find edges leading to this node
+        // NOTE: This requires access to Project which we don't have here
+        // For now, we'll execute with empty inputs (stages that need inputs will fail)
+        // TODO: Pass Project or edges in the request
+        
+        // Find the target node in the DAG
+        const orc::DAGNode* target_node = nullptr;
+        for (const auto& node : worker_dag_->nodes()) {
+            if (node.node_id == req.node_id) {
+                target_node = &node;
+                break;
+            }
+        }
+        
+        if (!target_node) {
+            emit error(req.request_id, QString::fromStdString("Node '" + req.node_id + "' not found in DAG"));
+            emit triggerComplete(req.request_id, false, "Node not found");
+            return;
+        }
+        
+        auto trigger_stage = dynamic_cast<orc::TriggerableStage*>(target_node->stage.get());
+        if (!trigger_stage) {
+            emit error(req.request_id, QString::fromStdString("Stage '" + req.node_id + "' is not triggerable"));
+            emit triggerComplete(req.request_id, false, "Stage not triggerable");
+            return;
+        }
+        
+        // Set up progress callback (called from THIS worker thread, safe to emit signals)
+        trigger_stage->set_progress_callback([this, req_id = req.request_id](
+            size_t current, size_t total, const std::string& message) {
+            
+            // Check for cancellation
+            if (trigger_cancel_requested_) {
+                // TODO: Need a way to actually cancel the trigger
+                ORC_LOG_INFO("RenderCoordinator: Trigger cancellation detected");
+            }
+            
+            // Emit progress (Qt will queue this to GUI thread)
+            emit triggerProgress(current, total, QString::fromStdString(message));
+        });
+        
+        // Execute trigger
+        bool success = trigger_stage->trigger(inputs, target_node->parameters);
+        std::string status = trigger_stage->get_trigger_status();
+        
+        ORC_LOG_INFO("RenderCoordinator: Trigger complete, success={}, status={}", success, status);
+        
+        // Emit completion
+        emit triggerComplete(req.request_id, success, QString::fromStdString(status));
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Trigger failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+        emit triggerComplete(req.request_id, false, QString::fromStdString("Exception: " + std::string(e.what())));
+    }
+    
+    trigger_cancel_requested_ = false;
+}

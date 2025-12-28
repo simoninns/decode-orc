@@ -130,15 +130,15 @@ const TBCVideoFieldRepresentation::sample_type* TBCVideoFieldRepresentation::get
         return nullptr;
     }
     
-    // Check LRU cache for this field
-    auto cached_field = field_data_cache_.get(id);
-    if (!cached_field.has_value()) {
+    // Check LRU cache for this field using get_ptr to avoid copying
+    const auto* cached_field = field_data_cache_.get_ptr(id);
+    if (!cached_field) {
         // Load the entire field and cache it
         try {
             auto field_data = tbc_reader_->read_field(id);
             field_data_cache_.put(id, std::move(field_data));
-            cached_field = field_data_cache_.get(id);
-            if (!cached_field.has_value()) {
+            cached_field = field_data_cache_.get_ptr(id);
+            if (!cached_field) {
                 return nullptr;
             }
         } catch (const std::exception&) {

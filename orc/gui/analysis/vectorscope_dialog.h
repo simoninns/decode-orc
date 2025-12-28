@@ -60,7 +60,7 @@ public:
     explicit VectorscopeDialog(QWidget *parent = nullptr);
     ~VectorscopeDialog() override;
     
-    void setStage(const std::string& node_id, orc::ChromaSinkStage* stage);
+    void setStage(const std::string& node_id);
     
     /**
      * @brief Update vectorscope for a specific field

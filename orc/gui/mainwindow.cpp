@@ -19,6 +19,7 @@
 #include "analysis/analysis_dialog.h"
 #include "analysis/vectorscope_dialog.h"
 #include "orcgraphicsview.h"
+#include "render_coordinator.h"
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/vbi_decoder.h"
@@ -72,9 +73,7 @@ MainWindow::MainWindow(QWidget *parent)
     , edit_project_action_(nullptr)
     , show_preview_action_(nullptr)
     , auto_show_preview_action_(nullptr)
-    , preview_renderer_(nullptr)
-    , vbi_decoder_(nullptr)
-    , dropout_decoder_(nullptr)
+    , render_coordinator_(nullptr)
     , current_view_node_id_()
     , last_dropout_node_id_()
     , last_dropout_mode_(orc::DropoutAnalysisMode::FULL_FIELD)
@@ -90,10 +89,27 @@ MainWindow::MainWindow(QWidget *parent)
     , last_preview_update_time_(0)
     , last_update_was_sequential_(false)
     , trigger_progress_dialog_(nullptr)
-    , trigger_poll_timer_(nullptr)
-    , trigger_current_(0)
-    , trigger_total_(0)
 {
+    // Create and start render coordinator
+    render_coordinator_ = std::make_unique<RenderCoordinator>(this);
+    
+    // Connect coordinator signals
+    connect(render_coordinator_.get(), &RenderCoordinator::previewReady,
+            this, &MainWindow::onPreviewReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::vbiDataReady,
+            this, &MainWindow::onVBIDataReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::availableOutputsReady,
+            this, &MainWindow::onAvailableOutputsReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::triggerProgress,
+            this, &MainWindow::onTriggerProgress);
+    connect(render_coordinator_.get(), &RenderCoordinator::triggerComplete,
+            this, &MainWindow::onTriggerComplete);
+    connect(render_coordinator_.get(), &RenderCoordinator::error,
+            this, &MainWindow::onCoordinatorError);
+    
+    // Start the coordinator worker thread
+    render_coordinator_->start();
+    
     // Create preview update throttling timer
     preview_update_timer_ = new QTimer(this);
     preview_update_timer_->setSingleShot(false);  // Repeating for smooth throttling
@@ -596,7 +612,7 @@ void MainWindow::saveProjectAs()
 void MainWindow::updateUIState()
 {
     bool has_project = !project_.projectName().isEmpty();
-    bool has_preview = preview_renderer_ && !current_view_node_id_.empty();
+    bool has_preview = !current_view_node_id_.empty();
     
     // Enable/disable actions based on project state
     if (save_project_action_) {
@@ -683,12 +699,8 @@ void MainWindow::onPreviewModeChanged(int index)
     current_output_type_ = available_outputs_[index].type;
     current_option_id_ = available_outputs_[index].option_id;
     
-    // Ask core for equivalent index in new output type
-    uint64_t new_position = preview_renderer_->get_equivalent_index(
-        previous_type,
-        current_position,
-        current_output_type_
-    );
+    // Simple conversion for index (just use same position)
+    uint64_t new_position = current_position;
     
     // Use helper function to update all viewer controls (slider range, step, preview, info)
     refreshViewerControls();
@@ -701,18 +713,17 @@ void MainWindow::onPreviewModeChanged(int index)
 
 void MainWindow::onAspectRatioModeChanged(int index)
 {
-    if (!preview_renderer_) {
-        return;
-    }
-    
-    // Get available modes from core
-    auto available_modes = preview_renderer_->get_available_aspect_ratio_modes();
+    // Use cached aspect ratio modes (populated on DAG update)
+    // TODO: Request from coordinator if not cached
+    static std::vector<orc::AspectRatioModeInfo> available_modes = {
+        {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
+        {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
+    };
     if (index < 0 || index >= static_cast<int>(available_modes.size())) {
         return;
     }
     
-    // Update the aspect ratio mode in the renderer
-    preview_renderer_->set_aspect_ratio_mode(available_modes[index].mode);
+    // Note: Aspect ratio is applied client-side, no need to update coordinator
     
     // Get the correction factor - use per-output DAR correction if in DAR mode
     double aspect_correction = available_modes[index].correction_factor;
@@ -763,7 +774,7 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::updatePreviewInfo()
 {
-    if (!preview_renderer_ || current_view_node_id_.empty()) {
+    if (current_view_node_id_.empty()) {
         preview_dialog_->previewInfoLabel()->setText("No node selected");
         preview_dialog_->sliderMinLabel()->setText("");
         preview_dialog_->sliderMaxLabel()->setText("");
@@ -785,11 +796,12 @@ void MainWindow::updatePreviewInfo()
     ORC_LOG_DEBUG("updatePreviewInfo: current_output_type={}, index={}, total={}",
                   static_cast<int>(current_output_type_), current_index, total);
     
-    auto display_info = preview_renderer_->get_preview_item_display_info(
-        current_output_type_,
-        current_index,
-        total
-    );
+    // Build display info client-side
+    orc::PreviewItemDisplayInfo display_info;
+    display_info.type_name = "Frame";  // TODO: Get from output type
+    display_info.current_number = current_index + 1;
+    display_info.total_count = total;
+    display_info.has_field_info = false;
     
     ORC_LOG_DEBUG("updatePreviewInfo: display_info.type_name='{}', has_field_info={}",
                   display_info.type_name, display_info.has_field_info);
@@ -890,30 +902,12 @@ void MainWindow::onEditParameters(const std::string& node_id)
         return;
     }
     
-    // Try to get the stage instance from the DAG first (so it has cached input data)
-    // If that fails, create a new temporary instance
-    std::shared_ptr<orc::DAGStage> stage;
-    orc::ParameterizedStage* param_stage = nullptr;
-    
-    auto dag = project_.getDAG();
-    if (dag) {
-        auto dag_nodes = dag->nodes();
-        auto dag_node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
-            [&node_id](const orc::DAGNode& n) { return n.node_id == node_id; });
-        
-        if (dag_node_it != dag_nodes.end()) {
-            stage = dag_node_it->stage;
-            param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-            ORC_LOG_DEBUG("Using DAG stage instance for parameter descriptors (has cached data)");
-        }
-    }
-    
-    // Fallback to creating new instance if DAG stage not available
-    if (!param_stage) {
-        stage = registry.create_stage(stage_name);
-        param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-        ORC_LOG_DEBUG("Using new stage instance for parameter descriptors (no cached data)");
-    }
+    // Create a new temporary instance for getting parameter descriptors
+    // DO NOT use DAG stage - that would cause data races with worker thread!
+    // The worker thread has exclusive ownership of the DAG.
+    auto stage = registry.create_stage(stage_name);
+    auto param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+    ORC_LOG_DEBUG("Using new stage instance for parameter descriptors (thread-safe)");
     
     if (!param_stage) {
         QMessageBox::information(this, "Edit Parameters",
@@ -967,14 +961,6 @@ void MainWindow::onTriggerStage(const std::string& node_id)
     ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id);
     
     try {
-        // Reset atomics
-        trigger_current_.store(0);
-        trigger_total_.store(0);
-        {
-            std::lock_guard<std::mutex> lock(trigger_message_mutex_);
-            trigger_message_ = "Starting...";
-        }
-        
         // Create progress dialog
         trigger_progress_dialog_ = new QProgressDialog("Starting trigger...", "Cancel", 0, 100, this);
         trigger_progress_dialog_->setWindowTitle("Processing");
@@ -982,27 +968,14 @@ void MainWindow::onTriggerStage(const std::string& node_id)
         trigger_progress_dialog_->setMinimumDuration(0);
         trigger_progress_dialog_->setValue(0);
         
-        // Create progress callback (called from worker threads - only update atomics)
-        auto progress_callback = [this](size_t current, size_t total, const std::string& message) {
-            trigger_current_.store(current);
-            trigger_total_.store(total);
-            {
-                std::lock_guard<std::mutex> lock(trigger_message_mutex_);
-                trigger_message_ = message;
-            }
-        };
+        // Connect cancel button
+        connect(trigger_progress_dialog_, &QProgressDialog::canceled,
+                this, [this]() {
+            render_coordinator_->cancelTrigger();
+        });
         
-        // Start async trigger
-        trigger_future_ = orc::project_io::trigger_node_async(
-            project_.coreProject(),
-            node_id,
-            progress_callback
-        );
-        
-        // Create timer to poll progress from main thread
-        trigger_poll_timer_ = new QTimer(this);
-        connect(trigger_poll_timer_, &QTimer::timeout, this, &MainWindow::onPollTriggerProgress);
-        trigger_poll_timer_->start(100);  // Poll every 100ms
+        // Request trigger from coordinator (async, thread-safe)
+        pending_trigger_request_id_ = render_coordinator_->requestTrigger(node_id);
         
     } catch (const std::exception& e) {
         QString msg = QString("Error starting trigger: %1").arg(e.what());
@@ -1018,182 +991,22 @@ void MainWindow::onTriggerStage(const std::string& node_id)
 
 void MainWindow::onPollTriggerProgress()
 {
-    // Update progress dialog from atomics (safe - we're on main thread)
-    size_t current = trigger_current_.load();
-    size_t total = trigger_total_.load();
-    
-    if (trigger_progress_dialog_ && total > 0) {
-        int percentage = static_cast<int>((current * 100) / total);
-        trigger_progress_dialog_->setValue(percentage);
-        
-        std::string msg;
-        {
-            std::lock_guard<std::mutex> lock(trigger_message_mutex_);
-            msg = trigger_message_;
-        }
-        trigger_progress_dialog_->setLabelText(QString::fromStdString(msg));
-    }
-    
-    // Check if completed
-    if (trigger_future_.valid() &&
-        trigger_future_.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-        
-        // Stop polling
-        if (trigger_poll_timer_) {
-            trigger_poll_timer_->stop();
-            delete trigger_poll_timer_;
-            trigger_poll_timer_ = nullptr;
-        }
-        
-        // Get result
-        try {
-            auto [success, status] = trigger_future_.get();
-            
-            // Close progress dialog
-            if (trigger_progress_dialog_) {
-                delete trigger_progress_dialog_;
-                trigger_progress_dialog_ = nullptr;
-            }
-            
-            // Show result
-            if (success) {
-                statusBar()->showMessage(QString::fromStdString(status), 5000);
-                QMessageBox::information(this, "Trigger Complete", QString::fromStdString(status));
-            } else {
-                statusBar()->showMessage(QString::fromStdString(status), 10000);
-                QMessageBox::warning(this, "Trigger Failed", QString::fromStdString(status));
-            }
-            
-        } catch (const std::exception& e) {
-            QString msg = QString("Error during trigger: %1").arg(e.what());
-            ORC_LOG_ERROR("{}", msg.toStdString());
-            
-            if (trigger_progress_dialog_) {
-                delete trigger_progress_dialog_;
-                trigger_progress_dialog_ = nullptr;
-            }
-            
-            QMessageBox::critical(this, "Trigger Error", msg);
-        }
-    }
+    // This method is no longer needed - trigger progress comes via coordinator signals
+    // Kept as stub for compatibility
+    ORC_LOG_WARN("onPollTriggerProgress called but is deprecated - using coordinator signals instead");
 }
 
 void MainWindow::onNodeSelectedForView(const std::string& node_id)
 {
     ORC_LOG_DEBUG("Main window: switching view to node '{}'", node_id);
     
-    // Get available outputs for this node first to check if it's viewable
-    // Note: Core's placeholder nodes (e.g., "_no_preview") always have outputs,
-    // but user-selected SINK nodes from DAG editor won't have outputs
-    if (preview_renderer_) {
-        try {
-            // Get available outputs for this node
-            auto outputs = preview_renderer_->get_available_outputs(node_id);
-            if (outputs.empty()) {
-                // Node cannot be previewed - could be sink node or execution error
-                statusBar()->showMessage(QString("Cannot preview node '%1' - no preview available (may be a sink node or execution failed)")
-                    .arg(QString::fromStdString(node_id)), 5000);
-                ORC_LOG_WARN("Cannot preview node '{}' - no outputs available", node_id);
-                
-                // Don't change current_view_node_id_ or clear the preview
-                // Just keep showing what we were showing before
-                return;
-            }
-            
-            // Node is viewable - update which node is being viewed
-            current_view_node_id_ = node_id;
-            available_outputs_ = outputs;
-            
-            // Try to preserve the current option_id when switching nodes
-            // This allows users to stay in the same preview mode (e.g., "frame") across different stages
-            ORC_LOG_DEBUG("onNodeClicked: trying to preserve option_id '{}'", current_option_id_);
-            bool found_match = false;
-            for (const auto& output : outputs) {
-                if (output.option_id == current_option_id_) {
-                    current_output_type_ = output.type;
-                    found_match = true;
-                    ORC_LOG_DEBUG("onNodeClicked: found match for option_id '{}', output_type={}", 
-                                  current_option_id_, static_cast<int>(current_output_type_));
-                    break;
-                }
-            }
-            
-            // If current option not available, try to find a sensible default
-            if (!found_match && !outputs.empty()) {
-                // Prefer "frame" (Frame (Y)) if available, otherwise use first output
-                bool found_frame = false;
-                for (const auto& output : outputs) {
-                    if (output.option_id == "frame") {
-                        current_output_type_ = output.type;
-                        current_option_id_ = output.option_id;
-                        found_frame = true;
-                        break;
-                    }
-                }
-                if (!found_frame) {
-                    current_output_type_ = outputs[0].type;
-                    current_option_id_ = outputs[0].option_id;
-                }
-            }
-            
-            // Show preview dialog only if:
-            // 1) Not already visible
-            // 2) Node has valid outputs that are truly available (not placeholders)
-            // 3) Node is not a placeholder (like "_no_preview")
-            // 4) Auto-show setting is enabled
-            bool is_real_node = (node_id != "_no_preview");
-            bool has_valid_content = false;
-            for (const auto& output : outputs) {
-                if (output.is_available) {
-                    has_valid_content = true;
-                    break;
-                }
-            }
-            
-            bool auto_show_enabled = auto_show_preview_action_ && auto_show_preview_action_->isChecked();
-            
-            // Enable the Show Preview menu action whenever there's valid content
-            if (is_real_node && has_valid_content) {
-                show_preview_action_->setEnabled(true);
-            }
-            
-            // Auto-show the preview dialog only if the setting is enabled
-            if (!preview_dialog_->isVisible() && is_real_node && has_valid_content && auto_show_enabled) {
-                preview_dialog_->show();
-            }
-            
-            // Update preview dialog to show current node
-            // Get node label from project (prefer user_label, fallback to display_name)
-            const auto& nodes = project_.coreProject().get_nodes();
-            auto node_it = std::find_if(nodes.begin(), nodes.end(),
-                [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
-            QString node_label;
-            if (node_it != nodes.end()) {
-                if (!node_it->user_label.empty()) {
-                    node_label = QString::fromStdString(node_it->user_label);
-                } else if (!node_it->display_name.empty()) {
-                    node_label = QString::fromStdString(node_it->display_name);
-                } else {
-                    node_label = QString::fromStdString(node_id);
-                }
-            } else {
-                node_label = QString::fromStdString(node_id);
-            }
-            preview_dialog_->setCurrentNode(node_label, QString::fromStdString(node_id));
-            
-            // Update status bar to show which node is being viewed
-            QString node_display = QString::fromStdString(node_id);
-            statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
-            
-            // Use helper to update all viewer controls
-            refreshViewerControls();
-            
-            // Update UI state to enable aspect ratio and other controls
-            updateUIState();
-        } catch (const std::exception& e) {
-            ORC_LOG_WARN("Failed to get field count for node '{}': {}", node_id, e.what());
-        }
-    }
+    // Update which node is being viewed
+    current_view_node_id_ = node_id;
+    
+    // Request available outputs from coordinator
+    pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
+    
+    // The rest will happen in onAvailableOutputsReady callback
 }
 
 void MainWindow::onDAGModified()
@@ -1351,53 +1164,28 @@ void MainWindow::onArrangeDAGToGrid()
 
 void MainWindow::updatePreview()
 {
-    // If we have a preview renderer and a selected node, render at that node
-    if (!preview_renderer_ || current_view_node_id_.empty()) {
-        ORC_LOG_DEBUG("updatePreview: no preview renderer or node selected, returning");
+    // If no node selected, clear display
+    if (current_view_node_id_.empty()) {
+        ORC_LOG_DEBUG("updatePreview: no node selected, returning");
         preview_dialog_->previewWidget()->clearImage();
         return;
     }
     
     int current_index = preview_dialog_->previewSlider()->value();
     
-    // Determine navigation hint based on how the update was triggered
-    orc::PreviewNavigationHint hint = last_update_was_sequential_ ? 
-        orc::PreviewNavigationHint::Sequential : orc::PreviewNavigationHint::Random;
+    ORC_LOG_DEBUG("updatePreview: rendering output type {} index {} at node '{}'", 
+                  static_cast<int>(current_output_type_), current_index, current_view_node_id_);
     
-    ORC_LOG_DEBUG("updatePreview: rendering output type {} option_id '{}' index {} at node '{}' hint={}", 
-                  static_cast<int>(current_output_type_), current_option_id_, current_index, current_view_node_id_,
-                  (hint == orc::PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
-    
-    auto result = preview_renderer_->render_output(current_view_node_id_, current_output_type_, current_index, current_option_id_, hint);
+    // Request preview from coordinator (async, thread-safe)
+    pending_preview_request_id_ = render_coordinator_->requestPreview(
+        current_view_node_id_,
+        current_output_type_,
+        current_index,
+        current_option_id_
+    );
     
     // Reset the sequential flag after use
     last_update_was_sequential_ = false;
-    
-    if (result.success) {
-        preview_dialog_->previewWidget()->setImage(result.image);
-        updateVectorscope(current_view_node_id_, result.image);
-    } else {
-        // Rendering failed - show in status bar
-        preview_dialog_->previewWidget()->clearImage();
-        statusBar()->showMessage(
-            QString("Render ERROR at node %1: %2")
-                .arg(QString::fromStdString(current_view_node_id_))
-                .arg(QString::fromStdString(result.error_message)),
-            5000
-        );
-    }
-    
-    // Also update vectorscope dialogs for other nodes (not the current view node)
-    for (const auto& [vs_node_id, vs_dialog] : vectorscope_dialogs_) {
-        if (vs_node_id == current_view_node_id_) continue;  // Already updated above
-        if (!vs_dialog || !vs_dialog->isVisible()) continue;
-        
-        // Render this node's preview for the vectorscope
-        auto vs_result = preview_renderer_->render_output(vs_node_id, orc::PreviewOutputType::Frame, current_index, "frame", hint);
-        if (vs_result.success) {
-            updateVectorscope(vs_node_id, vs_result.image);
-        }
-    }
 }
 
 void MainWindow::updateVectorscope(const std::string& node_id, const orc::PreviewImage& image)
@@ -1463,19 +1251,19 @@ void MainWindow::updatePreviewModeCombo()
 
 void MainWindow::updateAspectRatioCombo()
 {
-    if (!preview_renderer_) {
-        return;
-    }
+    // Populate aspect ratio combo (client-side, no coordinator needed)
+    static std::vector<orc::AspectRatioModeInfo> available_modes = {
+        {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
+        {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
+    };
+    
+    orc::AspectRatioMode current_mode = orc::AspectRatioMode::DAR_4_3;  // Default to 4:3
     
     // Block signals while updating combo box
     preview_dialog_->aspectRatioCombo()->blockSignals(true);
     
     // Clear existing items
     preview_dialog_->aspectRatioCombo()->clear();
-    
-    // Get available modes from core
-    auto available_modes = preview_renderer_->get_available_aspect_ratio_modes();
-    auto current_mode = preview_renderer_->get_aspect_ratio_mode();
     
     // Populate combo from core data
     int current_index = 0;
@@ -1503,13 +1291,16 @@ void MainWindow::refreshViewerControls()
     // This helper updates all viewer controls based on current node's available outputs
     // Should be called after available_outputs_ is populated
     
-    if (!preview_renderer_ || current_view_node_id_.empty() || available_outputs_.empty()) {
-        ORC_LOG_DEBUG("refreshViewerControls: no renderer, node, or outputs");
+    if (current_view_node_id_.empty() || available_outputs_.empty()) {
+        ORC_LOG_DEBUG("refreshViewerControls: no node or outputs");
         return;
     }
     
     // Update the preview mode combo box
     updatePreviewModeCombo();
+    
+    // Update the aspect ratio combo box
+    updateAspectRatioCombo();
     
     // Get count for current output type and option_id, and update aspect correction
     int new_total = 0;
@@ -1522,11 +1313,10 @@ void MainWindow::refreshViewerControls()
         }
     }
     
-    // Update aspect correction if in DAR mode
-    if (preview_renderer_->get_aspect_ratio_mode() == orc::AspectRatioMode::DAR_4_3) {
-        preview_dialog_->previewWidget()->setAspectCorrection(dar_correction);
-        ORC_LOG_DEBUG("Updated DAR correction to {} for current output", dar_correction);
-    }
+    // Update aspect correction (always apply for now)
+    // TODO: Track current aspect mode
+    preview_dialog_->previewWidget()->setAspectCorrection(dar_correction);
+    ORC_LOG_DEBUG("Updated aspect correction to {} for current output", dar_correction);
     
     // Update slider range and labels
     if (new_total > 0) {
@@ -1562,95 +1352,60 @@ void MainWindow::updatePreviewRenderer()
         ORC_LOG_DEBUG("No DAG (new/empty project)");
     }
     
-    // Always create/update the preview renderer - it handles null DAGs
-    try {
-        if (preview_renderer_) {
-            // Update existing renderer with new DAG
-            preview_renderer_->update_dag(dag);
-        } else {
-            // Create new renderer - works with null DAG
-            preview_renderer_ = std::make_unique<orc::PreviewRenderer>(dag);
-            
-            // Populate aspect ratio combo from core
-            // Note: aspect correction will be set when first node is selected
-            updateAspectRatioCombo();
-        }
-        
-        // Create or update VBI decoder
-        if (vbi_decoder_) {
-            vbi_decoder_->update_dag(dag);
-        } else {
-            vbi_decoder_ = std::make_unique<orc::VBIDecoder>(dag);
-        }
-        
-        if (dropout_decoder_) {
-            dropout_decoder_->update_dag(dag);
-        } else {
-            dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(dag);
-        }
-        
-        if (snr_decoder_) {
-            snr_decoder_->update_dag(dag);
-        } else {
-            snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(dag);
-        }
-        
-        // Check if current node is still valid, or if we need to switch
-        bool need_to_switch = false;
-        std::string target_node;
-        
-        if (current_view_node_id_.empty()) {
-            // No node selected yet - use suggestion
-            need_to_switch = true;
-        } else {
-            // Check if current node still exists in DAG
-            bool current_exists = false;
-            if (dag) {
-                for (const auto& node : dag->nodes()) {
-                    if (node.node_id == current_view_node_id_) {
-                        current_exists = true;
-                        break;
-                    }
+    // Send DAG update to coordinator (thread-safe)
+    render_coordinator_->updateDAG(dag);
+    
+    // Check if current node is still valid, or if we need to switch
+    bool need_to_switch = false;
+    std::string target_node;
+    
+    if (current_view_node_id_.empty()) {
+        // No node selected yet - use suggestion
+        need_to_switch = true;
+    } else {
+        // Check if current node still exists in DAG
+        bool current_exists = false;
+        if (dag) {
+            for (const auto& node : dag->nodes()) {
+                if (node.node_id == current_view_node_id_) {
+                    current_exists = true;
+                    break;
                 }
             }
-            
-            // If current node was deleted or is placeholder when real nodes exist, switch
-            if (!current_exists && current_view_node_id_ != "_no_preview") {
-                need_to_switch = true;
-            } else if (current_view_node_id_ == "_no_preview" && dag && !dag->nodes().empty()) {
-                need_to_switch = true;
-            }
         }
         
-        if (need_to_switch) {
-            // Get suggestion from core
-            auto suggestion = preview_renderer_->get_suggested_view_node();
-            ORC_LOG_INFO("Switching to suggested node: {} ({})", 
-                        suggestion.node_id, suggestion.message);
-            onNodeSelectedForView(suggestion.node_id);
-            statusBar()->showMessage(QString::fromStdString(suggestion.message), 3000);
-        } else {
-            // Keep current node - just refresh outputs and preview
-            // (node parameters may have changed)
-            ORC_LOG_DEBUG("Keeping current node '{}', refreshing preview", current_view_node_id_);
-            if (preview_renderer_ && !current_view_node_id_.empty()) {
-                available_outputs_ = preview_renderer_->get_available_outputs(current_view_node_id_);
-                refreshViewerControls();
-            }
+        // If current node was deleted or is placeholder when real nodes exist, switch
+        if (!current_exists && current_view_node_id_ != "_no_preview") {
+            need_to_switch = true;
+        } else if (current_view_node_id_ == "_no_preview" && dag && !dag->nodes().empty()) {
+            need_to_switch = true;
         }
-        
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Error creating/updating preview renderer: {}", e.what());
-        statusBar()->showMessage(
-            QString("Error with preview renderer: %1").arg(e.what()),
-            5000
-        );
+    }
+    
+    // Node selection logic: The coordinator now handles renderer updates internally.
+    // When we need to switch nodes (e.g., current was deleted), we'll request
+    // outputs for the new node, and onAvailableOutputsReady will handle the rest.
+    if (need_to_switch) {
+        // TODO: Request suggested node from coordinator
+        // For now, just keep current or clear
+        ORC_LOG_DEBUG("Node switching needed - not yet implemented via coordinator");
+        if (current_view_node_id_.empty() && dag && !dag->nodes().empty()) {
+            // Pick first node as temporary fallback
+            current_view_node_id_ = dag->nodes()[0].node_id;
+            pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
+        }
+    } else {
+        // Keep current node - request fresh outputs in case parameters changed
+        if (!current_view_node_id_.empty()) {
+            ORC_LOG_DEBUG("Keeping current node '{}', refreshing outputs", current_view_node_id_);
+            pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
+        }
     }
 }
 
 void MainWindow::onExportPNG()
 {
-    if (!preview_renderer_ || current_view_node_id_.empty()) {
+    if (current_view_node_id_.empty()) {
         QMessageBox::information(this, "Export PNG", "No preview available to export.");
         return;
     }
@@ -1677,28 +1432,23 @@ void MainWindow::onExportPNG()
     
     int current_index = preview_dialog_->previewSlider()->value();
     
-    // Export using preview renderer
-    bool success = preview_renderer_->save_png(
-        current_view_node_id_,
-        current_output_type_,
-        current_index,
-        filename.toStdString()
+    // TODO: Export via coordinator - for now, show not implemented message
+    QMessageBox::information(
+        this,
+        "Export PNG",
+        "PNG export via coordinator not yet implemented.\n\n"
+        "This will be added after coordinator supports savePNG requests."
     );
     
-    if (success) {
-        statusBar()->showMessage(
-            QString("Exported to: %1").arg(filename),
-            5000
-        );
-        ORC_LOG_INFO("Exported PNG: {}", filename.toStdString());
-    } else {
-        QMessageBox::critical(
-            this,
-            "Export Failed",
-            QString("Failed to export PNG to:\n%1").arg(filename)
-        );
-        ORC_LOG_ERROR("Failed to export PNG: {}", filename.toStdString());
-    }
+    ORC_LOG_WARN("PNG export requested but not yet implemented via coordinator");
+    
+    // Future implementation:
+    // pending_export_request_id_ = render_coordinator_->requestSavePNG(
+    //     current_view_node_id_,
+    //     current_output_type_,
+    //     current_index,
+    //     filename.toStdString()
+    // );
 }
 
 // Settings helpers
@@ -1809,24 +1559,9 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
 
     // Special-case: Vectorscope is a live visualization dialog, not a batch analysis
     if (tool->id() == "vectorscope") {
-        // Look up the stage for this node and ensure it's a chroma sink
-        auto dag = project_.getDAG();
-        if (!dag) {
-            ORC_LOG_WARN("No DAG available to open vectorscope for node '{}'", node_id);
-            return;
-        }
-        const auto& dag_nodes = dag->nodes();
-        auto it = std::find_if(dag_nodes.begin(), dag_nodes.end(), [&node_id](const auto& n){ return n.node_id == node_id; });
-        if (it == dag_nodes.end()) {
-            ORC_LOG_WARN("Node '{}' not found to open vectorscope", node_id);
-            return;
-        }
-        auto* chroma = dynamic_cast<orc::ChromaSinkStage*>(it->stage.get());
-        if (!chroma) {
-            ORC_LOG_WARN("Vectorscope requested for non-chroma stage '{}'", stage_name);
-            return;
-        }
-
+        // Note: Vectorscope data comes from preview images (thread-safe),
+        // so we don't need to access the DAG or stage here.
+        
         // Reuse existing dialog for this node if present; else create new
         VectorscopeDialog* dialog = nullptr;
         auto dit = vectorscope_dialogs_.find(node_id);
@@ -1835,7 +1570,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
         } else {
             dialog = new VectorscopeDialog(this);
             dialog->setAttribute(Qt::WA_DeleteOnClose, true);
-            dialog->setStage(node_id, chroma);
+            dialog->setStage(node_id);
             // Remove from map when closed/destroyed
             connect(dialog, &VectorscopeDialog::closed, [this, node_id]() {
                 auto it2 = vectorscope_dialogs_.find(node_id);
@@ -1852,8 +1587,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
             vectorscope_dialogs_[node_id] = dialog;
         }
 
-        // Ensure correct stage context set (node might have changed)
-        dialog->setStage(node_id, chroma);
+        // Show the dialog
         dialog->show();
         dialog->raise();
         dialog->activateWindow();
@@ -1942,12 +1676,12 @@ void MainWindow::updateAllPreviewComponents()
 void MainWindow::updateVBIDialog()
 {
     // Only update if VBI dialog is visible
-    if (!vbi_dialog_ || !vbi_dialog_->isVisible() || !vbi_decoder_) {
+    if (!vbi_dialog_ || !vbi_dialog_->isVisible()) {
         return;
     }
     
     // Get current field being displayed
-    if (current_view_node_id_.empty() || !preview_renderer_) {
+    if (current_view_node_id_.empty()) {
         vbi_dialog_->clearVBIInfo();
         return;
     }
@@ -1960,35 +1694,17 @@ void MainWindow::updateVBIDialog()
                          current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
                          current_output_type_ == orc::PreviewOutputType::Split);
     
+    // Request VBI data from coordinator
     if (is_frame_mode) {
-        // Frame mode - slider index represents frames, convert to field IDs
-        // Frame 0 = fields 0,1; Frame 1 = fields 2,3; etc.
+        // Frame mode - request both fields
         orc::FieldID field1_id(current_index * 2);
         orc::FieldID field2_id(current_index * 2 + 1);
-        
-        auto vbi_info1 = vbi_decoder_->get_vbi_for_field(current_view_node_id_, field1_id);
-        auto vbi_info2 = vbi_decoder_->get_vbi_for_field(current_view_node_id_, field2_id);
-        
-        if (vbi_info1.has_value() && vbi_info2.has_value()) {
-            vbi_dialog_->updateVBIInfoFrame(vbi_info1.value(), vbi_info2.value());
-        } else if (vbi_info1.has_value()) {
-            vbi_dialog_->updateVBIInfo(vbi_info1.value());
-        } else if (vbi_info2.has_value()) {
-            vbi_dialog_->updateVBIInfo(vbi_info2.value());
-        } else {
-            vbi_dialog_->clearVBIInfo();
-        }
+        pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field1_id);
+        // TODO: Handle second field request - for now just show first field
     } else {
-        // Field mode - get VBI from single field
+        // Field mode - request single field
         orc::FieldID field_id(current_index);
-        
-        auto vbi_info = vbi_decoder_->get_vbi_for_field(current_view_node_id_, field_id);
-        
-        if (vbi_info.has_value()) {
-            vbi_dialog_->updateVBIInfo(vbi_info.value());
-        } else {
-            vbi_dialog_->clearVBIInfo();
-        }
+        pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field_id);
     }
 }
 void MainWindow::onShowDropoutAnalysisDialog()
@@ -2013,101 +1729,16 @@ void MainWindow::updateDropoutAnalysisDialog()
         return;
     }
     
-    // Get current node being displayed
-    if (current_view_node_id_.empty() || !preview_renderer_ || !dropout_decoder_) {
-        return;
-    }
+    // TODO: Implement dropout analysis via coordinator
+    // This requires adding dropout analysis request types to the coordinator
+    // For now, show a message explaining the feature is not yet implemented
+    dropout_analysis_dialog_->showNoDataMessage(
+        "Dropout Analysis not yet implemented via thread-safe coordinator.\n\n"
+        "This feature requires batch analysis of all frames, which needs to be\n"
+        "implemented as an async coordinator request to maintain thread safety."
+    );
     
-    try {
-        // Get current mode from the dialog
-        auto mode = dropout_analysis_dialog_->getCurrentMode();
-        
-        // Get current index to show marker
-        int current_index = preview_dialog_->previewSlider()->value();
-        
-        // Check if we need to reload data (node, mode, or output type changed)
-        bool need_reload = (current_view_node_id_ != last_dropout_node_id_ ||
-                           mode != last_dropout_mode_ ||
-                           current_output_type_ != last_dropout_output_type_);
-        
-        if (need_reload) {
-            ORC_LOG_INFO("Updating dropout analysis for node '{}' in {} mode",
-                        current_view_node_id_,
-                        mode == orc::DropoutAnalysisMode::FULL_FIELD ? "FULL_FIELD" : "VISIBLE_AREA");
-            
-            // Check if we're in frame mode
-            bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
-                                 current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
-                                 current_output_type_ == orc::PreviewOutputType::Split);
-            
-            if (is_frame_mode) {
-                // Get frame-based dropout stats
-                auto frame_stats = dropout_decoder_->get_dropout_by_frames(current_view_node_id_, mode);
-                
-                if (!frame_stats.empty()) {
-                    dropout_analysis_dialog_->startUpdate(frame_stats.size());
-                    
-                    for (const auto& stats : frame_stats) {
-                        if (stats.has_data) {
-                            dropout_analysis_dialog_->addDataPoint(
-                                stats.frame_number,
-                                stats.total_dropout_length);
-                        }
-                    }
-                    
-                    // Pass 1-based frame number for marker positioning
-                    int32_t current_frame = current_index + 1;
-                    dropout_analysis_dialog_->finishUpdate(current_frame);
-                    
-                    ORC_LOG_DEBUG("Dropout analysis: Loaded {} frames, marker at frame {} (slider index {})", 
-                                 frame_stats.size(), current_frame, current_index);
-                } else {
-                    ORC_LOG_WARN("No dropout data available for node '{}'", current_view_node_id_);
-                    dropout_analysis_dialog_->showNoDataMessage("Node produces no video output");
-                }
-            } else {
-                // Field mode - get field-based stats but display as if they were frames
-                auto field_stats = dropout_decoder_->get_dropout_for_all_fields(current_view_node_id_, mode);
-                
-                if (!field_stats.empty()) {
-                    dropout_analysis_dialog_->startUpdate(field_stats.size());
-                    
-                    for (const auto& stats : field_stats) {
-                        if (stats.has_data) {
-                            // Use field index + 1 as the "frame number" for display
-                            dropout_analysis_dialog_->addDataPoint(
-                                stats.field_id.value() + 1,
-                                stats.total_dropout_length);
-                        }
-                    }
-                    
-                    // Pass 1-based field number for marker positioning
-                    int32_t current_field = current_index + 1;
-                    dropout_analysis_dialog_->finishUpdate(current_field);
-                    
-                    ORC_LOG_DEBUG("Dropout analysis: Loaded {} fields, marker at field {} (slider index {})", 
-                                 field_stats.size(), current_field, current_index);
-                } else {
-                    ORC_LOG_WARN("No dropout data available for node '{}'", current_view_node_id_);
-                    dropout_analysis_dialog_->showNoDataMessage("Node produces no video output");
-                }
-            }
-            
-            // Update tracking state
-            last_dropout_node_id_ = current_view_node_id_;
-            last_dropout_mode_ = mode;
-            last_dropout_output_type_ = current_output_type_;
-            
-        } else {
-            // Just update the marker position without reloading data
-            int32_t marker_position = current_index + 1;  // 1-based
-            dropout_analysis_dialog_->updateFrameMarker(marker_position);
-            ORC_LOG_DEBUG("Dropout marker updated to position {} (slider index {})", marker_position, current_index);
-        }
-        
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Error updating dropout analysis dialog: {}", e.what());
-    }
+    ORC_LOG_WARN("Dropout analysis dialog update requested but not yet implemented via coordinator");
 }
 
 void MainWindow::onShowSNRAnalysisDialog()
@@ -2132,108 +1763,14 @@ void MainWindow::updateSNRAnalysisDialog()
         return;
     }
     
-    // Get current node being displayed
-    if (current_view_node_id_.empty() || !preview_renderer_ || !snr_decoder_) {
-        return;
-    }
+    // TODO: Implement SNR analysis via coordinator
+    // This requires adding SNR analysis request types to the coordinator
+    // For now, show a message explaining the feature is not yet implemented
+    snr_analysis_dialog_->showNoDataMessage(
+        "SNR Analysis not yet implemented via thread-safe coordinator.\n\n"
+        "This feature requires batch analysis of all frames, which needs to be\n"
+        "implemented as an async coordinator request to maintain thread safety."
+    );
     
-    try {
-        // Get current mode from the dialog
-        auto mode = snr_analysis_dialog_->getCurrentMode();
-        
-        // Get current index to show marker
-        int current_index = preview_dialog_->previewSlider()->value();
-        
-        // Check if we need to reload data (node, mode, or output type changed)
-        bool need_reload = (current_view_node_id_ != last_snr_node_id_ ||
-                           mode != last_snr_mode_ ||
-                           current_output_type_ != last_snr_output_type_);
-        
-        if (need_reload) {
-            ORC_LOG_INFO("Updating SNR analysis for node '{}' in {} mode",
-                        current_view_node_id_,
-                        mode == orc::SNRAnalysisMode::WHITE_SNR ? "WHITE_SNR" : 
-                        (mode == orc::SNRAnalysisMode::BLACK_PSNR ? "BLACK_PSNR" : "BOTH"));
-            
-            // Check if we're in frame mode
-            bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
-                                 current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
-                                 current_output_type_ == orc::PreviewOutputType::Split);
-            
-            if (is_frame_mode) {
-                // Get frame-based SNR stats
-                auto frame_stats = snr_decoder_->get_snr_by_frames(current_view_node_id_, mode);
-                
-                if (!frame_stats.empty()) {
-                    snr_analysis_dialog_->startUpdate(frame_stats.size());
-                    
-                    for (const auto& stats : frame_stats) {
-                        if (stats.has_data) {
-                            double white_snr = stats.has_white_snr ? stats.white_snr : std::nan("");
-                            double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::nan("");
-                            
-                            snr_analysis_dialog_->addDataPoint(
-                                stats.frame_number,
-                                white_snr,
-                                black_psnr);
-                        }
-                    }
-                    
-                    // Pass 1-based frame number for marker positioning
-                    int32_t current_frame = current_index + 1;
-                    snr_analysis_dialog_->finishUpdate(current_frame);
-                    
-                    ORC_LOG_DEBUG("SNR analysis: Loaded {} frames, marker at frame {} (slider index {})", 
-                                 frame_stats.size(), current_frame, current_index);
-                } else {
-                    ORC_LOG_WARN("No SNR data available for node '{}'", current_view_node_id_);
-                    snr_analysis_dialog_->showNoDataMessage("Node produces no video output or no SNR data available");
-                }
-            } else {
-                // Field mode - get field-based stats but display as if they were frames
-                auto field_stats = snr_decoder_->get_snr_for_all_fields(current_view_node_id_, mode);
-                
-                if (!field_stats.empty()) {
-                    snr_analysis_dialog_->startUpdate(field_stats.size());
-                    
-                    for (const auto& stats : field_stats) {
-                        if (stats.has_data) {
-                            double white_snr = stats.has_white_snr ? stats.white_snr : std::nan("");
-                            double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::nan("");
-                            
-                            // Use field index + 1 as the "frame number" for display
-                            snr_analysis_dialog_->addDataPoint(
-                                stats.field_id.value() + 1,
-                                white_snr,
-                                black_psnr);
-                        }
-                    }
-                    
-                    // Pass 1-based field number for marker positioning
-                    int32_t current_field = current_index + 1;
-                    snr_analysis_dialog_->finishUpdate(current_field);
-                    
-                    ORC_LOG_DEBUG("SNR analysis: Loaded {} fields, marker at field {} (slider index {})", 
-                                 field_stats.size(), current_field, current_index);
-                } else {
-                    ORC_LOG_WARN("No SNR data available for node '{}'", current_view_node_id_);
-                    snr_analysis_dialog_->showNoDataMessage("Node produces no video output or no SNR data available");
-                }
-            }
-            
-            // Update tracking state
-            last_snr_node_id_ = current_view_node_id_;
-            last_snr_mode_ = mode;
-            last_snr_output_type_ = current_output_type_;
-            
-        } else {
-            // Just update the marker position without reloading data
-            int32_t marker_position = current_index + 1;  // 1-based
-            snr_analysis_dialog_->updateFrameMarker(marker_position);
-            ORC_LOG_DEBUG("SNR marker updated to position {} (slider index {})", marker_position, current_index);
-        }
-        
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Error updating SNR analysis dialog: {}", e.what());
-    }
+    ORC_LOG_WARN("SNR analysis dialog update requested but not yet implemented via coordinator");
 }

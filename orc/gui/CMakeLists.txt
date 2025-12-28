@@ -18,6 +18,9 @@ add_executable(orc-gui
     main.cpp
     mainwindow.cpp
     mainwindow.h
+    mainwindow_coordinator_callbacks.cpp
+    render_coordinator.cpp
+    render_coordinator.h
     guiproject.cpp
     guiproject.h
     orcgraphmodel.cpp
@@ -88,7 +91,8 @@ target_compile_definitions(orc-gui PRIVATE
 )
 
 target_include_directories(orc-gui PRIVATE
-    ${CMAKE_SOURCE_DIR}/core/include
+    ${CMAKE_SOURCE_DIR}/orc/core/include
+    ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
     ${CMAKE_BINARY_DIR}/generated
 )
 

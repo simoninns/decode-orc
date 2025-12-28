@@ -22,6 +22,7 @@
 #include "preview_renderer.h"  // For PreviewOutputType
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
+#include "render_coordinator.h"
 
 class OrcGraphicsView;
 class PreviewDialog;
@@ -29,6 +30,7 @@ class VBIDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class VectorscopeDialog;
+class RenderCoordinator;
 
 namespace orc {
     class DropoutAnalysisDecoder;
@@ -109,6 +111,14 @@ private slots:
     void onShowSNRAnalysisDialog();
     void updateSNRAnalysisDialog();
     void onPollTriggerProgress();
+    
+    // Coordinator response slots
+    void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
+    void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
+    void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
+    void onTriggerProgress(size_t current, size_t total, QString message);
+    void onTriggerComplete(uint64_t request_id, bool success, QString status);
+    void onCoordinatorError(uint64_t request_id, QString message);
 
 signals:
 
@@ -139,12 +149,15 @@ private:
     
     // Project management
     GUIProject project_;
-    std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
-    std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
-    std::unique_ptr<orc::DropoutAnalysisDecoder> dropout_decoder_;
-    std::unique_ptr<orc::SNRAnalysisDecoder> snr_decoder_;
+    std::unique_ptr<RenderCoordinator> render_coordinator_;  // Owns all core rendering state
     std::string current_view_node_id_;  // Which node is being viewed
     QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
+    
+    // Pending request tracking
+    uint64_t pending_preview_request_id_{0};
+    uint64_t pending_vbi_request_id_{0};
+    uint64_t pending_outputs_request_id_{0};
+    uint64_t pending_trigger_request_id_{0};
     
     // Dropout analysis state tracking
     std::string last_dropout_node_id_;
@@ -185,14 +198,8 @@ private:
     qint64 last_preview_update_time_;  // Timestamp of last update for throttling
     bool last_update_was_sequential_;  // Track if last update was from next/prev buttons
     
-    // Trigger progress tracking (for async trigger with polling)
-    std::future<std::pair<bool, std::string>> trigger_future_;
+    // Trigger progress tracking (now via coordinator signals)
     QProgressDialog* trigger_progress_dialog_;
-    QTimer* trigger_poll_timer_;
-    std::atomic<size_t> trigger_current_;
-    std::atomic<size_t> trigger_total_;
-    std::string trigger_message_;  // Only accessed from main thread after atomic checks
-    std::mutex trigger_message_mutex_;
 };
 
 #endif // MAINWINDOW_H

@@ -17,6 +17,95 @@
 
 namespace orc {
 
+// ============================================================================
+// StackedVideoFieldRepresentation implementation
+// ============================================================================
+
+StackedVideoFieldRepresentation::StackedVideoFieldRepresentation(
+    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+    StackerStage* stage)
+    : VideoFieldRepresentationWrapper(
+        sources.empty() ? nullptr : sources[0],
+        ArtifactID("stacked_field"),
+        Provenance{})
+    , sources_(sources)
+    , stage_(stage)
+    , stacked_fields_(MAX_CACHED_FIELDS)
+    , stacked_dropouts_(MAX_CACHED_FIELDS)
+{
+}
+
+void StackedVideoFieldRepresentation::ensure_field_stacked(FieldID field_id) const {
+    // Check if field data is in cache
+    if (stacked_fields_.contains(field_id)) {
+        return;
+    }
+    
+    ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} (NOT in cache)", field_id.value());
+    
+    // Stack the field
+    std::vector<uint16_t> stacked_samples;
+    std::vector<DropoutRegion> stacked_dropouts;
+    
+    stage_->stack_field(field_id, sources_, stacked_samples, stacked_dropouts);
+    
+    // Cache the result
+    stacked_fields_.put(field_id, std::move(stacked_samples));
+    stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
+    
+    ORC_LOG_DEBUG("  -> Field {} stacked and cached", field_id.value());
+}
+
+const uint16_t* StackedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {
+    // Ensure this field has been stacked
+    ensure_field_stacked(id);
+    
+    // Check if we have a stacked version of this field in LRU cache
+    const auto* cached_field = stacked_fields_.get_ptr(id);
+    if (cached_field && !cached_field->empty()) {
+        // Return pointer to line within the cached stacked field data
+        auto descriptor = source_->get_descriptor(id);
+        if (descriptor && line < descriptor->height) {
+            return &(*cached_field)[line * descriptor->width];
+        }
+    }
+    
+    // Fallback to source (should not happen)
+    return source_->get_line(id, line);
+}
+
+std::vector<uint16_t> StackedVideoFieldRepresentation::get_field(FieldID id) const {
+    // Ensure this field has been stacked
+    ensure_field_stacked(id);
+    
+    // Return cached stacked field
+    const auto* cached_field = stacked_fields_.get_ptr(id);
+    if (cached_field) {
+        return *cached_field;
+    }
+    
+    // Fallback (should not happen)
+    return {};
+}
+
+std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(FieldID id) const {
+    // Ensure this field has been stacked
+    ensure_field_stacked(id);
+    
+    // Return cached dropout hints
+    const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
+    if (cached_dropouts) {
+        return *cached_dropouts;
+    }
+    
+    // Fallback (should not happen)
+    return {};
+}
+
+// ============================================================================
+// StackerStage implementation
+// ============================================================================
+
 // Register the stage
 ORC_REGISTER_STAGE(StackerStage)
 // Force linker to include this object file
@@ -85,13 +174,10 @@ StackerStage::process(
         return sources[0];
     }
     
-    // For now, return a simple implementation that returns the first source
-    // TODO: Implement full stacking logic based on legacy ld-disc-stacker
-    
     // Verify all sources have the same field range
     auto reference_range = sources[0]->field_range();
-    ORC_LOG_DEBUG("StackerStage::process - Reference field range: {} to {}", 
-                 reference_range.start.value(), reference_range.end.value());
+    ORC_LOG_DEBUG("StackerStage::process - Reference field range: {} to {}, stacking {} sources", 
+                 reference_range.start.value(), reference_range.end.value(), sources.size());
     
     for (size_t i = 1; i < sources.size(); ++i) {
         auto range = sources[i]->field_range();
@@ -102,23 +188,20 @@ StackerStage::process(
         }
     }
     
-    // TODO: Implement actual stacking algorithm
-    // This is a placeholder that returns the first source
-    // Full implementation would:
-    // 1. For each field in range
-    // 2. Get field data from all sources
-    // 3. Apply stacking mode pixel-by-pixel
-    // 4. Handle dropouts appropriately
-    // 5. Create new VideoFieldRepresentation with stacked data
+    // Create stacked representation - will process fields on-demand
+    auto stacked = std::make_shared<StackedVideoFieldRepresentation>(
+        sources,
+        const_cast<StackerStage*>(this)
+    );
     
-    return sources[0];
+    return stacked;
 }
 
 void StackerStage::stack_field(
     FieldID field_id,
     const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
     std::vector<uint16_t>& output_samples,
-    std::vector<DropoutRegion>& /*output_dropouts*/) const  // TODO: Implement dropout region tracking
+    std::vector<DropoutRegion>& output_dropouts) const
 {
     ORC_LOG_DEBUG("StackerStage::stack_field - Processing field_id={} with {} sources", 
                  field_id.value(), sources.size());
@@ -144,16 +227,29 @@ void StackerStage::stack_field(
     
     // Resize output
     output_samples.resize(width * height);
+    output_dropouts.clear();
     
     size_t total_dropouts = 0;
     size_t total_diff_dod_recoveries = 0;
     size_t total_stacked_pixels = 0;
     
-    // Process each pixel
+    // Pre-collect all dropout maps for fast lookup
+    std::vector<std::vector<DropoutRegion>> all_dropouts;
+    for (const auto& source : sources) {
+        all_dropouts.push_back(source->get_dropout_hints(field_id));
+    }
+    
+    // Process each line
     for (size_t y = 0; y < height; ++y) {
         size_t line_dropouts = 0;
         size_t line_recoveries = 0;
         size_t line_stacked = 0;
+        
+        DropoutRegion current_dropout{};
+        current_dropout.line = static_cast<uint32_t>(y);
+        current_dropout.start_sample = 0;
+        current_dropout.end_sample = 0;
+        bool in_dropout = false;
         
         for (size_t x = 0; x < width; ++x) {
             std::vector<uint16_t> values;
@@ -163,15 +259,15 @@ void StackerStage::stack_field(
             for (size_t src_idx = 0; src_idx < sources.size(); ++src_idx) {
                 const auto* line = sources[src_idx]->get_line(field_id, y);
                 if (!line) {
+                    is_dropout[src_idx] = true;
                     continue;
                 }
                 
                 uint16_t pixel_value = line[x];
                 
                 // Check dropout status
-                auto dropouts = sources[src_idx]->get_dropout_hints(field_id);
                 bool pixel_is_dropout = false;
-                for (const auto& region : dropouts) {
+                for (const auto& region : all_dropouts[src_idx]) {
                     if (y == region.line && x >= region.start_sample && x < region.end_sample) {
                         pixel_is_dropout = true;
                         break;
@@ -189,9 +285,9 @@ void StackerStage::stack_field(
             }
             
             // Apply differential dropout detection if all values are dropouts
-            bool all_dropouts = std::all_of(is_dropout.begin(), is_dropout.end(), 
+            bool all_dropouts_flag = std::all_of(is_dropout.begin(), is_dropout.end(), 
                                            [](bool b) { return b; });
-            if (all_dropouts && sources.size() >= 3 && !m_no_diff_dod && !values.empty()) {
+            if (all_dropouts_flag && sources.size() >= 3 && !m_no_diff_dod && !values.empty()) {
                 size_t before_count = values.size();
                 values = diff_dod(values, *video_params);
                 if (values.size() > 0 && values.size() < before_count) {
@@ -207,19 +303,35 @@ void StackerStage::stack_field(
                 stacked_value = video_params->black_16b_ire;
                 line_dropouts++;
                 total_dropouts++;
-                // Mark as dropout in output
-                // TODO: Add to output_dropouts
+                
+                // Track dropout region
+                if (!in_dropout) {
+                    current_dropout.start_sample = static_cast<uint32_t>(x);
+                    in_dropout = true;
+                }
+                current_dropout.end_sample = static_cast<uint32_t>(x + 1);
             } else {
                 // For simple modes (no neighbor checking)
                 std::vector<uint16_t> dummy;
                 std::vector<bool> dropout_flags(5, false);
-                dropout_flags[0] = all_dropouts;
+                dropout_flags[0] = all_dropouts_flag;
                 stacked_value = stack_mode(values, dummy, dummy, dummy, dummy, dropout_flags);
                 line_stacked++;
                 total_stacked_pixels++;
+                
+                // End current dropout region if we were in one
+                if (in_dropout && current_dropout.start_sample < current_dropout.end_sample) {
+                    output_dropouts.push_back(current_dropout);
+                    in_dropout = false;
+                }
             }
             
             output_samples[y * width + x] = stacked_value;
+        }
+        
+        // Finalize dropout region at end of line
+        if (in_dropout && current_dropout.start_sample < current_dropout.end_sample) {
+            output_dropouts.push_back(current_dropout);
         }
         
         // Trace logging per line
@@ -230,8 +342,8 @@ void StackerStage::stack_field(
     }
     
     // Debug summary for field
-    ORC_LOG_DEBUG("StackerStage::stack_field - Field {} complete: total_stacked={}, total_dropouts={}, diff_dod_recoveries={}",
-                 field_id.value(), total_stacked_pixels, total_dropouts, total_diff_dod_recoveries);
+    ORC_LOG_DEBUG("StackerStage::stack_field - Field {} complete: total_stacked={}, total_dropouts={}, diff_dod_recoveries={}, output_dropout_regions={}",
+                 field_id.value(), total_stacked_pixels, total_dropouts, total_diff_dod_recoveries, output_dropouts.size());
 }
 
 uint16_t StackerStage::stack_mode(

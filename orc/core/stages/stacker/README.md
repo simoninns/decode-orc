@@ -123,19 +123,39 @@ All input sources must:
 
 ## Implementation Status
 
-**Current Status:** Base implementation complete
+**Current Status:** ✅ **COMPLETED** (28 Dec 2025)
 
-The current implementation provides:
-- Parameter configuration and validation
-- Input/output handling
-- Basic stacking modes (Mean, Median, Smart Mean)
-- Dropout detection framework
+The stacker stage now provides full multi-source TBC stacking functionality:
 
-**TODO for full feature parity:**
-- Complete neighbor-based stacking modes (3 and 4)
-- Full differential dropout detection implementation
-- Source quality tracking and output metadata
-- Performance optimization for multi-threaded processing
+**Implemented Features:**
+- ✅ Multi-source field combination (1-16 sources)
+- ✅ Lazy field processing with LRU caching
+- ✅ All basic stacking modes (Mean, Median, Smart Mean)
+- ✅ Differential dropout detection (diff_dod)
+- ✅ Dropout region tracking for stacked output
+- ✅ Auto mode selection based on source count
+- ✅ Parameter configuration and validation
+- ✅ Field range verification
+- ✅ Metadata and hint propagation
+
+**Stacking Modes:**
+- **-1 (Auto):** ✅ Fully implemented - selects best mode based on source count
+- **0 (Mean):** ✅ Fully implemented - simple averaging
+- **1 (Median):** ✅ Fully implemented - median value selection
+- **2 (Smart Mean):** ✅ Fully implemented - threshold-based averaging
+- **3 (Smart Neighbor):** ⚠️ Placeholder - falls back to median (future enhancement)
+- **4 (Neighbor):** ⚠️ Placeholder - falls back to median (future enhancement)
+
+**Performance:**
+- LRU cache: 300 fields × ~1.4MB = ~420MB max memory
+- On-demand field processing for efficient memory usage
+- Fast pixel-by-pixel stacking algorithm
+
+**Future Enhancements:**
+- Neighbor-based stacking modes (3 and 4) using adjacent pixel context
+- Batch prefetching optimization for sequential field access
+- Source quality weighting based on signal metrics
+- Multi-threaded field processing for large stacks
 
 ## Legacy Tool Comparison
 

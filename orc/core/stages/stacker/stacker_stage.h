@@ -13,10 +13,53 @@
 #include "stage_parameter.h"
 #include "dag_executor.h"
 #include "previewable_stage.h"
+#include "lru_cache.h"
 #include <memory>
 #include <vector>
 
 namespace orc {
+
+// Forward declarations
+class StackerStage;
+
+/**
+ * @brief Stacked video field representation
+ * 
+ * This wraps multiple source field representations and stacks them on-demand
+ */
+class StackedVideoFieldRepresentation : public VideoFieldRepresentationWrapper {
+public:
+    StackedVideoFieldRepresentation(
+        const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+        StackerStage* stage);
+    
+    ~StackedVideoFieldRepresentation() = default;
+    
+    // Only override methods that are actually modified by this stage
+    const uint16_t* get_line(FieldID id, size_t line) const override;
+    std::vector<uint16_t> get_field(FieldID id) const override;
+    
+    // Override dropout hints - after stacking, dropouts are the ones that remain
+    std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
+    
+    // Allow stage to access private members
+    friend class StackerStage;
+    
+private:
+    std::vector<std::shared_ptr<const VideoFieldRepresentation>> sources_;
+    StackerStage* stage_;  // Non-owning pointer to stage for lazy stacking
+    
+    // Stacked field data - LRU cache of whole fields for fast access
+    // Cache size: 300 fields × ~1.4MB/field = ~420MB max
+    mutable LRUCache<FieldID, std::vector<uint16_t>> stacked_fields_;
+    static constexpr size_t MAX_CACHED_FIELDS = 300;
+    
+    // Dropout regions for stacked fields
+    mutable LRUCache<FieldID, std::vector<DropoutRegion>> stacked_dropouts_;
+    
+    // Ensure field is stacked (lazy)
+    void ensure_field_stacked(FieldID field_id) const;
+};
 
 /**
  * @brief Stacker stage - combines multiple TBC sources into one superior output
@@ -94,6 +137,9 @@ public:
     std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+
+    // Allow StackedVideoFieldRepresentation to access stack_field
+    friend class StackedVideoFieldRepresentation;
 
 private:
     // Stacking parameters

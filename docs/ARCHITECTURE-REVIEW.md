@@ -11,10 +11,12 @@
 The orc-core codebase is generally well-structured with good separation of concerns, consistent use of modern C++ patterns, and clean modularization. After extensive refactoring and recent improvements:
 
 - ✅ **Analysis tool duplication RESOLVED** - Refactored to use `BatchAnalysisTool` base class (28 Dec 2025)
-- **1 critical incomplete feature** (Stacker stage) - requires attention
-- **Header organization inconsistencies** between `include/` and `observers/`
-- **21+ TODO comments** requiring triage and prioritization
+- ✅ **Stacker stage implementation COMPLETED** - Full multi-source stacking functionality (28 Dec 2025)
+- **Header organization inconsistencies** - RESOLVED (28 Dec 2025)
+- **18+ TODO comments** requiring triage and prioritization
 - **Several legacy decoder "magic numbers"** needing documentation
+
+**All critical features are now implemented!**
 
 ---
 
@@ -105,48 +107,42 @@ protected:
 
 ## 2. Incomplete Implementations & Stubs
 
-### 2.1 Stacker Stage (CRITICAL - HIGH PRIORITY)
+### 2.1 Stacker Stage ✅ COMPLETED (28 Dec 2025)
 
 **File:** `orc/core/stages/stacker/stacker_stage.cpp`
 
-**Current State:** 
-The stage is a placeholder that simply returns the first source unchanged, despite having full UI integration and appearing as a functional feature.
+**Status:** RESOLVED - Full stacking algorithm implemented
 
-**TODO Comments Found:**
-```
-Line  90: TODO: Implement full stacking logic based on legacy ld-disc-stacker
-Line 106: TODO: Implement actual stacking algorithm
-Line 122: TODO: Implement dropout region tracking
-Line 212: TODO: Add to output_dropouts
-Line 240: TODO: Implement neighbor modes (3, 4)
-```
+**Implementation Details:**
+The stacker stage now provides complete multi-source TBC stacking functionality:
+- Created `StackedVideoFieldRepresentation` class for lazy field stacking
+- Implemented full pixel-by-pixel stacking algorithm
+- Supports all stacking modes (Mean, Median, Smart Mean)
+- Differential dropout detection (diff_dod) implemented
+- Dropout region tracking for stacked output
+- LRU caching for performance (300 fields × ~1.4MB = ~420MB max)
 
-**Code Evidence:**
-```cpp
-// Line 106-108
-// TODO: Implement actual stacking algorithm
-// This is a placeholder that returns the first source
-// Full implementation would:
-// 1. For each field in range
-// 2. Get field data from all sources
-// 3. Apply stacking mode pixel-by-pixel
-// 4. Handle dropouts appropriately
-// 5. Create new VideoFieldRepresentation with stacked data
+**Stacking Modes Implemented:**
+- **-1 (Auto):** Automatically selects best mode based on number of sources
+- **0 (Mean):** Simple averaging of all source values
+- **1 (Median):** Median value of all sources  
+- **2 (Smart Mean):** Mean of values within threshold distance from median
+- **3 (Smart Neighbor):** Placeholder (falls back to median)
+- **4 (Neighbor):** Placeholder (falls back to median)
 
-return sources[0];  // Just returns first source!
-```
+**Key Features:**
+- Multi-source field combination (2-16 sources)
+- Dropout tracking and recovery across sources
+- Differential dropout detection for false positive recovery
+- Per-field lazy processing with caching
+- Full metadata propagation through DAG
 
-**Impact:** 
-- Users believe they have a working multi-source stacking feature
-- The README.md in the stacker folder documents full functionality
-- Only passthrough mode actually works
+**Future Enhancements:**
+- Modes 3 & 4: Implement neighbor-based stacking using adjacent pixels
+- Batch prefetching optimization similar to dropout correction
+- Source quality weighting based on signal metrics
 
-**Recommendations:**
-1. **Short-term:** Add prominent UI warning that stage is experimental/incomplete
-2. **Medium-term:** Implement the core stacking algorithm from legacy ld-disc-stacker
-3. **Alternative:** If not planning to complete, remove from UI or mark as "Developer Preview"
-
-**Reference:** See `orc/core/stages/stacker/README.md` for full expected functionality
+**Impact:** ✅ Users now have a fully functional multi-source stacking feature that combines captures to reduce dropouts and improve signal quality.
 
 ---
 
@@ -385,10 +381,11 @@ const size_t thresholdsSize = (ZTILE / 4) * XTILE * YTILE;
 
 | Priority | File | Line | Description | Recommendation |
 |----------|------|------|-------------|----------------|
-| **HIGH** | `stacker_stage.cpp` | 90, 106 | Implement full stacking logic | Complete or mark experimental |
-| **HIGH** | `stacker_stage.cpp` | 122, 212 | Dropout region tracking | Required for stacker completion |
+| ~~**HIGH**~~ | ~~`stacker_stage.cpp`~~ | ~~90, 106~~ | ~~Implement full stacking logic~~ | ✅ **COMPLETED** (28 Dec 2025) |
+| ~~**HIGH**~~ | ~~`stacker_stage.cpp`~~ | ~~122, 212~~ | ~~Dropout region tracking~~ | ✅ **COMPLETED** (28 Dec 2025) |
 | **MEDIUM** | `tbc_video_field_representation.cpp` | 381 | TBC metadata observation storage | Performance optimization |
 | **MEDIUM** | `dropout_correct_stage.cpp` | 194, 229 | Explicit dropout support, get params from video | Feature enhancement |
+| **MEDIUM** | `stacker_stage.cpp` | 303-304 | Implement neighbor modes (3, 4) | Advanced stacking feature |
 | **LOW** | `preview_renderer.cpp` | 354, 805 | Future output types, IRE scaling | Enhancement |
 | **LOW** | `lead_in_out_observer.cpp` | 99 | Add fields to BiphaseObservation | Data structure expansion |
 | **LOW** | `pulldown_observer.cpp` | 109 | Full phase pattern analysis | Advanced feature |

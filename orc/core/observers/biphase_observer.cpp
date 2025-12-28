@@ -244,28 +244,64 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     
     // IEC 60857-1986 - 10.1.6 Programme time code (CLV hours and minutes) -------------
     // Check for CLV programme time code on lines 17 and 18
-    // Both hour and minute must be valid
+    // Both lines should carry redundant data - verify they match
     
     CLVTimecode clv_tc{-1, -1, -1, -1};
+    bool has_clv_time_line17 = false;
+    bool has_clv_time_line18 = false;
+    int32_t hour17 = -1, minute17 = -1;
+    int32_t hour18 = -1, minute18 = -1;
     
+    // Decode line 17 hours/minutes
     if ((vbi17 & 0xF0FF00) == 0xF0DD00) {
-        int32_t hour, minute;
-        if (decode_bcd((vbi17 & 0x0F0000) >> 16, hour) &&
-            decode_bcd(vbi17 & 0x0000FF, minute)) {
-            clv_tc.hours = hour;
-            clv_tc.minutes = minute;
-            ORC_LOG_DEBUG("BiphaseObserver: CLV hours={} minutes={} from line 17", hour, minute);
+        if (decode_bcd((vbi17 & 0x0F0000) >> 16, hour17) &&
+            decode_bcd(vbi17 & 0x0000FF, minute17)) {
+            // Validate range: hours 0-23, minutes 0-59
+            if (hour17 >= 0 && hour17 <= 23 && minute17 >= 0 && minute17 <= 59) {
+                has_clv_time_line17 = true;
+                ORC_LOG_DEBUG("BiphaseObserver: CLV hours={} minutes={} from line 17", hour17, minute17);
+            } else {
+                ORC_LOG_DEBUG("BiphaseObserver: Invalid CLV time range on line 17: {}:{}", hour17, minute17);
+            }
         }
     }
     
+    // Decode line 18 hours/minutes
     if ((vbi18 & 0xF0FF00) == 0xF0DD00) {
-        int32_t hour, minute;
-        if (decode_bcd((vbi18 & 0x0F0000) >> 16, hour) &&
-            decode_bcd(vbi18 & 0x0000FF, minute)) {
-            clv_tc.hours = hour;
-            clv_tc.minutes = minute;
-            ORC_LOG_DEBUG("BiphaseObserver: CLV hours={} minutes={} from line 18", hour, minute);
+        if (decode_bcd((vbi18 & 0x0F0000) >> 16, hour18) &&
+            decode_bcd(vbi18 & 0x0000FF, minute18)) {
+            // Validate range: hours 0-23, minutes 0-59
+            if (hour18 >= 0 && hour18 <= 23 && minute18 >= 0 && minute18 <= 59) {
+                has_clv_time_line18 = true;
+                ORC_LOG_DEBUG("BiphaseObserver: CLV hours={} minutes={} from line 18", hour18, minute18);
+            } else {
+                ORC_LOG_DEBUG("BiphaseObserver: Invalid CLV time range on line 18: {}:{}", hour18, minute18);
+            }
         }
+    }
+    
+    // Multi-line correlation: prefer matching data, warn on conflicts
+    if (has_clv_time_line17 && has_clv_time_line18) {
+        if (hour17 == hour18 && minute17 == minute18) {
+            // Both lines agree - high confidence
+            clv_tc.hours = hour17;
+            clv_tc.minutes = minute17;
+            ORC_LOG_DEBUG("BiphaseObserver: CLV time confirmed by both lines: {}:{}", hour17, minute17);
+        } else {
+            // Lines disagree - use line 17 but warn
+            clv_tc.hours = hour17;
+            clv_tc.minutes = minute17;
+            ORC_LOG_DEBUG("BiphaseObserver: CLV time mismatch - line17={}:{} line18={}:{} (using line17)",
+                         hour17, minute17, hour18, minute18);
+        }
+    } else if (has_clv_time_line17) {
+        // Only line 17 valid
+        clv_tc.hours = hour17;
+        clv_tc.minutes = minute17;
+    } else if (has_clv_time_line18) {
+        // Only line 18 valid
+        clv_tc.hours = hour18;
+        clv_tc.minutes = minute18;
     }
     
     // IEC 60857-1986 - 10.1.10 CLV picture number (seconds and frame within second) ---
@@ -278,22 +314,37 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
         // First digit of second is A-F (representing 0-5 tens of seconds)
         uint32_t tens = (vbi16 & 0x0F0000) >> 16;
         
-        if (tens >= 0xA &&
+        if (tens >= 0xA && tens <= 0xF &&
             decode_bcd((vbi16 & 0x000F00) >> 8, sec_digit) &&
             decode_bcd(vbi16 & 0x0000FF, pic_no)) {
             
-            clv_tc.seconds = (10 * (tens - 0xA)) + sec_digit;
-            clv_tc.picture_number = pic_no;
-            ORC_LOG_DEBUG("BiphaseObserver: CLV seconds={} picture={} from line 16", 
-                         clv_tc.seconds, clv_tc.picture_number);
+            int32_t seconds = (10 * (tens - 0xA)) + sec_digit;
+            
+            // Validate range: seconds 0-59, picture 0-29 (PAL) or 0-24 (NTSC)
+            // Be permissive and accept 0-29 for both formats
+            if (seconds >= 0 && seconds <= 59 && pic_no >= 0 && pic_no <= 29) {
+                clv_tc.seconds = seconds;
+                clv_tc.picture_number = pic_no;
+                ORC_LOG_DEBUG("BiphaseObserver: CLV seconds={} picture={} from line 16", 
+                             seconds, pic_no);
+            } else {
+                ORC_LOG_DEBUG("BiphaseObserver: Invalid CLV seconds/picture range: seconds={} picture={}", 
+                             seconds, pic_no);
+            }
         }
     }
     
-    // If we have a complete CLV timecode, store it
-    if (clv_tc.hours != -1 || clv_tc.minutes != -1 || 
-        clv_tc.seconds != -1 || clv_tc.picture_number != -1) {
+    // Only store CLV timecode if ALL fields are present and valid
+    // This ensures we have a complete, usable timecode
+    if (clv_tc.hours != -1 && clv_tc.minutes != -1 && 
+        clv_tc.seconds != -1 && clv_tc.picture_number != -1) {
         observation.clv_timecode = clv_tc;
-        ORC_LOG_DEBUG("BiphaseObserver: CLV timecode {}:{}:{}.{}", 
+        ORC_LOG_DEBUG("BiphaseObserver: Complete CLV timecode validated: {}:{}:{}.{}", 
+                     clv_tc.hours, clv_tc.minutes, clv_tc.seconds, clv_tc.picture_number);
+    } else if (clv_tc.hours != -1 || clv_tc.minutes != -1 || 
+               clv_tc.seconds != -1 || clv_tc.picture_number != -1) {
+        // Partial timecode detected but not stored - log for debugging
+        ORC_LOG_DEBUG("BiphaseObserver: Incomplete CLV timecode ignored: {}:{}:{}.{}", 
                      clv_tc.hours, clv_tc.minutes, clv_tc.seconds, clv_tc.picture_number);
     }
     

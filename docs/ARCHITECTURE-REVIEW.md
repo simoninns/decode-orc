@@ -219,25 +219,18 @@ return {};
 
 ---
 
-## 4. Orphaned Code & Comments
+## 4. Orphaned Code & Comments ✅ COMPLETED (28 Dec 2025)
 
-### 4.1 Removed Observer References
+### 4.1 Removed Observer References ✅ COMPLETED
 
-**File:** `orc/core/CMakeLists.txt` (Lines 35-36)
+**Status:** RESOLVED - Commented-out observer references removed from build files
 
-```cmake
-# observers/field_parity_observer.cpp  # Removed: field parity comes from hints only
-# observers/pal_phase_observer.cpp     # Removed: PAL phase comes from hints only
-```
-
-**Issue:** These observers were removed and replaced with the hint system, but commented-out references remain in build files.
-
-**Recommendation:**
-- **Option A:** Remove comments entirely (clean slate)
-- **Option B:** Add architectural notes to separate documentation explaining the design decision to use hints instead of observers
+**Implementation Details:**
+- Removed commented lines from `orc/core/CMakeLists.txt`
+- Clean slate approach: no residual comments in build files
 
 **Related Design Decision:**
-The system now uses `FieldParityHint` and `FieldPhaseHint` structures instead of observers for these properties. This is a good architectural decision (hints are faster and more reliable than computed observations), but should be documented in `docs/DESIGN.md` or similar.
+The system now uses `FieldParityHint` and `FieldPhaseHint` structures instead of observers for these properties. This is a good architectural decision (hints are faster and more reliable than computed observations).
 
 ---
 

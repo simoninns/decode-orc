@@ -40,6 +40,7 @@ namespace orc {
     class VBIDecoder;
     class DropoutAnalysisDecoder;
     class SNRAnalysisDecoder;
+    class TriggerableStage;
 }
 
 // Forward declarations
@@ -58,6 +59,7 @@ enum class RenderRequestType {
     TriggerStage,           // Trigger a stage (batch processing)
     CancelTrigger,          // Cancel ongoing trigger
     GetAvailableOutputs,    // Query available preview outputs
+    SavePNG,                // Save preview as PNG file
     Shutdown                // Shutdown the worker thread
 };
 
@@ -164,6 +166,27 @@ struct TriggerStageRequest : public RenderRequest {
     explicit TriggerStageRequest(uint64_t id, orc::NodeID node)
         : RenderRequest(RenderRequestType::TriggerStage, id)
         , node_id(std::move(node)) {}
+};
+
+/**
+ * @brief Request to save preview as PNG
+ */
+struct SavePNGRequest : public RenderRequest {
+    orc::NodeID node_id;
+    orc::PreviewOutputType output_type;
+    uint64_t output_index;
+    std::string filename;
+    std::string option_id;
+    
+    SavePNGRequest(uint64_t id, orc::NodeID node, 
+                   orc::PreviewOutputType type, uint64_t index,
+                   std::string file, std::string opt_id = "")
+        : RenderRequest(RenderRequestType::SavePNG, id)
+        , node_id(std::move(node))
+        , output_type(type)
+        , output_index(index)
+        , filename(std::move(file))
+        , option_id(std::move(opt_id)) {}
 };
 
 /**
@@ -402,8 +425,11 @@ public:
      * @param node_id Node to query
      * @return Request ID for matching response
      */
-    uint64_t requestAvailableOutputs(const orc::NodeID& node_id);
-    
+    uint64_t requestAvailableOutputs(const orc::NodeID& node_id);    uint64_t requestSavePNG(const orc::NodeID& node_id, 
+                           orc::PreviewOutputType output_type,
+                           uint64_t output_index,
+                           const std::string& filename,
+                           const std::string& option_id = "");    
     /**
      * @brief Trigger a stage for batch processing (async)
      * 
@@ -533,6 +559,7 @@ private:
      * @brief Handle GetAvailableOutputs request
      */
     void handleGetAvailableOutputs(const GetAvailableOutputsRequest& req);
+    void handleSavePNG(const SavePNGRequest& req);
     
     /**
      * @brief Handle TriggerStage request
@@ -576,6 +603,7 @@ private:
     std::unique_ptr<orc::BurstLevelAnalysisDecoder> worker_burst_level_decoder_;
     
     std::atomic<bool> trigger_cancel_requested_{false};
+    orc::TriggerableStage* current_trigger_stage_{nullptr};  // Pointer to currently executing trigger (if any)
 };
 
 #endif // RENDER_COORDINATOR_H

@@ -64,6 +64,10 @@ add_executable(orc-gui
     plotwidget.cpp
     plotwidget.h
     
+    # Analysis dialog base class
+    analysisdialogbase.cpp
+    analysisdialogbase.h
+    
     # Dropout analysis dialog
     dropoutanalysisdialog.cpp
     dropoutanalysisdialog.h

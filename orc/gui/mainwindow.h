@@ -112,7 +112,6 @@ private slots:
     void onInspectStage(const orc::NodeID& node_id);
     void onShowVBIDialog();
     void updateVBIDialog();
-    void onPollTriggerProgress();
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -148,6 +147,7 @@ private:
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
     void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);
+    QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
     
     // Settings helpers
     QString getLastProjectDirectory() const;

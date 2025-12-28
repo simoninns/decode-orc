@@ -74,7 +74,7 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
         // Attempt to validate source nodes by trying to access them
         if (dag_ && hasSource()) {
             ORC_LOG_DEBUG("Validating source nodes in DAG");
-            validateDAGSources();
+            orc::validate_source_nodes(dag_);
         }
         
         return true;
@@ -135,34 +135,5 @@ void GUIProject::rebuildDAG()
     }
 }
 
-void GUIProject::validateDAGSources()
-{
-    if (!dag_) {
-        return;
-    }
-    
-    // Try to execute each source node to validate they can be accessed
-    // Source nodes should produce output when executed with empty inputs
-    ORC_LOG_DEBUG("Validating {} DAG nodes", dag_->nodes().size());
-    
-    for (const auto& node : dag_->nodes()) {
-        // Check if this is a source node by checking if it has no inputs
-        if (node.input_node_ids.empty()) {
-            ORC_LOG_DEBUG("Validating source node: {}", node.node_id);
-            try {
-                // Execute the stage with empty inputs to validate
-                // This will trigger TBC loading and validation
-                auto outputs = node.stage->execute({}, node.parameters);
-                if (outputs.empty()) {
-                    throw std::runtime_error("Source node '" + node.node_id.to_string() + "' produced no output");
-                }
-                ORC_LOG_DEBUG("Source node validation passed: {}", node.node_id);
-            } catch (const std::exception& e) {
-                // Source validation failed - re-throw with more context
-                std::string error_msg = "Source validation failed for node '" + node.node_id.to_string() + "': " + e.what();
-                throw std::runtime_error(error_msg);
-            }
-        }
-    }
-}
+
 

@@ -98,4 +98,37 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
     return dag;
 }
 
+void validate_source_nodes(const std::shared_ptr<DAG>& dag) {
+    if (!dag) {
+        throw ProjectConversionError("Cannot validate null DAG");
+    }
+    
+    // Try to execute each source node to validate they can be accessed
+    // Source nodes should produce output when executed with empty inputs
+    ORC_LOG_DEBUG("Validating {} DAG nodes", dag->nodes().size());
+    
+    for (const auto& node : dag->nodes()) {
+        // Check if this is a source node by checking if it has no inputs
+        if (node.input_node_ids.empty()) {
+            ORC_LOG_DEBUG("Validating source node: {}", node.node_id);
+            try {
+                // Execute the stage with empty inputs to validate
+                // This will trigger TBC loading and validation
+                auto outputs = node.stage->execute({}, node.parameters);
+                if (outputs.empty()) {
+                    throw ProjectConversionError(
+                        "Source node '" + node.node_id.to_string() + "' produced no output"
+                    );
+                }
+                ORC_LOG_DEBUG("Source node validation passed: {}", node.node_id);
+            } catch (const std::exception& e) {
+                // Source validation failed - re-throw with more context
+                throw ProjectConversionError(
+                    "Source validation failed for node '" + node.node_id.to_string() + "': " + e.what()
+                );
+            }
+        }
+    }
+}
+
 } // namespace orc

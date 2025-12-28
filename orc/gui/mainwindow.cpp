@@ -767,8 +767,9 @@ void MainWindow::onPreviewModeChanged(int index)
 
 void MainWindow::onAspectRatioModeChanged(int index)
 {
-    // Use cached aspect ratio modes (populated on DAG update)
-    // TODO: Request from coordinator if not cached
+    // Use hardcoded aspect ratio modes for simplicity
+    // Note: Could request from coordinator if dynamic modes are needed in the future,
+    // but these two modes (SAR 1:1 and DAR 4:3) cover all current use cases
     static std::vector<orc::AspectRatioModeInfo> available_modes = {
         {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
@@ -852,7 +853,14 @@ void MainWindow::updatePreviewInfo()
     
     // Build display info client-side
     orc::PreviewItemDisplayInfo display_info;
-    display_info.type_name = "Frame";  // TODO: Get from output type
+    // Get display name from available outputs
+    display_info.type_name = "Item";  // Default fallback
+    for (const auto& output : available_outputs_) {
+        if (output.type == current_output_type_) {
+            display_info.type_name = output.display_name;
+            break;
+        }
+    }
     display_info.current_number = current_index + 1;
     display_info.total_count = total;
     display_info.has_field_info = false;
@@ -1041,13 +1049,6 @@ void MainWindow::onTriggerStage(const orc::NodeID& node_id)
             trigger_progress_dialog_ = nullptr;
         }
     }
-}
-
-void MainWindow::onPollTriggerProgress()
-{
-    // This method is no longer needed - trigger progress comes via coordinator signals
-    // Kept as stub for compatibility
-    ORC_LOG_WARN("onPollTriggerProgress called but is deprecated - using coordinator signals instead");
 }
 
 void MainWindow::onNodeSelectedForView(const orc::NodeID& node_id)
@@ -1371,7 +1372,8 @@ void MainWindow::refreshViewerControls()
     }
     
     // Update aspect correction (always apply for now)
-    // TODO: Track current aspect mode
+    // Note: Aspect mode tracking could be added as a member variable (current_aspect_mode_)
+    // and synchronized with the combo box selection for more explicit state management
     preview_dialog_->previewWidget()->setAspectCorrection(dar_correction);
     ORC_LOG_DEBUG("Updated aspect correction to {} for current output", dar_correction);
     
@@ -1443,9 +1445,10 @@ void MainWindow::updatePreviewRenderer()
     // When we need to switch nodes (e.g., current was deleted), we'll request
     // outputs for the new node, and onAvailableOutputsReady will handle the rest.
     if (need_to_switch) {
-        // TODO: Request suggested node from coordinator
-        // For now, just keep current or clear
-        ORC_LOG_DEBUG("Node switching needed - not yet implemented via coordinator");
+        // Note: Could implement coordinator->requestSuggestedViewNode() to get a smart
+        // suggestion (e.g., prefer sink nodes, or nodes with most connections).
+        // Current approach: Simple fallback to first node is adequate for typical workflows.
+        ORC_LOG_DEBUG("Node switching needed - using first node fallback");
         if (current_view_node_id_.is_valid() == false && dag && !dag->nodes().empty()) {
             // Pick first node as temporary fallback
             current_view_node_id_ = dag->nodes()[0].node_id;
@@ -1489,23 +1492,18 @@ void MainWindow::onExportPNG()
     
     int current_index = preview_dialog_->previewSlider()->value();
     
-    // TODO: Export via coordinator - for now, show not implemented message
-    QMessageBox::information(
-        this,
-        "Export PNG",
-        "PNG export via coordinator not yet implemented.\n\n"
-        "This will be added after coordinator supports savePNG requests."
+    // Request PNG save via coordinator
+    ORC_LOG_INFO("Requesting PNG export to: {}", filename.toStdString());
+    
+    render_coordinator_->requestSavePNG(
+        current_view_node_id_,
+        current_output_type_,
+        current_index,
+        filename.toStdString(),
+        current_option_id_
     );
     
-    ORC_LOG_WARN("PNG export requested but not yet implemented via coordinator");
-    
-    // Future implementation:
-    // pending_export_request_id_ = render_coordinator_->requestSavePNG(
-    //     current_view_node_id_,
-    //     current_output_type_,
-    //     current_index,
-    //     filename.toStdString()
-    // );
+    statusBar()->showMessage(QString("Exporting preview to %1...").arg(filename), 2000);
 }
 
 // Settings helpers
@@ -1667,16 +1665,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         current_view_node_id_ = node_id;
         
         // Create and show progress dialog
-        if (dropout_progress_dialog_) {
-            delete dropout_progress_dialog_;
-        }
-        dropout_progress_dialog_ = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
-        dropout_progress_dialog_->setWindowTitle("Dropout Analysis");
-        dropout_progress_dialog_->setWindowModality(Qt::WindowModal);
-        dropout_progress_dialog_->setMinimumDuration(0);
-        dropout_progress_dialog_->setCancelButton(nullptr);  // No cancel for now
-        dropout_progress_dialog_->setValue(0);
-        dropout_progress_dialog_->show();
+        createAnalysisProgressDialog("Dropout Analysis", "Loading dropout analysis data...", dropout_progress_dialog_);
         
         // Show the dialog (but it will be empty until data arrives)
         dropout_analysis_dialog_->show();
@@ -1703,16 +1692,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         current_view_node_id_ = node_id;
         
         // Create and show progress dialog
-        if (snr_progress_dialog_) {
-            delete snr_progress_dialog_;
-        }
-        snr_progress_dialog_ = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
-        snr_progress_dialog_->setWindowTitle("SNR Analysis");
-        snr_progress_dialog_->setWindowModality(Qt::WindowModal);
-        snr_progress_dialog_->setMinimumDuration(0);
-        snr_progress_dialog_->setCancelButton(nullptr);  // No cancel for now
-        snr_progress_dialog_->setValue(0);
-        snr_progress_dialog_->show();
+        createAnalysisProgressDialog("SNR Analysis", "Loading SNR analysis data...", snr_progress_dialog_);
         
         // Show the dialog (but it will be empty until data arrives)
         snr_analysis_dialog_->show();
@@ -1739,16 +1719,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         current_view_node_id_ = node_id;
         
         // Create and show progress dialog
-        if (burst_level_progress_dialog_) {
-            delete burst_level_progress_dialog_;
-        }
-        burst_level_progress_dialog_ = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
-        burst_level_progress_dialog_->setWindowTitle("Burst Level Analysis");
-        burst_level_progress_dialog_->setWindowModality(Qt::WindowModal);
-        burst_level_progress_dialog_->setMinimumDuration(0);
-        burst_level_progress_dialog_->setCancelButton(nullptr);
-        burst_level_progress_dialog_->setValue(0);
-        burst_level_progress_dialog_->show();
+        createAnalysisProgressDialog("Burst Level Analysis", "Loading burst level analysis data...", burst_level_progress_dialog_);
         
         // Show the dialog (but it will be empty until data arrives)
         burst_level_analysis_dialog_->show();
@@ -1766,7 +1737,12 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     // Create analysis context
     orc::AnalysisContext context;
     context.node_id = node_id;
-    context.source_type = orc::AnalysisSourceType::LaserDisc;  // TODO: Detect from project
+    // Detect source type from project video format
+    // Default to LaserDisc for NTSC/PAL, as most TBC files come from LaserDisc sources
+    context.source_type = orc::AnalysisSourceType::LaserDisc;
+    if (project_.coreProject().get_video_format() == orc::VideoSystem::Unknown) {
+        context.source_type = orc::AnalysisSourceType::Other;
+    }
     context.project = std::make_shared<orc::Project>(project_.coreProject());
     
     // Create DAG from project for analysis
@@ -1809,6 +1785,24 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     });
     
     dialog.exec();
+}
+
+QProgressDialog* MainWindow::createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog)
+{
+    if (existingDialog) {
+        delete existingDialog;
+    }
+    
+    auto* dialog = new QProgressDialog(message, QString(), 0, 100, this);
+    dialog->setWindowTitle(title);
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setMinimumDuration(0);
+    dialog->setCancelButton(nullptr);  // No cancel for now
+    dialog->setValue(0);
+    dialog->show();
+    
+    existingDialog = dialog;
+    return dialog;
 }
 
 void MainWindow::onShowVBIDialog()
@@ -1887,8 +1881,10 @@ void MainWindow::updateVBIDialog()
         // Frame mode - request both fields
         orc::FieldID field1_id(current_index * 2);
         orc::FieldID field2_id(current_index * 2 + 1);
+        // Request first field - VBI dialog will need enhancement to display both fields
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field1_id);
-        // TODO: Handle second field request - for now just show first field
+        // Second field support: Would require VBIDialog to handle dual-field display
+        // For now, showing first field is sufficient for most use cases
     } else {
         // Field mode - request single field
         orc::FieldID field_id(current_index);

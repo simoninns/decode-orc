@@ -10,13 +10,11 @@
 #ifndef DROPOUTANALYSISDIALOG_H
 #define DROPOUTANALYSISDIALOG_H
 
-#include <QDialog>
 #include <QCheckBox>
 #include <QVBoxLayout>
-#include <QTimer>
-#include <QShowEvent>
 #include <QVector>
 #include <QPointF>
+#include "analysisdialogbase.h"
 #include "plotwidget.h"
 #include "../core/observers/dropout_analysis_observer.h"
 
@@ -31,7 +29,7 @@
  * Data and business logic is handled by the DropoutAnalysisObserver in orc-core.
  * This GUI component only handles rendering the graph.
  */
-class DropoutAnalysisDialog : public QDialog
+class DropoutAnalysisDialog : public AnalysisDialogBase
 {
     Q_OBJECT
 
@@ -83,11 +81,13 @@ signals:
     void modeChanged(orc::DropoutAnalysisMode mode);
 
 protected:
-    void showEvent(QShowEvent *event) override;
+    /**
+     * @brief Calculate and set marker position (implements base class pure virtual)
+     */
+    void calculateMarkerPosition(int32_t frameNumber) override;
 
 private slots:
     void onVisibleAreaCheckBoxToggled(bool checked);
-    void onUpdateTimerTimeout();
     void onPlotAreaChanged();
 
 private:
@@ -97,16 +97,10 @@ private:
     PlotSeries *series_;
     PlotMarker *plotMarker_;
     QCheckBox *visibleAreaCheckBox_;
-    QLabel *noDataLabel_;
     
     double maxY_;
     int32_t numberOfFrames_;
     QVector<QPointF> points_;
-    
-    // Update throttling
-    QTimer *updateTimer_;
-    int32_t pendingFrameNumber_;
-    bool hasPendingUpdate_;
 };
 
 #endif // DROPOUTANALYSISDIALOG_H

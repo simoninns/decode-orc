@@ -10,12 +10,10 @@
 #ifndef BURSTLEVELANALYSISDIALOG_H
 #define BURSTLEVELANALYSISDIALOG_H
 
-#include <QDialog>
 #include <QVBoxLayout>
-#include <QTimer>
-#include <QShowEvent>
 #include <QVector>
 #include <QPointF>
+#include "analysisdialogbase.h"
 #include "plotwidget.h"
 
 /**
@@ -29,7 +27,7 @@
  * BurstLevelAnalysisDecoder in orc-core. This GUI component only handles rendering
  * the graphs.
  */
-class BurstLevelAnalysisDialog : public QDialog
+class BurstLevelAnalysisDialog : public AnalysisDialogBase
 {
     Q_OBJECT
 
@@ -69,10 +67,12 @@ public:
     void showNoDataMessage(const QString& reason = QString());
 
 protected:
-    void showEvent(QShowEvent *event) override;
+    /**
+     * @brief Calculate and set marker position (implements base class pure virtual)
+     */
+    void calculateMarkerPosition(int32_t frameNumber) override;
 
 private slots:
-    void onUpdateTimerTimeout();
     void onPlotAreaChanged();
 
 private:
@@ -81,17 +81,11 @@ private:
     PlotWidget *plot_;
     PlotSeries *burstSeries_;
     PlotMarker *plotMarker_;
-    QLabel *noDataLabel_;
     
     double maxY_;
     double minY_;
     int32_t numberOfFrames_;
     QVector<QPointF> burstPoints_;
-    
-    // Update throttling
-    QTimer *updateTimer_;
-    int32_t pendingFrameNumber_;
-    bool hasPendingUpdate_;
 };
 
 #endif // BURSTLEVELANALYSISDIALOG_H

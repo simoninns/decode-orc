@@ -132,7 +132,18 @@ uint64_t RenderCoordinator::requestAvailableOutputs(const orc::NodeID& node_id)
     enqueueRequest(std::move(req));
     return id;
 }
-
+uint64_t RenderCoordinator::requestSavePNG(const orc::NodeID& node_id, 
+                                          orc::PreviewOutputType output_type,
+                                          uint64_t output_index,
+                                          const std::string& filename,
+                                          const std::string& option_id)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<SavePNGRequest>(id, node_id, output_type, 
+                                                 output_index, filename, option_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
 uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
 {
     uint64_t id = nextRequestId();
@@ -221,6 +232,10 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             
         case RenderRequestType::GetAvailableOutputs:
             handleGetAvailableOutputs(*static_cast<GetAvailableOutputsRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::SavePNG:
+            handleSavePNG(*static_cast<SavePNGRequest*>(request.get()));
             break;
             
         case RenderRequestType::TriggerStage:
@@ -495,17 +510,6 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
     trigger_cancel_requested_ = false;
     
     try {
-        // Build executor
-        auto executor = std::make_shared<orc::DAGExecutor>();
-        
-        // Get inputs by executing to predecessor nodes
-        std::vector<orc::ArtifactPtr> inputs;
-        
-        // Find edges leading to this node
-        // NOTE: This requires access to Project which we don't have here
-        // For now, we'll execute with empty inputs (stages that need inputs will fail)
-        // TODO: Pass Project or edges in the request
-        
         // Find the target node in the DAG
         const orc::DAGNode* target_node = nullptr;
         for (const auto& node : worker_dag_->nodes()) {
@@ -528,14 +532,44 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
             return;
         }
         
+        // Build executor to get inputs for this node
+        auto executor = std::make_shared<orc::DAGExecutor>();
+        
+        // Execute DAG up to (but not including) the target node to get its inputs
+        std::vector<orc::ArtifactPtr> inputs;
+        
+        if (!target_node->input_node_ids.empty()) {
+            // Execute predecessor nodes to get inputs
+            auto node_outputs = executor->execute_to_node(*worker_dag_, target_node->input_node_ids[0]);
+            
+            // Collect inputs from predecessor nodes
+            for (size_t i = 0; i < target_node->input_node_ids.size(); ++i) {
+                const auto& input_node_id = target_node->input_node_ids[i];
+                size_t input_index = (i < target_node->input_indices.size()) ? target_node->input_indices[i] : 0;
+                
+                auto it = node_outputs.find(input_node_id);
+                if (it != node_outputs.end() && input_index < it->second.size()) {
+                    inputs.push_back(it->second[input_index]);
+                } else {
+                    ORC_LOG_WARN("RenderCoordinator: Failed to get input {} from node '{}'",
+                                input_index, input_node_id.to_string());
+                }
+            }
+        }
+        
+        ORC_LOG_INFO("RenderCoordinator: Triggering with {} input(s)", inputs.size());
+        
+        // Store pointer to current trigger stage for cancellation
+        current_trigger_stage_ = trigger_stage;
+        
         // Set up progress callback (called from THIS worker thread, safe to emit signals)
-        trigger_stage->set_progress_callback([this, req_id = req.request_id](
+        trigger_stage->set_progress_callback([this, trigger_stage, req_id = req.request_id](
             size_t current, size_t total, const std::string& message) {
             
-            // Check for cancellation
+            // Check for cancellation and call cancel_trigger() on the stage
             if (trigger_cancel_requested_) {
-                // TODO: Need a way to actually cancel the trigger
-                ORC_LOG_INFO("RenderCoordinator: Trigger cancellation detected");
+                ORC_LOG_INFO("RenderCoordinator: Trigger cancellation requested, calling cancel_trigger()");
+                trigger_stage->cancel_trigger();
             }
             
             // Emit progress (Qt will queue this to GUI thread)
@@ -548,14 +582,51 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
         
         ORC_LOG_INFO("RenderCoordinator: Trigger complete, success={}, status={}", success, status);
         
+        // Clear current trigger stage pointer
+        current_trigger_stage_ = nullptr;
+        
         // Emit completion
         emit triggerComplete(req.request_id, success, QString::fromStdString(status));
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Trigger failed: {}", e.what());
+        current_trigger_stage_ = nullptr;  // Clear pointer on error too
         emit error(req.request_id, QString::fromStdString(e.what()));
         emit triggerComplete(req.request_id, false, QString::fromStdString("Exception: " + std::string(e.what())));
     }
     
     trigger_cancel_requested_ = false;
+}
+
+void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
+{
+    ORC_LOG_INFO("RenderCoordinator: Saving PNG for node '{}', type {}, index {} to '{}'",
+                 req.node_id.to_string(), static_cast<int>(req.output_type), req.output_index, req.filename);
+    
+    if (!worker_preview_renderer_) {
+        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
+        emit error(req.request_id, "Preview renderer not initialized");
+        return;
+    }
+    
+    try {
+        // Use core's native PNG save functionality (no GUI business logic)
+        bool success = worker_preview_renderer_->save_png(
+            req.node_id,
+            req.output_type,
+            req.output_index,
+            req.filename
+        );
+        
+        if (success) {
+            ORC_LOG_INFO("RenderCoordinator: PNG saved successfully to '{}'", req.filename);
+        } else {
+            ORC_LOG_ERROR("RenderCoordinator: Failed to save PNG to '{}'", req.filename);
+            emit error(req.request_id, QString::fromStdString("Failed to save PNG file: " + req.filename));
+        }
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: PNG export failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
 }

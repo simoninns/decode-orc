@@ -36,9 +36,7 @@ add_library(orc-core STATIC
     observers/pulldown_observer.cpp
     observers/lead_in_out_observer.cpp
     observers/dropout_analysis_observer.cpp
-    
-    # SNR analysis observer
-    snr_analysis_observer.cpp
+    observers/snr_analysis_observer.cpp
     
     # Analysis framework
     analysis/analysis_registry.cpp

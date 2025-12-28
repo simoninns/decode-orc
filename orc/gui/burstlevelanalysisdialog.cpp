@@ -15,17 +15,13 @@
 #include <cmath>
 
 BurstLevelAnalysisDialog::BurstLevelAnalysisDialog(QWidget *parent)
-    : QDialog(parent)
+    : AnalysisDialogBase(parent)
     , plot_(nullptr)
     , burstSeries_(nullptr)
     , plotMarker_(nullptr)
-    , noDataLabel_(nullptr)
     , maxY_(0.0)
     , minY_(0.0)
     , numberOfFrames_(0)
-    , updateTimer_(nullptr)
-    , pendingFrameNumber_(0)
-    , hasPendingUpdate_(false)
 {
     setWindowTitle("Burst Level Analysis");
     setWindowFlags(Qt::Window);
@@ -38,24 +34,8 @@ BurstLevelAnalysisDialog::BurstLevelAnalysisDialog(QWidget *parent)
     plot_ = new PlotWidget(this);
     plot_->updateTheme();
     
-    // Create "No data available" label (initially hidden)
-    noDataLabel_ = new QLabel("No data available", this);
-    noDataLabel_->setAlignment(Qt::AlignCenter);
-    QFont font = noDataLabel_->font();
-    font.setPointSize(14);
-    noDataLabel_->setFont(font);
-    
-    // Use a stacked layout to overlay label on plot
-    auto *plotContainer = new QWidget(this);
-    auto *plotLayout = new QStackedLayout(plotContainer);
-    plotLayout->setStackingMode(QStackedLayout::StackAll);
-    plotLayout->addWidget(plot_);
-    plotLayout->addWidget(noDataLabel_);
-    
-    mainLayout->addWidget(plotContainer);
-    
-    // Start with plot visible, label hidden
-    noDataLabel_->hide();
+    // Set up "No data available" overlay (from base class)
+    setupNoDataOverlay(mainLayout, plot_);
     
     // Set up series for Burst Level
     burstSeries_ = plot_->addSeries("Burst Level");
@@ -67,11 +47,8 @@ BurstLevelAnalysisDialog::BurstLevelAnalysisDialog(QWidget *parent)
     plotMarker_->setStyle(PlotMarker::VLine);
     plotMarker_->setPen(QPen(Qt::blue, 2));
     
-    // Set up update throttling timer
-    updateTimer_ = new QTimer(this);
-    updateTimer_->setSingleShot(true);
-    updateTimer_->setInterval(16); // ~60fps max update rate
-    connect(updateTimer_, &QTimer::timeout, this, &BurstLevelAnalysisDialog::onUpdateTimerTimeout);
+    // Set up update throttling timer (from base class)
+    setupUpdateTimer();
     
     // Connect to plot area changed signal
     connect(plot_, &PlotWidget::plotAreaChanged, this, &BurstLevelAnalysisDialog::onPlotAreaChanged);
@@ -169,36 +146,20 @@ void BurstLevelAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
 
 void BurstLevelAnalysisDialog::updateFrameMarker(int32_t currentFrameNumber)
 {
-    // Always store the pending frame number
-    pendingFrameNumber_ = currentFrameNumber;
-    hasPendingUpdate_ = true;
-    
-    // Skip timer start if dialog is not visible - update will happen on show
-    if (!isVisible()) return;
-    
-    // Start or restart the timer
-    if (!updateTimer_->isActive()) {
-        updateTimer_->start();
-    }
+    // Use base class throttling implementation
+    updateFrameMarkerThrottled(currentFrameNumber);
 }
 
 void BurstLevelAnalysisDialog::showNoDataMessage(const QString& reason)
 {
     removeChartContents();
     
-    // Hide the plot and show the "No data available" label
-    plot_->hide();
-    if (noDataLabel_) {
-        QString message = reason.isEmpty() ? "No data available" : reason;
-        noDataLabel_->setText(message);
-        noDataLabel_->show();
-    }
+    // Use base class implementation
+    showNoDataMessageImpl(reason, plot_);
 }
 
-void BurstLevelAnalysisDialog::onUpdateTimerTimeout()
+void BurstLevelAnalysisDialog::calculateMarkerPosition(int32_t frameNumber)
 {
-    if (!hasPendingUpdate_) return;
-    
     // Calculate the Y position for the marker (middle of the visible range)
     double yMax = 40.0;
     double yMin = 0.0;
@@ -210,20 +171,8 @@ void BurstLevelAnalysisDialog::onUpdateTimerTimeout()
         if (yMax < 30) yMax = 30;
     }
     
-    plotMarker_->setPosition(QPointF(static_cast<double>(pendingFrameNumber_), (yMax + yMin) / 2));
+    plotMarker_->setPosition(QPointF(static_cast<double>(frameNumber), (yMax + yMin) / 2));
     // No need to call plot->replot() - marker update() handles the redraw
-    
-    hasPendingUpdate_ = false;
-}
-
-void BurstLevelAnalysisDialog::showEvent(QShowEvent *event)
-{
-    QDialog::showEvent(event);
-    
-    // Force immediate marker update if we have a pending position
-    if (hasPendingUpdate_) {
-        onUpdateTimerTimeout();
-    }
 }
 
 void BurstLevelAnalysisDialog::onPlotAreaChanged()

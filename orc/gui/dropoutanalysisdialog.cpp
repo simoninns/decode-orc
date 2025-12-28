@@ -14,17 +14,13 @@
 #include <QtMath>
 
 DropoutAnalysisDialog::DropoutAnalysisDialog(QWidget *parent)
-    : QDialog(parent)
+    : AnalysisDialogBase(parent)
     , plot_(nullptr)
     , series_(nullptr)
     , plotMarker_(nullptr)
     , visibleAreaCheckBox_(nullptr)
-    , noDataLabel_(nullptr)
     , maxY_(0.0)
     , numberOfFrames_(0)
-    , updateTimer_(nullptr)
-    , pendingFrameNumber_(0)
-    , hasPendingUpdate_(false)
 {
     setWindowTitle("Dropout Analysis");
     setWindowFlags(Qt::Window);
@@ -43,24 +39,8 @@ DropoutAnalysisDialog::DropoutAnalysisDialog(QWidget *parent)
     plot_ = new PlotWidget(this);
     plot_->updateTheme();
     
-    // Create "No data available" label (initially hidden)
-    noDataLabel_ = new QLabel("No data available", this);
-    noDataLabel_->setAlignment(Qt::AlignCenter);
-    QFont font = noDataLabel_->font();
-    font.setPointSize(14);
-    noDataLabel_->setFont(font);
-    
-    // Use a stacked layout to overlay label on plot
-    auto *plotContainer = new QWidget(this);
-    auto *plotLayout = new QStackedLayout(plotContainer);
-    plotLayout->setStackingMode(QStackedLayout::StackAll);
-    plotLayout->addWidget(plot_);
-    plotLayout->addWidget(noDataLabel_);
-    
-    mainLayout->addWidget(plotContainer);
-    
-    // Start with plot visible, label hidden
-    noDataLabel_->hide();
+    // Set up "No data available" overlay (from base class)
+    setupNoDataOverlay(mainLayout, plot_);
     
     // Set up series and marker
     series_ = plot_->addSeries("Dropout Length");
@@ -71,11 +51,8 @@ DropoutAnalysisDialog::DropoutAnalysisDialog(QWidget *parent)
     plotMarker_->setStyle(PlotMarker::VLine);
     plotMarker_->setPen(QPen(Qt::blue, 2));
     
-    // Set up update throttling timer
-    updateTimer_ = new QTimer(this);
-    updateTimer_->setSingleShot(true);
-    updateTimer_->setInterval(16); // ~60fps max update rate
-    connect(updateTimer_, &QTimer::timeout, this, &DropoutAnalysisDialog::onUpdateTimerTimeout);
+    // Set up update throttling timer (from base class)
+    setupUpdateTimer();
     
     // Connect to plot area changed signal
     connect(plot_, &PlotWidget::plotAreaChanged, this, &DropoutAnalysisDialog::onPlotAreaChanged);
@@ -152,30 +129,16 @@ void DropoutAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
 
 void DropoutAnalysisDialog::updateFrameMarker(int32_t currentFrameNumber)
 {
-    // Always store the pending frame number
-    pendingFrameNumber_ = currentFrameNumber;
-    hasPendingUpdate_ = true;
-    
-    // Skip timer start if dialog is not visible - update will happen on show
-    if (!isVisible()) return;
-    
-    // Start or restart the timer
-    if (!updateTimer_->isActive()) {
-        updateTimer_->start();
-    }
+    // Use base class throttling implementation
+    updateFrameMarkerThrottled(currentFrameNumber);
 }
 
 void DropoutAnalysisDialog::showNoDataMessage(const QString& reason)
 {
     removeChartContents();
     
-    // Hide the plot and show the "No data available" label
-    plot_->hide();
-    if (noDataLabel_) {
-        QString message = reason.isEmpty() ? "No data available" : reason;
-        noDataLabel_->setText(message);
-        noDataLabel_->show();
-    }
+    // Use base class implementation
+    showNoDataMessageImpl(reason, plot_);
 }
 
 orc::DropoutAnalysisMode DropoutAnalysisDialog::getCurrentMode() const
@@ -194,25 +157,11 @@ void DropoutAnalysisDialog::onVisibleAreaCheckBoxToggled(bool checked)
     emit modeChanged(mode);
 }
 
-void DropoutAnalysisDialog::onUpdateTimerTimeout()
+void DropoutAnalysisDialog::calculateMarkerPosition(int32_t frameNumber)
 {
-    if (!hasPendingUpdate_) return;
-    
     double yMax = (maxY_ < 10) ? 10 : ceil(maxY_ + (maxY_ * 0.1));
-    plotMarker_->setPosition(QPointF(static_cast<double>(pendingFrameNumber_), yMax / 2));
+    plotMarker_->setPosition(QPointF(static_cast<double>(frameNumber), yMax / 2));
     // No need to call plot->replot() - marker update() handles the redraw
-    
-    hasPendingUpdate_ = false;
-}
-
-void DropoutAnalysisDialog::showEvent(QShowEvent *event)
-{
-    QDialog::showEvent(event);
-    
-    // Force immediate marker update if we have a pending position
-    if (hasPendingUpdate_) {
-        onUpdateTimerTimeout();
-    }
 }
 
 void DropoutAnalysisDialog::onPlotAreaChanged()
@@ -220,3 +169,5 @@ void DropoutAnalysisDialog::onPlotAreaChanged()
     // Handle plot area changes if needed
     // The PlotWidget handles zoom/pan internally
 }
+
+    // No need to call plot->replot() - marker update() handles the redraw

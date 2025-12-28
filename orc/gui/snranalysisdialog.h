@@ -10,13 +10,11 @@
 #ifndef SNRANALYSISDIALOG_H
 #define SNRANALYSISDIALOG_H
 
-#include <QDialog>
 #include <QComboBox>
 #include <QVBoxLayout>
-#include <QTimer>
-#include <QShowEvent>
 #include <QVector>
 #include <QPointF>
+#include "analysisdialogbase.h"
 #include "plotwidget.h"
 #include "../core/observers/snr_analysis_observer.h"
 
@@ -33,7 +31,7 @@
  * SNRAnalysisDecoder in orc-core. This GUI component only handles rendering
  * the graphs.
  */
-class SNRAnalysisDialog : public QDialog
+class SNRAnalysisDialog : public AnalysisDialogBase
 {
     Q_OBJECT
 
@@ -86,11 +84,13 @@ signals:
     void modeChanged(orc::SNRAnalysisMode mode);
 
 protected:
-    void showEvent(QShowEvent *event) override;
+    /**
+     * @brief Calculate and set marker position (implements base class pure virtual)
+     */
+    void calculateMarkerPosition(int32_t frameNumber) override;
 
 private slots:
     void onDisplayModeChanged(int index);
-    void onUpdateTimerTimeout();
     void onPlotAreaChanged();
 
 private:
@@ -102,18 +102,12 @@ private:
     PlotSeries *blackPSNRSeries_;
     PlotMarker *plotMarker_;
     QComboBox *displayModeCombo_;
-    QLabel *noDataLabel_;
     
     double maxWhiteY_;
     double maxBlackY_;
     int32_t numberOfFrames_;
     QVector<QPointF> whitePoints_;
     QVector<QPointF> blackPoints_;
-    
-    // Update throttling
-    QTimer *updateTimer_;
-    int32_t pendingFrameNumber_;
-    bool hasPendingUpdate_;
 };
 
 #endif // SNRANALYSISDIALOG_H

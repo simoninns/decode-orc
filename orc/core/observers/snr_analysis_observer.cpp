@@ -7,10 +7,10 @@
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
-#include "observers/snr_analysis_observer.h"
-#include "observers/observation_history.h"
-#include "observers/vits_observer.h"
-#include "observers/biphase_observer.h"
+#include "snr_analysis_observer.h"
+#include "observation_history.h"
+#include "vits_observer.h"
+#include "biphase_observer.h"
 #include "logging.h"
 #include <memory>
 

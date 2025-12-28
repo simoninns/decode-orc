@@ -15,19 +15,15 @@
 #include <cmath>
 
 SNRAnalysisDialog::SNRAnalysisDialog(QWidget *parent)
-    : QDialog(parent)
+    : AnalysisDialogBase(parent)
     , plot_(nullptr)
     , whiteSNRSeries_(nullptr)
     , blackPSNRSeries_(nullptr)
     , plotMarker_(nullptr)
     , displayModeCombo_(nullptr)
-    , noDataLabel_(nullptr)
     , maxWhiteY_(0.0)
     , maxBlackY_(0.0)
     , numberOfFrames_(0)
-    , updateTimer_(nullptr)
-    , pendingFrameNumber_(0)
-    , hasPendingUpdate_(false)
 {
     setWindowTitle("SNR Analysis");
     setWindowFlags(Qt::Window);
@@ -51,24 +47,8 @@ SNRAnalysisDialog::SNRAnalysisDialog(QWidget *parent)
     plot_ = new PlotWidget(this);
     plot_->updateTheme();
     
-    // Create "No data available" label (initially hidden)
-    noDataLabel_ = new QLabel("No data available", this);
-    noDataLabel_->setAlignment(Qt::AlignCenter);
-    QFont font = noDataLabel_->font();
-    font.setPointSize(14);
-    noDataLabel_->setFont(font);
-    
-    // Use a stacked layout to overlay label on plot
-    auto *plotContainer = new QWidget(this);
-    auto *plotLayout = new QStackedLayout(plotContainer);
-    plotLayout->setStackingMode(QStackedLayout::StackAll);
-    plotLayout->addWidget(plot_);
-    plotLayout->addWidget(noDataLabel_);
-    
-    mainLayout->addWidget(plotContainer);
-    
-    // Start with plot visible, label hidden
-    noDataLabel_->hide();
+    // Set up "No data available" overlay (from base class)
+    setupNoDataOverlay(mainLayout, plot_);
     
     // Set up series for White SNR
     whiteSNRSeries_ = plot_->addSeries("White SNR");
@@ -85,11 +65,8 @@ SNRAnalysisDialog::SNRAnalysisDialog(QWidget *parent)
     plotMarker_->setStyle(PlotMarker::VLine);
     plotMarker_->setPen(QPen(Qt::blue, 2));
     
-    // Set up update throttling timer
-    updateTimer_ = new QTimer(this);
-    updateTimer_->setSingleShot(true);
-    updateTimer_->setInterval(16); // ~60fps max update rate
-    connect(updateTimer_, &QTimer::timeout, this, &SNRAnalysisDialog::onUpdateTimerTimeout);
+    // Set up update throttling timer (from base class)
+    setupUpdateTimer();
     
     // Connect to plot area changed signal
     connect(plot_, &PlotWidget::plotAreaChanged, this, &SNRAnalysisDialog::onPlotAreaChanged);
@@ -213,30 +190,16 @@ void SNRAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
 
 void SNRAnalysisDialog::updateFrameMarker(int32_t currentFrameNumber)
 {
-    // Always store the pending frame number
-    pendingFrameNumber_ = currentFrameNumber;
-    hasPendingUpdate_ = true;
-    
-    // Skip timer start if dialog is not visible - update will happen on show
-    if (!isVisible()) return;
-    
-    // Start or restart the timer
-    if (!updateTimer_->isActive()) {
-        updateTimer_->start();
-    }
+    // Use base class throttling implementation
+    updateFrameMarkerThrottled(currentFrameNumber);
 }
 
 void SNRAnalysisDialog::showNoDataMessage(const QString& reason)
 {
     removeChartContents();
     
-    // Hide the plot and show the "No data available" label
-    plot_->hide();
-    if (noDataLabel_) {
-        QString message = reason.isEmpty() ? "No data available" : reason;
-        noDataLabel_->setText(message);
-        noDataLabel_->show();
-    }
+    // Use base class implementation
+    showNoDataMessageImpl(reason, plot_);
 }
 
 orc::SNRAnalysisMode SNRAnalysisDialog::getCurrentMode() const
@@ -279,10 +242,8 @@ void SNRAnalysisDialog::updateSeriesVisibility()
     plot_->replot();
 }
 
-void SNRAnalysisDialog::onUpdateTimerTimeout()
+void SNRAnalysisDialog::calculateMarkerPosition(int32_t frameNumber)
 {
-    if (!hasPendingUpdate_) return;
-    
     // Calculate the Y position for the marker (middle of the visible range)
     double maxY = std::max(maxWhiteY_, maxBlackY_);
     double yMax = (maxY < 10) ? 10 : ceil(maxY + 5);
@@ -304,20 +265,8 @@ void SNRAnalysisDialog::onUpdateTimerTimeout()
         if (yMin < 0) yMin = 0;
     }
     
-    plotMarker_->setPosition(QPointF(static_cast<double>(pendingFrameNumber_), (yMax + yMin) / 2));
+    plotMarker_->setPosition(QPointF(static_cast<double>(frameNumber), (yMax + yMin) / 2));
     // No need to call plot->replot() - marker update() handles the redraw
-    
-    hasPendingUpdate_ = false;
-}
-
-void SNRAnalysisDialog::showEvent(QShowEvent *event)
-{
-    QDialog::showEvent(event);
-    
-    // Force immediate marker update if we have a pending position
-    if (hasPendingUpdate_) {
-        onUpdateTimerTimeout();
-    }
 }
 
 void SNRAnalysisDialog::onPlotAreaChanged()

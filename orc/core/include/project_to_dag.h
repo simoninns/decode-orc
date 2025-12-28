@@ -57,4 +57,16 @@ public:
  */
 std::shared_ptr<DAG> project_to_dag(const Project& project);
 
+/**
+ * @brief Validate that all source nodes in a DAG can be accessed
+ * 
+ * This function attempts to execute each source node in the DAG to verify
+ * that they can produce output. This is useful for validating that source
+ * files (e.g., TBC files) exist and can be loaded.
+ * 
+ * @param dag The DAG to validate
+ * @throws ProjectConversionError if any source node fails validation
+ */
+void validate_source_nodes(const std::shared_ptr<DAG>& dag);
+
 } // namespace orc

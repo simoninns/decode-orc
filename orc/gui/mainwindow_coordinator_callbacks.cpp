@@ -205,6 +205,12 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
     
     ORC_LOG_DEBUG("onDropoutDataReady: {} frames, total={}", frame_stats.size(), total_frames);
     
+    // Close progress dialog (QPointer will auto-null when deleted)
+    if (dropout_progress_dialog_) {
+        dropout_progress_dialog_->close();
+        dropout_progress_dialog_->deleteLater();
+    }
+    
     if (!dropout_analysis_dialog_ || !dropout_analysis_dialog_->isVisible()) {
         return;
     }
@@ -251,6 +257,12 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     
     ORC_LOG_DEBUG("onSNRDataReady: {} frames, total={}", frame_stats.size(), total_frames);
     
+    // Close progress dialog (QPointer will auto-null when deleted)
+    if (snr_progress_dialog_) {
+        snr_progress_dialog_->close();
+        snr_progress_dialog_->deleteLater();
+    }
+    
     if (!snr_analysis_dialog_ || !snr_analysis_dialog_->isVisible()) {
         return;
     }
@@ -258,8 +270,8 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     // If no data available, show message
     if (frame_stats.empty() || total_frames == 0) {
         snr_analysis_dialog_->showNoDataMessage(
-            "No SNR analysis data available.\n\n"
-            "Make sure SNR analysis is enabled in the pipeline."
+            "No SNR analysis data available.\\n\\n"
+            "Make sure VITS (Vertical Interval Test Signal) is present in the source."
         );
         return;
     }
@@ -283,4 +295,22 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     }
     
     snr_analysis_dialog_->finishUpdate(current_frame);
+}
+
+void MainWindow::onDropoutProgress(size_t current, size_t total, QString message)
+{
+    if (dropout_progress_dialog_) {
+        dropout_progress_dialog_->setMaximum(static_cast<int>(total));
+        dropout_progress_dialog_->setValue(static_cast<int>(current));
+        dropout_progress_dialog_->setLabelText(message);
+    }
+}
+
+void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
+{
+    if (snr_progress_dialog_) {
+        snr_progress_dialog_->setMaximum(static_cast<int>(total));
+        snr_progress_dialog_->setValue(static_cast<int>(current));
+        snr_progress_dialog_->setLabelText(message);
+    }
 }

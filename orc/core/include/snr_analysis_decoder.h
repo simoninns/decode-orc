@@ -89,12 +89,14 @@ public:
      * @param node_id The node to query
      * @param mode Analysis mode (white, black, or both)
      * @param max_fields Maximum number of fields to process (0 = all)
+     * @param progress_callback Optional callback for progress updates (current, total, message)
      * @return Vector of SNR statistics for each field
      */
     std::vector<FieldSNRStats> get_snr_for_all_fields(
         const std::string& node_id,
         SNRAnalysisMode mode,
-        size_t max_fields = 0);
+        size_t max_fields = 0,
+        std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
     
     /**
      * @brief Get SNR statistics aggregated by frame
@@ -105,12 +107,14 @@ public:
      * @param node_id The node to query
      * @param mode Analysis mode (white, black, or both)
      * @param max_frames Maximum number of frames to process (0 = all)
+     * @param progress_callback Optional callback for progress updates (current, total, message)
      * @return Vector of SNR statistics for each frame
      */
     std::vector<FrameSNRStats> get_snr_by_frames(
         const std::string& node_id,
         SNRAnalysisMode mode,
-        size_t max_frames = 0);
+        size_t max_frames = 0,
+        std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
     
     /**
      * @brief Update the DAG reference

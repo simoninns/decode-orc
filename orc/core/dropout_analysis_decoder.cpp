@@ -91,7 +91,8 @@ std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
 std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_fields(
     const std::string& node_id,
     DropoutAnalysisMode mode,
-    size_t max_fields)
+    size_t max_fields,
+    std::function<void(size_t, size_t, const std::string&)> progress_callback)
 {
     // Check processed cache first (only if max_fields is 0, meaning all fields)
     if (max_fields == 0) {
@@ -145,10 +146,10 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
                     results[i] = empty_stats;
                 }
                 
-                // Log progress periodically
+                // Report progress periodically via callback
                 size_t current = progress_counter.fetch_add(1) + 1;
-                if (current % 1000 == 0) {
-                    ORC_LOG_INFO("DropoutAnalysisDecoder: Processed {}/{} fields", current, field_count);
+                if (progress_callback && current % 100 == 0) {
+                    progress_callback(current, field_count, "Processing dropout analysis...");
                 }
             }
         };
@@ -166,6 +167,11 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
         // Wait for all threads to complete
         for (auto& thread : threads) {
             thread.join();
+        }
+        
+        // Report final progress
+        if (progress_callback) {
+            progress_callback(field_count, field_count, "Dropout analysis complete");
         }
         
     } catch (const std::exception& e) {
@@ -186,7 +192,8 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
 std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
     const std::string& node_id,
     DropoutAnalysisMode mode,
-    size_t max_frames)
+    size_t max_frames,
+    std::function<void(size_t, size_t, const std::string&)> progress_callback)
 {
     // Check cache first (only if max_frames is 0, meaning all frames)
     if (max_frames == 0) {
@@ -202,7 +209,7 @@ std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
     
     try {
         // Get all field stats first
-        auto field_stats = get_dropout_for_all_fields(node_id, mode, max_frames * 2);
+        auto field_stats = get_dropout_for_all_fields(node_id, mode, max_frames * 2, progress_callback);
         
         // Combine pairs of fields into frames
         size_t frame_count = field_stats.size() / 2;

@@ -106,10 +106,6 @@ private slots:
     void onInspectStage(const std::string& node_id);
     void onShowVBIDialog();
     void updateVBIDialog();
-    void onShowDropoutAnalysisDialog();
-    void updateDropoutAnalysisDialog();
-    void onShowSNRAnalysisDialog();
-    void updateSNRAnalysisDialog();
     void onPollTriggerProgress();
     
     // Coordinator response slots
@@ -117,7 +113,9 @@ private slots:
     void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
+    void onDropoutProgress(size_t current, size_t total, QString message);
     void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
+    void onSNRProgress(size_t current, size_t total, QString message);
     void onTriggerProgress(size_t current, size_t total, QString message);
     void onTriggerComplete(uint64_t request_id, bool success, QString status);
     void onCoordinatorError(uint64_t request_id, QString message);
@@ -204,6 +202,10 @@ private:
     
     // Trigger progress tracking (now via coordinator signals)
     QProgressDialog* trigger_progress_dialog_;
+    
+    // Analysis progress dialogs (QPointer auto-nulls when deleted)
+    QPointer<QProgressDialog> dropout_progress_dialog_;
+    QPointer<QProgressDialog> snr_progress_dialog_;
 };
 
 #endif // MAINWINDOW_H

@@ -12,11 +12,15 @@
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 namespace orc {
 
 TBCReader::TBCReader()
-    : is_open_(false), field_count_(0), field_length_(0), 
+    : fd_(-1), is_open_(false), field_count_(0), field_length_(0), 
       field_byte_length_(0), line_length_(0) {
 }
 
@@ -32,19 +36,24 @@ bool TBCReader::open(const std::string& filename, size_t field_length, size_t li
     field_length_ = field_length;
     field_byte_length_ = field_length * sizeof(sample_type);
     line_length_ = line_length;
+    filename_ = filename;
     
-    file_.open(filename, std::ios::binary | std::ios::in);
-    if (!file_.is_open()) {
+    // Open file with POSIX API (thread-safe for pread)
+    fd_ = ::open(filename.c_str(), O_RDONLY);
+    if (fd_ < 0) {
         return false;
     }
     
-    // Determine number of fields
-    file_.seekg(0, std::ios::end);
-    std::streampos file_size = file_.tellg();
-    file_.seekg(0, std::ios::beg);
+    // Get file size
+    struct stat st;
+    if (fstat(fd_, &st) != 0) {
+        ::close(fd_);
+        fd_ = -1;
+        return false;
+    }
     
-    if (file_size > 0) {
-        field_count_ = static_cast<size_t>(file_size) / field_byte_length_;
+    if (st.st_size > 0) {
+        field_count_ = static_cast<size_t>(st.st_size) / field_byte_length_;
     } else {
         field_count_ = 0;
     }
@@ -56,9 +65,12 @@ bool TBCReader::open(const std::string& filename, size_t field_length, size_t li
 }
 
 void TBCReader::close() {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    if (file_.is_open()) {
-        file_.close();
+    // Lock cache mutex to ensure no concurrent cache access
+    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+    
+    if (fd_ >= 0) {
+        ::close(fd_);
+        fd_ = -1;
     }
     is_open_ = false;
     field_cache_.clear();
@@ -69,7 +81,7 @@ std::vector<TBCReader::sample_type> TBCReader::read_field(FieldID field_id) {
         throw std::runtime_error("TBC file not open");
     }
     
-    // Check cache first
+    // Check cache first (cache check doesn't need file mutex)
     auto cached = get_cached_field(field_id);
     if (cached) {
         return *cached;
@@ -85,24 +97,24 @@ std::vector<TBCReader::sample_type> TBCReader::read_field(FieldID field_id) {
         throw std::out_of_range("Field ID beyond end of file");
     }
     
-    // Seek to field position
-    std::streampos position = static_cast<std::streampos>(field_index * field_byte_length_);
-    file_.seekg(position);
-    
-    if (!file_.good()) {
-        throw std::runtime_error("Failed to seek to field position");
-    }
-    
-    // Read field data
+    // Allocate buffer for field data
     auto field_data = std::make_shared<std::vector<sample_type>>(field_length_);
-    file_.read(reinterpret_cast<char*>(field_data->data()), field_byte_length_);
     
-    std::streamsize bytes_read = file_.gcount();
-    if (bytes_read != static_cast<std::streamsize>(field_byte_length_)) {
-        throw std::runtime_error("Failed to read complete field");
+    // Calculate file position
+    off_t position = static_cast<off_t>(field_index * field_byte_length_);
+    
+    // Use pread for thread-safe reading (no seek needed, atomic operation)
+    ssize_t bytes_read = pread(fd_, field_data->data(), field_byte_length_, position);
+    
+    if (bytes_read < 0) {
+        throw std::runtime_error("Failed to read field from file: " + filename_);
     }
     
-    // Cache the field
+    if (static_cast<size_t>(bytes_read) != field_byte_length_) {
+        throw std::runtime_error("Short read from file: " + filename_);
+    }
+    
+    // Cache the field (cache access has its own mutex)
     cache_field(field_id, field_data);
     
     return *field_data;

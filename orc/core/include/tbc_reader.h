@@ -13,7 +13,6 @@
 #include "field_id.h"
 #include "video_field_representation.h"
 #include <string>
-#include <fstream>
 #include <memory>
 #include <map>
 #include <mutex>
@@ -53,7 +52,8 @@ public:
     std::vector<sample_type> read_line(FieldID field_id, size_t line_number);
     
 private:
-    std::ifstream file_;
+    int fd_;                  // POSIX file descriptor (thread-safe with pread)
+    std::string filename_;    // Store filename for error messages
     bool is_open_;
     size_t field_count_;      // Total fields in file (-1 if unknown)
     size_t field_length_;     // Samples per field

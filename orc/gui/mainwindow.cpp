@@ -89,6 +89,8 @@ MainWindow::MainWindow(QWidget *parent)
     , last_preview_update_time_(0)
     , last_update_was_sequential_(false)
     , trigger_progress_dialog_(nullptr)
+    , dropout_progress_dialog_(nullptr)
+    , snr_progress_dialog_(nullptr)
 {
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
@@ -102,8 +104,12 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAvailableOutputsReady);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
             this, &MainWindow::onDropoutDataReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress,
+            this, &MainWindow::onDropoutProgress);
     connect(render_coordinator_.get(), &RenderCoordinator::snrDataReady,
             this, &MainWindow::onSNRDataReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::snrProgress,
+            this, &MainWindow::onSNRProgress);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerProgress,
             this, &MainWindow::onTriggerProgress);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerComplete,
@@ -214,17 +220,55 @@ void MainWindow::setupUI()
     
     // Create dropout analysis dialog (initially hidden)
     dropout_analysis_dialog_ = new DropoutAnalysisDialog(this);
-    
-    // Connect dropout analysis dialog signals
+    dropout_analysis_dialog_->setWindowTitle("Dropout Analysis");
+    dropout_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
+    // Note: modeChanged will trigger re-request of data when user changes mode
     connect(dropout_analysis_dialog_, &DropoutAnalysisDialog::modeChanged,
-            this, &MainWindow::updateDropoutAnalysisDialog);
+            [this]() {
+                // Re-request data with new mode when dialog is visible
+                if (dropout_analysis_dialog_->isVisible() && !current_view_node_id_.empty()) {
+                    // Show progress dialog
+                    if (dropout_progress_dialog_) {
+                        delete dropout_progress_dialog_;
+                    }
+                    dropout_progress_dialog_ = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
+                    dropout_progress_dialog_->setWindowTitle("Dropout Analysis");
+                    dropout_progress_dialog_->setWindowModality(Qt::WindowModal);
+                    dropout_progress_dialog_->setMinimumDuration(0);
+                    dropout_progress_dialog_->setCancelButton(nullptr);
+                    dropout_progress_dialog_->setValue(0);
+                    dropout_progress_dialog_->show();
+                    
+                    auto mode = dropout_analysis_dialog_->getCurrentMode();
+                    pending_dropout_request_id_ = render_coordinator_->requestDropoutData(current_view_node_id_, mode);
+                }
+            });
     
     // Create SNR analysis dialog (initially hidden)
     snr_analysis_dialog_ = new SNRAnalysisDialog(this);
-    
-    // Connect SNR analysis dialog signals
+    snr_analysis_dialog_->setWindowTitle("SNR Analysis");
+    snr_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
+    // Note: modeChanged will trigger re-request of data when user changes mode
     connect(snr_analysis_dialog_, &SNRAnalysisDialog::modeChanged,
-            this, &MainWindow::updateSNRAnalysisDialog);
+            [this]() {
+                // Re-request data with new mode when dialog is visible
+                if (snr_analysis_dialog_->isVisible() && !current_view_node_id_.empty()) {
+                    // Show progress dialog
+                    if (snr_progress_dialog_) {
+                        delete snr_progress_dialog_;
+                    }
+                    snr_progress_dialog_ = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
+                    snr_progress_dialog_->setWindowTitle("SNR Analysis");
+                    snr_progress_dialog_->setWindowModality(Qt::WindowModal);
+                    snr_progress_dialog_->setMinimumDuration(0);
+                    snr_progress_dialog_->setCancelButton(nullptr);
+                    snr_progress_dialog_->setValue(0);
+                    snr_progress_dialog_->show();
+                    
+                    auto mode = snr_analysis_dialog_->getCurrentMode();
+                    pending_snr_request_id_ = render_coordinator_->requestSNRData(current_view_node_id_, mode);
+                }
+            });
     
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
@@ -239,10 +283,6 @@ void MainWindow::setupUI()
             this, &MainWindow::onExportPNG);
         connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
             this, &MainWindow::onShowVBIDialog);
-    connect(preview_dialog_, &PreviewDialog::showDropoutAnalysisDialogRequested,
-            this, &MainWindow::onShowDropoutAnalysisDialog);
-    connect(preview_dialog_, &PreviewDialog::showSNRAnalysisDialogRequested,
-            this, &MainWindow::onShowSNRAnalysisDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -1010,14 +1050,8 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
     // Request available outputs from coordinator
     pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
     
-    // Update analysis dialogs if they're visible (new node means new data)
-    if (dropout_analysis_dialog_ && dropout_analysis_dialog_->isVisible()) {
-        updateDropoutAnalysisDialog();
-    }
-    
-    if (snr_analysis_dialog_ && snr_analysis_dialog_->isVisible()) {
-        updateSNRAnalysisDialog();
-    }
+    // Note: Analysis dialogs (dropout/SNR) are triggered from stage context menu,
+    // not automatically updated when switching nodes
     
     // The rest will happen in onAvailableOutputsReady callback
 }
@@ -1612,6 +1646,78 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
         return;
     }
     
+    // Special-case: Dropout Analysis triggers batch processing and shows dialog
+    if (tool->id() == "dropout_analysis") {
+        if (!dropout_analysis_dialog_) {
+            ORC_LOG_ERROR("Dropout analysis dialog not initialized");
+            return;
+        }
+        
+        // Set the node for analysis
+        current_view_node_id_ = node_id;
+        
+        // Create and show progress dialog
+        if (dropout_progress_dialog_) {
+            delete dropout_progress_dialog_;
+        }
+        dropout_progress_dialog_ = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
+        dropout_progress_dialog_->setWindowTitle("Dropout Analysis");
+        dropout_progress_dialog_->setWindowModality(Qt::WindowModal);
+        dropout_progress_dialog_->setMinimumDuration(0);
+        dropout_progress_dialog_->setCancelButton(nullptr);  // No cancel for now
+        dropout_progress_dialog_->setValue(0);
+        dropout_progress_dialog_->show();
+        
+        // Show the dialog (but it will be empty until data arrives)
+        dropout_analysis_dialog_->show();
+        dropout_analysis_dialog_->raise();
+        dropout_analysis_dialog_->activateWindow();
+        
+        // Request dropout data from coordinator (triggers batch processing)
+        auto mode = dropout_analysis_dialog_->getCurrentMode();
+        pending_dropout_request_id_ = render_coordinator_->requestDropoutData(node_id, mode);
+        
+        ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
+                      node_id, static_cast<int>(mode), pending_dropout_request_id_);
+        return;
+    }
+    
+    // Special-case: SNR Analysis triggers batch processing and shows dialog
+    if (tool->id() == "snr_analysis") {
+        if (!snr_analysis_dialog_) {
+            ORC_LOG_ERROR("SNR analysis dialog not initialized");
+            return;
+        }
+        
+        // Set the node for analysis
+        current_view_node_id_ = node_id;
+        
+        // Create and show progress dialog
+        if (snr_progress_dialog_) {
+            delete snr_progress_dialog_;
+        }
+        snr_progress_dialog_ = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
+        snr_progress_dialog_->setWindowTitle("SNR Analysis");
+        snr_progress_dialog_->setWindowModality(Qt::WindowModal);
+        snr_progress_dialog_->setMinimumDuration(0);
+        snr_progress_dialog_->setCancelButton(nullptr);  // No cancel for now
+        snr_progress_dialog_->setValue(0);
+        snr_progress_dialog_->show();
+        
+        // Show the dialog (but it will be empty until data arrives)
+        snr_analysis_dialog_->show();
+        snr_analysis_dialog_->raise();
+        snr_analysis_dialog_->activateWindow();
+        
+        // Request SNR data from coordinator (triggers batch processing)
+        auto mode = snr_analysis_dialog_->getCurrentMode();
+        pending_snr_request_id_ = render_coordinator_->requestSNRData(node_id, mode);
+        
+        ORC_LOG_DEBUG("Requested SNR analysis data for node '{}', mode {}, request_id={}",
+                      node_id, static_cast<int>(mode), pending_snr_request_id_);
+        return;
+    }
+    
     // Create analysis context
     orc::AnalysisContext context;
     context.node_id = node_id;
@@ -1736,80 +1842,4 @@ void MainWindow::updateVBIDialog()
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field_id);
     }
 }
-void MainWindow::onShowDropoutAnalysisDialog()
-{
-    if (!dropout_analysis_dialog_) {
-        return;
-    }
-    
-    // Show the dialog first
-    bool was_visible = dropout_analysis_dialog_->isVisible();
-    dropout_analysis_dialog_->show();
-    dropout_analysis_dialog_->raise();
-    dropout_analysis_dialog_->activateWindow();
-    
-    // Only load data if dialog was not already visible (first time opening)
-    if (!was_visible) {
-        updateDropoutAnalysisDialog();
-    }
-}
 
-void MainWindow::updateDropoutAnalysisDialog()
-{
-    // Only update if dialog is visible
-    if (!dropout_analysis_dialog_ || !dropout_analysis_dialog_->isVisible()) {
-        return;
-    }
-    
-    // Don't update if no node selected
-    if (current_view_node_id_.empty()) {
-        dropout_analysis_dialog_->showNoDataMessage("No node selected for analysis.");
-        return;
-    }
-    
-    // Request dropout data from coordinator
-    auto mode = dropout_analysis_dialog_->getCurrentMode();
-    pending_dropout_request_id_ = render_coordinator_->requestDropoutData(current_view_node_id_, mode);
-    
-    ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
-                  current_view_node_id_, static_cast<int>(mode), pending_dropout_request_id_);
-}
-
-void MainWindow::onShowSNRAnalysisDialog()
-{
-    if (!snr_analysis_dialog_) {
-        return;
-    }
-    
-    // Show the dialog first
-    bool was_visible = snr_analysis_dialog_->isVisible();
-    snr_analysis_dialog_->show();
-    snr_analysis_dialog_->raise();
-    snr_analysis_dialog_->activateWindow();
-    
-    // Only load data if dialog was not already visible (first time opening)
-    if (!was_visible) {
-        updateSNRAnalysisDialog();
-    }
-}
-
-void MainWindow::updateSNRAnalysisDialog()
-{
-    // Only update if dialog is visible
-    if (!snr_analysis_dialog_ || !snr_analysis_dialog_->isVisible()) {
-        return;
-    }
-    
-    // Don't update if no node selected
-    if (current_view_node_id_.empty()) {
-        snr_analysis_dialog_->showNoDataMessage("No node selected for analysis.");
-        return;
-    }
-    
-    // Request SNR data from coordinator
-    auto mode = snr_analysis_dialog_->getCurrentMode();
-    pending_snr_request_id_ = render_coordinator_->requestSNRData(current_view_node_id_, mode);
-    
-    ORC_LOG_DEBUG("Requested SNR analysis data for node '{}', mode {}, request_id={}",
-                  current_view_node_id_, static_cast<int>(mode), pending_snr_request_id_);
-}

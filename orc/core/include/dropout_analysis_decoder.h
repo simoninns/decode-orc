@@ -84,12 +84,14 @@ public:
      * @param node_id The node to query
      * @param mode Analysis mode (full field or visible area only)
      * @param max_fields Maximum number of fields to process (0 = all)
+     * @param progress_callback Optional callback for progress updates (current, total, message)
      * @return Vector of dropout statistics for each field
      */
     std::vector<FieldDropoutStats> get_dropout_for_all_fields(
         const std::string& node_id,
         DropoutAnalysisMode mode,
-        size_t max_fields = 0);
+        size_t max_fields = 0,
+        std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
     
     /**
      * @brief Get dropout statistics aggregated by frame
@@ -100,12 +102,14 @@ public:
      * @param node_id The node to query
      * @param mode Analysis mode (full field or visible area only)
      * @param max_frames Maximum number of frames to process (0 = all)
+     * @param progress_callback Optional callback for progress updates (current, total, message)
      * @return Vector of dropout statistics for each frame
      */
     std::vector<FrameDropoutStats> get_dropout_by_frames(
         const std::string& node_id,
         DropoutAnalysisMode mode,
-        size_t max_frames = 0);
+        size_t max_frames = 0,
+        std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
     
     /**
      * @brief Update the DAG reference

@@ -401,9 +401,19 @@ signals:
     void dropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     
     /**
+     * @brief Emitted during dropout analysis progress
+     */
+    void dropoutProgress(size_t current, size_t total, QString message);
+    
+    /**
      * @brief Emitted when SNR analysis data is ready
      */
     void snrDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
+    
+    /**
+     * @brief Emitted during SNR analysis progress
+     */
+    void snrProgress(size_t current, size_t total, QString message);
     
     /**
      * @brief Emitted when available outputs query completes

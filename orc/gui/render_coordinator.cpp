@@ -337,7 +337,10 @@ void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
         auto frame_stats = worker_dropout_decoder_->get_dropout_by_frames(
             req.node_id,
             req.mode,
-            0  // 0 = process all frames
+            0,  // 0 = process all frames
+            [this](size_t current, size_t total, const std::string& message) {
+                emit dropoutProgress(current, total, QString::fromStdString(message));
+            }
         );
         
         // Count total frames (max frame number in stats)
@@ -375,7 +378,10 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
         auto frame_stats = worker_snr_decoder_->get_snr_by_frames(
             req.node_id,
             req.mode,
-            0  // 0 = process all frames
+            0,  // 0 = process all frames
+            [this](size_t current, size_t total, const std::string& message) {
+                emit snrProgress(current, total, QString::fromStdString(message));
+            }
         );
         
         // Count total frames (max frame number in stats)

@@ -74,7 +74,8 @@ GUIDAG load_dag_from_yaml(const std::string& filename) {
                 size_t quote1 = line.find('"');
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    current_node.node_id = line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    std::string node_id_str = line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    current_node.node_id = NodeID(std::stoi(node_id_str));
                 }
                 has_node_id = true;
             } else if (has_node_id) {
@@ -133,7 +134,8 @@ GUIDAG load_dag_from_yaml(const std::string& filename) {
                 size_t quote1 = line.find('"');
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    edge.source_node_id = line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    std::string source_id_str = line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    edge.source_node_id = NodeID(std::stoi(source_id_str));
                 }
                 
                 // Read target on next line
@@ -143,7 +145,8 @@ GUIDAG load_dag_from_yaml(const std::string& filename) {
                         quote1 = line.find('"', target_start);
                         quote2 = line.find('"', quote1 + 1);
                         if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                            edge.target_node_id = line.substr(quote1 + 1, quote2 - quote1 - 1);
+                            std::string target_id_str = line.substr(quote1 + 1, quote2 - quote1 - 1);
+                            edge.target_node_id = NodeID(std::stoi(target_id_str));
                         }
                     }
                 }
@@ -176,7 +179,7 @@ void save_dag_to_yaml(const GUIDAG& dag, const std::string& filename) {
     // Write nodes
     file << "nodes:\n";
     for (const auto& node : dag.nodes) {
-        file << "  - node_id: \"" << node.node_id << "\"\n";
+        file << "  - node_id: \"" << node.node_id.to_string() << "\"\n";
         file << "    stage_name: \"" << node.stage_name << "\"\n";
         file << "    x_position: " << node.x_position << "\n";
         file << "    y_position: " << node.y_position << "\n";
@@ -202,8 +205,8 @@ void save_dag_to_yaml(const GUIDAG& dag, const std::string& filename) {
     // Write edges
     file << "edges:\n";
     for (const auto& edge : dag.edges) {
-        file << "  - source: \"" << edge.source_node_id << "\"\n";
-        file << "    target: \"" << edge.target_node_id << "\"\n";
+        file << "  - source: \"" << edge.source_node_id.to_string() << "\"\n";
+        file << "    target: \"" << edge.target_node_id.to_string() << "\"\n";
     }
 }
 

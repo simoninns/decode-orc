@@ -91,7 +91,7 @@ public:
      */
     virtual bool applyToGraph(const AnalysisResult& result,
                              Project& project,
-                             const std::string& node_id) = 0;
+                             NodeID node_id) = 0;
 
     /**
      * @brief Estimate analysis duration in seconds (-1 if unknown)

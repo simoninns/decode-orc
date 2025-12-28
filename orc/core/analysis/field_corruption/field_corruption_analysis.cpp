@@ -68,7 +68,7 @@ std::vector<ParameterDescriptor> FieldCorruptionAnalysisTool::parametersForConte
     
     // Check if a seed already exists in the node parameters
     bool has_existing_seed = false;
-    if (ctx.dag && !ctx.node_id.empty()) {
+    if (ctx.dag && ctx.node_id.is_valid()) {
         const auto& dag_nodes = ctx.dag->nodes();
         auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
             [&ctx](const DAGNode& node) { return node.node_id == ctx.node_id; });
@@ -121,7 +121,7 @@ AnalysisResult FieldCorruptionAnalysisTool::analyze(const AnalysisContext& ctx,
     
     // Get existing seed from node parameters (if any)
     int32_t existing_seed = 0;
-    if (ctx.dag && !ctx.node_id.empty()) {
+    if (ctx.dag && ctx.node_id.is_valid()) {
         const auto& dag_nodes = ctx.dag->nodes();
         auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
             [&ctx](const DAGNode& node) { return node.node_id == ctx.node_id; });
@@ -139,14 +139,14 @@ AnalysisResult FieldCorruptionAnalysisTool::analyze(const AnalysisContext& ctx,
     // Get the VideoFieldRepresentation from the DAG to determine field count
     uint64_t field_count = 1000;  // Default fallback
     
-    if (ctx.dag && !ctx.node_id.empty()) {
+    if (ctx.dag && ctx.node_id.is_valid()) {
         // Find the node in the DAG
         const auto& dag_nodes = ctx.dag->nodes();
         auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
             [&ctx](const DAGNode& node) { return node.node_id == ctx.node_id; });
         
         if (node_it != dag_nodes.end() && !node_it->input_node_ids.empty()) {
-            std::string input_node_id = node_it->input_node_ids[0];
+            NodeID input_node_id = node_it->input_node_ids[0];
             
             // Execute DAG to get the input source
             DAGExecutor executor;
@@ -332,7 +332,7 @@ bool FieldCorruptionAnalysisTool::canApplyToGraph() const {
 
 bool FieldCorruptionAnalysisTool::applyToGraph(const AnalysisResult& result,
                                               Project& project,
-                                              const std::string& node_id) {
+                                              NodeID node_id) {
     // Find the ranges in graphData
     auto it_ranges = result.graphData.find("ranges");
     

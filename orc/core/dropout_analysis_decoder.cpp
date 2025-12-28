@@ -62,7 +62,7 @@ void DropoutAnalysisDecoder::set_observation_cache(std::shared_ptr<ObservationCa
 }
 
 std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
-    const std::string& node_id,
+    NodeID node_id,
     FieldID field_id,
     DropoutAnalysisMode mode)
 {
@@ -75,7 +75,7 @@ std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
         
         if (!field_repr.has_value()) {
             ORC_LOG_WARN("DropoutAnalysisDecoder: Failed to get field {} at node '{}'",
-                        field_id.value(), node_id);
+                        field_id.value(), node_id.to_string());
             return std::nullopt;
         }
         
@@ -89,7 +89,7 @@ std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
 }
 
 std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_fields(
-    const std::string& node_id,
+    NodeID node_id,
     DropoutAnalysisMode mode,
     size_t max_fields,
     std::function<void(size_t, size_t, const std::string&)> progress_callback)
@@ -99,7 +99,7 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
         CacheKey key{node_id, mode};
         auto it = field_cache_.find(key);
         if (it != field_cache_.end()) {
-            ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached field data for node '{}'", node_id);
+            ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached field data for node '{}'", node_id.to_string());
             return it->second;
         }
     }
@@ -111,7 +111,7 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
         size_t field_count = obs_cache_->get_field_count(node_id);
         
         if (field_count == 0) {
-            ORC_LOG_WARN("DropoutAnalysisDecoder: No fields available for node '{}'", node_id);
+            ORC_LOG_WARN("DropoutAnalysisDecoder: No fields available for node '{}'", node_id.to_string());
             return results;
         }
         
@@ -122,7 +122,7 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
         results.resize(field_count);
         
         ORC_LOG_INFO("DropoutAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
-                    field_count, node_id, std::thread::hardware_concurrency());
+                    field_count, node_id.to_string(), std::thread::hardware_concurrency());
         
         // Process fields in parallel using all available cores
         const size_t num_threads = std::max(1u, std::thread::hardware_concurrency());
@@ -183,14 +183,14 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
         CacheKey key{node_id, mode};
         field_cache_[key] = results;
         ORC_LOG_DEBUG("DropoutAnalysisDecoder: Cached field data for node '{}' ({} fields)", 
-                     node_id, results.size());
+                     node_id.to_string(), results.size());
     }
     
     return results;
 }
 
 std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
-    const std::string& node_id,
+    NodeID node_id,
     DropoutAnalysisMode mode,
     size_t max_frames,
     std::function<void(size_t, size_t, const std::string&)> progress_callback)
@@ -200,7 +200,7 @@ std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
         CacheKey key{node_id, mode};
         auto it = frame_cache_.find(key);
         if (it != frame_cache_.end()) {
-            ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached frame data for node '{}'", node_id);
+            ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached frame data for node '{}'", node_id.to_string());
             return it->second;
         }
     }
@@ -256,7 +256,7 @@ std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
         CacheKey key{node_id, mode};
         frame_cache_[key] = results;
         ORC_LOG_DEBUG("DropoutAnalysisDecoder: Cached frame data for node '{}' ({} frames)", 
-                     node_id, results.size());
+                     node_id.to_string(), results.size());
     }
     
     return results;

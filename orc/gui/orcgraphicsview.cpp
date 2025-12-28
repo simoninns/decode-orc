@@ -90,7 +90,7 @@ void OrcGraphicsView::onDeleteSelectedObjects()
     const auto& project = graph_model.project();
     
     // Check if any selected nodes have connections
-    std::vector<std::string> cannot_delete;
+    std::vector<orc::NodeID> cannot_delete;
     bool has_selected_nodes = false;
     
     for (QGraphicsItem* item : selected_items) {
@@ -98,11 +98,11 @@ void OrcGraphicsView::onDeleteSelectedObjects()
         if (node_graphics) {
             has_selected_nodes = true;
             QtNodes::NodeId qt_node_id = node_graphics->nodeId();
-            std::string orc_node_id = graph_model.getOrcNodeId(qt_node_id);
+            orc::NodeID orc_node_id = graph_model.getOrcNodeId(qt_node_id);
             
             ORC_LOG_DEBUG("Delete check: QtNode {} -> ORC node '{}'", qt_node_id, orc_node_id);
             
-            if (!orc_node_id.empty()) {
+            if (orc_node_id.is_valid()) {
                 std::string reason;
                 if (!orc::project_io::can_remove_node(project, orc_node_id, &reason)) {
                     ORC_LOG_DEBUG("Cannot delete '{}': {}", orc_node_id, reason);
@@ -121,7 +121,7 @@ void OrcGraphicsView::onDeleteSelectedObjects()
         msg += " with connections (";
         for (size_t i = 0; i < cannot_delete.size(); ++i) {
             if (i > 0) msg += ", ";
-            msg += QString::fromStdString(cannot_delete[i]);
+            msg += QString::fromStdString(cannot_delete[i].to_string());
         }
         msg += "). Disconnect all edges first.";
         

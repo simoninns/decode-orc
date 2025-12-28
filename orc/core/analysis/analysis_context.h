@@ -2,6 +2,7 @@
 #define ORC_CORE_ANALYSIS_CONTEXT_H
 
 #include "../include/stage_parameter.h"
+#include "../include/node_id.h"
 #include <string>
 #include <map>
 #include <memory>
@@ -27,7 +28,7 @@ enum class AnalysisSourceType {
 struct AnalysisContext {
     AnalysisSourceType source_type = AnalysisSourceType::LaserDisc;
     std::string source_file;      // Path to TBC or video file (legacy - prefer using dag/project)
-    std::string node_id;          // ID of node being analyzed
+    NodeID node_id;               // ID of node being analyzed
     std::map<std::string, ParameterValue> parameters;  // User-configured parameters
     
     // DAG execution context - preferred over source_file

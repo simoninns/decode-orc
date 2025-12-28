@@ -145,11 +145,11 @@ PreviewRenderer::PreviewRenderer(std::shared_ptr<const DAG> dag)
     }
 }
 
-std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std::string& node_id) {
+std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const NodeID& node_id) {
     std::vector<PreviewOutputInfo> outputs;
     
     // Special handling for placeholder node (no real content)
-    if (node_id == "_no_preview") {
+    if (node_id.to_string() == "_no_preview") {
         // Provide all output types so user can switch between them
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Field,
@@ -186,7 +186,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
         return outputs;
     }
     
-    if (!field_renderer_ || node_id.empty()) {
+    if (!field_renderer_ || !node_id.is_valid()) {
         return outputs;
     }
     
@@ -207,7 +207,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
             auto node_type = node_it->stage->get_node_type_info().type;
             if (node_type == NodeType::SINK) {
                 // Sink doesn't support preview - return empty (no preview available)
-                ORC_LOG_DEBUG("Sink node '{}' does not support preview", node_id);
+                ORC_LOG_DEBUG("Sink node '{}' does not support preview", node_id.to_string());
                 return outputs;
             }
         }
@@ -359,7 +359,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const std:
     return outputs;
 }
 
-uint64_t PreviewRenderer::get_output_count(const std::string& node_id, PreviewOutputType type) {
+uint64_t PreviewRenderer::get_output_count(const NodeID& node_id, PreviewOutputType type) {
     auto outputs = get_available_outputs(node_id);
     
     for (const auto& output : outputs) {
@@ -372,14 +372,14 @@ uint64_t PreviewRenderer::get_output_count(const std::string& node_id, PreviewOu
 }
 
 PreviewRenderResult PreviewRenderer::render_output(
-    const std::string& node_id,
+    const NodeID& node_id,
     PreviewOutputType type,
     uint64_t index,
     const std::string& option_id,
     PreviewNavigationHint hint)
 {
     ORC_LOG_DEBUG("render_output: node='{}', type={}, option_id='{}', index={}, hint={}",
-                  node_id, static_cast<int>(type), option_id, index,
+                  node_id.to_string(), static_cast<int>(type), option_id, index,
                   (hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
     
     PreviewRenderResult result;
@@ -389,7 +389,7 @@ PreviewRenderResult PreviewRenderer::render_output(
     result.success = false;
     
     // Special handling for placeholder node - render "No source available" image
-    if (node_id == "_no_preview") {
+    if (node_id.to_string() == "_no_preview") {
         result.image = create_placeholder_image(type, "No source available");
         result.success = true;
         return result;
@@ -842,7 +842,7 @@ PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& inp
 }
 
 bool PreviewRenderer::save_png(
-    const std::string& node_id,
+    const NodeID& node_id,
     PreviewOutputType type,
     uint64_t index,
     const std::string& filename)
@@ -1115,7 +1115,7 @@ PreviewItemDisplayInfo PreviewRenderer::get_preview_item_display_info(
 
 SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
     // Special placeholder node ID for when no real content is available
-    const std::string PLACEHOLDER_NODE = "_no_preview";
+    const NodeID PLACEHOLDER_NODE = NodeID(-999);  // Use special negative ID for placeholder
     
     if (!dag_) {
         return SuggestedViewNode{
@@ -1142,7 +1142,7 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
                 return SuggestedViewNode{
                     node.node_id,
                     true,
-                    "Viewing source: " + node.node_id
+                    fmt::format("Viewing source: {}", node.node_id)
                 };
             }
         }
@@ -1156,7 +1156,7 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
                 return SuggestedViewNode{
                     node.node_id,
                     true,
-                    "Viewing node: " + node.node_id
+                    fmt::format("Viewing node: {}", node.node_id)
                 };
             }
         }
@@ -1172,7 +1172,7 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
                     return SuggestedViewNode{
                         node.node_id,
                         true,
-                        "Viewing sink preview: " + node.node_id
+                        fmt::format("Viewing sink preview: {}", node.node_id)
                     };
                 }
             }
@@ -1191,7 +1191,7 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
 // Stage preview support
 // ============================================================================
 
-void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
+void PreviewRenderer::ensure_node_executed(const NodeID& node_id) const
 {
     if (!dag_) {
         return;
@@ -1204,7 +1204,7 @@ void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
         [&node_id](const auto& n) { return n.node_id == node_id; });
     
     if (node_it == dag_nodes.end()) {
-        ORC_LOG_ERROR("Node '{}' not found in DAG", node_id);
+        ORC_LOG_ERROR("Node '{}' not found in DAG", node_id.to_string());
         return;
     }
     
@@ -1224,21 +1224,21 @@ void PreviewRenderer::ensure_node_executed(const std::string& node_id) const
     const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(prev_cache_state);
     
     if (is_sink) {
-        ORC_LOG_DEBUG("Executed inputs for sink node '{}' (sink's cached_input_ should now be populated)", node_id);
+        ORC_LOG_DEBUG("Executed inputs for sink node '{}' (sink's cached_input_ should now be populated)", node_id.to_string());
     } else {
-        ORC_LOG_DEBUG("Executed DAG up to node '{}' - stage instance should have cached_output_ set", node_id);
+        ORC_LOG_DEBUG("Executed DAG up to node '{}' - stage instance should have cached_output_ set", node_id.to_string());
     }
 }
 
 std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
-    const std::string& stage_node_id,
+    const NodeID& stage_node_id,
     const DAGNode& stage_node,
     const PreviewableStage& previewable)
 {
     (void)stage_node;  // Unused for now
     std::vector<PreviewOutputInfo> outputs;
     
-    ORC_LOG_DEBUG("get_stage_preview_outputs called for node '{}'", stage_node_id);
+    ORC_LOG_DEBUG("get_stage_preview_outputs called for node '{}'", stage_node_id.to_string());
     
     // Ensure the node has been executed so it has cached output
     ensure_node_executed(stage_node_id);
@@ -1247,9 +1247,9 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     auto options = previewable.get_preview_options();
     
     if (options.empty()) {
-        ORC_LOG_WARN("Stage node '{}' has no preview options after execution - cached output may be null", stage_node_id);
+        ORC_LOG_WARN("Stage node '{}' has no preview options after execution - cached output may be null", stage_node_id.to_string());
         auto node_type_info = stage_node.stage->get_node_type_info();
-        ORC_LOG_WARN("Node '{}' is type '{}' ({})", stage_node_id, node_type_info.stage_name, node_type_info.display_name);
+        ORC_LOG_WARN("Node '{}' is type '{}' ({})", stage_node_id.to_string(), node_type_info.stage_name, node_type_info.display_name);
         return outputs;
     }
     
@@ -1275,13 +1275,13 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
         });
     }
     
-    ORC_LOG_DEBUG("Stage node '{}' has {} preview options", stage_node_id, outputs.size());
+    ORC_LOG_DEBUG("Stage node '{}' has {} preview options", stage_node_id.to_string(), outputs.size());
     
     return outputs;
 }
 
 PreviewRenderResult PreviewRenderer::render_stage_preview(
-    const std::string& stage_node_id,
+    const NodeID& stage_node_id,
     const DAGNode& stage_node,
     const PreviewableStage& previewable,
     PreviewOutputType type,
@@ -1291,7 +1291,7 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
 {
     (void)stage_node;  // Unused for now
     ORC_LOG_DEBUG("render_stage_preview called for node '{}', type={}, index={}, option_id='{}', hint={}", 
-                  stage_node_id, static_cast<int>(type), index, requested_option_id,
+                  stage_node_id.to_string(), static_cast<int>(type), index, requested_option_id,
                   (hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random"));
     
     PreviewRenderResult result;

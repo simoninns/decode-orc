@@ -16,6 +16,7 @@
 #include <future>
 #include "stage_parameter.h"
 #include "node_type.h"
+#include "node_id.h"
 #include "tbc_metadata.h"
 
 namespace orc {
@@ -39,7 +40,7 @@ struct NodeCapabilities {
     bool can_inspect = false;
     std::string inspect_reason;
     
-    std::string node_id;
+    NodeID node_id;
     std::string stage_name;
     std::string node_label;
 };
@@ -53,24 +54,24 @@ namespace project_io {
     void save_project(const Project& project, const std::string& filename);
     Project create_empty_project(const std::string& project_name, VideoSystem video_format = VideoSystem::Unknown);
     void update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
-    std::string generate_unique_node_id(const Project& project);
-    std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
-    void remove_node(Project& project, const std::string& node_id);
-    bool can_remove_node(const Project& project, const std::string& node_id, std::string* reason);
-    void set_node_parameters(Project& project, const std::string& node_id, const std::map<std::string, ParameterValue>& parameters);
-    void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
-    void set_node_label(Project& project, const std::string& node_id, const std::string& label);
-    void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
-    void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    NodeID generate_unique_node_id(const Project& project);
+    NodeID add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
+    void remove_node(Project& project, NodeID node_id);
+    bool can_remove_node(const Project& project, NodeID node_id, std::string* reason);
+    void set_node_parameters(Project& project, NodeID node_id, const std::map<std::string, ParameterValue>& parameters);
+    void set_node_position(Project& project, NodeID node_id, double x_position, double y_position);
+    void set_node_label(Project& project, NodeID node_id, const std::string& label);
+    void add_edge(Project& project, NodeID source_node_id, NodeID target_node_id);
+    void remove_edge(Project& project, NodeID source_node_id, NodeID target_node_id);
     void clear_project(Project& project);
-    bool can_trigger_node(const Project& project, const std::string& node_id, std::string* reason);
-    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback = nullptr);
-    std::future<std::pair<bool, std::string>> trigger_node_async(Project& project, const std::string& node_id, TriggerProgressCallback progress_callback = nullptr);
+    bool can_trigger_node(const Project& project, NodeID node_id, std::string* reason);
+    bool trigger_node(Project& project, NodeID node_id, std::string& status_out, TriggerProgressCallback progress_callback = nullptr);
+    std::future<std::pair<bool, std::string>> trigger_node_async(Project& project, NodeID node_id, TriggerProgressCallback progress_callback = nullptr);
     
-    std::string find_source_file_for_node(const Project& project, const std::string& node_id);
+    std::string find_source_file_for_node(const Project& project, NodeID node_id);
     
     // Get all capabilities for a node in a single call
-    NodeCapabilities get_node_capabilities(const Project& project, const std::string& node_id);
+    NodeCapabilities get_node_capabilities(const Project& project, NodeID node_id);
     
     // Project metadata setters
     void set_project_name(Project& project, const std::string& name);
@@ -83,7 +84,7 @@ namespace project_io {
  * All nodes are uniform - SOURCE nodes just use TBCSourceStage with tbc_path parameter
  */
 struct ProjectDAGNode {
-    std::string node_id;
+    NodeID node_id;
     std::string stage_name;     // e.g., "TBCSource", "DropoutCorrect", etc.
     NodeType node_type;         // Node type (SOURCE, SINK, TRANSFORM, etc.)
     std::string display_name;   // Display name for GUI (e.g., "Source: video.tbc", "Noise Filter")
@@ -97,8 +98,8 @@ struct ProjectDAGNode {
  * Edge in a project DAG
  */
 struct ProjectDAGEdge {
-    std::string source_node_id;
-    std::string target_node_id;
+    NodeID source_node_id;
+    NodeID target_node_id;
 };
 
 /**
@@ -171,20 +172,20 @@ private:
     friend void project_io::save_project(const Project& project, const std::string& filename);
     friend Project project_io::create_empty_project(const std::string& project_name, VideoSystem video_format);
     friend void project_io::update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
-    friend std::string project_io::generate_unique_node_id(const Project& project);
-    friend std::string project_io::add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
-    friend void project_io::remove_node(Project& project, const std::string& node_id);
-    friend bool project_io::can_remove_node(const Project& project, const std::string& node_id, std::string* reason);
-    friend void project_io::set_node_parameters(Project& project, const std::string& node_id, const std::map<std::string, ParameterValue>& parameters);
-    friend void project_io::set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
-    friend void project_io::set_node_label(Project& project, const std::string& node_id, const std::string& label);
-    friend void project_io::add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
-    friend void project_io::remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    friend NodeID project_io::generate_unique_node_id(const Project& project);
+    friend NodeID project_io::add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
+    friend void project_io::remove_node(Project& project, NodeID node_id);
+    friend bool project_io::can_remove_node(const Project& project, NodeID node_id, std::string* reason);
+    friend void project_io::set_node_parameters(Project& project, NodeID node_id, const std::map<std::string, ParameterValue>& parameters);
+    friend void project_io::set_node_position(Project& project, NodeID node_id, double x_position, double y_position);
+    friend void project_io::set_node_label(Project& project, NodeID node_id, const std::string& label);
+    friend void project_io::add_edge(Project& project, NodeID source_node_id, NodeID target_node_id);
+    friend void project_io::remove_edge(Project& project, NodeID source_node_id, NodeID target_node_id);
     friend void project_io::clear_project(Project& project);
-    friend bool project_io::can_trigger_node(const Project& project, const std::string& node_id, std::string* reason);
-    friend bool project_io::trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback);
-    friend std::string project_io::find_source_file_for_node(const Project& project, const std::string& node_id);
-    friend NodeCapabilities project_io::get_node_capabilities(const Project& project, const std::string& node_id);
+    friend bool project_io::can_trigger_node(const Project& project, NodeID node_id, std::string* reason);
+    friend bool project_io::trigger_node(Project& project, NodeID node_id, std::string& status_out, TriggerProgressCallback progress_callback);
+    friend std::string project_io::find_source_file_for_node(const Project& project, NodeID node_id);
+    friend NodeCapabilities project_io::get_node_capabilities(const Project& project, NodeID node_id);
     friend void project_io::set_project_name(Project& project, const std::string& name);
     friend void project_io::set_project_description(Project& project, const std::string& description);
     friend void project_io::set_video_format(Project& project, VideoSystem video_format);
@@ -237,7 +238,7 @@ namespace project_io {
      * @param project Project to check for existing IDs
      * @return Unique node ID (e.g., "node_1", "node_2", etc.)
      */
-    std::string generate_unique_node_id(const Project& project);
+    NodeID generate_unique_node_id(const Project& project);
     
     /**
      * Add a new node to the project DAG
@@ -248,7 +249,7 @@ namespace project_io {
      * @return ID of the newly created node
      * @throws std::runtime_error if stage_name is invalid
      */
-    std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
+    NodeID add_node(Project& project, const std::string& stage_name, double x_position, double y_position);
     
     /**
      * Remove a node from the project DAG
@@ -257,7 +258,7 @@ namespace project_io {
      * @param node_id ID of node to remove
      * @throws std::runtime_error if node_id not found
      */
-    void remove_node(Project& project, const std::string& node_id);
+    void remove_node(Project& project, NodeID node_id);
     
     /**
      * Change a node's stage type
@@ -266,7 +267,7 @@ namespace project_io {
      * @param new_stage_name New stage type name
      * @throws std::runtime_error if node_id not found or new_stage_name invalid
      */
-    void change_node_type(Project& project, const std::string& node_id, const std::string& new_stage_name);
+    void change_node_type(Project& project, NodeID node_id, const std::string& new_stage_name);
     
     /**
      * Check if a node's type can be changed
@@ -275,7 +276,7 @@ namespace project_io {
      * @param reason Optional output parameter for why node type cannot be changed
      * @return true if node type can be changed, false otherwise
      */
-    bool can_change_node_type(const Project& project, const std::string& node_id, std::string* reason = nullptr);
+    bool can_change_node_type(const Project& project, NodeID node_id, std::string* reason = nullptr);
     
     /**
      * Update a node's parameters
@@ -284,7 +285,7 @@ namespace project_io {
      * @param parameters New parameter map
      * @throws std::runtime_error if node_id not found
      */
-    void set_node_parameters(Project& project, const std::string& node_id, 
+    void set_node_parameters(Project& project, NodeID node_id, 
                             const std::map<std::string, ParameterValue>& parameters);
     
     /**
@@ -295,7 +296,7 @@ namespace project_io {
      * @param y_position New Y position
      * @throws std::runtime_error if node_id not found
      */
-    void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position);
+    void set_node_position(Project& project, NodeID node_id, double x_position, double y_position);
     
     /**
      * Update a node's user-defined label
@@ -304,7 +305,7 @@ namespace project_io {
      * @param label New user-defined label
      * @throws std::runtime_error if node_id not found
      */
-    void set_node_label(Project& project, const std::string& node_id, const std::string& label);
+    void set_node_label(Project& project, NodeID node_id, const std::string& label);
     
     /**
      * Add an edge to the project DAG
@@ -313,7 +314,7 @@ namespace project_io {
      * @param target_node_id Target node ID
      * @throws std::runtime_error if nodes not found or connection invalid
      */
-    void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    void add_edge(Project& project, NodeID source_node_id, NodeID target_node_id);
     
     /**
      * Remove an edge from the project DAG
@@ -322,7 +323,7 @@ namespace project_io {
      * @param target_node_id Target node ID
      * @throws std::runtime_error if edge not found
      */
-    void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id);
+    void remove_edge(Project& project, NodeID source_node_id, NodeID target_node_id);
     
     /**
      * Clear all project data, resetting to empty state
@@ -341,7 +342,7 @@ namespace project_io {
      * @return true if trigger succeeded, false otherwise
      * @throws std::runtime_error if node not found or not triggerable
      */
-    bool trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback);
+    bool trigger_node(Project& project, NodeID node_id, std::string& status_out, TriggerProgressCallback progress_callback);
     
     /**
      * Trigger a stage node asynchronously (for sink stages)
@@ -353,7 +354,7 @@ namespace project_io {
      * @return Future that resolves to pair<success, status_message>
      * @throws std::runtime_error if node not found or not triggerable
      */
-    std::future<std::pair<bool, std::string>> trigger_node_async(Project& project, const std::string& node_id, TriggerProgressCallback progress_callback);
+    std::future<std::pair<bool, std::string>> trigger_node_async(Project& project, NodeID node_id, TriggerProgressCallback progress_callback);
     
     /**
      * Find source file for a node by tracing back through the DAG
@@ -361,7 +362,7 @@ namespace project_io {
      * @param node_id ID of node to find source for
      * @return Path to source TBC file, or empty string if not found
      */
-    std::string find_source_file_for_node(const Project& project, const std::string& node_id);
+    std::string find_source_file_for_node(const Project& project, NodeID node_id);
 }
 
 } // namespace orc

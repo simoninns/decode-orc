@@ -31,6 +31,7 @@
 #include "burst_level_analysis_decoder.h"
 #include "observation_cache.h"
 #include "field_id.h"
+#include "../core/include/node_id.h"
 
 namespace orc {
     class DAG;
@@ -89,12 +90,12 @@ struct UpdateDAGRequest : public RenderRequest {
  * @brief Request to render a preview
  */
 struct RenderPreviewRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     orc::PreviewOutputType output_type;
     uint64_t output_index;
     std::string option_id;
     
-    RenderPreviewRequest(uint64_t id, std::string node, 
+    RenderPreviewRequest(uint64_t id, orc::NodeID node, 
                         orc::PreviewOutputType type, uint64_t index,
                         std::string opt_id = "")
         : RenderRequest(RenderRequestType::RenderPreview, id)
@@ -108,10 +109,10 @@ struct RenderPreviewRequest : public RenderRequest {
  * @brief Request to get VBI data
  */
 struct GetVBIDataRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     orc::FieldID field_id;
     
-    GetVBIDataRequest(uint64_t id, std::string node, orc::FieldID fid)
+    GetVBIDataRequest(uint64_t id, orc::NodeID node, orc::FieldID fid)
         : RenderRequest(RenderRequestType::GetVBIData, id)
         , node_id(std::move(node))
         , field_id(fid) {}
@@ -121,10 +122,10 @@ struct GetVBIDataRequest : public RenderRequest {
  * @brief Request to get dropout analysis data for all fields
  */
 struct GetDropoutDataRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     orc::DropoutAnalysisMode mode;
     
-    GetDropoutDataRequest(uint64_t id, std::string node, orc::DropoutAnalysisMode m)
+    GetDropoutDataRequest(uint64_t id, orc::NodeID node, orc::DropoutAnalysisMode m)
         : RenderRequest(RenderRequestType::GetDropoutData, id)
         , node_id(std::move(node))
         , mode(m) {}
@@ -134,10 +135,10 @@ struct GetDropoutDataRequest : public RenderRequest {
  * @brief Request to get SNR analysis data for all fields
  */
 struct GetSNRDataRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     orc::SNRAnalysisMode mode;
     
-    GetSNRDataRequest(uint64_t id, std::string node, orc::SNRAnalysisMode m)
+    GetSNRDataRequest(uint64_t id, orc::NodeID node, orc::SNRAnalysisMode m)
         : RenderRequest(RenderRequestType::GetSNRData, id)
         , node_id(std::move(node))
         , mode(m) {}
@@ -147,9 +148,9 @@ struct GetSNRDataRequest : public RenderRequest {
  * @brief Request to get burst level analysis data for all fields
  */
 struct GetBurstLevelDataRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     
-    GetBurstLevelDataRequest(uint64_t id, std::string node)
+    GetBurstLevelDataRequest(uint64_t id, orc::NodeID node)
         : RenderRequest(RenderRequestType::GetBurstLevelData, id)
         , node_id(std::move(node)) {}
 };
@@ -158,9 +159,9 @@ struct GetBurstLevelDataRequest : public RenderRequest {
  * @brief Request to trigger a stage
  */
 struct TriggerStageRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     
-    explicit TriggerStageRequest(uint64_t id, std::string node)
+    explicit TriggerStageRequest(uint64_t id, orc::NodeID node)
         : RenderRequest(RenderRequestType::TriggerStage, id)
         , node_id(std::move(node)) {}
 };
@@ -169,9 +170,9 @@ struct TriggerStageRequest : public RenderRequest {
  * @brief Request to get available outputs
  */
 struct GetAvailableOutputsRequest : public RenderRequest {
-    std::string node_id;
+    orc::NodeID node_id;
     
-    GetAvailableOutputsRequest(uint64_t id, std::string node)
+    GetAvailableOutputsRequest(uint64_t id, orc::NodeID node)
         : RenderRequest(RenderRequestType::GetAvailableOutputs, id)
         , node_id(std::move(node)) {}
 };
@@ -345,7 +346,7 @@ public:
      * @param output_index Which field/frame to render
      * @return Request ID for matching response
      */
-    uint64_t requestPreview(const std::string& node_id,
+    uint64_t requestPreview(const orc::NodeID& node_id,
                            orc::PreviewOutputType output_type,
                            uint64_t output_index,
                            const std::string& option_id = "");
@@ -359,7 +360,7 @@ public:
      * @param field_id Field to decode
      * @return Request ID for matching response
      */
-    uint64_t requestVBIData(const std::string& node_id, orc::FieldID field_id);
+    uint64_t requestVBIData(const orc::NodeID& node_id, orc::FieldID field_id);
     
     /**
      * @brief Request dropout analysis data for all fields (async)
@@ -370,7 +371,7 @@ public:
      * @param mode Analysis mode (full field or visible area)
      * @return Request ID for matching response
      */
-    uint64_t requestDropoutData(const std::string& node_id, orc::DropoutAnalysisMode mode);
+    uint64_t requestDropoutData(const orc::NodeID& node_id, orc::DropoutAnalysisMode mode);
     
     /**
      * @brief Request SNR analysis data for all fields (async)
@@ -381,7 +382,7 @@ public:
      * @param mode Analysis mode (white, black, or both)
      * @return Request ID for matching response
      */
-    uint64_t requestSNRData(const std::string& node_id, orc::SNRAnalysisMode mode);
+    uint64_t requestSNRData(const orc::NodeID& node_id, orc::SNRAnalysisMode mode);
     
     /**
      * @brief Request burst level analysis data for all fields (async)
@@ -391,7 +392,7 @@ public:
      * @param node_id Node to analyze burst level from
      * @return Request ID for matching response
      */
-    uint64_t requestBurstLevelData(const std::string& node_id);
+    uint64_t requestBurstLevelData(const orc::NodeID& node_id);
     
     /**
      * @brief Request available outputs for a node (async)
@@ -401,7 +402,7 @@ public:
      * @param node_id Node to query
      * @return Request ID for matching response
      */
-    uint64_t requestAvailableOutputs(const std::string& node_id);
+    uint64_t requestAvailableOutputs(const orc::NodeID& node_id);
     
     /**
      * @brief Trigger a stage for batch processing (async)
@@ -412,7 +413,7 @@ public:
      * @param node_id Node to trigger
      * @return Request ID for matching response
      */
-    uint64_t requestTrigger(const std::string& node_id);
+    uint64_t requestTrigger(const orc::NodeID& node_id);
     
     /**
      * @brief Cancel ongoing trigger operation

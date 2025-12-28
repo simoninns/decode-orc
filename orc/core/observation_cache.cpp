@@ -43,7 +43,7 @@ void ObservationCache::clear()
     ORC_LOG_DEBUG("ObservationCache: All cached observations cleared");
 }
 
-void ObservationCache::clear_node(const std::string& node_id)
+void ObservationCache::clear_node(NodeID node_id)
 {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     size_t cleared = 0;
@@ -60,18 +60,18 @@ void ObservationCache::clear_node(const std::string& node_id)
     field_count_cache_.erase(node_id);
     
     if (cleared > 0) {
-        ORC_LOG_DEBUG("ObservationCache: Cleared {} observations for node '{}'", cleared, node_id);
+        ORC_LOG_DEBUG("ObservationCache: Cleared {} observations for node '{}'", cleared, node_id.to_string());
     }
 }
 
-bool ObservationCache::is_cached(const std::string& node_id, FieldID field_id) const
+bool ObservationCache::is_cached(NodeID node_id, FieldID field_id) const
 {
     std::lock_guard<std::mutex> lock(cache_mutex_);
     CacheKey key{node_id, field_id};
     return cache_.find(key) != cache_.end();
 }
 
-size_t ObservationCache::get_field_count(const std::string& node_id)
+size_t ObservationCache::get_field_count(NodeID node_id)
 {
     {
         std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -85,7 +85,7 @@ size_t ObservationCache::get_field_count(const std::string& node_id)
     // Render and cache field 0 to get count (don't waste the render!)
     auto field_repr = render_and_cache(node_id, FieldID(0));
     if (!field_repr.has_value()) {
-        ORC_LOG_WARN("ObservationCache: Failed to get field count for node '{}'", node_id);
+        ORC_LOG_WARN("ObservationCache: Failed to get field count for node '{}'", node_id.to_string());
         return 0;
     }
     
@@ -99,7 +99,7 @@ size_t ObservationCache::get_field_count(const std::string& node_id)
 }
 
 std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache::render_and_cache(
-    const std::string& node_id,
+    NodeID node_id,
     FieldID field_id)
 {
     try {
@@ -108,7 +108,7 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
         
         if (!result.is_valid || !result.representation) {
             ORC_LOG_WARN("ObservationCache: Failed to render field {} at node '{}': {}",
-                        field_id.value(), node_id, result.error_message);
+                        field_id.value(), node_id.to_string(), result.error_message);
             return std::nullopt;
         }
         
@@ -123,13 +123,13 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("ObservationCache: Exception rendering field {} at node '{}': {}",
-                     field_id.value(), node_id, e.what());
+                     field_id.value(), node_id.to_string(), e.what());
         return std::nullopt;
     }
 }
 
 std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache::get_field(
-    const std::string& node_id,
+    NodeID node_id,
     FieldID field_id)
 {
     {
@@ -146,7 +146,7 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
     return render_and_cache(node_id, field_id);
 }
 
-size_t ObservationCache::populate_node(const std::string& node_id, size_t max_fields)
+size_t ObservationCache::populate_node(NodeID node_id, size_t max_fields)
 {
     size_t field_count = get_field_count(node_id);
     if (field_count == 0) {
@@ -157,7 +157,7 @@ size_t ObservationCache::populate_node(const std::string& node_id, size_t max_fi
         field_count = max_fields;
     }
     
-    ORC_LOG_INFO("ObservationCache: Populating {} fields for node '{}'", field_count, node_id);
+    ORC_LOG_INFO("ObservationCache: Populating {} fields for node '{}'", field_count, node_id.to_string());
     
     size_t cached_count = 0;
     for (size_t i = 0; i < field_count; ++i) {
@@ -176,7 +176,7 @@ size_t ObservationCache::populate_node(const std::string& node_id, size_t max_fi
     }
     
     ORC_LOG_INFO("ObservationCache: Cached {} / {} fields for node '{}'", 
-                cached_count, field_count, node_id);
+                cached_count, field_count, node_id.to_string());
     
     return cached_count;
 }

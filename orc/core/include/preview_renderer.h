@@ -12,6 +12,7 @@
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"
 #include "field_id.h"
+#include "node_id.h"
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
 #include "../analysis/vectorscope/vectorscope_data.h"
 #include <memory>
@@ -56,12 +57,12 @@ struct AspectRatioModeInfo {
  * @brief Result of querying for suggested view node
  */
 struct SuggestedViewNode {
-    std::string node_id;            ///< Node to view (empty if none available)
+    NodeID node_id;            ///< Node to view (invalid if none available)
     bool has_nodes;                 ///< True if DAG has any nodes at all
     std::string message;            ///< User-facing message explaining the situation
     
     /// Helper to check if a valid node was suggested
-    bool is_valid() const { return !node_id.empty(); }
+    bool is_valid() const { return node_id.is_valid(); }
 };
 
 /**
@@ -118,7 +119,7 @@ struct PreviewRenderResult {
     PreviewImage image;
     bool success;
     std::string error_message;
-    std::string node_id;
+    NodeID node_id;
     PreviewOutputType output_type;
     uint64_t output_index;          ///< Which output was rendered (field N, frame N, etc.)
 };
@@ -174,7 +175,7 @@ public:
      * - Frame (Odd-Even): 200 frames available
      * - Luma: 400 fields available
      */
-    std::vector<PreviewOutputInfo> get_available_outputs(const std::string& node_id);
+    std::vector<PreviewOutputInfo> get_available_outputs(const NodeID& node_id);
     
     /**
      * @brief Get the count of outputs for a specific type
@@ -183,7 +184,7 @@ public:
      * @param type The output type
      * @return Number of outputs, or 0 if type not available
      */
-    uint64_t get_output_count(const std::string& node_id, PreviewOutputType type);
+    uint64_t get_output_count(const NodeID& node_id, PreviewOutputType type);
     
     // ========================================================================
     // Render API
@@ -202,7 +203,7 @@ public:
      * - render_output("node_1", PreviewOutputType::Frame_EvenOdd, 50) -> frame 50 (even first)
      */
     PreviewRenderResult render_output(
-        const std::string& node_id,
+        const NodeID& node_id,
         PreviewOutputType type,
         uint64_t index,
         const std::string& option_id = "",
@@ -331,7 +332,7 @@ public:
      * - save_png("node_1", PreviewOutputType::Frame_EvenOdd, 50, "/tmp/frame50.png")
      */
     bool save_png(
-        const std::string& node_id,
+        const NodeID& node_id,
         PreviewOutputType type,
         uint64_t index,
         const std::string& filename
@@ -360,7 +361,7 @@ private:
     AspectRatioMode aspect_ratio_mode_ = AspectRatioMode::DAR_4_3;
     
     /// Ensure node has been executed (execute on-demand if needed)
-    void ensure_node_executed(const std::string& node_id) const;
+    void ensure_node_executed(const NodeID& node_id) const;
     
     // ========================================================================
     // Internal rendering functions
@@ -428,7 +429,7 @@ private:
      * @return Vector of available output types
      */
     std::vector<PreviewOutputInfo> get_stage_preview_outputs(
-        const std::string& stage_node_id,
+        const NodeID& stage_node_id,
         const DAGNode& stage_node,
         const class PreviewableStage& previewable
     );
@@ -444,7 +445,7 @@ private:
      * @return Rendered preview result
      */
     PreviewRenderResult render_stage_preview(
-        const std::string& stage_node_id,
+        const NodeID& stage_node_id,
         const DAGNode& stage_node,
         const class PreviewableStage& previewable,
         PreviewOutputType type,

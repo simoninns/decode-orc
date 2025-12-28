@@ -11,6 +11,7 @@
 #pragma once
 
 #include "artifact.h"
+#include "node_id.h"
 #include "../stages/stage.h"
 #include <memory>
 #include <vector>
@@ -33,10 +34,10 @@ public:
  * @brief Represents a node in the processing DAG
  */
 struct DAGNode {
-    std::string node_id;              // Unique within DAG
+    NodeID node_id;              // Unique within DAG
     DAGStagePtr stage;                // Processing stage
     std::map<std::string, ParameterValue> parameters;  // Stage parameters (strong types)
-    std::vector<std::string> input_node_ids;        // Dependencies
+    std::vector<NodeID> input_node_ids;        // Dependencies
     std::vector<size_t> input_indices;              // Which output from each input node
 };
 
@@ -61,7 +62,7 @@ public:
     // DAG construction
     void add_node(DAGNode node);
     void set_root_inputs(const std::vector<ArtifactPtr>& inputs);
-    void set_output_nodes(const std::vector<std::string>& node_ids);
+    void set_output_nodes(const std::vector<NodeID>& node_ids);
     
     // DAG validation
     bool validate() const;
@@ -70,15 +71,15 @@ public:
     // Accessors
     const std::vector<DAGNode>& nodes() const { return nodes_; }
     const std::vector<ArtifactPtr>& root_inputs() const { return root_inputs_; }
-    const std::vector<std::string>& output_nodes() const { return output_node_ids_; }
+    const std::vector<NodeID>& output_nodes() const { return output_node_ids_; }
     
     // Helper for validation (needs to be public for DAGExecutor)
-    std::map<std::string, size_t> build_node_index() const;
+    std::map<NodeID, size_t> build_node_index() const;
     
 private:
     std::vector<DAGNode> nodes_;
     std::vector<ArtifactPtr> root_inputs_;
-    std::vector<std::string> output_node_ids_;
+    std::vector<NodeID> output_node_ids_;
     
     // Helper for validation
     bool has_cycle() const;
@@ -119,9 +120,9 @@ public:
      * @return Map of node_id -> list of output artifacts
      * @throws DAGExecutionError if target_node_id doesn't exist
      */
-    std::map<std::string, std::vector<ArtifactPtr>> execute_to_node(
+    std::map<NodeID, std::vector<ArtifactPtr>> execute_to_node(
         const DAG& dag,
-        const std::string& target_node_id
+        const NodeID& target_node_id
     );
     
     // Cache management
@@ -132,7 +133,7 @@ public:
     size_t cache_size() const { return artifact_cache_.size(); }
     
     // Progress callback (optional)
-    using ProgressCallback = std::function<void(const std::string& node_id, size_t current, size_t total)>;
+    using ProgressCallback = std::function<void(NodeID node_id, size_t current, size_t total)>;
     void set_progress_callback(ProgressCallback callback) { progress_callback_ = callback; }
     
 private:
@@ -141,10 +142,10 @@ private:
     ProgressCallback progress_callback_;
     
     // Execution helpers
-    std::vector<std::string> topological_sort(const DAG& dag) const;
-    std::vector<std::string> topological_sort_to_node(
+    std::vector<NodeID> topological_sort(const DAG& dag) const;
+    std::vector<NodeID> topological_sort_to_node(
         const DAG& dag,
-        const std::string& target_node_id
+        const NodeID& target_node_id
     ) const;
     ArtifactPtr get_cached_or_execute(
         const DAGNode& node,

@@ -64,7 +64,7 @@ public:
      */
     bool applyToGraph(const AnalysisResult& /*result*/,
                      Project& /*project*/,
-                     const std::string& /*node_id*/) override final {
+                     NodeID /*node_id*/) override final {
         return false;
     }
 

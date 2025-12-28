@@ -40,7 +40,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(
             QString("Render ERROR at node %1: %2")
-                .arg(QString::fromStdString(current_view_node_id_))
+                .arg(QString::fromStdString(current_view_node_id_.to_string()))
                 .arg(QString::fromStdString(result.error_message)),
             5000
         );
@@ -101,7 +101,7 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     }
     
     // Check if we should show preview dialog
-    bool is_real_node = (current_view_node_id_ != "_no_preview");
+    bool is_real_node = current_view_node_id_.is_valid();
     bool has_valid_content = false;
     for (const auto& output : available_outputs_) {
         if (output.is_available) {
@@ -134,15 +134,15 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
         } else if (!node_it->display_name.empty()) {
             node_label = QString::fromStdString(node_it->display_name);
         } else {
-            node_label = QString::fromStdString(current_view_node_id_);
+            node_label = QString::fromStdString(current_view_node_id_.to_string());
         }
     } else {
-        node_label = QString::fromStdString(current_view_node_id_);
+        node_label = QString::fromStdString(current_view_node_id_.to_string());
     }
-    preview_dialog_->setCurrentNode(node_label, QString::fromStdString(current_view_node_id_));
+    preview_dialog_->setCurrentNode(node_label, QString::fromStdString(current_view_node_id_.to_string()));
     
     // Update status bar to show which node is being viewed
-    QString node_display = QString::fromStdString(current_view_node_id_);
+    QString node_display = QString::fromStdString(current_view_node_id_.to_string());
     statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
     
     // Update UI controls

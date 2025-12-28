@@ -131,7 +131,7 @@ Project load_project(const std::string& filename) {
     if (root["dag"] && root["dag"]["nodes"] && root["dag"]["nodes"].IsSequence()) {
         for (const auto& node_yaml : root["dag"]["nodes"]) {
             ProjectDAGNode node;
-            node.node_id = node_yaml["id"].as<std::string>("");
+            node.node_id = NodeID(node_yaml["id"].as<int32_t>(0));
             node.stage_name = node_yaml["stage"].as<std::string>("");
             node.display_name = node_yaml["display_name"].as<std::string>("");
             node.user_label = node_yaml["user_label"].as<std::string>(node.display_name);  // Default to display_name if not present
@@ -154,7 +154,7 @@ Project load_project(const std::string& filename) {
                     std::string type = param_map["type"].as<std::string>("string");
                     
                     ORC_LOG_INFO("Loading parameter '{}' for node '{}', type={}", 
-                                 param_name, node.node_id, type);
+                                 param_name, node.node_id.to_string(), type);
                     
                     if (type == "int32" || type == "int" || type == "integer") {
                         int value = param_map["value"].as<int>();
@@ -180,8 +180,8 @@ Project load_project(const std::string& filename) {
     if (root["dag"] && root["dag"]["edges"] && root["dag"]["edges"].IsSequence()) {
         for (const auto& edge_yaml : root["dag"]["edges"]) {
             ProjectDAGEdge edge;
-            edge.source_node_id = edge_yaml["from"].as<std::string>("");
-            edge.target_node_id = edge_yaml["to"].as<std::string>("");
+            edge.source_node_id = NodeID(edge_yaml["from"].as<int32_t>(0));
+            edge.target_node_id = NodeID(edge_yaml["to"].as<int32_t>(0));
             project.edges_.push_back(edge);
         }
     }
@@ -221,7 +221,7 @@ void save_project(const Project& project, const std::string& filename) {
     out << YAML::Value << YAML::BeginSeq;
     for (const auto& node : project.nodes_) {
         out << YAML::BeginMap;
-        out << YAML::Key << "id" << YAML::Value << node.node_id;
+        out << YAML::Key << "id" << YAML::Value << node.node_id.value();
         out << YAML::Key << "stage" << YAML::Value << node.stage_name;
         out << YAML::Key << "node_type" << YAML::Value << node_type_to_string(node.node_type);
         if (!node.display_name.empty()) {
@@ -271,8 +271,8 @@ void save_project(const Project& project, const std::string& filename) {
     out << YAML::Value << YAML::BeginSeq;
     for (const auto& edge : project.edges_) {
         out << YAML::BeginMap;
-        out << YAML::Key << "from" << YAML::Value << edge.source_node_id;
-        out << YAML::Key << "to" << YAML::Value << edge.target_node_id;
+        out << YAML::Key << "from" << YAML::Value << edge.source_node_id.value();
+        out << YAML::Key << "to" << YAML::Value << edge.target_node_id.value();
         out << YAML::EndMap;
     }
     out << YAML::EndSeq;
@@ -340,29 +340,21 @@ void update_project_dag(
     project.is_modified_ = true;
 }
 
-std::string generate_unique_node_id(const Project& project) {
-    int max_id = 0;
+NodeID generate_unique_node_id(const Project& project) {
+    int32_t max_id = 0;
     
-    // Scan all existing nodes_ to find the highest node_X ID
+    // Scan all existing nodes to find the highest ID
     for (const auto& node : project.nodes_) {
-        // Check if node_id follows "node_N" pattern
-        if (node.node_id.find("node_") == 0) {
-            try {
-                int id_num = std::stoi(node.node_id.substr(5));
-                if (id_num > max_id) {
-                    max_id = id_num;
-                }
-            } catch (...) {
-                // Not a valid node_N format, skip
-            }
+        if (node.node_id.value() > max_id) {
+            max_id = node.node_id.value();
         }
     }
     
     // Return next available ID
-    return "node_" + std::to_string(max_id + 1);
+    return NodeID(max_id + 1);
 }
 
-std::string add_node(Project& project, const std::string& stage_name, double x_position, double y_position) {
+NodeID add_node(Project& project, const std::string& stage_name, double x_position, double y_position) {
     // Validate that project has been initialized
     if (project.name_.empty()) {
         throw std::runtime_error("Cannot add node to uninitialized project. Create or load a project first.");
@@ -375,7 +367,7 @@ std::string add_node(Project& project, const std::string& stage_name, double x_p
     }
     
     // Generate unique node ID
-    std::string node_id = generate_unique_node_id(project);
+    NodeID node_id = generate_unique_node_id(project);
     
     // Create node
     ProjectDAGNode node;
@@ -392,13 +384,13 @@ std::string add_node(Project& project, const std::string& stage_name, double x_p
     return node_id;
 }
 
-void remove_node(Project& project, const std::string& node_id) {
+void remove_node(Project& project, NodeID node_id) {
     // Find the node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id);
+        throw std::runtime_error("Node not found: " + node_id.to_string());
     }
     
     // Check if node can be removed
@@ -422,7 +414,7 @@ void remove_node(Project& project, const std::string& node_id) {
     project.is_modified_ = true;
 }
 
-bool can_remove_node(const Project& project, const std::string& node_id, std::string* reason) {
+bool can_remove_node(const Project& project, NodeID node_id, std::string* reason) {
     // Find the node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
@@ -445,14 +437,14 @@ bool can_remove_node(const Project& project, const std::string& node_id, std::st
     return true;
 }
 
-void set_node_parameters(Project& project, const std::string& node_id, 
+void set_node_parameters(Project& project, NodeID node_id, 
                         const std::map<std::string, ParameterValue>& parameters) {
     // Find the node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id);
+        throw std::runtime_error("Node not found: " + node_id.to_string());
     }
     
     // Special validation for source nodes_
@@ -529,13 +521,13 @@ void set_node_parameters(Project& project, const std::string& node_id,
     project.is_modified_ = true;
 }
 
-void set_node_position(Project& project, const std::string& node_id, double x_position, double y_position) {
+void set_node_position(Project& project, NodeID node_id, double x_position, double y_position) {
     // Find the node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id);
+        throw std::runtime_error("Node not found: " + node_id.to_string());
     }
     
     node_it->x_position = x_position;
@@ -543,20 +535,20 @@ void set_node_position(Project& project, const std::string& node_id, double x_po
     project.is_modified_ = true;
 }
 
-void set_node_label(Project& project, const std::string& node_id, const std::string& label) {
+void set_node_label(Project& project, NodeID node_id, const std::string& label) {
     // Find the node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id);
+        throw std::runtime_error("Node not found: " + node_id.to_string());
     }
     
     node_it->user_label = label;
     project.is_modified_ = true;
 }
 
-void add_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id) {
+void add_edge(Project& project, NodeID source_node_id, NodeID target_node_id) {
     // Validate that project has been initialized
     if (project.name_.empty()) {
         throw std::runtime_error("Cannot add edge to uninitialized project. Create or load a project first.");
@@ -569,10 +561,10 @@ void add_edge(Project& project, const std::string& source_node_id, const std::st
         [&target_node_id](const ProjectDAGNode& n) { return n.node_id == target_node_id; });
     
     if (source_it == project.nodes_.end()) {
-        throw std::runtime_error("Source node not found: " + source_node_id);
+        throw std::runtime_error("Source node not found: " + source_node_id.to_string());
     }
     if (target_it == project.nodes_.end()) {
-        throw std::runtime_error("Target node not found: " + target_node_id);
+        throw std::runtime_error("Target node not found: " + target_node_id.to_string());
     }
     
     // Validate connection
@@ -615,7 +607,7 @@ void add_edge(Project& project, const std::string& source_node_id, const std::st
     project.is_modified_ = true;
 }
 
-void remove_edge(Project& project, const std::string& source_node_id, const std::string& target_node_id) {
+void remove_edge(Project& project, NodeID source_node_id, NodeID target_node_id) {
     // Find and remove the edge
     auto edge_it = std::find_if(project.edges_.begin(), project.edges_.end(),
         [&source_node_id, &target_node_id](const ProjectDAGEdge& e) {
@@ -656,7 +648,7 @@ void set_video_format(Project& project, VideoSystem video_format) {
     project.is_modified_ = true;
 }
 
-bool can_trigger_node(const Project& project, const std::string& node_id, std::string* reason) {
+bool can_trigger_node(const Project& project, NodeID node_id, std::string* reason) {
     // Find the node
     auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
@@ -688,14 +680,14 @@ bool can_trigger_node(const Project& project, const std::string& node_id, std::s
     }
 }
 
-bool trigger_node(Project& project, const std::string& node_id, std::string& status_out, TriggerProgressCallback progress_callback) {
+bool trigger_node(Project& project, NodeID node_id, std::string& status_out, TriggerProgressCallback progress_callback) {
     // Find the node
     auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (it == project.nodes_.end()) {
         status_out = "Node not found";
-        throw std::runtime_error("Node '" + node_id + "' not found");
+        throw std::runtime_error("Node '" + node_id.to_string() + "' not found");
     }
     
     // Get stage instance
@@ -742,7 +734,7 @@ bool trigger_node(Project& project, const std::string& node_id, std::string& sta
     
     if (inputs.empty()) {
         status_out = "No inputs available";
-        throw std::runtime_error("No inputs for node '" + node_id + "'");
+        throw std::runtime_error("No inputs for node '" + node_id.to_string() + "'");
     }
     
     // Trigger (DAG and executor stay alive, keeping stage instances valid)
@@ -755,7 +747,7 @@ bool trigger_node(Project& project, const std::string& node_id, std::string& sta
 
 std::future<std::pair<bool, std::string>> trigger_node_async(
     Project& project,
-    const std::string& node_id,
+    NodeID node_id,
     TriggerProgressCallback progress_callback)
 {
     // Build DAG and get inputs BEFORE launching async task
@@ -815,7 +807,7 @@ std::future<std::pair<bool, std::string>> trigger_node_async(
     });
 }
 
-std::string find_source_file_for_node(const Project& project, const std::string& node_id) {
+std::string find_source_file_for_node(const Project& project, NodeID node_id) {
     // Find node
     auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
@@ -833,8 +825,8 @@ std::string find_source_file_for_node(const Project& project, const std::string&
     }
     
     // Trace back through DAG
-    std::queue<std::string> to_visit;
-    std::set<std::string> visited;
+    std::queue<NodeID> to_visit;
+    std::set<NodeID> visited;
     
     for (const auto& edge : project.edges_) {
         if (edge.target_node_id == node_id) {
@@ -843,7 +835,7 @@ std::string find_source_file_for_node(const Project& project, const std::string&
     }
     
     while (!to_visit.empty()) {
-        std::string current_id = to_visit.front();
+        NodeID current_id = to_visit.front();
         to_visit.pop();
         
         if (visited.count(current_id)) continue;
@@ -871,7 +863,7 @@ std::string find_source_file_for_node(const Project& project, const std::string&
     return "";
 }
 
-NodeCapabilities get_node_capabilities(const Project& project, const std::string& node_id) {
+NodeCapabilities get_node_capabilities(const Project& project, NodeID node_id) {
     NodeCapabilities caps;
     caps.node_id = node_id;
     

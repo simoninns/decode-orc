@@ -13,6 +13,7 @@
 #include "dag_executor.h"
 #include "video_field_representation.h"
 #include "field_id.h"
+#include "node_id.h"
 #include "lru_cache.h"
 #include <memory>
 #include <string>
@@ -44,7 +45,7 @@ struct FieldRenderResult {
     std::string error_message;
     
     /// The node that was rendered
-    std::string node_id;
+    NodeID node_id;
     
     /// The field that was requested
     FieldID field_id;
@@ -114,7 +115,7 @@ public:
      * @note Cache is automatically cleared when DAG is updated via update_dag()
      */
     FieldRenderResult render_field_at_node(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id
     );
     
@@ -123,7 +124,7 @@ public:
      * @param node_id Node ID to check
      * @return True if node exists, false otherwise
      */
-    bool has_node(const std::string& node_id) const;
+    bool has_node(NodeID node_id) const;
     
     /**
      * @brief Get list of all node IDs that can be rendered
@@ -133,7 +134,7 @@ public:
      * 
      * @return Vector of node IDs in execution order
      */
-    std::vector<std::string> get_renderable_nodes() const;
+    std::vector<NodeID> get_renderable_nodes() const;
     
     /**
      * @brief Get the DAG that this renderer is using
@@ -216,7 +217,7 @@ private:
     
     /// Cache key: (node_id, field_id, dag_version)
     struct CacheKey {
-        std::string node_id;
+        NodeID node_id;
         uint64_t field_id_value;
         uint64_t dag_version;
         
@@ -230,7 +231,7 @@ private:
     /// Hash function for CacheKey
     struct CacheKeyHash {
         std::size_t operator()(const CacheKey& key) const {
-            std::size_t h1 = std::hash<std::string>{}(key.node_id);
+            std::size_t h1 = std::hash<NodeID>{}(key.node_id);
             std::size_t h2 = std::hash<uint64_t>{}(key.field_id_value);
             std::size_t h3 = std::hash<uint64_t>{}(key.dag_version);
             return h1 ^ (h2 << 1) ^ (h3 << 2);
@@ -246,7 +247,7 @@ private:
     std::unique_ptr<DAGExecutor> executor_;
     
     /// Node index for fast lookup
-    mutable std::map<std::string, size_t> node_index_;
+    mutable std::map<NodeID, size_t> node_index_;
     mutable bool node_index_valid_;
     
     /// Build/update node index
@@ -254,7 +255,7 @@ private:
     
     /// Execute DAG up to a specific node for a specific field
     FieldRenderResult execute_to_node(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id
     );
     

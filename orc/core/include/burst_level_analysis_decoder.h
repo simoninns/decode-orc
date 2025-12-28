@@ -12,6 +12,7 @@
 
 #include "burst_level_observer.h"
 #include "field_id.h"
+#include "node_id.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -70,7 +71,7 @@ public:
      * @return Burst level statistics, or empty optional if not available
      */
     std::optional<FieldBurstLevelStats> get_burst_level_for_field(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id);
     
     /**
@@ -84,7 +85,7 @@ public:
      * @return Vector of burst level statistics for each field
      */
     std::vector<FieldBurstLevelStats> get_burst_level_for_all_fields(
-        const std::string& node_id,
+        NodeID node_id,
         size_t max_fields = 0,
         std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
     
@@ -100,7 +101,7 @@ public:
      * @return Vector of burst level statistics for each frame
      */
     std::vector<FrameBurstLevelStats> get_burst_level_by_frames(
-        const std::string& node_id,
+        NodeID node_id,
         size_t max_frames = 0,
         std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
     
@@ -127,7 +128,7 @@ private:
     
     // Cache key for storing processed results
     struct CacheKey {
-        std::string node_id;
+        NodeID node_id;
         
         bool operator==(const CacheKey& other) const {
             return node_id == other.node_id;
@@ -137,7 +138,7 @@ private:
     // Hash function for CacheKey
     struct CacheKeyHash {
         std::size_t operator()(const CacheKey& key) const {
-            return std::hash<std::string>{}(key.node_id);
+            return std::hash<NodeID>{}(key.node_id);
         }
     };
     

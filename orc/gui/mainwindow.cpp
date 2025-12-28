@@ -231,7 +231,7 @@ void MainWindow::setupUI()
     connect(dropout_analysis_dialog_, &DropoutAnalysisDialog::modeChanged,
             [this]() {
                 // Re-request data with new mode when dialog is visible
-                if (dropout_analysis_dialog_->isVisible() && !current_view_node_id_.empty()) {
+                if (dropout_analysis_dialog_->isVisible() && current_view_node_id_.is_valid()) {
                     // Show progress dialog
                     if (dropout_progress_dialog_) {
                         delete dropout_progress_dialog_;
@@ -257,7 +257,7 @@ void MainWindow::setupUI()
     connect(snr_analysis_dialog_, &SNRAnalysisDialog::modeChanged,
             [this]() {
                 // Re-request data with new mode when dialog is visible
-                if (snr_analysis_dialog_->isVisible() && !current_view_node_id_.empty()) {
+                if (snr_analysis_dialog_->isVisible() && current_view_node_id_.is_valid()) {
                     // Show progress dialog
                     if (snr_progress_dialog_) {
                         delete snr_progress_dialog_;
@@ -666,7 +666,7 @@ void MainWindow::saveProjectAs()
 void MainWindow::updateUIState()
 {
     bool has_project = !project_.projectName().isEmpty();
-    bool has_preview = !current_view_node_id_.empty();
+    bool has_preview = current_view_node_id_.is_valid();
     
     // Enable/disable actions based on project state
     if (save_project_action_) {
@@ -828,15 +828,15 @@ void MainWindow::updateWindowTitle()
 
 void MainWindow::updatePreviewInfo()
 {
-    if (current_view_node_id_.empty()) {
+    if (current_view_node_id_.is_valid() == false) {
         preview_dialog_->previewInfoLabel()->setText("No node selected");
         preview_dialog_->sliderMinLabel()->setText("");
         preview_dialog_->sliderMaxLabel()->setText("");
         return;
     }
     
-    // Special handling for placeholder node
-    if (current_view_node_id_ == "_no_preview") {
+    // Special handling for placeholder node  
+    if (current_view_node_id_ == NodeID(-999)) {
         preview_dialog_->previewInfoLabel()->setText("No source available");
         preview_dialog_->sliderMinLabel()->setText("");
         preview_dialog_->sliderMaxLabel()->setText("");
@@ -931,7 +931,7 @@ void MainWindow::loadProjectDAG()
     statusBar()->showMessage("Loaded DAG from project", 2000);
 }
 
-void MainWindow::onEditParameters(const std::string& node_id)
+void MainWindow::onEditParameters(const orc::NodeID& node_id)
 {
     ORC_LOG_DEBUG("Edit parameters requested for node: {}", node_id);
     
@@ -942,7 +942,7 @@ void MainWindow::onEditParameters(const std::string& node_id)
     
     if (node_it == nodes.end()) {
         QMessageBox::warning(this, "Edit Parameters",
-            QString("Node '%1' not found").arg(QString::fromStdString(node_id)));
+            QString("Node '%1' not found").arg(QString::fromStdString(node_id.to_string())));
         return;
     }
     
@@ -1004,15 +1004,15 @@ void MainWindow::onEditParameters(const std::string& node_id)
         
         statusBar()->showMessage(
             QString("Updated parameters for node '%1'")
-                .arg(QString::fromStdString(node_id)),
+                .arg(QString::fromStdString(node_id.to_string())),
             3000
         );
     }
 }
 
-void MainWindow::onTriggerStage(const std::string& node_id)
+void MainWindow::onTriggerStage(const orc::NodeID& node_id)
 {
-    ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id);
+    ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id.to_string());
     
     try {
         // Create progress dialog
@@ -1050,9 +1050,9 @@ void MainWindow::onPollTriggerProgress()
     ORC_LOG_WARN("onPollTriggerProgress called but is deprecated - using coordinator signals instead");
 }
 
-void MainWindow::onNodeSelectedForView(const std::string& node_id)
+void MainWindow::onNodeSelectedForView(const orc::NodeID& node_id)
 {
-    ORC_LOG_DEBUG("Main window: switching view to node '{}'", node_id);
+    ORC_LOG_DEBUG("Main window: switching view to node '{}'", node_id.to_string());
     
     // Update which node is being viewed
     current_view_node_id_ = node_id;
@@ -1099,8 +1099,8 @@ void MainWindow::onArrangeDAGToGrid()
     const double grid_spacing_y = 150.0;
     
     // Build adjacency list (forward edges: source -> targets)
-    std::map<std::string, std::vector<std::string>> forward_edges;
-    std::map<std::string, int> in_degree;
+    std::map<orc::NodeID, std::vector<orc::NodeID>> forward_edges;
+    std::map<orc::NodeID, int> in_degree;
     
     // Initialize in-degree for all nodes
     for (const auto& node : nodes) {
@@ -1115,8 +1115,8 @@ void MainWindow::onArrangeDAGToGrid()
     }
     
     // Calculate depth level for each node (BFS from sources)
-    std::map<std::string, int> node_depth;
-    std::queue<std::string> queue;
+    std::map<orc::NodeID, int> node_depth;
+    std::queue<orc::NodeID> queue;
     
     // Start with source nodes (in-degree 0)
     for (const auto& [node_id, degree] : in_degree) {
@@ -1128,7 +1128,7 @@ void MainWindow::onArrangeDAGToGrid()
     
     // BFS to assign depths
     while (!queue.empty()) {
-        std::string current_id = queue.front();
+        orc::NodeID current_id = queue.front();
         queue.pop();
         
         int current_depth = node_depth[current_id];
@@ -1147,23 +1147,23 @@ void MainWindow::onArrangeDAGToGrid()
     }
     
     // Group nodes by depth level
-    std::map<int, std::vector<std::string>> levels;
+    std::map<int, std::vector<orc::NodeID>> levels;
     for (const auto& [node_id, depth] : node_depth) {
         levels[depth].push_back(node_id);
     }
     
     // Build reverse edges (target -> sources) for ordering
-    std::map<std::string, std::vector<std::string>> reverse_edges;
+    std::map<orc::NodeID, std::vector<orc::NodeID>> reverse_edges;
     for (const auto& edge : edges) {
         reverse_edges[edge.target_node_id].push_back(edge.source_node_id);
     }
     
     // Order nodes within each level to minimize edge crossings
     // We'll use a simple heuristic: order by median position of connected nodes in previous/next layer
-    std::map<std::string, double> node_y_position;
+    std::map<orc::NodeID, double> node_y_position;
     
     for (const auto& [depth, level_nodes] : levels) {
-        std::vector<std::pair<double, std::string>> nodes_with_order;
+        std::vector<std::pair<double, orc::NodeID>> nodes_with_order;
         
         for (const auto& node_id : level_nodes) {
             double order_key = 0.0;
@@ -1222,7 +1222,7 @@ void MainWindow::onArrangeDAGToGrid()
 void MainWindow::updatePreview()
 {
     // If no node selected, clear display
-    if (current_view_node_id_.empty()) {
+    if (current_view_node_id_.is_valid() == false) {
         ORC_LOG_DEBUG("updatePreview: no node selected, returning");
         preview_dialog_->previewWidget()->clearImage();
         return;
@@ -1231,7 +1231,7 @@ void MainWindow::updatePreview()
     int current_index = preview_dialog_->previewSlider()->value();
     
     ORC_LOG_DEBUG("updatePreview: rendering output type {} index {} at node '{}'", 
-                  static_cast<int>(current_output_type_), current_index, current_view_node_id_);
+                  static_cast<int>(current_output_type_), current_index, current_view_node_id_.to_string());
     
     // Request preview from coordinator (async, thread-safe)
     pending_preview_request_id_ = render_coordinator_->requestPreview(
@@ -1245,7 +1245,7 @@ void MainWindow::updatePreview()
     last_update_was_sequential_ = false;
 }
 
-void MainWindow::updateVectorscope(const std::string& node_id, const orc::PreviewImage& image)
+void MainWindow::updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image)
 {
     auto it = vectorscope_dialogs_.find(node_id);
     if (it == vectorscope_dialogs_.end()) return;
@@ -1348,7 +1348,7 @@ void MainWindow::refreshViewerControls()
     // This helper updates all viewer controls based on current node's available outputs
     // Should be called after available_outputs_ is populated
     
-    if (current_view_node_id_.empty() || available_outputs_.empty()) {
+    if (current_view_node_id_.is_valid() == false || available_outputs_.empty()) {
         ORC_LOG_DEBUG("refreshViewerControls: no node or outputs");
         return;
     }
@@ -1416,7 +1416,7 @@ void MainWindow::updatePreviewRenderer()
     bool need_to_switch = false;
     std::string target_node;
     
-    if (current_view_node_id_.empty()) {
+    if (current_view_node_id_.is_valid() == false) {
         // No node selected yet - use suggestion
         need_to_switch = true;
     } else {
@@ -1432,9 +1432,9 @@ void MainWindow::updatePreviewRenderer()
         }
         
         // If current node was deleted or is placeholder when real nodes exist, switch
-        if (!current_exists && current_view_node_id_ != "_no_preview") {
+        if (!current_exists && current_view_node_id_ != NodeID(-999)) {
             need_to_switch = true;
-        } else if (current_view_node_id_ == "_no_preview" && dag && !dag->nodes().empty()) {
+        } else if (current_view_node_id_ == NodeID(-999) && dag && !dag->nodes().empty()) {
             need_to_switch = true;
         }
     }
@@ -1446,15 +1446,15 @@ void MainWindow::updatePreviewRenderer()
         // TODO: Request suggested node from coordinator
         // For now, just keep current or clear
         ORC_LOG_DEBUG("Node switching needed - not yet implemented via coordinator");
-        if (current_view_node_id_.empty() && dag && !dag->nodes().empty()) {
+        if (current_view_node_id_.is_valid() == false && dag && !dag->nodes().empty()) {
             // Pick first node as temporary fallback
             current_view_node_id_ = dag->nodes()[0].node_id;
             pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
         }
     } else {
         // Keep current node - request fresh outputs in case parameters changed
-        if (!current_view_node_id_.empty()) {
-            ORC_LOG_DEBUG("Keeping current node '{}', refreshing outputs", current_view_node_id_);
+        if (current_view_node_id_.is_valid()) {
+            ORC_LOG_DEBUG("Keeping current node '{}', refreshing outputs", current_view_node_id_.to_string());
             pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
         }
     }
@@ -1462,7 +1462,7 @@ void MainWindow::updatePreviewRenderer()
 
 void MainWindow::onExportPNG()
 {
-    if (current_view_node_id_.empty()) {
+    if (current_view_node_id_.is_valid() == false) {
         QMessageBox::information(this, "Export PNG", "No preview available to export.");
         return;
     }
@@ -1547,14 +1547,14 @@ void MainWindow::onQtNodeSelected(QtNodes::NodeId nodeId)
     }
     
     // Convert QtNodes ID to ORC node ID
-    std::string orc_node_id = dag_model_->getOrcNodeId(nodeId);
-    if (!orc_node_id.empty()) {
+    NodeID orc_node_id = dag_model_->getOrcNodeId(nodeId);
+    if (orc_node_id.is_valid()) {
         ORC_LOG_DEBUG("QtNode {} selected -> ORC node '{}'", nodeId, orc_node_id);
         onNodeSelectedForView(orc_node_id);
     }
 }
 
-void MainWindow::onInspectStage(const std::string& node_id)
+void MainWindow::onInspectStage(const NodeID& node_id)
 {
     ORC_LOG_DEBUG("Inspect stage requested for node: {}", node_id);
     
@@ -1566,7 +1566,7 @@ void MainWindow::onInspectStage(const std::string& node_id)
     if (node_it == nodes.end()) {
         ORC_LOG_ERROR("Node '{}' not found in project", node_id);
         QMessageBox::warning(this, "Inspection Failed",
-            QString("Node '%1' not found.").arg(QString::fromStdString(node_id)));
+            QString("Node '%1' not found.").arg(QString::fromStdString(node_id.to_string())));
         return;
     }
     
@@ -1610,9 +1610,9 @@ void MainWindow::onInspectStage(const std::string& node_id)
     }
 }
 
-void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& node_id, const std::string& stage_name)
+void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name)
 {
-    ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool->name(), node_id);
+    ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool->name(), node_id.to_string());
 
     // Special-case: Vectorscope is a live visualization dialog, not a batch analysis
     if (tool->id() == "vectorscope") {
@@ -1688,7 +1688,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
         pending_dropout_request_id_ = render_coordinator_->requestDropoutData(node_id, mode);
         
         ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
-                      node_id, static_cast<int>(mode), pending_dropout_request_id_);
+                      node_id.to_string(), static_cast<int>(mode), pending_dropout_request_id_);
         return;
     }
     
@@ -1724,7 +1724,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
         pending_snr_request_id_ = render_coordinator_->requestSNRData(node_id, mode);
         
         ORC_LOG_DEBUG("Requested SNR analysis data for node '{}', mode {}, request_id={}",
-                      node_id, static_cast<int>(mode), pending_snr_request_id_);
+                      node_id.to_string(), static_cast<int>(mode), pending_snr_request_id_);
         return;
     }
     
@@ -1759,7 +1759,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
         pending_burst_level_request_id_ = render_coordinator_->requestBurstLevelData(node_id);
         
         ORC_LOG_DEBUG("Requested burst level analysis data for node '{}', request_id={}",
-                      node_id, pending_burst_level_request_id_);
+                      node_id.to_string(), pending_burst_level_request_id_);
         return;
     }
     
@@ -1778,7 +1778,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
     // Connect apply signal to handle applying results to the node
     connect(&dialog, &orc::gui::AnalysisDialog::applyToGraph, 
             [this, tool, node_id](const orc::AnalysisResult& result) {
-        ORC_LOG_INFO("Applying analysis results to node '{}'", node_id);
+        ORC_LOG_INFO("Applying analysis results to node '{}'", node_id.to_string());
         
         try {
             bool success = tool->applyToGraph(result, project_.coreProject(), node_id);
@@ -1792,7 +1792,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
                 
                 statusBar()->showMessage(
                     QString("Applied analysis results to node '%1'")
-                        .arg(QString::fromStdString(node_id)),
+                        .arg(QString::fromStdString(node_id.to_string())),
                     5000
                 );
                 QMessageBox::information(this, "Analysis Applied",
@@ -1869,7 +1869,7 @@ void MainWindow::updateVBIDialog()
     }
     
     // Get current field being displayed
-    if (current_view_node_id_.empty()) {
+    if (!current_view_node_id_.is_valid()) {
         vbi_dialog_->clearVBIInfo();
         return;
     }

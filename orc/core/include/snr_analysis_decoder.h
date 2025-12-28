@@ -12,6 +12,7 @@
 
 #include "../observers/snr_analysis_observer.h"
 #include "field_id.h"
+#include "node_id.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -77,7 +78,7 @@ public:
      * @return SNR statistics, or empty optional if not available
      */
     std::optional<FieldSNRStats> get_snr_for_field(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id,
         SNRAnalysisMode mode);
     
@@ -93,7 +94,7 @@ public:
      * @return Vector of SNR statistics for each field
      */
     std::vector<FieldSNRStats> get_snr_for_all_fields(
-        const std::string& node_id,
+        NodeID node_id,
         SNRAnalysisMode mode,
         size_t max_fields = 0,
         std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
@@ -111,7 +112,7 @@ public:
      * @return Vector of SNR statistics for each frame
      */
     std::vector<FrameSNRStats> get_snr_by_frames(
-        const std::string& node_id,
+        NodeID node_id,
         SNRAnalysisMode mode,
         size_t max_frames = 0,
         std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
@@ -140,7 +141,7 @@ private:
     
     // Cache key for storing processed results
     struct CacheKey {
-        std::string node_id;
+        NodeID node_id;
         SNRAnalysisMode mode;
         
         bool operator==(const CacheKey& other) const {
@@ -151,7 +152,7 @@ private:
     // Hash function for CacheKey
     struct CacheKeyHash {
         std::size_t operator()(const CacheKey& key) const {
-            std::size_t h1 = std::hash<std::string>{}(key.node_id);
+            std::size_t h1 = std::hash<NodeID>{}(key.node_id);
             std::size_t h2 = std::hash<int>{}(static_cast<int>(key.mode));
             return h1 ^ (h2 << 1);
         }

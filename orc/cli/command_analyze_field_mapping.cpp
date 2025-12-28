@@ -52,7 +52,7 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
     }
     
     // Find all source nodes
-    std::vector<std::string> source_node_ids;
+    std::vector<orc::NodeID> source_node_ids;
     for (const auto& node : project.get_nodes()) {
         if (node.node_type == orc::NodeType::SOURCE) {
             source_node_ids.push_back(node.node_id);
@@ -67,14 +67,14 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
     ORC_LOG_INFO("Found {} source node(s)", source_node_ids.size());
     
     // For each source, find connected field_map nodes and analyze
-    std::map<std::string, FieldMappingDecision> decisions;
+    std::map<orc::NodeID, FieldMappingDecision> decisions;
     
     for (const auto& source_node_id : source_node_ids) {
         ORC_LOG_INFO("");
         ORC_LOG_INFO("=== Analyzing source: {} ===", source_node_id);
         
         // Find field_map node(s) connected to this source
-        std::string field_map_node_id;
+        orc::NodeID field_map_node_id;
         for (const auto& edge : project.get_edges()) {
             if (edge.source_node_id == source_node_id) {
                 // Check if target is a field_map node
@@ -84,11 +84,11 @@ int analyze_field_mapping_command(const AnalyzeFieldMappingOptions& options) {
                         break;
                     }
                 }
-                if (!field_map_node_id.empty()) break;
+                if (field_map_node_id.is_valid()) break;
             }
         }
         
-        if (field_map_node_id.empty()) {
+        if (!field_map_node_id.is_valid()) {
             ORC_LOG_WARN("No field_map node found connected to source {}, skipping", source_node_id);
             continue;
         }

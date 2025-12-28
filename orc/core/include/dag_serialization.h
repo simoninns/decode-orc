@@ -14,12 +14,13 @@
 #include <map>
 #include "stage_parameter.h"
 #include "node_type.h"
+#include "node_id.h"
 
 namespace orc {
 
 /// Node in a GUI DAG representation
 struct GUIDAGNode {
-    std::string node_id;
+    NodeID node_id;
     std::string stage_name;
     NodeType node_type;        // Node type (SOURCE, SINK, TRANSFORM, etc.)
     std::string display_name;  // Display name for GUI
@@ -31,8 +32,8 @@ struct GUIDAGNode {
 
 /// Edge in a GUI DAG representation
 struct GUIDAGEdge {
-    std::string source_node_id;
-    std::string target_node_id;
+    NodeID source_node_id;
+    NodeID target_node_id;
 };
 
 /// Complete GUI DAG representation

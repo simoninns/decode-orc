@@ -11,6 +11,7 @@
 #define ORC_CORE_OBSERVATION_CACHE_H
 
 #include "field_id.h"
+#include "node_id.h"
 #include <memory>
 #include <unordered_map>
 #include <string>
@@ -54,7 +55,7 @@ public:
      * @return Field representation, or nullopt if field cannot be rendered
      */
     std::optional<std::shared_ptr<const VideoFieldRepresentation>> get_field(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id);
     
     /**
@@ -67,7 +68,7 @@ public:
      * @param max_fields Maximum fields to cache (0 = all)
      * @return Number of fields successfully cached
      */
-    size_t populate_node(const std::string& node_id, size_t max_fields = 0);
+    size_t populate_node(NodeID node_id, size_t max_fields = 0);
     
     /**
      * @brief Check if observations are cached for a specific field
@@ -76,7 +77,7 @@ public:
      * @param field_id The field to check
      * @return True if cached
      */
-    bool is_cached(const std::string& node_id, FieldID field_id) const;
+    bool is_cached(NodeID node_id, FieldID field_id) const;
     
     /**
      * @brief Get the total field count at a node
@@ -86,7 +87,7 @@ public:
      * @param node_id The node to query
      * @return Field count, or 0 if node cannot be rendered
      */
-    size_t get_field_count(const std::string& node_id);
+    size_t get_field_count(NodeID node_id);
     
     /**
      * @brief Update the DAG reference and clear cache
@@ -103,12 +104,12 @@ public:
      * @brief Clear cached observations for a specific node
      * @param node_id The node to clear
      */
-    void clear_node(const std::string& node_id);
+    void clear_node(NodeID node_id);
 
 private:
     // Cache key for storing observations
     struct CacheKey {
-        std::string node_id;
+        NodeID node_id;
         FieldID field_id;
         
         bool operator==(const CacheKey& other) const {
@@ -119,7 +120,7 @@ private:
     // Hash function for CacheKey
     struct CacheKeyHash {
         std::size_t operator()(const CacheKey& key) const {
-            std::size_t h1 = std::hash<std::string>{}(key.node_id);
+            std::size_t h1 = std::hash<NodeID>{}(key.node_id);
             std::size_t h2 = std::hash<int32_t>{}(key.field_id.value());
             return h1 ^ (h2 << 1);
         }
@@ -132,14 +133,14 @@ private:
     std::unordered_map<CacheKey, std::shared_ptr<const VideoFieldRepresentation>, CacheKeyHash> cache_;
     
     // Cache of field counts per node
-    std::unordered_map<std::string, size_t> field_count_cache_;
+    std::unordered_map<NodeID, size_t> field_count_cache_;
     
     // Mutex for thread-safe access
     mutable std::mutex cache_mutex_;
     
     // Render a single field and cache it
     std::optional<std::shared_ptr<const VideoFieldRepresentation>> render_and_cache(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id);
 };
 

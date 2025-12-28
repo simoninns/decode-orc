@@ -63,7 +63,7 @@ void BurstLevelAnalysisDecoder::set_observation_cache(std::shared_ptr<Observatio
 }
 
 std::optional<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for_field(
-    const std::string& node_id,
+    NodeID node_id,
     FieldID field_id)
 {
     try {
@@ -72,7 +72,7 @@ std::optional<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_f
         
         if (!field_repr.has_value()) {
             ORC_LOG_WARN("BurstLevelAnalysisDecoder: Failed to get field {} at node '{}'",
-                        field_id.value(), node_id);
+                        field_id.value(), node_id.to_string());
             return std::nullopt;
         }
         
@@ -86,7 +86,7 @@ std::optional<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_f
 }
 
 std::vector<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for_all_fields(
-    const std::string& node_id,
+    NodeID node_id,
     size_t max_fields,
     std::function<void(size_t, size_t, const std::string&)> progress_callback)
 {
@@ -95,7 +95,7 @@ std::vector<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for
         CacheKey key{node_id};
         auto it = field_cache_.find(key);
         if (it != field_cache_.end()) {
-            ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Returning cached field data for node '{}'", node_id);
+            ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Returning cached field data for node '{}'", node_id.to_string());
             return it->second;
         }
     }
@@ -107,7 +107,7 @@ std::vector<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for
         size_t field_count = obs_cache_->get_field_count(node_id);
         
         if (field_count == 0) {
-            ORC_LOG_WARN("BurstLevelAnalysisDecoder: No fields available for node '{}'", node_id);
+            ORC_LOG_WARN("BurstLevelAnalysisDecoder: No fields available for node '{}'", node_id.to_string());
             return results;
         }
         
@@ -118,7 +118,7 @@ std::vector<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for
         results.resize(field_count);
         
         ORC_LOG_INFO("BurstLevelAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
-                    field_count, node_id, std::thread::hardware_concurrency());
+                    field_count, node_id.to_string(), std::thread::hardware_concurrency());
         
         // Process fields in parallel using all available cores
         const size_t num_threads = std::max(1u, std::thread::hardware_concurrency());
@@ -179,14 +179,14 @@ std::vector<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for
         CacheKey key{node_id};
         field_cache_[key] = results;
         ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Cached field data for node '{}' ({} fields)", 
-                     node_id, results.size());
+                     node_id.to_string(), results.size());
     }
     
     return results;
 }
 
 std::vector<FrameBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_by_frames(
-    const std::string& node_id,
+    NodeID node_id,
     size_t max_frames,
     std::function<void(size_t, size_t, const std::string&)> progress_callback)
 {
@@ -195,7 +195,7 @@ std::vector<FrameBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_by_
         CacheKey key{node_id};
         auto it = frame_cache_.find(key);
         if (it != frame_cache_.end()) {
-            ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Returning cached frame data for node '{}'", node_id);
+            ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Returning cached frame data for node '{}'", node_id.to_string());
             return it->second;
         }
     }
@@ -263,7 +263,7 @@ std::vector<FrameBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_by_
         CacheKey key{node_id};
         frame_cache_[key] = results;
         ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Cached frame data for node '{}' ({} frames)", 
-                     node_id, results.size());
+                     node_id.to_string(), results.size());
     }
     
     return results;

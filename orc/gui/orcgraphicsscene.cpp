@@ -95,8 +95,8 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
     ORC_LOG_DEBUG("Node context menu requested for QtNode {}", nodeId);
     
     // Get ORC node ID
-    std::string orc_node_id = graph_model_.getOrcNodeId(nodeId);
-    if (orc_node_id.empty()) {
+    NodeID orc_node_id = graph_model_.getOrcNodeId(nodeId);
+    if (!orc_node_id.is_valid()) {
         ORC_LOG_WARN("Could not find ORC node ID for QtNode {}", nodeId);
         return;
     }
@@ -120,7 +120,7 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
     auto caps = orc::project_io::get_node_capabilities(graph_model_.project(), orc_node_id);
     
     // Debug: Log capabilities if debug logging is enabled
-    qDebug() << "Node capabilities for" << QString::fromStdString(caps.node_id) 
+    qDebug() << "Node capabilities for" << QString::number(caps.node_id.value()) 
              << "(" << QString::fromStdString(caps.stage_name) << "):";
     qDebug() << "  Can remove:" << caps.can_remove 
              << (caps.can_remove ? "" : QString("- %1").arg(QString::fromStdString(caps.remove_reason)));

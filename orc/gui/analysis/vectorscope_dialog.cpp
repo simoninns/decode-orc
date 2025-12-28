@@ -72,7 +72,7 @@ void AspectRatioLabel::updateScaledPixmap() {
 
 VectorscopeDialog::VectorscopeDialog(QWidget *parent)
     : QDialog(parent)
-    , node_id_("")
+    , node_id_()
     , current_field_number_(0)
 {
     setWindowTitle("Vectorscope");
@@ -86,9 +86,9 @@ VectorscopeDialog::VectorscopeDialog(QWidget *parent)
 VectorscopeDialog::~VectorscopeDialog() {
 }
 
-void VectorscopeDialog::setStage(const std::string& node_id) {
+void VectorscopeDialog::setStage(orc::NodeID node_id) {
     node_id_ = node_id;
-    setWindowTitle(QString("Vectorscope - %1").arg(QString::fromStdString(node_id)));
+    setWindowTitle(QString("Vectorscope - Node %1").arg(node_id.value()));
 }
 
 void VectorscopeDialog::setupUI() {

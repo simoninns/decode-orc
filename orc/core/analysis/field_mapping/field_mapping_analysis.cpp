@@ -110,7 +110,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         return result;
     }
     
-    std::string input_node_id = node.input_node_ids[0];
+    NodeID input_node_id = node.input_node_ids[0];
     ORC_LOG_INFO("Node '{}': Field mapping analysis - getting input from node '{}'", ctx.node_id, input_node_id);
     
     // Execute DAG to get the VideoFieldRepresentation from the input node
@@ -321,14 +321,14 @@ bool FieldMappingAnalysisTool::canApplyToGraph() const {
 
 bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
                                          Project& project,
-                                         const std::string& node_id) {
+                                         NodeID node_id) {
     // Find the target node in the project
     const auto& nodes = project.get_nodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
         [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (node_it == nodes.end()) {
-        std::cerr << "DiscMapperAnalysisTool::applyToGraph: node not found: " << node_id << std::endl;
+        std::cerr << "DiscMapperAnalysisTool::applyToGraph: node not found: " << node_id.value() << std::endl;
         return false;
     }
     
@@ -352,7 +352,7 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     }
     ORC_LOG_INFO("Node '{}':   New mapping spec: {}", node_id, mappingSpec);
     
-    std::cout << "Applying field mapping results to node " << node_id << std::endl;
+    std::cout << "Applying field mapping results to node " << node_id.value() << std::endl;
     std::cout << "  Mapping spec: " << mappingSpec << std::endl;
     auto rationale_it = result.graphData.find("rationale");
     if (rationale_it != result.graphData.end()) {

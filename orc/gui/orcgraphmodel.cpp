@@ -72,7 +72,7 @@ NodeId OrcGraphModel::newNodeId()
     return max_id;
 }
 
-NodeId OrcGraphModel::getOrCreateQtNodeId(const std::string& orc_node_id)
+NodeId OrcGraphModel::getOrCreateQtNodeId(const orc::NodeID& orc_node_id)
 {
     auto it = orc_to_qt_nodes_.find(orc_node_id);
     if (it != orc_to_qt_nodes_.end()) {
@@ -85,7 +85,7 @@ NodeId OrcGraphModel::getOrCreateQtNodeId(const std::string& orc_node_id)
     return qt_id;
 }
 
-const orc::ProjectDAGNode* OrcGraphModel::findOrcNode(const std::string& node_id) const
+const orc::ProjectDAGNode* OrcGraphModel::findOrcNode(const orc::NodeID& node_id) const
 {
     for (const auto& node : project_.get_nodes()) {
         if (node.node_id == node_id) {
@@ -158,7 +158,7 @@ NodeId OrcGraphModel::addNode(QString const nodeType)
     std::string stage_name = nodeType.isEmpty() ? "TBCSource" : nodeType.toStdString();
     
     try {
-        std::string node_id = orc::project_io::add_node(project_, stage_name, 0.0, 0.0);
+orc::NodeID node_id = orc::project_io::add_node(project_, stage_name, 0.0, 0.0);
         
         NodeId qt_id = getOrCreateQtNodeId(node_id);
         
@@ -204,6 +204,9 @@ void OrcGraphModel::addConnection(ConnectionId const connectionId)
     if (it_out == qt_to_orc_nodes_.end() || it_in == qt_to_orc_nodes_.end()) {
         return;
     }
+    
+    const orc::NodeID& source_id = it_out->second;
+    const orc::NodeID& target_id = it_in->second;
     
     // Use core's add_edge which handles validation and modification tracking
     try {
@@ -396,8 +399,8 @@ bool OrcGraphModel::deleteConnection(ConnectionId const connectionId)
         return false;
     }
     
-    const std::string& source_id = it_out->second;
-    const std::string& target_id = it_in->second;
+    const orc::NodeID& source_id = it_out->second;
+    const orc::NodeID& target_id = it_in->second;
     
     // Use core's remove_edge which handles modification tracking
     try {
@@ -422,7 +425,7 @@ bool OrcGraphModel::deleteNode(NodeId const nodeId)
         return false;
     }
     
-    const std::string& orc_node_id = it->second;
+    const orc::NodeID& orc_node_id = it->second;
     
     // Remove all connections involving this node from GUI state
     std::vector<ConnectionId> to_remove;
@@ -449,7 +452,7 @@ bool OrcGraphModel::deleteNode(NodeId const nodeId)
         return true;
     } catch (const std::exception& e) {
         // Log error - validation failed (likely has connections)
-        ORC_LOG_WARN("Failed to delete node '{}': {}", orc_node_id, e.what());
+        ORC_LOG_WARN("Failed to delete node '{}': {}", orc_node_id.to_string(), e.what());
         return false;
     }
 }
@@ -466,7 +469,7 @@ QJsonObject OrcGraphModel::saveNode(NodeId const nodeId) const
     if (it != qt_to_orc_nodes_.end()) {
         const orc::ProjectDAGNode* node = findOrcNode(it->second);
         if (node) {
-            json["orc_node_id"] = QString::fromStdString(node->node_id);
+            json["orc_node_id"] = QString::number(node->node_id.value());
             json["stage_name"] = QString::fromStdString(node->stage_name);
             json["display_name"] = QString::fromStdString(node->display_name);
             json["user_label"] = QString::fromStdString(node->user_label);
@@ -484,11 +487,11 @@ void OrcGraphModel::loadNode(QJsonObject const& nodeJson)
     ORC_LOG_WARN("OrcGraphModel::loadNode not implemented - use project_io instead");
 }
 
-std::string OrcGraphModel::getOrcNodeId(NodeId qtNodeId) const
+orc::NodeID OrcGraphModel::getOrcNodeId(NodeId qtNodeId) const
 {
     auto it = qt_to_orc_nodes_.find(qtNodeId);
     if (it != qt_to_orc_nodes_.end()) {
         return it->second;
     }
-    return "";
+    return orc::NodeID();
 }

@@ -30,7 +30,7 @@ void VBIDecoder::update_dag(std::shared_ptr<const DAG> dag) {
 }
 
 std::optional<VBIFieldInfo> VBIDecoder::get_vbi_for_field(
-    const std::string& node_id,
+    const NodeID& node_id,
     FieldID field_id)
 {
     if (!dag_) {
@@ -56,13 +56,13 @@ std::optional<VBIFieldInfo> VBIDecoder::get_vbi_for_field(
     
     if (!render_result.is_valid) {
         ORC_LOG_WARN("VBIDecoder: Failed to render field {} at node {}: {}",
-                       field_id.value(), node_id, render_result.error_message);
+                       field_id.value(), node_id.to_string(), render_result.error_message);
         return std::nullopt;
     }
     
     if (!render_result.representation) {
         ORC_LOG_WARN("VBIDecoder: No representation returned for field {} at node {}",
-                       field_id.value(), node_id);
+                       field_id.value(), node_id.to_string());
         return std::nullopt;
     }
     

@@ -31,7 +31,7 @@ public:
     bool canApplyToGraph() const override;
     bool applyToGraph(const AnalysisResult& result,
                      Project& project,
-                     const std::string& node_id) override;
+                     NodeID node_id) override;
     
     int estimateDurationSeconds(const AnalysisContext& ctx) const override;
 };

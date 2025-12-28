@@ -82,7 +82,7 @@ void RenderCoordinator::updateDAG(std::shared_ptr<const orc::DAG> dag)
     enqueueRequest(std::move(req));
 }
 
-uint64_t RenderCoordinator::requestPreview(const std::string& node_id,
+uint64_t RenderCoordinator::requestPreview(const orc::NodeID& node_id,
                                           orc::PreviewOutputType output_type,
                                           uint64_t output_index,
                                           const std::string& option_id)
@@ -93,7 +93,7 @@ uint64_t RenderCoordinator::requestPreview(const std::string& node_id,
     return id;
 }
 
-uint64_t RenderCoordinator::requestVBIData(const std::string& node_id, orc::FieldID field_id)
+uint64_t RenderCoordinator::requestVBIData(const orc::NodeID& node_id, orc::FieldID field_id)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<GetVBIDataRequest>(id, node_id, field_id);
@@ -101,7 +101,7 @@ uint64_t RenderCoordinator::requestVBIData(const std::string& node_id, orc::Fiel
     return id;
 }
 
-uint64_t RenderCoordinator::requestDropoutData(const std::string& node_id, orc::DropoutAnalysisMode mode)
+uint64_t RenderCoordinator::requestDropoutData(const orc::NodeID& node_id, orc::DropoutAnalysisMode mode)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<GetDropoutDataRequest>(id, node_id, mode);
@@ -109,7 +109,7 @@ uint64_t RenderCoordinator::requestDropoutData(const std::string& node_id, orc::
     return id;
 }
 
-uint64_t RenderCoordinator::requestSNRData(const std::string& node_id, orc::SNRAnalysisMode mode)
+uint64_t RenderCoordinator::requestSNRData(const orc::NodeID& node_id, orc::SNRAnalysisMode mode)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<GetSNRDataRequest>(id, node_id, mode);
@@ -117,7 +117,7 @@ uint64_t RenderCoordinator::requestSNRData(const std::string& node_id, orc::SNRA
     return id;
 }
 
-uint64_t RenderCoordinator::requestBurstLevelData(const std::string& node_id)
+uint64_t RenderCoordinator::requestBurstLevelData(const orc::NodeID& node_id)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<GetBurstLevelDataRequest>(id, node_id);
@@ -125,7 +125,7 @@ uint64_t RenderCoordinator::requestBurstLevelData(const std::string& node_id)
     return id;
 }
 
-uint64_t RenderCoordinator::requestAvailableOutputs(const std::string& node_id)
+uint64_t RenderCoordinator::requestAvailableOutputs(const orc::NodeID& node_id)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<GetAvailableOutputsRequest>(id, node_id);
@@ -133,7 +133,7 @@ uint64_t RenderCoordinator::requestAvailableOutputs(const std::string& node_id)
     return id;
 }
 
-uint64_t RenderCoordinator::requestTrigger(const std::string& node_id)
+uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<TriggerStageRequest>(id, node_id);
@@ -279,7 +279,7 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
 void RenderCoordinator::handleRenderPreview(const RenderPreviewRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Rendering preview for node '{}', type {}, index {} (request {})",
-                  req.node_id, static_cast<int>(req.output_type), req.output_index, req.request_id);
+                  req.node_id.to_string(), static_cast<int>(req.output_type), req.output_index, req.request_id);
     
     if (!worker_preview_renderer_) {
         ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
@@ -309,7 +309,7 @@ void RenderCoordinator::handleRenderPreview(const RenderPreviewRequest& req)
 void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting VBI data for node '{}', field {} (request {})",
-                  req.node_id, req.field_id.value(), req.request_id);
+                  req.node_id.to_string(), req.field_id.value(), req.request_id);
     
     if (!worker_vbi_decoder_) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decoder not initialized");
@@ -338,7 +338,7 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
 void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting dropout analysis data for node '{}', mode {} (request {})",
-                  req.node_id, static_cast<int>(req.mode), req.request_id);
+                  req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
     
     if (!worker_dropout_decoder_) {
         ORC_LOG_ERROR("RenderCoordinator: Dropout decoder not initialized");
@@ -379,7 +379,7 @@ void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
 void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting SNR analysis data for node '{}', mode {} (request {})",
-                  req.node_id, static_cast<int>(req.mode), req.request_id);
+                  req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
     
     if (!worker_snr_decoder_) {
         ORC_LOG_ERROR("RenderCoordinator: SNR decoder not initialized");
@@ -420,7 +420,7 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
 void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting burst level analysis data for node '{}' (request {})",
-                  req.node_id, req.request_id);
+                  req.node_id.to_string(), req.request_id);
     
     if (!worker_burst_level_decoder_) {
         ORC_LOG_ERROR("RenderCoordinator: Burst level decoder not initialized");
@@ -460,7 +460,7 @@ void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& 
 void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting available outputs for node '{}' (request {})",
-                  req.node_id, req.request_id);
+                  req.node_id.to_string(), req.request_id);
     
     if (!worker_preview_renderer_) {
         ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
@@ -484,7 +484,7 @@ void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsReque
 
 void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
 {
-    ORC_LOG_INFO("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id, req.request_id);
+    ORC_LOG_INFO("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id.to_string(), req.request_id);
     
     if (!worker_dag_) {
         ORC_LOG_ERROR("RenderCoordinator: DAG not initialized");
@@ -516,14 +516,14 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
         }
         
         if (!target_node) {
-            emit error(req.request_id, QString::fromStdString("Node '" + req.node_id + "' not found in DAG"));
+            emit error(req.request_id, QString::fromStdString("Node '" + req.node_id.to_string() + "' not found in DAG"));
             emit triggerComplete(req.request_id, false, "Node not found");
             return;
         }
         
         auto trigger_stage = dynamic_cast<orc::TriggerableStage*>(target_node->stage.get());
         if (!trigger_stage) {
-            emit error(req.request_id, QString::fromStdString("Stage '" + req.node_id + "' is not triggerable"));
+            emit error(req.request_id, QString::fromStdString("Stage '" + req.node_id.to_string() + "' is not triggerable"));
             emit triggerComplete(req.request_id, false, "Stage not triggerable");
             return;
         }

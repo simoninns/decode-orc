@@ -12,6 +12,7 @@
 
 #include "biphase_observer.h"
 #include "field_id.h"
+#include "node_id.h"
 #include "lru_cache.h"
 #include <memory>
 #include <optional>
@@ -87,7 +88,7 @@ public:
      * 3. Formats the data into VBIFieldInfo for display
      */
     std::optional<VBIFieldInfo> get_vbi_for_field(
-        const std::string& node_id,
+        const NodeID& node_id,
         FieldID field_id);
     
     /**
@@ -109,7 +110,7 @@ private:
     
     // Cache key for VBI results: (node_id, field_id, dag_version)
     struct VBICacheKey {
-        std::string node_id;
+        NodeID node_id;
         uint64_t field_id_value;
         uint64_t dag_version;
         
@@ -122,7 +123,7 @@ private:
     
     struct VBICacheKeyHash {
         size_t operator()(const VBICacheKey& key) const {
-            return std::hash<std::string>()(key.node_id) ^ 
+            return std::hash<NodeID>()(key.node_id) ^ 
                    (std::hash<uint64_t>()(key.field_id_value) << 1) ^
                    (std::hash<uint64_t>()(key.dag_version) << 2);
         }

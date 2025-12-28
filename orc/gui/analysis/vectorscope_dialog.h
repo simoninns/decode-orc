@@ -19,6 +19,7 @@
 #include <QImage>
 #include <string>
 #include <optional>
+#include "../../core/include/node_id.h"
 #include "../../core/analysis/vectorscope/vectorscope_data.h"
 
 /**
@@ -60,7 +61,7 @@ public:
     explicit VectorscopeDialog(QWidget *parent = nullptr);
     ~VectorscopeDialog() override;
     
-    void setStage(const std::string& node_id);
+    void setStage(orc::NodeID node_id);
     
     /**
      * @brief Update vectorscope for a specific field
@@ -97,7 +98,7 @@ private:
     void drawGraticule(QPainter& painter, const orc::VectorscopeData& data);
     
     // Associated stage
-    std::string node_id_;
+    orc::NodeID node_id_;
     orc::ChromaSinkStage* stage_;  // Not owned
     
     // UI components

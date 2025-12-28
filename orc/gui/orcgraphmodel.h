@@ -12,6 +12,7 @@
 #include <QtNodes/AbstractGraphModel>
 #include <QJsonObject>
 #include "project.h"
+#include "../core/include/node_id.h"
 
 using QtNodes::ConnectionId;
 using QtNodes::NodeId;
@@ -71,27 +72,27 @@ public:
     void refresh();
     
     // Get ORC node ID from QtNodes NodeId
-    std::string getOrcNodeId(NodeId qtNodeId) const;
+    orc::NodeID getOrcNodeId(NodeId qtNodeId) const;
     
     // Access to underlying project (for context menu)
     orc::Project& project() { return project_; }
     const orc::Project& project() const { return project_; }
     
     // Helper to find ORC node by ID (public for custom painters)
-    const orc::ProjectDAGNode* findOrcNode(const std::string& node_id) const;
+    const orc::ProjectDAGNode* findOrcNode(const orc::NodeID& node_id) const;
 
 private:
     orc::Project& project_;
     
     // Map between QtNodes IDs and ORC node IDs
-    std::map<NodeId, std::string> qt_to_orc_nodes_;
-    std::map<std::string, NodeId> orc_to_qt_nodes_;
+    std::map<NodeId, orc::NodeID> qt_to_orc_nodes_;
+    std::map<orc::NodeID, NodeId> orc_to_qt_nodes_;
     
     // Store all connections
     std::unordered_set<ConnectionId> connectivity_;
     
     // Helper functions
-    NodeId getOrCreateQtNodeId(const std::string& orc_node_id);
+    NodeId getOrCreateQtNodeId(const orc::NodeID& orc_node_id);
     // Removed non-const version - use project_io for modifications
     
     void buildMappings();

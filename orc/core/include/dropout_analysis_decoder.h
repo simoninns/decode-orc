@@ -12,6 +12,7 @@
 
 #include "../observers/dropout_analysis_observer.h"
 #include "field_id.h"
+#include "node_id.h"
 #include <memory>
 #include <optional>
 #include <string>
@@ -72,7 +73,7 @@ public:
      * @return Dropout statistics, or empty optional if not available
      */
     std::optional<FieldDropoutStats> get_dropout_for_field(
-        const std::string& node_id,
+        NodeID node_id,
         FieldID field_id,
         DropoutAnalysisMode mode);
     
@@ -88,7 +89,7 @@ public:
      * @return Vector of dropout statistics for each field
      */
     std::vector<FieldDropoutStats> get_dropout_for_all_fields(
-        const std::string& node_id,
+        NodeID node_id,
         DropoutAnalysisMode mode,
         size_t max_fields = 0,
         std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
@@ -106,7 +107,7 @@ public:
      * @return Vector of dropout statistics for each frame
      */
     std::vector<FrameDropoutStats> get_dropout_by_frames(
-        const std::string& node_id,
+        NodeID node_id,
         DropoutAnalysisMode mode,
         size_t max_frames = 0,
         std::function<void(size_t, size_t, const std::string&)> progress_callback = nullptr);
@@ -129,7 +130,7 @@ public:
 private:
     // Cache key for storing processed results
     struct CacheKey {
-        std::string node_id;
+        NodeID node_id;
         DropoutAnalysisMode mode;
         
         bool operator==(const CacheKey& other) const {
@@ -140,7 +141,7 @@ private:
     // Hash function for CacheKey
     struct CacheKeyHash {
         std::size_t operator()(const CacheKey& key) const {
-            std::size_t h1 = std::hash<std::string>{}(key.node_id);
+            std::size_t h1 = std::hash<NodeID>{}(key.node_id);
             std::size_t h2 = std::hash<int>{}(static_cast<int>(key.mode));
             return h1 ^ (h2 << 1);
         }

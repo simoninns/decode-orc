@@ -18,11 +18,13 @@
 #include <QTimer>
 #include <memory>
 #include <future>
+#include "../core/include/node_id.h"
 #include "guiproject.h"
 #include "preview_renderer.h"  // For PreviewOutputType
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
+#include "../core/include/node_id.h"
 
 class OrcGraphicsView;
 class PreviewDialog;
@@ -67,6 +69,9 @@ class QTimer;
  * Architecture: This window is a thin display client.
  * All rendering logic is in orc::PreviewRenderer (orc-core).
  */
+
+using orc::NodeID;  // Make NodeID available for Qt signals/slots
+
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -98,13 +103,13 @@ private slots:
     void onNavigatePreview(int delta);
     void onPreviewModeChanged(int index);
     void onAspectRatioModeChanged(int index);
-    void onNodeSelectedForView(const std::string& node_id);
+    void onNodeSelectedForView(const orc::NodeID& node_id);
     void onDAGModified();
     void onExportPNG();
     void onNodeContextMenu(QtNodes::NodeId nodeId, const QPointF& pos);
     void onArrangeDAGToGrid();
     void onQtNodeSelected(QtNodes::NodeId nodeId);
-    void onInspectStage(const std::string& node_id);
+    void onInspectStage(const orc::NodeID& node_id);
     void onShowVBIDialog();
     void updateVBIDialog();
     void onPollTriggerProgress();
@@ -138,11 +143,11 @@ private:
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls();  // Update slider, combo, preview, and info for current node
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
-    void updateVectorscope(const std::string& node_id, const orc::PreviewImage& image);
+    void updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image);
     void loadProjectDAG();  // Load DAG into embedded viewer
-    void onEditParameters(const std::string& node_id);
-    void onTriggerStage(const std::string& node_id);
-    void runAnalysisForNode(orc::AnalysisTool* tool, const std::string& node_id, const std::string& stage_name);
+    void onEditParameters(const orc::NodeID& node_id);
+    void onTriggerStage(const orc::NodeID& node_id);
+    void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);
     
     // Settings helpers
     QString getLastProjectDirectory() const;
@@ -153,7 +158,7 @@ private:
     // Project management
     GUIProject project_;
     std::unique_ptr<RenderCoordinator> render_coordinator_;  // Owns all core rendering state
-    std::string current_view_node_id_;  // Which node is being viewed
+    orc::NodeID current_view_node_id_;  // Which node is being viewed
     QtNodes::NodeId last_selected_qt_node_id_;  // Last selected node in DAG for DEL key
     
     // Pending request tracking
@@ -166,12 +171,12 @@ private:
     uint64_t pending_burst_level_request_id_{0};
     
     // Dropout analysis state tracking
-    std::string last_dropout_node_id_;
+    orc::NodeID last_dropout_node_id_;
     orc::DropoutAnalysisMode last_dropout_mode_;
     orc::PreviewOutputType last_dropout_output_type_;
     
     // SNR analysis state tracking
-    std::string last_snr_node_id_;
+    orc::NodeID last_snr_node_id_;
     orc::SNRAnalysisMode last_snr_mode_;
     orc::PreviewOutputType last_snr_output_type_;
     
@@ -181,7 +186,7 @@ private:
     DropoutAnalysisDialog* dropout_analysis_dialog_;
     SNRAnalysisDialog* snr_analysis_dialog_;
     BurstLevelAnalysisDialog* burst_level_analysis_dialog_;
-    std::unordered_map<std::string, VectorscopeDialog*> vectorscope_dialogs_;
+    std::unordered_map<orc::NodeID, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;

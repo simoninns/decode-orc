@@ -154,12 +154,12 @@ void GUIProject::validateDAGSources()
                 // This will trigger TBC loading and validation
                 auto outputs = node.stage->execute({}, node.parameters);
                 if (outputs.empty()) {
-                    throw std::runtime_error("Source node '" + node.node_id + "' produced no output");
+                    throw std::runtime_error("Source node '" + node.node_id.to_string() + "' produced no output");
                 }
                 ORC_LOG_DEBUG("Source node validation passed: {}", node.node_id);
             } catch (const std::exception& e) {
                 // Source validation failed - re-throw with more context
-                std::string error_msg = "Source validation failed for node '" + node.node_id + "': " + e.what();
+                std::string error_msg = "Source validation failed for node '" + node.node_id.to_string() + "': " + e.what();
                 throw std::runtime_error(error_msg);
             }
         }

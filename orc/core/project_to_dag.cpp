@@ -33,7 +33,7 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         // Instantiate stage from registry
         if (!registry.has_stage(proj_node.stage_name)) {
             throw ProjectConversionError(
-                "Unknown stage type: " + proj_node.stage_name + " in node " + proj_node.node_id
+                "Unknown stage type: " + proj_node.stage_name + " in node " + std::to_string(proj_node.node_id.value())
             );
         }
         
@@ -75,7 +75,7 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
     }
     
     // Find SINK nodes for output
-    std::vector<std::string> output_node_ids;
+    std::vector<NodeID> output_node_ids;
     for (const auto& proj_node : project.get_nodes()) {
         if (proj_node.node_type == NodeType::SINK) {
             output_node_ids.push_back(proj_node.node_id);

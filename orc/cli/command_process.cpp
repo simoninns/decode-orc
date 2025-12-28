@@ -58,7 +58,7 @@ int process_command(const ProcessOptions& options) {
     }
     
     // Find all sink nodes (triggerable stages)
-    std::vector<std::string> sink_nodes;
+    std::vector<orc::NodeID> sink_nodes;
     auto& registry = StageRegistry::instance();
     
     for (const auto& node : project.get_nodes()) {

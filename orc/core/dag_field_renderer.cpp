@@ -235,7 +235,6 @@ std::shared_ptr<VideoFieldRepresentation> DAGFieldRenderer::attach_observations(
     observers.push_back(std::make_unique<WhiteFlagObserver>());
     observers.push_back(std::make_unique<VITSQualityObserver>());
     observers.push_back(std::make_unique<BurstLevelObserver>());
-    observers.push_back(std::make_unique<DiscQualityObserver>());
     observers.push_back(std::make_unique<PulldownObserver>());
     observers.push_back(std::make_unique<LeadInOutObserver>());
     

@@ -14,6 +14,8 @@
 #include "observers/biphase_observer.h"
 #include "logging.h"
 #include <algorithm>
+#include <thread>
+#include <atomic>
 
 namespace orc {
 
@@ -116,33 +118,54 @@ std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
             field_count = max_fields;
         }
         
-        results.reserve(field_count);
+        results.resize(field_count);
         
-        ORC_LOG_INFO("SNRAnalysisDecoder: Processing {} fields at node '{}'",
-                    field_count, node_id);
+        ORC_LOG_INFO("SNRAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
+                    field_count, node_id, std::thread::hardware_concurrency());
         
-        // For large datasets, log progress in batches
-        const size_t BATCH_SIZE = 100;
+        // Process fields in parallel using all available cores
+        const size_t num_threads = std::max(1u, std::thread::hardware_concurrency());
+        const size_t chunk_size = (field_count + num_threads - 1) / num_threads;
         
-        // Process each field - the observation cache will populate on-demand
-        for (size_t i = 0; i < field_count; ++i) {
-            // Log progress every batch
-            if (i > 0 && i % BATCH_SIZE == 0) {
-                ORC_LOG_INFO("SNRAnalysisDecoder: Processed {}/{} fields", i, field_count);
+        std::vector<std::thread> threads;
+        std::atomic<size_t> progress_counter{0};
+        
+        auto process_chunk = [&](size_t start_idx, size_t end_idx) {
+            for (size_t i = start_idx; i < end_idx; ++i) {
+                FieldID field_id(i);
+                auto stats = get_snr_for_field(node_id, field_id, mode);
+                
+                if (stats.has_value()) {
+                    results[i] = stats.value();
+                } else {
+                    // Add empty entry to maintain field index consistency
+                    FieldSNRStats empty_stats;
+                    empty_stats.field_id = field_id;
+                    empty_stats.has_data = false;
+                    results[i] = empty_stats;
+                }
+                
+                // Log progress periodically
+                size_t current = progress_counter.fetch_add(1) + 1;
+                if (current % 1000 == 0) {
+                    ORC_LOG_INFO("SNRAnalysisDecoder: Processed {}/{} fields", current, field_count);
+                }
             }
+        };
+        
+        // Launch threads
+        for (size_t t = 0; t < num_threads; ++t) {
+            size_t start_idx = t * chunk_size;
+            size_t end_idx = std::min(start_idx + chunk_size, field_count);
             
-            FieldID field_id(i);
-            auto stats = get_snr_for_field(node_id, field_id, mode);
-            
-            if (stats.has_value()) {
-                results.push_back(stats.value());
-            } else {
-                // Add empty entry to maintain field index consistency
-                FieldSNRStats empty_stats;
-                empty_stats.field_id = field_id;
-                empty_stats.has_data = false;
-                results.push_back(empty_stats);
+            if (start_idx < field_count) {
+                threads.emplace_back(process_chunk, start_idx, end_idx);
             }
+        }
+        
+        // Wait for all threads to complete
+        for (auto& thread : threads) {
+            thread.join();
         }
         
     } catch (const std::exception& e) {

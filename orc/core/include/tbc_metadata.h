@@ -222,6 +222,11 @@ public:
     
     // Read all field metadata (bulk operation)
     std::map<FieldID, FieldMetadata> read_all_field_metadata();
+    void read_all_dropouts();  // Load all dropouts into cache
+    
+    // Preload all metadata and dropouts into cache
+    // Call this when opening a project or adding a source stage to avoid lazy loading during analysis
+    void preload_cache();
     
     // Read specific field data
     std::optional<VbiData> read_vbi(FieldID field_id);

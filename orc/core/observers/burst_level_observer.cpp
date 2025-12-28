@@ -64,8 +64,15 @@ std::vector<std::shared_ptr<Observation>> BurstLevelObserver::process_field(
     size_t start_line = 11;
     size_t end_line = std::min(descriptor.height - 10, static_cast<size_t>(video_params.last_active_field_line));
     
-    // Process every line (not sampled - we want all lines for accurate median)
-    for (size_t line = start_line; line < end_line; ++line) {
+    // Sample just 3 lines (top, middle, bottom) for performance
+    // Since we're tracking trends over many fields, this is sufficient
+    std::vector<size_t> sample_lines = {
+        start_line,                                    // Top of active area
+        start_line + (end_line - start_line) / 2,     // Middle
+        end_line - 1                                   // Bottom
+    };
+    
+    for (size_t line : sample_lines) {
         const auto* line_data = representation.get_line(field_id, line);
         if (!line_data) {
             continue;

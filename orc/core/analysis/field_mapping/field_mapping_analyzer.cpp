@@ -10,7 +10,6 @@
 #include "field_mapping_analyzer.h"
 #include "../../observers/observation_history.h"
 #include "../../observers/biphase_observer.h"
-#include "../../include/disc_quality_observer.h"
 #include "../../include/pulldown_observer.h"
 #include "../../include/lead_in_out_observer.h"
 #include "../../include/logging.h"
@@ -39,7 +38,6 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     observers.push_back(std::make_shared<BiphaseObserver>());
     // Note: FieldParityObserver removed - field parity comes from hints only
     // Note: PALPhaseObserver removed - PAL phase comes from hints only
-    observers.push_back(std::make_shared<DiscQualityObserver>());
     observers.push_back(std::make_shared<PulldownObserver>());
     observers.push_back(std::make_shared<LeadInOutObserver>());
     
@@ -117,14 +115,8 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         frame.first_field_phase = phase_first.has_value() ? phase_first->field_phase_id : -1;
         frame.second_field_phase = phase_second.has_value() ? phase_second->field_phase_id : -1;
         
-        // Get quality
-        auto quality_first_ptr = history.get_observation(first_id, "DiscQuality");
-        auto quality_second_ptr = history.get_observation(second_id, "DiscQuality");
-        auto quality_first = std::dynamic_pointer_cast<DiscQualityObservation>(quality_first_ptr);
-        auto quality_second = std::dynamic_pointer_cast<DiscQualityObservation>(quality_second_ptr);
-        if (quality_first && quality_second) {
-            frame.quality_score = (quality_first->quality_score + quality_second->quality_score) / 2.0;
-        }
+        // Quality score removed - was calculated from dropouts which we already have
+        frame.quality_score = 1.0;  // Default to perfect quality
         
         // Get pulldown status
         auto pulldown_first_ptr = history.get_observation(first_id, "Pulldown");

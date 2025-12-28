@@ -100,6 +100,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onVBIDataReady);
     connect(render_coordinator_.get(), &RenderCoordinator::availableOutputsReady,
             this, &MainWindow::onAvailableOutputsReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
+            this, &MainWindow::onDropoutDataReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::snrDataReady,
+            this, &MainWindow::onSNRDataReady);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerProgress,
             this, &MainWindow::onTriggerProgress);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerComplete,
@@ -1006,6 +1010,15 @@ void MainWindow::onNodeSelectedForView(const std::string& node_id)
     // Request available outputs from coordinator
     pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
     
+    // Update analysis dialogs if they're visible (new node means new data)
+    if (dropout_analysis_dialog_ && dropout_analysis_dialog_->isVisible()) {
+        updateDropoutAnalysisDialog();
+    }
+    
+    if (snr_analysis_dialog_ && snr_analysis_dialog_->isVisible()) {
+        updateSNRAnalysisDialog();
+    }
+    
     // The rest will happen in onAvailableOutputsReady callback
 }
 
@@ -1669,8 +1682,24 @@ void MainWindow::updateAllPreviewComponents()
     updatePreview();
     updatePreviewInfo();
     updateVBIDialog();
-    updateDropoutAnalysisDialog();
-    updateSNRAnalysisDialog();
+    
+    // For analysis dialogs, only update the frame marker position (not the full data)
+    // Full data is only loaded when the dialog is first opened
+    if (dropout_analysis_dialog_ && dropout_analysis_dialog_->isVisible()) {
+        int32_t current_frame = 1;
+        if (preview_dialog_ && preview_dialog_->previewSlider()) {
+            current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+        }
+        dropout_analysis_dialog_->updateFrameMarker(current_frame);
+    }
+    
+    if (snr_analysis_dialog_ && snr_analysis_dialog_->isVisible()) {
+        int32_t current_frame = 1;
+        if (preview_dialog_ && preview_dialog_->previewSlider()) {
+            current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+        }
+        snr_analysis_dialog_->updateFrameMarker(current_frame);
+    }
 }
 
 void MainWindow::updateVBIDialog()
@@ -1714,12 +1743,15 @@ void MainWindow::onShowDropoutAnalysisDialog()
     }
     
     // Show the dialog first
+    bool was_visible = dropout_analysis_dialog_->isVisible();
     dropout_analysis_dialog_->show();
     dropout_analysis_dialog_->raise();
     dropout_analysis_dialog_->activateWindow();
     
-    // Update dropout analysis after showing
-    updateDropoutAnalysisDialog();
+    // Only load data if dialog was not already visible (first time opening)
+    if (!was_visible) {
+        updateDropoutAnalysisDialog();
+    }
 }
 
 void MainWindow::updateDropoutAnalysisDialog()
@@ -1729,16 +1761,18 @@ void MainWindow::updateDropoutAnalysisDialog()
         return;
     }
     
-    // TODO: Implement dropout analysis via coordinator
-    // This requires adding dropout analysis request types to the coordinator
-    // For now, show a message explaining the feature is not yet implemented
-    dropout_analysis_dialog_->showNoDataMessage(
-        "Dropout Analysis not yet implemented via thread-safe coordinator.\n\n"
-        "This feature requires batch analysis of all frames, which needs to be\n"
-        "implemented as an async coordinator request to maintain thread safety."
-    );
+    // Don't update if no node selected
+    if (current_view_node_id_.empty()) {
+        dropout_analysis_dialog_->showNoDataMessage("No node selected for analysis.");
+        return;
+    }
     
-    ORC_LOG_WARN("Dropout analysis dialog update requested but not yet implemented via coordinator");
+    // Request dropout data from coordinator
+    auto mode = dropout_analysis_dialog_->getCurrentMode();
+    pending_dropout_request_id_ = render_coordinator_->requestDropoutData(current_view_node_id_, mode);
+    
+    ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
+                  current_view_node_id_, static_cast<int>(mode), pending_dropout_request_id_);
 }
 
 void MainWindow::onShowSNRAnalysisDialog()
@@ -1748,12 +1782,15 @@ void MainWindow::onShowSNRAnalysisDialog()
     }
     
     // Show the dialog first
+    bool was_visible = snr_analysis_dialog_->isVisible();
     snr_analysis_dialog_->show();
     snr_analysis_dialog_->raise();
     snr_analysis_dialog_->activateWindow();
     
-    // Update SNR analysis after showing
-    updateSNRAnalysisDialog();
+    // Only load data if dialog was not already visible (first time opening)
+    if (!was_visible) {
+        updateSNRAnalysisDialog();
+    }
 }
 
 void MainWindow::updateSNRAnalysisDialog()
@@ -1763,14 +1800,16 @@ void MainWindow::updateSNRAnalysisDialog()
         return;
     }
     
-    // TODO: Implement SNR analysis via coordinator
-    // This requires adding SNR analysis request types to the coordinator
-    // For now, show a message explaining the feature is not yet implemented
-    snr_analysis_dialog_->showNoDataMessage(
-        "SNR Analysis not yet implemented via thread-safe coordinator.\n\n"
-        "This feature requires batch analysis of all frames, which needs to be\n"
-        "implemented as an async coordinator request to maintain thread safety."
-    );
+    // Don't update if no node selected
+    if (current_view_node_id_.empty()) {
+        snr_analysis_dialog_->showNoDataMessage("No node selected for analysis.");
+        return;
+    }
     
-    ORC_LOG_WARN("SNR analysis dialog update requested but not yet implemented via coordinator");
+    // Request SNR data from coordinator
+    auto mode = snr_analysis_dialog_->getCurrentMode();
+    pending_snr_request_id_ = render_coordinator_->requestSNRData(current_view_node_id_, mode);
+    
+    ORC_LOG_DEBUG("Requested SNR analysis data for node '{}', mode {}, request_id={}",
+                  current_view_node_id_, static_cast<int>(mode), pending_snr_request_id_);
 }

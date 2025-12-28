@@ -101,6 +101,22 @@ uint64_t RenderCoordinator::requestVBIData(const std::string& node_id, orc::Fiel
     return id;
 }
 
+uint64_t RenderCoordinator::requestDropoutData(const std::string& node_id, orc::DropoutAnalysisMode mode)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetDropoutDataRequest>(id, node_id, mode);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+uint64_t RenderCoordinator::requestSNRData(const std::string& node_id, orc::SNRAnalysisMode mode)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetSNRDataRequest>(id, node_id, mode);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
 uint64_t RenderCoordinator::requestAvailableOutputs(const std::string& node_id)
 {
     uint64_t id = nextRequestId();
@@ -183,6 +199,14 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             handleGetVBIData(*static_cast<GetVBIDataRequest*>(request.get()));
             break;
             
+        case RenderRequestType::GetDropoutData:
+            handleGetDropoutData(*static_cast<GetDropoutDataRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::GetSNRData:
+            handleGetSNRData(*static_cast<GetSNRDataRequest*>(request.get()));
+            break;
+            
         case RenderRequestType::GetAvailableOutputs:
             handleGetAvailableOutputs(*static_cast<GetAvailableOutputsRequest*>(request.get()));
             break;
@@ -214,6 +238,9 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
     // Update DAG
     worker_dag_ = req.dag;
     
+    // Create shared observation cache for all decoders
+    worker_obs_cache_ = std::make_shared<orc::ObservationCache>(worker_dag_);
+    
     // Recreate all renderers/decoders with new DAG
     try {
         worker_preview_renderer_ = std::make_unique<orc::PreviewRenderer>(worker_dag_);
@@ -222,7 +249,12 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         worker_dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(worker_dag_);
         worker_snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(worker_dag_);
         
-        ORC_LOG_INFO("RenderCoordinator: DAG updated successfully");
+        // Share the observation cache across analysis decoders
+        // This prevents re-rendering fields that were already rendered by other components
+        worker_dropout_decoder_->set_observation_cache(worker_obs_cache_);
+        worker_snr_decoder_->set_observation_cache(worker_obs_cache_);
+        
+        ORC_LOG_INFO("RenderCoordinator: DAG updated successfully with shared observation cache");
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Failed to create renderers: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
@@ -284,6 +316,82 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting dropout analysis data for node '{}', mode {} (request {})",
+                  req.node_id, static_cast<int>(req.mode), req.request_id);
+    
+    if (!worker_dropout_decoder_) {
+        ORC_LOG_ERROR("RenderCoordinator: Dropout decoder not initialized");
+        emit error(req.request_id, "Dropout decoder not initialized");
+        return;
+    }
+    
+    try {
+        // Get dropout stats for all frames
+        // Fields are cached in shared ObservationCache, so this is fast
+        auto frame_stats = worker_dropout_decoder_->get_dropout_by_frames(
+            req.node_id,
+            req.mode,
+            0  // 0 = process all frames
+        );
+        
+        // Count total frames (max frame number in stats)
+        int32_t total_frames = 0;
+        for (const auto& stats : frame_stats) {
+            if (stats.frame_number > total_frames) {
+                total_frames = stats.frame_number;
+            }
+        }
+        
+        ORC_LOG_DEBUG("RenderCoordinator: Dropout analysis complete, {} frames processed", frame_stats.size());
+        
+        emit dropoutDataReady(req.request_id, std::move(frame_stats), total_frames);
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Dropout analysis failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting SNR analysis data for node '{}', mode {} (request {})",
+                  req.node_id, static_cast<int>(req.mode), req.request_id);
+    
+    if (!worker_snr_decoder_) {
+        ORC_LOG_ERROR("RenderCoordinator: SNR decoder not initialized");
+        emit error(req.request_id, "SNR decoder not initialized");
+        return;
+    }
+    
+    try {
+        // Get SNR stats for all frames  
+        // Fields are cached in shared ObservationCache, so this is fast
+        auto frame_stats = worker_snr_decoder_->get_snr_by_frames(
+            req.node_id,
+            req.mode,
+            0  // 0 = process all frames
+        );
+        
+        // Count total frames (max frame number in stats)
+        int32_t total_frames = 0;
+        for (const auto& stats : frame_stats) {
+            if (stats.frame_number > total_frames) {
+                total_frames = stats.frame_number;
+            }
+        }
+        
+        ORC_LOG_DEBUG("RenderCoordinator: SNR analysis complete, {} frames processed", frame_stats.size());
+        
+        emit snrDataReady(req.request_id, std::move(frame_stats), total_frames);
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: SNR analysis failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }

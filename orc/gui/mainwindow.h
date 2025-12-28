@@ -116,6 +116,8 @@ private slots:
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
     void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
+    void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
+    void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
     void onTriggerProgress(size_t current, size_t total, QString message);
     void onTriggerComplete(uint64_t request_id, bool success, QString status);
     void onCoordinatorError(uint64_t request_id, QString message);
@@ -158,6 +160,8 @@ private:
     uint64_t pending_vbi_request_id_{0};
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
+    uint64_t pending_dropout_request_id_{0};
+    uint64_t pending_snr_request_id_{0};
     
     // Dropout analysis state tracking
     std::string last_dropout_node_id_;

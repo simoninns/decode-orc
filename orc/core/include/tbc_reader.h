@@ -16,6 +16,7 @@
 #include <fstream>
 #include <memory>
 #include <map>
+#include <mutex>
 
 namespace orc {
 
@@ -62,6 +63,7 @@ private:
     // Simple LRU cache for recently accessed fields
     std::map<FieldID, std::shared_ptr<std::vector<sample_type>>> field_cache_;
     static constexpr size_t MAX_CACHE_SIZE = 100;
+    mutable std::mutex cache_mutex_;  // Protects field_cache_
     
     void cache_field(FieldID field_id, std::shared_ptr<std::vector<sample_type>> data);
     std::shared_ptr<std::vector<sample_type>> get_cached_field(FieldID field_id);

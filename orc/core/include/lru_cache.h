@@ -4,13 +4,14 @@
 #include <list>
 #include <optional>
 #include <functional>
+#include <mutex>
 
 namespace orc {
 
 /**
  * @brief Simple LRU (Least Recently Used) cache
  * 
- * Thread-safe: No. Use from single thread or add external synchronization.
+ * Thread-safe: Yes. Uses internal mutex for all operations.
  * 
  * @tparam Key Key type (must be hashable)
  * @tparam Value Value type
@@ -31,6 +32,7 @@ public:
      * @return Value if found, std::nullopt otherwise
      */
     std::optional<Value> get(const Key& key) {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto it = map_.find(key);
         if (it == map_.end()) {
             return std::nullopt;
@@ -48,7 +50,8 @@ public:
      * @return Pointer to value if found, nullptr otherwise
      * @note The pointer is valid until the entry is evicted from cache
      */
-    const Value* get_ptr(const Key& key) const {
+    const Value* get_ptr(const Key& key) {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto it = map_.find(key);
         if (it == map_.end()) {
             return nullptr;
@@ -66,6 +69,7 @@ public:
      * @param value Value to store
      */
     void put(const Key& key, Value value) {
+        std::lock_guard<std::mutex> lock(mutex_);
         auto it = map_.find(key);
         
         if (it != map_.end()) {
@@ -93,6 +97,7 @@ public:
      * @return True if key exists
      */
     bool contains(const Key& key) const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return map_.find(key) != map_.end();
     }
     
@@ -100,6 +105,7 @@ public:
      * @brief Clear all entries from cache
      */
     void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
         map_.clear();
         lru_list_.clear();
     }
@@ -108,6 +114,7 @@ public:
      * @brief Get current number of entries in cache
      */
     size_t size() const {
+        std::lock_guard<std::mutex> lock(mutex_);
         return lru_list_.size();
     }
     
@@ -126,6 +133,9 @@ private:
     
     // Map from key to iterator in lru_list_ (uses custom hash function)
     mutable std::unordered_map<Key, typename std::list<std::pair<Key, Value>>::iterator, Hash> map_;
+    
+    // Mutex for thread-safe access
+    mutable std::mutex mutex_;
 };
 
 } // namespace orc

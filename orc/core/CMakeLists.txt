@@ -34,7 +34,6 @@ add_library(orc-core STATIC
     observers/burst_level_observer.cpp
     # observers/field_parity_observer.cpp  # Removed: field parity comes from hints only
     # observers/pal_phase_observer.cpp  # Removed: PAL phase comes from hints only
-    observers/disc_quality_observer.cpp
     observers/pulldown_observer.cpp
     observers/lead_in_out_observer.cpp
     observers/dropout_analysis_observer.cpp

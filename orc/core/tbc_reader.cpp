@@ -56,6 +56,7 @@ bool TBCReader::open(const std::string& filename, size_t field_length, size_t li
 }
 
 void TBCReader::close() {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
     if (file_.is_open()) {
         file_.close();
     }
@@ -135,6 +136,7 @@ std::vector<TBCReader::sample_type> TBCReader::read_line(FieldID field_id, size_
 }
 
 void TBCReader::cache_field(FieldID field_id, std::shared_ptr<std::vector<sample_type>> data) {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
     // Simple cache eviction: if full, remove first entry
     if (field_cache_.size() >= MAX_CACHE_SIZE) {
         field_cache_.erase(field_cache_.begin());
@@ -143,6 +145,7 @@ void TBCReader::cache_field(FieldID field_id, std::shared_ptr<std::vector<sample
 }
 
 std::shared_ptr<std::vector<TBCReader::sample_type>> TBCReader::get_cached_field(FieldID field_id) {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
     auto it = field_cache_.find(field_id);
     if (it != field_cache_.end()) {
         return it->second;

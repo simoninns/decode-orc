@@ -14,7 +14,10 @@
 #include "vbidialog.h"
 #include "previewdialog.h"
 #include "fieldpreviewwidget.h"
+#include "dropoutanalysisdialog.h"
+#include "snranalysisdialog.h"
 #include <algorithm>
+#include <limits>
 
 
 // Coordinator response slot implementations
@@ -187,4 +190,97 @@ void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
     
     // Show error in status bar
     statusBar()->showMessage(QString("Error: %1").arg(message), 5000);
+}
+
+void MainWindow::onDropoutDataReady(uint64_t request_id, 
+                                    std::vector<orc::FrameDropoutStats> frame_stats, 
+                                    int32_t total_frames)
+{
+    // Ignore stale responses
+    if (request_id != pending_dropout_request_id_) {
+        ORC_LOG_DEBUG("Ignoring stale dropout data response (id {} != {})", 
+                     request_id, pending_dropout_request_id_);
+        return;
+    }
+    
+    ORC_LOG_DEBUG("onDropoutDataReady: {} frames, total={}", frame_stats.size(), total_frames);
+    
+    if (!dropout_analysis_dialog_ || !dropout_analysis_dialog_->isVisible()) {
+        return;
+    }
+    
+    // If no data available, show message
+    if (frame_stats.empty() || total_frames == 0) {
+        dropout_analysis_dialog_->showNoDataMessage(
+            "No dropout analysis data available.\n\n"
+            "Make sure dropout detection is enabled in the pipeline."
+        );
+        return;
+    }
+    
+    // Start update cycle
+    dropout_analysis_dialog_->startUpdate(total_frames);
+    
+    // Add all data points
+    for (const auto& stats : frame_stats) {
+        if (stats.has_data) {
+            dropout_analysis_dialog_->addDataPoint(stats.frame_number, stats.total_dropout_length);
+        }
+    }
+    
+    // Finish update with current frame marker
+    // Use current view index if available
+    int32_t current_frame = 1;  // Default to first frame
+    if (preview_dialog_ && preview_dialog_->previewSlider()) {
+        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+    }
+    
+    dropout_analysis_dialog_->finishUpdate(current_frame);
+}
+
+void MainWindow::onSNRDataReady(uint64_t request_id,
+                               std::vector<orc::FrameSNRStats> frame_stats,
+                               int32_t total_frames)
+{
+    // Ignore stale responses
+    if (request_id != pending_snr_request_id_) {
+        ORC_LOG_DEBUG("Ignoring stale SNR data response (id {} != {})", 
+                     request_id, pending_snr_request_id_);
+        return;
+    }
+    
+    ORC_LOG_DEBUG("onSNRDataReady: {} frames, total={}", frame_stats.size(), total_frames);
+    
+    if (!snr_analysis_dialog_ || !snr_analysis_dialog_->isVisible()) {
+        return;
+    }
+    
+    // If no data available, show message
+    if (frame_stats.empty() || total_frames == 0) {
+        snr_analysis_dialog_->showNoDataMessage(
+            "No SNR analysis data available.\n\n"
+            "Make sure SNR analysis is enabled in the pipeline."
+        );
+        return;
+    }
+    
+    // Start update cycle
+    snr_analysis_dialog_->startUpdate(total_frames);
+    
+    // Add all data points
+    for (const auto& stats : frame_stats) {
+        if (stats.has_data) {
+            double white_snr = stats.has_white_snr ? stats.white_snr : std::numeric_limits<double>::quiet_NaN();
+            double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::numeric_limits<double>::quiet_NaN();
+            snr_analysis_dialog_->addDataPoint(stats.frame_number, white_snr, black_psnr);
+        }
+    }
+    
+    // Finish update with current frame marker
+    int32_t current_frame = 1;  // Default to first frame
+    if (preview_dialog_ && preview_dialog_->previewSlider()) {
+        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+    }
+    
+    snr_analysis_dialog_->finishUpdate(current_frame);
 }

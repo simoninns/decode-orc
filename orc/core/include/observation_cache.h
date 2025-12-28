@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <string>
 #include <optional>
+#include <mutex>
 
 namespace orc {
 
@@ -132,6 +133,9 @@ private:
     
     // Cache of field counts per node
     std::unordered_map<std::string, size_t> field_count_cache_;
+    
+    // Mutex for thread-safe access
+    mutable std::mutex cache_mutex_;
     
     // Render a single field and cache it
     std::optional<std::shared_ptr<const VideoFieldRepresentation>> render_and_cache(

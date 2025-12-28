@@ -37,6 +37,7 @@ void ObservationCache::update_dag(std::shared_ptr<const DAG> dag)
 
 void ObservationCache::clear()
 {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
     cache_.clear();
     field_count_cache_.clear();
     ORC_LOG_DEBUG("ObservationCache: All cached observations cleared");
@@ -44,6 +45,7 @@ void ObservationCache::clear()
 
 void ObservationCache::clear_node(const std::string& node_id)
 {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
     size_t cleared = 0;
     auto it = cache_.begin();
     while (it != cache_.end()) {
@@ -64,16 +66,20 @@ void ObservationCache::clear_node(const std::string& node_id)
 
 bool ObservationCache::is_cached(const std::string& node_id, FieldID field_id) const
 {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
     CacheKey key{node_id, field_id};
     return cache_.find(key) != cache_.end();
 }
 
 size_t ObservationCache::get_field_count(const std::string& node_id)
 {
-    // Check cache first
-    auto it = field_count_cache_.find(node_id);
-    if (it != field_count_cache_.end()) {
-        return it->second;
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        // Check cache first
+        auto it = field_count_cache_.find(node_id);
+        if (it != field_count_cache_.end()) {
+            return it->second;
+        }
     }
     
     // Render and cache field 0 to get count (don't waste the render!)
@@ -84,7 +90,10 @@ size_t ObservationCache::get_field_count(const std::string& node_id)
     }
     
     size_t count = field_repr.value()->field_count();
-    field_count_cache_[node_id] = count;
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        field_count_cache_[node_id] = count;
+    }
     
     return count;
 }
@@ -105,7 +114,10 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
         
         // Cache the full representation
         CacheKey key{node_id, field_id};
-        cache_[key] = result.representation;
+        {
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+            cache_[key] = result.representation;
+        }
         
         return result.representation;
         
@@ -120,11 +132,14 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
     const std::string& node_id,
     FieldID field_id)
 {
-    // Check cache first
-    CacheKey key{node_id, field_id};
-    auto it = cache_.find(key);
-    if (it != cache_.end()) {
-        return it->second;
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        // Check cache first
+        CacheKey key{node_id, field_id};
+        auto it = cache_.find(key);
+        if (it != cache_.end()) {
+            return it->second;
+        }
     }
     
     // Not cached - render and cache

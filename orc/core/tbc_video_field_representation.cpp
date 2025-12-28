@@ -206,6 +206,9 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
         return nullptr;
     }
     
+    // Preload metadata cache (field metadata and dropouts) to avoid lazy loading during analysis
+    metadata_reader->preload_cache();
+    
     // Validate metadata consistency before proceeding
     std::string validation_error;
     if (!metadata_reader->validate_metadata(&validation_error)) {

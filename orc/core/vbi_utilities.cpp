@@ -13,19 +13,19 @@
 namespace orc {
 namespace vbi_utils {
 
-std::vector<bool> get_transition_map(const uint16_t* line_data,
-                                      size_t sample_count,
-                                      uint16_t zero_crossing) {
+std::vector<uint8_t> get_transition_map(const uint16_t* line_data,
+                                         size_t sample_count,
+                                         uint16_t zero_crossing) {
     // Read the data with debounce to remove transition noise (matches legacy tool)
-    std::vector<bool> result;
+    std::vector<uint8_t> result;
     result.reserve(sample_count);
     
-    bool previous_state = false;
-    bool current_state = false;
+    uint8_t previous_state = 0;
+    uint8_t current_state = 0;
     int debounce = 0;
     
     for (size_t i = 0; i < sample_count; ++i) {
-        current_state = (line_data[i] > zero_crossing);
+        current_state = (line_data[i] > zero_crossing) ? 1 : 0;
         
         if (current_state != previous_state) {
             debounce++;
@@ -42,7 +42,7 @@ std::vector<bool> get_transition_map(const uint16_t* line_data,
     return result;
 }
 
-bool find_transition(const std::vector<bool>& transition_map,
+bool find_transition(const std::vector<uint8_t>& transition_map,
                      bool target_state,
                      double& position,
                      double limit) {
@@ -51,9 +51,11 @@ bool find_transition(const std::vector<bool>& transition_map,
         return false;
     }
     
+    uint8_t target = target_state ? 1 : 0;
+    
     // Find transition to target state
     while (pos < transition_map.size() && pos < static_cast<size_t>(limit)) {
-        if (transition_map[pos] == target_state) {
+        if (transition_map[pos] == target) {
             position = static_cast<double>(pos);
             return true;
         }

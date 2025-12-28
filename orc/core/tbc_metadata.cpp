@@ -9,9 +9,12 @@
 
 
 #include "tbc_metadata.h"
+#include "logging.h"
 #include <stdexcept>
 #include <sqlite3.h>
 #include <cstring>
+#include <mutex>
+#include <map>
 
 namespace orc {
 
@@ -43,6 +46,12 @@ class TBCMetadataReader::Impl {
 public:
     sqlite3* db = nullptr;
     int capture_id = 1;  // Default capture ID
+    
+    // Thread-safe cache for field metadata and dropouts
+    mutable std::mutex cache_mutex_;
+    std::map<FieldID, FieldMetadata> metadata_cache_;
+    std::map<FieldID, std::vector<DropoutInfo>> dropout_cache_;
+    bool cache_loaded_ = false;
     
     ~Impl() {
         if (db) {
@@ -284,46 +293,44 @@ std::optional<PcmAudioParameters> TBCMetadataReader::read_pcm_audio_parameters()
     return std::nullopt;
 }
 
+void TBCMetadataReader::preload_cache() {
+    if (!is_open_) {
+        return;
+    }
+    
+    std::lock_guard<std::mutex> lock(impl_->cache_mutex_);
+    
+    if (!impl_->cache_loaded_) {
+        ORC_LOG_DEBUG("Preloading metadata cache from database");
+        impl_->metadata_cache_ = read_all_field_metadata();
+        read_all_dropouts();
+        impl_->cache_loaded_ = true;
+        ORC_LOG_DEBUG("Preloaded {} field metadata records and dropouts", impl_->metadata_cache_.size());
+    }
+}
+
 std::optional<FieldMetadata> TBCMetadataReader::read_field_metadata(FieldID field_id) {
     if (!is_open_ || !field_id.is_valid()) {
         return std::nullopt;
     }
     
-    FieldMetadata metadata;
-    
-    const char* sql = 
-        "SELECT field_id, is_first_field, sync_conf, median_burst_ire, field_phase_id, "
-        "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values "
-        "FROM field_record WHERE capture_id = ? AND field_id = ?";
-    
-    sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
-    
-    if (rc != SQLITE_OK) {
-        return std::nullopt;
-    }
-    
-    sqlite3_bind_int(stmt, 1, impl_->capture_id);
-    sqlite3_bind_int64(stmt, 2, field_id.value());
-    
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
-        metadata.seq_no = impl_->get_int(stmt, 0);
-        metadata.is_first_field = impl_->get_optional_bool(stmt, 1);
-        metadata.sync_confidence = impl_->get_optional_int(stmt, 2);
-        metadata.median_burst_ire = impl_->get_optional_double(stmt, 3);
-        metadata.field_phase_id = impl_->get_optional_int(stmt, 4);
-        metadata.audio_samples = impl_->get_optional_int(stmt, 5);
-        metadata.is_pad = impl_->get_optional_bool(stmt, 6);
-        metadata.disk_location = impl_->get_optional_double(stmt, 7);
-        metadata.file_location = impl_->get_optional_int64(stmt, 8);
-        metadata.decode_faults = impl_->get_optional_int(stmt, 9);
-        metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
+    // Check cache first
+    {
+        std::lock_guard<std::mutex> lock(impl_->cache_mutex_);
         
-        sqlite3_finalize(stmt);
-        return metadata;
+        // Load all metadata and dropouts on first access (if not already preloaded)
+        if (!impl_->cache_loaded_) {
+            impl_->metadata_cache_ = read_all_field_metadata();
+            read_all_dropouts();  // Also load all dropouts
+            impl_->cache_loaded_ = true;
+        }
+        
+        auto it = impl_->metadata_cache_.find(field_id);
+        if (it != impl_->metadata_cache_.end()) {
+            return it->second;
+        }
     }
     
-    sqlite3_finalize(stmt);
     return std::nullopt;
 }
 
@@ -339,7 +346,16 @@ std::map<FieldID, FieldMetadata> TBCMetadataReader::read_all_field_metadata() {
         "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values "
         "FROM field_record WHERE capture_id = ? ORDER BY field_id";
     
-    impl_->execute_query(sql, [&](sqlite3_stmt* stmt) {
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    
+    if (rc != SQLITE_OK) {
+        return result;
+    }
+    
+    sqlite3_bind_int(stmt, 1, impl_->capture_id);
+    
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
         FieldMetadata metadata;
         metadata.seq_no = impl_->get_int(stmt, 0);
         metadata.is_first_field = impl_->get_optional_bool(stmt, 1);
@@ -354,8 +370,9 @@ std::map<FieldID, FieldMetadata> TBCMetadataReader::read_all_field_metadata() {
         metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
         
         result[FieldID(metadata.seq_no)] = metadata;
-        return true;
-    });
+    }
+    
+    sqlite3_finalize(stmt);
     
     return result;
 }
@@ -389,37 +406,57 @@ std::optional<ClosedCaptionData> TBCMetadataReader::read_closed_caption(FieldID 
 }
 
 std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) const {
-    std::vector<DropoutInfo> dropouts;
-    
     if (!is_open_ || !field_id.is_valid()) {
-        return dropouts;
+        return {};
     }
     
+    // Check cache first (cache is loaded in read_field_metadata)
+    {
+        std::lock_guard<std::mutex> lock(impl_->cache_mutex_);
+        auto it = impl_->dropout_cache_.find(field_id);
+        if (it != impl_->dropout_cache_.end()) {
+            return it->second;
+        }
+    }
+    
+    // If not in cache, field has no dropouts
+    return {};
+}
+
+void TBCMetadataReader::read_all_dropouts() {
+    if (!is_open_) {
+        return;
+    }
+    
+    impl_->dropout_cache_.clear();
+    
     const char* sql = 
-        "SELECT startx, endx, field_line "
-        "FROM drop_outs WHERE capture_id = ? AND field_id = ?";
+        "SELECT field_id, startx, endx, field_line "
+        "FROM drop_outs WHERE capture_id = ? ORDER BY field_id";
     
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     
     if (rc != SQLITE_OK) {
-        return dropouts;
+        return;
     }
     
     sqlite3_bind_int(stmt, 1, impl_->capture_id);
-    sqlite3_bind_int64(stmt, 2, field_id.value());
     
     while (sqlite3_step(stmt) == SQLITE_ROW) {
+        int64_t field_id_val = sqlite3_column_int64(stmt, 0);
+        FieldID field_id(field_id_val);
+        
         DropoutInfo dropout;
-        dropout.start_sample = static_cast<uint32_t>(impl_->get_int(stmt, 0));
-        dropout.end_sample = static_cast<uint32_t>(impl_->get_int(stmt, 1));
+        dropout.start_sample = static_cast<uint32_t>(impl_->get_int(stmt, 1));
+        dropout.end_sample = static_cast<uint32_t>(impl_->get_int(stmt, 2));
         // TBC database uses 1-based line numbers, convert to 0-based for internal use
-        dropout.line = static_cast<uint32_t>(impl_->get_int(stmt, 2)) - 1;
-        dropouts.push_back(dropout);
+        dropout.line = static_cast<uint32_t>(impl_->get_int(stmt, 3)) - 1;
+        
+        impl_->dropout_cache_[field_id].push_back(dropout);
     }
     
     sqlite3_finalize(stmt);
-    return dropouts;
 }
 
 std::optional<DropoutData> TBCMetadataReader::read_dropout(FieldID field_id) const {

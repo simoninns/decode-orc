@@ -28,6 +28,7 @@
 #include "vbi_decoder.h"
 #include "dropout_analysis_decoder.h"
 #include "snr_analysis_decoder.h"
+#include "observation_cache.h"
 #include "field_id.h"
 
 namespace orc {
@@ -115,6 +116,32 @@ struct GetVBIDataRequest : public RenderRequest {
 };
 
 /**
+ * @brief Request to get dropout analysis data for all fields
+ */
+struct GetDropoutDataRequest : public RenderRequest {
+    std::string node_id;
+    orc::DropoutAnalysisMode mode;
+    
+    GetDropoutDataRequest(uint64_t id, std::string node, orc::DropoutAnalysisMode m)
+        : RenderRequest(RenderRequestType::GetDropoutData, id)
+        , node_id(std::move(node))
+        , mode(m) {}
+};
+
+/**
+ * @brief Request to get SNR analysis data for all fields
+ */
+struct GetSNRDataRequest : public RenderRequest {
+    std::string node_id;
+    orc::SNRAnalysisMode mode;
+    
+    GetSNRDataRequest(uint64_t id, std::string node, orc::SNRAnalysisMode m)
+        : RenderRequest(RenderRequestType::GetSNRData, id)
+        , node_id(std::move(node))
+        , mode(m) {}
+};
+
+/**
  * @brief Request to trigger a stage
  */
 struct TriggerStageRequest : public RenderRequest {
@@ -173,6 +200,36 @@ struct VBIDataResponse : public RenderResponse {
                    orc::VBIFieldInfo info, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , vbi_info(std::move(info)) {}
+};
+
+/**
+ * @brief Response with dropout analysis data
+ */
+struct DropoutDataResponse : public RenderResponse {
+    std::vector<orc::FrameDropoutStats> frame_stats;
+    int32_t total_frames;
+    
+    DropoutDataResponse(uint64_t id, bool s,
+                       std::vector<orc::FrameDropoutStats> stats,
+                       int32_t total, std::string err = "")
+        : RenderResponse(id, s, std::move(err))
+        , frame_stats(std::move(stats))
+        , total_frames(total) {}
+};
+
+/**
+ * @brief Response with SNR analysis data
+ */
+struct SNRDataResponse : public RenderResponse {
+    std::vector<orc::FrameSNRStats> frame_stats;
+    int32_t total_frames;
+    
+    SNRDataResponse(uint64_t id, bool s,
+                   std::vector<orc::FrameSNRStats> stats,
+                   int32_t total, std::string err = "")
+        : RenderResponse(id, s, std::move(err))
+        , frame_stats(std::move(stats))
+        , total_frames(total) {}
 };
 
 /**
@@ -277,6 +334,28 @@ public:
     uint64_t requestVBIData(const std::string& node_id, orc::FieldID field_id);
     
     /**
+     * @brief Request dropout analysis data for all fields (async)
+     * 
+     * Result will be emitted via dropoutDataReady signal.
+     * 
+     * @param node_id Node to analyze dropout from
+     * @param mode Analysis mode (full field or visible area)
+     * @return Request ID for matching response
+     */
+    uint64_t requestDropoutData(const std::string& node_id, orc::DropoutAnalysisMode mode);
+    
+    /**
+     * @brief Request SNR analysis data for all fields (async)
+     * 
+     * Result will be emitted via snrDataReady signal.
+     * 
+     * @param node_id Node to analyze SNR from
+     * @param mode Analysis mode (white, black, or both)
+     * @return Request ID for matching response
+     */
+    uint64_t requestSNRData(const std::string& node_id, orc::SNRAnalysisMode mode);
+    
+    /**
      * @brief Request available outputs for a node (async)
      * 
      * Result will be emitted via availableOutputsReady signal.
@@ -315,6 +394,16 @@ signals:
      * @brief Emitted when VBI data is ready
      */
     void vbiDataReady(uint64_t request_id, orc::VBIFieldInfo info);
+    
+    /**
+     * @brief Emitted when dropout analysis data is ready
+     */
+    void dropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
+    
+    /**
+     * @brief Emitted when SNR analysis data is ready
+     */
+    void snrDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
     
     /**
      * @brief Emitted when available outputs query completes
@@ -367,6 +456,16 @@ private:
     void handleGetVBIData(const GetVBIDataRequest& req);
     
     /**
+     * @brief Handle GetDropoutData request
+     */
+    void handleGetDropoutData(const GetDropoutDataRequest& req);
+    
+    /**
+     * @brief Handle GetSNRData request
+     */
+    void handleGetSNRData(const GetSNRDataRequest& req);
+    
+    /**
      * @brief Handle GetAvailableOutputs request
      */
     void handleGetAvailableOutputs(const GetAvailableOutputsRequest& req);
@@ -404,6 +503,7 @@ private:
     // ========================================================================
     
     std::shared_ptr<const orc::DAG> worker_dag_;
+    std::shared_ptr<orc::ObservationCache> worker_obs_cache_;  // Shared cache for all decoders
     std::unique_ptr<orc::PreviewRenderer> worker_preview_renderer_;
     std::unique_ptr<orc::DAGFieldRenderer> worker_field_renderer_;
     std::unique_ptr<orc::VBIDecoder> worker_vbi_decoder_;

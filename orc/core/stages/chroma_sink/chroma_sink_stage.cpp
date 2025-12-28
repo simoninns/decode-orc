@@ -36,9 +36,10 @@
 namespace orc {
 
 // Register stage with registry
-static StageRegistration reg([]() {
-    return std::make_shared<ChromaSinkStage>();
-});
+ORC_REGISTER_STAGE(ChromaSinkStage)
+
+// Force linker to include this object file
+void force_link_ChromaSinkStage() {}
 
 ChromaSinkStage::ChromaSinkStage()
     : output_path_("")

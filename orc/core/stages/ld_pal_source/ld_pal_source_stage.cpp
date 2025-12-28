@@ -19,9 +19,10 @@
 namespace orc {
 
 // Register this stage with the registry
-static StageRegistration ld_pal_source_registration([]() {
-    return std::make_shared<LDPALSourceStage>();
-});
+ORC_REGISTER_STAGE(LDPALSourceStage)
+
+// Force linker to include this object file
+void force_link_LDPALSourceStage() {}
 
 std::vector<ArtifactPtr> LDPALSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,

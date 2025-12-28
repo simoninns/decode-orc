@@ -18,10 +18,9 @@
 namespace orc {
 
 // Register the stage
-static StageRegistration stacker_registration([]() {
-    return std::make_shared<StackerStage>();
-});
-
+ORC_REGISTER_STAGE(StackerStage)
+// Force linker to include this object file
+void force_link_StackerStage() {}
 StackerStage::StackerStage()
     : m_mode(-1)              // Auto mode
     , m_smart_threshold(15)   // Default threshold

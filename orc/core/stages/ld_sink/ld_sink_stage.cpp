@@ -29,9 +29,10 @@
 namespace orc {
 
 // Register stage with registry
-static StageRegistration reg([]() {
-    return std::make_shared<LDSinkStage>();
-});
+ORC_REGISTER_STAGE(LDSinkStage)
+
+// Force linker to include this object file
+void force_link_LDSinkStage() {}
 
 LDSinkStage::LDSinkStage()
     : output_path_("")

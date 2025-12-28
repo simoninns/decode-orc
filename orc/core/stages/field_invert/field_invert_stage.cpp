@@ -15,9 +15,10 @@
 namespace orc {
 
 // Register the stage
-static StageRegistration field_invert_registration([]() {
-    return std::make_shared<FieldInvertStage>();
-});
+ORC_REGISTER_STAGE(FieldInvertStage)
+
+// Force linker to include this object file
+void force_link_FieldInvertStage() {}
 
 std::vector<ArtifactPtr> FieldInvertStage::execute(
     const std::vector<ArtifactPtr>& inputs,

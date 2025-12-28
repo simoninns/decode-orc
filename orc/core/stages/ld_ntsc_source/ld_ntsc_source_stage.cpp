@@ -19,9 +19,10 @@
 namespace orc {
 
 // Register this stage with the registry
-static StageRegistration ld_ntsc_source_registration([]() {
-    return std::make_shared<LDNTSCSourceStage>();
-});
+ORC_REGISTER_STAGE(LDNTSCSourceStage)
+
+// Force linker to include this object file
+void force_link_LDNTSCSourceStage() {}
 
 std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,

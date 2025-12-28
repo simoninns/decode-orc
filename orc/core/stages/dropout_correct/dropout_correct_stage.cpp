@@ -27,9 +27,10 @@
 namespace orc {
 
 // Register the stage
-static StageRegistration dropout_correct_registration([]() {
-    return std::make_shared<DropoutCorrectStage>();
-});
+ORC_REGISTER_STAGE(DropoutCorrectStage)
+
+// Force linker to include this object file
+void force_link_DropoutCorrectStage() {}
 
 // DAGStage::execute() implementation
 std::vector<ArtifactPtr> DropoutCorrectStage::execute(

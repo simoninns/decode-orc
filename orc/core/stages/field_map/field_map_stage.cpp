@@ -18,9 +18,10 @@
 namespace orc {
 
 // Register the stage
-static StageRegistration field_map_registration([]() {
-    return std::make_shared<FieldMapStage>();
-});
+ORC_REGISTER_STAGE(FieldMapStage)
+
+// Force linker to include this object file
+void force_link_FieldMapStage() {}
 
 /**
  * @brief VideoFieldRepresentation wrapper that remaps field IDs

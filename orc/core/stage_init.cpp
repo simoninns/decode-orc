@@ -8,36 +8,43 @@
  */
 
 
-#include "stages/ld_pal_source/ld_pal_source_stage.h"
-#include "stages/ld_ntsc_source/ld_ntsc_source_stage.h"
-#include "stages/ld_sink/ld_sink_stage.h"
-#include "stages/dropout_correct/dropout_correct_stage.h"
-#include "stages/field_invert/field_invert_stage.h"
-#include "stages/field_map/field_map_stage.h"
-#include "stages/stacker/stacker_stage.h"
-#include "stages/chroma_sink/chroma_sink_stage.h"
-#include <iostream>
-
 namespace orc {
+
+// Forward declarations of force-link functions from each stage
+void force_link_LDPALSourceStage();
+void force_link_LDNTSCSourceStage();
+void force_link_DropoutCorrectStage();
+void force_link_FieldInvertStage();
+void force_link_FieldMapStage();
+void force_link_LDSinkStage();
+void force_link_StackerStage();
+void force_link_ChromaSinkStage();
 
 /**
  * @brief Force linking of all stage object files
  * 
- * This function creates dummy instances to force the linker to include
- * all stage object files, which ensures their static registrations execute.
- * This must be called before any stage lookups occur.
+ * This function ensures the linker includes all stage object files by calling
+ * a dummy function from each stage .cpp file. This is necessary because the
+ * ORC_REGISTER_STAGE macro creates static initialization objects that only
+ * execute if their object files are linked into the final binary.
+ * 
+ * Without these explicit references, the linker would strip out the stage
+ * object files as "unused", preventing their registration code from running.
+ * 
+ * This must be called before any stage lookups occur (typically during
+ * application initialization).
  */
 void force_stage_linking() {
-    // Create dummy shared_ptr to force vtable instantiation
-    // This ensures the object files are linked
-    [[maybe_unused]] auto dummy1 = std::make_shared<LDPALSourceStage>();
-    [[maybe_unused]] auto dummy2 = std::make_shared<LDNTSCSourceStage>();
-    [[maybe_unused]] auto dummy3 = std::make_shared<DropoutCorrectStage>();
-    [[maybe_unused]] auto dummy4 = std::make_shared<FieldInvertStage>();
-    [[maybe_unused]] auto dummy5 = std::make_shared<FieldMapStage>();
-    [[maybe_unused]] auto dummy6 = std::make_shared<LDSinkStage>();
-    [[maybe_unused]] auto dummy7 = std::make_shared<StackerStage>();
-    [[maybe_unused]] auto dummy8 = std::make_shared<ChromaSinkStage>();
+    // Call dummy functions to force linker to include stage object files
+    // This ensures the ORC_REGISTER_STAGE static initializers execute
+    force_link_LDPALSourceStage();
+    force_link_LDNTSCSourceStage();
+    force_link_DropoutCorrectStage();
+    force_link_FieldInvertStage();
+    force_link_FieldMapStage();
+    force_link_LDSinkStage();
+    force_link_StackerStage();
+    force_link_ChromaSinkStage();
 }
 
 } // namespace orc

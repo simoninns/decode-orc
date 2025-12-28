@@ -114,12 +114,7 @@ private:
  * Automatically queries the stage for its name via get_node_type_info(),
  * eliminating duplication and preventing mismatches.
  * 
- * Usage in implementation files:
- * ```cpp
- * static StageRegistration reg([]() {
- *     return std::make_shared<DropoutCorrectStage>();
- * });
- * ```
+ * This class is typically used via the ORC_REGISTER_STAGE macro.
  */
 class StageRegistration {
 public:
@@ -132,3 +127,32 @@ public:
 };
 
 } // namespace orc
+
+/**
+ * @brief Macro for explicit stage registration
+ * 
+ * This macro creates a static registration object that automatically registers
+ * the stage with the StageRegistry during static initialization. The registration
+ * is self-documenting and ensures the stage is available for use.
+ * 
+ * Usage in stage implementation files:
+ * ```cpp
+ * ORC_REGISTER_STAGE(DropoutCorrectStage);
+ * ```
+ * 
+ * The macro expands to:
+ * - A uniquely-named static StageRegistration object
+ * - A lambda factory that creates instances of the stage
+ * 
+ * This approach:
+ * - Makes registration explicit and easy to verify
+ * - Prevents forgetting to register new stages
+ * - Self-documents which stages are available
+ * - Eliminates the need for force-linking workarounds
+ */
+#define ORC_REGISTER_STAGE(StageClass) \
+    namespace { \
+        static ::orc::StageRegistration _orc_stage_registration_##StageClass([]() { \
+            return std::make_shared<StageClass>(); \
+        }); \
+    }

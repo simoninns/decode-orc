@@ -62,6 +62,9 @@ add_library(orc-core STATIC
     # SNR analysis
     analysis/snr/snr_analysis.cpp
     
+    # Burst level analysis
+    analysis/burst_level/burst_level_analysis.cpp
+    
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
@@ -87,6 +90,9 @@ add_library(orc-core STATIC
     
     # SNR analysis decoder
     snr_analysis_decoder.cpp
+    
+    # Burst level analysis decoder
+    burst_level_analysis_decoder.cpp
     
     # Node type system
     node_type.cpp

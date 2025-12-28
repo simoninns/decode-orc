@@ -71,6 +71,10 @@ add_executable(orc-gui
     # SNR analysis dialog
     snranalysisdialog.cpp
     snranalysisdialog.h
+    
+    # Burst level analysis dialog
+    burstlevelanalysisdialog.cpp
+    burstlevelanalysisdialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

@@ -29,6 +29,7 @@ class PreviewDialog;
 class VBIDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
+class BurstLevelAnalysisDialog;
 class VectorscopeDialog;
 class RenderCoordinator;
 
@@ -116,6 +117,8 @@ private slots:
     void onDropoutProgress(size_t current, size_t total, QString message);
     void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
     void onSNRProgress(size_t current, size_t total, QString message);
+    void onBurstLevelDataReady(uint64_t request_id, std::vector<orc::FrameBurstLevelStats> frame_stats, int32_t total_frames);
+    void onBurstLevelProgress(size_t current, size_t total, QString message);
     void onTriggerProgress(size_t current, size_t total, QString message);
     void onTriggerComplete(uint64_t request_id, bool success, QString status);
     void onCoordinatorError(uint64_t request_id, QString message);
@@ -160,6 +163,7 @@ private:
     uint64_t pending_trigger_request_id_{0};
     uint64_t pending_dropout_request_id_{0};
     uint64_t pending_snr_request_id_{0};
+    uint64_t pending_burst_level_request_id_{0};
     
     // Dropout analysis state tracking
     std::string last_dropout_node_id_;
@@ -176,6 +180,7 @@ private:
     VBIDialog* vbi_dialog_;
     DropoutAnalysisDialog* dropout_analysis_dialog_;
     SNRAnalysisDialog* snr_analysis_dialog_;
+    BurstLevelAnalysisDialog* burst_level_analysis_dialog_;
     std::unordered_map<std::string, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
@@ -206,6 +211,7 @@ private:
     // Analysis progress dialogs (QPointer auto-nulls when deleted)
     QPointer<QProgressDialog> dropout_progress_dialog_;
     QPointer<QProgressDialog> snr_progress_dialog_;
+    QPointer<QProgressDialog> burst_level_progress_dialog_;
 };
 
 #endif // MAINWINDOW_H

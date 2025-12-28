@@ -13,6 +13,7 @@
 #include "vbidialog.h"
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
+#include "burstlevelanalysisdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
@@ -110,6 +111,10 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onSNRDataReady);
     connect(render_coordinator_.get(), &RenderCoordinator::snrProgress,
             this, &MainWindow::onSNRProgress);
+    connect(render_coordinator_.get(), &RenderCoordinator::burstLevelDataReady,
+            this, &MainWindow::onBurstLevelDataReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::burstLevelProgress,
+            this, &MainWindow::onBurstLevelProgress);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerProgress,
             this, &MainWindow::onTriggerProgress);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerComplete,
@@ -269,6 +274,11 @@ void MainWindow::setupUI()
                     pending_snr_request_id_ = render_coordinator_->requestSNRData(current_view_node_id_, mode);
                 }
             });
+    
+    // Create burst level analysis dialog (initially hidden)
+    burst_level_analysis_dialog_ = new BurstLevelAnalysisDialog(this);
+    burst_level_analysis_dialog_->setWindowTitle("Burst Level Analysis");
+    burst_level_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
     
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
@@ -1718,6 +1728,41 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const std::string& 
         return;
     }
     
+    // Special-case: Burst Level Analysis triggers batch processing and shows dialog
+    if (tool->id() == "burst_level_analysis") {
+        if (!burst_level_analysis_dialog_) {
+            ORC_LOG_ERROR("Burst level analysis dialog not initialized");
+            return;
+        }
+        
+        // Set the node for analysis
+        current_view_node_id_ = node_id;
+        
+        // Create and show progress dialog
+        if (burst_level_progress_dialog_) {
+            delete burst_level_progress_dialog_;
+        }
+        burst_level_progress_dialog_ = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
+        burst_level_progress_dialog_->setWindowTitle("Burst Level Analysis");
+        burst_level_progress_dialog_->setWindowModality(Qt::WindowModal);
+        burst_level_progress_dialog_->setMinimumDuration(0);
+        burst_level_progress_dialog_->setCancelButton(nullptr);
+        burst_level_progress_dialog_->setValue(0);
+        burst_level_progress_dialog_->show();
+        
+        // Show the dialog (but it will be empty until data arrives)
+        burst_level_analysis_dialog_->show();
+        burst_level_analysis_dialog_->raise();
+        burst_level_analysis_dialog_->activateWindow();
+        
+        // Request burst level data from coordinator (triggers batch processing)
+        pending_burst_level_request_id_ = render_coordinator_->requestBurstLevelData(node_id);
+        
+        ORC_LOG_DEBUG("Requested burst level analysis data for node '{}', request_id={}",
+                      node_id, pending_burst_level_request_id_);
+        return;
+    }
+    
     // Create analysis context
     orc::AnalysisContext context;
     context.node_id = node_id;
@@ -1805,6 +1850,14 @@ void MainWindow::updateAllPreviewComponents()
             current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
         }
         snr_analysis_dialog_->updateFrameMarker(current_frame);
+    }
+    
+    if (burst_level_analysis_dialog_ && burst_level_analysis_dialog_->isVisible()) {
+        int32_t current_frame = 1;
+        if (preview_dialog_ && preview_dialog_->previewSlider()) {
+            current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+        }
+        burst_level_analysis_dialog_->updateFrameMarker(current_frame);
     }
 }
 

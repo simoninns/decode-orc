@@ -16,6 +16,7 @@
 #include "fieldpreviewwidget.h"
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
+#include "burstlevelanalysisdialog.h"
 #include <algorithm>
 #include <limits>
 
@@ -312,5 +313,65 @@ void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
         snr_progress_dialog_->setMaximum(static_cast<int>(total));
         snr_progress_dialog_->setValue(static_cast<int>(current));
         snr_progress_dialog_->setLabelText(message);
+    }
+}
+
+void MainWindow::onBurstLevelDataReady(uint64_t request_id,
+                                      std::vector<orc::FrameBurstLevelStats> frame_stats,
+                                      int32_t total_frames)
+{
+    // Ignore stale responses
+    if (request_id != pending_burst_level_request_id_) {
+        ORC_LOG_DEBUG("Ignoring stale burst level data response (id {} != {})", 
+                     request_id, pending_burst_level_request_id_);
+        return;
+    }
+    
+    ORC_LOG_DEBUG("onBurstLevelDataReady: {} frames, total={}", frame_stats.size(), total_frames);
+    
+    // Close progress dialog
+    if (burst_level_progress_dialog_) {
+        burst_level_progress_dialog_->close();
+        burst_level_progress_dialog_->deleteLater();
+    }
+    
+    if (!burst_level_analysis_dialog_ || !burst_level_analysis_dialog_->isVisible()) {
+        return;
+    }
+    
+    // If no data available, show message
+    if (frame_stats.empty() || total_frames == 0) {
+        burst_level_analysis_dialog_->showNoDataMessage(
+            "No burst level data available.\\n\\n"
+            "Color burst detection may have failed."
+        );
+        return;
+    }
+    
+    // Start update cycle
+    burst_level_analysis_dialog_->startUpdate(total_frames);
+    
+    // Add all data points
+    for (const auto& stats : frame_stats) {
+        if (stats.has_data) {
+            burst_level_analysis_dialog_->addDataPoint(stats.frame_number, stats.median_burst_ire);
+        }
+    }
+    
+    // Finish update with current frame marker
+    int32_t current_frame = 1;
+    if (preview_dialog_ && preview_dialog_->previewSlider()) {
+        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+    }
+    
+    burst_level_analysis_dialog_->finishUpdate(current_frame);
+}
+
+void MainWindow::onBurstLevelProgress(size_t current, size_t total, QString message)
+{
+    if (burst_level_progress_dialog_) {
+        burst_level_progress_dialog_->setMaximum(static_cast<int>(total));
+        burst_level_progress_dialog_->setValue(static_cast<int>(current));
+        burst_level_progress_dialog_->setLabelText(message);
     }
 }

@@ -117,6 +117,14 @@ uint64_t RenderCoordinator::requestSNRData(const std::string& node_id, orc::SNRA
     return id;
 }
 
+uint64_t RenderCoordinator::requestBurstLevelData(const std::string& node_id)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetBurstLevelDataRequest>(id, node_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
 uint64_t RenderCoordinator::requestAvailableOutputs(const std::string& node_id)
 {
     uint64_t id = nextRequestId();
@@ -207,6 +215,10 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             handleGetSNRData(*static_cast<GetSNRDataRequest*>(request.get()));
             break;
             
+        case RenderRequestType::GetBurstLevelData:
+            handleGetBurstLevelData(*static_cast<GetBurstLevelDataRequest*>(request.get()));
+            break;
+            
         case RenderRequestType::GetAvailableOutputs:
             handleGetAvailableOutputs(*static_cast<GetAvailableOutputsRequest*>(request.get()));
             break;
@@ -248,11 +260,14 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>(worker_dag_);
         worker_dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(worker_dag_);
         worker_snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(worker_dag_);
+        worker_burst_level_decoder_ = std::make_unique<orc::BurstLevelAnalysisDecoder>(worker_dag_);
         
         // Share the observation cache across analysis decoders
         // This prevents re-rendering fields that were already rendered by other components
         worker_dropout_decoder_->set_observation_cache(worker_obs_cache_);
         worker_snr_decoder_->set_observation_cache(worker_obs_cache_);
+        worker_burst_level_decoder_->set_observation_cache(worker_obs_cache_);
+        worker_burst_level_decoder_->set_observation_cache(worker_obs_cache_);
         
         ORC_LOG_INFO("RenderCoordinator: DAG updated successfully with shared observation cache");
     } catch (const std::exception& e) {
@@ -398,6 +413,46 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: SNR analysis failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting burst level analysis data for node '{}' (request {})",
+                  req.node_id, req.request_id);
+    
+    if (!worker_burst_level_decoder_) {
+        ORC_LOG_ERROR("RenderCoordinator: Burst level decoder not initialized");
+        emit error(req.request_id, "Burst level decoder not initialized");
+        return;
+    }
+    
+    try {
+        // Get burst level stats for all frames  
+        // Fields are cached in shared ObservationCache, so this is fast
+        auto frame_stats = worker_burst_level_decoder_->get_burst_level_by_frames(
+            req.node_id,
+            0,  // 0 = process all frames
+            [this](size_t current, size_t total, const std::string& message) {
+                emit burstLevelProgress(current, total, QString::fromStdString(message));
+            }
+        );
+        
+        // Count total frames (max frame number in stats)
+        int32_t total_frames = 0;
+        for (const auto& stats : frame_stats) {
+            if (stats.frame_number > total_frames) {
+                total_frames = stats.frame_number;
+            }
+        }
+        
+        ORC_LOG_DEBUG("RenderCoordinator: Burst level analysis complete, {} frames processed", frame_stats.size());
+        
+        emit burstLevelDataReady(req.request_id, std::move(frame_stats), total_frames);
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Burst level analysis failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }

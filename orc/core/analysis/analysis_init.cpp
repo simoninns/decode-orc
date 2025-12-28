@@ -12,6 +12,7 @@
 #include "vectorscope/vectorscope_analysis.h"
 #include "dropout/dropout_analysis.h"
 #include "snr/snr_analysis.h"
+#include "burst_level/burst_level_analysis.h"
 #include "logging.h"
 #include <memory>
 
@@ -33,6 +34,7 @@ void force_analysis_tool_linking() {
     [[maybe_unused]] auto dummy3 = std::make_unique<VectorscopeAnalysisTool>();
     [[maybe_unused]] auto dummy4 = std::make_unique<DropoutAnalysisTool>();
     [[maybe_unused]] auto dummy5 = std::make_unique<SNRAnalysisTool>();
+    [[maybe_unused]] auto dummy6 = std::make_unique<BurstLevelAnalysisTool>();
     ORC_LOG_DEBUG("Analysis tool linking complete");
 }
 

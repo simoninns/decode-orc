@@ -28,6 +28,7 @@
 #include "vbi_decoder.h"
 #include "dropout_analysis_decoder.h"
 #include "snr_analysis_decoder.h"
+#include "burst_level_analysis_decoder.h"
 #include "observation_cache.h"
 #include "field_id.h"
 
@@ -52,6 +53,7 @@ enum class RenderRequestType {
     GetVBIData,             // Decode VBI data for a field
     GetDropoutData,         // Get dropout analysis data
     GetSNRData,             // Get SNR analysis data
+    GetBurstLevelData,      // Get burst level analysis data
     TriggerStage,           // Trigger a stage (batch processing)
     CancelTrigger,          // Cancel ongoing trigger
     GetAvailableOutputs,    // Query available preview outputs
@@ -142,6 +144,17 @@ struct GetSNRDataRequest : public RenderRequest {
 };
 
 /**
+ * @brief Request to get burst level analysis data for all fields
+ */
+struct GetBurstLevelDataRequest : public RenderRequest {
+    std::string node_id;
+    
+    GetBurstLevelDataRequest(uint64_t id, std::string node)
+        : RenderRequest(RenderRequestType::GetBurstLevelData, id)
+        , node_id(std::move(node)) {}
+};
+
+/**
  * @brief Request to trigger a stage
  */
 struct TriggerStageRequest : public RenderRequest {
@@ -227,6 +240,21 @@ struct SNRDataResponse : public RenderResponse {
     SNRDataResponse(uint64_t id, bool s,
                    std::vector<orc::FrameSNRStats> stats,
                    int32_t total, std::string err = "")
+        : RenderResponse(id, s, std::move(err))
+        , frame_stats(std::move(stats))
+        , total_frames(total) {}
+};
+
+/**
+ * @brief Response with burst level analysis data
+ */
+struct BurstLevelDataResponse : public RenderResponse {
+    std::vector<orc::FrameBurstLevelStats> frame_stats;
+    int32_t total_frames;
+    
+    BurstLevelDataResponse(uint64_t id, bool s,
+                          std::vector<orc::FrameBurstLevelStats> stats,
+                          int32_t total, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , frame_stats(std::move(stats))
         , total_frames(total) {}
@@ -356,6 +384,16 @@ public:
     uint64_t requestSNRData(const std::string& node_id, orc::SNRAnalysisMode mode);
     
     /**
+     * @brief Request burst level analysis data for all fields (async)
+     * 
+     * Result will be emitted via burstLevelDataReady signal.
+     * 
+     * @param node_id Node to analyze burst level from
+     * @return Request ID for matching response
+     */
+    uint64_t requestBurstLevelData(const std::string& node_id);
+    
+    /**
      * @brief Request available outputs for a node (async)
      * 
      * Result will be emitted via availableOutputsReady signal.
@@ -414,6 +452,16 @@ signals:
      * @brief Emitted during SNR analysis progress
      */
     void snrProgress(size_t current, size_t total, QString message);
+    
+    /**
+     * @brief Emitted when burst level analysis data is ready
+     */
+    void burstLevelDataReady(uint64_t request_id, std::vector<orc::FrameBurstLevelStats> frame_stats, int32_t total_frames);
+    
+    /**
+     * @brief Emitted during burst level analysis progress
+     */
+    void burstLevelProgress(size_t current, size_t total, QString message);
     
     /**
      * @brief Emitted when available outputs query completes
@@ -476,6 +524,11 @@ private:
     void handleGetSNRData(const GetSNRDataRequest& req);
     
     /**
+     * @brief Handle GetBurstLevelData request
+     */
+    void handleGetBurstLevelData(const GetBurstLevelDataRequest& req);
+    
+    /**
      * @brief Handle GetAvailableOutputs request
      */
     void handleGetAvailableOutputs(const GetAvailableOutputsRequest& req);
@@ -519,6 +572,7 @@ private:
     std::unique_ptr<orc::VBIDecoder> worker_vbi_decoder_;
     std::unique_ptr<orc::DropoutAnalysisDecoder> worker_dropout_decoder_;
     std::unique_ptr<orc::SNRAnalysisDecoder> worker_snr_decoder_;
+    std::unique_ptr<orc::BurstLevelAnalysisDecoder> worker_burst_level_decoder_;
     
     std::atomic<bool> trigger_cancel_requested_{false};
 };

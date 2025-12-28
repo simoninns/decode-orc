@@ -219,6 +219,7 @@ std::vector<ArtifactPtr> FieldMapStage::execute(
     // If no ranges specified or cached, pass through unchanged
     if (range_spec.empty() || ranges.empty()) {
         ORC_LOG_WARN("FieldMapStage: No range specification provided, passing through unchanged");
+        cached_output_ = source;  // Cache the input for preview rendering
         return {inputs[0]};
     }
     
@@ -226,6 +227,7 @@ std::vector<ArtifactPtr> FieldMapStage::execute(
     auto field_mapping = build_field_mapping(ranges, *source);
     if (field_mapping.empty()) {
         ORC_LOG_WARN("FieldMapStage: Range specification resulted in empty mapping");
+        cached_output_ = source;  // Cache the input for preview rendering
         return {inputs[0]};
     }
     

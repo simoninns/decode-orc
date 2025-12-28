@@ -269,7 +269,7 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                             this, &StageParameterDialog::update_dependencies);
                     break;
                 case orc::ParameterType::BOOL:
-                    connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
+                    connect(static_cast<QCheckBox*>(widget), &QCheckBox::checkStateChanged,
                             this, &StageParameterDialog::update_dependencies);
                     break;
                 default:

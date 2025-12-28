@@ -255,7 +255,8 @@ std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors(VideoS
                 std::nullopt,  // no max
                 ParameterValue{std::string("")},  // default: empty (pass-through)
                 {},  // no allowed strings
-                false  // not required
+                false,  // not required
+                std::nullopt  // no dependency
             }
         },
         ParameterDescriptor{
@@ -268,7 +269,8 @@ std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors(VideoS
                 std::nullopt,  // no max
                 ParameterValue{int32_t(0)},  // default: 0 (not set)
                 {},  // no allowed strings
-                false  // not required
+                false,  // not required
+                std::nullopt  // no dependency
             }
         }
     };

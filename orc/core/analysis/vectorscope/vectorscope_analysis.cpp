@@ -47,6 +47,7 @@ bool VectorscopeAnalysisTool::isApplicableToStage(const std::string& stage_name)
 
 AnalysisResult VectorscopeAnalysisTool::analyze(const AnalysisContext& ctx,
                                                 AnalysisProgress* progress) {
+    (void)ctx;  // Currently unused
     AnalysisResult result;
     
     // This is a live visualization tool, not a batch analysis

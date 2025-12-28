@@ -75,6 +75,7 @@ double DropoutAnalysisObserver::calculate_visible_area_dropout_length(
     const VideoFieldRepresentation& representation,
     FieldID field_id) const
 {
+    (void)field_id;  // Currently unused
     double visible_length = 0.0;
     
     // Get video parameters to determine visible area

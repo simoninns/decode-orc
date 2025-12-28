@@ -305,6 +305,7 @@ std::optional<FieldSNRStats> SNRAnalysisDecoder::extract_snr_stats(
     FieldID field_id,
     SNRAnalysisMode mode)
 {
+    (void)mode;  // Currently unused
     try {
         // Get the existing observations from the representation
         auto existing_obs = field_repr->get_observations(field_id);

@@ -21,6 +21,7 @@ std::vector<std::shared_ptr<Observation>> SNRAnalysisObserver::process_field(
     FieldID field_id,
     const ObservationHistory& history)
 {
+    (void)representation;  // Currently unused
     std::vector<std::shared_ptr<Observation>> observations;
     
     // Create observation

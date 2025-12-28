@@ -122,7 +122,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Decoder Type",
             "Chroma decoder to use: auto, pal2d, transform2d, transform3d, ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt, mono",
             ParameterType::STRING,
-            {{}, {}, {}, decoder_options, false}
+            {{}, {}, {}, decoder_options, false, std::nullopt}
         },
         ParameterDescriptor{
             "output_format",
@@ -131,56 +131,56 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "  Raw: rgb (RGB48), yuv (YUV444P16), y4m (YUV444P16 with Y4M headers)\n"
             "  Encoded: mp4-h264, mkv-ffv1 (requires FFmpeg libraries)",
             ParameterType::STRING,
-            {{}, {}, {}, OutputBackendFactory::getSupportedFormats(), false}
+            {{}, {}, {}, OutputBackendFactory::getSupportedFormats(), false, std::nullopt}
         },
         ParameterDescriptor{
             "chroma_gain",
             "Chroma Gain",
             "Gain factor applied to chroma components (color saturation). Range: 0.0-10.0",
             ParameterType::DOUBLE,
-            {0.0, 10.0, 1.0, {}, false}
+            {0.0, 10.0, 1.0, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "chroma_phase",
             "Chroma Phase",
             "Phase rotation applied to chroma components in degrees. Range: -180 to 180",
             ParameterType::DOUBLE,
-            {-180.0, 180.0, 0.0, {}, false}
+            {-180.0, 180.0, 0.0, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "threads",
             "Threads",
             "Number of worker threads. 0 means auto-detect. Default: 0",
             ParameterType::INT32,
-            {0, 64, 0, {}, false}
+            {0, 64, 0, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "luma_nr",
             "Luma Noise Reduction",
             "Luma noise reduction level in dB. 0 = disabled. Range: 0.0-10.0",
             ParameterType::DOUBLE,
-            {0.0, 10.0, 0.0, {}, false}
+            {0.0, 10.0, 0.0, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "chroma_nr",
             "Chroma Noise Reduction",
             "Chroma noise reduction level in dB (NTSC only). 0 = disabled. Range: 0.0-10.0",
             ParameterType::DOUBLE,
-            {0.0, 10.0, 0.0, {}, false}
+            {0.0, 10.0, 0.0, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "output_padding",
             "Output Padding",
             "Pad output to multiple of this many pixels on both axes. Range: 1-32",
             ParameterType::INT32,
-            {1, 32, 8, {}, false}
+            {1, 32, 8, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "active_area_only",
             "Active Area Only",
             "Output only the active video area without padding",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false}
+            {{}, {}, false, {}, false, std::nullopt}
         },
         ParameterDescriptor{
             "encoder_preset",
@@ -215,7 +215,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "NTSC Phase Compensation",
             "Adjust phase per-line using burst phase (NTSC only)",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false}
+            {{}, {}, false, {}, false, std::nullopt}
         });
     } else if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
         params.push_back(ParameterDescriptor{
@@ -223,7 +223,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Simple PAL",
             "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false}
+            {{}, {}, false, {}, false, std::nullopt}
         });
     } else {
         // Unknown format - include both for backwards compatibility
@@ -232,14 +232,14 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "NTSC Phase Compensation",
             "Adjust phase per-line using burst phase (NTSC only)",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false}
+            {{}, {}, false, {}, false, std::nullopt}
         });
         params.push_back(ParameterDescriptor{
             "simple_pal",
             "Simple PAL",
             "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false}
+            {{}, {}, false, {}, false, std::nullopt}
         });
     }
     

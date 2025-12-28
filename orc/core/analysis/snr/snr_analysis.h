@@ -10,7 +10,7 @@
 #ifndef ORC_CORE_ANALYSIS_SNR_ANALYSIS_H
 #define ORC_CORE_ANALYSIS_SNR_ANALYSIS_H
 
-#include "../analysis_tool.h"
+#include "../batch_analysis_tool.h"
 #include <memory>
 
 namespace orc {
@@ -21,8 +21,10 @@ namespace orc {
  * This tool processes all fields from a stage output and generates SNR statistics
  * that can be displayed in a graph dialog. It triggers batch processing through the
  * DAG executor to ensure all field data is available.
+ * 
+ * The actual data processing happens in SNRAnalysisDecoder via the RenderCoordinator.
  */
-class SNRAnalysisTool : public AnalysisTool {
+class SNRAnalysisTool : public BatchAnalysisTool {
 public:
     std::string id() const override;
     std::string name() const override;
@@ -31,17 +33,9 @@ public:
     
     std::vector<ParameterDescriptor> parameters() const override;
     bool canAnalyze(AnalysisSourceType source_type) const override;
-    bool isApplicableToStage(const std::string& stage_name) const override;
-    
-    AnalysisResult analyze(const AnalysisContext& ctx,
-                          AnalysisProgress* progress) override;
-    
-    bool canApplyToGraph() const override;
-    bool applyToGraph(const AnalysisResult& result,
-                     Project& project,
-                     const std::string& node_id) override;
-    
-    int estimateDurationSeconds(const AnalysisContext& ctx) const override;
+
+protected:
+    std::string decoder_name() const override;
 };
 
 } // namespace orc

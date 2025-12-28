@@ -10,7 +10,7 @@
 #ifndef ORC_CORE_DROPOUT_ANALYSIS_DECODER_H
 #define ORC_CORE_DROPOUT_ANALYSIS_DECODER_H
 
-#include "dropout_analysis_observer.h"
+#include "../observers/dropout_analysis_observer.h"
 #include "field_id.h"
 #include <memory>
 #include <optional>

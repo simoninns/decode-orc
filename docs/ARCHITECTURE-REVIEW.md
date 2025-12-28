@@ -182,20 +182,28 @@ return {};
 
 ---
 
-## 3. Header Organization Inconsistency
+## 3. Header Organization Inconsistency ✅ COMPLETED (28 Dec 2025)
 
 ### 3.1 Observer Headers in Two Locations
 
-**Issue:** Observer headers are split between two directories without clear rationale.
+**Status:** RESOLVED - Consolidated all observer headers to `observers/` directory
 
-**Headers in `include/` directory (5 files):**
-- `include/dropout_analysis_observer.h`
-- `include/snr_analysis_observer.h`
-- `include/lead_in_out_observer.h`
-- `include/pulldown_observer.h`
-- `include/disc_quality_observer.h`
+**Implementation Details:**
+- Moved 5 observer headers from `include/` to `observers/`:
+  - `dropout_analysis_observer.h`
+  - `snr_analysis_observer.h`
+  - `lead_in_out_observer.h`
+  - `pulldown_observer.h`
+  - `disc_quality_observer.h`
+- Updated all #include statements across codebase (11 files updated)
+- Successfully built and verified all dependencies
 
-**Headers in `observers/` directory (11 files):**
+**Headers now unified in `observers/` directory (16 files):**
+- `observers/dropout_analysis_observer.h`
+- `observers/snr_analysis_observer.h`
+- `observers/lead_in_out_observer.h`
+- `observers/pulldown_observer.h`
+- `observers/disc_quality_observer.h`
 - `observers/biphase_observer.h`
 - `observers/vitc_observer.h`
 - `observers/video_id_observer.h`
@@ -206,27 +214,8 @@ return {};
 - `observers/closed_caption_observer.h`
 - `observers/observer.h` (base class)
 - `observers/observation_history.h`
-- Plus `observers/dropout_analysis_observer.h` (DUPLICATE!)
 
-**Recommendation:**
-
-**Option A (Recommended):** Consolidate to `observers/` directory
-- Move the 5 headers from `include/` to `observers/`
-- Update `CMakeLists.txt` include paths if needed
-- Rationale: Observers are a cohesive subsystem, keeping them together improves maintainability
-
-**Option B:** Consolidate to `include/` directory
-- Move all observer headers to `include/`
-- Rationale: Only if observers are truly part of the public API
-
-**Current CMakeLists.txt includes both:**
-```cmake
-target_include_directories(orc-core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/observers
-    # ... other paths
-)
-```
+**Impact:** ✅ Improved maintainability - all observer code now co-located in a single directory.
 
 ---
 
@@ -454,10 +443,11 @@ Many observers have `(void)history; // Unused` - this is **not a problem**. The 
    - Option C: Hide from production UI until complete
    - Decision needed from product owner
 
-3. **Consolidate Observer Headers**
-   - Move all observer headers to `observers/` directory
-   - Remove duplicates
-   - Estimated effort: 1 hour
+3. ✅ **Consolidate Observer Headers** - COMPLETED 28 Dec 2025
+   - Moved all observer headers to `observers/` directory
+   - Updated all include references across codebase
+   - Actual effort: ~45 minutes
+   - Result: Improved maintainability and consistency
 
 ### 9.2 Short-Term Actions (Next Sprint)
 
@@ -521,7 +511,7 @@ The orc-core codebase demonstrates solid architecture and good engineering pract
 1. Resolve Stacker stage status (critical for user trust)
 2. ✅ ~~Eliminate analysis tool duplication~~ COMPLETED (technical debt resolved)
 3. ✅ ~~Enhance CLV timecode parsing~~ COMPLETED (validation + multi-line correlation)
-4. Consolidate header organization (maintainability)
+4. ✅ ~~Consolidate header organization~~ COMPLETED (maintainability improved)
 
 **Recent Progress (28 Dec 2025):**
 - Analysis tool duplication eliminated via `BatchAnalysisTool` base class
@@ -529,5 +519,6 @@ The orc-core codebase demonstrates solid architecture and good engineering pract
 - All three batch analysis tools now maintainable and DRY-compliant
 - CLV timecode parsing enhanced with full validation and multi-line correlation
 - Range checking and completeness validation implemented for CLV timecode
+- Observer headers consolidated to `observers/` directory (16 files unified)
 
 The codebase is production-ready with the exception of the Stacker stage, which should either be completed or clearly marked as experimental.

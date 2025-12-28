@@ -18,7 +18,7 @@
 #include <QVector>
 #include <QPointF>
 #include "plotwidget.h"
-#include "../core/include/snr_analysis_observer.h"
+#include "../core/observers/snr_analysis_observer.h"
 
 /**
  * @brief Dialog for displaying SNR analysis graphs

@@ -10,8 +10,8 @@
 #include "field_mapping_analyzer.h"
 #include "../../observers/observation_history.h"
 #include "../../observers/biphase_observer.h"
-#include "../../include/pulldown_observer.h"
-#include "../../include/lead_in_out_observer.h"
+#include "../../observers/pulldown_observer.h"
+#include "../../observers/lead_in_out_observer.h"
 #include "../../include/logging.h"
 #include <algorithm>
 #include <sstream>

@@ -10,7 +10,7 @@
 #ifndef ORC_CORE_SNR_ANALYSIS_DECODER_H
 #define ORC_CORE_SNR_ANALYSIS_DECODER_H
 
-#include "snr_analysis_observer.h"
+#include "../observers/snr_analysis_observer.h"
 #include "field_id.h"
 #include <memory>
 #include <optional>

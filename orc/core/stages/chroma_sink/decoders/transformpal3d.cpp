@@ -146,6 +146,18 @@ void TransformPal3D::forwardFFTTile(int32_t tileX, int32_t tileY, int32_t tileZ,
     // Copy the input signal into fftReal, applying the window function
     for (int32_t z = 0; z < ZTILE; z++) {
         const int32_t fieldIndex = tileZ + z;
+        
+        // Bounds check to prevent out-of-bounds access
+        if (fieldIndex < 0 || fieldIndex >= static_cast<int32_t>(inputFields.size())) {
+            // Fill entire z-slice with black if field is out of bounds
+            for (int32_t y = 0; y < YTILE; y++) {
+                for (int32_t x = 0; x < XTILE; x++) {
+                    fftReal[(((z * YTILE) + y) * XTILE) + x] = videoParameters.black_16b_ire * windowFunction[z][y][x];
+                }
+            }
+            continue;
+        }
+        
         const uint16_t *inputPtr = inputFields[fieldIndex].data.data();
 
         for (int32_t y = 0; y < YTILE; y++) {

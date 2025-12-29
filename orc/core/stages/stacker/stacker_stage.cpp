@@ -270,6 +270,7 @@ void StackerStage::stack_field(
         
         for (size_t x = 0; x < width; ++x) {
             std::vector<uint16_t> values;
+            std::vector<uint16_t> dropout_values;  // Separate collection for dropout pixels
             std::vector<bool> is_dropout(sources.size());
             
             // Collect values from all sources for this field
@@ -299,20 +300,22 @@ void StackerStage::stack_field(
                 
                 is_dropout[src_idx] = pixel_is_dropout;
                 
-                // Include non-dropout pixels or apply diff_dod if enabled
+                // Collect non-dropout pixels and dropout pixels separately
                 if (!pixel_is_dropout) {
                     values.push_back(pixel_value);
                 } else if (!m_no_diff_dod && pixel_value > 0) {
-                    values.push_back(pixel_value);
+                    // Keep dropout values for potential diff_dod recovery
+                    dropout_values.push_back(pixel_value);
                 }
             }
             
-            // Apply differential dropout detection if all values are dropouts
+            // Apply differential dropout detection only when ALL sources have dropouts
             bool all_dropouts_flag = std::all_of(is_dropout.begin(), is_dropout.end(), 
                                            [](bool b) { return b; });
-            if (all_dropouts_flag && sources.size() >= 3 && !m_no_diff_dod && !values.empty()) {
-                size_t before_count = values.size();
-                values = diff_dod(values, *video_params);
+            if (all_dropouts_flag && sources.size() >= 3 && !m_no_diff_dod && !dropout_values.empty()) {
+                // All sources marked this as dropout - try to recover using diff_dod
+                size_t before_count = dropout_values.size();
+                values = diff_dod(dropout_values, *video_params);
                 if (values.size() > 0 && values.size() < before_count) {
                     line_recoveries++;
                     total_diff_dod_recoveries++;

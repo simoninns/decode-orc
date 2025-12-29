@@ -147,7 +147,7 @@ private:
         const DAG& dag,
         const NodeID& target_node_id
     ) const;
-    ArtifactPtr get_cached_or_execute(
+    std::vector<ArtifactPtr> get_cached_or_execute(
         const DAGNode& node,
         const std::vector<ArtifactPtr>& inputs
     );

@@ -159,22 +159,39 @@ std::vector<ArtifactPtr> DAGExecutor::execute(const DAG& dag) {
             // No inputs needed - stage generates output
             inputs = {};
         } else {
-            for (size_t i = 0; i < node.input_node_ids.size(); ++i) {
-                const auto& input_node_id = node.input_node_ids[i];
-                size_t output_index = i < node.input_indices.size() ? node.input_indices[i] : 0;
-                
+            // Special handling for MERGER nodes: collect ALL outputs from source nodes
+            bool is_merger = (node.stage->get_node_type_info().type == NodeType::MERGER);
+            
+            if (is_merger && node.input_node_ids.size() == 1) {
+                // MERGER with single input node - collect all outputs from that node
+                const auto& input_node_id = node.input_node_ids[0];
                 auto it = node_outputs.find(input_node_id);
-                if (it == node_outputs.end() || output_index >= it->second.size()) {
+                if (it == node_outputs.end()) {
                     throw DAGExecutionError("Missing input for node '" + node_id.to_string() + "' from '" + input_node_id.to_string() + "'");
                 }
-                
-                inputs.push_back(it->second[output_index]);
+                // Add ALL outputs from the source node
+                inputs = it->second;
+                ORC_LOG_DEBUG("Node '{}': MERGER collecting {} outputs from node '{}'",
+                             node_id, inputs.size(), input_node_id);
+            } else {
+                // Normal input gathering - one input per edge
+                for (size_t i = 0; i < node.input_node_ids.size(); ++i) {
+                    const auto& input_node_id = node.input_node_ids[i];
+                    size_t output_index = i < node.input_indices.size() ? node.input_indices[i] : 0;
+                    
+                    auto it = node_outputs.find(input_node_id);
+                    if (it == node_outputs.end() || output_index >= it->second.size()) {
+                        throw DAGExecutionError("Missing input for node '" + node_id.to_string() + "' from '" + input_node_id.to_string() + "'");
+                    }
+                    
+                    inputs.push_back(it->second[output_index]);
+                }
             }
         }
         
         // Execute or retrieve from cache
         auto outputs = get_cached_or_execute(node, inputs);
-        node_outputs[node_id] = {outputs};
+        node_outputs[node_id] = outputs;
     }
     
     // Gather output artifacts
@@ -232,7 +249,7 @@ std::vector<NodeID> DAGExecutor::topological_sort(const DAG& dag) const {
     return result;
 }
 
-ArtifactPtr DAGExecutor::get_cached_or_execute(
+std::vector<ArtifactPtr> DAGExecutor::get_cached_or_execute(
     const DAGNode& node,
     const std::vector<ArtifactPtr>& inputs
 ) {
@@ -244,7 +261,9 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
         auto it = artifact_cache_.find(expected_id);
         if (it != artifact_cache_.end()) {
             ORC_LOG_TRACE("Node '{}': Using cached result (cache size: {})", node.node_id.to_string(), artifact_cache_.size());
-            return it->second;
+            // For cached results, we only stored the first output
+            // This is a limitation - for now return it as a vector
+            return {it->second};
         } else {
             ORC_LOG_TRACE("Node '{}': Cache miss - expected_id='{}' (cache size: {})", 
                          node.node_id.to_string(), expected_id.value(), artifact_cache_.size());
@@ -265,17 +284,24 @@ ArtifactPtr DAGExecutor::get_cached_or_execute(
     
     if (outputs.empty() && is_sink) {
         ORC_LOG_DEBUG("Node '{}': Sink stage executed (no outputs expected)", node.node_id.to_string());
-        return nullptr;  // Sink stages don't produce artifacts
+        return {};  // Sink stages don't produce artifacts
+    }
+    
+    // Log number of outputs for debugging
+    if (outputs.size() > 1) {
+        ORC_LOG_DEBUG("Node '{}': Stage produced {} outputs", node.node_id.to_string(), outputs.size());
     }
     
     // Cache result using the expected_id (same key used for lookup)
-    if (cache_enabled_) {
+    // Note: For multi-output stages, we only cache the first output
+    // This is a limitation that could be improved in the future
+    if (cache_enabled_ && !outputs.empty()) {
         ORC_LOG_TRACE("Node '{}': Caching result with expected_id='{}' (cache will be size: {})", 
                      node.node_id.to_string(), expected_id.value(), artifact_cache_.size() + 1);
         artifact_cache_[expected_id] = outputs[0];
     }
     
-    return outputs[0];
+    return outputs;
 }
 
 ArtifactID DAGExecutor::compute_expected_artifact_id(
@@ -363,28 +389,39 @@ std::map<NodeID, std::vector<ArtifactPtr>> DAGExecutor::execute_to_node(
             // No inputs needed - stage generates output
             inputs = {};
         } else {
-            for (size_t i = 0; i < node.input_node_ids.size(); ++i) {
-                const auto& input_node_id = node.input_node_ids[i];
-                size_t output_index = i < node.input_indices.size() ? node.input_indices[i] : 0;
-                
+            // Special handling for MERGER nodes: collect ALL outputs from source nodes
+            bool is_merger = (node.stage->get_node_type_info().type == NodeType::MERGER);
+            
+            if (is_merger && node.input_node_ids.size() == 1) {
+                // MERGER with single input node - collect all outputs from that node
+                const auto& input_node_id = node.input_node_ids[0];
                 auto it = node_outputs.find(input_node_id);
-                if (it == node_outputs.end() || output_index >= it->second.size()) {
+                if (it == node_outputs.end()) {
                     throw DAGExecutionError("Missing input for node '" + node_id.to_string() + "' from '" + input_node_id.to_string() + "'");
                 }
-                
-                inputs.push_back(it->second[output_index]);
+                // Add ALL outputs from the source node
+                inputs = it->second;
+                ORC_LOG_DEBUG("Node '{}': MERGER collecting {} outputs from node '{}'",
+                             node_id, inputs.size(), input_node_id);
+            } else {
+                // Normal input gathering - one input per edge
+                for (size_t i = 0; i < node.input_node_ids.size(); ++i) {
+                    const auto& input_node_id = node.input_node_ids[i];
+                    size_t output_index = i < node.input_indices.size() ? node.input_indices[i] : 0;
+                    
+                    auto it = node_outputs.find(input_node_id);
+                    if (it == node_outputs.end() || output_index >= it->second.size()) {
+                        throw DAGExecutionError("Missing input for node '" + node_id.to_string() + "' from '" + input_node_id.to_string() + "'");
+                    }
+                    
+                    inputs.push_back(it->second[output_index]);
+                }
             }
         }
         
         // Execute or retrieve from cache
         auto outputs = get_cached_or_execute(node, inputs);
-        
-        // Sink stages return nullptr (no outputs)
-        if (outputs) {
-            node_outputs[node_id] = {outputs};
-        } else {
-            node_outputs[node_id] = {};  // Empty vector for sink nodes
-        }
+        node_outputs[node_id] = outputs;
     }
     
     return node_outputs;

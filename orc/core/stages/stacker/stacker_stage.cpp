@@ -246,10 +246,27 @@ void StackerStage::stack_field(
     size_t total_diff_dod_recoveries = 0;
     size_t total_stacked_pixels = 0;
     
+    // Pre-load all source fields into memory to avoid repeated get_line() calls
+    // This dramatically improves performance by eliminating wrapper call overhead
+    std::vector<std::vector<uint16_t>> all_fields;
+    std::vector<bool> field_valid;
+    all_fields.reserve(sources.size());
+    field_valid.reserve(sources.size());
+    
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (sources[i]->has_field(field_id)) {
+            all_fields.push_back(sources[i]->get_field(field_id));
+            field_valid.push_back(!all_fields.back().empty());
+        } else {
+            all_fields.push_back({});
+            field_valid.push_back(false);
+        }
+    }
+    
     // Pre-collect all dropout maps for fast lookup
     std::vector<std::vector<DropoutRegion>> all_dropouts;
     for (size_t i = 0; i < sources.size(); ++i) {
-        if (sources[i]->has_field(field_id)) {
+        if (field_valid[i]) {
             all_dropouts.push_back(sources[i]->get_dropout_hints(field_id));
         } else {
             all_dropouts.push_back({}); // Empty dropout list for sources without this field
@@ -276,18 +293,19 @@ void StackerStage::stack_field(
             // Collect values from all sources for this field
             for (size_t src_idx = 0; src_idx < sources.size(); ++src_idx) {
                 // Skip if this source doesn't have this field
-                if (!sources[src_idx]->has_field(field_id)) {
+                if (!field_valid[src_idx]) {
                     is_dropout[src_idx] = true;
                     continue;
                 }
                 
-                const auto* line = sources[src_idx]->get_line(field_id, y);
-                if (!line) {
+                // Access pre-loaded field data directly
+                size_t pixel_offset = y * width + x;
+                if (pixel_offset >= all_fields[src_idx].size()) {
                     is_dropout[src_idx] = true;
                     continue;
                 }
                 
-                uint16_t pixel_value = line[x];
+                uint16_t pixel_value = all_fields[src_idx][pixel_offset];
                 
                 // Check dropout status
                 bool pixel_is_dropout = false;

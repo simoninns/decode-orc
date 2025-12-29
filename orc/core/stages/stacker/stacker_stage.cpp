@@ -43,7 +43,7 @@ void StackedVideoFieldRepresentation::ensure_field_stacked(FieldID field_id) con
     
     ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} (NOT in cache)", field_id.value());
     
-    // Stack the field
+    // Stack the field from all sources (alignment is done by preceding field_map stages)
     std::vector<uint16_t> stacked_samples;
     std::vector<DropoutRegion> stacked_dropouts;
     
@@ -54,6 +54,21 @@ void StackedVideoFieldRepresentation::ensure_field_stacked(FieldID field_id) con
     stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
     
     ORC_LOG_DEBUG("  -> Field {} stacked and cached", field_id.value());
+}
+
+FieldIDRange StackedVideoFieldRepresentation::field_range() const {
+    return source_ ? source_->field_range() : FieldIDRange{};
+}
+
+size_t StackedVideoFieldRepresentation::get_source_count(FieldID field_id) const {
+    // Count how many sources have this field
+    size_t count = 0;
+    for (const auto& source : sources_) {
+        if (source && source->has_field(field_id)) {
+            count++;
+        }
+    }
+    return count;
 }
 
 const uint16_t* StackedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {
@@ -140,7 +155,6 @@ std::vector<ArtifactPtr> StackerStage::execute(
                      m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_reverse);
     }
     
-    // Convert inputs to VideoFieldRepresentation
     std::vector<std::shared_ptr<const VideoFieldRepresentation>> sources;
     for (const auto& input : inputs) {
         auto field_rep = std::dynamic_pointer_cast<const VideoFieldRepresentation>(input);
@@ -174,21 +188,9 @@ StackerStage::process(
         return sources[0];
     }
     
-    // Verify all sources have the same field range
-    auto reference_range = sources[0]->field_range();
-    ORC_LOG_DEBUG("StackerStage::process - Reference field range: {} to {}, stacking {} sources", 
-                 reference_range.start.value(), reference_range.end.value(), sources.size());
+    ORC_LOG_INFO("StackerStage::process - Stacking {} sources using VBI/timecode alignment", sources.size());
     
-    for (size_t i = 1; i < sources.size(); ++i) {
-        auto range = sources[i]->field_range();
-        if (range.start != reference_range.start || range.end != reference_range.end) {
-            ORC_LOG_ERROR("StackerStage: Field range mismatch - Source 0: [{}, {}], Source {}: [{}, {}]",
-                         reference_range.start.value(), reference_range.end.value(), i, range.start.value(), range.end.value());
-            throw DAGExecutionError("StackerStage: All sources must have the same field range");
-        }
-    }
-    
-    // Create stacked representation - will process fields on-demand
+    // Create stacked representation - will build frame alignment and process fields on-demand
     auto stacked = std::make_shared<StackedVideoFieldRepresentation>(
         sources,
         const_cast<StackerStage*>(this)
@@ -203,14 +205,25 @@ void StackerStage::stack_field(
     std::vector<uint16_t>& output_samples,
     std::vector<DropoutRegion>& output_dropouts) const
 {
-    ORC_LOG_DEBUG("StackerStage::stack_field - Processing field_id={} with {} sources", 
+    ORC_LOG_DEBUG("StackerStage::stack_field - Processing field {} from {} sources", 
                  field_id.value(), sources.size());
     
-    // Get descriptor from first source
-    auto descriptor = sources[0]->get_descriptor(field_id);
+    // Get descriptor from first valid source
+    std::optional<FieldDescriptor> descriptor;
+    size_t reference_idx = 0;
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (sources[i]->has_field(field_id)) {
+            descriptor = sources[i]->get_descriptor(field_id);
+            if (descriptor) {
+                reference_idx = i;
+                break;
+            }
+        }
+    }
+    
     if (!descriptor) {
-        ORC_LOG_ERROR("StackerStage: Field descriptor not available for field_id={}", field_id.value());
-        throw DAGExecutionError("StackerStage: Field descriptor not available");
+        ORC_LOG_ERROR("StackerStage: No valid field descriptor available for field {}", field_id.value());
+        throw DAGExecutionError("StackerStage: No valid field descriptor available");
     }
     
     size_t width = descriptor->width;
@@ -219,9 +232,9 @@ void StackerStage::stack_field(
     ORC_LOG_DEBUG("StackerStage::stack_field - Field dimensions: {}x{}", width, height);
     
     // Get video parameters for black level
-    auto video_params = sources[0]->get_video_parameters();
+    auto video_params = sources[reference_idx]->get_video_parameters();
     if (!video_params) {
-        ORC_LOG_ERROR("StackerStage: Video parameters not available for field_id={}", field_id.value());
+        ORC_LOG_ERROR("StackerStage: Video parameters not available");
         throw DAGExecutionError("StackerStage: Video parameters not available");
     }
     
@@ -235,8 +248,12 @@ void StackerStage::stack_field(
     
     // Pre-collect all dropout maps for fast lookup
     std::vector<std::vector<DropoutRegion>> all_dropouts;
-    for (const auto& source : sources) {
-        all_dropouts.push_back(source->get_dropout_hints(field_id));
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (sources[i]->has_field(field_id)) {
+            all_dropouts.push_back(sources[i]->get_dropout_hints(field_id));
+        } else {
+            all_dropouts.push_back({}); // Empty dropout list for sources without this field
+        }
     }
     
     // Process each line
@@ -255,8 +272,14 @@ void StackerStage::stack_field(
             std::vector<uint16_t> values;
             std::vector<bool> is_dropout(sources.size());
             
-            // Collect values from all sources
+            // Collect values from all sources for this field
             for (size_t src_idx = 0; src_idx < sources.size(); ++src_idx) {
+                // Skip if this source doesn't have this field
+                if (!sources[src_idx]->has_field(field_id)) {
+                    is_dropout[src_idx] = true;
+                    continue;
+                }
+                
                 const auto* line = sources[src_idx]->get_line(field_id, y);
                 if (!line) {
                     is_dropout[src_idx] = true;
@@ -699,6 +722,7 @@ std::optional<StageReport> StackerStage::generate_report() const {
     
     return report;
 }
+
 std::vector<PreviewOption> StackerStage::get_preview_options() const
 {
     return PreviewHelpers::get_standard_preview_options(cached_output_);

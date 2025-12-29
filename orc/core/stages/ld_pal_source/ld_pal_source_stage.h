@@ -76,7 +76,7 @@ public:
 private:
     // Cache the loaded representation to avoid reloading
     mutable std::string cached_input_path_;
-    mutable std::shared_ptr<TBCVideoFieldRepresentation> cached_representation_;
+    mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
     
     // Store parameters for inspection
     std::map<std::string, ParameterValue> parameters_;

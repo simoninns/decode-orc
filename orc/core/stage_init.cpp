@@ -16,6 +16,7 @@ void force_link_LDNTSCSourceStage();
 void force_link_DropoutCorrectStage();
 void force_link_FieldInvertStage();
 void force_link_FieldMapStage();
+void force_link_SourceAlignStage();
 void force_link_LDSinkStage();
 void force_link_StackerStage();
 void force_link_ChromaSinkStage();
@@ -42,6 +43,7 @@ void force_stage_linking() {
     force_link_DropoutCorrectStage();
     force_link_FieldInvertStage();
     force_link_FieldMapStage();
+    force_link_SourceAlignStage();
     force_link_LDSinkStage();
     force_link_StackerStage();
     force_link_ChromaSinkStage();

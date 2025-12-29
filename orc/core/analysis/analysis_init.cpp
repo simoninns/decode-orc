@@ -13,6 +13,7 @@
 #include "dropout/dropout_analysis.h"
 #include "snr/snr_analysis.h"
 #include "burst_level/burst_level_analysis.h"
+#include "source_alignment/source_alignment_analysis.h"
 #include "logging.h"
 #include <memory>
 
@@ -35,6 +36,7 @@ void force_analysis_tool_linking() {
     [[maybe_unused]] auto dummy4 = std::make_unique<DropoutAnalysisTool>();
     [[maybe_unused]] auto dummy5 = std::make_unique<SNRAnalysisTool>();
     [[maybe_unused]] auto dummy6 = std::make_unique<BurstLevelAnalysisTool>();
+    [[maybe_unused]] auto dummy7 = std::make_unique<SourceAlignmentAnalysisTool>();
     ORC_LOG_DEBUG("Analysis tool linking complete");
 }
 

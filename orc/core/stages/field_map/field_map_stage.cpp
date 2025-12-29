@@ -34,7 +34,8 @@ public:
         const std::string& range_spec)
         : VideoFieldRepresentationWrapper(
             source,
-            ArtifactID("field_map_" + source->id().to_string() + "_" + range_spec),
+            ArtifactID("field_map_" + source->id().to_string() + "_" + range_spec + 
+                      "_" + std::to_string(reinterpret_cast<uintptr_t>(source.get()))),
             Provenance{
                 "field_map",
                 "1.0",
@@ -176,6 +177,60 @@ public:
             return {};
         }
         return source_->get_dropout_hints(source_id);
+    }
+    
+    std::optional<FieldParityHint> get_field_parity_hint(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return std::nullopt;
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no parity hint
+        if (!source_id.is_valid()) {
+            return std::nullopt;
+        }
+        
+        if (!source_) {
+            return std::nullopt;
+        }
+        return source_->get_field_parity_hint(source_id);
+    }
+    
+    std::optional<FieldPhaseHint> get_field_phase_hint(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return std::nullopt;
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no phase hint
+        if (!source_id.is_valid()) {
+            return std::nullopt;
+        }
+        
+        if (!source_) {
+            return std::nullopt;
+        }
+        return source_->get_field_phase_hint(source_id);
+    }
+    
+    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return {};
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no observations
+        if (!source_id.is_valid()) {
+            return {};
+        }
+        
+        if (!source_) {
+            return {};
+        }
+        return source_->get_observations(source_id);
     }
 
 private:

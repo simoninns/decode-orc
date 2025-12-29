@@ -49,16 +49,17 @@ bool canConnect(
     uint32_t existing_input_count,
     uint32_t existing_output_count)
 {
-    // Check basic connection validity (source must have outputs, target must have inputs)
-    if (!orc::is_connection_valid(source_stage, target_stage)) {
-        return false;
-    }
-    
-    // Get node type info
+    // Get node type info first for detailed checking
     const orc::NodeTypeInfo* source_info = orc::get_node_type_info(source_stage);
     const orc::NodeTypeInfo* target_info = orc::get_node_type_info(target_stage);
     
     if (!source_info || !target_info) {
+        return false;
+    }
+    
+    // Check basic connection validity (source must have outputs, target must have inputs)
+    // This also checks MANY-to-ONE incompatibility
+    if (!orc::is_connection_valid(source_stage, target_stage)) {
         return false;
     }
     

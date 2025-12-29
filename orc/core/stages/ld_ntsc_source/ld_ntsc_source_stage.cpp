@@ -12,6 +12,9 @@
 #include "logging.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
+#include "observation_wrapper_representation.h"
+#include "biphase_observer.h"
+#include "observation_history.h"
 #include <stage_registry.h>
 #include <stdexcept>
 #include <fstream>
@@ -64,14 +67,13 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     ORC_LOG_DEBUG("  Database: {}", db_path);
     
     try {
-        cached_representation_ = create_tbc_representation(input_path, db_path);
-        if (!cached_representation_) {
+        auto tbc_representation = create_tbc_representation(input_path, db_path);
+        if (!tbc_representation) {
             throw std::runtime_error("Failed to load TBC file (validation failed - see logs above)");
         }
-        cached_input_path_ = input_path;
         
-        // Verify decoder and system
-        auto video_params = cached_representation_->get_video_parameters();
+        // Get video parameters for logging
+        auto video_params = tbc_representation->get_video_parameters();
         if (!video_params) {
             throw std::runtime_error("No video parameters found in TBC file");
         }
@@ -83,41 +85,12 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
             case VideoSystem::NTSC: system_str = "NTSC"; break;
             default: system_str = "UNKNOWN"; break;
         }
-        ORC_LOG_DEBUG("  Decoder: {}", video_params->decoder);
-        ORC_LOG_DEBUG("  System: {}", system_str);
-        ORC_LOG_DEBUG("  Field size: {}x{}", video_params->field_width, video_params->field_height);
-        
-        // Validate TBC file size matches metadata field count
-        // Note: field_count() from representation uses TBC file size, but we need to
-        // compare against the metadata's number_of_sequential_fields to catch mismatches
-        int32_t metadata_field_count = video_params->number_of_sequential_fields;
-        if (metadata_field_count < 0) {
-            throw std::runtime_error("Metadata does not specify number_of_sequential_fields");
-        }
-        
-        size_t expected_field_size = static_cast<size_t>(video_params->field_width) * 
-                                     static_cast<size_t>(video_params->field_height) * 
-                                     sizeof(uint16_t);
-        size_t expected_file_size = static_cast<size_t>(metadata_field_count) * expected_field_size;
-        
-        std::ifstream tbc_file(input_path, std::ios::binary | std::ios::ate);
-        if (!tbc_file) {
-            throw std::runtime_error("Cannot open TBC file to verify size");
-        }
-        size_t actual_file_size = static_cast<size_t>(tbc_file.tellg());
-        tbc_file.close();
-        
-        if (actual_file_size != expected_file_size) {
-            size_t actual_fields = actual_file_size / expected_field_size;
-            throw std::runtime_error(
-                "TBC file size mismatch! File contains " + std::to_string(actual_fields) + 
-                " fields (" + std::to_string(actual_file_size) + " bytes) but metadata " +
-                "specifies " + std::to_string(metadata_field_count) + " fields (" + 
-                std::to_string(expected_file_size) + " bytes expected). " +
-                "The TBC file and metadata are inconsistent - possibly corrupted during generation."
-            );
-        }
-        ORC_LOG_DEBUG("  Field count: {} (validated against metadata)", metadata_field_count);
+        ORC_LOG_INFO("  Decoder: {}", video_params->decoder);
+        ORC_LOG_INFO("  System: {}", system_str);
+        ORC_LOG_INFO("  Fields: {} ({}x{} pixels)", 
+                    video_params->number_of_sequential_fields,
+                    video_params->field_width, 
+                    video_params->field_height);
         
         // Check decoder
         if (video_params->decoder != "ld-decode") {
@@ -133,6 +106,30 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
                 "TBC file is not NTSC format. Use 'Add LD PAL Source' for PAL files."
             );
         }
+        
+        // Run observers on all fields to extract VBI and other metadata
+        ORC_LOG_INFO("LDNTSCSource: Running observers on all fields...");
+        auto biphase_observer = std::make_shared<BiphaseObserver>();
+        ObservationHistory history;
+        std::map<FieldID, std::vector<std::shared_ptr<Observation>>> observations_map;
+        
+        auto field_range = tbc_representation->field_range();
+        for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+            auto observations = biphase_observer->process_field(*tbc_representation, fid, history);
+            if (!observations.empty()) {
+                observations_map[fid] = observations;
+                history.add_observations(fid, observations);
+            }
+        }
+        
+        ORC_LOG_INFO("LDNTSCSource: Extracted observations for {} fields", observations_map.size());
+        
+        // Wrap the representation with observations
+        cached_representation_ = std::make_shared<ObservationWrapperRepresentation>(
+            tbc_representation, 
+            observations_map
+        );
+        cached_input_path_ = input_path;
         
         return {cached_representation_};
     } catch (const std::exception& e) {

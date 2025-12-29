@@ -1570,24 +1570,48 @@ void MainWindow::onInspectStage(const NodeID& node_id)
     
     const std::string& stage_name = node_it->stage_name;
     
-    // Create a stage instance to generate the report
-    try {
-        auto& stage_registry = orc::StageRegistry::instance();
-        if (!stage_registry.has_stage(stage_name)) {
-            ORC_LOG_ERROR("Stage type '{}' not found in registry", stage_name);
+    // Try to get the stage from the DAG if available (preserves execution state)
+    orc::DAGStagePtr stage;
+    auto dag = project_.getDAG();
+    if (dag) {
+        const auto& dag_nodes = dag->nodes();
+        auto dag_node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+            [&node_id](const orc::DAGNode& n) { return n.node_id == node_id; });
+        if (dag_node_it != dag_nodes.end()) {
+            stage = dag_node_it->stage;
+            ORC_LOG_DEBUG("Using stage from DAG (preserves execution state)");
+        }
+    }
+    
+    // If not in DAG, create a fresh instance
+    if (!stage) {
+        ORC_LOG_DEBUG("Creating fresh stage instance (no execution state)");
+        try {
+            auto& stage_registry = orc::StageRegistry::instance();
+            if (!stage_registry.has_stage(stage_name)) {
+                ORC_LOG_ERROR("Stage type '{}' not found in registry", stage_name);
+                QMessageBox::warning(this, "Inspection Failed",
+                    QString("Stage type '%1' not found in registry.").arg(QString::fromStdString(stage_name)));
+                return;
+            }
+            
+            stage = stage_registry.create_stage(stage_name);
+            
+            // Apply the node's parameters to the stage
+            auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+            if (param_stage) {
+                param_stage->set_parameters(node_it->parameters);
+            }
+        } catch (const std::exception& e) {
+            ORC_LOG_ERROR("Failed to create stage '{}': {}", stage_name, e.what());
             QMessageBox::warning(this, "Inspection Failed",
-                QString("Stage type '%1' not found in registry.").arg(QString::fromStdString(stage_name)));
+                QString("Failed to create stage: %1").arg(e.what()));
             return;
         }
-        
-        auto stage = stage_registry.create_stage(stage_name);
-        
-        // Apply the node's parameters to the stage
-        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-        if (param_stage) {
-            param_stage->set_parameters(node_it->parameters);
-        }
-        
+    }
+    
+    // Generate report from the stage
+    try {
         auto report = stage->generate_report();
         
         if (!report.has_value()) {

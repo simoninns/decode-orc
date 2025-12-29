@@ -25,7 +25,9 @@ class StackerStage;
 /**
  * @brief Stacked video field representation
  * 
- * This wraps multiple source field representations and stacks them on-demand
+ * This wraps multiple source field representations and stacks them on-demand.
+ * Field alignment is expected to be done by field_map stages before the stacker -
+ * the stacker simply stacks field N from all sources together.
  */
 class StackedVideoFieldRepresentation : public VideoFieldRepresentationWrapper {
 public:
@@ -35,12 +37,18 @@ public:
     
     ~StackedVideoFieldRepresentation() = default;
     
+    // Override field_range to report combined range from all sources
+    FieldIDRange field_range() const override;
+    
     // Only override methods that are actually modified by this stage
     const uint16_t* get_line(FieldID id, size_t line) const override;
     std::vector<uint16_t> get_field(FieldID id) const override;
     
     // Override dropout hints - after stacking, dropouts are the ones that remain
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
+    
+    // Get number of sources available for a specific frame
+    size_t get_source_count(FieldID id) const;
     
     // Allow stage to access private members
     friend class StackerStage;
@@ -155,7 +163,7 @@ private:
     /**
      * @brief Stack a single field from multiple sources
      * 
-     * @param field_id Field ID to process
+     * @param field_id Field ID to stack (same ID used for all sources - alignment done by field_map stages)
      * @param sources Input field representations
      * @param output_samples Output buffer for stacked samples
      * @param output_dropouts Output dropout regions

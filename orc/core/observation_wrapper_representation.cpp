@@ -16,8 +16,8 @@ ObservationWrapperRepresentation::ObservationWrapperRepresentation(
     std::map<FieldID, std::vector<std::shared_ptr<Observation>>> observations_map
 )
     : VideoFieldRepresentationWrapper(
-        std::move(source),
-        ArtifactID("observation_wrapper"),
+        source,
+        ArtifactID("observation_wrapper_" + source->id().to_string()),
         Provenance()
       )
     , observations_map_(std::move(observations_map))

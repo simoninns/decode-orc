@@ -63,6 +63,9 @@ add_library(orc-core STATIC
     # Burst level analysis
     analysis/burst_level/burst_level_analysis.cpp
     
+    # Source alignment analysis
+    analysis/source_alignment/source_alignment_analysis.cpp
+    
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
@@ -71,6 +74,7 @@ add_library(orc-core STATIC
     stages/dropout_correct/dropout_correct_stage.cpp
     stages/field_invert/field_invert_stage.cpp
     stages/field_map/field_map_stage.cpp
+    stages/source_align/source_align_stage.cpp
     stages/stacker/stacker_stage.cpp
     stages/chroma_sink/chroma_sink_stage.cpp
     stages/chroma_sink/output_backend.cpp
@@ -122,6 +126,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_correct
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_invert
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_map
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/source_align
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink
 )

@@ -121,6 +121,11 @@ void PreviewDialog::setupUI()
     aspect_ratio_combo_ = new QComboBox();
     controlLayout->addWidget(aspect_ratio_combo_);
     
+    // Add Zoom 1:1 button
+    zoom1to1_button_ = new QPushButton("Zoom 1:1");
+    zoom1to1_button_->setToolTip("Resize preview to original image size");
+    controlLayout->addWidget(zoom1to1_button_);
+    
     controlLayout->addStretch();
     mainLayout->addLayout(controlLayout);
     
@@ -156,6 +161,34 @@ void PreviewDialog::setupUI()
         int new_value = preview_slider_->maximum();
         preview_slider_->setValue(new_value);
         emit sequentialPreviewRequested(new_value);
+    });
+    
+    // Connect Zoom 1:1 button
+    connect(zoom1to1_button_, &QPushButton::clicked, [this]() {
+        QSize img_size = preview_widget_->originalImageSize();
+        if (img_size.isEmpty()) {
+            return;  // No image to zoom to
+        }
+        
+        // Calculate the corrected display size
+        double correction = preview_widget_->aspectCorrection();
+        QSize display_size(img_size.width() * correction, img_size.height());
+        
+        // Calculate total window size based on widget size
+        // We need to account for all other UI elements
+        int extra_height = height() - preview_widget_->height();
+        int extra_width = width() - preview_widget_->width();
+        
+        // Set the preview widget to the original size
+        preview_widget_->setMinimumSize(display_size);
+        preview_widget_->setMaximumSize(display_size);
+        
+        // Adjust the dialog size
+        adjustSize();
+        
+        // Reset size constraints after resize
+        preview_widget_->setMinimumSize(320, 240);
+        preview_widget_->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     });
 }
 

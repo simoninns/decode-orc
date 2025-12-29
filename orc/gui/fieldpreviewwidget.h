@@ -50,6 +50,18 @@ public:
      */
     void setAspectCorrection(double correction);
     
+    /**
+     * @brief Get the current original image size (uncorrected)
+     * @return Size of the current image, or QSize(0,0) if no image
+     */
+    QSize originalImageSize() const { return current_image_.size(); }
+    
+    /**
+     * @brief Get the current aspect correction value
+     * @return The aspect correction factor
+     */
+    double aspectCorrection() const { return aspect_correction_; }
+    
     QSize sizeHint() const override;
 
 protected:

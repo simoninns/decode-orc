@@ -198,7 +198,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
         return false;
     }
     
-    // Calculate dimensions with padding
+    // Calculate dimensions from video parameters
     active_width_ = params.active_video_end - params.active_video_start;
     active_height_ = params.last_active_frame_line - params.first_active_frame_line;
     

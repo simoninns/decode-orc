@@ -103,8 +103,10 @@ void TransformPal2D::filterFields(const std::vector<SourceField> &inputFields, i
 // Process one field, writing the result into chromaBuf[outputIndex]
 void TransformPal2D::filterField(const SourceField& inputField, int32_t outputIndex)
 {
-    const int32_t firstFieldLine = inputField.getFirstActiveLine(videoParameters);
-    const int32_t lastFieldLine = inputField.getLastActiveLine(videoParameters);
+    // Convert frame-based active area limits to field-based coordinates
+    // This ensures the output respects the active_area_only flag
+    const int32_t firstFieldLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
+    const int32_t lastFieldLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
 
     // Iterate through the overlapping tile positions, covering the active area.
     // (See TransformPal2D member variable documentation for how the tiling works.)
@@ -269,8 +271,9 @@ void TransformPal2D::overlayFFTFrame(int32_t positionX, int32_t positionY,
 
     // Work out which field lines to use (as the input is in frame lines)
     const SourceField &inputField = inputFields[fieldIndex];
-    const int32_t firstFieldLine = inputField.getFirstActiveLine(videoParameters);
-    const int32_t lastFieldLine = inputField.getLastActiveLine(videoParameters);
+    // Convert frame-based active area limits to field-based coordinates
+    const int32_t firstFieldLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
+    const int32_t lastFieldLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
     const int32_t tileY = positionY / 2;
     const int32_t startY = std::max(firstFieldLine - tileY, 0);
     const int32_t endY = std::min(lastFieldLine - tileY, YTILE);

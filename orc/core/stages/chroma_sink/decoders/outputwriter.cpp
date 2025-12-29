@@ -253,16 +253,19 @@ void OutputWriter::clearPadLines(int32_t firstLine, int32_t numLines, OutputFram
 
 void OutputWriter::convertLine(int32_t lineNumber, const ComponentFrame &componentFrame, OutputFrame &outputFrame) const
 {
+    // When cropping is applied, componentFrame is indexed from 0
+    // Otherwise, it's indexed from first_active_frame_line
+    const int32_t inputLine = videoParameters.active_area_cropping_applied ? lineNumber : 
+                              (videoParameters.first_active_frame_line + lineNumber);
+    const int32_t xOffset = videoParameters.active_area_cropping_applied ? 0 : videoParameters.active_video_start;
+    
     // Get pointers to the component data for the active region
-    const int32_t inputLine = videoParameters.first_active_frame_line + lineNumber;
-    ORC_LOG_DEBUG("OutputWriter::convertLine: lineNumber={}, first_active_frame_line={}, inputLine={}", 
-                  lineNumber, videoParameters.first_active_frame_line, inputLine);
-    const double *inY = componentFrame.y(inputLine) + videoParameters.active_video_start;
+    const double *inY = componentFrame.y(inputLine) + xOffset;
     // Not used if output is GRAY16
     const double *inU = (config.pixelFormat != GRAY16) ?
-                            componentFrame.u(inputLine) + videoParameters.active_video_start : nullptr;
+                            componentFrame.u(inputLine) + xOffset : nullptr;
     const double *inV = (config.pixelFormat != GRAY16) ?
-                            componentFrame.v(inputLine) + videoParameters.active_video_start : nullptr;
+                            componentFrame.v(inputLine) + xOffset : nullptr;
 
     const int32_t outputLine = topPadLines + lineNumber;
 

@@ -466,10 +466,13 @@ bool ChromaSinkStage::trigger(
     // This ensures the decoder processes the correct region that will be written to output
     {
         OutputWriter::Configuration writerConfig;
-        writerConfig.paddingAmount = 8;  // Same as used later for actual output
+        // If active_area_only is true, use paddingAmount=1 (no padding)
+        // Otherwise use the configured output_padding_ value
+        writerConfig.paddingAmount = active_area_only_ ? 1 : output_padding_;
         
-        ORC_LOG_DEBUG("ChromaSink: BEFORE padding adjustment: first_active_frame_line={}, last_active_frame_line={}", 
-                      videoParams.first_active_frame_line, videoParams.last_active_frame_line);
+        ORC_LOG_DEBUG("ChromaSink: BEFORE padding adjustment: first_active_frame_line={}, last_active_frame_line={} (paddingAmount={}, active_area_only={})", 
+                      videoParams.first_active_frame_line, videoParams.last_active_frame_line,
+                      writerConfig.paddingAmount, active_area_only_);
         
         // Create temporary output writer just to apply padding adjustments
         OutputWriter tempWriter;
@@ -478,6 +481,38 @@ bool ChromaSinkStage::trigger(
         
         ORC_LOG_DEBUG("ChromaSink: AFTER padding adjustment: first_active_frame_line={}, last_active_frame_line={}", 
                       videoParams.first_active_frame_line, videoParams.last_active_frame_line);
+    }
+    
+    // Apply active area cropping if active_area_only is true
+    // Adjust videoParams BEFORE creating decoders so they only decode the visible area
+    if (active_area_only_) {
+        int32_t full_width = videoParams.active_video_end - videoParams.active_video_start;
+        int32_t full_height = videoParams.last_active_frame_line - videoParams.first_active_frame_line;
+        
+        // Define standard active picture dimensions (excluding overscan)
+        int32_t target_width = 720;
+        int32_t target_height = (videoParams.system == VideoSystem::NTSC) ? 480 : 576;
+        
+        // Center-crop to target dimensions
+        if (full_width > target_width) {
+            int32_t crop_pixels = (full_width - target_width) / 2;
+            videoParams.active_video_start += crop_pixels;
+            videoParams.active_video_end = videoParams.active_video_start + target_width;
+        }
+        
+        if (full_height > target_height) {
+            int32_t crop_lines = (full_height - target_height) / 2;
+            videoParams.first_active_frame_line += crop_lines;
+            videoParams.last_active_frame_line = videoParams.first_active_frame_line + target_height;
+        }
+        
+        // Set flag so decoders know to use relative indexing when writing to ComponentFrame
+        videoParams.active_area_cropping_applied = true;
+        
+        ORC_LOG_INFO("ChromaSink: Active area only mode - cropped from {}x{} to {}x{}", 
+                     full_width, full_height,
+                     videoParams.active_video_end - videoParams.active_video_start,
+                     videoParams.last_active_frame_line - videoParams.first_active_frame_line);
     }
     
     // 4. Create appropriate decoder

@@ -85,6 +85,9 @@ struct VideoParameters {
     std::string git_branch;
     std::string git_commit;
     
+    // Active area cropping flag - when true, decoders should write to 0-based ComponentFrame
+    bool active_area_cropping_applied = false;
+    
     bool is_valid() const { return system != VideoSystem::Unknown && field_width > 0; }
 };
 

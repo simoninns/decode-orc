@@ -40,6 +40,12 @@ public:
         bool active_area_only = false;        ///< Output only active area without padding
         std::map<std::string, std::string> options;  ///< Format-specific options
         
+        // Crop parameters (applied when reading from ComponentFrame)
+        int crop_left = 0;                    ///< Pixels to crop from left
+        int crop_top = 0;                     ///< Lines to crop from top
+        int crop_width = 0;                   ///< Target width after crop (0 = no crop)
+        int crop_height = 0;                  ///< Target height after crop (0 = no crop)
+        
         // Encoder quality settings (for FFmpeg backends)
         std::string encoder_preset = "medium";  ///< Encoder preset: fast, medium, slow, veryslow
         int encoder_crf = 18;                   ///< Constant Rate Factor (0-51, lower=better)

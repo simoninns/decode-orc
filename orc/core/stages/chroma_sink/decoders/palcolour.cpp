@@ -269,8 +269,10 @@ void PalColour::decodeField(const SourceField &inputField, const double *chromaD
     // Pointer to the composite signal data
     const uint16_t *compPtr = inputField.data.data();
 
-    const int32_t firstLine = inputField.getFirstActiveLine(videoParameters);
-    const int32_t lastLine = inputField.getLastActiveLine(videoParameters);
+    // Convert frame-based active area limits to field-based coordinates
+    // This ensures the output respects the active_area_only flag
+    const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
+    const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
     for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {
         LineInfo line(fieldLine);
 
@@ -379,16 +381,18 @@ void PalColour::doYNR(double *Yline)
 
     // Filter delay (since it's a symmetric FIR filter)
     const int32_t delay = c_nrpal_b.size() / 2;
+    
+    const int32_t xOffset = videoParameters.active_area_cropping_applied ? 0 : videoParameters.active_video_start;
 
     // High-pass result
     std::vector<double> hpY(videoParameters.active_video_end + delay);
 
-    // Feed zeros into the filter outside the active area
+    // Feed zeros into the filter before the active area
     for (int32_t h = videoParameters.active_video_start - delay; h < videoParameters.active_video_start; h++) {
         yFilter.feed(0.0);
     }
     for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-        hpY[h] = yFilter.feed(Yline[h]);
+        hpY[h] = yFilter.feed(Yline[h - xOffset]);
     }
     for (int32_t h = videoParameters.active_video_end; h < videoParameters.active_video_end + delay; h++) {
         hpY[h] = yFilter.feed(0.0);
@@ -403,7 +407,7 @@ void PalColour::doYNR(double *Yline)
             a = (a > 0) ? nr_y : -nr_y;
         }
 
-        Yline[h] -= a;
+        Yline[h - xOffset] -= a;
     }
 }
 
@@ -420,8 +424,9 @@ void PalColour::decodeLine(const SourceField &inputField, const ChromaSample *ch
 
     // Get pointers to the surrounding lines of input data.
     // If a line we need is outside the active area, use blackLine instead.
-    const int32_t firstLine = inputField.getFirstActiveLine(videoParameters);
-    const int32_t lastLine = inputField.getLastActiveLine(videoParameters);
+    // Convert frame-based active area limits to field-based coordinates
+    const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
+    const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
     const ChromaSample *in0, *in1, *in2, *in3, *in4, *in5, *in6;
     in0 =                                               chromaData +  (line.number      * videoParameters.field_width);
     in1 = (line.number - 1) <  firstLine ? blackLine : (chromaData + ((line.number - 1) * videoParameters.field_width));
@@ -560,21 +565,26 @@ void PalColour::decodeLine(const SourceField &inputField, const ChromaSample *ch
     const uint16_t *comp = inputField.data.data() + (line.number * videoParameters.field_width);
 
     // Pointers to component output
-    const int32_t lineNumber = (line.number * 2) + inputField.getOffset();
+    const int32_t absoluteLineNumber = (line.number * 2) + inputField.getOffset();
+    const int32_t lineNumber = videoParameters.active_area_cropping_applied ? 
+                               (absoluteLineNumber - videoParameters.first_active_frame_line) : absoluteLineNumber;
     double *outY = componentFrame.y(lineNumber);
     double *outU = componentFrame.u(lineNumber);
     double *outV = componentFrame.v(lineNumber);
 
     for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+        int32_t outIdx = videoParameters.active_area_cropping_applied ? 
+                         (i - videoParameters.active_video_start) : i;
+        
         // Compute luma by...
         if (PREFILTERED_CHROMA) {
             // ... subtracting pre-filtered chroma from the composite input
-            outY[i] = comp[i] - in0[i];
+            outY[outIdx] = comp[i] - in0[i];
         } else {
             // ... resynthesising the chroma signal that the Y filter
             // extracted (at half amplitude), and subtracting it from the
             // composite input
-            outY[i] = comp[i] - ((py[i] * sine[i] + qy[i] * cosine[i]) * 2.0);
+            outY[outIdx] = comp[i] - ((py[i] * sine[i] + qy[i] * cosine[i]) * 2.0);
         }
 
         // Rotate the p&q components (at the arbitrary sine/cosine
@@ -583,8 +593,8 @@ void PalColour::decodeLine(const SourceField &inputField, const ChromaSample *ch
         // applied to flip the V-phase on alternate lines for PAL.
         // The result is doubled because the filter extracts the chroma signal
         // at half amplitude.
-        outU[i] =            -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
-        outV[i] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
+        outU[outIdx] =            -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
+        outV[outIdx] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
     }
 
     if (configuration.yNRLevel > 0.0) {

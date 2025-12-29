@@ -66,6 +66,12 @@ private:
     double white_ire_ = 0.0;
     bool active_area_only_ = false;
     
+    // Crop parameters
+    int crop_left_ = 0;
+    int crop_top_ = 0;
+    int crop_width_ = 0;
+    int crop_height_ = 0;
+    
     // Encoder quality settings
     std::string encoder_preset_ = "medium";
     int encoder_crf_ = 18;

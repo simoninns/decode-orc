@@ -85,19 +85,25 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
 		
 		// The comb decoder outputs Y, U, V - we only want Y for monochrome
 		// Zero out the U and V channels
+		const int32_t lineOffset = videoParameters.active_area_cropping_applied ? videoParameters.first_active_frame_line : 0;
+		const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
+		
 		for (size_t frameIndex = 0; frameIndex < componentFrames.size(); frameIndex++) {
 			for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
-				double *outU = componentFrames[frameIndex].u(y);
-				double *outV = componentFrames[frameIndex].v(y);
+				double *outU = componentFrames[frameIndex].u(y - lineOffset);
+				double *outV = componentFrames[frameIndex].v(y - lineOffset);
 				for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
-					outU[x] = 0.0;
-					outV[x] = 0.0;
+					outU[x - xOffset] = 0.0;
+					outV[x - xOffset] = 0.0;
 				}
 			}
 		}
 	} else {
 		// Simple mode: just copy composite signal to Y (includes chroma subcarrier)
 		bool ignoreUV = false;
+		
+		const int32_t lineOffset = videoParameters.active_area_cropping_applied ? videoParameters.first_active_frame_line : 0;
+		const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
 		
 		for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
 			componentFrames[frameIndex].init(videoParameters, ignoreUV);
@@ -106,9 +112,9 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
 				const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
 
 				// Copy the whole composite signal to Y (leaving U and V blank)
-				double *outY = componentFrames[frameIndex].y(y);
+				double *outY = componentFrames[frameIndex].y(y - lineOffset);
 				for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
-					outY[x] = inputLine[x];
+					outY[x - xOffset] = inputLine[x];
 				}
 			}
 			doYNR(componentFrames[frameIndex]);
@@ -133,13 +139,16 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
                                     : f_nr;
 
     const int delay = static_cast<int>(taps.size()) / 2;
+    
+    const int32_t lineOffset = monoConfig.videoParameters.active_area_cropping_applied ? monoConfig.videoParameters.first_active_frame_line : 0;
+    const int32_t xOffset = monoConfig.videoParameters.active_area_cropping_applied ? 0 : monoConfig.videoParameters.active_video_start;
 
     // 3. Process each active scanline in the frame
     for (int line = monoConfig.videoParameters.first_active_frame_line;
              line < monoConfig.videoParameters.last_active_frame_line;
            ++line)
     {
-        double* Y = componentFrame.y(line);
+        double* Y = componentFrame.y(line - lineOffset);
 
         // 4. High‑pass buffer & FIR filter
         std::vector<double> hpY(monoConfig.videoParameters.active_video_end + delay);
@@ -157,7 +166,7 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
                  x < monoConfig.videoParameters.active_video_end;
                ++x)
         {
-            hpY[x] = yFilter.feed(Y[x]);
+            hpY[x] = yFilter.feed(Y[x - xOffset]);
         }
         // Flush zeros after active end
         for (int x = monoConfig.videoParameters.active_video_end;
@@ -175,7 +184,7 @@ void MonoDecoder::doYNR(ComponentFrame &componentFrame) {
             double a = hpY[x + delay];
             if (std::fabs(a) > nr_y)
                 a = (a > 0.0) ? nr_y : -nr_y;
-            Y[x] -= a;
+            Y[x - xOffset] -= a;
         }
     }
 }

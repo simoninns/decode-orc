@@ -39,6 +39,11 @@ public:
         int32_t paddingAmount = 8;
         PixelFormat pixelFormat = RGB48;
         bool outputY4m = false;
+        // Crop offsets to apply when reading from ComponentFrame
+        int32_t cropLeft = 0;
+        int32_t cropTop = 0;
+        int32_t cropWidth = 0;   // 0 = use full width
+        int32_t cropHeight = 0;  // 0 = use full height
     };
 
     // Set the output configuration, and adjust the VideoParameters to suit.

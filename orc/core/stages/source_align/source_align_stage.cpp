@@ -408,8 +408,8 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
         }
         
         // Build offsets array from alignment map
-        // Initialize all to 0
-        offsets.resize(sources.size(), FieldID(0));
+        // Initialize all to INVALID (excluded by default)
+        offsets.resize(sources.size(), FieldID());  // Default constructor creates INVALID
         
         for (const auto& [input_id, offset_val] : alignment_entries) {
             // Input IDs in the alignment map are 1-indexed
@@ -423,7 +423,11 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
         
         ORC_LOG_INFO("Using manual alignment map: {}", alignment_map_);
         for (size_t i = 0; i < offsets.size(); ++i) {
-            ORC_LOG_INFO("  Input {}: offset = {}", i + 1, offsets[i].value());
+            if (offsets[i].is_valid()) {
+                ORC_LOG_INFO("  Input {}: offset = {}", i + 1, offsets[i].value());
+            } else {
+                ORC_LOG_INFO("  Input {}: EXCLUDED", i + 1);
+            }
         }
     } else {
         // Auto-detect alignment from VBI
@@ -440,11 +444,18 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
     // Store alignment information for reporting
     alignment_offsets_ = offsets;
     
-    // Create aligned outputs
+    // Create aligned outputs - only for sources with valid offsets
     std::vector<ArtifactPtr> outputs;
     cached_outputs_.clear();
     
     for (size_t i = 0; i < sources.size(); ++i) {
+        if (!offsets[i].is_valid()) {
+            // Source is excluded - add null to maintain indexing for preview
+            cached_outputs_.push_back(nullptr);
+            ORC_LOG_DEBUG("  Source {}: EXCLUDED from output", i);
+            continue;
+        }
+        
         auto aligned = std::make_shared<AlignedSourceRepresentation>(
             sources[i], offsets[i], i);
         outputs.push_back(aligned);
@@ -544,21 +555,31 @@ std::optional<StageReport> SourceAlignStage::generate_report() const {
             continue;
         }
         
-        auto range = source->field_range();
-        size_t input_count = source->field_count();
-        size_t dropped = offset.is_valid() ? offset.value() : 0;
-        size_t output_count = input_count - dropped;
-        
         std::string source_label = "Source " + std::to_string(i);
-        report.items.push_back({source_label + " Input Range", 
-            std::to_string(range.start.value()) + "-" + std::to_string(range.end.value())});
-        report.items.push_back({source_label + " Input Fields", std::to_string(input_count)});
-        report.items.push_back({source_label + " Alignment Offset", std::to_string(dropped)});
-        report.items.push_back({source_label + " Dropped Fields", std::to_string(dropped)});
-        report.items.push_back({source_label + " Output Fields", std::to_string(output_count)});
         
-        // Add VBI frame number at alignment point if available
-        if (offset.is_valid()) {
+        // Check if source is excluded
+        if (!offset.is_valid()) {
+            report.items.push_back({source_label + " Status", "EXCLUDED"});
+            auto range = source->field_range();
+            size_t input_count = source->field_count();
+            report.items.push_back({source_label + " Input Range", 
+                std::to_string(range.start.value()) + "-" + std::to_string(range.end.value())});
+            report.items.push_back({source_label + " Input Fields", std::to_string(input_count)});
+        } else {
+            auto range = source->field_range();
+            size_t input_count = source->field_count();
+            size_t dropped = offset.value();
+            size_t output_count = input_count - dropped;
+            
+            report.items.push_back({source_label + " Status", "INCLUDED"});
+            report.items.push_back({source_label + " Input Range", 
+                std::to_string(range.start.value()) + "-" + std::to_string(range.end.value())});
+            report.items.push_back({source_label + " Input Fields", std::to_string(input_count)});
+            report.items.push_back({source_label + " Alignment Offset", std::to_string(dropped)});
+            report.items.push_back({source_label + " Dropped Fields", std::to_string(dropped)});
+            report.items.push_back({source_label + " Output Fields", std::to_string(output_count)});
+            
+            // Add VBI frame number at alignment point if available
             int32_t vbi_frame = get_frame_number_from_vbi(*source, offset);
             if (vbi_frame >= 0) {
                 report.items.push_back({source_label + " First Common VBI Frame", std::to_string(vbi_frame)});
@@ -575,12 +596,17 @@ std::optional<StageReport> SourceAlignStage::generate_report() const {
     report.metrics["source_count"] = static_cast<int64_t>(input_sources_.size());
     
     size_t total_dropped = 0;
+    size_t excluded_count = 0;
     for (const auto& offset : alignment_offsets_) {
         if (offset.is_valid()) {
             total_dropped += offset.value();
+        } else {
+            excluded_count++;
         }
     }
     report.metrics["total_dropped_fields"] = static_cast<int64_t>(total_dropped);
+    report.metrics["excluded_sources"] = static_cast<int64_t>(excluded_count);
+    report.metrics["included_sources"] = static_cast<int64_t>(input_sources_.size() - excluded_count);
     
     return report;
 }

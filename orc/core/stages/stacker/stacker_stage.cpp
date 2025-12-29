@@ -36,12 +36,13 @@ StackedVideoFieldRepresentation::StackedVideoFieldRepresentation(
 }
 
 void StackedVideoFieldRepresentation::ensure_field_stacked(FieldID field_id) const {
-    // Check if field data is in cache
-    if (stacked_fields_.contains(field_id)) {
+    // Check if BOTH field data AND dropout data are in cache
+    // We need both to be consistent - if one is evicted, re-stack the field
+    if (stacked_fields_.contains(field_id) && stacked_dropouts_.contains(field_id)) {
         return;
     }
     
-    ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} (NOT in cache)", field_id.value());
+    ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} (NOT fully cached)", field_id.value());
     
     // Stack the field from all sources (alignment is done by preceding field_map stages)
     std::vector<uint16_t> stacked_samples;
@@ -53,7 +54,8 @@ void StackedVideoFieldRepresentation::ensure_field_stacked(FieldID field_id) con
     stacked_fields_.put(field_id, std::move(stacked_samples));
     stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
     
-    ORC_LOG_DEBUG("  -> Field {} stacked and cached", field_id.value());
+    ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions", 
+                  field_id.value(), stacked_dropouts.size());
 }
 
 FieldIDRange StackedVideoFieldRepresentation::field_range() const {
@@ -114,6 +116,7 @@ std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(Fi
     }
     
     // Fallback (should not happen)
+    ORC_LOG_ERROR("StackedVideoFieldRepresentation::get_dropout_hints: Field {} not in cache after ensure_field_stacked!", id.value());
     return {};
 }
 
@@ -154,6 +157,8 @@ std::vector<ArtifactPtr> StackerStage::execute(
         set_parameters(parameters);
         ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}, reverse={}, thread_count={}",
                      m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_reverse, m_thread_count);
+        // Parameters changed - invalidate cache
+        cached_output_.reset();
     }
     
     std::vector<std::shared_ptr<const VideoFieldRepresentation>> sources;
@@ -165,10 +170,34 @@ std::vector<ArtifactPtr> StackerStage::execute(
         sources.push_back(field_rep);
     }
     
-    // Process the fields
-    auto result = process(sources);
+    // Check if we can reuse cached output
+    // We need to verify the sources match to safely reuse
+    bool can_reuse_cache = false;
+    if (cached_output_ && cached_sources_.size() == sources.size()) {
+        can_reuse_cache = true;
+        for (size_t i = 0; i < sources.size(); ++i) {
+            if (cached_sources_[i] != sources[i]) {
+                can_reuse_cache = false;
+                break;
+            }
+        }
+    }
     
-    cached_output_ = result;
+    std::shared_ptr<const VideoFieldRepresentation> result;
+    
+    if (can_reuse_cache) {
+        ORC_LOG_DEBUG("StackerStage: Reusing cached StackedVideoFieldRepresentation");
+        result = cached_output_;
+    } else {
+        ORC_LOG_DEBUG("StackerStage: Creating new StackedVideoFieldRepresentation");
+        // Process the fields
+        result = process(sources);
+        
+        // Cache the result and sources
+        cached_output_ = result;
+        cached_sources_ = sources;
+    }
+    
     // Return as artifact
     return {std::const_pointer_cast<VideoFieldRepresentation>(
         std::const_pointer_cast<const VideoFieldRepresentation>(result))};
@@ -185,11 +214,11 @@ StackerStage::process(
     
     // Passthrough mode: single input
     if (sources.size() == 1) {
-        ORC_LOG_DEBUG("StackerStage::process - Passthrough mode (single source)");
+        ORC_LOG_INFO("StackerStage::process - Passthrough mode (single source), returning source directly");
         return sources[0];
     }
     
-    ORC_LOG_INFO("StackerStage::process - Stacking {} sources using VBI/timecode alignment", sources.size());
+    ORC_LOG_INFO("StackerStage::process - Creating StackedVideoFieldRepresentation for {} sources", sources.size());
     
     // Create stacked representation - will build frame alignment and process fields on-demand
     auto stacked = std::make_shared<StackedVideoFieldRepresentation>(
@@ -197,6 +226,7 @@ StackerStage::process(
         const_cast<StackerStage*>(this)
     );
     
+    ORC_LOG_INFO("StackerStage::process - Returning StackedVideoFieldRepresentation with type: {}", stacked->type_name());
     return stacked;
 }
 
@@ -268,7 +298,8 @@ void StackerStage::stack_field(
     std::vector<std::vector<DropoutRegion>> all_dropouts;
     for (size_t i = 0; i < sources.size(); ++i) {
         if (field_valid[i]) {
-            all_dropouts.push_back(sources[i]->get_dropout_hints(field_id));
+            auto dropouts = sources[i]->get_dropout_hints(field_id);
+            all_dropouts.push_back(std::move(dropouts));
         } else {
             all_dropouts.push_back({}); // Empty dropout list for sources without this field
         }
@@ -340,11 +371,9 @@ void StackerStage::stack_field(
         }
     }
     
-    // Debug summary for field
-    ORC_LOG_DEBUG("StackerStage::stack_field - Field {} complete: total_stacked={}, total_dropouts={}, diff_dod_recoveries={}, output_dropout_regions={}",
-                 field_id.value(), total_stacked_pixels, total_dropouts, total_diff_dod_recoveries, output_dropouts.size());
+    ORC_LOG_INFO("StackerStage::stack_field - Field {}: {} dropout regions, {} pixels affected, {} diff_dod recoveries",
+                 field_id.value(), output_dropouts.size(), total_dropouts, total_diff_dod_recoveries);
 }
-
 void StackerStage::process_lines_range(
     size_t start_line,
     size_t end_line,

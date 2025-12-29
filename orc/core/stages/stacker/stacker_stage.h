@@ -48,6 +48,14 @@ public:
     // Override dropout hints - after stacking, dropouts are the ones that remain
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
     
+    // Override observations - don't inherit from single source (we're a merger)
+    // Observations from individual sources don't apply to the stacked result
+    std::vector<std::shared_ptr<Observation>> get_observations(FieldID /*id*/) const override {
+        // Stacker merges multiple sources, so source observations aren't meaningful
+        // Observers should run fresh on the stacked output
+        return {};
+    }
+    
     // Get number of sources available for a specific frame
     size_t get_source_count(FieldID id) const;
     
@@ -162,6 +170,10 @@ private:
     // Store parameters for inspection
     std::map<std::string, ParameterValue> parameters_;
     
+    // Cache the stacked representation to preserve LRU caches across execute() calls
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
+    mutable std::vector<std::shared_ptr<const VideoFieldRepresentation>> cached_sources_;
+    
     /**
      * @brief Stack a single field from multiple sources
      * 
@@ -252,9 +264,6 @@ private:
     std::vector<uint16_t> diff_dod(
         const std::vector<uint16_t>& input_values,
         const VideoParameters& video_params) const;
-    
-    // Cached output for preview rendering
-    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
 } // namespace orc

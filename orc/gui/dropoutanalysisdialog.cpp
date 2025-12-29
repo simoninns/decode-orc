@@ -8,6 +8,7 @@
  */
 
 #include "dropoutanalysisdialog.h"
+#include "logging.h"
 #include <QPen>
 #include <QLabel>
 #include <QStackedLayout>
@@ -83,6 +84,12 @@ void DropoutAnalysisDialog::removeChartContents()
 {
     maxY_ = 0.0;
     points_.clear();
+    
+    // Clear the series data
+    if (series_) {
+        series_->setData(QVector<QPointF>());
+    }
+    
     plot_->replot();
 }
 
@@ -98,6 +105,7 @@ void DropoutAnalysisDialog::addDataPoint(int32_t frameNumber, double dropoutLeng
 
 void DropoutAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
 {
+
     // Set up plot properties
     plot_->updateTheme(); // Auto-detect theme and set appropriate background
     plot_->setGridEnabled(true);

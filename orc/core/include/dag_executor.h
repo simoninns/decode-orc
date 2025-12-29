@@ -138,7 +138,7 @@ public:
     
 private:
     bool cache_enabled_ = true;
-    std::map<ArtifactID, ArtifactPtr> artifact_cache_;
+    std::map<ArtifactID, std::vector<ArtifactPtr>> artifact_cache_;
     ProgressCallback progress_callback_;
     
     // Execution helpers

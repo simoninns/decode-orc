@@ -289,6 +289,10 @@ std::optional<FieldDropoutStats> DropoutAnalysisDecoder::extract_dropout_stats(
                     stats.dropout_count = dropout_obs->dropout_count;
                     stats.frame_number = dropout_obs->frame_number;
                     stats.has_data = true;
+                    
+                    ORC_LOG_DEBUG("DropoutAnalysisDecoder: Field {} extracted: count={}, length={:.1f}",
+                                 field_id.value(), stats.dropout_count, stats.total_dropout_length);
+                    
                     return stats;
                 }
             }

@@ -260,10 +260,9 @@ std::vector<ArtifactPtr> DAGExecutor::get_cached_or_execute(
     if (cache_enabled_) {
         auto it = artifact_cache_.find(expected_id);
         if (it != artifact_cache_.end()) {
-            ORC_LOG_TRACE("Node '{}': Using cached result (cache size: {})", node.node_id.to_string(), artifact_cache_.size());
-            // For cached results, we only stored the first output
-            // This is a limitation - for now return it as a vector
-            return {it->second};
+            ORC_LOG_TRACE("Node '{}': Using cached result ({} outputs, cache size: {})", 
+                         node.node_id.to_string(), it->second.size(), artifact_cache_.size());
+            return it->second;
         } else {
             ORC_LOG_TRACE("Node '{}': Cache miss - expected_id='{}' (cache size: {})", 
                          node.node_id.to_string(), expected_id.value(), artifact_cache_.size());
@@ -292,13 +291,11 @@ std::vector<ArtifactPtr> DAGExecutor::get_cached_or_execute(
         ORC_LOG_DEBUG("Node '{}': Stage produced {} outputs", node.node_id.to_string(), outputs.size());
     }
     
-    // Cache result using the expected_id (same key used for lookup)
-    // Note: For multi-output stages, we only cache the first output
-    // This is a limitation that could be improved in the future
+    // Cache ALL outputs from the stage
     if (cache_enabled_ && !outputs.empty()) {
-        ORC_LOG_TRACE("Node '{}': Caching result with expected_id='{}' (cache will be size: {})", 
-                     node.node_id.to_string(), expected_id.value(), artifact_cache_.size() + 1);
-        artifact_cache_[expected_id] = outputs[0];
+        ORC_LOG_TRACE("Node '{}': Caching {} output(s) with expected_id='{}' (cache will be size: {})", 
+                     node.node_id.to_string(), outputs.size(), expected_id.value(), artifact_cache_.size() + 1);
+        artifact_cache_[expected_id] = outputs;
     }
     
     return outputs;

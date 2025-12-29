@@ -204,8 +204,6 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
         return;
     }
     
-    ORC_LOG_DEBUG("onDropoutDataReady: {} frames, total={}", frame_stats.size(), total_frames);
-    
     // Close progress dialog (QPointer will auto-null when deleted)
     if (dropout_progress_dialog_) {
         dropout_progress_dialog_->close();

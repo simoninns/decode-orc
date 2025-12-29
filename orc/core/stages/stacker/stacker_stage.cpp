@@ -131,6 +131,7 @@ StackerStage::StackerStage()
     , m_no_diff_dod(false)
     , m_passthrough(false)
     , m_reverse(false)
+    , m_thread_count(0)       // Auto (use all available cores)
 {
 }
 
@@ -151,8 +152,8 @@ std::vector<ArtifactPtr> StackerStage::execute(
     // Update parameters
     if (!parameters.empty()) {
         set_parameters(parameters);
-        ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}, reverse={}",
-                     m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_reverse);
+        ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}, reverse={}, thread_count={}",
+                     m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_reverse, m_thread_count);
     }
     
     std::vector<std::shared_ptr<const VideoFieldRepresentation>> sources;
@@ -273,8 +274,94 @@ void StackerStage::stack_field(
         }
     }
     
-    // Process each line
-    for (size_t y = 0; y < height; ++y) {
+    // Determine number of threads to use
+    size_t num_threads = m_thread_count;
+    if (num_threads == 0) {
+        // Auto: use all available hardware threads
+        num_threads = std::thread::hardware_concurrency();
+        if (num_threads == 0) num_threads = 4; // Fallback if detection fails
+    }
+    
+    // For small fields or single-threaded mode, don't use threading
+    if (num_threads == 1 || height < num_threads * 4) {
+        num_threads = 1;
+    }
+    
+    ORC_LOG_DEBUG("StackerStage::stack_field - Using {} thread(s) for processing", num_threads);
+    
+    // Multi-threaded line processing
+    if (num_threads == 1) {
+        // Single-threaded path (for small fields or when explicitly set to 1 thread)
+        process_lines_range(0, height, width, all_fields, field_valid, all_dropouts,
+                          sources.size(), *video_params, output_samples, output_dropouts,
+                          total_dropouts, total_diff_dod_recoveries, total_stacked_pixels);
+    } else {
+        // Multi-threaded path
+        std::vector<std::thread> threads;
+        std::vector<std::vector<DropoutRegion>> thread_dropouts(num_threads);
+        std::vector<size_t> thread_total_dropouts(num_threads, 0);
+        std::vector<size_t> thread_total_recoveries(num_threads, 0);
+        std::vector<size_t> thread_total_stacked(num_threads, 0);
+        
+        // Calculate lines per thread
+        size_t lines_per_thread = (height + num_threads - 1) / num_threads;
+        
+        // Launch worker threads
+        for (size_t t = 0; t < num_threads; ++t) {
+            size_t start_line = t * lines_per_thread;
+            size_t end_line = std::min(start_line + lines_per_thread, height);
+            
+            if (start_line >= height) break;
+            
+            threads.emplace_back([this, start_line, end_line, width, &all_fields, &field_valid,
+                                 &all_dropouts, num_sources = sources.size(), &video_params,
+                                 &output_samples, &thread_dropouts, &thread_total_dropouts,
+                                 &thread_total_recoveries, &thread_total_stacked, t]() {
+                process_lines_range(start_line, end_line, width, all_fields, field_valid,
+                                  all_dropouts, num_sources, *video_params, output_samples,
+                                  thread_dropouts[t], thread_total_dropouts[t],
+                                  thread_total_recoveries[t], thread_total_stacked[t]);
+            });
+        }
+        
+        // Wait for all threads to complete
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        
+        // Merge results from all threads
+        for (size_t t = 0; t < num_threads; ++t) {
+            output_dropouts.insert(output_dropouts.end(),
+                                 thread_dropouts[t].begin(),
+                                 thread_dropouts[t].end());
+            total_dropouts += thread_total_dropouts[t];
+            total_diff_dod_recoveries += thread_total_recoveries[t];
+            total_stacked_pixels += thread_total_stacked[t];
+        }
+    }
+    
+    // Debug summary for field
+    ORC_LOG_DEBUG("StackerStage::stack_field - Field {} complete: total_stacked={}, total_dropouts={}, diff_dod_recoveries={}, output_dropout_regions={}",
+                 field_id.value(), total_stacked_pixels, total_dropouts, total_diff_dod_recoveries, output_dropouts.size());
+}
+
+void StackerStage::process_lines_range(
+    size_t start_line,
+    size_t end_line,
+    size_t width,
+    const std::vector<std::vector<uint16_t>>& all_fields,
+    const std::vector<bool>& field_valid,
+    const std::vector<std::vector<DropoutRegion>>& all_dropouts,
+    size_t num_sources,
+    const VideoParameters& video_params,
+    std::vector<uint16_t>& output_samples,
+    std::vector<DropoutRegion>& output_dropouts,
+    size_t& total_dropouts,
+    size_t& total_diff_dod_recoveries,
+    size_t& total_stacked_pixels) const
+{
+    // Process each line in the assigned range
+    for (size_t y = start_line; y < end_line; ++y) {
         size_t line_dropouts = 0;
         size_t line_recoveries = 0;
         size_t line_stacked = 0;
@@ -288,10 +375,10 @@ void StackerStage::stack_field(
         for (size_t x = 0; x < width; ++x) {
             std::vector<uint16_t> values;
             std::vector<uint16_t> dropout_values;  // Separate collection for dropout pixels
-            std::vector<bool> is_dropout(sources.size());
+            std::vector<bool> is_dropout(num_sources);
             
             // Collect values from all sources for this field
-            for (size_t src_idx = 0; src_idx < sources.size(); ++src_idx) {
+            for (size_t src_idx = 0; src_idx < num_sources; ++src_idx) {
                 // Skip if this source doesn't have this field
                 if (!field_valid[src_idx]) {
                     is_dropout[src_idx] = true;
@@ -330,10 +417,10 @@ void StackerStage::stack_field(
             // Apply differential dropout detection only when ALL sources have dropouts
             bool all_dropouts_flag = std::all_of(is_dropout.begin(), is_dropout.end(), 
                                            [](bool b) { return b; });
-            if (all_dropouts_flag && sources.size() >= 3 && !m_no_diff_dod && !dropout_values.empty()) {
+            if (all_dropouts_flag && num_sources >= 3 && !m_no_diff_dod && !dropout_values.empty()) {
                 // All sources marked this as dropout - try to recover using diff_dod
                 size_t before_count = dropout_values.size();
-                values = diff_dod(dropout_values, *video_params);
+                values = diff_dod(dropout_values, video_params);
                 if (values.size() > 0 && values.size() < before_count) {
                     line_recoveries++;
                     total_diff_dod_recoveries++;
@@ -344,7 +431,7 @@ void StackerStage::stack_field(
             uint16_t stacked_value;
             if (values.empty()) {
                 // No valid values - use black level
-                stacked_value = video_params->black_16b_ire;
+                stacked_value = video_params.black_16b_ire;
                 line_dropouts++;
                 total_dropouts++;
                 
@@ -384,10 +471,6 @@ void StackerStage::stack_field(
                          y, line_stacked, line_dropouts, line_recoveries);
         }
     }
-    
-    // Debug summary for field
-    ORC_LOG_DEBUG("StackerStage::stack_field - Field {} complete: total_stacked={}, total_dropouts={}, diff_dod_recoveries={}, output_dropout_regions={}",
-                 field_id.value(), total_stacked_pixels, total_dropouts, total_diff_dod_recoveries, output_dropouts.size());
 }
 
 uint16_t StackerStage::stack_mode(
@@ -629,6 +712,22 @@ std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSy
     reverse_desc.constraints.required = false;
     descriptors.push_back(reverse_desc);
     
+    // Thread count
+    ParameterDescriptor thread_count_desc;
+    thread_count_desc.name = "thread_count";
+    thread_count_desc.display_name = "Thread Count";
+    thread_count_desc.description = "Number of threads for parallel processing\n"
+                                   "0 = Auto (use all available CPU cores)\n"
+                                   "1 = Single-threaded (no parallelization)\n"
+                                   "2+ = Use specified number of threads\n"
+                                   "Higher values improve performance on multi-core systems";
+    thread_count_desc.type = ParameterType::INT32;
+    thread_count_desc.constraints.min_value = static_cast<int32_t>(0);
+    thread_count_desc.constraints.max_value = static_cast<int32_t>(std::thread::hardware_concurrency() * 2);
+    thread_count_desc.constraints.default_value = static_cast<int32_t>(0);
+    thread_count_desc.constraints.required = false;
+    descriptors.push_back(thread_count_desc);
+    
     return descriptors;
 }
 
@@ -709,6 +808,15 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
             } else {
                 return false;
             }
+        } else if (key == "thread_count") {
+            if (auto* val = std::get_if<int32_t>(&value)) {
+                if (*val < 0) {
+                    return false;
+                }
+                m_thread_count = *val;
+            } else {
+                return false;
+            }
         }
     }
     
@@ -736,6 +844,8 @@ std::optional<StageReport> StackerStage::generate_report() const {
     report.items.push_back({"Differential Dropout Detection", m_no_diff_dod ? "Disabled" : "Enabled"});
     report.items.push_back({"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
     report.items.push_back({"Reverse Field Order", m_reverse ? "Yes" : "No"});
+    std::string thread_info = m_thread_count == 0 ? "Auto (" + std::to_string(std::thread::hardware_concurrency()) + " cores)" : std::to_string(m_thread_count);
+    report.items.push_back({"Thread Count", thread_info});
     
     // Metrics
     report.metrics["mode"] = static_cast<int64_t>(m_mode);

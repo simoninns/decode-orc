@@ -16,6 +16,7 @@
 #include "lru_cache.h"
 #include <memory>
 #include <vector>
+#include <thread>
 
 namespace orc {
 
@@ -156,6 +157,7 @@ private:
     bool m_no_diff_dod;          // Disable differential dropout detection
     bool m_passthrough;          // Pass through dropouts present on all sources
     bool m_reverse;              // Reverse field order
+    int32_t m_thread_count;      // Number of threads for parallel processing (0=auto, max=hardware concurrency)
     
     // Store parameters for inspection
     std::map<std::string, ParameterValue> parameters_;
@@ -197,6 +199,38 @@ private:
      * @brief Calculate median of values
      */
     uint16_t median(std::vector<uint16_t> values) const;
+    
+    /**
+     * @brief Process a range of lines (for multi-threading)
+     * 
+     * @param start_line Starting line (inclusive)
+     * @param end_line Ending line (exclusive)
+     * @param width Field width in samples
+     * @param all_fields Pre-loaded field data from all sources
+     * @param field_valid Validity flags for each source
+     * @param all_dropouts Dropout regions for each source
+     * @param num_sources Number of sources
+     * @param video_params Video parameters
+     * @param output_samples Output sample buffer (shared, each thread writes to its own lines)
+     * @param output_dropouts Output dropout regions (per-thread)
+     * @param total_dropouts Dropout counter (per-thread)
+     * @param total_diff_dod_recoveries Recovery counter (per-thread)
+     * @param total_stacked_pixels Stacked pixel counter (per-thread)
+     */
+    void process_lines_range(
+        size_t start_line,
+        size_t end_line,
+        size_t width,
+        const std::vector<std::vector<uint16_t>>& all_fields,
+        const std::vector<bool>& field_valid,
+        const std::vector<std::vector<DropoutRegion>>& all_dropouts,
+        size_t num_sources,
+        const VideoParameters& video_params,
+        std::vector<uint16_t>& output_samples,
+        std::vector<DropoutRegion>& output_dropouts,
+        size_t& total_dropouts,
+        size_t& total_diff_dod_recoveries,
+        size_t& total_stacked_pixels) const;
     
     /**
      * @brief Calculate mean of values

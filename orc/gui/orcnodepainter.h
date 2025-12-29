@@ -32,6 +32,7 @@ public:
     
     // Custom methods (not override - DefaultNodePainter methods are not virtual)
     void drawNodeCaption(QPainter *painter, QtNodes::NodeGraphicsObject &ngo) const;
+    void drawNodeId(QPainter *painter, QtNodes::NodeGraphicsObject &ngo) const;
     void drawConnectionPointsCustom(QPainter *painter, QtNodes::NodeGraphicsObject &ngo) const;
     void drawFilledConnectionPointsCustom(QPainter *painter, QtNodes::NodeGraphicsObject &ngo) const;
 };

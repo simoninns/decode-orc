@@ -30,6 +30,7 @@ void OrcNodePainter::paint(QPainter *painter, NodeGraphicsObject &ngo) const
     drawConnectionPointsCustom(painter, ngo);  // Use our custom version
     drawFilledConnectionPointsCustom(painter, ngo);  // Use our custom version
     drawNodeCaption(painter, ngo);  // Use our custom version with text wrapping
+    drawNodeId(painter, ngo);  // Draw node ID in lower left corner
     drawEntryLabels(painter, ngo);
     drawResizeRect(painter, ngo);
     drawProcessingIndicator(painter, ngo);
@@ -78,6 +79,58 @@ void OrcNodePainter::drawNodeCaption(QPainter *painter, NodeGraphicsObject &ngo)
     painter->drawText(textRect, Qt::AlignTop | Qt::AlignHCenter | Qt::TextWordWrap, name);
 
     f.setBold(false);
+    painter->setFont(f);
+}
+
+void OrcNodePainter::drawNodeId(QPainter *painter, NodeGraphicsObject &ngo) const
+{
+    AbstractGraphModel &model = ngo.graphModel();
+    NodeId const nodeId = ngo.nodeId();
+    AbstractNodeGeometry &geometry = ngo.nodeScene()->nodeGeometry();
+
+    // Get the ORC node ID
+    auto* orcModel = dynamic_cast<OrcGraphModel*>(&model);
+    if (!orcModel) {
+        return;  // Not an ORC model, nothing to draw
+    }
+    
+    orc::NodeID orcNodeId = orcModel->getOrcNodeId(nodeId);
+    if (!orcNodeId.is_valid()) {
+        return;  // Invalid node ID
+    }
+    
+    // Get node size
+    QSizeF nodeSize = geometry.size(nodeId);
+    
+    // Setup font - smaller and not bold
+    QFont f = painter->font();
+    f.setBold(false);
+    f.setPointSize(f.pointSize() - 1);  // Slightly smaller font
+    
+    QJsonDocument json = QJsonDocument::fromVariant(model.nodeData(nodeId, NodeRole::Style));
+    NodeStyle nodeStyle(json.object());
+    
+    painter->setFont(f);
+    
+    // Use a lighter color for the node ID
+    QColor idColor = nodeStyle.FontColor;
+    idColor.setAlpha(160);  // Make it slightly transparent
+    painter->setPen(idColor);
+    
+    // Draw the node ID in the lower left corner
+    QString nodeIdText = QString::fromStdString(orcNodeId.to_string());
+    QFontMetrics fm(f);
+    
+    // Position in lower left with small padding
+    double leftPadding = 8.0;
+    double bottomPadding = 5.0;
+    double textY = nodeSize.height() - bottomPadding;
+    
+    // Draw the text
+    painter->drawText(QPointF(leftPadding, textY), nodeIdText);
+    
+    // Reset font
+    f.setPointSize(f.pointSize() + 1);
     painter->setFont(f);
 }
 

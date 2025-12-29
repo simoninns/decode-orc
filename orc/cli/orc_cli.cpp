@@ -10,6 +10,7 @@
 #include "version.h"
 #include "command_process.h"
 #include "command_analyze_field_mapping.h"
+#include "command_analyze_source_aligns.h"
 #include "logging.h"
 
 #include <iostream>
@@ -18,53 +19,36 @@
 using namespace orc;
 
 void print_usage(const char* program_name) {
-    std::cerr << "Usage: " << program_name << " <project-file> [options]\n";
+    std::cerr << "Usage: " << program_name << " <project-file> [command] [options]\n";
     std::cerr << "\n";
-    std::cerr << "Process an ORC project by executing the DAG and triggering all sink nodes.\n";
-    std::cerr << "Use --only-analyse to analyze field mapping without processing sinks.\n";
+    std::cerr << "Commands:\n";
+    std::cerr << "  --process                      Process the whole DAG chain (trigger all sinks)\n";
+    std::cerr << "  --analyse-field-maps           Run analysis on all field_map stages\n";
+    std::cerr << "                                 and update project with mapping specifications\n";
+    std::cerr << "  --analyse-source-aligns        Run analysis on all source_align stages\n";
+    std::cerr << "                                 and update project with alignment maps\n";
     std::cerr << "\n";
     std::cerr << "Options:\n";
     std::cerr << "  --log-level LEVEL              Set logging verbosity\n";
     std::cerr << "                                 (trace, debug, info, warn, error, critical, off)\n";
     std::cerr << "                                 Default: info\n";
     std::cerr << "  --log-file FILE                Write logs to specified file\n";
-    std::cerr << "  --only-analyse                 Only analyze field mapping (don't process sinks)\n";
     std::cerr << "\n";
-    std::cerr << "Field Mapping Analysis Options (only valid with --only-analyse):\n";
-    std::cerr << "  --update-project               Update project file with mapping spec\n";
+    std::cerr << "Field Mapping Analysis Options (only valid with --analyse-field-maps):\n";
     std::cerr << "  --no-pad-gaps                  Don't pad gaps with black frames\n";
     std::cerr << "  --delete-unmappable            Delete frames that can't be mapped\n";
     std::cerr << "\n";
     std::cerr << "Examples:\n";
-    std::cerr << "  " << program_name << " project.orcprj\n";
-    std::cerr << "  " << program_name << " project.orcprj --log-level debug\n";
-    std::cerr << "  " << program_name << " project.orcprj --only-analyse\n";
-    std::cerr << "  " << program_name << " project.orcprj --only-analyse --update-project\n";
+    std::cerr << "  " << program_name << " project.orcprj --process\n";
+    std::cerr << "  " << program_name << " project.orcprj --analyse-field-maps\n";
+    std::cerr << "  " << program_name << " project.orcprj --analyse-source-aligns\n";
+    std::cerr << "  " << program_name << " project.orcprj --process --log-level debug\n";
+    std::cerr << "\n";
+    std::cerr << "Note: You must specify at least one command (--process, --analyse-field-maps,\n";
+    std::cerr << "      or --analyse-source-aligns). Running without any command will show this help.\n";
 }
 
-void print_analyze_usage(const char* program_name) {
-    std::cerr << "Usage: " << program_name << " <project-file> --only-analyse [options]\n";
-    std::cerr << "\n";
-    std::cerr << "Analyze field mapping for a TBC source and optionally update the project.\n";
-    std::cerr << "\n";
-    std::cerr << "Arguments:\n";
-    std::cerr << "  project-file                   Path to ORC project file (.orcprj)\n";
-    std::cerr << "\n";
-    std::cerr << "Options:\n";
-    std::cerr << "  --update-project               Update project file with mapping spec\n";
-    std::cerr << "  --no-pad-gaps                  Don't pad gaps with black frames\n";
-    std::cerr << "  --delete-unmappable            Delete frames that can't be mapped\n";
-    std::cerr << "\n";
-    std::cerr << "Examples:\n";
-    std::cerr << "  # Analyze only (no project update):\n";
-    std::cerr << "  " << program_name << " project.orcprj --only-analyse\n";
-    std::cerr << "\n";
-    std::cerr << "  # Analyze and update project:\n";
-    std::cerr << "  " << program_name << " project.orcprj --only-analyse --update-project\n";
-    std::cerr << "\n";
-    std::cerr << "  # Then process the updated project:\n";
-    std::cerr << "  " << program_name << " project.orcprj\n";
-}
+
 
 int main(int argc, char* argv[]) {
     // Parse command line arguments
@@ -72,16 +56,18 @@ int main(int argc, char* argv[]) {
     std::string log_level = "info";
     std::string log_file;
     
-    // Mode flags
-    bool only_analyse = false;
+    // Command flags
+    bool do_process = false;
+    bool do_analyse_field_maps = false;
+    bool do_analyse_source_aligns = false;
     
-    // Analysis-specific options
-    bool update_project = false;
+    // Field mapping analysis options
     bool pad_gaps = true;
     bool delete_unmappable = false;
     
     // Check for help or empty args
     if (argc < 2) {
+        std::cerr << "Error: No project file or command specified\n\n";
         print_usage(argv[0]);
         return 1;
     }
@@ -93,25 +79,22 @@ int main(int argc, char* argv[]) {
     }
     
     // Parse all arguments
-    int start_idx = 1;
-    for (int i = start_idx; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         
         if (arg == "--help" || arg == "-h") {
-            if (only_analyse) {
-                print_analyze_usage(argv[0]);
-            } else {
-                print_usage(argv[0]);
-            }
+            print_usage(argv[0]);
             return 0;
         } else if (arg == "--log-level" && i + 1 < argc) {
             log_level = argv[++i];
         } else if (arg == "--log-file" && i + 1 < argc) {
             log_file = argv[++i];
-        } else if (arg == "--only-analyse") {
-            only_analyse = true;
-        } else if (arg == "--update-project") {
-            update_project = true;
+        } else if (arg == "--process") {
+            do_process = true;
+        } else if (arg == "--analyse-field-maps") {
+            do_analyse_field_maps = true;
+        } else if (arg == "--analyse-source-aligns") {
+            do_analyse_source_aligns = true;
         } else if (arg == "--no-pad-gaps") {
             pad_gaps = false;
         } else if (arg == "--delete-unmappable") {
@@ -134,14 +117,22 @@ int main(int argc, char* argv[]) {
     
     // Check if project file was provided
     if (project_path.empty()) {
-        std::cerr << "Error: No project file specified\n";
+        std::cerr << "Error: No project file specified\n\n";
         print_usage(argv[0]);
         return 1;
     }
     
-    // Validate analysis-specific options are only used with --only-analyse
-    if (!only_analyse && (update_project || !pad_gaps || delete_unmappable)) {
-        std::cerr << "Error: --update-project, --no-pad-gaps, and --delete-unmappable can only be used with --only-analyse\n";
+    // Check if at least one command was specified
+    if (!do_process && !do_analyse_field_maps && !do_analyse_source_aligns) {
+        std::cerr << "Error: No command specified. You must use at least one of:\n";
+        std::cerr << "  --process, --analyse-field-maps, or --analyse-source-aligns\n\n";
+        print_usage(argv[0]);
+        return 1;
+    }
+    
+    // Validate field mapping options are only used with --analyse-field-maps
+    if (!do_analyse_field_maps && (!pad_gaps || delete_unmappable)) {
+        std::cerr << "Error: --no-pad-gaps and --delete-unmappable can only be used with --analyse-field-maps\n";
         print_usage(argv[0]);
         return 1;
     }
@@ -149,19 +140,50 @@ int main(int argc, char* argv[]) {
     // Initialize logging
     orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
-    // Dispatch to appropriate handler with exception handling
+    // Execute commands in order: analysis first, then processing
+    int exit_code = 0;
+    
     try {
-        if (only_analyse) {
+        // Run field mapping analysis if requested
+        if (do_analyse_field_maps) {
             cli::AnalyzeFieldMappingOptions options;
             options.project_path = project_path;
-            options.update_project = update_project;
+            options.update_project = true;  // Always update project when using this command
             options.pad_gaps = pad_gaps;
             options.delete_unmappable = delete_unmappable;
-            return cli::analyze_field_mapping_command(options);
-        } else {
+            
+            int result = cli::analyze_field_mapping_command(options);
+            if (result != 0) {
+                exit_code = result;
+                if (!do_analyse_source_aligns && !do_process) {
+                    return exit_code;
+                }
+            }
+        }
+        
+        // Run source alignment analysis if requested
+        if (do_analyse_source_aligns) {
+            cli::AnalyzeSourceAlignsOptions options;
+            options.project_path = project_path;
+            
+            int result = cli::analyze_source_aligns_command(options);
+            if (result != 0) {
+                exit_code = result;
+                if (!do_process) {
+                    return exit_code;
+                }
+            }
+        }
+        
+        // Run processing if requested
+        if (do_process) {
             cli::ProcessOptions options;
             options.project_path = project_path;
-            return cli::process_command(options);
+            
+            int result = cli::process_command(options);
+            if (result != 0) {
+                exit_code = result;
+            }
         }
     } catch (const std::exception& e) {
         std::cerr << "\nFATAL ERROR: " << e.what() << "\n";
@@ -170,4 +192,6 @@ int main(int argc, char* argv[]) {
         std::cerr << "\nFATAL ERROR: Unknown exception occurred\n";
         return 1;
     }
+    
+    return exit_code;
 }

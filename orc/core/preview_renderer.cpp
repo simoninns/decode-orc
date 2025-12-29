@@ -618,6 +618,11 @@ PreviewImage PreviewRenderer::render_field(
         }
     }
     
+    // Extract dropout regions for this field
+    image.dropout_regions = repr->get_dropout_hints(field_id);
+    ORC_LOG_DEBUG("render_field: Extracted {} dropout regions for field {}", 
+                  image.dropout_regions.size(), field_id.value());
+    
     return image;
 }
 
@@ -719,6 +724,27 @@ PreviewImage PreviewRenderer::render_frame(
         }
     }
     
+    // Combine dropout regions from both fields
+    // Field A dropouts go on even lines, Field B on odd lines (adjusted by first_field_first)
+    auto dropouts_a = repr->get_dropout_hints(field_a);
+    auto dropouts_b = repr->get_dropout_hints(field_b);
+    
+    ORC_LOG_DEBUG("render_frame: Field {} has {} dropouts, Field {} has {} dropouts",
+                  field_a.value(), dropouts_a.size(), field_b.value(), dropouts_b.size());
+    
+    // Adjust line numbers for interlaced frame display
+    for (auto& region : dropouts_a) {
+        // Field A lines map to even/odd frame lines depending on first_field_first
+        region.line = first_field_first ? (region.line * 2) : (region.line * 2 + 1);
+        image.dropout_regions.push_back(region);
+    }
+    
+    for (auto& region : dropouts_b) {
+        // Field B lines map to odd/even frame lines depending on first_field_first
+        region.line = first_field_first ? (region.line * 2 + 1) : (region.line * 2);
+        image.dropout_regions.push_back(region);
+    }
+    
     return image;
 }
 
@@ -795,6 +821,19 @@ PreviewImage PreviewRenderer::render_split_frame(
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
             image.rgb_data[rgb_offset + x * 3 + 2] = value; // B
         }
+    }
+    
+    // Add dropout regions for split frame (top half is field_a, bottom half is field_b)
+    auto dropouts_a = repr->get_dropout_hints(field_a);
+    auto dropouts_b = repr->get_dropout_hints(field_b);
+    
+    // Field A dropouts go in top half (no adjustment needed)
+    image.dropout_regions = dropouts_a;
+    
+    // Field B dropouts go in bottom half (offset line numbers by field_a height)
+    for (auto& region : dropouts_b) {
+        region.line += desc_a.height;
+        image.dropout_regions.push_back(region);
     }
     
     return image;

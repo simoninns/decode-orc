@@ -15,6 +15,7 @@
 #include <memory>
 #include <cstdint>
 #include "preview_renderer.h"
+#include "dropout_decision.h"
 
 /**
  * Widget for displaying rendered previews from orc-core
@@ -62,6 +63,12 @@ public:
      */
     double aspectCorrection() const { return aspect_correction_; }
     
+    /**
+     * @brief Set whether to show dropout regions
+     * @param show True to show dropouts, false to hide
+     */
+    void setShowDropouts(bool show);
+    
     QSize sizeHint() const override;
 
 protected:
@@ -71,6 +78,8 @@ protected:
 private:
     QImage current_image_;
     double aspect_correction_ = 0.7;  // Default for PAL/NTSC DAR 4:3
+    std::vector<orc::DropoutRegion> dropout_regions_;
+    bool show_dropouts_ = false;
 };
 
 #endif // FIELDPREVIEWWIDGET_H

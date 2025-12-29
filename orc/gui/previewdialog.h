@@ -75,6 +75,7 @@ private:
     QPushButton* next_button_;
     QPushButton* last_button_;
     QPushButton* zoom1to1_button_;
+    QPushButton* dropouts_button_;
 };
 
 #endif // PREVIEWDIALOG_H

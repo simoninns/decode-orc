@@ -14,6 +14,7 @@
 #include "field_id.h"
 #include "node_id.h"
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
+#include "dropout_decision.h"  // For DropoutRegion
 #include "../analysis/vectorscope/vectorscope_data.h"
 #include <memory>
 #include <string>
@@ -102,6 +103,7 @@ struct PreviewImage {
     uint32_t height;
     std::vector<uint8_t> rgb_data;  ///< RGB888 format (width * height * 3 bytes)
     std::optional<VectorscopeData> vectorscope_data;  ///< Optional UV scatter for chroma preview
+    std::vector<DropoutRegion> dropout_regions;  ///< Dropout regions for visualization
     
     bool is_valid() const {
         return !rgb_data.empty() && rgb_data.size() == width * height * 3;

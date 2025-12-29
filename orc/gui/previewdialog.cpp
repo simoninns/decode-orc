@@ -126,6 +126,13 @@ void PreviewDialog::setupUI()
     zoom1to1_button_->setToolTip("Resize preview to original image size");
     controlLayout->addWidget(zoom1to1_button_);
     
+    // Add Dropouts toggle button
+    dropouts_button_ = new QPushButton("Dropouts: Off");
+    dropouts_button_->setCheckable(true);
+    dropouts_button_->setChecked(false);
+    dropouts_button_->setToolTip("Show/hide dropout regions");
+    controlLayout->addWidget(dropouts_button_);
+    
     controlLayout->addStretch();
     mainLayout->addLayout(controlLayout);
     
@@ -161,6 +168,12 @@ void PreviewDialog::setupUI()
         int new_value = preview_slider_->maximum();
         preview_slider_->setValue(new_value);
         emit sequentialPreviewRequested(new_value);
+    });
+    
+    // Connect dropouts button
+    connect(dropouts_button_, &QPushButton::toggled, [this](bool checked) {
+        dropouts_button_->setText(checked ? "Dropouts: On" : "Dropouts: Off");
+        preview_widget_->setShowDropouts(checked);
     });
     
     // Connect Zoom 1:1 button

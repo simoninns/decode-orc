@@ -141,6 +141,11 @@ PreviewImage render_field_preview(
         }
     }
     
+    // Extract dropout regions for this field
+    result.dropout_regions = representation->get_dropout_hints(field_id);
+    ORC_LOG_DEBUG("PreviewHelpers::render_field_preview: Field {} has {} dropout regions",
+                  field_id.value(), result.dropout_regions.size());
+    
     return result;
 }
 
@@ -214,6 +219,22 @@ PreviewImage render_split_preview(
     // Render first field on top, second field on bottom
     render_field(first_field, 0);
     render_field(second_field, desc_first->height);
+    
+    // Extract dropout regions from both fields for split view
+    auto dropouts_first = representation->get_dropout_hints(first_field);
+    auto dropouts_second = representation->get_dropout_hints(second_field);
+    
+    ORC_LOG_DEBUG("PreviewHelpers::render_split_preview: Field {} has {} dropouts, Field {} has {} dropouts",
+                  first_field.value(), dropouts_first.size(), second_field.value(), dropouts_second.size());
+    
+    // First field dropouts go in top half (no adjustment needed)
+    result.dropout_regions = dropouts_first;
+    
+    // Second field dropouts go in bottom half (offset line numbers by first field height)
+    for (auto& region : dropouts_second) {
+        region.line += desc_first->height;
+        result.dropout_regions.push_back(region);
+    }
     
     return result;
 }
@@ -329,6 +350,26 @@ PreviewImage render_frame_preview(
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
     ORC_LOG_DEBUG("PreviewHelpers::render_frame_preview: frame {} rendered in {} ms ({}x{} px) - weave: {}ms ({} get_line calls)",
                  frame_index, duration_ms, result.width, result.height, weave_ms, get_line_calls);
+    
+    // Extract dropout regions from both fields
+    auto dropouts_first = representation->get_dropout_hints(first_field);
+    auto dropouts_second = representation->get_dropout_hints(second_field);
+    
+    ORC_LOG_DEBUG("PreviewHelpers::render_frame_preview: Field {} has {} dropouts, Field {} has {} dropouts",
+                  first_field.value(), dropouts_first.size(), second_field.value(), dropouts_second.size());
+    
+    // Adjust line numbers for interlaced frame display
+    for (auto& region : dropouts_first) {
+        // First field lines map to even/odd frame lines depending on first_field_on_even_lines
+        region.line = first_field_on_even_lines ? (region.line * 2) : (region.line * 2 + 1);
+        result.dropout_regions.push_back(region);
+    }
+    
+    for (auto& region : dropouts_second) {
+        // Second field lines map to odd/even frame lines depending on first_field_on_even_lines
+        region.line = first_field_on_even_lines ? (region.line * 2 + 1) : (region.line * 2);
+        result.dropout_regions.push_back(region);
+    }
     
     return result;
 }

@@ -88,13 +88,6 @@ bool is_connection_valid(const std::string& source_stage, const std::string& tar
         return false;
     }
     
-    // Cannot connect MANY outputs to ONE input
-    // Source has MANY outputs if max_outputs > 1
-    // Target has ONE input if max_inputs == 1
-    if (source_info->max_outputs > 1 && target_info->max_inputs == 1) {
-        return false;
-    }
-    
     return true;
 }
 

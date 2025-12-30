@@ -53,10 +53,6 @@ struct DropoutCorrectionConfig {
     
     /// Highlight corrections by filling with white IRE level instead of replacement data
     bool highlight_corrections = false;
-    
-    /// Enable batch prefetching of neighboring fields (default: true for compatibility)
-    /// Set to false to disable prefetching for faster single-field access
-    bool enable_batch_prefetch = true;
 };
 
 /// Corrected video field representation
@@ -178,9 +174,6 @@ public:
         CorrectedVideoFieldRepresentation* corrected,
         std::shared_ptr<const VideoFieldRepresentation> source,
         FieldID field_id) const;
-    
-    // Getter for config (used by CorrectedVideoFieldRepresentation for batch prefetch check)
-    bool is_batch_prefetch_enabled() const { return config_.enable_batch_prefetch; }
     
 private:
     DropoutCorrectionConfig config_;

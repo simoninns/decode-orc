@@ -104,43 +104,8 @@ void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id)
     
     ORC_LOG_DEBUG("CorrectedVideoFieldRepresentation: processing field {} (NOT in cache)", field_id.value());
     
-    // Check if batch prefetch is enabled
-    if (stage_->is_batch_prefetch_enabled()) {
-        // OPTIMIZATION: Pre-process neighboring fields to avoid cascading lazy evaluation
-        // When we process a field, we'll likely need data from neighbors for dropout correction
-        // Processing them now avoids deep recursion later
-        int64_t start_field = std::max<int64_t>(0, static_cast<int64_t>(field_id.value()) - 15);
-        int64_t end_field = field_id.value() + 15;
-        
-        ORC_LOG_DEBUG("  -> Will process batch: fields {} to {}", start_field, end_field);
-        
-        int newly_processed = 0;
-        for (int64_t fid = start_field; fid <= end_field; ++fid) {
-            FieldID neighbor(static_cast<uint64_t>(fid));
-            
-            // Skip if already in cache
-            if (corrected_fields_.contains(neighbor)) {
-                continue;
-            }
-            
-            // Check if this field exists in source
-            if (!source_->has_field(neighbor)) {
-                continue;
-            }
-            
-            newly_processed++;
-            
-            // Correct this field (will add to cache)
-            stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, neighbor);
-        }
-        
-        ORC_LOG_DEBUG("  -> Batch complete: {} new fields processed (cache now has {} fields)", 
-                      newly_processed, corrected_fields_.size());
-    } else {
-        // Batch prefetch disabled: just process the requested field
-        ORC_LOG_DEBUG("  -> Batch prefetch disabled, processing single field");
-        stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, field_id);
-    }
+    // Process only the requested field
+    stage_->correct_single_field(const_cast<CorrectedVideoFieldRepresentation*>(this), source_, field_id);
 }
 
 const uint16_t* CorrectedVideoFieldRepresentation::get_line(FieldID id, size_t line) const {
@@ -620,18 +585,6 @@ std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors(
         descriptors.push_back(desc);
     }
     
-    // Enable batch prefetch parameter
-    {
-        ParameterDescriptor desc;
-        desc.name = "enable_batch_prefetch";
-        desc.display_name = "Enable Batch Prefetch";
-        desc.description = "Pre-process neighboring fields to avoid cascading corrections (faster for browsing, slower for single field)";
-        desc.type = ParameterType::BOOL;
-        desc.constraints.default_value = true;
-        desc.constraints.required = false;
-        descriptors.push_back(desc);
-    }
-    
     return descriptors;
 }
 
@@ -643,7 +596,7 @@ std::map<std::string, ParameterValue> DropoutCorrectStage::get_parameters() cons
     params["max_replacement_distance"] = config_.max_replacement_distance;
     params["match_chroma_phase"] = config_.match_chroma_phase;
     params["highlight_corrections"] = config_.highlight_corrections;
-    params["enable_batch_prefetch"] = config_.enable_batch_prefetch;
+
     return params;
 }
 
@@ -690,13 +643,6 @@ bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterVa
         else if (name == "highlight_corrections") {
             if (auto* val = std::get_if<bool>(&value)) {
                 config_.highlight_corrections = *val;
-            } else {
-                return false;
-            }
-        }
-        else if (name == "enable_batch_prefetch") {
-            if (auto* val = std::get_if<bool>(&value)) {
-                config_.enable_batch_prefetch = *val;
             } else {
                 return false;
             }

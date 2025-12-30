@@ -7,11 +7,11 @@
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
-#include "include/burst_level_analysis_decoder.h"
-#include "include/observation_cache.h"
-#include "include/video_field_representation.h"
-#include "observers/observation_history.h"
-#include "logging.h"
+#include "burst_level_analysis_decoder.h"
+#include "../../include/observation_cache.h"
+#include "../../include/video_field_representation.h"
+#include "../../observers/observation_history.h"
+#include "../../include/logging.h"
 #include <algorithm>
 #include <thread>
 #include <atomic>

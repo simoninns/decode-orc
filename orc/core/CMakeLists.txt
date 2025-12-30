@@ -56,12 +56,15 @@ add_library(orc-core STATIC
     
     # Dropout analysis
     analysis/dropout/dropout_analysis.cpp
+    analysis/dropout/dropout_analysis_decoder.cpp
     
     # SNR analysis
     analysis/snr/snr_analysis.cpp
+    analysis/snr/snr_analysis_decoder.cpp
     
     # Burst level analysis
     analysis/burst_level/burst_level_analysis.cpp
+    analysis/burst_level/burst_level_analysis_decoder.cpp
     
     # Source alignment analysis
     analysis/source_alignment/source_alignment_analysis.cpp
@@ -86,15 +89,6 @@ add_library(orc-core STATIC
     
     # Observation cache (shared by all analysis decoders)
     observation_cache.cpp
-    
-    # Dropout analysis decoder
-    dropout_analysis_decoder.cpp
-    
-    # SNR analysis decoder
-    snr_analysis_decoder.cpp
-    
-    # Burst level analysis decoder
-    burst_level_analysis_decoder.cpp
     
     # Node type system
     node_type.cpp

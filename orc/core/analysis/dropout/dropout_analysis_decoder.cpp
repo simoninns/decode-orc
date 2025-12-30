@@ -1,38 +1,38 @@
 /*
- * File:        snr_analysis_decoder.cpp
+ * File:        dropout_analysis_decoder.cpp
  * Module:      orc-core
- * Purpose:     SNR analysis data extraction implementation
+ * Purpose:     Dropout analysis data extraction implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025 Simon Inns
  */
 
-#include "include/snr_analysis_decoder.h"
-#include "include/observation_cache.h"
-#include "include/video_field_representation.h"
-#include "observers/observation_history.h"
-#include "observers/biphase_observer.h"
-#include "logging.h"
+#include "dropout_analysis_decoder.h"
+#include "../../include/observation_cache.h"
+#include "../../include/video_field_representation.h"
+#include "../../observers/observation_history.h"
+#include "../../observers/biphase_observer.h"
+#include "../../include/logging.h"
 #include <algorithm>
 #include <thread>
 #include <atomic>
 
 namespace orc {
 
-SNRAnalysisDecoder::SNRAnalysisDecoder(std::shared_ptr<const DAG> dag)
-    : observer_(SNRAnalysisMode::BOTH)
+DropoutAnalysisDecoder::DropoutAnalysisDecoder(std::shared_ptr<const DAG> dag)
+    : observer_(DropoutAnalysisMode::FULL_FIELD)
 {
     if (!dag) {
-        throw std::invalid_argument("SNRAnalysisDecoder: DAG cannot be null");
+        throw std::invalid_argument("DropoutAnalysisDecoder: DAG cannot be null");
     }
     
     obs_cache_ = std::make_shared<ObservationCache>(dag);
 }
 
-void SNRAnalysisDecoder::update_dag(std::shared_ptr<const DAG> dag)
+void DropoutAnalysisDecoder::update_dag(std::shared_ptr<const DAG> dag)
 {
     if (!dag) {
-        throw std::invalid_argument("SNRAnalysisDecoder: DAG cannot be null");
+        throw std::invalid_argument("DropoutAnalysisDecoder: DAG cannot be null");
     }
     
     if (obs_cache_) {
@@ -44,13 +44,13 @@ void SNRAnalysisDecoder::update_dag(std::shared_ptr<const DAG> dag)
     // Clear processed caches when DAG changes
     field_cache_.clear();
     frame_cache_.clear();
-    ORC_LOG_DEBUG("SNRAnalysisDecoder: DAG updated, caches cleared");
+    ORC_LOG_DEBUG("DropoutAnalysisDecoder: DAG updated, caches cleared");
 }
 
-void SNRAnalysisDecoder::set_observation_cache(std::shared_ptr<ObservationCache> cache)
+void DropoutAnalysisDecoder::set_observation_cache(std::shared_ptr<ObservationCache> cache)
 {
     if (!cache) {
-        throw std::invalid_argument("SNRAnalysisDecoder: ObservationCache cannot be null");
+        throw std::invalid_argument("DropoutAnalysisDecoder: ObservationCache cannot be null");
     }
     
     obs_cache_ = cache;
@@ -58,13 +58,13 @@ void SNRAnalysisDecoder::set_observation_cache(std::shared_ptr<ObservationCache>
     // Clear processed caches when cache changes
     field_cache_.clear();
     frame_cache_.clear();
-    ORC_LOG_DEBUG("SNRAnalysisDecoder: Observation cache updated");
+    ORC_LOG_DEBUG("DropoutAnalysisDecoder: Observation cache updated");
 }
 
-std::optional<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_field(
+std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
     NodeID node_id,
     FieldID field_id,
-    SNRAnalysisMode mode)
+    DropoutAnalysisMode mode)
 {
     try {
         // Set the observer mode
@@ -74,23 +74,23 @@ std::optional<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_field(
         auto field_repr = obs_cache_->get_field(node_id, field_id);
         
         if (!field_repr.has_value()) {
-            ORC_LOG_WARN("SNRAnalysisDecoder: Failed to get field {} at node '{}'",
+            ORC_LOG_WARN("DropoutAnalysisDecoder: Failed to get field {} at node '{}'",
                         field_id.value(), node_id.to_string());
             return std::nullopt;
         }
         
-        return extract_snr_stats(field_repr.value(), field_id, mode);
+        return extract_dropout_stats(field_repr.value(), field_id, mode);
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("SNRAnalysisDecoder: Exception getting SNR for field {}: {}",
+        ORC_LOG_ERROR("DropoutAnalysisDecoder: Exception getting dropout for field {}: {}",
                      field_id.value(), e.what());
         return std::nullopt;
     }
 }
 
-std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
+std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_fields(
     NodeID node_id,
-    SNRAnalysisMode mode,
+    DropoutAnalysisMode mode,
     size_t max_fields,
     std::function<void(size_t, size_t, const std::string&)> progress_callback)
 {
@@ -99,19 +99,19 @@ std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
         CacheKey key{node_id, mode};
         auto it = field_cache_.find(key);
         if (it != field_cache_.end()) {
-            ORC_LOG_DEBUG("SNRAnalysisDecoder: Returning cached field data for node '{}'", node_id.to_string());
+            ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached field data for node '{}'", node_id.to_string());
             return it->second;
         }
     }
     
-    std::vector<FieldSNRStats> results;
+    std::vector<FieldDropoutStats> results;
     
     try {
         // Get field count from observation cache
         size_t field_count = obs_cache_->get_field_count(node_id);
         
         if (field_count == 0) {
-            ORC_LOG_WARN("SNRAnalysisDecoder: No fields available for node '{}'", node_id.to_string());
+            ORC_LOG_WARN("DropoutAnalysisDecoder: No fields available for node '{}'", node_id.to_string());
             return results;
         }
         
@@ -121,7 +121,7 @@ std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
         
         results.resize(field_count);
         
-        ORC_LOG_INFO("SNRAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
+        ORC_LOG_INFO("DropoutAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
                     field_count, node_id.to_string(), std::thread::hardware_concurrency());
         
         // Process fields in parallel using all available cores
@@ -134,13 +134,13 @@ std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
         auto process_chunk = [&](size_t start_idx, size_t end_idx) {
             for (size_t i = start_idx; i < end_idx; ++i) {
                 FieldID field_id(i);
-                auto stats = get_snr_for_field(node_id, field_id, mode);
+                auto stats = get_dropout_for_field(node_id, field_id, mode);
                 
                 if (stats.has_value()) {
                     results[i] = stats.value();
                 } else {
                     // Add empty entry to maintain field index consistency
-                    FieldSNRStats empty_stats;
+                    FieldDropoutStats empty_stats;
                     empty_stats.field_id = field_id;
                     empty_stats.has_data = false;
                     results[i] = empty_stats;
@@ -149,7 +149,7 @@ std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
                 // Report progress periodically via callback
                 size_t current = progress_counter.fetch_add(1) + 1;
                 if (progress_callback && current % 100 == 0) {
-                    progress_callback(current, field_count, "Processing SNR analysis...");
+                    progress_callback(current, field_count, "Processing dropout analysis...");
                 }
             }
         };
@@ -171,27 +171,27 @@ std::vector<FieldSNRStats> SNRAnalysisDecoder::get_snr_for_all_fields(
         
         // Report final progress
         if (progress_callback) {
-            progress_callback(field_count, field_count, "SNR analysis complete");
+            progress_callback(field_count, field_count, "Dropout analysis complete");
         }
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("SNRAnalysisDecoder: Exception processing all fields: {}", e.what());
+        ORC_LOG_ERROR("DropoutAnalysisDecoder: Exception processing all fields: {}", e.what());
     }
     
     // Cache the results if we processed all fields
     if (max_fields == 0 && !results.empty()) {
         CacheKey key{node_id, mode};
         field_cache_[key] = results;
-        ORC_LOG_DEBUG("SNRAnalysisDecoder: Cached field data for node '{}' ({} fields)", 
+        ORC_LOG_DEBUG("DropoutAnalysisDecoder: Cached field data for node '{}' ({} fields)", 
                      node_id.to_string(), results.size());
     }
     
     return results;
 }
 
-std::vector<FrameSNRStats> SNRAnalysisDecoder::get_snr_by_frames(
+std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
     NodeID node_id,
-    SNRAnalysisMode mode,
+    DropoutAnalysisMode mode,
     size_t max_frames,
     std::function<void(size_t, size_t, const std::string&)> progress_callback)
 {
@@ -200,16 +200,16 @@ std::vector<FrameSNRStats> SNRAnalysisDecoder::get_snr_by_frames(
         CacheKey key{node_id, mode};
         auto it = frame_cache_.find(key);
         if (it != frame_cache_.end()) {
-            ORC_LOG_DEBUG("SNRAnalysisDecoder: Returning cached frame data for node '{}'", node_id.to_string());
+            ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached frame data for node '{}'", node_id.to_string());
             return it->second;
         }
     }
     
-    std::vector<FrameSNRStats> results;
+    std::vector<FrameDropoutStats> results;
     
     try {
         // Get all field stats first
-        auto field_stats = get_snr_for_all_fields(node_id, mode, max_frames * 2, progress_callback);
+        auto field_stats = get_dropout_for_all_fields(node_id, mode, max_frames * 2, progress_callback);
         
         // Combine pairs of fields into frames
         size_t frame_count = field_stats.size() / 2;
@@ -220,92 +220,53 @@ std::vector<FrameSNRStats> SNRAnalysisDecoder::get_snr_by_frames(
         results.reserve(frame_count);
         
         for (size_t frame_idx = 0; frame_idx < frame_count; ++frame_idx) {
-            FrameSNRStats frame_stats;
+            FrameDropoutStats frame_stats;
             frame_stats.frame_number = frame_idx + 1;  // 1-based frame numbers
             
             size_t field1_idx = frame_idx * 2;
             size_t field2_idx = frame_idx * 2 + 1;
             
-            double white_snr_sum = 0.0;
-            double black_psnr_sum = 0.0;
-            size_t white_count = 0;
-            size_t black_count = 0;
-            
-            // Process field 1
             if (field1_idx < field_stats.size()) {
                 const auto& f1 = field_stats[field1_idx];
                 if (f1.has_data) {
+                    frame_stats.total_dropout_length += f1.total_dropout_length;
+                    frame_stats.dropout_count += f1.dropout_count;
                     frame_stats.has_data = true;
-                    frame_stats.field_count++;
-                    
-                    if (f1.has_white_snr) {
-                        white_snr_sum += f1.white_snr;
-                        white_count++;
-                        frame_stats.has_white_snr = true;
-                    }
-                    
-                    if (f1.has_black_psnr) {
-                        black_psnr_sum += f1.black_psnr;
-                        black_count++;
-                        frame_stats.has_black_psnr = true;
-                    }
                 }
             }
             
-            // Process field 2
             if (field2_idx < field_stats.size()) {
                 const auto& f2 = field_stats[field2_idx];
                 if (f2.has_data) {
+                    frame_stats.total_dropout_length += f2.total_dropout_length;
+                    frame_stats.dropout_count += f2.dropout_count;
                     frame_stats.has_data = true;
-                    frame_stats.field_count++;
-                    
-                    if (f2.has_white_snr) {
-                        white_snr_sum += f2.white_snr;
-                        white_count++;
-                        frame_stats.has_white_snr = true;
-                    }
-                    
-                    if (f2.has_black_psnr) {
-                        black_psnr_sum += f2.black_psnr;
-                        black_count++;
-                        frame_stats.has_black_psnr = true;
-                    }
                 }
-            }
-            
-            // Calculate averages
-            if (white_count > 0) {
-                frame_stats.white_snr = white_snr_sum / white_count;
-            }
-            
-            if (black_count > 0) {
-                frame_stats.black_psnr = black_psnr_sum / black_count;
             }
             
             results.push_back(frame_stats);
         }
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("SNRAnalysisDecoder: Exception processing frames: {}", e.what());
+        ORC_LOG_ERROR("DropoutAnalysisDecoder: Exception processing frames: {}", e.what());
     }
     
     // Cache the results if we processed all frames
     if (max_frames == 0 && !results.empty()) {
         CacheKey key{node_id, mode};
         frame_cache_[key] = results;
-        ORC_LOG_DEBUG("SNRAnalysisDecoder: Cached frame data for node '{}' ({} frames)", 
+        ORC_LOG_DEBUG("DropoutAnalysisDecoder: Cached frame data for node '{}' ({} frames)", 
                      node_id.to_string(), results.size());
     }
     
     return results;
 }
 
-std::optional<FieldSNRStats> SNRAnalysisDecoder::extract_snr_stats(
+std::optional<FieldDropoutStats> DropoutAnalysisDecoder::extract_dropout_stats(
     std::shared_ptr<const VideoFieldRepresentation> field_repr,
     FieldID field_id,
-    SNRAnalysisMode mode)
+    DropoutAnalysisMode mode)
 {
-    (void)mode;  // Currently unused
     try {
         // Get the existing observations from the representation
         auto existing_obs = field_repr->get_observations(field_id);
@@ -314,33 +275,35 @@ std::optional<FieldSNRStats> SNRAnalysisDecoder::extract_snr_stats(
         ObservationHistory history;
         history.add_observations(field_id, existing_obs);
         
-        // Run the SNR observer on this field
+        // Run the dropout observer on this field
         auto observations = observer_.process_field(*field_repr, field_id, history);
         
-        // Find the SNRAnalysisObservation we just created
+        // Find the DropoutAnalysisObservation we just created
         for (const auto& obs : observations) {
-            if (obs->observation_type() == "SNRAnalysis") {
-                auto snr_obs = std::dynamic_pointer_cast<SNRAnalysisObservation>(obs);
-                if (snr_obs) {
-                    FieldSNRStats stats;
+            if (obs->observation_type() == "DropoutAnalysis") {
+                auto dropout_obs = std::dynamic_pointer_cast<DropoutAnalysisObservation>(obs);
+                if (dropout_obs && dropout_obs->mode == mode) {
+                    FieldDropoutStats stats;
                     stats.field_id = field_id;
-                    stats.white_snr = snr_obs->white_snr;
-                    stats.black_psnr = snr_obs->black_psnr;
-                    stats.has_white_snr = snr_obs->has_white_snr;
-                    stats.has_black_psnr = snr_obs->has_black_psnr;
-                    stats.frame_number = snr_obs->frame_number;
-                    stats.has_data = snr_obs->has_white_snr || snr_obs->has_black_psnr;
+                    stats.total_dropout_length = dropout_obs->total_dropout_length;
+                    stats.dropout_count = dropout_obs->dropout_count;
+                    stats.frame_number = dropout_obs->frame_number;
+                    stats.has_data = true;
+                    
+                    ORC_LOG_DEBUG("DropoutAnalysisDecoder: Field {} extracted: count={}, length={:.1f}",
+                                 field_id.value(), stats.dropout_count, stats.total_dropout_length);
+                    
                     return stats;
                 }
             }
         }
         
-        ORC_LOG_DEBUG("SNRAnalysisDecoder: No SNR observation found for field {}",
+        ORC_LOG_DEBUG("DropoutAnalysisDecoder: No dropout observation found for field {}",
                      field_id.value());
         return std::nullopt;
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("SNRAnalysisDecoder: Exception extracting SNR stats: {}", e.what());
+        ORC_LOG_ERROR("DropoutAnalysisDecoder: Exception extracting dropout stats: {}", e.what());
         return std::nullopt;
     }
 }

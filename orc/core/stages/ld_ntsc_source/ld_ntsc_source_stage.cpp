@@ -12,9 +12,6 @@
 #include "logging.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
-#include "observation_wrapper_representation.h"
-#include "biphase_observer.h"
-#include "observation_history.h"
 #include <stage_registry.h>
 #include <stdexcept>
 #include <fstream>
@@ -117,28 +114,8 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
             );
         }
         
-        // Run observers on all fields to extract VBI and other metadata
-        ORC_LOG_INFO("LDNTSCSource: Running observers on all fields...");
-        auto biphase_observer = std::make_shared<BiphaseObserver>();
-        ObservationHistory history;
-        std::map<FieldID, std::vector<std::shared_ptr<Observation>>> observations_map;
-        
-        auto field_range = tbc_representation->field_range();
-        for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
-            auto observations = biphase_observer->process_field(*tbc_representation, fid, history);
-            if (!observations.empty()) {
-                observations_map[fid] = observations;
-                history.add_observations(fid, observations);
-            }
-        }
-        
-        ORC_LOG_INFO("LDNTSCSource: Extracted observations for {} fields", observations_map.size());
-        
-        // Wrap the representation with observations
-        cached_representation_ = std::make_shared<ObservationWrapperRepresentation>(
-            tbc_representation, 
-            observations_map
-        );
+        // Cache the representation (observations will be generated lazily per-field during rendering)
+        cached_representation_ = tbc_representation;
         cached_input_path_ = input_path;
         
         return {cached_representation_};

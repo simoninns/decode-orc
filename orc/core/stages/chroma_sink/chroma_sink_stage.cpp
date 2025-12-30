@@ -680,47 +680,36 @@ bool ChromaSinkStage::trigger(
     int32_t extended_start_frame = static_cast<int32_t>(start_frame) - lookBehindFrames;
     int32_t extended_end_frame = static_cast<int32_t>(end_frame) + lookAheadFrames;
     
-    // 8. Collect fields including lookbehind/lookahead padding
-    std::vector<SourceField> inputFields;
-    int32_t total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
-    inputFields.reserve(total_fields_needed);
+    // 8. Store field IDs and metadata (NOT field data) to avoid loading everything into RAM
+    // Field data will be loaded on-demand in worker threads
+    struct FieldInfo {
+        FieldID field_id;
+        bool use_blank;
+        int32_t frame_number;
+    };
     
-    ORC_LOG_INFO("ChromaSink: Collecting {} fields (frames {}-{}) for decode",
+    std::vector<FieldInfo> fieldInfoList;
+    int32_t total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
+    fieldInfoList.reserve(total_fields_needed);
+    
+    ORC_LOG_INFO("ChromaSink: Preparing {} field descriptors (frames {}-{}) for decode",
                  total_fields_needed, extended_start_frame + 1, extended_end_frame);
     
     for (int32_t frame = extended_start_frame; frame < extended_end_frame; frame++) {
         // Determine if this frame is outside the SOURCE TBC range (need black padding)
-        // Note: For decoder context (lookbehind/lookahead), we can use frames from the source
-        // even if they're outside the field_map filtered range. Only use black when the frame
-        // doesn't exist in the source TBC at all.
-        // Note: 'frame' is in 0-based indexing
         bool useBlankFrame = (frame < 0) || (frame >= static_cast<int32_t>(total_source_frames));
         
-        if (frame < 3 || frame > static_cast<int32_t>(end_frame) - 3) {
-            ORC_LOG_INFO("ChromaSink: Frame {} useBlankFrame={} (total_source_frames={})", 
-                        frame, useBlankFrame, total_source_frames);
-        }
-        
-        // Convert frame to 1-based for field ID calculation (TBC uses 1-based frame numbering)
-        // For metadata lookup, use frame+1 to match TBC's 1-based system
+        // Convert frame to 1-based for field ID calculation
         int32_t frameNumberFor1BasedTBC = frame + 1;
-        
-        // If outside bounds, use frame 1 (first frame) for metadata but black for data
         int32_t metadataFrameNumber = useBlankFrame ? 1 : frameNumberFor1BasedTBC;
         
-        // Frame N (1-based numbering) consists of fields (2*N-2) and (2*N-1) in 0-based indexing
-        // Fields are ALWAYS in chronological order in the input array
-        // The isFirstField flag in each SourceField indicates logical field order
-        FieldID firstFieldId = FieldID((metadataFrameNumber * 2) - 2);   // Even field (chronologically first)
-        FieldID secondFieldId = FieldID((metadataFrameNumber * 2) - 1);  // Odd field (chronologically second)
+        FieldID firstFieldId = FieldID((metadataFrameNumber * 2) - 2);
+        FieldID secondFieldId = FieldID((metadataFrameNumber * 2) - 1);
         
-        // For blank frames, skip field scanning - just use metadata from frame 1
+        // For non-blank frames, verify fields exist and find correct field pair
         if (!useBlankFrame) {
-            // Verify the calculated field IDs point to valid fields
-            // If not, scan forward to find the next valid field pair
-            // (handles dropped/repeated fields in the source)
             FieldID scan_id = firstFieldId;
-            int max_scan = 10;  // Don't scan too far
+            int max_scan = 10;
             
             for (int scan = 0; scan < max_scan && scan_id.value() < field_range.end.value(); scan++) {
                 if (!vfr->has_field(scan_id)) {
@@ -728,7 +717,6 @@ bool ChromaSinkStage::trigger(
                     continue;
                 }
                 
-                // Check if this field has Top parity (first field)
                 auto desc_opt = vfr->get_descriptor(scan_id);
                 if (desc_opt.has_value() && desc_opt->parity == FieldParity::Top) {
                     firstFieldId = scan_id;
@@ -738,7 +726,6 @@ bool ChromaSinkStage::trigger(
                 scan_id = FieldID(scan_id.value() + 1);
             }
             
-            // Check if fields exist
             if (!vfr->has_field(firstFieldId) || !vfr->has_field(secondFieldId)) {
                 ORC_LOG_WARN("ChromaSink: Skipping frame {} (missing fields {}/{})", 
                             frame + 1, firstFieldId.value(), secondFieldId.value());
@@ -746,49 +733,9 @@ bool ChromaSinkStage::trigger(
             }
         }
         
-        // Convert fields to SourceField format
-        SourceField sf1, sf2;
-        
-        if (useBlankFrame) {
-            // Create blank fields with metadata from frame 1 but black data
-            sf1 = convertToSourceField(vfr.get(), firstFieldId);
-            sf2 = convertToSourceField(vfr.get(), secondFieldId);
-            
-            // Fill with black
-            uint16_t black = videoParams.black_16b_ire;
-            size_t field_length = sf1.data.size();
-            sf1.data.assign(field_length, black);
-            sf2.data.assign(field_length, black);
-        } else {
-            sf1 = convertToSourceField(vfr.get(), firstFieldId);
-            sf2 = convertToSourceField(vfr.get(), secondFieldId);
-            
-            // Debug: check if we got data
-            if (frame < 3) {
-                size_t nonzero = 0;
-                for (size_t i = 0; i < std::min(sf1.data.size(), size_t(1000)); i++) {
-                    if (sf1.data[i] != videoParams.black_16b_ire) nonzero++;
-                }
-                ORC_LOG_INFO("ChromaSink: Frame {} field {} has {} non-black samples in first 1000", 
-                            frame, firstFieldId.value(), nonzero);
-            }
-            
-            // Apply PAL subcarrier shift: With subcarrier-locked 4fSC PAL sampling,
-            // we have four "extra" samples over the course of the frame, so the two
-            // fields will be horizontally misaligned by two samples. Shift the
-            // second field to the left to compensate.
-            if ((videoParams.system == orc::VideoSystem::PAL || videoParams.system == orc::VideoSystem::PAL_M) && 
-                videoParams.is_subcarrier_locked) {
-                // Remove first 2 samples and append 2 black samples at the end
-                uint16_t black = videoParams.black_16b_ire;
-                sf2.data.erase(sf2.data.begin(), sf2.data.begin() + 2);
-                sf2.data.push_back(black);
-                sf2.data.push_back(black);
-            }
-        }
-        
-        inputFields.push_back(sf1);
-        inputFields.push_back(sf2);
+        // Store field info (not data)
+        fieldInfoList.push_back({firstFieldId, useBlankFrame, frame});
+        fieldInfoList.push_back({secondFieldId, useBlankFrame, frame});
     }
     
     // 10. Process frames in parallel using worker threads
@@ -808,8 +755,45 @@ bool ChromaSinkStage::trigger(
     ORC_LOG_INFO("ChromaSink: Will output {} frames (total range {} - lookahead {})", 
                  numOutputFrames, end_frame - start_frame, lookAheadFrames);
     
-    std::vector<ComponentFrame> outputFrames;
-    outputFrames.resize(numFrames);
+    // Initialize output backend BEFORE decoding to enable streaming writes
+    auto backend = OutputBackendFactory::create(output_format_);
+    if (!backend) {
+        ORC_LOG_ERROR("ChromaSink: Unknown or unsupported output format: {}", output_format_);
+        trigger_status_ = "Error: Unknown format '" + output_format_ + "'";
+        trigger_in_progress_.store(false);
+        return false;
+    }
+    
+    OutputBackend::Configuration backendConfig;
+    backendConfig.output_path = output_path_;
+    backendConfig.video_params = videoParams;
+    backendConfig.padding_amount = output_padding_;
+    backendConfig.active_area_only = active_area_only_;
+    backendConfig.options["format"] = output_format_;
+    backendConfig.encoder_preset = encoder_preset_;
+    backendConfig.encoder_crf = encoder_crf_;
+    backendConfig.encoder_bitrate = encoder_bitrate_;
+    backendConfig.embed_audio = embed_audio_;
+    if (embed_audio_ && vfr && vfr->has_audio()) {
+        backendConfig.vfr = vfr.get();
+        backendConfig.start_field_index = extended_start_frame * 2;
+        backendConfig.num_fields = numOutputFrames * 2;
+        ORC_LOG_INFO("ChromaSink: Audio embedding enabled for output");
+    }
+    
+    if (!backend->initialize(backendConfig)) {
+        ORC_LOG_ERROR("ChromaSink: Failed to initialize {} output backend", output_format_);
+        trigger_status_ = "Error: Failed to initialize " + output_format_ + " output";
+        trigger_in_progress_.store(false);
+        return false;
+    }
+    
+    ORC_LOG_INFO("ChromaSink: Streaming {} frames to {}", numOutputFrames, backend->getFormatInfo());
+    
+    // Use vector of optional frames to track which have been written
+    // This allows out-of-order completion while maintaining sequential writes
+    std::vector<std::optional<ComponentFrame>> outputFrames;
+    outputFrames.resize(numOutputFrames);
     
     // Determine number of threads to use
     int32_t numThreads = threads_;
@@ -827,10 +811,12 @@ bool ChromaSinkStage::trigger(
         progress_callback_(0, numFrames, "Starting decoding...");
     }
     
-    // Shared state for work distribution
+    // Shared state for work distribution and output writing
     std::atomic<int32_t> nextFrameIdx{0};
     std::atomic<bool> abortFlag{false};
     std::atomic<int32_t> completedFrames{0};
+    std::atomic<int32_t> nextFrameToWrite{0};
+    std::mutex outputMutex;  // Protects backend writes and frame buffering
     
     // CRITICAL: FFTW plan creation with FFTW_MEASURE is NOT thread-safe
     // (see FFTW docs: http://www.fftw.org/fftw3_doc/Thread-safety.html)
@@ -915,26 +901,39 @@ bool ChromaSinkStage::trigger(
                 break;  // No more frames to process
             }
             
-            // Build a field array for this ONE frame:
+            // Build a field array for this ONE frame by loading data on-demand
             // [lookbehind fields... target frame fields... lookahead fields...]
             std::vector<SourceField> frameFields;
             
             // The actual frame number we're processing
             int32_t actualFrameNum = static_cast<int32_t>(start_frame) + frameIdx;
             
-            // Position in inputFields where this frame's fields start
+            // Position in fieldInfoList where this frame's fields start
             int32_t frameStartIdx = (actualFrameNum - extended_start_frame) * 2;
             
-            // Calculate the range to copy: lookbehind + target + lookahead
+            // Calculate the range to load: lookbehind + target + lookahead
             int32_t copyStartIdx = frameStartIdx - (lookBehindFrames * 2);
             int32_t copyEndIdx = frameStartIdx + 2 + (lookAheadFrames * 2);
             
-            // Clamp to valid range and copy
+            // Clamp to valid range and load field data on-demand
             copyStartIdx = std::max(0, copyStartIdx);
-            copyEndIdx = std::min(static_cast<int32_t>(inputFields.size()), copyEndIdx);
+            copyEndIdx = std::min(static_cast<int32_t>(fieldInfoList.size()), copyEndIdx);
             
             for (int32_t i = copyStartIdx; i < copyEndIdx; i++) {
-                frameFields.push_back(inputFields[i]);
+                const auto& fieldInfo = fieldInfoList[i];
+                SourceField sf;
+                
+                if (fieldInfo.use_blank) {
+                    // Create blank field with metadata but black data
+                    sf = convertToSourceField(vfr.get(), fieldInfo.field_id);
+                    uint16_t black = videoParams.black_16b_ire;
+                    sf.data.assign(sf.data.size(), black);
+                } else {
+                    // Load field data from TBC (this is where the actual I/O happens, on-demand)
+                    sf = convertToSourceField(vfr.get(), fieldInfo.field_id);
+                }
+                
+                frameFields.push_back(std::move(sf));
             }
             
             // The target frame's position within frameFields depends on how much lookbehind we actually got
@@ -987,8 +986,24 @@ bool ChromaSinkStage::trigger(
                 threadNtscDecoder->decodeFrames(frameFields, frameStartIndex, frameEndIndex, singleOutput);
             }
             
-            // Store the result (no mutex needed - each thread writes to a different index)
-            outputFrames[frameIdx] = singleOutput[0];
+            // Store the result in the buffer
+            {
+                std::lock_guard<std::mutex> lock(outputMutex);
+                outputFrames[frameIdx] = singleOutput[0];
+                
+                // Write completed frames to backend in sequential order
+                while (nextFrameToWrite < numFrames && outputFrames[nextFrameToWrite].has_value()) {
+                    if (!backend->writeFrame(*outputFrames[nextFrameToWrite])) {
+                        int32_t failedFrame = nextFrameToWrite.load();
+                        ORC_LOG_ERROR("ChromaSink: Failed to write frame {}", failedFrame);
+                        abortFlag.store(true);
+                        break;
+                    }
+                    // Free the frame memory immediately after writing
+                    outputFrames[nextFrameToWrite].reset();
+                    nextFrameToWrite++;
+                }
+            }
             
             // Update progress
             int32_t completed = completedFrames.fetch_add(1) + 1;
@@ -1011,66 +1026,30 @@ bool ChromaSinkStage::trigger(
         worker.join();
     }
     
-    // Check if cancelled
-    if (cancel_requested_.load()) {
-        ORC_LOG_WARN("ChromaSink: Decoding cancelled by user");
-        trigger_status_ = "Cancelled by user";
+    // Check if cancelled or error
+    if (cancel_requested_.load() || abortFlag.load()) {
+        ORC_LOG_WARN("ChromaSink: Decoding cancelled or failed");
+        backend->finalize();  // Try to close cleanly
+        trigger_status_ = cancel_requested_.load() ? "Cancelled by user" : "Error during decode";
         trigger_in_progress_.store(false);
         return false;
     }
     
-    ORC_LOG_INFO("ChromaSink: Decoded {} frames", outputFrames.size());
-    
-    ORC_LOG_DEBUG("ChromaSink: videoParams.first_active_frame_line={}, last_active_frame_line={}", 
-                  videoParams.first_active_frame_line, videoParams.last_active_frame_line);
-    
-    // DEBUG: Log ComponentFrame Y checksums using accessor method
-    for (size_t k = 0; k < outputFrames.size() && k < 3; k++) {
-        // Access Y data using line accessor
-        int32_t firstLine = videoParams.first_active_frame_line;
-        ORC_LOG_DEBUG("ChromaSink: About to access ComponentFrame[{}].y({}) (height={})", 
-                      k, firstLine, outputFrames[k].getHeight());
-        const double* yLinePtr = outputFrames[k].y(firstLine);
-        int32_t width = outputFrames[k].getWidth();
-        
-        if (yLinePtr && width > 0) {
-            uint64_t yChecksum = 0;
-            for (int i = 0; i < std::min(100, width); i++) {
-                yChecksum += static_cast<uint64_t>(yLinePtr[i] * 1000);
-            }
-            ORC_LOG_INFO("ChromaSink: ComponentFrame[{}] Y line {} checksum (first 100 pixels)={}, width={}, first 4: {:.2f} {:.2f} {:.2f} {:.2f}", 
-                         k, firstLine, yChecksum, width,
-                         width > 0 ? yLinePtr[0] : 0.0,
-                         width > 1 ? yLinePtr[1] : 0.0,
-                         width > 2 ? yLinePtr[2] : 0.0,
-                         width > 3 ? yLinePtr[3] : 0.0);
-        }
-    }
-    
-    // 13. Convert to std::vector for output writer
-    std::vector<ComponentFrame> stdOutputFrames;
-    stdOutputFrames.reserve(outputFrames.size());
-    for (const auto& frame : outputFrames) {
-        stdOutputFrames.push_back(frame);
-    }
-    
-    // 14. Write output file
+    // Finalize output backend
     if (progress_callback_) {
-        progress_callback_(numFrames, numFrames, "Writing output file...");
+        progress_callback_(numFrames, numFrames, "Finalizing output file...");
     }
     
-    std::string write_error;
-    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams, 
-                        vfr.get(), extended_start_frame * 2, numFrames * 2, write_error)) {
-        ORC_LOG_ERROR("ChromaSink: Failed to write output file: {}", output_path_);
-        trigger_status_ = write_error.empty() ? "Error: Failed to write output" : write_error;
+    if (!backend->finalize()) {
+        ORC_LOG_ERROR("ChromaSink: Failed to finalize output");
+        trigger_status_ = "Error: Failed to finalize output file";
         trigger_in_progress_.store(false);
         return false;
     }
     
-    ORC_LOG_INFO("ChromaSink: Output written to: {}", output_path_);
+    ORC_LOG_INFO("ChromaSink: Successfully wrote {} frames to: {}", numFrames, output_path_);
     
-    trigger_status_ = "Decode complete: " + std::to_string(outputFrames.size()) + " frames";
+    trigger_status_ = "Decode complete: " + std::to_string(numFrames) + " frames";
     trigger_in_progress_.store(false);
     
     if (progress_callback_) {

@@ -18,6 +18,17 @@
 namespace orc {
 
 // ============================================================================
+// DAGExecutor Implementation
+// ============================================================================
+
+DAGExecutor::DAGExecutor()
+    : cache_enabled_(true)
+    , artifact_cache_(MAX_CACHED_ARTIFACTS)
+    , progress_callback_(nullptr)
+{
+}
+
+// ============================================================================
 // DAG Implementation
 // ============================================================================
 
@@ -258,11 +269,11 @@ std::vector<ArtifactPtr> DAGExecutor::get_cached_or_execute(
     
     // Check cache
     if (cache_enabled_) {
-        auto it = artifact_cache_.find(expected_id);
-        if (it != artifact_cache_.end()) {
+        auto cached = artifact_cache_.get(expected_id);
+        if (cached.has_value()) {
             ORC_LOG_TRACE("Node '{}': Using cached result ({} outputs, cache size: {})", 
-                         node.node_id.to_string(), it->second.size(), artifact_cache_.size());
-            return it->second;
+                         node.node_id.to_string(), cached->size(), artifact_cache_.size());
+            return *cached;
         } else {
             ORC_LOG_TRACE("Node '{}': Cache miss - expected_id='{}' (cache size: {})", 
                          node.node_id.to_string(), expected_id.value(), artifact_cache_.size());
@@ -295,7 +306,7 @@ std::vector<ArtifactPtr> DAGExecutor::get_cached_or_execute(
     if (cache_enabled_ && !outputs.empty()) {
         ORC_LOG_TRACE("Node '{}': Caching {} output(s) with expected_id='{}' (cache will be size: {})", 
                      node.node_id.to_string(), outputs.size(), expected_id.value(), artifact_cache_.size() + 1);
-        artifact_cache_[expected_id] = outputs;
+        artifact_cache_.put(expected_id, outputs);
     }
     
     return outputs;

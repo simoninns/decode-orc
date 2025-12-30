@@ -12,6 +12,7 @@
 
 #include "artifact.h"
 #include "node_id.h"
+#include "lru_cache.h"
 #include "../stages/stage.h"
 #include <memory>
 #include <vector>
@@ -95,7 +96,7 @@ private:
  */
 class DAGExecutor {
 public:
-    DAGExecutor() = default;
+    DAGExecutor();
     
     // Prevent copying - executors have state (cache) that shouldn't be duplicated
     DAGExecutor(const DAGExecutor&) = delete;
@@ -138,7 +139,13 @@ public:
     
 private:
     bool cache_enabled_ = true;
-    std::map<ArtifactID, std::vector<ArtifactPtr>> artifact_cache_;
+    
+    /// LRU cache for artifact results
+    /// Limit cache size to prevent unbounded memory growth during batch processing
+    /// Each cached entry can be ~1-2MB (VideoFieldRepresentation), so 500 entries ≈ 500-1000MB max
+    static constexpr size_t MAX_CACHED_ARTIFACTS = 500;
+    LRUCache<ArtifactID, std::vector<ArtifactPtr>> artifact_cache_;
+    
     ProgressCallback progress_callback_;
     
     // Execution helpers

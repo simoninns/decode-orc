@@ -133,7 +133,6 @@ StackerStage::StackerStage()
     , m_smart_threshold(15)   // Default threshold
     , m_no_diff_dod(false)
     , m_passthrough(false)
-    , m_reverse(false)
     , m_thread_count(0)       // Auto (use all available cores)
 {
 }
@@ -155,8 +154,8 @@ std::vector<ArtifactPtr> StackerStage::execute(
     // Update parameters
     if (!parameters.empty()) {
         set_parameters(parameters);
-        ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}, reverse={}, thread_count={}",
-                     m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_reverse, m_thread_count);
+        ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}, thread_count={}",
+                     m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_thread_count);
         // Parameters changed - invalidate cache
         cached_output_.reset();
     }
@@ -729,18 +728,6 @@ std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSy
     passthrough_desc.constraints.required = false;
     descriptors.push_back(passthrough_desc);
     
-    // Reverse field order
-    ParameterDescriptor reverse_desc;
-    reverse_desc.name = "reverse";
-    reverse_desc.display_name = "Reverse Field Order";
-    reverse_desc.description = "Reverse the field order to second/first (default first/second)\n"
-                               "Enable if source captures have different field ordering\n"
-                               "Usually not needed unless sources were captured with different settings";
-    reverse_desc.type = ParameterType::BOOL;
-    reverse_desc.constraints.default_value = false;
-    reverse_desc.constraints.required = false;
-    descriptors.push_back(reverse_desc);
-    
     // Thread count
     ParameterDescriptor thread_count_desc;
     thread_count_desc.name = "thread_count";
@@ -831,12 +818,6 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
             } else {
                 return false;
             }
-        } else if (key == "reverse") {
-            if (auto* val = std::get_if<bool>(&value)) {
-                m_reverse = *val;
-            } else {
-                return false;
-            }
         } else if (key == "thread_count") {
             if (auto* val = std::get_if<int32_t>(&value)) {
                 if (*val < 0) {
@@ -872,7 +853,6 @@ std::optional<StageReport> StackerStage::generate_report() const {
     report.items.push_back({"Smart Threshold", std::to_string(m_smart_threshold)});
     report.items.push_back({"Differential Dropout Detection", m_no_diff_dod ? "Disabled" : "Enabled"});
     report.items.push_back({"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
-    report.items.push_back({"Reverse Field Order", m_reverse ? "Yes" : "No"});
     std::string thread_info = m_thread_count == 0 ? "Auto (" + std::to_string(std::thread::hardware_concurrency()) + " cores)" : std::to_string(m_thread_count);
     report.items.push_back({"Thread Count", thread_info});
     

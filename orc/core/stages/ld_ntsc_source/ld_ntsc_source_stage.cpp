@@ -210,6 +210,13 @@ std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
         pcm_path = std::get<std::string>(pcm_path_it->second);
     }
     
+    // Display PCM file path if configured
+    if (!pcm_path.empty()) {
+        report.items.push_back({"PCM Audio File", pcm_path});
+    } else {
+        report.items.push_back({"PCM Audio File", "Not configured"});
+    }
+    
     // Try to load the file to get actual information
     try {
         auto representation = create_tbc_representation(input_path, db_path, pcm_path);

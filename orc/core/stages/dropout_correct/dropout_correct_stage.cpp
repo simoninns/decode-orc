@@ -359,9 +359,7 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
     } else {
         // Interfield correction: use same line from other field
         // For now, use the adjacent field (field_id +/- 1)
-        FieldID other_field = config_.reverse_field_order 
-            ? FieldID(field_id.value() + 1)
-            : (field_id.value() > 0 ? FieldID(field_id.value() - 1) : FieldID(field_id.value() + 1));
+        FieldID other_field = (field_id.value() > 0 ? FieldID(field_id.value() - 1) : FieldID(field_id.value() + 1));
         
         auto other_descriptor_opt = source.get_descriptor(other_field);
         if (other_descriptor_opt && line < other_descriptor_opt->height) {
@@ -584,18 +582,6 @@ std::vector<ParameterDescriptor> DropoutCorrectStage::get_parameter_descriptors(
         descriptors.push_back(desc);
     }
     
-    // Reverse field order parameter
-    {
-        ParameterDescriptor desc;
-        desc.name = "reverse_field_order";
-        desc.display_name = "Reverse Field Order";
-        desc.description = "Use second/first field order instead of first/second";
-        desc.type = ParameterType::BOOL;
-        desc.constraints.default_value = false;
-        desc.constraints.required = false;
-        descriptors.push_back(desc);
-    }
-    
     // Max replacement distance parameter
     {
         ParameterDescriptor desc;
@@ -654,7 +640,6 @@ std::map<std::string, ParameterValue> DropoutCorrectStage::get_parameters() cons
     std::map<std::string, ParameterValue> params;
     params["overcorrect_extension"] = config_.overcorrect_extension;
     params["intrafield_only"] = config_.intrafield_only;
-    params["reverse_field_order"] = config_.reverse_field_order;
     params["max_replacement_distance"] = config_.max_replacement_distance;
     params["match_chroma_phase"] = config_.match_chroma_phase;
     params["highlight_corrections"] = config_.highlight_corrections;
@@ -680,13 +665,6 @@ bool DropoutCorrectStage::set_parameters(const std::map<std::string, ParameterVa
         else if (name == "intrafield_only") {
             if (auto* val = std::get_if<bool>(&value)) {
                 config_.intrafield_only = *val;
-            } else {
-                return false;
-            }
-        }
-        else if (name == "reverse_field_order") {
-            if (auto* val = std::get_if<bool>(&value)) {
-                config_.reverse_field_order = *val;
             } else {
                 return false;
             }

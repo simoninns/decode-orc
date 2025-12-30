@@ -164,7 +164,6 @@ private:
     int32_t m_smart_threshold;   // Threshold for smart modes (0-128, default 15)
     bool m_no_diff_dod;          // Disable differential dropout detection
     bool m_passthrough;          // Pass through dropouts present on all sources
-    bool m_reverse;              // Reverse field order
     int32_t m_thread_count;      // Number of threads for parallel processing (0=auto, max=hardware concurrency)
     
     // Store parameters for inspection

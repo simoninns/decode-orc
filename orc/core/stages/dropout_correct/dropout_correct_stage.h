@@ -45,9 +45,6 @@ struct DropoutCorrectionConfig {
     /// Force intrafield correction only (default: use interfield when possible)
     bool intrafield_only = false;
     
-    /// Reverse field order (use second/first instead of first/second)
-    bool reverse_field_order = false;
-    
     /// Maximum distance to search for replacement lines (in lines)
     uint32_t max_replacement_distance = 10;
     

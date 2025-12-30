@@ -152,6 +152,45 @@ public:
         return {};  // Default: no observations
     }
     
+    // ========================================================================
+    // AUDIO - PCM audio data access
+    // ========================================================================
+    
+    /**
+     * @brief Get number of audio samples for a specific field
+     * 
+     * Returns the number of stereo PCM audio samples (44.1kHz, 16-bit signed)
+     * that correspond to this field. Returns 0 if no audio is available.
+     * 
+     * @param id Field ID
+     * @return Number of audio samples (0 if no audio)
+     */
+    virtual uint32_t get_audio_sample_count(FieldID /*id*/) const {
+        return 0;  // Default: no audio
+    }
+    
+    /**
+     * @brief Get audio samples for a specific field
+     * 
+     * Returns interleaved stereo PCM audio samples (L, R, L, R, ...)
+     * Format: 16-bit signed integer, little endian, 44.1kHz stereo
+     * 
+     * @param id Field ID
+     * @return Vector of audio samples (empty if no audio)
+     */
+    virtual std::vector<int16_t> get_audio_samples(FieldID /*id*/) const {
+        return {};  // Default: no audio
+    }
+    
+    /**
+     * @brief Check if audio data is available
+     * 
+     * @return True if this representation has audio data
+     */
+    virtual bool has_audio() const {
+        return false;  // Default: no audio
+    }
+    
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }
     
@@ -237,6 +276,19 @@ public:
     // Automatically propagate observations through the chain
     std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
         return source_ ? source_->get_observations(id) : std::vector<std::shared_ptr<Observation>>{};
+    }
+    
+    // Automatically propagate audio through the chain
+    uint32_t get_audio_sample_count(FieldID id) const override {
+        return source_ ? source_->get_audio_sample_count(id) : 0;
+    }
+    
+    std::vector<int16_t> get_audio_samples(FieldID id) const override {
+        return source_ ? source_->get_audio_samples(id) : std::vector<int16_t>{};
+    }
+    
+    bool has_audio() const override {
+        return source_ ? source_->has_audio() : false;
     }
     
     // Access to wrapped source

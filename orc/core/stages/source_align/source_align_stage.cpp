@@ -59,9 +59,9 @@ public:
         if (offset_.value() >= source_range.size()) {
             return FieldIDRange{};  // Offset beyond source range
         }
-        // New range starts at 0 and has reduced size
+        // New range starts at 0 and has reduced size (end is exclusive)
         size_t new_size = source_range.size() - offset_.value();
-        return FieldIDRange{FieldID(0), FieldID(new_size - 1)};
+        return FieldIDRange{FieldID(0), FieldID(new_size)};
     }
     
     size_t field_count() const override {
@@ -306,10 +306,10 @@ std::vector<FieldID> SourceAlignStage::find_alignment_offsets(
         
         auto range = source->field_range();
         ORC_LOG_DEBUG("  Source {}: scanning {} fields (range {}-{})",
-                     src_idx, source->field_count(), range.start.value(), range.end.value());
+                     src_idx, source->field_count(), range.start.value(), range.end.value() - 1);
         
         size_t fields_with_vbi = 0;
-        for (FieldID field_id = range.start; field_id <= range.end; ++field_id) {
+        for (FieldID field_id = range.start; field_id < range.end; ++field_id) {
             if (!source->has_field(field_id)) {
                 continue;
             }

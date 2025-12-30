@@ -254,9 +254,9 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
             FieldID last_vbi_field_id;
             
             ORC_LOG_DEBUG("  Source {}: scanning {} fields (range {}-{})",
-                         src_idx + 1, source->field_count(), range.start.value(), range.end.value());
+                         src_idx + 1, source->field_count(), range.start.value(), range.end.value() - 1);
             
-            for (FieldID field_id = range.start; field_id <= range.end; ++field_id) {
+            for (FieldID field_id = range.start; field_id < range.end; ++field_id) {
                 if (!source->has_field(field_id)) {
                     continue;
                 }

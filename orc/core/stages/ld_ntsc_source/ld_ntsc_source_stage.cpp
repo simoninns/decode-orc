@@ -55,6 +55,13 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
         // Default: input_path + ".db"
         db_path = input_path + ".db";
     }
+    
+    // Get optional PCM audio path
+    std::string pcm_path;
+    auto pcm_path_it = parameters.find("pcm_path");
+    if (pcm_path_it != parameters.end()) {
+        pcm_path = std::get<std::string>(pcm_path_it->second);
+    }
 
     // Check cache
     if (cached_representation_ && cached_input_path_ == input_path) {
@@ -65,9 +72,12 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     // Load the TBC file
     ORC_LOG_INFO("LDNTSCSource: Loading TBC file: {}", input_path);
     ORC_LOG_DEBUG("  Database: {}", db_path);
+    if (!pcm_path.empty()) {
+        ORC_LOG_DEBUG("  PCM Audio: {}", pcm_path);
+    }
     
     try {
-        auto tbc_representation = create_tbc_representation(input_path, db_path);
+        auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path);
         if (!tbc_representation) {
             throw std::runtime_error("Failed to load TBC file (validation failed - see logs above)");
         }
@@ -152,6 +162,19 @@ std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors(Vi
         desc.description = "Path to the NTSC .tbc file from ld-decode (database file is automatically located)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
+        desc.file_extension_hint = ".tbc";
+        descriptors.push_back(desc);
+    }
+    
+    // pcm_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "pcm_path";
+        desc.display_name = "PCM Audio File Path";
+        desc.description = "Path to the analogue audio .pcm file (raw 16-bit stereo PCM at 44.1kHz)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.file_extension_hint = ".pcm";
         descriptors.push_back(desc);
     }
     
@@ -203,9 +226,16 @@ std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
         db_path = input_path + ".db";
     }
     
+    // Get optional PCM audio path
+    std::string pcm_path;
+    auto pcm_path_it = parameters_.find("pcm_path");
+    if (pcm_path_it != parameters_.end()) {
+        pcm_path = std::get<std::string>(pcm_path_it->second);
+    }
+    
     // Try to load the file to get actual information
     try {
-        auto representation = create_tbc_representation(input_path, db_path);
+        auto representation = create_tbc_representation(input_path, db_path, pcm_path);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             

@@ -1128,8 +1128,8 @@ PreviewItemDisplayInfo PreviewRenderer::get_preview_item_display_info(
             break;
     }
     
-    // Convert 0-based index to 1-based for display
-    info.current_number = index + 1;
+    // Use 0-based indexing throughout
+    info.current_number = index;
     info.total_count = total_count;
     
     if (type == PreviewOutputType::Field) {
@@ -1144,9 +1144,9 @@ PreviewItemDisplayInfo PreviewRenderer::get_preview_item_display_info(
         uint64_t first_field = index * 2;
         uint64_t second_field = first_field + 1;
         
-        // Convert to 1-based for display
-        info.first_field_number = first_field + 1;
-        info.second_field_number = second_field + 1;
+        // Use 0-based indexing
+        info.first_field_number = first_field;
+        info.second_field_number = second_field;
     }
     
     return info;

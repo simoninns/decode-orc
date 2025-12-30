@@ -68,6 +68,7 @@ struct ParameterDescriptor {
     std::string description;          // Detailed description of what parameter does
     ParameterType type;               // Parameter value type
     ParameterConstraints constraints; // Value constraints and defaults
+    std::string file_extension_hint = "";  // File extension hint for FILE_PATH types (e.g., ".tbc", ".pcm", ".rgb", ".mp4")
 };
 
 /// Interface for stages that expose configurable parameters

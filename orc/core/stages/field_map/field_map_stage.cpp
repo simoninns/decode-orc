@@ -63,7 +63,7 @@ public:
         if (field_mapping_.empty()) {
             return FieldIDRange{};
         }
-        return FieldIDRange{FieldID(0), FieldID(field_mapping_.size() - 1)};
+        return FieldIDRange{FieldID(0), FieldID(field_mapping_.size())};
     }
     
     size_t field_count() const override {
@@ -231,6 +231,43 @@ public:
             return {};
         }
         return source_->get_observations(source_id);
+    }
+    
+    // Audio methods - remap field IDs to follow field reordering
+    uint32_t get_audio_sample_count(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return 0;
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no audio
+        if (!source_id.is_valid()) {
+            return 0;
+        }
+        
+        if (!source_) {
+            return 0;
+        }
+        return source_->get_audio_sample_count(source_id);
+    }
+    
+    std::vector<int16_t> get_audio_samples(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return {};
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no audio
+        if (!source_id.is_valid()) {
+            return {};
+        }
+        
+        if (!source_) {
+            return {};
+        }
+        return source_->get_audio_samples(source_id);
     }
 
 private:
@@ -461,7 +498,6 @@ std::vector<FieldID> FieldMapStage::build_field_mapping(
     std::vector<FieldID> mapping;
     
     auto source_range = source.field_range();
-    uint64_t source_start = source_range.start.value();
     uint64_t source_end = source_range.end.value();
     
     // Build the mapping by expanding each range
@@ -476,24 +512,22 @@ std::vector<FieldID> FieldMapStage::build_field_mapping(
             continue;
         }
         
-        // Normal field range
-        for (uint64_t field_num = start; field_num <= end; ++field_num) {
-            // Compute the actual FieldID in the source
-            uint64_t source_field_id = source_start + field_num;
+        // Normal field range (inclusive on both ends)
+        for (uint64_t field_id = start; field_id <= end; ++field_id) {
+            // Use field_id directly as absolute field ID, not as offset from source_start
+            FieldID fid(field_id);
             
-            // Check if this field exists in the source
-            if (source_field_id > source_end) {
-                ORC_LOG_WARN("FieldMapStage: Field {} out of source range ({}-{}), skipping",
-                               field_num, source_start, source_end);
+            // Check if this field exists in the source (source_end is exclusive)
+            if (field_id >= source_end) {
+                ORC_LOG_WARN("FieldMapStage: Field {} out of source range (0-{}), skipping",
+                               field_id, source_end - 1);
                 continue;
             }
             
-            FieldID fid(source_field_id);
             if (source.has_field(fid)) {
                 mapping.push_back(fid);
             } else {
-                ORC_LOG_WARN("FieldMapStage: Field {} (source ID {}) not available in source",
-                               field_num, source_field_id);
+                ORC_LOG_WARN("FieldMapStage: Field {} not available in source", field_id);
             }
         }
     }

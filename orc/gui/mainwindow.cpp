@@ -861,16 +861,16 @@ void MainWindow::updatePreviewInfo()
             break;
         }
     }
-    display_info.current_number = current_index + 1;
+    display_info.current_number = current_index;
     display_info.total_count = total;
     display_info.has_field_info = false;
     
     ORC_LOG_DEBUG("updatePreviewInfo: display_info.type_name='{}', has_field_info={}",
                   display_info.type_name, display_info.has_field_info);
     
-    // Update slider labels with range
-    preview_dialog_->sliderMinLabel()->setText(QString::number(1));
-    preview_dialog_->sliderMaxLabel()->setText(QString::number(display_info.total_count));
+    // Update slider labels with range (0-indexed)
+    preview_dialog_->sliderMinLabel()->setText(QString::number(0));
+    preview_dialog_->sliderMaxLabel()->setText(QString::number(display_info.total_count - 1));
     
     // Build compact info label
     QString info_text = QString("%1 %2")
@@ -1258,9 +1258,9 @@ void MainWindow::updateVectorscope(const orc::NodeID& node_id, const orc::Previe
     if (current_output_type_ == orc::PreviewOutputType::Frame ||
         current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
         current_output_type_ == orc::PreviewOutputType::Split) {
-        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value()) * 2 + 1;
+        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value()) * 2;
     } else {
-        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value()) + 1;
+        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value());
     }
     dialog->updateForField(field_number, &*image.vectorscope_data);
 }

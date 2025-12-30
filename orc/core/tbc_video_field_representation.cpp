@@ -24,6 +24,7 @@ TBCVideoFieldRepresentation::TBCVideoFieldRepresentation(
 ) : VideoFieldRepresentation(std::move(artifact_id), std::move(provenance)),
     tbc_reader_(std::move(tbc_reader)),
     metadata_reader_(std::move(metadata_reader)),
+    has_audio_(false),
     field_data_cache_(MAX_CACHED_TBC_FIELDS)
 {
     ensure_video_parameters();
@@ -194,7 +195,8 @@ std::optional<FieldMetadata> TBCVideoFieldRepresentation::get_field_metadata(Fie
 
 std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     const std::string& tbc_filename,
-    const std::string& metadata_filename
+    const std::string& metadata_filename,
+    const std::string& pcm_filename
 ) {
     // Create readers
     auto tbc_reader = std::make_shared<TBCReader>();
@@ -269,12 +271,22 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     provenance.parameters["tbc_file"] = tbc_filename;
     provenance.parameters["metadata_file"] = metadata_filename;
     
-    return std::make_shared<TBCVideoFieldRepresentation>(
+    auto representation = std::make_shared<TBCVideoFieldRepresentation>(
         tbc_reader,
         metadata_reader,
         artifact_id,
         provenance
     );
+    
+    // Set audio file if provided
+    if (!pcm_filename.empty()) {
+        provenance.parameters["pcm_file"] = pcm_filename;
+        if (!representation->set_audio_file(pcm_filename)) {
+            ORC_LOG_WARN("Failed to set PCM audio file, continuing without audio");
+        }
+    }
+    
+    return representation;
 }
 
 std::vector<DropoutRegion> TBCVideoFieldRepresentation::get_dropout_hints(FieldID id) const {
@@ -392,6 +404,143 @@ std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_obser
     
     (void)id;  // Unused for now
     return {};
+}
+
+// ============================================================================
+// Audio interface implementation
+// ============================================================================
+
+uint32_t TBCVideoFieldRepresentation::get_audio_sample_count(FieldID id) const {
+    if (!has_audio_ || !has_field(id)) {
+        return 0;
+    }
+    
+    // Get audio sample count from field metadata
+    auto metadata = get_field_metadata(id);
+    if (!metadata || !metadata->audio_samples) {
+        return 0;
+    }
+    
+    return static_cast<uint32_t>(metadata->audio_samples.value());
+}
+
+std::vector<int16_t> TBCVideoFieldRepresentation::get_audio_samples(FieldID id) const {
+    if (!has_audio_ || !has_field(id)) {
+        return {};
+    }
+    
+    uint32_t sample_count = get_audio_sample_count(id);
+    if (sample_count == 0) {
+        return {};
+    }
+    
+    // Calculate file offset for this field's audio data
+    // Audio is stored sequentially, so we need to sum up all previous fields
+    uint64_t byte_offset = 0;
+    auto field_range = this->field_range();
+    
+    for (FieldID fid = field_range.start; fid < id; ++fid) {
+        auto metadata = get_field_metadata(fid);
+        if (metadata && metadata->audio_samples) {
+            // Each sample is 2 channels * 2 bytes = 4 bytes
+            byte_offset += metadata->audio_samples.value() * 4;
+        }
+    }
+    
+    // Read audio data from file
+    std::vector<int16_t> samples(sample_count * 2);  // Stereo
+    size_t bytes_to_read = sample_count * 2 * sizeof(int16_t);
+    
+    {
+        std::lock_guard<std::mutex> lock(audio_mutex_);
+        
+        if (!pcm_audio_file_.is_open()) {
+            ORC_LOG_WARN("TBCVideoFieldRepresentation: PCM audio file not open");
+            return {};
+        }
+        
+        pcm_audio_file_.seekg(byte_offset, std::ios::beg);
+        pcm_audio_file_.read(reinterpret_cast<char*>(samples.data()), bytes_to_read);
+        
+        if (pcm_audio_file_.gcount() != static_cast<std::streamsize>(bytes_to_read)) {
+            ORC_LOG_WARN("TBCVideoFieldRepresentation: Failed to read complete audio for field {}", id.value());
+            return {};
+        }
+    }
+    
+    return samples;
+}
+
+bool TBCVideoFieldRepresentation::has_audio() const {
+    return has_audio_;
+}
+
+bool TBCVideoFieldRepresentation::set_audio_file(const std::string& pcm_path) {
+    if (pcm_path.empty()) {
+        has_audio_ = false;
+        return true;
+    }
+    
+    std::lock_guard<std::mutex> lock(audio_mutex_);
+    
+    // Close any previously opened file
+    if (pcm_audio_file_.is_open()) {
+        pcm_audio_file_.close();
+    }
+    
+    // Open PCM audio file
+    pcm_audio_file_.open(pcm_path, std::ios::binary);
+    if (!pcm_audio_file_.is_open()) {
+        ORC_LOG_ERROR("TBCVideoFieldRepresentation: Failed to open PCM audio file: {}", pcm_path);
+        has_audio_ = false;
+        return false;
+    }
+    
+    // Validate PCM file size matches metadata expectations
+    // Get actual file size
+    pcm_audio_file_.seekg(0, std::ios::end);
+    uint64_t actual_file_size = pcm_audio_file_.tellg();
+    pcm_audio_file_.seekg(0, std::ios::beg);
+    
+    // Calculate expected file size from metadata
+    uint64_t expected_samples = 0;
+    auto field_range = this->field_range();
+    
+    for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+        auto metadata = get_field_metadata(fid);
+        if (metadata && metadata->audio_samples) {
+            expected_samples += metadata->audio_samples.value();
+        }
+    }
+    
+    // Each sample is 2 channels * 2 bytes (16-bit signed stereo)
+    uint64_t expected_file_size = expected_samples * 4;
+    
+    // Always log the comparison for debugging
+    uint64_t actual_samples = actual_file_size / 4;
+    ORC_LOG_DEBUG("  PCM file size: {} bytes ({} samples)", actual_file_size, actual_samples);
+    ORC_LOG_DEBUG("  Expected from metadata: {} samples ({} bytes)", expected_samples, expected_file_size);
+    
+    if (actual_file_size != expected_file_size) {
+        ORC_LOG_ERROR("PCM audio file size mismatch!");
+        ORC_LOG_ERROR("  PCM file: {}", pcm_path);
+        ORC_LOG_ERROR("  File contains {} bytes ({} samples)", actual_file_size, actual_samples);
+        ORC_LOG_ERROR("  Metadata specifies {} samples ({} bytes expected)", 
+                     expected_samples, expected_file_size);
+        ORC_LOG_ERROR("  The PCM file and metadata are inconsistent.");
+        ORC_LOG_ERROR("  This file may be corrupted, truncated, or not match the TBC metadata.");
+        pcm_audio_file_.close();
+        has_audio_ = false;
+        return false;
+    }
+    
+    ORC_LOG_INFO("TBCVideoFieldRepresentation: Opened PCM audio file: {}", pcm_path);
+    ORC_LOG_INFO("  PCM validation passed: {} samples match metadata", expected_samples);
+    
+    pcm_audio_path_ = pcm_path;
+    has_audio_ = true;
+    
+    return true;
 }
 
 } // namespace orc

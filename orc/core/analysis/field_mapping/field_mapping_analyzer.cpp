@@ -44,8 +44,8 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     auto field_range = source.field_range();
     stats_.total_fields = field_range.size();
     
-    // Run observers and populate history
-    for (FieldID field_id = field_range.start; field_id <= field_range.end; ++field_id) {
+    // Run observers and populate history (field_range.end is exclusive)
+    for (FieldID field_id = field_range.start; field_id < field_range.end; ++field_id) {
         std::vector<std::shared_ptr<Observation>> all_observations;
         for (const auto& observer : observers) {
             auto observations = observer->process_field(source, field_id, history);
@@ -55,7 +55,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     }
     
     ORC_LOG_INFO("Observers complete, processed {} fields (field range: {} to {})", 
-                 stats_.total_fields, field_range.start.value(), field_range.end.value());
+                 stats_.total_fields, field_range.start.value(), field_range.end.value() - 1);
     ORC_LOG_DEBUG("Field IDs: {} to {}", field_range.start.value(), field_range.end.value());
     
     // Step 2: Build frame map from fields

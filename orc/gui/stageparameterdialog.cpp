@@ -176,6 +176,7 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                 std::string stage_name_copy = stage_name_;
                 std::string param_name = desc.name;
                 std::string display_name = desc.display_name;
+                std::string file_ext_hint = desc.file_extension_hint;
                 
                 // Determine if this is an output path (save dialog) or input path (open dialog)
                 bool is_output = (stage_name_copy.find("sink") != std::string::npos) ||
@@ -183,7 +184,7 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                                 (display_name.find("Output") != std::string::npos);
                 
                 // Connect browse button to file dialog
-                connect(browse_btn, &QPushButton::clicked, [edit, stage_name_copy, is_output]() {
+                connect(browse_btn, &QPushButton::clicked, [edit, stage_name_copy, display_name, file_ext_hint, is_output]() {
                     QSettings settings("orc-project", "orc-gui");
                     QString settings_key = QString("lastSourceDirectory/%1").arg(QString::fromStdString(stage_name_copy));
                     
@@ -205,22 +206,46 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                         }
                     }
                     
+                    // Build file filter based on extension hint
+                    QString filter = "All Files (*)";
+                    QString dialog_title = is_output ? "Select Output File" : "Select Input File";
+                    
+                    if (!file_ext_hint.empty()) {
+                        QString ext = QString::fromStdString(file_ext_hint);
+                        // Handle multiple extensions separated by | (e.g., ".rgb|.mp4")
+                        QStringList extensions = ext.split('|');
+                        QString ext_patterns;
+                        QString ext_names;
+                        
+                        for (const QString& e : extensions) {
+                            QString trimmed = e.trimmed();
+                            if (!ext_patterns.isEmpty()) {
+                                ext_patterns += " ";
+                                ext_names += "/";
+                            }
+                            ext_patterns += "*" + trimmed;
+                            ext_names += trimmed.toUpper();
+                        }
+                        
+                        filter = ext_names.mid(1) + " Files (" + ext_patterns + ");;All Files (*)";
+                        dialog_title = is_output ? "Select Output " + ext_names.mid(1) + " File" : 
+                                                  "Select " + ext_names.mid(1) + " File";
+                    }
+                    
                     QString file;
                     if (is_output) {
-                        // Use save dialog for output paths
                         file = QFileDialog::getSaveFileName(
                             nullptr,
-                            "Select Output TBC File",
+                            dialog_title,
                             start_dir,
-                            "TBC Files (*.tbc);;All Files (*)"
+                            filter
                         );
                     } else {
-                        // Use open dialog for input paths
                         file = QFileDialog::getOpenFileName(
                             nullptr,
-                            "Select TBC File",
+                            dialog_title,
                             start_dir,
-                            "TBC Files (*.tbc);;All Files (*)"
+                            filter
                         );
                     }
                     

@@ -15,6 +15,8 @@
 #include "tbc_metadata.h"
 #include "lru_cache.h"
 #include <memory>
+#include <fstream>
+#include <mutex>
 
 namespace orc {
 
@@ -83,6 +85,18 @@ public:
     
     std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override;
     
+    // Audio interface
+    uint32_t get_audio_sample_count(FieldID id) const override;
+    std::vector<int16_t> get_audio_samples(FieldID id) const override;
+    bool has_audio() const override;
+    
+    /**
+     * @brief Set the PCM audio file path
+     * @param pcm_path Path to .pcm audio file
+     * @return true if file opened successfully, false otherwise
+     */
+    bool set_audio_file(const std::string& pcm_path);
+    
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
     
 private:
@@ -110,6 +124,12 @@ private:
     VideoParameters video_params_;
     std::map<FieldID, FieldMetadata> field_metadata_cache_;
     
+    // PCM audio file handle and path
+    std::string pcm_audio_path_;
+    mutable std::ifstream pcm_audio_file_;
+    mutable std::mutex audio_mutex_;  // Protect audio file access
+    bool has_audio_;
+    
     // Access to metadata reader for internal use only
     const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
     
@@ -127,11 +147,13 @@ private:
  * 
  * @param tbc_filename Path to .tbc file
  * @param metadata_filename Path to .tbc.json.db or .db file
+ * @param pcm_filename Optional path to .pcm audio file
  * @return Shared pointer to representation, or nullptr on failure
  */
 std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     const std::string& tbc_filename,
-    const std::string& metadata_filename
+    const std::string& metadata_filename,
+    const std::string& pcm_filename = ""
 );
 
 } // namespace orc

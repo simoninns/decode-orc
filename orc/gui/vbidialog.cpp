@@ -187,8 +187,8 @@ void VBIDialog::setupUI()
 
 void VBIDialog::updateVBIInfo(const orc::VBIFieldInfo& vbi_info)
 {
-    // Field number (convert to 1-based for display)
-    field_number_label_->setText(QString::number(vbi_info.field_id.value() + 1));
+    // Field number (0-indexed)
+    field_number_label_->setText(QString::number(vbi_info.field_id.value()));
     
     if (!vbi_info.has_vbi_data) {
         clearVBIInfo();
@@ -346,10 +346,10 @@ QString VBIDialog::formatSoundMode(orc::VbiSoundMode mode)
 void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info, 
                                     const orc::VBIFieldInfo& field2_info)
 {
-    // Display both field numbers (convert to 1-based for display)
+    // Display both field numbers (0-indexed)
     field_number_label_->setText(QString("%1 + %2")
-        .arg(field1_info.field_id.value() + 1)
-        .arg(field2_info.field_id.value() + 1));
+        .arg(field1_info.field_id.value())
+        .arg(field2_info.field_id.value()));
     
     // Prefer VBI data from the field that has it
     const orc::VBIFieldInfo* primary = nullptr;

@@ -54,6 +54,7 @@ ChromaSinkStage::ChromaSinkStage()
     , simple_pal_(false)
     , output_padding_(8)
     , active_area_only_(false)
+    , embed_audio_(false)
     , encoder_preset_("medium")
     , encoder_crf_(18)
     , encoder_bitrate_(0)  // 0 = use CRF
@@ -206,6 +207,14 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             ParameterType::INT32,
             {0, 100000000, 0, {}, false,
              ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
+        },
+        ParameterDescriptor{
+            "embed_audio",
+            "Embed Analogue Audio",
+            "Embed analogue audio in output file (requires audio in source, MP4/MKV only)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false,
+             ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
         }
     };
     
@@ -265,6 +274,7 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["encoder_preset"] = encoder_preset_;
     params["encoder_crf"] = encoder_crf_;
     params["encoder_bitrate"] = encoder_bitrate_;
+    params["embed_audio"] = embed_audio_;
     return params;
 }
 
@@ -389,6 +399,13 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "encoder_bitrate") {
             if (std::holds_alternative<int>(value)) {
                 encoder_bitrate_ = std::get<int>(value);
+            }
+        } else if (key == "embed_audio") {
+            if (std::holds_alternative<bool>(value)) {
+                embed_audio_ = std::get<bool>(value);
+            } else if (std::holds_alternative<std::string>(value)) {
+                auto str_val = std::get<std::string>(value);
+                embed_audio_ = (str_val == "true" || str_val == "1" || str_val == "yes");
             }
         }
     }
@@ -1043,7 +1060,8 @@ bool ChromaSinkStage::trigger(
     }
     
     std::string write_error;
-    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams, write_error)) {
+    if (!writeOutputFile(output_path_, output_format_, stdOutputFrames, &videoParams, 
+                        vfr.get(), extended_start_frame * 2, numFrames * 2, write_error)) {
         ORC_LOG_ERROR("ChromaSink: Failed to write output file: {}", output_path_);
         trigger_status_ = write_error.empty() ? "Error: Failed to write output" : write_error;
         trigger_in_progress_.store(false);
@@ -1158,6 +1176,9 @@ bool ChromaSinkStage::writeOutputFile(
     const std::string& format,
     const std::vector<ComponentFrame>& frames,
     const void* videoParamsPtr,
+    const VideoFieldRepresentation* vfr,
+    uint64_t start_field_index,
+    uint64_t num_fields,
     std::string& error_message) const
 {
     const auto& videoParams = *static_cast<const orc::VideoParameters*>(videoParamsPtr);
@@ -1188,6 +1209,17 @@ bool ChromaSinkStage::writeOutputFile(
     config.encoder_preset = encoder_preset_;
     config.encoder_crf = encoder_crf_;
     config.encoder_bitrate = encoder_bitrate_;
+    
+    // Pass audio information if embedding is enabled
+    config.embed_audio = embed_audio_;
+    if (embed_audio_ && vfr && vfr->has_audio()) {
+        config.vfr = vfr;
+        config.start_field_index = start_field_index;
+        config.num_fields = num_fields;
+        ORC_LOG_INFO("ChromaSink: Audio embedding enabled for output");
+    } else if (embed_audio_) {
+        ORC_LOG_WARN("ChromaSink: Audio embedding requested but no audio available");
+    }
     
     // Initialize backend
     if (!backend->initialize(config)) {

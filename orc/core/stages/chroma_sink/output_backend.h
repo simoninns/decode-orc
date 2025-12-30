@@ -20,6 +20,8 @@ class ComponentFrame;
 
 namespace orc {
 
+class VideoFieldRepresentation;  // Forward declaration for audio access
+
 /**
  * @brief Abstract base class for output backends
  * 
@@ -50,6 +52,12 @@ public:
         std::string encoder_preset = "medium";  ///< Encoder preset: fast, medium, slow, veryslow
         int encoder_crf = 18;                   ///< Constant Rate Factor (0-51, lower=better)
         int encoder_bitrate = 0;                ///< Bitrate in bits/sec (0 = use CRF)
+        
+        // Audio settings
+        bool embed_audio = false;               ///< Embed audio in output (requires audio data)
+        const class VideoFieldRepresentation* vfr = nullptr;  ///< VFR for audio access (if embed_audio=true)
+        uint64_t start_field_index = 0;         ///< Starting field for audio extraction
+        uint64_t num_fields = 0;                ///< Number of fields to extract audio from
     };
     
     /**

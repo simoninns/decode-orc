@@ -13,6 +13,7 @@
 
 #include "componentframe.h"
 #include "logging.h"
+#include "video_field_representation.h"
 #include <algorithm>
 #include <cstring>
 #include <thread>
@@ -30,6 +31,21 @@ FFmpegOutputBackend::~FFmpegOutputBackend()
 
 void FFmpegOutputBackend::cleanup()
 {
+    if (audio_packet_) {
+        av_packet_free(&audio_packet_);
+        audio_packet_ = nullptr;
+    }
+    
+    if (audio_frame_) {
+        av_frame_free(&audio_frame_);
+        audio_frame_ = nullptr;
+    }
+    
+    if (audio_codec_ctx_) {
+        avcodec_free_context(&audio_codec_ctx_);
+        audio_codec_ctx_ = nullptr;
+    }
+    
     if (packet_) {
         av_packet_free(&packet_);
         packet_ = nullptr;
@@ -91,6 +107,13 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     encoder_crf_ = config.encoder_crf;
     encoder_bitrate_ = config.encoder_bitrate;
     
+    // Store audio configuration
+    embed_audio_ = config.embed_audio;
+    vfr_ = config.vfr;
+    start_field_index_ = config.start_field_index;
+    num_fields_ = config.num_fields;
+    current_field_for_audio_ = start_field_index_;
+    
     // Map user-friendly container names to FFmpeg format names
     std::string ffmpeg_format = container_format_;
     if (container_format_ == "mkv") {
@@ -147,6 +170,19 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
         }());
         cleanup();
         return false;
+    }
+    
+    // Setup audio encoder if requested
+    if (embed_audio_ && vfr_ && vfr_->has_audio()) {
+        ORC_LOG_INFO("FFmpegOutputBackend: Setting up audio encoder");
+        if (!setupAudioEncoder()) {
+            ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup audio encoder");
+            cleanup();
+            return false;
+        }
+    } else if (embed_audio_) {
+        ORC_LOG_WARN("FFmpegOutputBackend: Audio embedding requested but no audio available");
+        embed_audio_ = false;  // Disable audio
     }
     
     // Open output file
@@ -443,6 +479,11 @@ bool FFmpegOutputBackend::writeFrame(const ComponentFrame& component_frame)
         return false;
     }
     
+    // Encode audio for this frame first
+    if (!encodeAudioForFrame()) {
+        return false;
+    }
+    
     return convertAndEncode(component_frame);
 }
 
@@ -586,13 +627,13 @@ bool FFmpegOutputBackend::finalize()
         return true;  // Already finalized
     }
     
-    // Flush encoder
+    // Flush video encoder
     int ret = avcodec_send_frame(codec_ctx_, nullptr);
     if (ret < 0) {
-        ORC_LOG_WARN("FFmpegOutputBackend: Error flushing encoder");
+        ORC_LOG_WARN("FFmpegOutputBackend: Error flushing video encoder");
     }
     
-    // Receive remaining packets
+    // Receive remaining video packets
     while (ret >= 0) {
         ret = avcodec_receive_packet(codec_ctx_, packet_);
         if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
@@ -607,6 +648,69 @@ bool FFmpegOutputBackend::finalize()
         av_packet_unref(packet_);
     }
     
+    // Flush audio encoder if present
+    if (audio_codec_ctx_) {
+        // Encode any remaining audio in the buffer (pad with silence if needed)
+        int frame_size = audio_codec_ctx_->frame_size;
+        if (!audio_buffer_.empty()) {
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Flushing {} remaining audio samples", audio_buffer_.size() / 2);
+            
+            // Pad buffer to frame_size if needed
+            while (audio_buffer_.size() < static_cast<size_t>(frame_size * 2)) {
+                audio_buffer_.push_back(0);  // Pad with silence
+            }
+            
+            // Encode the final frame
+            av_frame_make_writable(audio_frame_);
+            float* left_channel = reinterpret_cast<float*>(audio_frame_->data[0]);
+            float* right_channel = reinterpret_cast<float*>(audio_frame_->data[1]);
+            
+            for (int i = 0; i < frame_size; i++) {
+                left_channel[i] = audio_buffer_[i * 2] / 32768.0f;
+                right_channel[i] = audio_buffer_[i * 2 + 1] / 32768.0f;
+            }
+            
+            audio_frame_->pts = audio_pts_;
+            
+            ret = avcodec_send_frame(audio_codec_ctx_, audio_frame_);
+            if (ret >= 0) {
+                while (ret >= 0) {
+                    ret = avcodec_receive_packet(audio_codec_ctx_, audio_packet_);
+                    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                        break;
+                    } else if (ret >= 0) {
+                        av_packet_rescale_ts(audio_packet_, audio_codec_ctx_->time_base, audio_stream_->time_base);
+                        audio_packet_->stream_index = audio_stream_->index;
+                        av_interleaved_write_frame(format_ctx_, audio_packet_);
+                        av_packet_unref(audio_packet_);
+                    }
+                }
+            }
+            
+            audio_buffer_.clear();
+        }
+        
+        // Flush the audio encoder
+        ret = avcodec_send_frame(audio_codec_ctx_, nullptr);
+        if (ret < 0) {
+            ORC_LOG_WARN("FFmpegOutputBackend: Error flushing audio encoder");
+        }
+        
+        while (ret >= 0) {
+            ret = avcodec_receive_packet(audio_codec_ctx_, audio_packet_);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            } else if (ret < 0) {
+                break;
+            }
+            
+            av_packet_rescale_ts(audio_packet_, audio_codec_ctx_->time_base, audio_stream_->time_base);
+            audio_packet_->stream_index = audio_stream_->index;
+            av_interleaved_write_frame(format_ctx_, audio_packet_);
+            av_packet_unref(audio_packet_);
+        }
+    }
+    
     // Write trailer
     av_write_trailer(format_ctx_);
     
@@ -618,7 +722,169 @@ bool FFmpegOutputBackend::finalize()
 
 std::string FFmpegOutputBackend::getFormatInfo() const
 {
-    return container_format_ + " (" + codec_name_ + ")";
+    return container_format_ + " (" + codec_name_ + (embed_audio_ ? " + audio" : "") + ")";
+}
+
+bool FFmpegOutputBackend::setupAudioEncoder()
+{
+    // Find AAC encoder
+    const AVCodec* audio_codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+    if (!audio_codec) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: AAC encoder not found");
+        return false;
+    }
+    
+    // Create audio stream
+    audio_stream_ = avformat_new_stream(format_ctx_, nullptr);
+    if (!audio_stream_) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create audio stream");
+        return false;
+    }
+    audio_stream_->id = format_ctx_->nb_streams - 1;
+    
+    // Allocate audio codec context
+    audio_codec_ctx_ = avcodec_alloc_context3(audio_codec);
+    if (!audio_codec_ctx_) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio codec context");
+        return false;
+    }
+    
+    // Configure audio encoder for PCM input (16-bit stereo at 44.1kHz)
+    audio_codec_ctx_->codec_id = AV_CODEC_ID_AAC;
+    audio_codec_ctx_->codec_type = AVMEDIA_TYPE_AUDIO;
+    audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
+    audio_codec_ctx_->bit_rate = 192000;  // 192 kbps
+    audio_codec_ctx_->sample_rate = 44100;
+    audio_codec_ctx_->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+    audio_codec_ctx_->time_base = {1, 44100};
+    
+    // Open audio encoder
+    int ret = avcodec_open2(audio_codec_ctx_, audio_codec, nullptr);
+    if (ret < 0) {
+        char errbuf[AV_ERROR_MAX_STRING_SIZE];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to open audio encoder: {}", errbuf);
+        return false;
+    }
+    
+    // Copy codec parameters to stream
+    ret = avcodec_parameters_from_context(audio_stream_->codecpar, audio_codec_ctx_);
+    if (ret < 0) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to copy audio codec parameters");
+        return false;
+    }
+    
+    audio_stream_->time_base = audio_codec_ctx_->time_base;
+    
+    // Allocate audio frame
+    audio_frame_ = av_frame_alloc();
+    if (!audio_frame_) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio frame");
+        return false;
+    }
+    
+    audio_frame_->format = audio_codec_ctx_->sample_fmt;
+    audio_frame_->ch_layout = audio_codec_ctx_->ch_layout;
+    audio_frame_->sample_rate = audio_codec_ctx_->sample_rate;
+    audio_frame_->nb_samples = audio_codec_ctx_->frame_size;
+    
+    ret = av_frame_get_buffer(audio_frame_, 0);
+    if (ret < 0) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio frame buffer");
+        return false;
+    }
+    
+    // Allocate audio packet
+    audio_packet_ = av_packet_alloc();
+    if (!audio_packet_) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio packet");
+        return false;
+    }
+    
+    ORC_LOG_INFO("FFmpegOutputBackend: Audio encoder initialized (AAC 44.1kHz stereo)");
+    return true;
+}
+
+bool FFmpegOutputBackend::encodeAudioForFrame()
+{
+    if (!embed_audio_ || !vfr_ || !audio_codec_ctx_) {
+        return true;  // No audio to encode
+    }
+    
+    int frame_size = audio_codec_ctx_->frame_size;  // AAC typically uses 1024 samples
+    
+    // Collect audio samples for these 2 fields and add to persistent buffer
+    for (int field_offset = 0; field_offset < 2 && current_field_for_audio_ < start_field_index_ + num_fields_; field_offset++) {
+        auto samples = vfr_->get_audio_samples(FieldID(current_field_for_audio_));
+        audio_buffer_.insert(audio_buffer_.end(), samples.begin(), samples.end());
+        current_field_for_audio_++;
+    }
+    
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Audio buffer now has {} int16 values ({} stereo samples)", 
+                  audio_buffer_.size(), audio_buffer_.size() / 2);
+    
+    // Encode audio in chunks of frame_size from the persistent buffer
+    while (audio_buffer_.size() >= static_cast<size_t>(frame_size * 2)) {  // *2 for stereo interleaved
+        // Convert int16 interleaved PCM to float planar format required by AAC encoder
+        av_frame_make_writable(audio_frame_);
+        
+        float* left_channel = reinterpret_cast<float*>(audio_frame_->data[0]);
+        float* right_channel = reinterpret_cast<float*>(audio_frame_->data[1]);
+        
+        // Convert interleaved samples to planar from start of buffer
+        // audio_buffer_ is [L0, R0, L1, R1, L2, R2, ...]
+        for (int i = 0; i < frame_size; i++) {
+            left_channel[i] = audio_buffer_[i * 2] / 32768.0f;
+            right_channel[i] = audio_buffer_[i * 2 + 1] / 32768.0f;
+        }
+        
+        audio_frame_->pts = audio_pts_;
+        audio_pts_ += frame_size;
+        
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Encoding AAC frame with {} samples, pts={}, buffer_remaining={}", 
+                     frame_size, audio_frame_->pts, (audio_buffer_.size() / 2) - frame_size);
+        
+        // Send frame to encoder
+        int ret = avcodec_send_frame(audio_codec_ctx_, audio_frame_);
+        if (ret < 0) {
+            char errbuf[AV_ERROR_MAX_STRING_SIZE];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            ORC_LOG_ERROR("FFmpegOutputBackend: Failed to send audio frame: {}", errbuf);
+            return false;
+        }
+        
+        // Receive encoded packets
+        while (ret >= 0) {
+            ret = avcodec_receive_packet(audio_codec_ctx_, audio_packet_);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+                break;
+            } else if (ret < 0) {
+                char errbuf[AV_ERROR_MAX_STRING_SIZE];
+                av_strerror(ret, errbuf, sizeof(errbuf));
+                ORC_LOG_ERROR("FFmpegOutputBackend: Error receiving audio packet: {}", errbuf);
+                return false;
+            }
+            
+            // Rescale and write packet
+            av_packet_rescale_ts(audio_packet_, audio_codec_ctx_->time_base, audio_stream_->time_base);
+            audio_packet_->stream_index = audio_stream_->index;
+            
+            ret = av_interleaved_write_frame(format_ctx_, audio_packet_);
+            av_packet_unref(audio_packet_);
+            
+            if (ret < 0) {
+                char errbuf[AV_ERROR_MAX_STRING_SIZE];
+                av_strerror(ret, errbuf, sizeof(errbuf));
+                ORC_LOG_ERROR("FFmpegOutputBackend: Error writing audio packet: {}", errbuf);
+                return false;
+            }
+        }
+        
+        // Remove the encoded samples from the buffer
+        audio_buffer_.erase(audio_buffer_.begin(), audio_buffer_.begin() + frame_size * 2);
+    }
+    
+    return true;
 }
 
 } // namespace orc

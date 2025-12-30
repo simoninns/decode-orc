@@ -46,6 +46,9 @@ namespace orc {
  * When triggered, it reads all fields from its input and decodes them using
  * the selected chroma decoder, writing the result to an output file.
  * 
+ * Optionally, can embed analogue audio into the output file (MP4/MKV formats only)
+ * if the input contains PCM audio data (requires pcm_path set in source stage).
+ * 
  * Supported Decoders:
  * - PAL: pal2d, transform2d, transform3d
  * - NTSC: ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt
@@ -54,15 +57,16 @@ namespace orc {
  * This sink supports preview - it decodes fields on-demand for GUI visualization.
  * 
  * Parameters:
- * - output_path: Output file path
+ * - output_path: Output file path for video
  * - decoder_type: Which decoder to use (auto, pal2d, ntsc2d, etc.)
- * - output_format: Output format (rgb, yuv, y4m)
+ * - output_format: Output format (rgb, yuv, y4m, mp4-h264, mkv-ffv1)
  * - chroma_gain: Chroma gain factor (0.0-10.0, default 1.0)
  * - chroma_phase: Chroma phase rotation in degrees (-180 to 180, default 0)
  * - start_frame: Optional start frame number
  * - length: Optional number of frames to process
  * - threads: Number of worker threads (default: auto)
  * - reverse_fields: Reverse field order (default: false)
+ * - embed_audio: Embed analogue audio in output (MP4/MKV only, default: false)
  */
 class ChromaSinkStage : public DAGStage, 
                        public ParameterizedStage, 
@@ -155,6 +159,7 @@ private:
     bool simple_pal_;
     int output_padding_;
     bool active_area_only_;
+    bool embed_audio_;  // Embed analogue audio in output (MP4/MKV only)
     
     // Encoder quality parameters (for FFmpeg output)
     std::string encoder_preset_;   // "fast", "medium", "slow", "veryslow"
@@ -178,6 +183,9 @@ private:
         const std::string& format,
         const std::vector<ComponentFrame>& frames,
         const void* videoParams,
+        const VideoFieldRepresentation* vfr,
+        uint64_t start_field_index,
+        uint64_t num_fields,
         std::string& error_message  // Output parameter for detailed error
     ) const;
 };

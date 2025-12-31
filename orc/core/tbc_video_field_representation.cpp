@@ -375,20 +375,31 @@ std::optional<ActiveLineHint> TBCVideoFieldRepresentation::get_active_line_hint(
         return std::nullopt;
     }
     
-    // Check if active line information is available
-    if (video_params_.first_active_frame_line < 0 || 
-        video_params_.last_active_frame_line < 0) {
-        return std::nullopt;
+    // Prefer field-based active line information from metadata
+    if (video_params_.first_active_field_line >= 0 && 
+        video_params_.last_active_field_line >= 0) {
+        // Use field-based values directly
+        ActiveLineHint hint;
+        hint.first_active_field_line = video_params_.first_active_field_line;
+        hint.last_active_field_line = video_params_.last_active_field_line;
+        hint.source = HintSource::METADATA;
+        hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;
+        return hint;
     }
     
-    // Create hint from video parameters
-    ActiveLineHint hint;
-    hint.first_active_frame_line = video_params_.first_active_frame_line;
-    hint.last_active_frame_line = video_params_.last_active_frame_line;
-    hint.source = HintSource::METADATA;
-    hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;
+    // Fall back to frame-based values if field-based not available
+    // Convert frame-based to field-based (divide by 2)
+    if (video_params_.first_active_frame_line >= 0 && 
+        video_params_.last_active_frame_line >= 0) {
+        ActiveLineHint hint;
+        hint.first_active_field_line = video_params_.first_active_frame_line / 2;
+        hint.last_active_field_line = video_params_.last_active_frame_line / 2;
+        hint.source = HintSource::METADATA;
+        hint.confidence_pct = HintTraits::METADATA_CONFIDENCE;
+        return hint;
+    }
     
-    return hint;
+    return std::nullopt;
 }
 
 std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {

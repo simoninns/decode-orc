@@ -60,6 +60,10 @@ add_executable(orc-gui
     vbidialog.cpp
     vbidialog.h
     
+    # Hints dialog
+    hintsdialog.cpp
+    hintsdialog.h
+    
     # Plot widget
     plotwidget.cpp
     plotwidget.h

@@ -29,6 +29,7 @@
 class OrcGraphicsView;
 class PreviewDialog;
 class VBIDialog;
+class HintsDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
@@ -112,6 +113,8 @@ private slots:
     void onInspectStage(const orc::NodeID& node_id);
     void onShowVBIDialog();
     void updateVBIDialog();
+    void onShowHintsDialog();
+    void updateHintsDialog();
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -183,6 +186,7 @@ private:
     // UI components
     PreviewDialog* preview_dialog_;
     VBIDialog* vbi_dialog_;
+    HintsDialog* hints_dialog_;
     DropoutAnalysisDialog* dropout_analysis_dialog_;
     SNRAnalysisDialog* snr_analysis_dialog_;
     BurstLevelAnalysisDialog* burst_level_analysis_dialog_;

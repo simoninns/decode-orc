@@ -21,6 +21,7 @@ void force_link_LDSinkStage();
 void force_link_StackerStage();
 void force_link_ChromaSinkStage();
 void force_link_AudioSinkStage();
+void force_link_VideoParamsStage();
 
 /**
  * @brief Force linking of all stage object files
@@ -49,6 +50,8 @@ void force_stage_linking() {
     force_link_StackerStage();
     force_link_ChromaSinkStage();
     force_link_AudioSinkStage();
+    force_link_VideoParamsStage();
+    force_link_VideoParamsStage();
 }
 
 } // namespace orc

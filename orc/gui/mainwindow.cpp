@@ -11,6 +11,7 @@
 #include "fieldpreviewwidget.h"
 #include "previewdialog.h"
 #include "vbidialog.h"
+#include "hintsdialog.h"
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
@@ -24,6 +25,7 @@
 #include "logging.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/vbi_decoder.h"
+#include "../core/include/dag_field_renderer.h"
 #include "../core/analysis/dropout/dropout_analysis_decoder.h"
 #include "../core/analysis/snr/snr_analysis_decoder.h"
 #include "../core/include/stage_registry.h"
@@ -223,6 +225,9 @@ void MainWindow::setupUI()
     // Create VBI dialog (initially hidden)
     vbi_dialog_ = new VBIDialog(this);
     
+    // Create hints dialog (initially hidden)
+    hints_dialog_ = new HintsDialog(this);
+    
     // Create dropout analysis dialog (initially hidden)
     dropout_analysis_dialog_ = new DropoutAnalysisDialog(this);
     dropout_analysis_dialog_->setWindowTitle("Dropout Analysis");
@@ -293,6 +298,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onExportPNG);
         connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
             this, &MainWindow::onShowVBIDialog);
+    connect(preview_dialog_, &PreviewDialog::showHintsDialogRequested,
+            this, &MainWindow::onShowHintsDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -1844,6 +1851,21 @@ void MainWindow::onShowVBIDialog()
     updateVBIDialog();
 }
 
+void MainWindow::onShowHintsDialog()
+{
+    if (!hints_dialog_) {
+        return;
+    }
+    
+    // Show the dialog first
+    hints_dialog_->show();
+    hints_dialog_->raise();
+    hints_dialog_->activateWindow();
+    
+    // Update hints information after showing
+    updateHintsDialog();
+}
+
 // Removed Vectorscope dialog launcher from Preview; vectorscope opens from node context menu
 
 void MainWindow::updateAllPreviewComponents()
@@ -1851,6 +1873,7 @@ void MainWindow::updateAllPreviewComponents()
     updatePreview();
     updatePreviewInfo();
     updateVBIDialog();
+    updateHintsDialog();
     
     // For analysis dialogs, only update the frame marker position (not the full data)
     // Full data is only loaded when the dialog is first opened
@@ -1913,6 +1936,68 @@ void MainWindow::updateVBIDialog()
         // Field mode - request single field
         orc::FieldID field_id(current_index);
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field_id);
+    }
+}
+
+void MainWindow::updateHintsDialog()
+{
+    // Only update if hints dialog is visible
+    if (!hints_dialog_ || !hints_dialog_->isVisible()) {
+        return;
+    }
+    
+    // Get current field being displayed
+    if (!current_view_node_id_.is_valid()) {
+        hints_dialog_->clearHints();
+        return;
+    }
+    
+    // Get the current index from the preview slider
+    int current_index = preview_dialog_->previewSlider()->value();
+    
+    // Check if we're in frame mode (any mode that shows two fields)
+    bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                         current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+                         current_output_type_ == orc::PreviewOutputType::Split);
+    
+    // For hints, we'll show the first field's hints (or single field in field mode)
+    orc::FieldID field_id = is_frame_mode ? orc::FieldID(current_index * 2) : orc::FieldID(current_index);
+    
+    // Get hints from the current DAG/node
+    // Note: This is a synchronous access - we'll create a temporary renderer
+    try {
+        auto dag = orc::project_to_dag(project_.coreProject());
+        if (!dag) {
+            hints_dialog_->clearHints();
+            return;
+        }
+        
+        // Create a temporary renderer to get the field representation
+        orc::DAGFieldRenderer renderer(dag);
+        
+        // Render the field at the current node
+        auto render_result = renderer.render_field_at_node(current_view_node_id_, field_id);
+        
+        if (!render_result.is_valid || !render_result.representation) {
+            hints_dialog_->clearHints();
+            return;
+        }
+        
+        // Get hints from the field representation
+        auto parity_hint = render_result.representation->get_field_parity_hint(field_id);
+        auto phase_hint = render_result.representation->get_field_phase_hint(field_id);
+        auto active_line_hint = render_result.representation->get_active_line_hint();
+        auto video_params = render_result.representation->get_video_parameters();
+        
+        // Update the dialog
+        hints_dialog_->updateFieldParityHint(parity_hint);
+        hints_dialog_->updateFieldPhaseHint(phase_hint);
+        hints_dialog_->updateActiveLineHint(active_line_hint);
+        hints_dialog_->updateVideoParameters(video_params);
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to get hints: {}", e.what());
+        hints_dialog_->clearHints();
     }
 }
 

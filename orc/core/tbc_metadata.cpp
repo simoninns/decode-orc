@@ -233,22 +233,23 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         
         // Vertical field line boundaries must be inferred from video system format defaults
         // These match the values from legacy-tools/library/tbc/lddecodemetadata.cpp
+        // We hardcode frame line values and calculate field line values (frame / 2)
         if (params.system == VideoSystem::PAL) {
-            params.first_active_field_line = 22;
-            params.last_active_field_line = 308;
             params.first_active_frame_line = 44;
             params.last_active_frame_line = 620;
+            params.first_active_field_line = params.first_active_frame_line / 2;
+            params.last_active_field_line = params.last_active_frame_line / 2;
         } else if (params.system == VideoSystem::NTSC) {
-            params.first_active_field_line = 20;
-            params.last_active_field_line = 259;
             params.first_active_frame_line = 40;
             params.last_active_frame_line = 525;
+            params.first_active_field_line = params.first_active_frame_line / 2;
+            params.last_active_field_line = params.last_active_frame_line / 2;
         } else if (params.system == VideoSystem::PAL_M) {
             // PAL-M uses same line boundaries as NTSC
-            params.first_active_field_line = 20;
-            params.last_active_field_line = 259;
             params.first_active_frame_line = 40;
             params.last_active_frame_line = 525;
+            params.first_active_field_line = params.first_active_frame_line / 2;
+            params.last_active_field_line = params.last_active_frame_line / 2;
         }
         
         sqlite3_finalize(stmt);

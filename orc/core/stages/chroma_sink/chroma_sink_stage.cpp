@@ -463,11 +463,15 @@ bool ChromaSinkStage::trigger(
     // Active line ranges should come from hints (source stage reads metadata)
     auto active_line_hint = vfr->get_active_line_hint();
     if (active_line_hint && active_line_hint->is_valid()) {
-        videoParams.first_active_frame_line = active_line_hint->first_active_frame_line;
-        videoParams.last_active_frame_line = active_line_hint->last_active_frame_line;
-        ORC_LOG_DEBUG("ChromaSink: Using active line hint: first={}, last={}", 
-                      active_line_hint->first_active_frame_line,
-                      active_line_hint->last_active_frame_line);
+        // Hints provide field-based values; convert to frame-based
+        // In interlaced video, frame line = field line * 2
+        videoParams.first_active_frame_line = active_line_hint->first_active_field_line * 2;
+        videoParams.last_active_frame_line = active_line_hint->last_active_field_line * 2;
+        ORC_LOG_DEBUG("ChromaSink: Using active line hint: field first={}, last={} -> frame first={}, last={}", 
+                      active_line_hint->first_active_field_line,
+                      active_line_hint->last_active_field_line,
+                      videoParams.first_active_frame_line,
+                      videoParams.last_active_frame_line);
     } else {
         ORC_LOG_DEBUG("ChromaSink: No active line hint available, using metadata defaults");
     }

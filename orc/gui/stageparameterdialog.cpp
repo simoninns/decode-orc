@@ -435,13 +435,13 @@ void StageParameterDialog::update_dependencies()
         // Find the value of the parameter we depend on
         auto it = current_values.find(dep.parameter_name);
         if (it != current_values.end()) {
+            // Convert current value to string for comparison
+            std::string current_val = orc::parameter_util::value_to_string(it->second);
+            
             // Check if current value is in the list of required values
-            if (std::holds_alternative<std::string>(it->second)) {
-                std::string current_val = std::get<std::string>(it->second);
-                should_enable = std::find(dep.required_values.begin(), 
-                                         dep.required_values.end(), 
-                                         current_val) != dep.required_values.end();
-            }
+            should_enable = std::find(dep.required_values.begin(), 
+                                     dep.required_values.end(), 
+                                     current_val) != dep.required_values.end();
         }
         
         // Enable or disable the widget and label

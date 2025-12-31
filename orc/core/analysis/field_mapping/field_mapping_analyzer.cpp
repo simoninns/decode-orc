@@ -196,15 +196,24 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     }
     
     // Verify all frames have numbers
+    size_t unmappable_count = 0;
+    for (const auto& frame : frames) {
+        if (frame.vbi_frame_number < 0) {
+            unmappable_count++;
+        }
+    }
+    
     if (!verify_frame_numbers(frames)) {
         if (options.delete_unmappable_frames) {
             ORC_LOG_WARN("Some frames unmappable, deleting as requested");
             delete_unmappable_frames(frames);
         } else {
             decision.success = false;
-            decision.rationale = "Disc mapping failed: unmappable frames detected. "
-                                "Try with delete_unmappable_frames option.";
-            decision.warnings.push_back("Unmappable frames present");
+            decision.rationale = fmt::format("Disc mapping failed: {} unmappable frame(s) detected out of {} total frames. "
+                                "Try with delete_unmappable_frames option.", 
+                                unmappable_count, frames.size());
+            decision.warnings.push_back(fmt::format("Unmappable frames present: {} of {} frames", 
+                                                   unmappable_count, frames.size()));
             return decision;
         }
     }

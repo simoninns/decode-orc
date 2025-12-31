@@ -60,6 +60,11 @@ public:
     size_t get_source_count(FieldID id) const;
     
     // Allow stage to access private members
+    // Override audio methods to provide stacked audio
+    uint32_t get_audio_sample_count(FieldID id) const override;
+    std::vector<int16_t> get_audio_samples(FieldID id) const override;
+    bool has_audio() const override;
+    
     friend class StackerStage;
     
 private:
@@ -74,8 +79,17 @@ private:
     // Dropout regions for stacked fields
     mutable LRUCache<FieldID, std::vector<DropoutRegion>> stacked_dropouts_;
     
+    // Stacked audio data cache
+    mutable LRUCache<FieldID, std::vector<int16_t>> stacked_audio_;
+    
+    // Best field index for each field (for video stacking quality tracking)
+    mutable LRUCache<FieldID, size_t> best_field_index_;
+    
     // Ensure field is stacked (lazy)
     void ensure_field_stacked(FieldID field_id) const;
+    
+    // Get index of best source field (fewest dropouts)
+    size_t get_best_source_index(FieldID field_id) const;
 };
 
 /**
@@ -158,6 +172,16 @@ public:
     // Allow StackedVideoFieldRepresentation to access stack_field
     friend class StackedVideoFieldRepresentation;
 
+public:
+    /**
+     * @brief Audio stacking mode
+     */
+    enum class AudioStackingMode {
+        DISABLED,  // No audio stacking - use best field's audio
+        MEAN,      // Mean averaging of audio samples
+        MEDIAN     // Median averaging of audio samples
+    };
+    
 private:
     // Stacking parameters
     int32_t m_mode;              // Stacking mode (-1=Auto, 0=Mean, 1=Median, 2=Smart Mean, 3=Smart Neighbor, 4=Neighbor)
@@ -165,6 +189,7 @@ private:
     bool m_no_diff_dod;          // Disable differential dropout detection
     bool m_passthrough;          // Pass through dropouts present on all sources
     int32_t m_thread_count;      // Number of threads for parallel processing (0=auto, max=hardware concurrency)
+    AudioStackingMode m_audio_stacking_mode;  // Audio stacking mode (default: mean)
     
     // Store parameters for inspection
     std::map<std::string, ParameterValue> parameters_;
@@ -263,6 +288,29 @@ private:
     std::vector<uint16_t> diff_dod(
         const std::vector<uint16_t>& input_values,
         const VideoParameters& video_params) const;
+    
+    /**
+     * @brief Stack audio samples from multiple sources
+     * 
+     * @param field_id Field ID
+     * @param sources Input field representations
+     * @param best_source_index Index of best source (used when audio stacking disabled)
+     * @return Stacked audio samples (interleaved stereo)
+     */
+    std::vector<int16_t> stack_audio(
+        FieldID field_id,
+        const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+        size_t best_source_index) const;
+    
+    /**
+     * @brief Calculate mean of audio sample values
+     */
+    int16_t audio_mean(const std::vector<int16_t>& values) const;
+    
+    /**
+     * @brief Calculate median of audio sample values
+     */
+    int16_t audio_median(std::vector<int16_t> values) const;
 };
 
 } // namespace orc

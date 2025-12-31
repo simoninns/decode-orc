@@ -32,6 +32,8 @@ StackedVideoFieldRepresentation::StackedVideoFieldRepresentation(
     , stage_(stage)
     , stacked_fields_(MAX_CACHED_FIELDS)
     , stacked_dropouts_(MAX_CACHED_FIELDS)
+    , stacked_audio_(MAX_CACHED_FIELDS)
+    , best_field_index_(MAX_CACHED_FIELDS)
 {
 }
 
@@ -120,6 +122,86 @@ std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(Fi
     return {};
 }
 
+size_t StackedVideoFieldRepresentation::get_best_source_index(FieldID field_id) const {
+    // Check cache first
+    const auto* cached_index = best_field_index_.get_ptr(field_id);
+    if (cached_index) {
+        return *cached_index;
+    }
+    
+    // Find the source with the fewest dropouts for this field
+    size_t best_index = 0;
+    size_t min_dropout_count = SIZE_MAX;
+    
+    for (size_t i = 0; i < sources_.size(); ++i) {
+        if (sources_[i] && sources_[i]->has_field(field_id)) {
+            auto dropouts = sources_[i]->get_dropout_hints(field_id);
+            size_t dropout_count = 0;
+            for (const auto& region : dropouts) {
+                dropout_count += (region.end_sample - region.start_sample);
+            }
+            
+            if (dropout_count < min_dropout_count) {
+                min_dropout_count = dropout_count;
+                best_index = i;
+            }
+        }
+    }
+    
+    // Cache the result
+    best_field_index_.put(field_id, best_index);
+    return best_index;
+}
+
+uint32_t StackedVideoFieldRepresentation::get_audio_sample_count(FieldID id) const {
+    // Check if any source has audio
+    if (!has_audio()) {
+        return 0;
+    }
+    
+    // Return sample count from first source that has this field with audio
+    for (const auto& source : sources_) {
+        if (source && source->has_field(id) && source->has_audio()) {
+            return source->get_audio_sample_count(id);
+        }
+    }
+    
+    return 0;
+}
+
+std::vector<int16_t> StackedVideoFieldRepresentation::get_audio_samples(FieldID id) const {
+    if (!has_audio()) {
+        return {};
+    }
+    
+    // Check audio cache first
+    const auto* cached_audio = stacked_audio_.get_ptr(id);
+    if (cached_audio) {
+        return *cached_audio;
+    }
+    
+    // Get best source index for this field
+    size_t best_index = get_best_source_index(id);
+    
+    // Stack the audio samples
+    auto stacked_audio = stage_->stack_audio(id, sources_, best_index);
+    
+    // Cache the result
+    stacked_audio_.put(id, stacked_audio);
+    
+    return stacked_audio;
+}
+
+bool StackedVideoFieldRepresentation::has_audio() const {
+    // Check if any source has audio
+    for (const auto& source : sources_) {
+        if (source && source->has_audio()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // ============================================================================
 // StackerStage implementation
 // ============================================================================
@@ -134,6 +216,7 @@ StackerStage::StackerStage()
     , m_no_diff_dod(false)
     , m_passthrough(false)
     , m_thread_count(0)       // Auto (use all available cores)
+    , m_audio_stacking_mode(AudioStackingMode::MEAN)  // Default: mean averaging
 {
 }
 
@@ -744,6 +827,25 @@ std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSy
     thread_count_desc.constraints.required = false;
     descriptors.push_back(thread_count_desc);
     
+    // Audio stacking mode
+    ParameterDescriptor audio_stacking_desc;
+    audio_stacking_desc.name = "audio_stacking";
+    audio_stacking_desc.display_name = "Audio Stacking Mode";
+    audio_stacking_desc.description = "How to combine audio from multiple sources:\n"
+                                     "Disabled = Use audio from best field (determined by video quality)\n"
+                                     "Mean = Average audio samples across all sources\n"
+                                     "Median = Use median audio sample value across all sources\n"
+                                     "Note: Only fields with matching sample counts are stacked together";
+    audio_stacking_desc.type = ParameterType::STRING;
+    audio_stacking_desc.constraints.allowed_strings = {
+        "Disabled",
+        "Mean",
+        "Median"
+    };
+    audio_stacking_desc.constraints.default_value = std::string("Mean");
+    audio_stacking_desc.constraints.required = false;
+    descriptors.push_back(audio_stacking_desc);
+    
     return descriptors;
 }
 
@@ -827,6 +929,21 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
             } else {
                 return false;
             }
+        } else if (key == "audio_stacking") {
+            if (auto* val = std::get_if<std::string>(&value)) {
+                if (*val == "Disabled") {
+                    m_audio_stacking_mode = AudioStackingMode::DISABLED;
+                } else if (*val == "Mean") {
+                    m_audio_stacking_mode = AudioStackingMode::MEAN;
+                } else if (*val == "Median") {
+                    m_audio_stacking_mode = AudioStackingMode::MEDIAN;
+                } else {
+                    ORC_LOG_WARN("StackerStage: Invalid audio_stacking value '{}'", *val);
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
     }
     
@@ -846,6 +963,10 @@ std::optional<StageReport> StackerStage::generate_report() const {
     int mode_index = m_mode + 1;  // -1 (Auto) becomes 0
     if (mode_index < 0 || mode_index >= 6) mode_index = 0;
     
+    const char* audio_mode_names[] = {"Disabled", "Mean", "Median"};
+    int audio_mode_index = static_cast<int>(m_audio_stacking_mode);
+    if (audio_mode_index < 0 || audio_mode_index >= 3) audio_mode_index = 0;
+    
     report.summary = "Stacker Configuration";
     
     // Configuration items
@@ -855,10 +976,12 @@ std::optional<StageReport> StackerStage::generate_report() const {
     report.items.push_back({"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
     std::string thread_info = m_thread_count == 0 ? "Auto (" + std::to_string(std::thread::hardware_concurrency()) + " cores)" : std::to_string(m_thread_count);
     report.items.push_back({"Thread Count", thread_info});
+    report.items.push_back({"Audio Stacking", audio_mode_names[audio_mode_index]});
     
     // Metrics
     report.metrics["mode"] = static_cast<int64_t>(m_mode);
     report.metrics["smart_threshold"] = static_cast<int64_t>(m_smart_threshold);
+    report.metrics["audio_stacking_mode"] = static_cast<int64_t>(m_audio_stacking_mode);
     
     return report;
 }
@@ -879,4 +1002,145 @@ PreviewImage StackerStage::render_preview(const std::string& option_id, uint64_t
                  option_id, index, duration_ms, hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
     return result;
 }
+
+std::vector<int16_t> StackerStage::stack_audio(
+    FieldID field_id,
+    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+    size_t best_source_index) const
+{
+    // If audio stacking is disabled, use the best source's audio
+    if (m_audio_stacking_mode == AudioStackingMode::DISABLED) {
+        if (best_source_index < sources.size() && 
+            sources[best_source_index] && 
+            sources[best_source_index]->has_audio()) {
+            return sources[best_source_index]->get_audio_samples(field_id);
+        }
+        // Fallback to first source with audio
+        for (const auto& source : sources) {
+            if (source && source->has_audio() && source->has_field(field_id)) {
+                return source->get_audio_samples(field_id);
+            }
+        }
+        return {};
+    }
+    
+    // Collect audio samples from all sources
+    std::vector<std::vector<int16_t>> all_audio_samples;
+    std::vector<uint32_t> sample_counts;
+    
+    for (const auto& source : sources) {
+        if (source && source->has_audio() && source->has_field(field_id)) {
+            uint32_t sample_count = source->get_audio_sample_count(field_id);
+            auto samples = source->get_audio_samples(field_id);
+            
+            if (!samples.empty()) {
+                all_audio_samples.push_back(std::move(samples));
+                sample_counts.push_back(sample_count);
+            }
+        }
+    }
+    
+    // If no audio sources available, return empty
+    if (all_audio_samples.empty()) {
+        return {};
+    }
+    
+    // If only one source has audio, return it directly
+    if (all_audio_samples.size() == 1) {
+        return all_audio_samples[0];
+    }
+    
+    // Sanity check: ensure all sources have the same number of samples
+    uint32_t expected_sample_count = sample_counts[0];
+    bool sample_count_mismatch = false;
+    
+    for (size_t i = 1; i < sample_counts.size(); ++i) {
+        if (sample_counts[i] != expected_sample_count) {
+            sample_count_mismatch = true;
+            ORC_LOG_WARN("StackerStage: Audio sample count mismatch for field {}: source 0 has {} samples, source {} has {} samples",
+                        field_id.value(), expected_sample_count, i, sample_counts[i]);
+        }
+    }
+    
+    if (sample_count_mismatch) {
+        ORC_LOG_WARN("StackerStage: Skipping audio stacking for field {} due to sample count mismatch - using best source audio",
+                    field_id.value());
+        // Use the best source's audio when sample counts don't match
+        if (best_source_index < sources.size() && 
+            sources[best_source_index] && 
+            sources[best_source_index]->has_audio()) {
+            return sources[best_source_index]->get_audio_samples(field_id);
+        }
+        return all_audio_samples[0];
+    }
+    
+    // Stack audio samples
+    // Audio is interleaved stereo (L, R, L, R, ...)
+    size_t num_samples_total = all_audio_samples[0].size();  // Total interleaved samples
+    std::vector<int16_t> stacked_audio(num_samples_total);
+    
+    ORC_LOG_DEBUG("StackerStage: Stacking audio for field {} - {} sources, {} total samples (stereo interleaved)",
+                 field_id.value(), all_audio_samples.size(), num_samples_total);
+    
+    // Stack each sample position across all sources
+    for (size_t sample_idx = 0; sample_idx < num_samples_total; ++sample_idx) {
+        std::vector<int16_t> values;
+        values.reserve(all_audio_samples.size());
+        
+        // Collect value from each source at this sample position
+        for (const auto& source_samples : all_audio_samples) {
+            if (sample_idx < source_samples.size()) {
+                values.push_back(source_samples[sample_idx]);
+            }
+        }
+        
+        // Calculate stacked value based on mode
+        if (m_audio_stacking_mode == AudioStackingMode::MEAN) {
+            stacked_audio[sample_idx] = audio_mean(values);
+        } else if (m_audio_stacking_mode == AudioStackingMode::MEDIAN) {
+            stacked_audio[sample_idx] = audio_median(values);
+        } else {
+            // Shouldn't reach here, but fallback to mean
+            stacked_audio[sample_idx] = audio_mean(values);
+        }
+    }
+    
+    ORC_LOG_DEBUG("StackerStage: Audio stacking complete for field {}", field_id.value());
+    return stacked_audio;
+}
+
+int16_t StackerStage::audio_mean(const std::vector<int16_t>& values) const
+{
+    if (values.empty()) {
+        return 0;
+    }
+    
+    int64_t sum = 0;
+    for (const auto& val : values) {
+        sum += val;
+    }
+    
+    return static_cast<int16_t>(sum / static_cast<int64_t>(values.size()));
+}
+
+int16_t StackerStage::audio_median(std::vector<int16_t> values) const
+{
+    if (values.empty()) {
+        return 0;
+    }
+    
+    const size_t n = values.size();
+    
+    if (n % 2 == 0) {
+        // Even number of elements
+        std::nth_element(values.begin(), values.begin() + n / 2, values.end());
+        std::nth_element(values.begin(), values.begin() + (n - 1) / 2, values.end());
+        return static_cast<int16_t>((static_cast<int32_t>(values[(n - 1) / 2]) + static_cast<int32_t>(values[n / 2])) / 2);
+    } else {
+        // Odd number of elements
+        std::nth_element(values.begin(), values.begin() + n / 2, values.end());
+        return values[n / 2];
+    }
+}
+
 } // namespace orc

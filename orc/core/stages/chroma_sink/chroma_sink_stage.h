@@ -158,7 +158,6 @@ private:
     bool ntsc_phase_comp_;
     bool simple_pal_;
     int output_padding_;
-    bool active_area_only_;
     bool embed_audio_;  // Embed analogue audio in output (MP4/MKV only)
     
     // Encoder quality parameters (for FFmpeg output)

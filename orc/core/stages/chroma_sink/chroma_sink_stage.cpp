@@ -53,7 +53,6 @@ ChromaSinkStage::ChromaSinkStage()
     , ntsc_phase_comp_(false)
     , simple_pal_(false)
     , output_padding_(8)
-    , active_area_only_(false)
     , embed_audio_(false)
     , encoder_preset_("medium")
     , encoder_crf_(18)
@@ -178,13 +177,6 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             {1, 32, 8, {}, false, std::nullopt}
         },
         ParameterDescriptor{
-            "active_area_only",
-            "Active Area Only",
-            "Output only the active video area without padding",
-            ParameterType::BOOL,
-            {{}, {}, false, {}, false, std::nullopt}
-        },
-        ParameterDescriptor{
             "encoder_preset",
             "Encoder Preset",
             "Encoder speed/quality preset (for H.264/H.265): fast, medium, slow, veryslow",
@@ -270,7 +262,6 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["ntsc_phase_comp"] = ntsc_phase_comp_;
     params["simple_pal"] = simple_pal_;
     params["output_padding"] = output_padding_;
-    params["active_area_only"] = active_area_only_;
     params["encoder_preset"] = encoder_preset_;
     params["encoder_crf"] = encoder_crf_;
     params["encoder_bitrate"] = encoder_bitrate_;
@@ -381,13 +372,6 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             if (std::holds_alternative<int>(value)) {
                 output_padding_ = std::get<int>(value);
             }
-        } else if (key == "active_area_only") {
-            if (std::holds_alternative<bool>(value)) {
-                active_area_only_ = std::get<bool>(value);
-            } else if (std::holds_alternative<std::string>(value)) {
-                auto str_val = std::get<std::string>(value);
-                active_area_only_ = (str_val == "true" || str_val == "1" || str_val == "yes");
-            }
         } else if (key == "encoder_preset") {
             if (std::holds_alternative<std::string>(value)) {
                 encoder_preset_ = std::get<std::string>(value);
@@ -467,6 +451,14 @@ bool ChromaSinkStage::trigger(
     // 3. Use orc-core VideoParameters directly
     auto videoParams = *video_params_opt;  // Make a copy so we can modify it
     
+    ORC_LOG_INFO("ChromaSink: Video parameters from source metadata:");
+    ORC_LOG_INFO("  Horizontal active region: {} to {} ({} samples)",
+                 videoParams.active_video_start, videoParams.active_video_end,
+                 videoParams.active_video_end - videoParams.active_video_start);
+    ORC_LOG_INFO("  Vertical active region: {} to {} ({} lines)",
+                 videoParams.first_active_frame_line, videoParams.last_active_frame_line,
+                 videoParams.last_active_frame_line - videoParams.first_active_frame_line);
+    
     // Apply line parameter overrides from hints
     // Active line ranges should come from hints (source stage reads metadata)
     auto active_line_hint = vfr->get_active_line_hint();
@@ -484,13 +476,11 @@ bool ChromaSinkStage::trigger(
     // This ensures the decoder processes the correct region that will be written to output
     {
         OutputWriter::Configuration writerConfig;
-        // If active_area_only is true, use paddingAmount=1 (no padding)
-        // Otherwise use the configured output_padding_ value
-        writerConfig.paddingAmount = active_area_only_ ? 1 : output_padding_;
+        writerConfig.paddingAmount = output_padding_;
         
-        ORC_LOG_DEBUG("ChromaSink: BEFORE padding adjustment: first_active_frame_line={}, last_active_frame_line={} (paddingAmount={}, active_area_only={})", 
+        ORC_LOG_DEBUG("ChromaSink: BEFORE padding adjustment: first_active_frame_line={}, last_active_frame_line={} (paddingAmount={})", 
                       videoParams.first_active_frame_line, videoParams.last_active_frame_line,
-                      writerConfig.paddingAmount, active_area_only_);
+                      writerConfig.paddingAmount);
         
         // Create temporary output writer just to apply padding adjustments
         OutputWriter tempWriter;
@@ -501,37 +491,13 @@ bool ChromaSinkStage::trigger(
                       videoParams.first_active_frame_line, videoParams.last_active_frame_line);
     }
     
-    // Apply active area cropping if active_area_only is true
-    // Adjust videoParams BEFORE creating decoders so they only decode the visible area
-    if (active_area_only_) {
-        int32_t full_width = videoParams.active_video_end - videoParams.active_video_start;
-        int32_t full_height = videoParams.last_active_frame_line - videoParams.first_active_frame_line;
-        
-        // Define standard active picture dimensions (excluding overscan)
-        int32_t target_width = 720;
-        int32_t target_height = (videoParams.system == VideoSystem::NTSC) ? 480 : 576;
-        
-        // Center-crop to target dimensions
-        if (full_width > target_width) {
-            int32_t crop_pixels = (full_width - target_width) / 2;
-            videoParams.active_video_start += crop_pixels;
-            videoParams.active_video_end = videoParams.active_video_start + target_width;
-        }
-        
-        if (full_height > target_height) {
-            int32_t crop_lines = (full_height - target_height) / 2;
-            videoParams.first_active_frame_line += crop_lines;
-            videoParams.last_active_frame_line = videoParams.first_active_frame_line + target_height;
-        }
-        
-        // Set flag so decoders know to use relative indexing when writing to ComponentFrame
-        videoParams.active_area_cropping_applied = true;
-        
-        ORC_LOG_INFO("ChromaSink: Active area only mode - cropped from {}x{} to {}x{}", 
-                     full_width, full_height,
-                     videoParams.active_video_end - videoParams.active_video_start,
-                     videoParams.last_active_frame_line - videoParams.first_active_frame_line);
-    }
+    // Use active area boundaries from video parameters (metadata/hints)
+    // Set flag so decoders know to use relative indexing when writing to ComponentFrame
+    videoParams.active_area_cropping_applied = true;
+    
+    ORC_LOG_INFO("ChromaSink: Using active area from video parameters: {}x{}",
+                 videoParams.active_video_end - videoParams.active_video_start,
+                 videoParams.last_active_frame_line - videoParams.first_active_frame_line);
     
     // 4. Create appropriate decoder
     // Note: We'll use the decoder classes directly (synchronously)
@@ -768,7 +734,6 @@ bool ChromaSinkStage::trigger(
     backendConfig.output_path = output_path_;
     backendConfig.video_params = videoParams;
     backendConfig.padding_amount = output_padding_;
-    backendConfig.active_area_only = active_area_only_;
     backendConfig.options["format"] = output_format_;
     backendConfig.encoder_preset = encoder_preset_;
     backendConfig.encoder_crf = encoder_crf_;
@@ -1181,7 +1146,6 @@ bool ChromaSinkStage::writeOutputFile(
     config.output_path = output_path;
     config.video_params = videoParams;
     config.padding_amount = output_padding_;
-    config.active_area_only = active_area_only_;
     config.options["format"] = format;
     
     // Pass encoder quality settings

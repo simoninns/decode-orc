@@ -82,8 +82,6 @@ void FFmpegOutputBackend::cleanup()
 
 bool FFmpegOutputBackend::initialize(const Configuration& config)
 {
-    // Store configuration
-    active_area_only_ = config.active_area_only;
     
     // Parse format string (e.g., "mp4-h264", "mkv-ffv1")
     auto it = config.options.find("format");
@@ -234,7 +232,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
         return false;
     }
     
-    // Calculate dimensions from video parameters
+    // Calculate dimensions from video parameters (active area only)
     active_width_ = params.active_video_end - params.active_video_start;
     active_height_ = params.last_active_frame_line - params.first_active_frame_line;
     
@@ -243,15 +241,12 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     black_ire_ = params.black_16b_ire;
     white_ire_ = params.white_16b_ire;
     
-    // Apply padding for codec requirements (typically 16 for H.264/H.265)
-    width_ = active_width_;
-    height_ = active_height_;
-    
-    // Pad to multiple of 16 (required by most codecs) unless active area only
-    if (!active_area_only_) {
-        while (width_ % 16 != 0) width_++;
-        while (height_ % 16 != 0) height_++;
-    }
+    // Set source and output dimensions to active area
+    src_width_ = active_width_;
+    src_height_ = active_height_;
+    width_ = src_width_;
+    height_ = src_height_;
+    crop_top_ = 0;
     
     // Set codec parameters
     codec_ctx_->codec_id = codec->id;
@@ -527,7 +522,8 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
     const double cbScale = (C_SCALE / (ONE_MINUS_Kb * kB)) / uvRange;
     const double crScale = (C_SCALE / (ONE_MINUS_Kr * kR)) / uvRange;
     
-    for (int y = 0; y < active_height_; y++) {
+    // Copy active video lines from ComponentFrame
+    for (int y = 0; y < src_height_; y++) {
         const double* src_y = component_frame.y(y);
         const double* src_u = component_frame.u(y);
         const double* src_v = component_frame.v(y);
@@ -536,7 +532,7 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
         uint16_t* dst_u = reinterpret_cast<uint16_t*>(src_frame_->data[1] + y * src_frame_->linesize[1]);
         uint16_t* dst_v = reinterpret_cast<uint16_t*>(src_frame_->data[2] + y * src_frame_->linesize[2]);
         
-        for (int x = 0; x < active_width_; x++) {
+        for (int x = 0; x < src_width_; x++) {
             // Convert Y'UV (IRE scale) to Y'CbCr (limited range) - same as OutputWriter
             dst_y[x] = static_cast<uint16_t>(std::clamp(((src_y[x] - yOffset) * yScale)  + Y_ZERO, Y_MIN, Y_MAX));
             dst_u[x] = static_cast<uint16_t>(std::clamp((src_u[x]             * cbScale) + C_ZERO, C_MIN, C_MAX));
@@ -544,7 +540,7 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
         }
         
         // Fill padding with black/neutral values if needed
-        for (int x = active_width_; x < width_; x++) {
+        for (int x = src_width_; x < width_; x++) {
             dst_y[x] = static_cast<uint16_t>(Y_ZERO);    // Black (16*256)
             dst_u[x] = static_cast<uint16_t>(C_ZERO);    // Neutral chroma (128*256)
             dst_v[x] = static_cast<uint16_t>(C_ZERO);
@@ -552,7 +548,7 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
     }
     
     // Fill padding lines if needed
-    for (int y = active_height_; y < height_; y++) {
+    for (int y = src_height_; y < height_; y++) {
         uint16_t* dst_y = reinterpret_cast<uint16_t*>(src_frame_->data[0] + y * src_frame_->linesize[0]);
         uint16_t* dst_u = reinterpret_cast<uint16_t*>(src_frame_->data[1] + y * src_frame_->linesize[1]);
         uint16_t* dst_v = reinterpret_cast<uint16_t*>(src_frame_->data[2] + y * src_frame_->linesize[2]);

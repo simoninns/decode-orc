@@ -104,7 +104,7 @@ void TransformPal2D::filterFields(const std::vector<SourceField> &inputFields, i
 void TransformPal2D::filterField(const SourceField& inputField, int32_t outputIndex)
 {
     // Convert frame-based active area limits to field-based coordinates
-    // This ensures the output respects the active_area_only flag
+    // This ensures proper indexing when active area cropping is applied
     const int32_t firstFieldLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
     const int32_t lastFieldLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
 

@@ -39,7 +39,6 @@ public:
         std::string output_path;              ///< Output file path
         orc::VideoParameters video_params;    ///< Video parameters from decoder
         int padding_amount = 8;               ///< Padding for codec requirements
-        bool active_area_only = false;        ///< Output only active area without padding
         std::map<std::string, std::string> options;  ///< Format-specific options
         
         // Crop parameters (applied when reading from ComponentFrame)

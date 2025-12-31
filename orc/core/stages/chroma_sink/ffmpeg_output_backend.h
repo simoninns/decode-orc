@@ -70,15 +70,16 @@ private:
     std::string container_format_;
     
     // Video parameters
-    int width_ = 0;
+    int width_ = 0;           // Output dimensions (may be padded)
     int height_ = 0;
-    int active_width_ = 0;
+    int src_width_ = 0;       // Source ComponentFrame dimensions (before padding)
+    int src_height_ = 0;
+    int active_width_ = 0;    // Active video region dimensions
     int active_height_ = 0;
     AVRational time_base_;
     VideoSystem video_system_ = VideoSystem::PAL;
     double black_ire_ = 0.0;
     double white_ire_ = 0.0;
-    bool active_area_only_ = false;
     
     // Crop parameters
     int crop_left_ = 0;

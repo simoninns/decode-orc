@@ -270,7 +270,7 @@ void PalColour::decodeField(const SourceField &inputField, const double *chromaD
     const uint16_t *compPtr = inputField.data.data();
 
     // Convert frame-based active area limits to field-based coordinates
-    // This ensures the output respects the active_area_only flag
+    // This ensures proper indexing when active area cropping is applied
     const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
     const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
     for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {

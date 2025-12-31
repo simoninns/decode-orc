@@ -12,6 +12,7 @@
 #include "dropout_decision.h"
 #include "logging.h"
 #include "observers/biphase_observer.h"
+#include "observers/observation_history.h"
 #include <sstream>
 #include <chrono>
 
@@ -391,89 +392,24 @@ std::optional<ActiveLineHint> TBCVideoFieldRepresentation::get_active_line_hint(
 }
 
 std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {
+    // ARCHITECTURAL NOTE:
+    // This source stage runs observers on the actual video data and returns the results.
+    // TBC metadata is used INTERNALLY by this stage only - downstream stages must NEVER
+    // access TBC metadata directly. They get data via:
+    // - get_observations() for observer results (this method)
+    // - get_*_hint() methods for metadata-derived hints
+    
     std::vector<std::shared_ptr<Observation>> observations;
     
-    if (!metadata_reader_ || !metadata_reader_->is_open()) {
-        return observations;
-    }
+    // Run observers on the video data (lazy execution)
+    // BiphaseObserver will decode VBI from video samples
+    ObservationHistory empty_history;  // No history needed for single-field observation
     
-    // Read VBI data from the database
-    auto vbi_data = metadata_reader_->read_vbi(id);
-    if (vbi_data && vbi_data->in_use) {
-        // Create a BiphaseObservation from the VBI data
-        auto biphase_obs = std::make_shared<BiphaseObservation>();
-        biphase_obs->vbi_data = vbi_data->vbi_data;
-        
-        // Decode the VBI data to populate fields like picture_number, chapter_number, etc.
-        // This is based on the BiphaseObserver::interpret_vbi_data() logic
-        
-        int32_t vbi17 = vbi_data->vbi_data[1];
-        int32_t vbi18 = vbi_data->vbi_data[2];
-        
-        // Helper to decode BCD
-        auto decode_bcd = [](uint32_t bcd, int32_t& output) -> bool {
-            output = 0;
-            int32_t multiplier = 1;
-            while (bcd > 0) {
-                uint32_t digit = bcd & 0x0F;
-                if (digit > 9) return false;
-                output += digit * multiplier;
-                multiplier *= 10;
-                bcd >>= 4;
-            }
-            return true;
-        };
-        
-        // Check for CAV picture number on lines 17 and 18
-        if ((vbi17 & 0xF00000) == 0xF00000) {
-            int32_t pic_no;
-            if (decode_bcd(vbi17 & 0x07FFFF, pic_no)) {
-                biphase_obs->picture_number = pic_no;
-            }
-        }
-        if ((vbi18 & 0xF00000) == 0xF00000) {
-            int32_t pic_no;
-            if (decode_bcd(vbi18 & 0x07FFFF, pic_no)) {
-                biphase_obs->picture_number = pic_no;
-            }
-        }
-        
-        // Check for chapter number on lines 17 and 18
-        if ((vbi17 & 0xF00FFF) == 0x800DDD) {
-            int32_t chapter;
-            if (decode_bcd((vbi17 & 0x07F000) >> 12, chapter)) {
-                biphase_obs->chapter_number = chapter;
-            }
-        }
-        if ((vbi18 & 0xF00FFF) == 0x800DDD) {
-            int32_t chapter;
-            if (decode_bcd((vbi18 & 0x07F000) >> 12, chapter)) {
-                biphase_obs->chapter_number = chapter;
-            }
-        }
-        
-        // Check for CLV time code (simplified - not including full CLV decoding)
-        // Full CLV decoding would require more complex logic from BiphaseObserver
-        
-        // Check for special codes
-        if (vbi17 == 0x82CFFF || vbi18 == 0x82CFFF) {
-            biphase_obs->stop_code_present = true;
-        }
-        if (vbi17 == 0x88FFFF || vbi18 == 0x88FFFF) {
-            biphase_obs->lead_in = true;
-        }
-        if (vbi17 == 0x80EEEE || vbi18 == 0x80EEEE) {
-            biphase_obs->lead_out = true;
-        }
-        
-        observations.push_back(biphase_obs);
-    }
+    auto biphase_obs = std::make_shared<BiphaseObserver>();
+    auto biphase_results = biphase_obs->process_field(*this, id, empty_history);
+    observations.insert(observations.end(), biphase_results.begin(), biphase_results.end());
     
-    // Future: Add other observation types
-    // - Read field_record for is_first_field → FieldParityObservation
-    // - Read vitc table → VitcObservation
-    // - Read closed_caption → ClosedCaptionObservation
-    // - Read vits_metrics → VITSQualityObservation
+    // Future: Add other observers as needed (VITC, closed captions, etc.)
     
     return observations;
 }

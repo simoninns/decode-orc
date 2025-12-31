@@ -20,7 +20,7 @@
 #include "observers/burst_level_observer.h"
 #include "disc_quality_observer.h"
 #include "pulldown_observer.h"
-#include "lead_in_out_observer.h"
+// Note: LeadInOutObserver merged into BiphaseObserver
 #include "observers/observation_history.h"
 #include "logging.h"
 #include <sstream>
@@ -236,9 +236,9 @@ std::shared_ptr<VideoFieldRepresentation> DAGFieldRenderer::attach_observations(
     observers.push_back(std::make_unique<VITSQualityObserver>());
     observers.push_back(std::make_unique<BurstLevelObserver>());
     observers.push_back(std::make_unique<PulldownObserver>());
-    observers.push_back(std::make_unique<LeadInOutObserver>());
+    // Note: LeadInOutObserver merged into BiphaseObserver
     
-    // Empty history for single-field rendering
+    // History for this field
     ObservationHistory history;
     
     // Run all observers on this field

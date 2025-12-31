@@ -32,36 +32,24 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     
     ORC_LOG_INFO("Disc mapping analysis starting...");
     
-    // Step 1: Run observers on all fields to collect data
-    ORC_LOG_INFO("Running observers on all fields...");
+    // Step 1: Collect observations from source
+    ORC_LOG_INFO("Collecting observations from source...");
     
     ObservationHistory history;
-    std::vector<std::shared_ptr<Observer>> observers;
-    observers.push_back(std::make_shared<BiphaseObserver>());
-    // Note: FieldParityObserver removed - field parity comes from hints only
-    // Note: PALPhaseObserver removed - PAL phase comes from hints only
-    observers.push_back(std::make_shared<PulldownObserver>());
-    observers.push_back(std::make_shared<LeadInOutObserver>());
-    
     auto field_range = source.field_range();
     stats_.total_fields = field_range.size();
     
-    // Run observers and populate history (field_range.end is exclusive)
-    // Report progress every 100 fields to avoid excessive UI updates
+    // Collect observations from source (provided by source stage)
     size_t field_count = 0;
     for (FieldID field_id = field_range.start; field_id < field_range.end; ++field_id) {
-        std::vector<std::shared_ptr<Observation>> all_observations;
-        for (const auto& observer : observers) {
-            auto observations = observer->process_field(source, field_id, history);
-            all_observations.insert(all_observations.end(), observations.begin(), observations.end());
-        }
-        history.add_observations(field_id, all_observations);
+        auto observations = source.get_observations(field_id);
+        history.add_observations(field_id, observations);
         
-        // Update progress every 100 fields (Step 1 takes 50-70% of total time)
+        // Update progress every 100 fields
         if (progress && (++field_count % 100 == 0 || field_id.value() == field_range.end.value() - 1)) {
             int percentage = 20 + (field_count * 50 / stats_.total_fields);
             progress->setProgress(percentage);
-            progress->setSubStatus("Processing field " + std::to_string(field_count) + "/" + std::to_string(stats_.total_fields));
+            progress->setSubStatus("Collecting observations " + std::to_string(field_count) + "/" + std::to_string(stats_.total_fields));
             
             if (progress->isCancelled()) {
                 decision.success = false;
@@ -71,7 +59,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         }
     }
     
-    ORC_LOG_INFO("Observers complete, processed {} fields (field range: {} to {})", 
+    ORC_LOG_INFO("Collected observations for {} fields (field range: {} to {})", 
                  stats_.total_fields, field_range.start.value(), field_range.end.value() - 1);
     ORC_LOG_DEBUG("Field IDs: {} to {}", field_range.start.value(), field_range.end.value());
     
@@ -143,13 +131,20 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         frame.is_pulldown = (pulldown_first && pulldown_first->is_pulldown) ||
                            (pulldown_second && pulldown_second->is_pulldown);
         
-        // Get lead-in/out status
-        auto lead_first_ptr = history.get_observation(first_id, "LeadInOut");
-        auto lead_second_ptr = history.get_observation(second_id, "LeadInOut");
-        auto lead_first = std::dynamic_pointer_cast<LeadInOutObservation>(lead_first_ptr);
-        auto lead_second = std::dynamic_pointer_cast<LeadInOutObservation>(lead_second_ptr);
-        frame.is_lead_in_out = (lead_first && lead_first->is_lead_in_out) ||
-                               (lead_second && lead_second->is_lead_in_out);
+        // Get lead-in/out status from BiphaseObservation
+        bool is_lead_in_out = false;
+        if (vbi_first && (vbi_first->lead_in || vbi_first->lead_out)) {
+            is_lead_in_out = true;
+        }
+        if (vbi_second && (vbi_second->lead_in || vbi_second->lead_out)) {
+            is_lead_in_out = true;
+        }
+        // Also check for illegal CAV frame 0
+        if ((vbi_first && vbi_first->picture_number.has_value() && vbi_first->picture_number.value() == 0) ||
+            (vbi_second && vbi_second->picture_number.has_value() && vbi_second->picture_number.value() == 0)) {
+            is_lead_in_out = true;
+        }
+        frame.is_lead_in_out = is_lead_in_out;
         
         frames.push_back(frame);
     }

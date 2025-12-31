@@ -63,6 +63,12 @@ std::vector<std::shared_ptr<Observation>> LeadInOutObserver::process_field(
     // Determine if this is lead-in/out
     observation->is_lead_in_out = has_lead_marker || has_illegal_frame;
     
+    // Debug: log VBI lead marker details
+    if (has_lead_marker) {
+        ORC_LOG_DEBUG("LeadInOutObserver: Field {} has VBI lead marker (lead_in={} lead_out={})",
+                      field_id.value(), biphase_obs->lead_in, biphase_obs->lead_out);
+    }
+    
     // Try to distinguish lead-in vs lead-out
     // (Simple heuristic: early in capture = lead-in, late = lead-out)
     if (observation->is_lead_in_out) {
@@ -94,12 +100,9 @@ bool LeadInOutObserver::check_vbi_lead_markers(
     }
     
     // Check for lead-in/out flags in VBI data
-    // These are typically encoded in the VBI control bits
-    // NOTE: BiphaseObservation currently doesn't have lead-in/out flags
-    // TODO: Add these fields to BiphaseObservation structure
-    // For now, return false (conservative)
-    
-    return false;
+    // BiphaseObservation decodes the standard LaserDisc lead-in (0x88FFFF)
+    // and lead-out (0x80EEEE) codes from IEC 60857-1986
+    return vbi_obs->lead_in || vbi_obs->lead_out;
 }
 
 bool LeadInOutObserver::is_illegal_cav_frame_number(int32_t picture_number) const {

@@ -57,20 +57,16 @@ bool SourceAlignmentAnalysisTool::isApplicableToStage(const std::string& stage_n
 
 /**
  * @brief Get VBI frame number or CLV timecode frame equivalent for a field
+ * 
+ * ARCHITECTURAL NOTE: This function gets observations from the source stage.
+ * It does NOT run observers itself - that's the source stage's responsibility.
  */
 static int32_t get_frame_number_from_vbi(
     const VideoFieldRepresentation& source,
     FieldID field_id)
 {
-    // Get VBI observations for this field
+    // Get VBI observations from the source (provided by source stage's observers)
     auto observations = source.get_observations(field_id);
-    
-    // If no observations exist, run the BiphaseObserver to decode VBI from the field data
-    if (observations.empty()) {
-        BiphaseObserver observer;
-        ObservationHistory empty_history;
-        observations = observer.process_field(source, field_id, empty_history);
-    }
     
     for (const auto& obs : observations) {
         auto biphase_obs = std::dynamic_pointer_cast<BiphaseObservation>(obs);

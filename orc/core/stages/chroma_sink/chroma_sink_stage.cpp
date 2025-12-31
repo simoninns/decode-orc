@@ -741,9 +741,11 @@ bool ChromaSinkStage::trigger(
     backendConfig.embed_audio = embed_audio_;
     if (embed_audio_ && vfr && vfr->has_audio()) {
         backendConfig.vfr = vfr.get();
-        backendConfig.start_field_index = extended_start_frame * 2;
+        // Audio should start from actual output frames, not extended range with lookbehind
+        backendConfig.start_field_index = start_frame * 2;
         backendConfig.num_fields = numOutputFrames * 2;
-        ORC_LOG_INFO("ChromaSink: Audio embedding enabled for output");
+        ORC_LOG_INFO("ChromaSink: Audio embedding enabled for output (fields {} to {})",
+                     start_frame * 2, (start_frame * 2) + (numOutputFrames * 2));
     }
     
     if (!backend->initialize(backendConfig)) {

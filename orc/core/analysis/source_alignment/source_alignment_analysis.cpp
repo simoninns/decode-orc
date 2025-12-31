@@ -11,6 +11,7 @@
 #include "../analysis_registry.h"
 #include "../../stages/source_align/source_align_stage.h"
 #include "../../observers/biphase_observer.h"
+#include "../../observers/observation_history.h"
 #include "../../include/dag_executor.h"
 #include "../../include/project.h"
 #include "../../include/logging.h"
@@ -63,6 +64,13 @@ static int32_t get_frame_number_from_vbi(
 {
     // Get VBI observations for this field
     auto observations = source.get_observations(field_id);
+    
+    // If no observations exist, run the BiphaseObserver to decode VBI from the field data
+    if (observations.empty()) {
+        BiphaseObserver observer;
+        ObservationHistory empty_history;
+        observations = observer.process_field(source, field_id, empty_history);
+    }
     
     for (const auto& obs : observations) {
         auto biphase_obs = std::dynamic_pointer_cast<BiphaseObservation>(obs);

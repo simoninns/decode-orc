@@ -8,6 +8,7 @@
  */
 
 #include "field_mapping_analyzer.h"
+#include "../analysis_progress.h"
 #include "../../observers/observation_history.h"
 #include "../../observers/biphase_observer.h"
 #include "../../observers/pulldown_observer.h"
@@ -21,7 +22,8 @@ namespace orc {
 
 FieldMappingDecision FieldMappingAnalyzer::analyze(
     const VideoFieldRepresentation& source,
-    const Options& options) {
+    const Options& options,
+    AnalysisProgress* progress) {
     
     current_options_ = options;
     stats_ = FieldMappingDecision::Stats{};
@@ -45,6 +47,8 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     stats_.total_fields = field_range.size();
     
     // Run observers and populate history (field_range.end is exclusive)
+    // Report progress every 100 fields to avoid excessive UI updates
+    size_t field_count = 0;
     for (FieldID field_id = field_range.start; field_id < field_range.end; ++field_id) {
         std::vector<std::shared_ptr<Observation>> all_observations;
         for (const auto& observer : observers) {
@@ -52,6 +56,19 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
             all_observations.insert(all_observations.end(), observations.begin(), observations.end());
         }
         history.add_observations(field_id, all_observations);
+        
+        // Update progress every 100 fields (Step 1 takes 50-70% of total time)
+        if (progress && (++field_count % 100 == 0 || field_id.value() == field_range.end.value() - 1)) {
+            int percentage = 20 + (field_count * 50 / stats_.total_fields);
+            progress->setProgress(percentage);
+            progress->setSubStatus("Processing field " + std::to_string(field_count) + "/" + std::to_string(stats_.total_fields));
+            
+            if (progress->isCancelled()) {
+                decision.success = false;
+                decision.rationale = "Analysis cancelled by user";
+                return decision;
+            }
+        }
     }
     
     ORC_LOG_INFO("Observers complete, processed {} fields (field range: {} to {})", 
@@ -140,6 +157,11 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     ORC_LOG_INFO("Built frame map with {} frames (format={} disc_type={})",
                  frames.size(), is_pal ? "PAL" : "NTSC", is_cav ? "CAV" : "CLV");
     
+    if (progress) {
+        progress->setProgress(72);
+        progress->setStatus("Building frame map...");
+    }
+    
     // Log first few frames for debugging
     size_t debug_count = std::min(size_t(5), frames.size());
     ORC_LOG_DEBUG("First {} frames (each frame = 2 fields):", debug_count);
@@ -151,6 +173,11 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     }
     
     // Step 3: Apply analysis and corrections
+    if (progress) {
+        progress->setProgress(75);
+        progress->setStatus("Applying corrections...");
+    }
+    
     ORC_LOG_INFO("Applying disc mapping corrections...");
     remove_lead_in_out(frames);
     ORC_LOG_DEBUG("After lead-in/out removal: {} frames remaining", frames.size());
@@ -196,6 +223,11 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     }
     
     // Step 4: Generate mapping specification
+    if (progress) {
+        progress->setProgress(85);
+        progress->setStatus("Generating mapping specification...");
+    }
+    
     ORC_LOG_INFO("Generating field mapping specification...");
     ORC_LOG_DEBUG("Before generate_mapping_spec: {} frames remaining", frames.size());
     if (frames.size() > 0) {

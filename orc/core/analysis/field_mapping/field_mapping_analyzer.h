@@ -19,6 +19,9 @@
 
 namespace orc {
 
+// Forward declaration
+class AnalysisProgress;
+
 /**
  * @brief Result of disc mapping analysis
  */
@@ -92,11 +95,13 @@ public:
      * 
      * @param source VideoFieldRepresentation to analyze
      * @param options Configuration options
+     * @param progress Optional progress callback for reporting (can be nullptr)
      * @return FieldMappingDecision with mapping spec and diagnostics
      */
     FieldMappingDecision analyze(
         const VideoFieldRepresentation& source,
-        const Options& options = Options{});
+        const Options& options = Options{},
+        class AnalysisProgress* progress = nullptr);
     
 private:
     // Internal frame information structure

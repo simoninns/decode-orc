@@ -178,11 +178,11 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         
         if (progress) {
             progress->setStatus("Analyzing field sequence...");
-            progress->setProgress(50);
+            progress->setProgress(20);
         }
         
-        // Run field mapping analysis
-        FieldMappingDecision decision = analyzer.analyze(*source, options);
+        // Run field mapping analysis (20-90% progress range)
+        FieldMappingDecision decision = analyzer.analyze(*source, options, progress);
         
         if (progress && progress->isCancelled()) {
             result.status = AnalysisResult::Cancelled;
@@ -191,7 +191,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
         
         if (progress) {
             progress->setStatus("Processing results...");
-            progress->setProgress(80);
+            progress->setProgress(90);
         }
         
         // Convert warnings to result items

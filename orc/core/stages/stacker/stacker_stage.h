@@ -17,6 +17,7 @@
 #include <memory>
 #include <vector>
 #include <thread>
+#include <mutex>
 
 namespace orc {
 
@@ -72,9 +73,9 @@ private:
     StackerStage* stage_;  // Non-owning pointer to stage for lazy stacking
     
     // Stacked field data - LRU cache of whole fields for fast access
-    // Cache size: 300 fields × ~1.4MB/field = ~420MB max
+    // Cache size: 600 fields × ~1.4MB/field = ~840MB max
     mutable LRUCache<FieldID, std::vector<uint16_t>> stacked_fields_;
-    static constexpr size_t MAX_CACHED_FIELDS = 300;
+    static constexpr size_t MAX_CACHED_FIELDS = 600;
     
     // Dropout regions for stacked fields
     mutable LRUCache<FieldID, std::vector<DropoutRegion>> stacked_dropouts_;
@@ -84,6 +85,9 @@ private:
     
     // Best field index for each field (for video stacking quality tracking)
     mutable LRUCache<FieldID, size_t> best_field_index_;
+    
+    // Mutex to protect cache operations from concurrent access
+    mutable std::mutex cache_mutex_;
     
     // Ensure field is stacked (lazy)
     void ensure_field_stacked(FieldID field_id) const;

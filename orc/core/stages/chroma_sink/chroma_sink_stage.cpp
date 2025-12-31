@@ -773,6 +773,9 @@ bool ChromaSinkStage::trigger(
     
     ORC_LOG_INFO("ChromaSink: Processing {} frames using {} worker threads", numFrames, numThreads);
     
+    // Start timing for performance measurement
+    auto decode_start_time = std::chrono::high_resolution_clock::now();
+    
     // Report initial progress
     if (progress_callback_) {
         progress_callback_(0, numFrames, "Starting decoding...");
@@ -1014,9 +1017,20 @@ bool ChromaSinkStage::trigger(
         return false;
     }
     
-    ORC_LOG_INFO("ChromaSink: Successfully wrote {} frames to: {}", numFrames, output_path_);
+    // Calculate performance metrics
+    auto decode_end_time = std::chrono::high_resolution_clock::now();
+    auto decode_duration = std::chrono::duration_cast<std::chrono::milliseconds>(decode_end_time - decode_start_time);
+    double decode_seconds = decode_duration.count() / 1000.0;
+    double fps = numFrames / decode_seconds;
+    int32_t total_fields = numFrames * 2;
+    double fields_per_second = total_fields / decode_seconds;
     
-    trigger_status_ = "Decode complete: " + std::to_string(numFrames) + " frames";
+    ORC_LOG_INFO("ChromaSink: Successfully wrote {} frames to: {}", numFrames, output_path_);
+    ORC_LOG_INFO("ChromaSink: Performance - {:.2f} seconds, {:.2f} fps, {:.2f} fields/sec", 
+                 decode_seconds, fps, fields_per_second);
+    
+    trigger_status_ = "Decode complete: " + std::to_string(numFrames) + " frames (" + 
+                      std::to_string(static_cast<int>(fps * 10) / 10.0) + " fps)";
     trigger_in_progress_.store(false);
     
     if (progress_callback_) {

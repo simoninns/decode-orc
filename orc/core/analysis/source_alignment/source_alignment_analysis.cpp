@@ -16,6 +16,7 @@
 #include "../../include/project.h"
 #include "../../include/logging.h"
 #include <algorithm>
+#include <set>
 #include <sstream>
 
 namespace orc {
@@ -227,93 +228,64 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         }
         
         if (progress) {
-            progress->setStatus("Analyzing VBI data across sources...");
+            progress->setStatus("Finding first common VBI frame across sources...");
             progress->setProgress(30);
         }
         
-        // Build a map of frame_number -> field_id for each source
-        struct FrameLocation {
-            FieldID field_id;
-            size_t source_index;
+        // Structure to track VBI frames found in each source
+        struct SourceVBIInfo {
+            FieldIDRange range;
+            std::set<int32_t> vbi_frames;  // VBI frames found so far
+            std::map<int32_t, FieldID> frame_to_field;  // Map VBI frame to field_id
+            int32_t first_vbi = -1;
+            int32_t last_vbi = -1;
+            size_t total_vbi_count = 0;  // Total VBI frames found during full scan
+            bool fully_scanned = false;
         };
         
-        std::map<int32_t, std::vector<FrameLocation>> frame_map;
-        std::vector<size_t> vbi_counts(input_sources.size(), 0);
-        std::vector<FieldIDRange> source_ranges;
-        std::vector<int32_t> first_vbi_frames;
-        std::vector<int32_t> last_vbi_frames;
+        std::vector<SourceVBIInfo> source_info(input_sources.size());
         
-        // Calculate total fields for progress tracking
-        size_t total_fields = 0;
-        for (const auto& source : input_sources) {
-            if (source) {
-                total_fields += source->field_count();
-            }
-        }
-        size_t processed_fields = 0;
+        // Phase 1: Quick scan - find the first few VBI frames from each source
+        // We'll scan up to MAX_SCAN_FIELDS per source to find initial VBI frames
+        constexpr size_t MAX_SCAN_FIELDS = 1000;  // Usually enough to find VBI data
         
-        // Scan each source and build the frame map
+        ORC_LOG_INFO("Phase 1: Quick scan for initial VBI frames (up to {} fields per source)", MAX_SCAN_FIELDS);
+        
         for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
             const auto& source = input_sources[src_idx];
             if (!source) {
                 continue;
             }
             
-            auto range = source->field_range();
-            source_ranges.push_back(range);
-            int32_t first_vbi = -1;
-            int32_t last_vbi = -1;
-            FieldID first_vbi_field_id;
-            FieldID last_vbi_field_id;
+            auto& info = source_info[src_idx];
+            info.range = source->field_range();
             
-            ORC_LOG_DEBUG("  Source {}: scanning {} fields (range {}-{})",
-                         src_idx + 1, source->field_count(), range.start.value(), range.end.value() - 1);
+            ORC_LOG_DEBUG("  Source {}: quick scan (range {}-{})",
+                         src_idx + 1, info.range.start.value(), info.range.end.value() - 1);
             
-            size_t fields_in_source = 0;
-            for (FieldID field_id = range.start; field_id < range.end; ++field_id) {
+            size_t scanned = 0;
+            for (FieldID field_id = info.range.start; field_id < info.range.end && scanned < MAX_SCAN_FIELDS; ++field_id) {
                 if (!source->has_field(field_id)) {
                     continue;
                 }
                 
+                scanned++;
                 int32_t frame_num = get_frame_number_from_vbi(*source, field_id);
                 if (frame_num >= 0) {
-                    frame_map[frame_num].push_back({field_id, src_idx});
-                    vbi_counts[src_idx]++;
-                    if (first_vbi < 0) {
-                        first_vbi = frame_num;
-                        first_vbi_field_id = field_id;
+                    info.vbi_frames.insert(frame_num);
+                    info.frame_to_field[frame_num] = field_id;
+                    
+                    if (info.first_vbi < 0) {
+                        info.first_vbi = frame_num;
                         ORC_LOG_DEBUG("    Source {}: first VBI frame {} found at field_id {}", 
-                                     src_idx + 1, first_vbi, field_id.value());
+                                     src_idx + 1, frame_num, field_id.value());
                     }
-                    last_vbi = frame_num;
-                    last_vbi_field_id = field_id;
-                }
-                
-                // Update progress every 100 fields to avoid excessive updates
-                fields_in_source++;
-                if (fields_in_source % 100 == 0 && progress) {
-                    processed_fields += 100;
-                    // VBI scanning takes 30-70% of progress, so map it to that range
-                    int percentage = 30 + (processed_fields * 40 / total_fields);
-                    progress->setProgress(percentage);
-                    progress->setStatus("Scanning VBI data: source " + std::to_string(src_idx + 1) + 
-                                      " of " + std::to_string(input_sources.size()));
+                    info.last_vbi = frame_num;
                 }
             }
             
-            // Account for remaining fields in this source
-            processed_fields += fields_in_source % 100;
-            
-            first_vbi_frames.push_back(first_vbi);
-            last_vbi_frames.push_back(last_vbi);
-            
-            if (first_vbi >= 0) {
-                ORC_LOG_DEBUG("    Found VBI data in {} fields (VBI range: {} to {}, field range: {} to {})", 
-                             vbi_counts[src_idx], first_vbi, last_vbi,
-                             first_vbi_field_id.value(), last_vbi_field_id.value());
-            } else {
-                ORC_LOG_DEBUG("    Found VBI data in {} fields", vbi_counts[src_idx]);
-            }
+            ORC_LOG_DEBUG("    Source {}: found {} unique VBI frames in first {} fields", 
+                         src_idx + 1, info.vbi_frames.size(), scanned);
             
             if (progress && progress->isCancelled()) {
                 result.status = AnalysisResult::Cancelled;
@@ -322,43 +294,163 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         }
         
         if (progress) {
+            progress->setProgress(50);
+        }
+        
+        // Phase 2: Find first common VBI frame from the quick scan
+        // Build intersection of VBI frames found so far
+        std::set<int32_t> common_frames;
+        bool first_source = true;
+        
+        for (size_t src_idx = 0; src_idx < source_info.size(); ++src_idx) {
+            const auto& info = source_info[src_idx];
+            
+            if (info.vbi_frames.empty()) {
+                ORC_LOG_WARN("Source {} has no VBI frames in quick scan", src_idx + 1);
+                common_frames.clear();
+                break;
+            }
+            
+            if (first_source) {
+                common_frames = info.vbi_frames;
+                first_source = false;
+            } else {
+                std::set<int32_t> intersection;
+                std::set_intersection(
+                    common_frames.begin(), common_frames.end(),
+                    info.vbi_frames.begin(), info.vbi_frames.end(),
+                    std::inserter(intersection, intersection.begin())
+                );
+                common_frames = std::move(intersection);
+            }
+            
+            if (common_frames.empty()) {
+                ORC_LOG_WARN("No VBI frame overlap found between sources up to source {}", src_idx + 1);
+                break;
+            }
+        }
+        
+        int32_t first_common_frame = -1;
+        if (!common_frames.empty()) {
+            // Use the earliest common frame found
+            first_common_frame = *common_frames.begin();
+            ORC_LOG_INFO("Found first common VBI frame {} in quick scan (appears in all {} sources)", 
+                        first_common_frame, input_sources.size());
+        } else {
+            // Need to do a full scan - sources might have non-overlapping VBI frames in the quick scan
+            ORC_LOG_WARN("No common VBI frame in quick scan - will need full scan to find best alignment");
+        }
+        
+        if (progress) {
+            progress->setProgress(60);
+        }
+        
+        // Phase 3: If we didn't find a common frame, do a full scan to gather all VBI data
+        // This is the fallback - only happens if sources have very sparse or non-overlapping VBI in first 1000 fields
+        if (first_common_frame < 0) {
+            ORC_LOG_INFO("Phase 3: Full scan to find best alignment");
+            
+            for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
+                const auto& source = input_sources[src_idx];
+                if (!source) {
+                    continue;
+                }
+                
+                auto& info = source_info[src_idx];
+                
+                ORC_LOG_DEBUG("  Source {}: full scan of {} fields", src_idx + 1, source->field_count());
+                
+                for (FieldID field_id = info.range.start; field_id < info.range.end; ++field_id) {
+                    if (!source->has_field(field_id)) {
+                        continue;
+                    }
+                    
+                    int32_t frame_num = get_frame_number_from_vbi(*source, field_id);
+                    if (frame_num >= 0) {
+                        if (info.vbi_frames.find(frame_num) == info.vbi_frames.end()) {
+                            info.vbi_frames.insert(frame_num);
+                            info.frame_to_field[frame_num] = field_id;
+                        }
+                        info.total_vbi_count++;
+                        info.last_vbi = frame_num;
+                    }
+                }
+                
+                info.fully_scanned = true;
+                ORC_LOG_DEBUG("    Source {}: found {} unique VBI frames, {} total VBI observations", 
+                             src_idx + 1, info.vbi_frames.size(), info.total_vbi_count);
+                
+                if (progress && progress->isCancelled()) {
+                    result.status = AnalysisResult::Cancelled;
+                    return result;
+                }
+            }
+        }
+        
+        if (progress) {
             progress->setStatus("Computing optimal alignment...");
             progress->setProgress(70);
         }
         
-        // Find the frame number that exists in the MOST sources
-        // Start by looking for all sources, then relax to find the largest overlapping set
-        int32_t first_common_frame = -1;
+        // Phase 4: Determine the best alignment based on available data
         std::vector<FieldID> alignment_offsets(input_sources.size());
-        std::vector<size_t> participating_sources;  // Indices of sources that have the common frame
+        std::vector<size_t> participating_sources;
         size_t max_sources_found = 0;
         
-        for (const auto& [frame_num, locations] : frame_map) {
-            // Check which sources have this frame
-            std::vector<bool> source_present(input_sources.size(), false);
-            for (const auto& loc : locations) {
-                source_present[loc.source_index] = true;
-            }
-            
-            size_t present_count = std::count(source_present.begin(), source_present.end(), true);
-            
-            // If this frame appears in more sources than previous candidates, use it
-            if (present_count > max_sources_found) {
-                max_sources_found = present_count;
-                first_common_frame = frame_num;
-                
-                // Record the field_id for each source at this frame
-                participating_sources.clear();
-                for (const auto& loc : locations) {
-                    alignment_offsets[loc.source_index] = loc.field_id;
-                    participating_sources.push_back(loc.source_index);
-                }
-                
-                // If we found a frame in all sources, we're done
-                if (present_count == input_sources.size()) {
-                    break;
+        // If we found a common frame in quick scan, use it
+        if (first_common_frame >= 0) {
+            // All sources have this frame
+            max_sources_found = input_sources.size();
+            for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
+                const auto& info = source_info[src_idx];
+                auto it = info.frame_to_field.find(first_common_frame);
+                if (it != info.frame_to_field.end()) {
+                    alignment_offsets[src_idx] = it->second;
+                    participating_sources.push_back(src_idx);
                 }
             }
+        } else {
+            // Full scan was done - find frame that appears in most sources
+            std::map<int32_t, std::vector<size_t>> frame_to_sources;
+            
+            for (size_t src_idx = 0; src_idx < source_info.size(); ++src_idx) {
+                const auto& info = source_info[src_idx];
+                for (int32_t frame_num : info.vbi_frames) {
+                    frame_to_sources[frame_num].push_back(src_idx);
+                }
+            }
+            
+            // Find the earliest frame that appears in the most sources
+            for (const auto& [frame_num, sources] : frame_to_sources) {
+                if (sources.size() > max_sources_found) {
+                    max_sources_found = sources.size();
+                    first_common_frame = frame_num;
+                    
+                    participating_sources.clear();
+                    for (size_t src_idx : sources) {
+                        participating_sources.push_back(src_idx);
+                        alignment_offsets[src_idx] = source_info[src_idx].frame_to_field[frame_num];
+                    }
+                    
+                    // If all sources have this frame, we're done
+                    if (max_sources_found == input_sources.size()) {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Prepare summary data
+        std::vector<int32_t> first_vbi_frames;
+        std::vector<int32_t> last_vbi_frames;
+        std::vector<size_t> vbi_counts;
+        std::vector<FieldIDRange> source_ranges;
+        
+        for (const auto& info : source_info) {
+            first_vbi_frames.push_back(info.first_vbi);
+            last_vbi_frames.push_back(info.last_vbi);
+            vbi_counts.push_back(info.fully_scanned ? info.total_vbi_count : info.vbi_frames.size());
+            source_ranges.push_back(info.range);
         }
         
         if (first_common_frame < 0 || max_sources_found == 0) {

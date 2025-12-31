@@ -69,6 +69,16 @@ public:
     virtual bool isApplicableToStage(const std::string& stage_name) const = 0;
 
     /**
+     * @brief Get priority for menu ordering
+     * @return Priority level (1 = stage-specific tools, 2 = common tools)
+     * 
+     * Lower numbers appear first in menus. Priority 1 is for tools that are
+     * specific to a particular stage type. Priority 2 is for common batch
+     * analysis tools that work across multiple stage types.
+     */
+    virtual int priority() const { return 2; }
+
+    /**
      * @brief Run the analysis
      * @param ctx Analysis context with source and parameters
      * @param progress Progress reporter (can be null)

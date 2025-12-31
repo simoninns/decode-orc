@@ -24,6 +24,7 @@ public:
     std::vector<ParameterDescriptor> parametersForContext(const AnalysisContext& ctx) const override;
     bool canAnalyze(AnalysisSourceType source_type) const override;
     bool isApplicableToStage(const std::string& stage_name) const override;
+    int priority() const override { return 1; }  // Stage-specific tool
     
     AnalysisResult analyze(const AnalysisContext& ctx,
                           AnalysisProgress* progress) override;

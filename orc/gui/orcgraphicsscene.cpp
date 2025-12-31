@@ -18,6 +18,7 @@
 #include <QGraphicsView>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <algorithm>
 
 OrcGraphicsScene::OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent)
     : QtNodes::BasicGraphicsScene(graphModel, parent)
@@ -193,6 +194,17 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
             applicable_tools.push_back(tool);
         }
     }
+    
+    // Sort tools: by priority (1=stage-specific, 2=common), then alphabetically
+    std::sort(applicable_tools.begin(), applicable_tools.end(), 
+        [](const orc::AnalysisTool* a, const orc::AnalysisTool* b) {
+            int priority_a = a->priority();
+            int priority_b = b->priority();
+            if (priority_a != priority_b) {
+                return priority_a < priority_b;  // Lower priority first
+            }
+            return a->name() < b->name();  // Same priority: alphabetical
+        });
     
     if (applicable_tools.empty()) {
         analysis_menu->addAction("(No analysis tools available for this stage)")->setEnabled(false);

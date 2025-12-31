@@ -247,6 +247,15 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         std::vector<int32_t> first_vbi_frames;
         std::vector<int32_t> last_vbi_frames;
         
+        // Calculate total fields for progress tracking
+        size_t total_fields = 0;
+        for (const auto& source : input_sources) {
+            if (source) {
+                total_fields += source->field_count();
+            }
+        }
+        size_t processed_fields = 0;
+        
         // Scan each source and build the frame map
         for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
             const auto& source = input_sources[src_idx];
@@ -264,6 +273,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
             ORC_LOG_DEBUG("  Source {}: scanning {} fields (range {}-{})",
                          src_idx + 1, source->field_count(), range.start.value(), range.end.value() - 1);
             
+            size_t fields_in_source = 0;
             for (FieldID field_id = range.start; field_id < range.end; ++field_id) {
                 if (!source->has_field(field_id)) {
                     continue;
@@ -282,7 +292,21 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
                     last_vbi = frame_num;
                     last_vbi_field_id = field_id;
                 }
+                
+                // Update progress every 100 fields to avoid excessive updates
+                fields_in_source++;
+                if (fields_in_source % 100 == 0 && progress) {
+                    processed_fields += 100;
+                    // VBI scanning takes 30-70% of progress, so map it to that range
+                    int percentage = 30 + (processed_fields * 40 / total_fields);
+                    progress->setProgress(percentage);
+                    progress->setStatus("Scanning VBI data: source " + std::to_string(src_idx + 1) + 
+                                      " of " + std::to_string(input_sources.size()));
+                }
             }
+            
+            // Account for remaining fields in this source
+            processed_fields += fields_in_source % 100;
             
             first_vbi_frames.push_back(first_vbi);
             last_vbi_frames.push_back(last_vbi);
@@ -453,14 +477,6 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
             summary << "Alignment based on VBI frame " << first_common_frame << "\n\n";
         } else {
             summary << "Alignment based on VBI frame " << first_common_frame << "\n\n";
-        }
-        
-        // Add warning if sources appear pre-aligned
-        if (all_start_at_zero && input_sources.size() > 1) {
-            summary << "⚠ WARNING: All sources start at field 0 with VBI frame " << first_common_frame << "\n";
-            summary << "This suggests sources have been pre-aligned by upstream field_map stages.\n";
-            summary << "For proper alignment analysis, place source_align BEFORE field_map stages,\n";
-            summary << "or analyze the original source nodes directly.\n\n";
         }
         
         summary << "Alignment Map: " << alignment_map.str() << "\n\n";

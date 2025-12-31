@@ -1027,44 +1027,92 @@ std::vector<int16_t> StackerStage::stack_audio(
     // Collect audio samples from all sources
     std::vector<std::vector<int16_t>> all_audio_samples;
     std::vector<uint32_t> sample_counts;
+    std::vector<size_t> source_indices;
+    size_t total_sources_with_audio = 0;
+    size_t sources_without_audio = 0;
+    size_t sources_without_field = 0;
     
-    for (const auto& source : sources) {
-        if (source && source->has_audio() && source->has_field(field_id)) {
-            uint32_t sample_count = source->get_audio_sample_count(field_id);
-            auto samples = source->get_audio_samples(field_id);
-            
-            if (!samples.empty()) {
-                all_audio_samples.push_back(std::move(samples));
-                sample_counts.push_back(sample_count);
-            }
+    for (size_t src_idx = 0; src_idx < sources.size(); ++src_idx) {
+        const auto& source = sources[src_idx];
+        if (!source) {
+            continue;
         }
+        
+        if (!source->has_audio()) {
+            sources_without_audio++;
+            continue;
+        }
+        
+        if (!source->has_field(field_id)) {
+            sources_without_field++;
+            continue;
+        }
+        
+        total_sources_with_audio++;
+        uint32_t sample_count = source->get_audio_sample_count(field_id);
+        auto samples = source->get_audio_samples(field_id);
+        
+        if (!samples.empty()) {
+            all_audio_samples.push_back(std::move(samples));
+            sample_counts.push_back(sample_count);
+            source_indices.push_back(src_idx);
+        }
+    }
+    
+    // Log source availability summary
+    if (sources_without_audio > 0 || sources_without_field > 0) {
+        ORC_LOG_DEBUG("StackerStage: Field {} - total {} sources, {} without audio, {} without this field, {} with audio available",
+                     field_id.value(), sources.size(), sources_without_audio, sources_without_field, total_sources_with_audio);
     }
     
     // If no audio sources available, return empty
     if (all_audio_samples.empty()) {
+        ORC_LOG_DEBUG("StackerStage: No audio sources available for field {}", field_id.value());
         return {};
     }
     
     // If only one source has audio, return it directly
     if (all_audio_samples.size() == 1) {
+        ORC_LOG_DEBUG("StackerStage: Only 1 audio source available for field {} (source {}, {} samples), using it directly", 
+                     field_id.value(), source_indices[0], sample_counts[0]);
         return all_audio_samples[0];
     }
     
     // Sanity check: ensure all sources have the same number of samples
     uint32_t expected_sample_count = sample_counts[0];
-    bool sample_count_mismatch = false;
+    std::vector<size_t> matching_indices;
+    std::vector<size_t> mismatched_indices;
+    std::vector<uint32_t> mismatched_counts;
+    
+    matching_indices.push_back(source_indices[0]);
     
     for (size_t i = 1; i < sample_counts.size(); ++i) {
         if (sample_counts[i] != expected_sample_count) {
-            sample_count_mismatch = true;
-            ORC_LOG_WARN("StackerStage: Audio sample count mismatch for field {}: source 0 has {} samples, source {} has {} samples",
-                        field_id.value(), expected_sample_count, i, sample_counts[i]);
+            mismatched_indices.push_back(source_indices[i]);
+            mismatched_counts.push_back(sample_counts[i]);
+        } else {
+            matching_indices.push_back(source_indices[i]);
         }
     }
     
-    if (sample_count_mismatch) {
-        ORC_LOG_WARN("StackerStage: Skipping audio stacking for field {} due to sample count mismatch - using best source audio",
-                    field_id.value());
+    if (!mismatched_indices.empty()) {
+        // Build summary strings for rejected sources
+        std::string rejected_indices_str = "[";
+        std::string rejected_counts_str = "[";
+        for (size_t i = 0; i < mismatched_indices.size(); ++i) {
+            if (i > 0) {
+                rejected_indices_str += ", ";
+                rejected_counts_str += ", ";
+            }
+            rejected_indices_str += std::to_string(mismatched_indices[i]);
+            rejected_counts_str += std::to_string(mismatched_counts[i]);
+        }
+        rejected_indices_str += "]";
+        rejected_counts_str += "]";
+        
+        ORC_LOG_WARN("StackerStage: Field {} - {} audio sources rejected {} with {} samples (expected {})",
+                    field_id.value(), mismatched_indices.size(), rejected_indices_str, rejected_counts_str, expected_sample_count);
+        
         // Use the best source's audio when sample counts don't match
         if (best_source_index < sources.size() && 
             sources[best_source_index] && 
@@ -1079,8 +1127,13 @@ std::vector<int16_t> StackerStage::stack_audio(
     size_t num_samples_total = all_audio_samples[0].size();  // Total interleaved samples
     std::vector<int16_t> stacked_audio(num_samples_total);
     
-    ORC_LOG_DEBUG("StackerStage: Stacking audio for field {} - {} sources, {} total samples (stereo interleaved)",
-                 field_id.value(), all_audio_samples.size(), num_samples_total);
+    // Build list of sources being used
+    std::string sources_str = "[";
+    for (size_t i = 0; i < source_indices.size(); ++i) {
+        if (i > 0) sources_str += ", ";
+        sources_str += std::to_string(source_indices[i]);
+    }
+    sources_str += "]";
     
     // Stack each sample position across all sources
     for (size_t sample_idx = 0; sample_idx < num_samples_total; ++sample_idx) {
@@ -1105,7 +1158,9 @@ std::vector<int16_t> StackerStage::stack_audio(
         }
     }
     
-    ORC_LOG_DEBUG("StackerStage: Audio stacking complete for field {}", field_id.value());
+    ORC_LOG_DEBUG("StackerStage: Field {} - {} audio sources used for stacking {} ({} samples each) - complete",
+                 field_id.value(), all_audio_samples.size(), sources_str, expected_sample_count);
+    
     return stacked_audio;
 }
 

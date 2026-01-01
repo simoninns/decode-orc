@@ -49,6 +49,8 @@ add_library(orc-core STATIC
     # Field mapping analysis
     analysis/field_mapping/field_mapping_analyzer.cpp
     analysis/field_mapping/field_mapping_analysis.cpp
+    analysis/field_mapping/field_mapping_lookup.cpp
+    analysis/field_mapping/field_mapping_range_analysis.cpp
     
     # Field corruption analysis (testing tool)
     analysis/field_corruption/field_corruption_analyzer.cpp

@@ -48,6 +48,7 @@ private slots:
     void exportResults();
     void addPartialResult(const AnalysisResult::ResultItem& item);
     void onAnalysisComplete(const AnalysisResult& result);
+    void update_dependencies();
 
 private:
     void setupUI();
@@ -81,8 +82,10 @@ private:
         QString name;
         QWidget* widget;
         ParameterType type;
+        QLabel* label = nullptr;
     };
     QVector<ParameterWidget> parameterWidgets_;
+    std::vector<ParameterDescriptor> parameterDescriptors_;
 };
 
 } // namespace gui

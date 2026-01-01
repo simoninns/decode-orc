@@ -7,6 +7,7 @@
 #include <QMessageBox>
 #include <QTextStream>
 #include <QComboBox>
+#include <limits>
 
 namespace orc {
 namespace gui {
@@ -81,16 +82,55 @@ void AnalysisDialog::setupUI() {
 }
 
 void AnalysisDialog::populateParameters() {
-    for (const auto& param : tool_->parametersForContext(context_)) {
+    parameterDescriptors_ = tool_->parametersForContext(context_);
+    
+    for (const auto& param : parameterDescriptors_) {
         QWidget* widget = createParameterWidget(param);
-        parametersLayout_->addRow(QString::fromStdString(param.name), widget);
+        
+        // Create label with tooltip
+        auto* label = new QLabel(QString::fromStdString(param.display_name) + ":");
+        label->setToolTip(QString::fromStdString(param.description));
+        widget->setToolTip(QString::fromStdString(param.description));
+        
+        parametersLayout_->addRow(label, widget);
         
         ParameterWidget pw;
         pw.name = QString::fromStdString(param.name);
         pw.widget = widget;
         pw.type = param.type;
+        pw.label = label;
         parameterWidgets_.push_back(pw);
+        
+        // Connect change signals to update dependencies
+        switch (param.type) {
+            case ParameterType::STRING:
+                if (auto* combo = qobject_cast<QComboBox*>(widget)) {
+                    connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                            this, &AnalysisDialog::update_dependencies);
+                } else if (auto* edit = qobject_cast<QLineEdit*>(widget)) {
+                    connect(edit, &QLineEdit::textChanged,
+                            this, &AnalysisDialog::update_dependencies);
+                }
+                break;
+            case ParameterType::INT32:
+                connect(static_cast<QSpinBox*>(widget), QOverload<int>::of(&QSpinBox::valueChanged),
+                        this, &AnalysisDialog::update_dependencies);
+                break;
+            case ParameterType::DOUBLE:
+                connect(static_cast<QDoubleSpinBox*>(widget), QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                        this, &AnalysisDialog::update_dependencies);
+                break;
+            case ParameterType::BOOL:
+                connect(static_cast<QCheckBox*>(widget), &QCheckBox::checkStateChanged,
+                        this, &AnalysisDialog::update_dependencies);
+                break;
+            default:
+                break;
+        }
     }
+    
+    // Initial dependency update
+    update_dependencies();
 }
 
 QWidget* AnalysisDialog::createParameterWidget(const ParameterDescriptor& param) {
@@ -107,9 +147,13 @@ QWidget* AnalysisDialog::createParameterWidget(const ParameterDescriptor& param)
             auto* spin = new QSpinBox();
             if (param.constraints.min_value && std::holds_alternative<int32_t>(*param.constraints.min_value)) {
                 spin->setMinimum(std::get<int32_t>(*param.constraints.min_value));
+            } else {
+                spin->setMinimum(std::numeric_limits<int32_t>::min());
             }
             if (param.constraints.max_value && std::holds_alternative<int32_t>(*param.constraints.max_value)) {
                 spin->setMaximum(std::get<int32_t>(*param.constraints.max_value));
+            } else {
+                spin->setMaximum(std::numeric_limits<int32_t>::max());
             }
             if (param.constraints.default_value && std::holds_alternative<int32_t>(*param.constraints.default_value)) {
                 spin->setValue(std::get<int32_t>(*param.constraints.default_value));
@@ -281,6 +325,76 @@ void AnalysisDialog::displayFinalStatistics(const AnalysisResult& result) {
 
 void AnalysisDialog::updateLiveStatistics() {
     // Not implemented yet
+}
+
+void AnalysisDialog::update_dependencies() {
+    // Get current values of all parameters
+    std::map<std::string, ParameterValue> current_values;
+    for (const auto& pw : parameterWidgets_) {
+        std::string name = pw.name.toStdString();
+        
+        switch (pw.type) {
+            case ParameterType::BOOL: {
+                auto* cb = qobject_cast<QCheckBox*>(pw.widget);
+                if (cb) current_values[name] = cb->isChecked();
+                break;
+            }
+            case ParameterType::INT32: {
+                auto* spin = qobject_cast<QSpinBox*>(pw.widget);
+                if (spin) current_values[name] = spin->value();
+                break;
+            }
+            case ParameterType::DOUBLE: {
+                auto* spin = qobject_cast<QDoubleSpinBox*>(pw.widget);
+                if (spin) current_values[name] = spin->value();
+                break;
+            }
+            case ParameterType::STRING: {
+                auto* combo = qobject_cast<QComboBox*>(pw.widget);
+                if (combo) {
+                    current_values[name] = combo->currentText().toStdString();
+                } else {
+                    auto* edit = qobject_cast<QLineEdit*>(pw.widget);
+                    if (edit) current_values[name] = edit->text().toStdString();
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    
+    // Check each parameter's dependencies
+    for (size_t i = 0; i < parameterDescriptors_.size(); ++i) {
+        const auto& desc = parameterDescriptors_[i];
+        
+        if (!desc.constraints.depends_on.has_value()) {
+            continue;  // No dependency, always enabled
+        }
+        
+        const auto& dep = *desc.constraints.depends_on;
+        bool should_enable = false;
+        
+        // Find the value of the parameter we depend on
+        auto it = current_values.find(dep.parameter_name);
+        if (it != current_values.end()) {
+            // Convert current value to string for comparison
+            std::string current_val = orc::parameter_util::value_to_string(it->second);
+            
+            // Check if current value is in the list of required values
+            should_enable = std::find(dep.required_values.begin(), 
+                                     dep.required_values.end(), 
+                                     current_val) != dep.required_values.end();
+        }
+        
+        // Enable or disable the widget and label
+        if (i < parameterWidgets_.size()) {
+            parameterWidgets_[i].widget->setEnabled(should_enable);
+            if (parameterWidgets_[i].label) {
+                parameterWidgets_[i].label->setEnabled(should_enable);
+            }
+        }
+    }
 }
 
 void AnalysisDialog::exportResults() {

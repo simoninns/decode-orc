@@ -257,8 +257,20 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
     ORC_LOG_INFO("RenderCoordinator: Updating DAG (request {})", req.request_id);
     
     if (!req.dag) {
-        ORC_LOG_ERROR("RenderCoordinator: UpdateDAG received null DAG");
-        emit error(req.request_id, "Null DAG provided");
+        // Null DAG is valid - happens with empty projects or projects with no stages
+        ORC_LOG_WARN("RenderCoordinator: Received null DAG (empty project with no stages)");
+        
+        // Clear all worker state
+        worker_dag_.reset();
+        worker_obs_cache_.reset();
+        worker_preview_renderer_.reset();
+        worker_field_renderer_.reset();
+        worker_vbi_decoder_.reset();
+        worker_dropout_decoder_.reset();
+        worker_snr_decoder_.reset();
+        worker_burst_level_decoder_.reset();
+        
+        ORC_LOG_INFO("RenderCoordinator: Cleared all rendering state for empty project");
         return;
     }
     

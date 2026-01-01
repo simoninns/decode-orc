@@ -104,7 +104,7 @@ void validate_source_nodes(const std::shared_ptr<DAG>& dag) {
     }
     
     // Try to execute each source node to validate they can be accessed
-    // Source nodes should produce output when executed with empty inputs
+    // Source nodes may produce empty output if no file path is configured (valid placeholder state)
     ORC_LOG_DEBUG("Validating {} DAG nodes", dag->nodes().size());
     
     for (const auto& node : dag->nodes()) {
@@ -116,11 +116,11 @@ void validate_source_nodes(const std::shared_ptr<DAG>& dag) {
                 // This will trigger TBC loading and validation
                 auto outputs = node.stage->execute({}, node.parameters);
                 if (outputs.empty()) {
-                    throw ProjectConversionError(
-                        "Source node '" + node.node_id.to_string() + "' produced no output"
-                    );
+                    // Empty output is valid - source may have no file configured (placeholder node)
+                    ORC_LOG_WARN("Source node '{}' produced no output (no file configured)", node.node_id);
+                } else {
+                    ORC_LOG_DEBUG("Source node validation passed: {}", node.node_id);
                 }
-                ORC_LOG_DEBUG("Source node validation passed: {}", node.node_id);
             } catch (const std::exception& e) {
                 // Source validation failed - re-throw with more context
                 throw ProjectConversionError(

@@ -92,7 +92,6 @@ MainWindow::MainWindow(QWidget *parent)
     , preview_update_timer_(nullptr)
     , pending_preview_index_(-1)
     , preview_update_pending_(false)
-    , last_preview_update_time_(0)
     , last_update_was_sequential_(false)
     , trigger_progress_dialog_(nullptr)
     , dropout_progress_dialog_(nullptr)
@@ -130,15 +129,16 @@ MainWindow::MainWindow(QWidget *parent)
     // Start the coordinator worker thread
     render_coordinator_->start();
     
-    // Create preview update throttling timer
+    // Create preview update debounce timer
+    // This prevents excessive rendering during slider scrubbing by only updating
+    // after the slider has been stationary for a short period
     preview_update_timer_ = new QTimer(this);
-    preview_update_timer_->setSingleShot(false);  // Repeating for smooth throttling
-    preview_update_timer_->setInterval(33);  // ~30fps max update rate for smooth scrubbing
+    preview_update_timer_->setSingleShot(true);  // Single-shot for debounce behavior
+    preview_update_timer_->setInterval(200);  // 200ms delay after last slider movement
     connect(preview_update_timer_, &QTimer::timeout, this, [this]() {
         if (preview_update_pending_) {
             updateAllPreviewComponents();
             preview_update_pending_ = false;
-            last_preview_update_time_ = QDateTime::currentMSecsSinceEpoch();
         }
     });
     
@@ -724,25 +724,16 @@ void MainWindow::updateUIState()
 
 void MainWindow::onPreviewIndexChanged(int index)
 {
-    // Throttle preview updates to avoid excessive rendering during slider scrubbing
-    // Use throttling (not debouncing) for smooth real-time feedback
+    // Debounce preview updates to avoid excessive rendering during slider scrubbing
+    // The timer will only fire after the slider has been stationary for 200ms
+    // This provides smooth scrubbing while still allowing updates when paused
     
     pending_preview_index_ = index;
     preview_update_pending_ = true;
     
-    qint64 now = QDateTime::currentMSecsSinceEpoch();
-    qint64 time_since_last_update = now - last_preview_update_time_;
-    
-    // If enough time has passed, update immediately
-    if (time_since_last_update >= preview_update_timer_->interval()) {
-        updateAllPreviewComponents();
-        preview_update_pending_ = false;
-        last_preview_update_time_ = now;
-    } else if (!preview_update_timer_->isActive()) {
-        // Start timer if not already running
-        preview_update_timer_->start();
-    }
-    // Otherwise, timer is already running and will pick up the pending update
+    // Restart the debounce timer - this cancels any pending update
+    // and schedules a new one for 200ms from now
+    preview_update_timer_->start();
 }
 
 void MainWindow::onNavigatePreview(int delta)

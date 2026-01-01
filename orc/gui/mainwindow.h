@@ -215,11 +215,10 @@ private:
     std::string current_option_id_;  ///< Current option ID for PreviewableStage rendering
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
     
-    // Preview update throttling
+    // Preview update debouncing (for slider scrubbing)
     QTimer* preview_update_timer_;
     int pending_preview_index_;
     bool preview_update_pending_;
-    qint64 last_preview_update_time_;  // Timestamp of last update for throttling
     bool last_update_was_sequential_;  // Track if last update was from next/prev buttons
     
     // Trigger progress tracking (now via coordinator signals)

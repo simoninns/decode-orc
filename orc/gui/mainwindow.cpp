@@ -870,6 +870,12 @@ void MainWindow::updatePreviewInfo()
         return;
     }
     
+    // Update pulldown observer menu item availability (only for NTSC)
+    // Pulldown is NTSC-specific (3:2 pulldown for film conversion)
+    auto video_format = project_.coreProject().get_video_format();
+    bool is_ntsc = (video_format == orc::VideoSystem::NTSC);
+    preview_dialog_->pulldownAction()->setEnabled(is_ntsc);
+    
     // Get detailed display info from core
     int current_index = preview_dialog_->previewSlider()->value();
     int total = preview_dialog_->previewSlider()->maximum() + 1;

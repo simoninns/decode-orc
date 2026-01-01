@@ -42,6 +42,7 @@ public:
     QLabel* sliderMaxLabel() { return slider_max_label_; }
     QComboBox* previewModeCombo() { return preview_mode_combo_; }
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }
+    QAction* pulldownAction() { return show_pulldown_action_; }
     
     void setCurrentNode(const QString& node_label, const QString& node_id);
 

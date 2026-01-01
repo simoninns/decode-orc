@@ -12,6 +12,7 @@
 #include "previewdialog.h"
 #include "vbidialog.h"
 #include "hintsdialog.h"
+#include "pulldowndialog.h"
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
@@ -68,6 +69,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_dialog_(nullptr)
     , vbi_dialog_(nullptr)
+    , pulldown_dialog_(nullptr)
     , dag_view_(nullptr)
     , dag_model_(nullptr)
     , dag_scene_(nullptr)
@@ -173,6 +175,10 @@ MainWindow::~MainWindow()
         delete vbi_dialog_;
         vbi_dialog_ = nullptr;
     }
+    if (pulldown_dialog_) {
+        delete pulldown_dialog_;
+        pulldown_dialog_ = nullptr;
+    }
     if (preview_dialog_) {
         delete preview_dialog_;
         preview_dialog_ = nullptr;
@@ -228,6 +234,9 @@ void MainWindow::setupUI()
     
     // Create hints dialog (initially hidden)
     hints_dialog_ = new HintsDialog(this);
+    
+    // Create pulldown dialog (initially hidden)
+    pulldown_dialog_ = new PulldownDialog(this);
     
     // Create dropout analysis dialog (initially hidden)
     dropout_analysis_dialog_ = new DropoutAnalysisDialog(this);
@@ -308,6 +317,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onShowHintsDialog);
     connect(preview_dialog_, &PreviewDialog::showQualityMetricsDialogRequested,
             this, &MainWindow::onShowQualityMetricsDialog);
+    connect(preview_dialog_, &PreviewDialog::showPulldownDialogRequested,
+            this, &MainWindow::onShowPulldownDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -1912,6 +1923,21 @@ void MainWindow::onShowQualityMetricsDialog()
     updateQualityMetricsDialog();
 }
 
+void MainWindow::onShowPulldownDialog()
+{
+    if (!pulldown_dialog_) {
+        return;
+    }
+    
+    // Show the dialog first
+    pulldown_dialog_->show();
+    pulldown_dialog_->raise();
+    pulldown_dialog_->activateWindow();
+    
+    // Update pulldown information after showing
+    updatePulldownDialog();
+}
+
 void MainWindow::updateQualityMetricsDialog()
 {
     // Only update if dialog is visible
@@ -1993,6 +2019,7 @@ void MainWindow::updateAllPreviewComponents()
     updateVBIDialog();
     updateHintsDialog();
     updateQualityMetricsDialog();
+    updatePulldownDialog();
     
     // For analysis dialogs, only update the frame marker position (not the full data)
     // Full data is only loaded when the dialog is first opened
@@ -2120,3 +2147,71 @@ void MainWindow::updateHintsDialog()
     }
 }
 
+void MainWindow::updatePulldownDialog()
+{
+    // Only update if pulldown dialog is visible
+    if (!pulldown_dialog_ || !pulldown_dialog_->isVisible()) {
+        return;
+    }
+    
+    // Get current field being displayed
+    if (!current_view_node_id_.is_valid()) {
+        pulldown_dialog_->clearPulldownInfo();
+        return;
+    }
+    
+    // Get the current index from the preview slider
+    int current_index = preview_dialog_->previewSlider()->value();
+    
+    // Check if we're in frame mode (any mode that shows two fields)
+    bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                         current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+                         current_output_type_ == orc::PreviewOutputType::Split);
+    
+    // For pulldown, we'll show the first field's observation (or single field in field mode)
+    orc::FieldID field_id = is_frame_mode ? orc::FieldID(current_index * 2) : orc::FieldID(current_index);
+    
+    // Get pulldown observation from the current DAG/node
+    try {
+        auto dag = orc::project_to_dag(project_.coreProject());
+        if (!dag) {
+            pulldown_dialog_->clearPulldownInfo();
+            return;
+        }
+        
+        // Create a temporary renderer to get the field representation
+        orc::DAGFieldRenderer renderer(dag);
+        
+        // Render the field at the current node
+        auto render_result = renderer.render_field_at_node(current_view_node_id_, field_id);
+        
+        if (!render_result.is_valid || !render_result.representation) {
+            pulldown_dialog_->clearPulldownInfo();
+            return;
+        }
+        
+        // Get observations from the field representation
+        auto observations = render_result.representation->get_observations(field_id);
+        
+        // Find pulldown observation
+        std::shared_ptr<orc::PulldownObservation> pulldown_obs = nullptr;
+        for (const auto& obs : observations) {
+            if (obs->observation_type() == "Pulldown") {
+                pulldown_obs = std::dynamic_pointer_cast<orc::PulldownObservation>(obs);
+                break;
+            }
+        }
+        
+        // Update the dialog
+        if (pulldown_obs) {
+            pulldown_dialog_->updatePulldownObservation(pulldown_obs);
+        } else {
+            // No pulldown observation found - might be PAL or CLV format
+            pulldown_dialog_->clearPulldownInfo();
+        }
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to get pulldown observation: {}", e.what());
+        pulldown_dialog_->clearPulldownInfo();
+    }
+}

@@ -30,6 +30,7 @@ class OrcGraphicsView;
 class PreviewDialog;
 class VBIDialog;
 class HintsDialog;
+class PulldownDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
@@ -118,6 +119,8 @@ private slots:
     void updateHintsDialog();
     void onShowQualityMetricsDialog();
     void updateQualityMetricsDialog();
+    void onShowPulldownDialog();
+    void updatePulldownDialog();
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -191,6 +194,7 @@ private:
     QualityMetricsDialog* quality_metrics_dialog_;
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
+    PulldownDialog* pulldown_dialog_;
     DropoutAnalysisDialog* dropout_analysis_dialog_;
     SNRAnalysisDialog* snr_analysis_dialog_;
     BurstLevelAnalysisDialog* burst_level_analysis_dialog_;

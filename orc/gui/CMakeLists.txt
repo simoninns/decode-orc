@@ -64,6 +64,10 @@ add_executable(orc-gui
     hintsdialog.cpp
     hintsdialog.h
     
+    # Pulldown dialog
+    pulldowndialog.cpp
+    pulldowndialog.h
+    
     # Plot widget
     plotwidget.cpp
     plotwidget.h

@@ -51,7 +51,7 @@ public:
     }
     
     std::string observer_version() const override {
-        return "1.0.0";
+        return "1.1.0";
     }
     
     std::vector<std::shared_ptr<Observation>> process_field(
@@ -66,13 +66,13 @@ private:
      * Standard NTSC has 4-field phase sequence (1,2,3,4).
      * Pulldown introduces repeated fields, detectable in phase patterns.
      * 
+     * @param representation Video field representation to access phase hints
      * @param field_id Current field
-     * @param history Observation history for previous fields
      * @return True if field appears to be pulldown
      */
     bool analyze_phase_pattern(
-        FieldID field_id,
-        const ObservationHistory& history) const;
+        const VideoFieldRepresentation& representation,
+        FieldID field_id) const;
     
     /**
      * @brief Check if VBI frame number indicates pulldown

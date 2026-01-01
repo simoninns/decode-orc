@@ -187,13 +187,15 @@ void VBIDialog::setupUI()
 
 void VBIDialog::updateVBIInfo(const orc::VBIFieldInfo& vbi_info)
 {
-    // Field number (0-indexed)
-    field_number_label_->setText(QString::number(vbi_info.field_id.value()));
-    
     if (!vbi_info.has_vbi_data) {
+        // No valid VBI data - show N/A for field number too
+        field_number_label_->setText("-");
         clearVBIInfo();
         return;
     }
+    
+    // Field number (0-indexed)
+    field_number_label_->setText(QString::number(vbi_info.field_id.value()));
     
     // Raw VBI data
     line16_label_->setText(formatVBILine(vbi_info.vbi_data[0]));

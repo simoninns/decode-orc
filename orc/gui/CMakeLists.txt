@@ -83,6 +83,10 @@ add_executable(orc-gui
     # Burst level analysis dialog
     burstlevelanalysisdialog.cpp
     burstlevelanalysisdialog.h
+    
+    # Quality metrics dialog
+    qualitymetricsdialog.cpp
+    qualitymetricsdialog.h
 )
 
 target_link_libraries(orc-gui PRIVATE 

@@ -33,6 +33,7 @@ class HintsDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
+class QualityMetricsDialog;
 class VectorscopeDialog;
 class RenderCoordinator;
 
@@ -115,6 +116,8 @@ private slots:
     void updateVBIDialog();
     void onShowHintsDialog();
     void updateHintsDialog();
+    void onShowQualityMetricsDialog();
+    void updateQualityMetricsDialog();
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -185,6 +188,7 @@ private:
     
     // UI components
     PreviewDialog* preview_dialog_;
+    QualityMetricsDialog* quality_metrics_dialog_;
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
     DropoutAnalysisDialog* dropout_analysis_dialog_;

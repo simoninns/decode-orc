@@ -57,6 +57,10 @@ void PreviewDialog::setupUI()
     show_vbi_action_->setShortcut(QKeySequence("Ctrl+V"));
     connect(show_vbi_action_, &QAction::triggered, this, &PreviewDialog::showVBIDialogRequested);
     
+    show_quality_metrics_action_ = observersMenu->addAction("&Quality Metrics");
+    show_quality_metrics_action_->setShortcut(QKeySequence("Ctrl+Q"));
+    connect(show_quality_metrics_action_, &QAction::triggered, this, &PreviewDialog::showQualityMetricsDialogRequested);
+    
     auto* hintsMenu = menu_bar_->addMenu("&Hints");
     show_hints_action_ = hintsMenu->addAction("&Video Parameter Hints");
     show_hints_action_->setShortcut(QKeySequence("Ctrl+H"));

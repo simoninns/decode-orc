@@ -53,6 +53,7 @@ Q_SIGNALS:
     void exportPNGRequested();
     void showVBIDialogRequested();  // Emitted when VBI Decoder menu item selected
     void showHintsDialogRequested();  // Emitted when Hints menu item selected
+    void showQualityMetricsDialogRequested();  // Emitted when Quality Metrics menu item selected
 
 private:
     void setupUI();
@@ -70,6 +71,7 @@ private:
     QAction* export_png_action_;
     QAction* show_vbi_action_;
     QAction* show_hints_action_;
+    QAction* show_quality_metrics_action_;
     
     // Navigation buttons
     QPushButton* first_button_;

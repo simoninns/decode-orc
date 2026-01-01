@@ -15,6 +15,7 @@
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
+#include "qualitymetricsdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
@@ -285,6 +286,11 @@ void MainWindow::setupUI()
     burst_level_analysis_dialog_->setWindowTitle("Burst Level Analysis");
     burst_level_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
     
+    // Create quality metrics dialog (initially hidden)
+    quality_metrics_dialog_ = new QualityMetricsDialog(this);
+    quality_metrics_dialog_->setWindowTitle("Field/Frame Quality Metrics");
+    quality_metrics_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
+    
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
             this, &MainWindow::onPreviewIndexChanged);
@@ -300,6 +306,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onShowVBIDialog);
     connect(preview_dialog_, &PreviewDialog::showHintsDialogRequested,
             this, &MainWindow::onShowHintsDialog);
+    connect(preview_dialog_, &PreviewDialog::showQualityMetricsDialogRequested,
+            this, &MainWindow::onShowQualityMetricsDialog);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -1889,6 +1897,93 @@ void MainWindow::onShowHintsDialog()
     updateHintsDialog();
 }
 
+void MainWindow::onShowQualityMetricsDialog()
+{
+    if (!quality_metrics_dialog_) {
+        return;
+    }
+    
+    // Show the dialog first
+    quality_metrics_dialog_->show();
+    quality_metrics_dialog_->raise();
+    quality_metrics_dialog_->activateWindow();
+    
+    // Update quality metrics information after showing
+    updateQualityMetricsDialog();
+}
+
+void MainWindow::updateQualityMetricsDialog()
+{
+    // Only update if dialog is visible
+    if (!quality_metrics_dialog_ || !quality_metrics_dialog_->isVisible()) {
+        return;
+    }
+    
+    // Get current field/frame being displayed
+    if (!current_view_node_id_.is_valid()) {
+        quality_metrics_dialog_->clearMetrics();
+        return;
+    }
+    
+    // Get the current index from the preview slider
+    int current_index = preview_dialog_->previewSlider()->value();
+    
+    // Check if we're in frame mode (any mode that shows two fields)
+    bool is_frame_mode = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                         current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+                         current_output_type_ == orc::PreviewOutputType::Split);
+    
+    // Get field IDs based on preview mode
+    orc::FieldID field1_id = is_frame_mode ? orc::FieldID(current_index * 2) : orc::FieldID(current_index);
+    orc::FieldID field2_id = is_frame_mode ? orc::FieldID(current_index * 2 + 1) : orc::FieldID(0);
+    
+    // Get field representations from the current DAG/node
+    // Note: This is a synchronous access - we'll create a temporary renderer
+    try {
+        auto dag = orc::project_to_dag(project_.coreProject());
+        if (!dag) {
+            quality_metrics_dialog_->clearMetrics();
+            return;
+        }
+        
+        // Create a temporary renderer to get the field representation(s)
+        orc::DAGFieldRenderer renderer(dag);
+        
+        if (is_frame_mode) {
+            // Render both fields for frame mode
+            auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
+            
+            if (!render_result1.is_valid || !render_result1.representation ||
+                !render_result2.is_valid || !render_result2.representation) {
+                quality_metrics_dialog_->clearMetrics();
+                return;
+            }
+            
+            // Update dialog with both fields
+            quality_metrics_dialog_->updateMetricsForFrame(
+                render_result1.representation, field1_id,
+                render_result2.representation, field2_id
+            );
+        } else {
+            // Render single field
+            auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            
+            if (!render_result.is_valid || !render_result.representation) {
+                quality_metrics_dialog_->clearMetrics();
+                return;
+            }
+            
+            // Update dialog with single field
+            quality_metrics_dialog_->updateMetrics(render_result.representation, field1_id);
+        }
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to update quality metrics: {}", e.what());
+        quality_metrics_dialog_->clearMetrics();
+    }
+}
+
 // Removed Vectorscope dialog launcher from Preview; vectorscope opens from node context menu
 
 void MainWindow::updateAllPreviewComponents()
@@ -1897,6 +1992,7 @@ void MainWindow::updateAllPreviewComponents()
     updatePreviewInfo();
     updateVBIDialog();
     updateHintsDialog();
+    updateQualityMetricsDialog();
     
     // For analysis dialogs, only update the frame marker position (not the full data)
     // Full data is only loaded when the dialog is first opened

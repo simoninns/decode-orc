@@ -67,23 +67,66 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
         const auto& all_types = orc::get_all_node_types();
         orc::VideoSystem project_format = graph_model_.project().get_video_format();
         
+        // Organize stages by type
+        std::vector<const orc::NodeTypeInfo*> source_stages;
+        std::vector<const orc::NodeTypeInfo*> transform_stages;
+        std::vector<const orc::NodeTypeInfo*> sink_stages;
+        
         for (const auto& type_info : all_types) {
             // Filter stages by video format compatibility
             if (!orc::is_stage_compatible_with_format(type_info.stage_name, project_format)) {
                 continue;
             }
             
-            QString display_name = QString::fromStdString(type_info.display_name);
-            QString tooltip = QString::fromStdString(type_info.description);
-            
-            auto* action = add_node_menu->addAction(display_name, [this, scenePos, stage_name = type_info.stage_name]() {
-                // Add node at clicked position
-                QtNodes::NodeId nodeId = graph_model_.addNode(QString::fromStdString(stage_name));
-                if (nodeId != QtNodes::InvalidNodeId) {
-                    graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Position, scenePos);
-                }
-            });
-            action->setToolTip(tooltip);
+            // Categorize by NodeType
+            switch (type_info.type) {
+                case orc::NodeType::SOURCE:
+                    source_stages.push_back(&type_info);
+                    break;
+                case orc::NodeType::TRANSFORM:
+                case orc::NodeType::MERGER:
+                case orc::NodeType::COMPLEX:
+                    transform_stages.push_back(&type_info);
+                    break;
+                case orc::NodeType::SINK:
+                    sink_stages.push_back(&type_info);
+                    break;
+            }
+        }
+        
+        // Helper lambda to add stages to a menu
+        auto add_stages_to_menu = [this, scenePos](QMenu* parent_menu, const std::vector<const orc::NodeTypeInfo*>& stages) {
+            for (const auto* type_info : stages) {
+                QString display_name = QString::fromStdString(type_info->display_name);
+                QString tooltip = QString::fromStdString(type_info->description);
+                
+                auto* action = parent_menu->addAction(display_name, [this, scenePos, stage_name = type_info->stage_name]() {
+                    // Add node at clicked position
+                    QtNodes::NodeId nodeId = graph_model_.addNode(QString::fromStdString(stage_name));
+                    if (nodeId != QtNodes::InvalidNodeId) {
+                        graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Position, scenePos);
+                    }
+                });
+                action->setToolTip(tooltip);
+            }
+        };
+        
+        // Add Source submenu
+        if (!source_stages.empty()) {
+            QMenu* source_menu = add_node_menu->addMenu("Source");
+            add_stages_to_menu(source_menu, source_stages);
+        }
+        
+        // Add Transform submenu
+        if (!transform_stages.empty()) {
+            QMenu* transform_menu = add_node_menu->addMenu("Transform");
+            add_stages_to_menu(transform_menu, transform_stages);
+        }
+        
+        // Add Sink submenu
+        if (!sink_stages.empty()) {
+            QMenu* sink_menu = add_node_menu->addMenu("Sink");
+            add_stages_to_menu(sink_menu, sink_stages);
         }
     }
     

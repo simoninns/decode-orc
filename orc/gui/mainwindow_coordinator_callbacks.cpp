@@ -269,7 +269,7 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     // If no data available, show message
     if (frame_stats.empty() || total_frames == 0) {
         snr_analysis_dialog_->showNoDataMessage(
-            "No SNR analysis data available.\\n\\n"
+            "No SNR analysis data available.\n\n"
             "Make sure VITS (Vertical Interval Test Signal) is present in the source."
         );
         return;
@@ -340,7 +340,7 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
     // If no data available, show message
     if (frame_stats.empty() || total_frames == 0) {
         burst_level_analysis_dialog_->showNoDataMessage(
-            "No burst level data available.\\n\\n"
+            "No burst level data available.\n\n"
             "Color burst detection may have failed."
         );
         return;

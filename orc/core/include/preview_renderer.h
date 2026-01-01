@@ -235,6 +235,18 @@ public:
     AspectRatioMode get_aspect_ratio_mode() const;
     
     /**
+     * @brief Set whether to render dropout regions onto the image
+     * @param show True to render dropouts, false to hide
+     */
+    void set_show_dropouts(bool show);
+    
+    /**
+     * @brief Get whether dropout rendering is enabled
+     * @return True if dropouts are rendered, false otherwise
+     */
+    bool get_show_dropouts() const;
+    
+    /**
      * @brief Get available aspect ratio modes
      * @return Vector of available aspect ratio mode options
      */
@@ -328,6 +340,7 @@ public:
      * @param type The output type (field, frame, etc.)
      * @param index The output index (0-based)
      * @param filename Path to PNG file to create
+     * @param option_id Optional ID for PreviewableStage outputs (default: "")
      * @return true if successful, false on error
      * 
      * Example:
@@ -337,7 +350,8 @@ public:
         const NodeID& node_id,
         PreviewOutputType type,
         uint64_t index,
-        const std::string& filename
+        const std::string& filename,
+        const std::string& option_id = ""
     );
     
     /**
@@ -361,6 +375,9 @@ private:
     
     /// Current aspect ratio display mode
     AspectRatioMode aspect_ratio_mode_ = AspectRatioMode::DAR_4_3;
+    
+    /// Whether to render dropout regions onto images
+    bool show_dropouts_ = false;
     
     /// Ensure node has been executed (execute on-demand if needed)
     void ensure_node_executed(const NodeID& node_id) const;
@@ -409,6 +426,12 @@ private:
      * @return Scaled image if DAR 4:3 mode, otherwise returns input unchanged
      */
     PreviewImage apply_aspect_ratio_scaling(const PreviewImage& input) const;
+    
+    /**
+     * @brief Render dropout regions onto an image
+     * @param image Image to render dropouts onto (modified in place)
+     */
+    void render_dropouts(PreviewImage& image) const;
     
     /**
      * @brief Convert 16-bit TBC samples to 8-bit grayscale

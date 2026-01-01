@@ -89,6 +89,7 @@ MainWindow::MainWindow(QWidget *parent)
     , last_snr_output_type_(orc::PreviewOutputType::Frame)
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
+    , current_aspect_ratio_mode_(orc::AspectRatioMode::DAR_4_3)  // Default to 4:3
     , preview_update_timer_(nullptr)
     , pending_preview_index_(-1)
     , preview_update_pending_(false)
@@ -128,6 +129,9 @@ MainWindow::MainWindow(QWidget *parent)
     
     // Start the coordinator worker thread
     render_coordinator_->start();
+    
+    // Initialize aspect ratio mode to match default
+    render_coordinator_->setAspectRatioMode(current_aspect_ratio_mode_);
     
     // Create preview update debounce timer
     // This prevents excessive rendering during slider scrubbing by only updating
@@ -310,7 +314,12 @@ void MainWindow::setupUI()
     connect(preview_dialog_, &PreviewDialog::aspectRatioModeChanged,
             this, &MainWindow::onAspectRatioModeChanged);
     connect(preview_dialog_, &PreviewDialog::exportPNGRequested,
-            this, &MainWindow::onExportPNG);
+            this, &MainWindow::onPreviewDialogExportPNG);
+    connect(preview_dialog_, &PreviewDialog::showDropoutsChanged,
+            this, [this](bool show) {
+                render_coordinator_->setShowDropouts(show);
+                updatePreview();
+            });
         connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
             this, &MainWindow::onShowVBIDialog);
     connect(preview_dialog_, &PreviewDialog::showHintsDialogRequested,
@@ -393,13 +402,6 @@ void MainWindow::setupMenus()
     edit_project_action_ = file_menu->addAction("&Edit Project...");
     edit_project_action_->setEnabled(false);
     connect(edit_project_action_, &QAction::triggered, this, &MainWindow::onEditProject);
-    
-    file_menu->addSeparator();
-    
-    export_png_action_ = file_menu->addAction("E&xport Preview as PNG...");
-    export_png_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_E));
-    export_png_action_->setEnabled(false);
-    connect(export_png_action_, &QAction::triggered, this, &MainWindow::onExportPNG);
     
     file_menu->addSeparator();
     
@@ -704,9 +706,6 @@ void MainWindow::updateUIState()
     if (edit_project_action_) {
         edit_project_action_->setEnabled(has_project);
     }
-    if (export_png_action_) {
-        export_png_action_->setEnabled(has_preview);
-    }
     
     // Enable/disable DAG view based on project state
     if (dag_view_) {
@@ -795,24 +794,14 @@ void MainWindow::onAspectRatioModeChanged(int index)
         return;
     }
     
-    // Note: Aspect ratio is applied client-side, no need to update coordinator
+    // Remember the selected mode
+    current_aspect_ratio_mode_ = available_modes[index].mode;
     
-    // Get the correction factor - use per-output DAR correction if in DAR mode
-    double aspect_correction = available_modes[index].correction_factor;
-    if (available_modes[index].mode == orc::AspectRatioMode::DAR_4_3 && !available_outputs_.empty()) {
-        // Find current output and use its dar_aspect_correction
-        for (const auto& output : available_outputs_) {
-            if (output.option_id == current_option_id_) {
-                aspect_correction = output.dar_aspect_correction;
-                ORC_LOG_DEBUG("Using per-output DAR correction: {}", aspect_correction);
-                break;
-            }
-        }
-    }
-    preview_dialog_->previewWidget()->setAspectCorrection(aspect_correction);
+    // Update core's aspect ratio mode - it will apply scaling in render_output
+    render_coordinator_->setAspectRatioMode(current_aspect_ratio_mode_);
     
-    // Refresh the display
-    preview_dialog_->previewWidget()->update();
+    // Trigger a refresh of the current preview
+    updatePreview();
 }
 
 void MainWindow::updateWindowTitle()
@@ -1361,27 +1350,25 @@ void MainWindow::updateAspectRatioCombo()
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
     };
     
-    orc::AspectRatioMode current_mode = orc::AspectRatioMode::DAR_4_3;  // Default to 4:3
-    
     // Block signals while updating combo box
     preview_dialog_->aspectRatioCombo()->blockSignals(true);
     
     // Clear existing items
     preview_dialog_->aspectRatioCombo()->clear();
     
-    // Populate combo from core data
+    // Populate combo from available modes
     int current_index = 0;
     for (size_t i = 0; i < available_modes.size(); ++i) {
         const auto& mode_info = available_modes[i];
         preview_dialog_->aspectRatioCombo()->addItem(QString::fromStdString(mode_info.display_name));
         
         // Track which index matches current mode
-        if (mode_info.mode == current_mode) {
+        if (mode_info.mode == current_aspect_ratio_mode_) {
             current_index = static_cast<int>(i);
         }
     }
     
-    // Set current selection
+    // Set current selection to match the current mode
     if (!available_modes.empty()) {
         preview_dialog_->aspectRatioCombo()->setCurrentIndex(current_index);
     }
@@ -1406,22 +1393,14 @@ void MainWindow::refreshViewerControls()
     // Update the aspect ratio combo box
     updateAspectRatioCombo();
     
-    // Get count for current output type and option_id, and update aspect correction
+    // Get count for current output type and option_id
     int new_total = 0;
-    double dar_correction = 0.7;  // Default fallback
     for (const auto& output : available_outputs_) {
         if (output.type == current_output_type_ && output.option_id == current_option_id_) {
             new_total = output.count;
-            dar_correction = output.dar_aspect_correction;
             break;
         }
     }
-    
-    // Update aspect correction (always apply for now)
-    // Note: Aspect mode tracking could be added as a member variable (current_aspect_mode_)
-    // and synchronized with the combo box selection for more explicit state management
-    preview_dialog_->previewWidget()->setAspectCorrection(dar_correction);
-    ORC_LOG_DEBUG("Updated aspect correction to {} for current output", dar_correction);
     
     // Update slider range and labels
     if (new_total > 0) {
@@ -1509,7 +1488,7 @@ void MainWindow::updatePreviewRenderer()
     }
 }
 
-void MainWindow::onExportPNG()
+void MainWindow::onPreviewDialogExportPNG()
 {
     if (current_view_node_id_.is_valid() == false) {
         QMessageBox::information(this, "Export PNG", "No preview available to export.");
@@ -1538,7 +1517,7 @@ void MainWindow::onExportPNG()
     
     int current_index = preview_dialog_->previewSlider()->value();
     
-    // Request PNG save via coordinator
+    // Request PNG save via coordinator (delegates to core)
     ORC_LOG_INFO("Requesting PNG export to: {}", filename.toStdString());
     
     render_coordinator_->requestSavePNG(

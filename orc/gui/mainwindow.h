@@ -108,7 +108,7 @@ private slots:
     void onAspectRatioModeChanged(int index);
     void onNodeSelectedForView(const orc::NodeID& node_id);
     void onDAGModified();
-    void onExportPNG();
+    void onPreviewDialogExportPNG();
     void onNodeContextMenu(QtNodes::NodeId nodeId, const QPointF& pos);
     void onArrangeDAGToGrid();
     void onQtNodeSelected(QtNodes::NodeId nodeId);
@@ -208,11 +208,11 @@ private:
     QAction* edit_project_action_;
     QAction* show_preview_action_;
     QAction* auto_show_preview_action_;
-    QAction* export_png_action_;
     
     // Preview state (UI only - all data comes from core)
     orc::PreviewOutputType current_output_type_;
     std::string current_option_id_;  ///< Current option ID for PreviewableStage rendering
+    orc::AspectRatioMode current_aspect_ratio_mode_;  ///< Current aspect ratio mode
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
     
     // Preview update debouncing (for slider scrubbing)

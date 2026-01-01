@@ -186,7 +186,7 @@ void PreviewDialog::setupUI()
     // Connect dropouts button
     connect(dropouts_button_, &QPushButton::toggled, [this](bool checked) {
         dropouts_button_->setText(checked ? "Dropouts: On" : "Dropouts: Off");
-        preview_widget_->setShowDropouts(checked);
+        emit showDropoutsChanged(checked);
     });
     
     // Connect Zoom 1:1 button
@@ -196,9 +196,9 @@ void PreviewDialog::setupUI()
             return;  // No image to zoom to
         }
         
-        // Calculate the corrected display size
-        double correction = preview_widget_->aspectCorrection();
-        QSize display_size(img_size.width() * correction, img_size.height());
+        // The image from core already has aspect ratio scaling applied,
+        // so we can use the image size directly for 1:1 zoom
+        QSize display_size = img_size;
         
         // Calculate total window size based on widget size
         // We need to account for all other UI elements

@@ -519,6 +519,16 @@ PreviewRenderResult PreviewRenderer::render_output(
             break;
     }
     
+    // Render dropout highlighting onto the image if enabled
+    if (result.success && result.image.is_valid()) {
+        render_dropouts(result.image);
+    }
+    
+    // Apply aspect ratio scaling to the rendered image
+    if (result.success && result.image.is_valid()) {
+        result.image = apply_aspect_ratio_scaling(result.image);
+    }
+    
     return result;
 }
 
@@ -853,7 +863,9 @@ PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& inp
         return input;
     }
     
-    // DAR 4:3 mode - apply aspect correction (0.7 for PAL/NTSC)
+    // DAR 4:3 mode - apply aspect correction
+    // PAL/NTSC have rectangular pixels that need to be displayed wider
+    // The correction factor compresses width for display (client applies inverse for stretching)
     const double aspect_correction = 0.7;
     
     PreviewImage output;
@@ -877,6 +889,17 @@ PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& inp
         }
     }
     
+    // Scale dropout regions to match the new image dimensions
+    output.dropout_regions.reserve(input.dropout_regions.size());
+    for (const auto& region : input.dropout_regions) {
+        DropoutRegion scaled_region = region;
+        // Scale the sample coordinates (x-axis)
+        scaled_region.start_sample = static_cast<uint32_t>(region.start_sample * aspect_correction + 0.5);
+        scaled_region.end_sample = static_cast<uint32_t>(region.end_sample * aspect_correction + 0.5);
+        // Line numbers (y-axis) remain unchanged
+        output.dropout_regions.push_back(scaled_region);
+    }
+    
     return output;
 }
 
@@ -884,21 +907,19 @@ bool PreviewRenderer::save_png(
     const NodeID& node_id,
     PreviewOutputType type,
     uint64_t index,
-    const std::string& filename)
+    const std::string& filename,
+    const std::string& option_id)
 {
-    // Render the output
-    auto result = render_output(node_id, type, index);
+    // Render the output (includes aspect ratio scaling from render_output)
+    auto result = render_output(node_id, type, index, option_id);
     
     if (!result.success || !result.image.is_valid()) {
         ORC_LOG_ERROR("Failed to render output for PNG export: {}", result.error_message);
         return false;
     }
     
-    // Apply aspect ratio scaling if needed
-    PreviewImage scaled_image = apply_aspect_ratio_scaling(result.image);
-    
-    // Save to PNG
-    return save_png(scaled_image, filename);
+    // Save to PNG (image is already scaled by render_output)
+    return save_png(result.image, filename);
 }
 
 bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& filename) {
@@ -976,6 +997,51 @@ void PreviewRenderer::set_aspect_ratio_mode(AspectRatioMode mode) {
 
 AspectRatioMode PreviewRenderer::get_aspect_ratio_mode() const {
     return aspect_ratio_mode_;
+}
+
+void PreviewRenderer::set_show_dropouts(bool show) {
+    show_dropouts_ = show;
+}
+
+bool PreviewRenderer::get_show_dropouts() const {
+    return show_dropouts_;
+}
+
+void PreviewRenderer::render_dropouts(PreviewImage& image) const {
+    if (!show_dropouts_ || image.dropout_regions.empty() || !image.is_valid()) {
+        return;
+    }
+    
+    // Render dropout regions as red highlights directly onto the RGB data
+    for (const auto& region : image.dropout_regions) {
+        // Validate line number
+        if (region.line >= image.height) {
+            continue;
+        }
+        
+        // Clamp sample range to image width
+        uint32_t start_x = std::min(region.start_sample, static_cast<uint32_t>(image.width));
+        uint32_t end_x = std::min(region.end_sample, static_cast<uint32_t>(image.width));
+        
+        if (start_x >= end_x) {
+            continue;
+        }
+        
+        // Draw horizontal line at this scanline
+        size_t row_offset = region.line * image.width * 3;
+        for (uint32_t x = start_x; x < end_x; ++x) {
+            size_t pixel_offset = row_offset + x * 3;
+            if (pixel_offset + 2 < image.rgb_data.size()) {
+                // Blend with red (75% red, 25% original)
+                image.rgb_data[pixel_offset + 0] = static_cast<uint8_t>(
+                    image.rgb_data[pixel_offset + 0] * 0.25 + 255 * 0.75);  // R
+                image.rgb_data[pixel_offset + 1] = static_cast<uint8_t>(
+                    image.rgb_data[pixel_offset + 1] * 0.25);                // G
+                image.rgb_data[pixel_offset + 2] = static_cast<uint8_t>(
+                    image.rgb_data[pixel_offset + 2] * 0.25);                // B
+            }
+        }
+    }
 }
 
 std::vector<AspectRatioModeInfo> PreviewRenderer::get_available_aspect_ratio_modes() const {
@@ -1355,6 +1421,16 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     // Stage returned a valid image
     result.image = std::move(stage_result);
     result.success = true;
+    
+    // Render dropout highlighting onto the image if enabled
+    if (result.success && result.image.is_valid()) {
+        render_dropouts(result.image);
+    }
+    
+    // Apply aspect ratio scaling to the rendered image
+    if (result.success && result.image.is_valid()) {
+        result.image = apply_aspect_ratio_scaling(result.image);
+    }
     
     return result;
 }

@@ -56,6 +56,7 @@ Q_SIGNALS:
     void showHintsDialogRequested();  // Emitted when Hints menu item selected
     void showQualityMetricsDialogRequested();  // Emitted when Quality Metrics menu item selected
     void showPulldownDialogRequested();  // Emitted when Pulldown Observer menu item selected
+    void showDropoutsChanged(bool show);  // Emitted when dropout visibility changes
 
 private:
     void setupUI();

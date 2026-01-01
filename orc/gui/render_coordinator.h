@@ -446,6 +446,25 @@ public:
      */
     void cancelTrigger();
     
+    /**
+     * @brief Set aspect ratio mode for rendering
+     * 
+     * This affects how images are scaled in render_output and save_png.
+     * Thread-safe - can be called from GUI thread.
+     * 
+     * @param mode The aspect ratio mode to use
+     */
+    void setAspectRatioMode(orc::AspectRatioMode mode);
+    
+    /**
+     * @brief Set whether to render dropout regions onto images
+     * 
+     * Thread-safe - can be called from GUI thread.
+     * 
+     * @param show True to render dropouts, false to hide
+     */
+    void setShowDropouts(bool show);
+    
 signals:
     /**
      * @brief Emitted when a preview render completes

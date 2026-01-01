@@ -102,15 +102,14 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
         return;
     }
     
-    // Scale image to fit widget with corrected aspect ratio
-    // TBC samples include blanking, so we need to adjust the aspect
-    // aspect_correction_ is set by the main window based on SAR/DAR mode
+    // Scale image to fit widget
+    // Note: Aspect ratio correction is now applied by orc-core in render_output,
+    // so we just display the image as-is
     QRect target = rect();
     QSize image_size = current_image_.size();
     
-    // Calculate proper display size with aspect correction
-    QSize corrected_size(image_size.width() * aspect_correction_, image_size.height());
-    QSize scaled_size = corrected_size.scaled(target.size(), Qt::KeepAspectRatio);
+    // Calculate proper display size
+    QSize scaled_size = image_size.scaled(target.size(), Qt::KeepAspectRatio);
     
     QRect dest_rect(
         (target.width() - scaled_size.width()) / 2,
@@ -124,47 +123,6 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::Antialiasing, false);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(dest_rect, current_image_);
-    
-    // Draw dropout regions if enabled
-    if (show_dropouts_ && !dropout_regions_.empty()) {
-        ORC_LOG_DEBUG("Drawing {} dropout regions", dropout_regions_.size());
-        
-        // Calculate scaling factors from image coordinates to display coordinates
-        double scale_x = static_cast<double>(scaled_size.width()) / image_size.width();
-        double scale_y = static_cast<double>(scaled_size.height()) / image_size.height();
-        
-        ORC_LOG_DEBUG("Image size: {}x{}, Scaled size: {}x{}", image_size.width(), image_size.height(), 
-                      scaled_size.width(), scaled_size.height());
-        ORC_LOG_DEBUG("Scale factors - x: {}, y: {}", scale_x, scale_y);
-        ORC_LOG_DEBUG("Dest rect: ({}, {}) {}x{}", dest_rect.left(), dest_rect.top(), 
-                      dest_rect.width(), dest_rect.height());
-        
-        // Set up pen for dropout highlighting
-        QPen dropout_pen(QColor(255, 0, 0, 200));  // Red with slight transparency
-        dropout_pen.setWidth(2);
-        painter.setPen(dropout_pen);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        
-        // Draw each dropout region
-        int count = 0;
-        for (const auto& region : dropout_regions_) {
-            // Convert line number to y coordinate (0-based)
-            double y = region.line * scale_y + dest_rect.top();
-            
-            // Convert sample range to x coordinates
-            double x1 = region.start_sample * scale_x + dest_rect.left();
-            double x2 = region.end_sample * scale_x + dest_rect.left();
-            
-            if (count < 5) {  // Only log first 5 to avoid spam
-                ORC_LOG_DEBUG("Dropout {}: line {} samples {}-{} -> y: {}, x: {}-{}", 
-                              count, region.line, region.start_sample, region.end_sample, y, x1, x2);
-            }
-            
-            // Draw horizontal line for the dropout region
-            painter.drawLine(QPointF(x1, y), QPointF(x2, y));
-            count++;
-        }
-    }
 }
 
 void FieldPreviewWidget::resizeEvent(QResizeEvent *event)

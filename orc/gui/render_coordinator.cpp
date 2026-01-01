@@ -610,6 +610,23 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
     trigger_cancel_requested_ = false;
 }
 
+void RenderCoordinator::setAspectRatioMode(orc::AspectRatioMode mode)
+{
+    if (worker_preview_renderer_) {
+        worker_preview_renderer_->set_aspect_ratio_mode(mode);
+        ORC_LOG_DEBUG("RenderCoordinator: Aspect ratio mode set to {}", 
+                      mode == orc::AspectRatioMode::SAR_1_1 ? "SAR 1:1" : "DAR 4:3");
+    }
+}
+
+void RenderCoordinator::setShowDropouts(bool show)
+{
+    if (worker_preview_renderer_) {
+        worker_preview_renderer_->set_show_dropouts(show);
+        ORC_LOG_DEBUG("RenderCoordinator: Show dropouts set to {}", show);
+    }
+}
+
 void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
 {
     ORC_LOG_INFO("RenderCoordinator: Saving PNG for node '{}', type {}, index {} to '{}'",
@@ -627,7 +644,8 @@ void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
             req.node_id,
             req.output_type,
             req.output_index,
-            req.filename
+            req.filename,
+            req.option_id
         );
         
         if (success) {

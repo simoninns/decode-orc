@@ -1003,25 +1003,48 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     
     if (dialog.exec() == QDialog::Accepted) {
         auto new_values = dialog.get_values();
-        orc::project_io::set_node_parameters(project_.coreProject(), node_id, new_values);
         
-        // Rebuild DAG to pick up the new parameter values
-        project_.rebuildDAG();
-        
-        // Update the preview renderer with the new DAG
-        updatePreviewRenderer();
-        
-        // Refresh QtNodes view
-        dag_model_->refresh();
-        
-        // Update the preview to show the changes
-        updatePreview();
-        
-        statusBar()->showMessage(
-            QString("Updated parameters for node '%1'")
-                .arg(QString::fromStdString(node_id.to_string())),
-            3000
-        );
+        try {
+            orc::project_io::set_node_parameters(project_.coreProject(), node_id, new_values);
+            
+            // Rebuild DAG to pick up the new parameter values
+            project_.rebuildDAG();
+            
+            // Update the preview renderer with the new DAG
+            updatePreviewRenderer();
+            
+            // Refresh QtNodes view
+            dag_model_->refresh();
+            
+            // Update the preview to show the changes
+            updatePreview();
+            
+            statusBar()->showMessage(
+                QString("Updated parameters for node '%1'")
+                    .arg(QString::fromStdString(node_id.to_string())),
+                3000
+            );
+        } catch (const std::exception& e) {
+            // Parameter validation failed - show error and reset parameters to empty
+            QMessageBox::critical(this, "Parameter Validation Error",
+                QString("Failed to set parameters: %1\n\nParameters have been reset.")
+                    .arg(QString::fromStdString(e.what())));
+            
+            // Reset parameters to empty map
+            std::map<std::string, orc::ParameterValue> empty_params;
+            try {
+                orc::project_io::set_node_parameters(project_.coreProject(), node_id, empty_params);
+                
+                // Rebuild DAG with empty parameters
+                project_.rebuildDAG();
+                updatePreviewRenderer();
+                dag_model_->refresh();
+                updatePreview();
+            } catch (const std::exception& reset_error) {
+                // If reset also fails, log it but don't crash
+                ORC_LOG_ERROR("Failed to reset parameters after validation error: {}", reset_error.what());
+            }
+        }
     }
 }
 

@@ -1499,7 +1499,7 @@ void MainWindow::onPreviewDialogExportPNG()
     QString filename = QFileDialog::getSaveFileName(
         this,
         "Export Preview as PNG",
-        getLastProjectDirectory(),
+        getLastExportDirectory(),
         "PNG Images (*.png);;All Files (*)"
     );
     
@@ -1513,7 +1513,7 @@ void MainWindow::onPreviewDialogExportPNG()
     }
     
     // Remember directory
-    setLastProjectDirectory(QFileInfo(filename).absolutePath());
+    setLastExportDirectory(QFileInfo(filename).absolutePath());
     
     int current_index = preview_dialog_->previewSlider()->value();
     
@@ -1547,6 +1547,22 @@ void MainWindow::setLastProjectDirectory(const QString& path)
 {
     QSettings settings("orc-project", "orc-gui");
     settings.setValue("lastProjectDirectory", path);
+}
+
+QString MainWindow::getLastExportDirectory() const
+{
+    QSettings settings("orc-project", "orc-gui");
+    QString dir = settings.value("lastExportDirectory", QString()).toString();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir()) {
+        return QDir::homePath();
+    }
+    return dir;
+}
+
+void MainWindow::setLastExportDirectory(const QString& path)
+{
+    QSettings settings("orc-project", "orc-gui");
+    settings.setValue("lastExportDirectory", path);
 }
 
 void MainWindow::onNodeContextMenu(QtNodes::NodeId nodeId, const QPointF& pos)

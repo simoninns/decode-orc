@@ -7,6 +7,9 @@
 #include <QMessageBox>
 #include <QTextStream>
 #include <QComboBox>
+#include <QSettings>
+#include <QFileInfo>
+#include <QDir>
 #include <limits>
 
 namespace orc {
@@ -398,8 +401,18 @@ void AnalysisDialog::update_dependencies() {
 }
 
 void AnalysisDialog::exportResults() {
-    QString fileName = QFileDialog::getSaveFileName(this, "Export Results", "", "Text Files (*.txt)");
+    // Get last export directory from settings
+    QSettings settings("orc-project", "orc-gui");
+    QString lastDir = settings.value("lastAnalysisExportDirectory", QString()).toString();
+    if (lastDir.isEmpty() || !QFileInfo(lastDir).isDir()) {
+        lastDir = QDir::homePath();
+    }
+    
+    QString fileName = QFileDialog::getSaveFileName(this, "Export Results", lastDir, "Text Files (*.txt)");
     if (fileName.isEmpty()) return;
+    
+    // Save directory for next time
+    settings.setValue("lastAnalysisExportDirectory", QFileInfo(fileName).absolutePath());
     
     QFile file(fileName);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {

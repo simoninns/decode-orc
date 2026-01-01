@@ -161,6 +161,8 @@ private:
     // Settings helpers
     QString getLastProjectDirectory() const;
     void setLastProjectDirectory(const QString& path);
+    QString getLastExportDirectory() const;
+    void setLastExportDirectory(const QString& path);
     void saveSettings();
     void restoreSettings();
     

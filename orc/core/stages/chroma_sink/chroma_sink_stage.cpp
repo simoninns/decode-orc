@@ -1579,7 +1579,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     }
     
     // Populate vectorscope payload (subsample to keep UI responsive)
-    result.vectorscope_data = VectorscopeAnalysisTool::extractFromRGB(
+    // Extract from both fields in the interlaced frame
+    result.vectorscope_data = VectorscopeAnalysisTool::extractFromInterlacedRGB(
         rgb16_data.data(),
         static_cast<uint32_t>(width),
         static_cast<uint32_t>(height),

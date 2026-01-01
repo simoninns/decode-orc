@@ -240,6 +240,11 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     std::normal_distribution<double> normal_dist(0.0, 100.0);
     
     for (const auto& sample : data.samples) {
+        // Filter samples based on field selection
+        if (field_select == 1 && sample.field_id != 0) continue;  // First field only
+        if (field_select == 2 && sample.field_id != 1) continue;  // Second field only
+        // field_select == 0: show all fields
+        
         // Determine color based on field selection, blend mode, and sample field_id
         QColor color = Qt::green;  // Default
         
@@ -276,12 +281,22 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     
     scope_label_->setPixmap(QPixmap::fromImage(image));
     
-    // Update info
-    info_label_->setText(QString("Field %1 - %2 samples (%3x%4)")
+    // Update info with field selection
+    QString field_info;
+    if (field_select == 0) {
+        field_info = "Both fields";
+    } else if (field_select == 1) {
+        field_info = "First field only";
+    } else {
+        field_info = "Second field only";
+    }
+    
+    info_label_->setText(QString("Field %1 - %2 samples (%3x%4) - %5")
         .arg(data.field_number)
         .arg(data.samples.size())
         .arg(data.width)
-        .arg(data.height));
+        .arg(data.height)
+        .arg(field_info));
 }
 
 void VectorscopeDialog::drawGraticule(QPainter& painter, const orc::VectorscopeData& data) {
@@ -392,36 +407,28 @@ void VectorscopeDialog::closeEvent(QCloseEvent* event) {
 
 void VectorscopeDialog::onBlendColorToggled() {
     // Re-render with new blend mode
-    if (current_field_number_ > 0) {
-        if (last_data_.has_value()) {
-            renderVectorscope(*last_data_);
-        }
+    if (last_data_.has_value()) {
+        renderVectorscope(*last_data_);
     }
 }
 
 void VectorscopeDialog::onDefocusToggled() {
     // Re-render with new defocus settings
-    if (current_field_number_ > 0) {
-        if (last_data_.has_value()) {
-            renderVectorscope(*last_data_);
-        }
+    if (last_data_.has_value()) {
+        renderVectorscope(*last_data_);
     }
 }
 
 void VectorscopeDialog::onFieldSelectionChanged() {
     // Re-render with new field selection
-    if (current_field_number_ > 0) {
-        if (last_data_.has_value()) {
-            renderVectorscope(*last_data_);
-        }
+    if (last_data_.has_value()) {
+        renderVectorscope(*last_data_);
     }
 }
 
 void VectorscopeDialog::onGraticuleChanged() {
     // Re-render with new graticule
-    if (current_field_number_ > 0) {
-        if (last_data_.has_value()) {
-            renderVectorscope(*last_data_);
-        }
+    if (last_data_.has_value()) {
+        renderVectorscope(*last_data_);
     }
 }

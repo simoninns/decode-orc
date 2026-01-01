@@ -132,6 +132,52 @@ VectorscopeData VectorscopeAnalysisTool::extractFromRGB(
     return data;
 }
 
+VectorscopeData VectorscopeAnalysisTool::extractFromInterlacedRGB(
+    const uint16_t* rgb_data,
+    uint32_t width,
+    uint32_t height,
+    uint64_t field_number,
+    uint32_t subsample) {
+    
+    VectorscopeData data;
+    data.width = width;
+    data.height = height;
+    data.field_number = field_number;
+    
+    if (!rgb_data || width == 0 || height == 0 || subsample == 0) {
+        return data;
+    }
+    
+    // Reserve space for samples from both fields (with subsampling)
+    size_t estimated_samples = (width / subsample) * (height / subsample);
+    data.samples.reserve(estimated_samples);
+    
+    // Process both fields separately
+    // Field 0 (first/odd field): even lines (0, 2, 4, ...)
+    // Field 1 (second/even field): odd lines (1, 3, 5, ...)
+    for (uint8_t field_id = 0; field_id < 2; field_id++) {
+        // Process every (2 * subsample)th line starting from field_id
+        for (uint32_t y = field_id; y < height; y += (2 * subsample)) {
+            for (uint32_t x = 0; x < width; x += subsample) {
+                size_t pixel_index = (y * width + x) * 3;
+                
+                uint16_t r = rgb_data[pixel_index + 0];
+                uint16_t g = rgb_data[pixel_index + 1];
+                uint16_t b = rgb_data[pixel_index + 2];
+                
+                UVSample uv = rgb_to_uv(r, g, b);
+                uv.field_id = field_id;  // Tag which field this sample came from
+                data.samples.push_back(uv);
+            }
+        }
+    }
+    
+    ORC_LOG_DEBUG("Extracted {} U/V samples from interlaced frame {} ({}x{}, subsample={}, both fields)",
+                 data.samples.size(), field_number, width, height, subsample);
+    
+    return data;
+}
+
 // Register the tool
 REGISTER_ANALYSIS_TOOL(VectorscopeAnalysisTool)
 

@@ -66,6 +66,26 @@ public:
         uint64_t field_number,
         uint32_t subsample = 1,
         uint8_t field_id = 0);
+    
+    /**
+     * @brief Extract vectorscope data from both fields in an interlaced RGB frame
+     * 
+     * Processes even lines (first field) and odd lines (second field) separately,
+     * tagging each sample with its field_id for proper visualization.
+     * 
+     * @param rgb_data RGB frame data (16-bit per channel, interleaved R,G,B)
+     * @param width Frame width in pixels
+     * @param height Frame height in lines (both fields combined)
+     * @param field_number Field number for identification (first field)
+     * @param subsample Subsampling factor (1 = all pixels, 2 = every other pixel, etc.)
+     * @return Vectorscope data with U/V samples from both fields
+     */
+    static VectorscopeData extractFromInterlacedRGB(
+        const uint16_t* rgb_data,
+        uint32_t width,
+        uint32_t height,
+        uint64_t field_number,
+        uint32_t subsample = 1);
 };
 
 } // namespace orc

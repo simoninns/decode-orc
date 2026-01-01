@@ -18,38 +18,68 @@
 
 namespace orc {
 
-/// Node in a GUI DAG representation
+/**
+ * @brief Node in a GUI DAG representation
+ * 
+ * Contains all information needed to display and execute a DAG node,
+ * including position, parameters, and type information.
+ */
 struct GUIDAGNode {
-    NodeID node_id;
-    std::string stage_name;
-    NodeType node_type;        // Node type (SOURCE, SINK, TRANSFORM, etc.)
-    std::string display_name;  // Display name for GUI
-    std::string user_label;    // User-editable label
-    double x_position;  // Position for GUI layout
-    double y_position;
-    std::map<std::string, ParameterValue> parameters;
+    NodeID node_id;             ///< Unique identifier for this node
+    std::string stage_name;     ///< Name of the stage type (e.g., "TBCSource")
+    NodeType node_type;         ///< Node type (SOURCE, SINK, TRANSFORM, etc.)
+    std::string display_name;   ///< Display name for GUI
+    std::string user_label;     ///< User-editable label
+    double x_position;          ///< X position for GUI layout
+    double y_position;          ///< Y position for GUI layout
+    std::map<std::string, ParameterValue> parameters;  ///< Stage parameters
 };
 
-/// Edge in a GUI DAG representation
+/**
+ * @brief Edge in a GUI DAG representation
+ * 
+ * Represents a data flow connection from one node to another.
+ */
 struct GUIDAGEdge {
-    NodeID source_node_id;
-    NodeID target_node_id;
+    NodeID source_node_id;  ///< Source node ID
+    NodeID target_node_id;  ///< Target node ID
 };
 
-/// Complete GUI DAG representation
+/**
+ * @brief Complete GUI DAG representation
+ * 
+ * Contains all nodes and edges for a complete processing graph,
+ * suitable for serialization and GUI display.
+ */
 struct GUIDAG {
-    std::string name;
-    std::string version;
-    std::vector<GUIDAGNode> nodes;
-    std::vector<GUIDAGEdge> edges;
+    std::string name;                    ///< DAG name
+    std::string version;                 ///< Format version
+    std::vector<GUIDAGNode> nodes;       ///< All nodes in the DAG
+    std::vector<GUIDAGEdge> edges;       ///< All edges in the DAG
 };
 
-/// DAG serialization functions
+/**
+ * @brief DAG serialization functions
+ * 
+ * Provides utilities to load and save DAG representations to/from YAML files.
+ */
 namespace dag_serialization {
-    /// Load a GUI DAG from YAML file
+    /**
+     * @brief Load a GUI DAG from YAML file
+     * 
+     * @param filename Path to the YAML file
+     * @return Loaded DAG structure
+     * @throws std::runtime_error if file cannot be loaded or parsed
+     */
     GUIDAG load_dag_from_yaml(const std::string& filename);
     
-    /// Save a GUI DAG to YAML file
+    /**
+     * @brief Save a GUI DAG to YAML file
+     * 
+     * @param dag The DAG to save
+     * @param filename Path to the output YAML file
+     * @throws std::runtime_error if file cannot be written
+     */
     void save_dag_to_yaml(const GUIDAG& dag, const std::string& filename);
 }
 

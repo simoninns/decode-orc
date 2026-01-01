@@ -22,19 +22,30 @@ using QtNodes::PortRole;
 using QtNodes::PortType;
 
 /**
- * QtNodes AbstractGraphModel implementation that wraps orc::Project
+ * @brief QtNodes AbstractGraphModel adapter for ORC projects
  * 
  * This adapter allows QtNodes to visualize and edit the ORC project DAG.
+ * It implements the QtNodes::AbstractGraphModel interface and translates
+ * between QtNodes node IDs and orc::NodeID identifiers.
+ * 
+ * All modifications to the graph are immediately reflected in the underlying
+ * orc::Project instance.
  */
 class OrcGraphModel : public QtNodes::AbstractGraphModel
 {
     Q_OBJECT
 
 public:
+    /**
+     * @brief Construct a graph model for a project
+     * @param project The ORC project to visualize/edit
+     * @param parent Parent QObject
+     */
     explicit OrcGraphModel(orc::Project& project, QObject* parent = nullptr);
     ~OrcGraphModel() override = default;
 
-    // QtNodes AbstractGraphModel interface
+    /// @name QtNodes AbstractGraphModel Interface
+    /// @{
     NodeId newNodeId() override;
     std::unordered_set<NodeId> allNodeIds() const override;
     std::unordered_set<ConnectionId> allConnectionIds(NodeId const nodeId) const override;
@@ -67,16 +78,27 @@ public:
     
     QJsonObject saveNode(NodeId const nodeId) const override;
     void loadNode(QJsonObject const& nodeJson) override;
+    /// @}
     
-    // Refresh from project (call after external changes)
+    /**
+     * @brief Refresh model from project
+     * 
+     * Call this after external changes to the project to update the view.
+     */
     void refresh();
     
-    // Get ORC node ID from QtNodes NodeId
+    /**
+     * @brief Convert QtNodes NodeId to ORC NodeID
+     * @param qtNodeId QtNodes node identifier
+     * @return Corresponding orc::NodeID
+     */
     orc::NodeID getOrcNodeId(NodeId qtNodeId) const;
     
-    // Access to underlying project (for context menu)
-    orc::Project& project() { return project_; }
-    const orc::Project& project() const { return project_; }
+    /// @name Project Access
+    /// @{
+    orc::Project& project() { return project_; }  ///< Get mutable project reference
+    const orc::Project& project() const { return project_; }  ///< Get const project reference
+    /// @}
     
     // Helper to find ORC node by ID (public for custom painters)
     const orc::ProjectDAGNode* findOrcNode(const orc::NodeID& node_id) const;

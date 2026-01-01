@@ -29,25 +29,40 @@ class Project;
 struct ProjectDAGNode;
 struct ProjectDAGEdge;
 
-// Node capabilities structure
+/**
+ * @brief Describes the capabilities and constraints for a DAG node
+ * 
+ * Used by the GUI to determine which operations are valid for a node
+ * (e.g., can it be removed, triggered, or inspected).
+ */
 struct NodeCapabilities {
-    bool can_remove = false;
-    std::string remove_reason;
+    bool can_remove = false;         ///< Whether the node can be removed from the DAG
+    std::string remove_reason;       ///< Explanation if node cannot be removed
     
-    bool can_trigger = false;
-    std::string trigger_reason;
+    bool can_trigger = false;        ///< Whether the node can be triggered (batch processing)
+    std::string trigger_reason;      ///< Explanation if node cannot be triggered
     
-    bool can_inspect = false;
-    std::string inspect_reason;
+    bool can_inspect = false;        ///< Whether the node can be inspected
+    std::string inspect_reason;      ///< Explanation if node cannot be inspected
     
-    NodeID node_id;
-    std::string stage_name;
-    std::string node_label;
+    NodeID node_id;                  ///< Node identifier
+    std::string stage_name;          ///< Stage type name
+    std::string node_label;          ///< User-visible label
 };
+
+/**
+ * @brief Progress callback for triggerable stages
+ * 
+ * Called periodically during batch processing to report progress.
+ * 
+ * @param current Current item being processed
+ * @param total Total items to process
+ * @param message Status message describing current operation
+ */
+using TriggerProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
 
 // Forward declaration from ld_sink_stage.h
 class TriggerableStage;
-using TriggerProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
 
 namespace project_io {
     Project load_project(const std::string& filename);

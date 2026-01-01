@@ -25,6 +25,15 @@ class FieldPreviewWidget;
 
 /**
  * @brief Separate dialog window for previewing field/frame outputs from DAG nodes
+ * 
+ * Provides a dedicated window for viewing video field/frame previews with controls for:
+ * - Field/frame navigation via slider
+ * - Preview mode selection (field, frame, split, etc.)
+ * - Aspect ratio control
+ * - Export to PNG
+ * - VBI and other metadata dialogs
+ * 
+ * This is a thin GUI layer - all rendering logic is handled by orc::PreviewRenderer.
  */
 class PreviewDialog : public QDialog
 {
@@ -34,16 +43,23 @@ public:
     explicit PreviewDialog(QWidget *parent = nullptr);
     ~PreviewDialog();
     
-    // Preview control access
-    FieldPreviewWidget* previewWidget() { return preview_widget_; }
-    QSlider* previewSlider() { return preview_slider_; }
-    QLabel* previewInfoLabel() { return preview_info_label_; }
-    QLabel* sliderMinLabel() { return slider_min_label_; }
-    QLabel* sliderMaxLabel() { return slider_max_label_; }
-    QComboBox* previewModeCombo() { return preview_mode_combo_; }
-    QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }
-    QAction* pulldownAction() { return show_pulldown_action_; }
+    /// @name Widget Accessors
+    /// @{
+    FieldPreviewWidget* previewWidget() { return preview_widget_; }  ///< Get preview widget
+    QSlider* previewSlider() { return preview_slider_; }  ///< Get field/frame slider
+    QLabel* previewInfoLabel() { return preview_info_label_; }  ///< Get info label
+    QLabel* sliderMinLabel() { return slider_min_label_; }  ///< Get slider min label
+    QLabel* sliderMaxLabel() { return slider_max_label_; }  ///< Get slider max label
+    QComboBox* previewModeCombo() { return preview_mode_combo_; }  ///< Get preview mode selector
+    QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }  ///< Get aspect ratio selector
+    QAction* pulldownAction() { return show_pulldown_action_; }  ///< Get pulldown menu action
+    /// @}
     
+    /**
+     * @brief Set the currently previewed node
+     * @param node_label Human-readable node label
+     * @param node_id Node identifier string
+     */
     void setCurrentNode(const QString& node_label, const QString& node_id);
 
 Q_SIGNALS:

@@ -19,6 +19,14 @@
 
 using namespace orc;
 
+/**
+ * @brief Print command-line usage information
+ * 
+ * Displays help text showing available commands, options, and examples
+ * for the orc-cli command-line tool.
+ * 
+ * @param program_name Name of the executable (argv[0])
+ */
 void print_usage(const char* program_name) {
     std::cerr << "Usage: " << program_name << " <project-file> [command] [options]\n";
     std::cerr << "\n";
@@ -49,9 +57,7 @@ void print_usage(const char* program_name) {
     std::cerr << "      or --analyse-source-aligns). Running without any command will show this help.\n";
 }
 
-
-
-int main(int argc, char* argv[]) {
+/**\n * @brief Main entry point for orc-cli\n * \n * Parses command-line arguments and dispatches to the appropriate command handler.\n * Supports processing projects, analyzing field mappings, and analyzing source alignments.\n * \n * @param argc Argument count\n * @param argv Argument values\n * @return Exit code (0 = success, non-zero = error)\n */\nint main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string project_path;
     std::string log_level = "info";

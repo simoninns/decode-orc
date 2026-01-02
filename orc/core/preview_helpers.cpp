@@ -91,7 +91,7 @@ PreviewImage render_field_preview(
     FieldID field_id,
     bool apply_ire_scaling)
 {
-    PreviewImage result;
+    PreviewImage result{};
     
     if (!representation || !representation->has_field(field_id)) {
         return result;
@@ -154,7 +154,7 @@ PreviewImage render_split_preview(
     uint64_t pair_index,
     bool apply_ire_scaling)
 {
-    PreviewImage result;
+    PreviewImage result{};
     
     if (!representation) {
         return result;
@@ -245,7 +245,7 @@ PreviewImage render_frame_preview(
     bool apply_ire_scaling)
 {
     auto start_time = std::chrono::high_resolution_clock::now();
-    PreviewImage result;
+    PreviewImage result{};
     
     if (!representation) {
         return result;
@@ -382,7 +382,7 @@ PreviewImage render_standard_preview(
 {
     (void)hint;  // Unused for now
     if (!representation) {
-        PreviewImage result;
+        PreviewImage result{};
         return result;
     }
     

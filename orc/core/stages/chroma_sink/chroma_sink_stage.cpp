@@ -1298,7 +1298,7 @@ std::vector<PreviewOption> ChromaSinkStage::get_preview_options() const
 PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint [[maybe_unused]]) const
 {
-    PreviewImage result;
+    PreviewImage result{};
     
     ORC_LOG_DEBUG("ChromaSink: render_preview called on instance {} for frame {}, has_cached_input={}", 
                   static_cast<const void*>(this), index, (cached_input_ != nullptr));

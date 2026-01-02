@@ -95,7 +95,7 @@ PreviewImage FieldInvertStage::render_preview(
     PreviewNavigationHint hint) const
 {
     if (!cached_output_) {
-        PreviewImage result;
+        PreviewImage result{};
         return result;
     }
     

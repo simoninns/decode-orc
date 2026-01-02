@@ -29,7 +29,11 @@ namespace orc {
  * - confidence_pct: 0-100 confidence level
  */
 struct ActiveLineHint {
-    // Field-based active line ranges
+    // Frame-based active line ranges (primary source from metadata)
+    int32_t first_active_frame_line = -1;  // First active line in frame
+    int32_t last_active_frame_line = -1;   // Last active line in frame
+    
+    // Field-based active line ranges (calculated from frame-based values)
     int32_t first_active_field_line = -1;  // First active line in field
     int32_t last_active_field_line = -1;   // Last active line in field
     
@@ -50,7 +54,7 @@ struct ActiveLineHint {
     int confidence_pct = HintTraits::METADATA_CONFIDENCE;
     
     bool is_valid() const {
-        return first_active_field_line >= 0 && last_active_field_line >= 0;
+        return first_active_frame_line >= 0 && last_active_frame_line >= 0;
     }
 };
 

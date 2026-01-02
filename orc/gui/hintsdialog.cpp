@@ -177,10 +177,10 @@ void HintsDialog::updateActiveLineHint(const std::optional<orc::ActiveLineHint>&
         return;
     }
     
-    // Format the value - show field line range
-    QString value = QString("Field Lines %1-%2")
-        .arg(hint->first_active_field_line)
-        .arg(hint->last_active_field_line);
+    // Format the value - show frame line range
+    QString value = QString("Frame Lines %1-%2")
+        .arg(hint->first_active_frame_line)
+        .arg(hint->last_active_frame_line);
     active_line_value_label_->setText(value);
     
     // Format the source

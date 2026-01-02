@@ -233,23 +233,24 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         
         // Vertical field line boundaries must be inferred from video system format defaults
         // These match the values from legacy-tools/library/tbc/lddecodemetadata.cpp
-        // We hardcode frame line values and calculate field line values (frame / 2)
+        // For PAL (even frame lines), field lines can be calculated as frame/2
+        // For NTSC (odd frame lines), we use hardcoded values to match ld-chroma-decoder
         if (params.system == VideoSystem::PAL) {
             params.first_active_frame_line = 44;
             params.last_active_frame_line = 620;
-            params.first_active_field_line = params.first_active_frame_line / 2;
-            params.last_active_field_line = params.last_active_frame_line / 2;
+            params.first_active_field_line = params.first_active_frame_line / 2;  // 22
+            params.last_active_field_line = params.last_active_frame_line / 2;    // 310
         } else if (params.system == VideoSystem::NTSC) {
             params.first_active_frame_line = 40;
             params.last_active_frame_line = 525;
-            params.first_active_field_line = params.first_active_frame_line / 2;
-            params.last_active_field_line = params.last_active_frame_line / 2;
+            params.first_active_field_line = 20;   // Hardcoded to match ld-chroma-decoder
+            params.last_active_field_line = 259;   // Not 262 (525/2) - must match baseline
         } else if (params.system == VideoSystem::PAL_M) {
             // PAL-M uses same line boundaries as NTSC
             params.first_active_frame_line = 40;
             params.last_active_frame_line = 525;
-            params.first_active_field_line = params.first_active_frame_line / 2;
-            params.last_active_field_line = params.last_active_frame_line / 2;
+            params.first_active_field_line = 20;
+            params.last_active_field_line = 259;
         }
         
         sqlite3_finalize(stmt);

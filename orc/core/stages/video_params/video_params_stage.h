@@ -51,23 +51,12 @@ public:
             return std::nullopt;
         }
         
-        // Prefer field-based active line information
-        if (cached_video_params_->first_active_field_line >= 0 && 
-            cached_video_params_->last_active_field_line >= 0) {
-            ActiveLineHint hint;
-            hint.first_active_field_line = cached_video_params_->first_active_field_line;
-            hint.last_active_field_line = cached_video_params_->last_active_field_line;
-            hint.source = HintSource::USER_OVERRIDE;
-            hint.confidence_pct = HintTraits::USER_CONFIDENCE;
-            return hint;
-        }
-        
-        // Fall back to frame-based values (convert to field-based)
-        if (cached_video_params_->first_active_frame_line >= 0 || 
+        // Use frame-based active line information (chroma decoders work with frames)
+        if (cached_video_params_->first_active_frame_line >= 0 && 
             cached_video_params_->last_active_frame_line >= 0) {
             ActiveLineHint hint;
-            hint.first_active_field_line = cached_video_params_->first_active_frame_line;
-            hint.last_active_field_line = cached_video_params_->last_active_frame_line;
+            hint.first_active_frame_line = cached_video_params_->first_active_frame_line;
+            hint.last_active_frame_line = cached_video_params_->last_active_frame_line;
             hint.source = HintSource::USER_OVERRIDE;
             hint.confidence_pct = HintTraits::USER_CONFIDENCE;
             return hint;

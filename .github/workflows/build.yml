@@ -31,6 +31,8 @@ jobs:
             libyaml-cpp-dev \
             libpng-dev \
             libfftw3-dev \
+            libfftw3-single3 \
+            libfftw3-double3 \
             qt6-base-dev \
             qt6-base-dev-tools \
             libqt6svg6-dev
@@ -95,6 +97,9 @@ jobs:
             yaml-cpp-devel \
             libpng-devel \
             fftw-devel \
+            fftw-libs \
+            fftw-libs-double \
+            fftw-libs-single \
             qt6-qtbase-devel \
             qt6-qtsvg-devel
       

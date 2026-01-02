@@ -1,0 +1,128 @@
+name: Build decode-orc
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  build-ubuntu:
+    name: Build on Ubuntu
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            build-essential \
+            git \
+            pkg-config \
+            libspdlog-dev \
+            libsqlite3-dev \
+            libyaml-cpp-dev \
+            libpng-dev \
+            libfftw3-dev \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            libqt6svg6-dev
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=ON
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(nproc)
+      
+      - name: Verify binaries
+        run: |
+          test -f build/bin/orc-cli
+          test -f build/bin/orc-gui
+          echo "✓ orc-cli built successfully"
+          echo "✓ orc-gui built successfully"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-orc-ubuntu
+          path: |
+            build/bin/orc-cli
+            build/bin/orc-gui
+          retention-days: 7
+
+  build-fedora:
+    name: Build on Fedora
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Install system dependencies
+        run: |
+          dnf install -y \
+            cmake \
+            gcc-c++ \
+            make \
+            git \
+            pkg-config \
+            spdlog-devel \
+            sqlite-devel \
+            yaml-cpp-devel \
+            libpng-devel \
+            fftw-devel \
+            qt6-qtbase-devel \
+            qt6-qtsvg-devel
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=ON
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(nproc)
+      
+      - name: Verify binaries
+        run: |
+          test -f build/bin/orc-cli
+          test -f build/bin/orc-gui
+          echo "✓ orc-cli built successfully"
+          echo "✓ orc-gui built successfully"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-orc-fedora
+          path: |
+            build/bin/orc-cli
+            build/bin/orc-gui
+          retention-days: 7

@@ -57,7 +57,17 @@ void print_usage(const char* program_name) {
     std::cerr << "      or --analyse-source-aligns). Running without any command will show this help.\n";
 }
 
-/**\n * @brief Main entry point for orc-cli\n * \n * Parses command-line arguments and dispatches to the appropriate command handler.\n * Supports processing projects, analyzing field mappings, and analyzing source alignments.\n * \n * @param argc Argument count\n * @param argv Argument values\n * @return Exit code (0 = success, non-zero = error)\n */\nint main(int argc, char* argv[]) {
+/**
+ * @brief Main entry point for orc-cli
+ * 
+ * Parses command-line arguments and dispatches to the appropriate command handler.
+ * Supports processing projects, analyzing field mappings, and analyzing source alignments.
+ * 
+ * @param argc Argument count
+ * @param argv Argument values
+ * @return Exit code (0 = success, non-zero = error)
+ */
+int main(int argc, char* argv[]) {
     // Parse command line arguments
     std::string project_path;
     std::string log_level = "info";

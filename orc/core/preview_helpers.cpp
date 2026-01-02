@@ -401,7 +401,7 @@ PreviewImage render_standard_preview(
     }
     
     ORC_LOG_WARN("PreviewHelpers: Unknown preview option '{}'", option_id);
-    PreviewImage result;
+    PreviewImage result{};
     return result;
 }
 

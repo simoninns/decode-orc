@@ -124,8 +124,13 @@ void AnalysisDialog::populateParameters() {
                         this, &AnalysisDialog::update_dependencies);
                 break;
             case ParameterType::BOOL:
-                connect(static_cast<QCheckBox*>(widget), &QCheckBox::checkStateChanged,
+                // Use stateChanged (Qt 6.0+) for compatibility with older Qt versions
+                // checkStateChanged is only available in Qt 6.7+
+                QT_WARNING_PUSH
+                QT_WARNING_DISABLE_DEPRECATED
+                connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
                         this, &AnalysisDialog::update_dependencies);
+                QT_WARNING_POP
                 break;
             default:
                 break;

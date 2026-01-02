@@ -1101,17 +1101,20 @@ SourceField ChromaSinkStage::convertToSourceField(
     // Apply PAL subcarrier-locked field shift (matches standalone decoder behavior)
     // With 4fSC PAL sampling, the two fields are misaligned by 2 samples
     // The second field needs to be shifted left by 2 samples
-    const auto& videoParams = *vfr->get_video_parameters();
-    bool isPal = (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M);
-    bool isSecondField = (desc.parity == FieldParity::Bottom);
-    
-    if (isPal && videoParams.is_subcarrier_locked && isSecondField) {
-        // Shift second field left by 2 samples (remove first 2, add 2 black samples at end)
-        sf.data.erase(sf.data.begin(), sf.data.begin() + 2);
-        uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
-        sf.data.push_back(black);
-        sf.data.push_back(black);
-        ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to field {}", field_id.value());
+    auto videoParamsOpt = vfr->get_video_parameters();
+    if (videoParamsOpt.has_value()) {
+        const auto& videoParams = videoParamsOpt.value();
+        bool isPal = (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M);
+        bool isSecondField = (desc.parity == FieldParity::Bottom);
+        
+        if (isPal && videoParams.is_subcarrier_locked && isSecondField) {
+            // Shift second field left by 2 samples (remove first 2, add 2 black samples at end)
+            sf.data.erase(sf.data.begin(), sf.data.begin() + 2);
+            uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
+            sf.data.push_back(black);
+            sf.data.push_back(black);
+            ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to field {}", field_id.value());
+        }
     }
     
     // Log complete Field structure for debugging (first 6 fields only)

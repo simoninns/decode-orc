@@ -294,8 +294,13 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                             this, &StageParameterDialog::update_dependencies);
                     break;
                 case orc::ParameterType::BOOL:
+                    // Use stateChanged (Qt 6.0+) for compatibility with older Qt versions
+                    // checkStateChanged is only available in Qt 6.7+
+                    QT_WARNING_PUSH
+                    QT_WARNING_DISABLE_DEPRECATED
                     connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
                             this, &StageParameterDialog::update_dependencies);
+                    QT_WARNING_POP
                     break;
                 default:
                     break;

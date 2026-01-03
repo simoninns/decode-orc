@@ -2,6 +2,8 @@
 
 This document explains how decode-orc manages its external dependencies and the rationale behind each approach.
 
+> **See also:** [BUILD_VERSIONS.md](BUILD_VERSIONS.md) for specific library versions used across all build platforms (Windows, macOS, Fedora, Flatpak).
+
 ## Overview
 
 decode-orc uses a **consistent dependency management strategy**:

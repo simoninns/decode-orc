@@ -22,6 +22,15 @@ jobs:
           lfs: true
           submodules: recursive
       
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          host: 'linux'
+          target: 'desktop'
+          arch: 'gcc_64'
+          cache: true
+      
       - name: Install system dependencies
         run: |
           dnf install -y \
@@ -37,9 +46,7 @@ jobs:
             fftw-devel \
             fftw-libs \
             fftw-libs-double \
-            fftw-libs-single \
-            qt6-qtbase-devel \
-            qt6-qtsvg-devel
+            fftw-libs-single
       
       - name: Create build directory
         run: mkdir -p build
@@ -50,12 +57,20 @@ jobs:
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_GUI=ON \
-            -DBUILD_TESTS=ON
+            -DBUILD_TESTS=ON \
+            -DCMAKE_PREFIX_PATH="${Qt6_DIR}"
       
       - name: Build
         run: |
           cd build
           cmake --build . -j$(nproc)
+      
+      - name: Report library versions
+        run: |
+          echo "=== Fedora Build Environment Versions ===" > versions-fedora.txt
+          echo "Qt Version: 6.8.1 (via install-qt-action)" >> versions-fedora.txt
+          rpm -qa | grep -E "(spdlog|yaml-cpp|sqlite|libpng|fftw)" | sort >> versions-fedora.txt || true
+          cat versions-fedora.txt
       
       - name: Verify binaries
         run: |
@@ -71,6 +86,7 @@ jobs:
           path: |
             build/bin/orc-cli
             build/bin/orc-gui
+            versions-fedora.txt
           retention-days: 7
 
   build-macos:
@@ -83,6 +99,15 @@ jobs:
         with:
           lfs: true
       
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          host: 'mac'
+          target: 'desktop'
+          arch: 'clang_64'
+          cache: true
+      
       - name: Install system dependencies
         run: |
           brew update || true
@@ -93,8 +118,7 @@ jobs:
             sqlite \
             yaml-cpp \
             libpng \
-            fftw \
-            qt@6
+            fftw
       
       - name: Create build directory
         run: mkdir -p build
@@ -103,17 +127,22 @@ jobs:
         run: |
           cd build
           export HOMEBREW_PREFIX=$(brew --prefix)
-          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_GUI=ON \
             -DBUILD_TESTS=ON \
-            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
-            -DQt6_DIR=$Qt6_DIR
+            -DCMAKE_PREFIX_PATH="${HOMEBREW_PREFIX};${Qt6_DIR}"
       
       - name: Build
         run: |
           cd build
+      
+      - name: Report library versions
+        run: |
+          echo "=== macOS Build Environment Versions ===" > versions-macos.txt
+          echo "Qt Version: 6.8.1 (via install-qt-action)" >> versions-macos.txt
+          brew list --versions | grep -E "(spdlog|yaml-cpp|sqlite|libpng|fftw)" >> versions-macos.txt || true
+          cat versions-macos.txt
           cmake --build . -j$(sysctl -n hw.ncpu)
       
       - name: Verify binaries
@@ -123,7 +152,8 @@ jobs:
           echo "✓ orc-cli built successfully"
           echo "✓ orc-gui built successfully"
       
-      - name: Upload artifacts
+      - na  versions-macos.txt
+          me: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: decode-orc-macos
@@ -158,19 +188,14 @@ jobs:
             C:/vcpkg/installed
             C:/vcpkg/packages
             C:/Users/runneradmin/AppData/Local/vcpkg/archives
-          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-${{ hashFiles('.github/workflows/build.yml') }}
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-${{ hashFiles('.github/workflows/build.yml') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
       
       - name: Install vcpkg dependencies
         run: |
-          vcpkg install --triplet x64-windows `
-            spdlog `
-            sqlite3 `
-            yaml-cpp `
-            libpng `
-            fftw3 `
-            pkgconf
+          # vcpkg will read vcpkg.json automatically in manifest mode
+          echo "Dependencies will be installed via vcpkg manifest mode during CMake configuration"
       
       - name: Create build directory
         run: mkdir -p build
@@ -181,6 +206,13 @@ jobs:
           cmake .. `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_GUI=ON `
+      
+      - name: Report library versions
+        run: |
+          "=== Windows Build Environment Versions ===" > versions-windows.txt
+          "Qt Version: 6.8.1 (via install-qt-action)" >> versions-windows.txt
+          vcpkg list | Select-String -Pattern "(spdlog|yaml-cpp|sqlite|libpng|fftw)" >> versions-windows.txt
+          Get-Content versions-windows.txt
             -DBUILD_TESTS=ON `
             -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}" `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -189,7 +221,8 @@ jobs:
         run: |
           cd build
           cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
-      
+        versions-windows.txt
+          
       - name: Verify binaries
         run: |
           if (!(Test-Path "build/bin/Release/orc-cli.exe")) { exit 1 }

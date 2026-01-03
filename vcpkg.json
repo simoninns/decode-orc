@@ -1,0 +1,28 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "decode-orc",
+  "version-string": "1.0.0",
+  "dependencies": [
+    {
+      "name": "spdlog",
+      "version>=": "1.14.1"
+    },
+    {
+      "name": "sqlite3"
+    },
+    {
+      "name": "yaml-cpp",
+      "version>=": "0.8.0"
+    },
+    {
+      "name": "libpng"
+    },
+    {
+      "name": "fftw3"
+    },
+    {
+      "name": "pkgconf"
+    }
+  ],
+  "builtin-baseline": "01f602195983451bc83e72f4214af2cbc495aa94"
+}

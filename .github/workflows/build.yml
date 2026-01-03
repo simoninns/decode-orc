@@ -233,32 +233,24 @@ jobs:
   build-flatpak:
     name: Build Flatpak
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
-      options: --privileged
     
     steps:
       - name: Free up disk space
-        run: |
-          echo "=== Disk space before cleanup ==="
-          df -h
-          
-          # Remove large unnecessary packages
-          rm -rf /usr/share/dotnet
-          rm -rf /usr/local/lib/android
-          rm -rf /opt/ghc
-          rm -rf /opt/hostedtoolcache/CodeQL
-          
-          # Clean package manager cache
-          apt-get clean || true
-          
-          echo "=== Disk space after cleanup ==="
-          df -h
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # Free up space by removing unnecessary tools
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: false
       
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: false
           submodules: recursive
       
       - name: Build Flatpak
@@ -266,7 +258,7 @@ jobs:
         with:
           bundle: decode-orc.flatpak
           manifest-path: io.github.simoninns.decode-orc.yml
-          cache-key: flatpak-builder-${{ github.sha }}
+          cache: false
       
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4

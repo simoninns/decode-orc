@@ -60,8 +60,8 @@ jobs:
       - name: Report library versions
         run: |
           echo "=== Fedora Build Environment Versions ===" > versions-fedora.txt
-          echo "Qt Version: 6.8.1 (via install-qt-action)" >> versions-fedora.txt
-          rpm -qa | grep -E $(rpm -qa | grep 'qt6-qtbase-[0-9]' | head -1png|fftw)" | sort >> versions-fedora.txt || true
+          echo "Qt Version: $(rpm -qa | grep 'qt6-qtbase-[0-9]' | head -1)" >> versions-fedora.txt
+          rpm -qa | grep -E "(spdlog|yaml-cpp|sqlite|libpng|fftw)" | sort >> versions-fedora.txt || true
           cat versions-fedora.txt
       
       - name: Verify binaries

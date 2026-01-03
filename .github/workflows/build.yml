@@ -30,6 +30,7 @@ jobs:
           target: 'desktop'
           arch: 'gcc_64'
           cache: true
+          install-deps: false
       
       - name: Install system dependencies
         run: |

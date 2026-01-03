@@ -3,6 +3,12 @@ runtime: org.kde.Platform
 runtime-version: '6.8'
 sdk: org.kde.Sdk
 command: orc-gui
+
+# Enable build cache for faster rebuilds
+build-options:
+  env:
+    CCACHE_DIR: /run/ccache
+
 finish-args:
   - --socket=wayland
   - --socket=fallback-x11
@@ -12,17 +18,9 @@ finish-args:
   - --share=network
 
 modules:
-  - name: fftw3
-    buildsystem: autotools
-    config-opts:
-      - --enable-shared
-      - --enable-threads
-      - --enable-float
-      - --enable-sse2
-    sources:
-      - type: archive
-        url: https://www.fftw.org/fftw-3.3.10.tar.gz
-        sha256: 56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467
+  # Use shared-modules for faster, cached FFTW3 builds
+  # This provides float precision FFTW with SSE2/AVX optimizations
+  - shared-modules/linux-audio/fftw3f.json
 
   - name: yaml-cpp
     buildsystem: cmake-ninja

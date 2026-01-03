@@ -4,11 +4,13 @@ This document describes the standardized library and tool versions used across a
 
 ## Qt Version
 
-All platforms now use **Qt 6.8.1**:
-- **Windows**: Via `jurplel/install-qt-action@v4`
-- **macOS**: Via `jurplel/install-qt-action@v4`
-- **Fedora**: Via `jurplel/install-qt-action@v4`
-- **Flatpak**: Via `org.kde.Platform 6.8` runtime (includes Qt 6.8.x)
+Target version: **Qt 6.8.x** for consistency across platforms
+
+**Platform-specific Qt versions:**
+- **Windows**: Qt 6.8.1 (via `jurplel/install-qt-action@v4`)
+- **macOS**: Qt 6.8.1 (via `jurplel/install-qt-action@v4`)
+- **Fedora**: System Qt (currently 6.10.x - newer but API compatible)
+- **Flatpak**: Qt 6.8.x (via `org.kde.Platform 6.8` runtime)
 
 ## Core Library Versions
 

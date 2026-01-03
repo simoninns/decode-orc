@@ -22,16 +22,6 @@ jobs:
           lfs: true
           submodules: recursive
       
-      - name: Install Qt6
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: '6.8.1'
-          host: 'linux'
-          target: 'desktop'
-          arch: 'gcc_64'
-          cache: true
-          install-deps: false
-      
       - name: Install system dependencies
         run: |
           dnf install -y \
@@ -47,7 +37,9 @@ jobs:
             fftw-devel \
             fftw-libs \
             fftw-libs-double \
-            fftw-libs-single
+            fftw-libs-single \
+            qt6-qtbase-devel \
+            qt6-qtsvg-devel
       
       - name: Create build directory
         run: mkdir -p build
@@ -58,8 +50,7 @@ jobs:
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_GUI=ON \
-            -DBUILD_TESTS=ON \
-            -DCMAKE_PREFIX_PATH="${Qt6_DIR}"
+            -DBUILD_TESTS=ON
       
       - name: Build
         run: |
@@ -70,7 +61,7 @@ jobs:
         run: |
           echo "=== Fedora Build Environment Versions ===" > versions-fedora.txt
           echo "Qt Version: 6.8.1 (via install-qt-action)" >> versions-fedora.txt
-          rpm -qa | grep -E "(spdlog|yaml-cpp|sqlite|libpng|fftw)" | sort >> versions-fedora.txt || true
+          rpm -qa | grep -E $(rpm -qa | grep 'qt6-qtbase-[0-9]' | head -1png|fftw)" | sort >> versions-fedora.txt || true
           cat versions-fedora.txt
       
       - name: Verify binaries

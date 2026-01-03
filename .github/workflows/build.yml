@@ -253,6 +253,11 @@ jobs:
           lfs: false
           submodules: recursive
       
+      - name: Install required packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+      
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

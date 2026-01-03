@@ -256,7 +256,7 @@ jobs:
       - name: Install required packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb flatpak flatpak-builder
       
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6

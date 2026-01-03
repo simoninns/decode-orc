@@ -12,10 +12,35 @@
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
+
+#ifdef _WIN32
+    #include <io.h>
+    #include <sys/types.h>
+    #include <sys/stat.h>
+    #include <fcntl.h>
+    #include <mutex>
+    // Define POSIX type for Windows if not already defined
+    #ifndef _SSIZE_T_DEFINED
+        using ssize_t = intptr_t;
+        #define _SSIZE_T_DEFINED
+    #endif
+    // Windows doesn't have pread, so we need to implement it with lseek + read + mutex
+    namespace {
+        std::mutex windows_pread_mutex;
+        ssize_t pread(int fd, void* buf, size_t count, __int64 offset) {
+            std::lock_guard<std::mutex> lock(windows_pread_mutex);
+            if (_lseeki64(fd, offset, SEEK_SET) == -1) {
+                return -1;
+            }
+            return _read(fd, buf, static_cast<unsigned int>(count));
+        }
+    }
+#else
+    #include <sys/types.h>
+    #include <sys/stat.h>
+    #include <fcntl.h>
+    #include <unistd.h>
+#endif
 
 namespace orc {
 
@@ -39,15 +64,25 @@ bool TBCReader::open(const std::string& filename, size_t field_length, size_t li
     filename_ = filename;
     
     // Open file with POSIX API (thread-safe for pread)
+#ifdef _WIN32
+    fd_ = _open(filename.c_str(), _O_RDONLY | _O_BINARY);
+#else
     fd_ = ::open(filename.c_str(), O_RDONLY);
+#endif
     if (fd_ < 0) {
         return false;
     }
     
     // Get file size
+#ifdef _WIN32
+    struct _stat64 st;
+    if (_fstat64(fd_, &st) != 0) {
+        _close(fd_);
+#else
     struct stat st;
     if (fstat(fd_, &st) != 0) {
         ::close(fd_);
+#endif
         fd_ = -1;
         return false;
     }
@@ -69,7 +104,11 @@ void TBCReader::close() {
     std::lock_guard<std::mutex> cache_lock(cache_mutex_);
     
     if (fd_ >= 0) {
+#ifdef _WIN32
+        _close(fd_);
+#else
         ::close(fd_);
+#endif
         fd_ = -1;
     }
     is_open_ = false;

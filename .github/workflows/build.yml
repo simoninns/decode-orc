@@ -7,68 +7,6 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  build-ubuntu:
-    name: Build on Ubuntu
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-          submodules: recursive
-      
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            cmake \
-            build-essential \
-            git \
-            pkg-config \
-            libspdlog-dev \
-            libsqlite3-dev \
-            libyaml-cpp-dev \
-            libpng-dev \
-            libfftw3-dev \
-            libfftw3-single3 \
-            libfftw3-double3 \
-            qt6-base-dev \
-            qt6-base-dev-tools \
-            libqt6svg6-dev
-      
-      - name: Create build directory
-        run: mkdir -p build
-      
-      - name: Configure CMake
-        run: |
-          cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_GUI=ON \
-            -DBUILD_TESTS=ON
-      
-      - name: Build
-        run: |
-          cd build
-          cmake --build . -j$(nproc)
-      
-      - name: Verify binaries
-        run: |
-          test -f build/bin/orc-cli
-          test -f build/bin/orc-gui
-          echo "✓ orc-cli built successfully"
-          echo "✓ orc-gui built successfully"
-      
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: decode-orc-ubuntu
-          path: |
-            build/bin/orc-cli
-            build/bin/orc-gui
-          retention-days: 7
-
   build-fedora:
     name: Build on Fedora
     runs-on: ubuntu-latest
@@ -133,4 +71,163 @@ jobs:
           path: |
             build/bin/orc-cli
             build/bin/orc-gui
+          retention-days: 7
+
+  build-macos:
+    name: Build on macOS
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Install system dependencies
+        run: |
+          brew update || true
+          brew install \
+            cmake \
+            pkg-config \
+            spdlog \
+            sqlite \
+            yaml-cpp \
+            libpng \
+            fftw \
+            qt@6
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          export HOMEBREW_PREFIX=$(brew --prefix)
+          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=ON \
+            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
+            -DQt6_DIR=$Qt6_DIR
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Verify binaries
+        run: |
+          test -f build/bin/orc-cli
+          test -f build/bin/orc-gui
+          echo "✓ orc-cli built successfully"
+          echo "✓ orc-gui built successfully"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-orc-macos
+          path: |
+            build/bin/orc-cli
+            build/bin/orc-gui
+          retention-days: 7
+
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: true
+      
+      - name: Setup vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/vcpkg/installed
+            C:/vcpkg/packages
+            C:/Users/runneradmin/AppData/Local/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+      
+      - name: Install vcpkg dependencies
+        run: |
+          vcpkg install --triplet x64-windows `
+            spdlog `
+            sqlite3 `
+            yaml-cpp `
+            libpng `
+            fftw3 `
+            pkgconf
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_GUI=ON `
+            -DBUILD_TESTS=ON `
+            -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}" `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
+      
+      - name: Verify binaries
+        run: |
+          if (!(Test-Path "build/bin/Release/orc-cli.exe")) { exit 1 }
+          if (!(Test-Path "build/bin/Release/orc-gui.exe")) { exit 1 }
+          Write-Host "✓ orc-cli.exe built successfully"
+          Write-Host "✓ orc-gui.exe built successfully"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-orc-windows
+          path: |
+            build/bin/Release/orc-cli.exe
+            build/bin/Release/orc-gui.exe
+          retention-days: 7
+  build-flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: decode-orc.flatpak
+          manifest-path: io.github.simoninns.decode-orc.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+      
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-orc-flatpak
+          path: decode-orc.flatpak
           retention-days: 7

@@ -1,0 +1,85 @@
+app-id: io.github.simoninns.decode-orc
+runtime: org.kde.Platform
+runtime-version: '6.8'
+sdk: org.kde.Sdk
+command: orc-gui
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --filesystem=host
+  - --share=network
+
+modules:
+  - name: fftw3
+    buildsystem: autotools
+    config-opts:
+      - --enable-shared
+      - --enable-threads
+      - --enable-float
+      - --enable-sse2
+    sources:
+      - type: archive
+        url: https://www.fftw.org/fftw-3.3.10.tar.gz
+        sha256: 56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467
+
+  - name: yaml-cpp
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DYAML_BUILD_SHARED_LIBS=ON
+      - -DYAML_CPP_BUILD_TESTS=OFF
+    sources:
+      - type: archive
+        url: https://github.com/jbeder/yaml-cpp/archive/refs/tags/0.8.0.tar.gz
+        sha256: fbe74bbdcee21d656715688706da3c8becfd946d92cd44705cc6098bb23b3a16
+
+  - name: fmt
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DFMT_DOC=OFF
+      - -DFMT_TEST=OFF
+      - -DBUILD_SHARED_LIBS=ON
+    sources:
+      - type: archive
+        url: https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz
+        sha256: 1250e4cc58bf06ee631567523f48848dc4596133e163f02615c97f78bab6c811
+
+  - name: spdlog
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSPDLOG_BUILD_SHARED=ON
+      - -DSPDLOG_BUILD_EXAMPLE=OFF
+      - -DSPDLOG_BUILD_TESTS=OFF
+      - -DSPDLOG_FMT_EXTERNAL=ON
+    sources:
+      - type: archive
+        url: https://github.com/gabime/spdlog/archive/refs/tags/v1.14.1.tar.gz
+        sha256: 1586508029a7d0670dfcb2d97575dcdc242d3868a259742b69f100801ab4e16b
+
+  - name: qtnodes
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DUSE_QT6=ON
+      - -DBUILD_TESTING=OFF
+      - -DBUILD_EXAMPLES=OFF
+      - -DBUILD_SHARED_LIBS=OFF
+    sources:
+      - type: git
+        url: https://github.com/paceholder/nodeeditor.git
+        commit: 0813551215ce44235b7365f133eec057d5e7fcd2
+
+  - name: decode-orc
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_GUI=ON
+      - -DBUILD_TESTS=OFF
+    sources:
+      - type: dir
+        path: .

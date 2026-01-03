@@ -131,22 +131,33 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/video_params
 )
 
-target_compile_options(orc-core PRIVATE
-    -Wall -Wextra -Wpedantic
-    $<$<CONFIG:Debug>:-g -O0>
-    $<$<CONFIG:Release>:-O3>
-)
+# Compiler-specific warning flags
+if(MSVC)
+    target_compile_options(orc-core PRIVATE /W4)
+else()
+    target_compile_options(orc-core PRIVATE
+        -Wall -Wextra -Wpedantic
+        $<$<CONFIG:Debug>:-g -O0>
+        $<$<CONFIG:Release>:-O3>
+    )
+endif()
 
 # Enable debug/trace logging at compile time
-target_compile_definitions(orc-core PRIVATE SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
+target_compile_definitions(orc-core PRIVATE 
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
+    $<$<PLATFORM_ID:Windows>:_USE_MATH_DEFINES>
+)
 
 # Find and link SQLite3
 find_package(SQLite3 REQUIRED)
 target_link_libraries(orc-core PUBLIC SQLite::SQLite3)
 
 # Find and link yaml-cpp
-find_package(yaml-cpp REQUIRED)
-target_link_libraries(orc-core PUBLIC yaml-cpp)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(YAML_CPP REQUIRED yaml-cpp)
+target_include_directories(orc-core PUBLIC ${YAML_CPP_INCLUDE_DIRS})
+target_link_directories(orc-core PUBLIC ${YAML_CPP_LIBRARY_DIRS})
+target_link_libraries(orc-core PUBLIC ${YAML_CPP_LIBRARIES})
 
 # Find and link spdlog
 find_package(spdlog REQUIRED)

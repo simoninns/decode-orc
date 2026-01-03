@@ -8,8 +8,13 @@
  */
 
 #include "preview_helpers.h"
-#include "logging.h"
+
 #include <algorithm>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "logging.h"
 
 namespace orc {
 namespace PreviewHelpers {

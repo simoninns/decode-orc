@@ -18,9 +18,26 @@ finish-args:
   - --share=network
 
 modules:
-  # Use shared-modules for faster, cached FFTW3 builds
-  # This provides float precision FFTW with SSE2/AVX optimizations
-  - shared-modules/linux-audio/fftw3f.json
+  # FFTW3 (single precision float version)
+  - name: fftw3f
+    buildsystem: autotools
+    config-opts:
+      - --enable-shared
+      - --disable-static
+      - --enable-threads
+      - --enable-float
+      - --enable-sse2
+      - --enable-avx
+      - --enable-avx2
+    sources:
+      - type: archive
+        url: https://fftw.org/fftw-3.3.10.tar.gz
+        sha256: 56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467
+        x-checker-data:
+          type: anitya
+          project-id: 14534
+          stable-only: true
+          url-template: https://fftw.org/fftw-$version.tar.gz
 
   - name: yaml-cpp
     buildsystem: cmake-ninja

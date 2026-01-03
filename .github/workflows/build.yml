@@ -136,6 +136,7 @@ jobs:
       - name: Build
         run: |
           cd build
+          cmake --build . -j$(sysctl -n hw.ncpu)
       
       - name: Report library versions
         run: |
@@ -143,7 +144,6 @@ jobs:
           echo "Qt Version: 6.8.1 (via install-qt-action)" >> versions-macos.txt
           brew list --versions | grep -E "(spdlog|yaml-cpp|sqlite|libpng|fftw)" >> versions-macos.txt || true
           cat versions-macos.txt
-          cmake --build . -j$(sysctl -n hw.ncpu)
       
       - name: Verify binaries
         run: |
@@ -152,14 +152,14 @@ jobs:
           echo "✓ orc-cli built successfully"
           echo "✓ orc-gui built successfully"
       
-      - na  versions-macos.txt
-          me: Upload artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: decode-orc-macos
           path: |
             build/bin/orc-cli
             build/bin/orc-gui
+            versions-macos.txt
           retention-days: 7
 
   build-windows:
@@ -206,13 +206,6 @@ jobs:
           cmake .. `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_GUI=ON `
-      
-      - name: Report library versions
-        run: |
-          "=== Windows Build Environment Versions ===" > versions-windows.txt
-          "Qt Version: 6.8.1 (via install-qt-action)" >> versions-windows.txt
-          vcpkg list | Select-String -Pattern "(spdlog|yaml-cpp|sqlite|libpng|fftw)" >> versions-windows.txt
-          Get-Content versions-windows.txt
             -DBUILD_TESTS=ON `
             -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}" `
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -221,7 +214,13 @@ jobs:
         run: |
           cd build
           cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
-        versions-windows.txt
+      
+      - name: Report library versions
+        run: |
+          "=== Windows Build Environment Versions ===" > versions-windows.txt
+          "Qt Version: 6.8.1 (via install-qt-action)" >> versions-windows.txt
+          vcpkg list | Select-String -Pattern "(spdlog|yaml-cpp|sqlite|libpng|fftw)" >> versions-windows.txt
+          Get-Content versions-windows.txt
           
       - name: Verify binaries
         run: |
@@ -237,6 +236,7 @@ jobs:
           path: |
             build/bin/Release/orc-cli.exe
             build/bin/Release/orc-gui.exe
+            versions-windows.txt
           retention-days: 7
   build-flatpak:
     name: Build Flatpak
@@ -250,7 +250,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          submodules: recursive  # Required for shared-modules
+          submodules: recursive
       
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6

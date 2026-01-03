@@ -4,6 +4,3 @@
 [submodule "docs"]
 	path = docs
 	url = https://github.com/simoninns/decode-orc-docs
-[submodule "shared-modules"]
-	path = shared-modules
-	url = https://github.com/flathub/shared-modules.git

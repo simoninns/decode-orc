@@ -14,6 +14,7 @@ namespace orc {
 void force_link_LDPALSourceStage();
 void force_link_LDNTSCSourceStage();
 void force_link_DropoutCorrectStage();
+void force_link_DropoutMapStage();
 void force_link_FieldInvertStage();
 void force_link_FieldMapStage();
 void force_link_SourceAlignStage();
@@ -43,6 +44,7 @@ void force_stage_linking() {
     force_link_LDPALSourceStage();
     force_link_LDNTSCSourceStage();
     force_link_DropoutCorrectStage();
+    force_link_DropoutMapStage();
     force_link_FieldInvertStage();
     force_link_FieldMapStage();
     force_link_SourceAlignStage();

@@ -5,7 +5,7 @@
 #---------------------------------------------------------------------------
 PROJECT_NAME           = "Decode ORC"
 PROJECT_NUMBER         = 
-PROJECT_BRIEF          = "LaserDisc Video Decoder"
+PROJECT_BRIEF          = "Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows"
 PROJECT_LOGO           = 
 OUTPUT_DIRECTORY       = docs
 CREATE_SUBDIRS         = NO
@@ -32,10 +32,11 @@ TAB_SIZE               = 4
 #---------------------------------------------------------------------------
 # Configuration options related to the input files
 #---------------------------------------------------------------------------
-INPUT                  = orc/core orc/cli orc/gui
+INPUT                  = orc/mainpage.md orc/core orc/cli orc/gui
 INPUT_ENCODING         = UTF-8
-FILE_PATTERNS          = *.cpp *.h *.hpp
+FILE_PATTERNS          = *.cpp *.h *.hpp *.md
 RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = orc/mainpage.md
 EXCLUDE                = 
 EXCLUDE_SYMLINKS       = NO
 EXCLUDE_PATTERNS       = */build/* */.git/* */testdata-ld/*

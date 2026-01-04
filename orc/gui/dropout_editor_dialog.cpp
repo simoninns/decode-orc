@@ -510,15 +510,6 @@ void DropoutEditorDialog::setupUI()
     connect(button_box, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(button_box, &QDialogButtonBox::rejected, this, &QDialog::reject);
     main_layout->addWidget(button_box);
-
-    // Instructions
-    auto* instructions = new QLabel(
-        "Instructions: Red regions show existing hint dropouts from the source. "
-        "Select 'Add Dropout' and click-drag on the image to mark new dropout regions (green). "
-        "Select 'Remove Dropout' and click on existing hint regions to remove them (yellow).");
-    instructions->setWordWrap(true);
-    instructions->setStyleSheet("QLabel { background-color: #ffffcc; padding: 5px; }");
-    main_layout->insertWidget(0, instructions);
     
     // Set initial mode (add_dropout_button_ is checked by default)
     field_view_->mode_ = DropoutFieldView::InteractionMode::AddingDropout;

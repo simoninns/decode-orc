@@ -76,7 +76,6 @@ MainWindow::MainWindow(QWidget *parent)
     , dag_view_(nullptr)
     , dag_model_(nullptr)
     , dag_scene_(nullptr)
-    , toolbar_(nullptr)
     , save_project_action_(nullptr)
     , save_project_as_action_(nullptr)
     , edit_project_action_(nullptr)
@@ -453,8 +452,7 @@ void MainWindow::setupMenus()
 
 void MainWindow::setupToolbar()
 {
-    toolbar_ = addToolBar("Main");
-    // Toolbar can be used for other controls later
+    // Toolbar removed - was creating blank bar between menu and DAG editor
 }
 
 

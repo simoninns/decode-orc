@@ -28,6 +28,16 @@ It should be noted that the original code for the observers is also based heavil
 
 This project is under active development.
 
+# Documentation
+
+## User documentation
+
+TBA
+
+## Technical documentation
+
+The technical documentation is available via [Doxygen](https://simoninns.github.io/decode-orc/index.html)
+
 # Vision
 
 ## 1. Overview

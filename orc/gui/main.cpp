@@ -13,6 +13,10 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
+#include <QPalette>
+#include <QStyleHints>
+#include <QStyle>
+#include <QProcess>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace orc {
@@ -49,6 +53,83 @@ void reset_gui_logger() {
 
 } // namespace orc
 
+// Check if GNOME is using dark theme
+bool isGNOMEDarkTheme()
+{
+    // First, try to use gsettings to check GNOME color scheme
+    QProcess process;
+    process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "color-scheme");
+    process.waitForFinished(1000);
+    
+    if (process.exitCode() == 0) {
+        QString output = process.readAllStandardOutput().trimmed();
+        // Remove quotes if present
+        output = output.remove('\'');
+        if (output.contains("dark", Qt::CaseInsensitive)) {
+            return true;
+        }
+        if (output.contains("light", Qt::CaseInsensitive)) {
+            return false;
+        }
+    }
+    
+    // Fallback: try gtk-theme setting
+    process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "gtk-theme");
+    process.waitForFinished(1000);
+    
+    if (process.exitCode() == 0) {
+        QString output = process.readAllStandardOutput().trimmed();
+        output = output.remove('\'');
+        if (output.contains("dark", Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Apply dark or light palette to the application
+void applySystemTheme(QApplication& app, bool isDark)
+{
+    if (isDark) {
+        // Dark theme palette
+        QPalette darkPalette;
+        
+        // Base colors
+        QColor darkGray(53, 53, 53);
+        QColor darkerGray(42, 42, 42);
+        QColor darkestGray(25, 25, 25);
+        QColor lightGray(200, 200, 200);
+        QColor blue(42, 130, 218);
+        
+        darkPalette.setColor(QPalette::Window, darkGray);
+        darkPalette.setColor(QPalette::WindowText, Qt::white);
+        darkPalette.setColor(QPalette::Base, darkestGray);
+        darkPalette.setColor(QPalette::AlternateBase, darkGray);
+        darkPalette.setColor(QPalette::ToolTipBase, darkGray);
+        darkPalette.setColor(QPalette::ToolTipText, Qt::white);
+        darkPalette.setColor(QPalette::Text, Qt::white);
+        darkPalette.setColor(QPalette::Button, darkGray);
+        darkPalette.setColor(QPalette::ButtonText, Qt::white);
+        darkPalette.setColor(QPalette::BrightText, Qt::red);
+        darkPalette.setColor(QPalette::Link, blue);
+        darkPalette.setColor(QPalette::Highlight, blue);
+        darkPalette.setColor(QPalette::HighlightedText, Qt::black);
+        
+        // Disabled colors
+        darkPalette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(127, 127, 127));
+        darkPalette.setColor(QPalette::Disabled, QPalette::Text, QColor(127, 127, 127));
+        darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(127, 127, 127));
+        darkPalette.setColor(QPalette::Disabled, QPalette::Highlight, QColor(80, 80, 80));
+        darkPalette.setColor(QPalette::Disabled, QPalette::HighlightedText, QColor(127, 127, 127));
+        
+        app.setPalette(darkPalette);
+    } else {
+        // Light theme - use default Qt palette
+        app.setPalette(app.style()->standardPalette());
+    }
+}
+
 // Qt message handler that bridges to spdlog
 void qtMessageHandler(QtMsgType type, const QMessageLogContext& /*context*/, const QString& msg)
 {
@@ -73,12 +154,22 @@ void qtMessageHandler(QtMsgType type, const QMessageLogContext& /*context*/, con
 
 int main(int argc, char *argv[])
 {
+    // Enable high DPI scaling
+    QApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+    
     QApplication app(argc, argv);
     
     app.setApplicationName("orc-gui");
     app.setApplicationVersion(ORC_VERSION);
     app.setOrganizationName("domesday86");
     app.setWindowIcon(QIcon(":/orc-gui/icon.png"));
+    
+    // Detect and apply GNOME theme
+    bool isDark = isGNOMEDarkTheme();
+    
+    // Use Fusion style which works well with custom palettes
+    app.setStyle("Fusion");
+    applySystemTheme(app, isDark);
     
     // Command-line argument parsing
     QCommandLineParser parser;
@@ -147,6 +238,7 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(qtMessageHandler);
     
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
+    ORC_LOG_INFO("GNOME theme detected: {}", isDark ? "dark" : "light");
     
     MainWindow window;
     

@@ -205,7 +205,6 @@ private:
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;
-    QToolBar* toolbar_;
     QAction* save_project_action_;
     QAction* save_project_as_action_;
     QAction* edit_project_action_;

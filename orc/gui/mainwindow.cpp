@@ -8,6 +8,7 @@
  */
 
 #include "mainwindow.h"
+#include "version.h"
 #include "fieldpreviewwidget.h"
 #include "previewdialog.h"
 #include "vbidialog.h"
@@ -47,6 +48,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QApplication>
 #include <QSlider>
 #include <QPushButton>
 #include <QMessageBox>
@@ -440,6 +442,12 @@ void MainWindow::setupMenus()
     auto* arrange_action = view_menu->addAction("&Arrange DAG to Grid");
     arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
     connect(arrange_action, &QAction::triggered, this, &MainWindow::onArrangeDAGToGrid);
+    
+    // Help menu
+    auto* help_menu = menuBar()->addMenu("&Help");
+    
+    auto* about_action = help_menu->addAction("&About Orc GUI...");
+    connect(about_action, &QAction::triggered, this, &MainWindow::onAbout);
 }
 
 void MainWindow::setupToolbar()
@@ -1253,6 +1261,39 @@ void MainWindow::onArrangeDAGToGrid()
     // Refresh the view
     dag_model_->refresh();
     statusBar()->showMessage("Arranged DAG to grid", 2000);
+}
+
+void MainWindow::onAbout()
+{
+    QMessageBox about_box(this);
+    about_box.setWindowTitle("About Orc GUI");
+    about_box.setIconPixmap(QPixmap(":/orc-gui/icon.png").scaled(128, 128, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    
+    QString about_text = QString(
+        "<h2>Orc GUI</h2>"
+        "<p><b>Version:</b> %1</p>"
+        "<p>*-decode Orchestration GUI for LaserDisc video processing</p>"
+        "<br>"
+        "<p><b>Copyright:</b> © 2025 Simon Inns</p>"
+        "<p><b>License:</b> GNU General Public License v3.0 or later</p>"
+        "<br>"
+        "<p>This program is free software: you can redistribute it and/or modify "
+        "it under the terms of the GNU General Public License as published by "
+        "the Free Software Foundation, either version 3 of the License, or "
+        "(at your option) any later version.</p>"
+        "<p>This program is distributed in the hope that it will be useful, "
+        "but WITHOUT ANY WARRANTY; without even the implied warranty of "
+        "MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the "
+        "GNU General Public License for more details.</p>"
+        "<p>You should have received a copy of the GNU General Public License "
+        "along with this program. If not, see "
+        "<a href='https://www.gnu.org/licenses/'>https://www.gnu.org/licenses/</a>.</p>"
+    ).arg(ORC_VERSION);
+    
+    about_box.setText(about_text);
+    about_box.setTextFormat(Qt::RichText);
+    about_box.setTextInteractionFlags(Qt::TextBrowserInteraction);
+    about_box.exec();
 }
 
 void MainWindow::updatePreview()

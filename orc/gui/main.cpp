@@ -12,6 +12,7 @@
 #include "version.h"
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QIcon>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace orc {
@@ -77,6 +78,7 @@ int main(int argc, char *argv[])
     app.setApplicationName("orc-gui");
     app.setApplicationVersion(ORC_VERSION);
     app.setOrganizationName("domesday86");
+    app.setWindowIcon(QIcon(":/orc-gui/icon.png"));
     
     // Command-line argument parsing
     QCommandLineParser parser;

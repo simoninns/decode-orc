@@ -135,6 +135,7 @@ private slots:
     void onTriggerProgress(size_t current, size_t total, QString message);
     void onTriggerComplete(uint64_t request_id, bool success, QString status);
     void onCoordinatorError(uint64_t request_id, QString message);
+    void onAbout();
 
 signals:
 

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Orc GUI
+GenericName=Video Decode Orchestration
+Comment=*-decode Orchestration GUI for LaserDisc video processing
+Exec=orc-gui %F
+Icon=io.github.simoninns.orc-gui
+Terminal=false
+Categories=AudioVideo;Video;
+MimeType=application/x-orc-project;
+Keywords=video;laserdisc;decode;processing;

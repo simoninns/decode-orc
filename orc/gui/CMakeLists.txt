@@ -91,6 +91,9 @@ add_executable(orc-gui
     # Quality metrics dialog
     qualitymetricsdialog.cpp
     qualitymetricsdialog.h
+    
+    # Resources
+    orc_gui_resources.qrc
 )
 
 target_link_libraries(orc-gui PRIVATE 
@@ -120,3 +123,22 @@ target_include_directories(orc-gui PRIVATE
 install(TARGETS orc-gui
     RUNTIME DESTINATION bin
 )
+
+# Install desktop file
+install(FILES io.github.simoninns.orc-gui.desktop
+    DESTINATION share/applications
+)
+
+# Install application icon
+install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png
+    DESTINATION share/icons/hicolor/256x256/apps
+    RENAME io.github.simoninns.orc-gui.png
+)
+
+# Install SVG icon for scalability
+if(EXISTS ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg)
+    install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg
+        DESTINATION share/icons/hicolor/scalable/apps
+        RENAME io.github.simoninns.orc-gui.svg
+    )
+endif()

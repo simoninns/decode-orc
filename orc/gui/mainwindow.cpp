@@ -776,6 +776,20 @@ void MainWindow::onPreviewModeChanged(int index)
     current_output_type_ = available_outputs_[index].type;
     current_option_id_ = available_outputs_[index].option_id;
     
+    // Update dropouts button state based on the new output's availability
+    bool dropouts_available = available_outputs_[index].dropouts_available;
+    if (preview_dialog_ && preview_dialog_->dropoutsButton()) {
+        if (!dropouts_available) {
+            // Disable and turn off dropouts for outputs where they're not available
+            preview_dialog_->dropoutsButton()->setEnabled(false);
+            preview_dialog_->dropoutsButton()->setChecked(false);
+            render_coordinator_->setShowDropouts(false);
+        } else {
+            // Re-enable dropouts button for outputs that support it
+            preview_dialog_->dropoutsButton()->setEnabled(true);
+        }
+    }
+    
     // Simple conversion for index (just use same position)
     uint64_t new_position = current_position;
     

@@ -157,7 +157,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             true,
             0.7,
-            ""
+            "",
+            false  // No dropouts for placeholder
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -165,7 +166,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             true,
             0.7,
-            ""
+            "",
+            false  // No dropouts for placeholder
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -173,7 +175,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             true,
             0.7,
-            ""
+            "",
+            false  // No dropouts for placeholder
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -181,7 +184,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             true,
             0.7,
-            ""
+            "",
+            false  // No dropouts for placeholder
         });
         return outputs;
     }
@@ -225,7 +229,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for unavailable content
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -233,7 +238,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for unavailable content
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -241,7 +247,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for unavailable content
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -249,7 +256,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for unavailable content
         });
         return outputs;
     }
@@ -265,7 +273,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for empty content
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -273,7 +282,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for empty content
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -281,7 +291,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for empty content
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -289,7 +300,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             1,  // Single placeholder item
             false,  // Not available - placeholder only
             0.7,
-            ""
+            "",
+            false  // No dropouts for empty content
         });
         return outputs;
     }
@@ -301,7 +313,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         field_count,
         true,
         0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
-        ""
+        "",
+        true  // Dropouts available for field outputs
     });
     
     // Frame outputs - available if we have at least 2 fields
@@ -328,7 +341,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 frame_count,
                 true,
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
-                ""
+                "",
+                true  // Dropouts available for frame outputs
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -337,7 +351,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 frame_count,
                 true,
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
-                ""
+                "",
+                true  // Dropouts available for reversed frame outputs
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -346,7 +361,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 frame_count,
                 true,
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
-                ""
+                "",
+                true  // Dropouts available for split outputs
             });
         }
     }
@@ -1370,13 +1386,19 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             type = PreviewOutputType::Frame;
         }
         
+        // Check if this is a chroma decoder stage (chroma_sink)
+        // Chroma decoder outputs RGB frames, not YUV fields, so dropouts are not available
+        std::string stage_name = stage_node.stage->get_node_type_info().stage_name;
+        bool is_chroma_decoder = (stage_name == "chroma_sink");
+        
         outputs.push_back(PreviewOutputInfo{
             type,
             option.display_name,
             option.count,
             true,  // If stage advertises it, it's available
             option.dar_aspect_correction,  // Use stage-provided DAR correction
-            option.id  // Store original option ID
+            option.id,  // Store original option ID
+            !is_chroma_decoder  // Dropouts not available for chroma decoder (RGB output)
         });
     }
     

@@ -150,6 +150,29 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     refreshViewerControls();
     updateUIState();
     
+    // Update dropouts button state based on current output's availability
+    // Find the current output info to check if dropouts are available
+    bool dropouts_available = false;
+    for (const auto& output : available_outputs_) {
+        if (output.option_id == current_option_id_ && output.type == current_output_type_) {
+            dropouts_available = output.dropouts_available;
+            break;
+        }
+    }
+    
+    // Update dropouts button - disable and turn off if not available
+    if (preview_dialog_ && preview_dialog_->dropoutsButton()) {
+        if (!dropouts_available) {
+            // Disable and turn off dropouts for stages where they're not available (e.g., chroma decoder)
+            preview_dialog_->dropoutsButton()->setEnabled(false);
+            preview_dialog_->dropoutsButton()->setChecked(false);
+            render_coordinator_->setShowDropouts(false);
+        } else {
+            // Re-enable dropouts button for stages that support it
+            preview_dialog_->dropoutsButton()->setEnabled(true);
+        }
+    }
+    
     // Request initial preview
     updatePreview();
 }

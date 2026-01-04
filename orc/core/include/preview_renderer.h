@@ -76,6 +76,7 @@ struct PreviewOutputInfo {
     bool is_available;              ///< Whether this type is available for this node
     double dar_aspect_correction;   ///< Width scaling factor for 4:3 DAR (e.g., 0.7 for PAL/NTSC)
     std::string option_id;          ///< Original option ID from PreviewableStage (for direct rendering)
+    bool dropouts_available;        ///< Whether dropout highlighting is available for this output type
 };
 
 /**

@@ -53,6 +53,7 @@ public:
     QComboBox* previewModeCombo() { return preview_mode_combo_; }  ///< Get preview mode selector
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }  ///< Get aspect ratio selector
     QAction* pulldownAction() { return show_pulldown_action_; }  ///< Get pulldown menu action
+    QPushButton* dropoutsButton() { return dropouts_button_; }  ///< Get dropouts button for state control
     /// @}
     
     /**

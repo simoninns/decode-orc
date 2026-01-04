@@ -88,6 +88,22 @@ bool is_connection_valid(const std::string& source_stage, const std::string& tar
         return false;
     }
     
+    // Cardinality matching rules:
+    // - ONE output stages (min_outputs == 1) support fan-out and can connect to:
+    //   * ONE input stages (max_inputs == 1) - single connection
+    //   * MANY input stages (max_inputs > 1) - multiple ONE sources to one MANY target
+    // - MANY output stages (min_outputs > 1) can ONLY connect to MANY input stages (max_inputs > 1)
+    //   They do NOT support fan-out (enforced in add_edge)
+    // - FORBIDDEN: MANY output → ONE input (would violate ONE input's single-connection semantics)
+    
+    bool source_is_many = (source_info->min_outputs > 1);
+    bool target_is_one = (target_info->max_inputs == 1);
+    
+    // Reject MANY outputs connecting to ONE inputs
+    if (source_is_many && target_is_one) {
+        return false;
+    }
+    
     return true;
 }
 

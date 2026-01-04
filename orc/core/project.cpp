@@ -186,6 +186,60 @@ Project load_project(const std::string& filename) {
         }
     }
     
+    // Validate all loaded edges to ensure they comply with current connection rules
+    std::vector<std::string> validation_errors;
+    for (const auto& edge : project.edges_) {
+        // Find source and target nodes
+        auto source_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+            [&edge](const ProjectDAGNode& n) { return n.node_id == edge.source_node_id; });
+        auto target_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+            [&edge](const ProjectDAGNode& n) { return n.node_id == edge.target_node_id; });
+        
+        if (source_it == project.nodes_.end()) {
+            validation_errors.push_back("Edge references non-existent source node: " + edge.source_node_id.to_string());
+            continue;
+        }
+        if (target_it == project.nodes_.end()) {
+            validation_errors.push_back("Edge references non-existent target node: " + edge.target_node_id.to_string());
+            continue;
+        }
+        
+        // Validate connection type compatibility
+        if (!is_connection_valid(source_it->stage_name, target_it->stage_name)) {
+            validation_errors.push_back("Invalid connection: " + source_it->stage_name + 
+                                      " (" + edge.source_node_id.to_string() + ") -> " + 
+                                      target_it->stage_name + " (" + edge.target_node_id.to_string() + 
+                                      ") - incompatible stage types");
+        }
+        
+        // Check fan-out constraint for MANY output stages
+        const NodeTypeInfo* source_info = get_node_type_info(source_it->stage_name);
+        if (source_info && source_info->min_outputs > 1) {
+            // Count outgoing connections from this source
+            uint32_t output_count = 0;
+            for (const auto& e : project.edges_) {
+                if (e.source_node_id == edge.source_node_id) {
+                    output_count++;
+                }
+            }
+            if (output_count > 1) {
+                validation_errors.push_back("MANY output stage " + source_it->stage_name + 
+                                          " (" + edge.source_node_id.to_string() + 
+                                          ") has multiple outgoing connections (fan-out not allowed)");
+            }
+        }
+    }
+    
+    // If there are validation errors, throw exception with details
+    if (!validation_errors.empty()) {
+        std::string error_msg = "Project file contains invalid connections:\n";
+        for (const auto& err : validation_errors) {
+            error_msg += "  - " + err + "\n";
+        }
+        error_msg += "\nPlease fix these connections in the project file or recreate the project.";
+        throw std::runtime_error(error_msg);
+    }
+    
     // Clear modification flag - project is freshly loaded
     project.clear_modified_flag();
     
@@ -591,6 +645,12 @@ void add_edge(Project& project, NodeID source_node_id, NodeID target_node_id) {
     // Get node type info to check limits
     const NodeTypeInfo* source_info = get_node_type_info(source_it->stage_name);
     const NodeTypeInfo* target_info = get_node_type_info(target_it->stage_name);
+    
+    // MANY output stages (min_outputs > 1) cannot fan-out
+    // They can only have ONE outgoing connection
+    if (source_info && source_info->min_outputs > 1 && source_output_count > 0) {
+        throw std::runtime_error("MANY output stages cannot fan-out (already has outgoing connection)");
+    }
     
     if (source_info && source_output_count >= source_info->max_outputs) {
         throw std::runtime_error("Source node has reached maximum outputs");

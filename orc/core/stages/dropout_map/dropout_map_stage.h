@@ -71,15 +71,16 @@ private:
 /**
  * @brief Dropout map stage - override dropout hints on per-field basis
  * 
- * This stage allows manual override of dropout hints from the source(s).
+ * This stage allows manual override of dropout hints from the source.
  * Users can add new dropouts, remove false positives, or modify existing
  * dropout boundaries on a per-field basis.
  * 
  * The stage does NOT modify the actual video data - it only modifies the
  * dropout hints that downstream stages (like dropout_correct) will see.
  * 
- * Multiple inputs: When multiple inputs are provided, the same dropout map
- * is applied to all inputs, producing one output per input.
+ * Connection: ONE input, ONE output with fan-out support.
+ * - Accepts exactly one input (only from stages with ONE output)
+ * - Produces one output that can fan-out to multiple downstream stages
  * 
  * Parameters:
  * - dropout_map: String encoding of per-field dropout modifications
@@ -91,7 +92,6 @@ private:
  * - Removing false positive dropout detections
  * - Adjusting boundaries of detected dropouts
  * - Creating custom dropout patterns for testing
- * - Applying same manual corrections to multiple sources (e.g., stacked inputs)
  */
 class DropoutMapStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
@@ -106,8 +106,8 @@ public:
             "dropout_map",
             "Dropout Map",
             "Override dropout hints on per-field basis - add, remove, or modify dropout regions",
-            1, UINT32_MAX,  // One to many inputs
-            1, UINT32_MAX,  // One output per input
+            1, 1,  // Exactly one input
+            1, UINT32_MAX,  // One output, supports fan-out to multiple targets
             VideoFormatCompatibility::ALL
         };
     }

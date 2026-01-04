@@ -82,8 +82,8 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
 {
     ORC_LOG_INFO("DropoutMapStage::execute - starting with {} inputs", inputs.size());
     
-    if (inputs.empty()) {
-        throw std::runtime_error("DropoutMapStage requires at least one input");
+    if (inputs.size() != 1) {
+        throw std::runtime_error("DropoutMapStage requires exactly one input (ONE-to-ONE connection)");
     }
     
     // Extract parameters
@@ -92,31 +92,23 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
         dropout_map_str = std::get<std::string>(parameters.at("dropout_map"));
     }
     
-    // Parse dropout map once (same map applies to all inputs)
+    // Parse dropout map
     auto dropout_map = parse_dropout_map(dropout_map_str);
     
     ORC_LOG_INFO("DropoutMapStage: parsed {} field dropout mappings", dropout_map.size());
     
-    // Process each input and create corresponding output
-    std::vector<ArtifactPtr> outputs;
-    for (size_t i = 0; i < inputs.size(); ++i) {
-        auto source = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[i]);
-        if (!source) {
-            throw std::runtime_error("DropoutMapStage input " + std::to_string(i) + " must be VideoFieldRepresentation");
-        }
-        
-        // Create wrapped representation with modified dropout hints
-        auto mapped = std::make_shared<DropoutMappedRepresentation>(source, dropout_map);
-        outputs.push_back(std::static_pointer_cast<VideoFieldRepresentation>(mapped));
-        
-        // Cache first output for preview
-        if (i == 0) {
-            cached_output_ = mapped;
-        }
+    // Process the single input
+    auto source = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+    if (!source) {
+        throw std::runtime_error("DropoutMapStage input must be VideoFieldRepresentation");
     }
     
-    ORC_LOG_INFO("DropoutMapStage: produced {} outputs", outputs.size());
-    return outputs;
+    // Create wrapped representation with modified dropout hints
+    auto mapped = std::make_shared<DropoutMappedRepresentation>(source, dropout_map);
+    cached_output_ = mapped;
+    
+    ORC_LOG_INFO("DropoutMapStage: produced output with modified dropout hints");
+    return {std::static_pointer_cast<VideoFieldRepresentation>(mapped)};
 }
 
 // ============================================================================

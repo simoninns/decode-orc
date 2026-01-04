@@ -51,7 +51,7 @@ public:
             "Source Align",
             "Synchronize multiple sources by VBI frame number or CLV timecode",
             1, 16,  // 1 to 16 inputs
-            1, UINT32_MAX,  // Many outputs (one per input)
+            2, UINT32_MAX,  // Many outputs (one per input, min 2 to indicate multiple artifacts)
             VideoFormatCompatibility::ALL
         };
     }

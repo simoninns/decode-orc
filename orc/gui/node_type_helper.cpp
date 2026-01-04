@@ -28,7 +28,8 @@ NodeVisualInfo getVisualInfo(const std::string& stage_name)
     visual.has_input = (info->max_inputs > 0);
     visual.has_output = (info->max_outputs > 0);
     visual.input_is_many = (info->max_inputs > 1);
-    visual.output_is_many = (info->max_outputs > 1);
+    // Show MANY output indicator (dot) only for stages that produce multiple distinct artifacts
+    visual.output_is_many = (info->min_outputs > 1);
     
     return visual;
 }

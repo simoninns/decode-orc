@@ -41,6 +41,7 @@ configure_file(
 # Build options
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_GUI "Build Qt6 GUI applications" ON)
+option(BUILD_DOCS "Build Doxygen documentation" OFF)
 
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -83,4 +84,28 @@ if(BUILD_GUI)
     add_compile_definitions(NODE_EDITOR_STATIC)
     
     add_subdirectory(gui)
+endif()
+
+# Doxygen documentation (optional)
+if(BUILD_DOCS)
+    find_package(Doxygen)
+    if(DOXYGEN_FOUND)
+        # Set the Doxyfile location (assuming it's in the project root)
+        set(DOXYFILE_IN ${CMAKE_SOURCE_DIR}/Doxyfile)
+        
+        if(EXISTS ${DOXYFILE_IN})
+            # Add a custom target to run Doxygen
+            add_custom_target(docs
+                COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYFILE_IN}
+                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                COMMENT "Generating API documentation with Doxygen"
+                VERBATIM
+            )
+            message(STATUS "Doxygen documentation target 'docs' configured")
+        else()
+            message(WARNING "Doxyfile not found at ${DOXYFILE_IN}")
+        endif()
+    else()
+        message(WARNING "Doxygen not found - documentation will not be built")
+    endif()
 endif()

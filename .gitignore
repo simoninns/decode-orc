@@ -44,6 +44,10 @@
 build/
 */build/
 
+# Doxygen generated documentation
+docs/html/
+docs/latex/
+
 # CTest temporary files
 Testing/
 

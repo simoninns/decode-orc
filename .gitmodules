@@ -1,6 +1,3 @@
 [submodule "testdata-ld"]
 	path = testdata-ld
 	url = https://github.com/simoninns/decode-orc-testdata-ld.git
-[submodule "docs"]
-	path = docs
-	url = https://github.com/simoninns/decode-orc-docs

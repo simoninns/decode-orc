@@ -80,6 +80,10 @@ add_executable(orc-gui
     dropoutanalysisdialog.cpp
     dropoutanalysisdialog.h
     
+    # Dropout editor dialog
+    dropout_editor_dialog.cpp
+    dropout_editor_dialog.h
+    
     # SNR analysis dialog
     snranalysisdialog.cpp
     snranalysisdialog.h

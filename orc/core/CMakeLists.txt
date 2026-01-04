@@ -60,6 +60,9 @@ add_library(orc-core STATIC
     analysis/dropout/dropout_analysis.cpp
     analysis/dropout/dropout_analysis_decoder.cpp
     
+    # Dropout editor tool
+    analysis/dropout_editor_tool.cpp
+    
     # SNR analysis
     analysis/snr/snr_analysis.cpp
     analysis/snr/snr_analysis_decoder.cpp

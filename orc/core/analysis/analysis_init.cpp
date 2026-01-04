@@ -12,6 +12,7 @@
 #include "field_corruption/field_corruption_analysis.h"
 #include "vectorscope/vectorscope_analysis.h"
 #include "dropout/dropout_analysis.h"
+#include "dropout_editor_tool.h"
 #include "snr/snr_analysis.h"
 #include "burst_level/burst_level_analysis.h"
 #include "source_alignment/source_alignment_analysis.h"
@@ -36,9 +37,10 @@ void force_analysis_tool_linking() {
     [[maybe_unused]] auto dummy3 = std::make_unique<FieldCorruptionAnalysisTool>();
     [[maybe_unused]] auto dummy4 = std::make_unique<VectorscopeAnalysisTool>();
     [[maybe_unused]] auto dummy5 = std::make_unique<DropoutAnalysisTool>();
-    [[maybe_unused]] auto dummy6 = std::make_unique<SNRAnalysisTool>();
-    [[maybe_unused]] auto dummy7 = std::make_unique<BurstLevelAnalysisTool>();
-    [[maybe_unused]] auto dummy8 = std::make_unique<SourceAlignmentAnalysisTool>();
+    [[maybe_unused]] auto dummy6 = std::make_unique<DropoutEditorTool>();
+    [[maybe_unused]] auto dummy7 = std::make_unique<SNRAnalysisTool>();
+    [[maybe_unused]] auto dummy8 = std::make_unique<BurstLevelAnalysisTool>();
+    [[maybe_unused]] auto dummy9 = std::make_unique<SourceAlignmentAnalysisTool>();
     ORC_LOG_DEBUG("Analysis tool linking complete");
 }
 

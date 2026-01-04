@@ -135,14 +135,14 @@ public:
         const std::vector<DropoutRegion>& source_dropouts,
         const FieldDropoutMap& modifications);
 
-private:
-    /// Parse dropout map string into structured data
+    /// Parse dropout map string into structured data (public for GUI editor)
     /// Format: "[{field:0,add:[{line:10,start:100,end:200}],remove:[...]},{field:1,...}]"
     static std::map<uint64_t, FieldDropoutMap> parse_dropout_map(const std::string& map_str);
     
-    /// Encode dropout map to string format
+    /// Encode dropout map to string format (public for GUI editor)
     static std::string encode_dropout_map(const std::map<uint64_t, FieldDropoutMap>& map);
-    
+
+private:
     // Current parameters
     std::string dropout_map_str_;
     

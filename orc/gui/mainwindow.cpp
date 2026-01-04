@@ -1853,8 +1853,12 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             // Get the edited dropout map
             auto edited_map = dialog->getDropoutMap();
             
+            ORC_LOG_DEBUG("Dropout editor returned map with {} field entries", edited_map.size());
+            
             // Encode back to string
             std::string new_dropout_map_str = orc::DropoutMapStage::encode_dropout_map(edited_map);
+            
+            ORC_LOG_DEBUG("Encoded dropout map: original='{}' new='{}'", dropout_map_str, new_dropout_map_str);
             
             // Only update if the dropout map actually changed
             if (new_dropout_map_str == dropout_map_str) {
@@ -1877,12 +1881,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             // Rebuild DAG
             project_.rebuildDAG();
             
+            // Update the preview renderer with the new DAG (contains updated parameters)
+            updatePreviewRenderer();
+            
             ORC_LOG_INFO("Dropout map updated for node '{}'", node_id.to_string());
             
-            // Trigger preview update if this node is being viewed
-            if (current_view_node_id_ == node_id) {
-                updatePreview();
-            }
+            // Trigger preview update to show the changes
+            updatePreview();
         });
         
         // Show as non-modal window

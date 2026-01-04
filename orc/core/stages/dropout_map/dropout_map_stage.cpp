@@ -65,10 +65,14 @@ std::vector<DropoutRegion> DropoutMappedRepresentation::get_dropout_hints(FieldI
     auto it = dropout_map_.find(id.value());
     if (it == dropout_map_.end()) {
         // No modifications for this field, return source hints as-is
+        ORC_LOG_TRACE("DropoutMappedRepresentation::get_dropout_hints - Field {} has no modifications, returning {} source dropouts",
+                      id.value(), source_dropouts.size());
         return source_dropouts;
     }
     
     const FieldDropoutMap& modifications = it->second;
+    ORC_LOG_DEBUG("DropoutMappedRepresentation::get_dropout_hints - Field {} has modifications, applying to {} source dropouts",
+                  id.value(), source_dropouts.size());
     return DropoutMapStage::apply_modifications(source_dropouts, modifications);
 }
 
@@ -86,16 +90,18 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
         throw std::runtime_error("DropoutMapStage requires exactly one input (ONE-to-ONE connection)");
     }
     
-    // Extract parameters
-    std::string dropout_map_str;
+    // Parse dropout map from parameters
+    // Note: We always parse here because DAG execution may use different stage instances
+    // than the ones created during project_to_dag(), so caching in set_parameters() doesn't work
+    std::map<uint64_t, FieldDropoutMap> dropout_map;
+    
     if (parameters.count("dropout_map")) {
-        dropout_map_str = std::get<std::string>(parameters.at("dropout_map"));
+        std::string dropout_map_str = std::get<std::string>(parameters.at("dropout_map"));
+        dropout_map = parse_dropout_map(dropout_map_str);
+        ORC_LOG_DEBUG("DropoutMapStage: parsed {} field mappings from parameters", dropout_map.size());
     }
     
-    // Parse dropout map
-    auto dropout_map = parse_dropout_map(dropout_map_str);
-    
-    ORC_LOG_INFO("DropoutMapStage: parsed {} field dropout mappings", dropout_map.size());
+    ORC_LOG_INFO("DropoutMapStage: loaded {} field dropout mappings", dropout_map.size());
     
     // Process the single input
     auto source = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
@@ -145,15 +151,8 @@ std::map<std::string, ParameterValue> DropoutMapStage::get_parameters() const
 bool DropoutMapStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
     if (params.count("dropout_map")) {
-        try {
-            dropout_map_str_ = std::get<std::string>(params.at("dropout_map"));
-            // Parse and cache the dropout map
-            cached_dropout_map_ = parse_dropout_map(dropout_map_str_);
-            return true;
-        } catch (const std::exception& e) {
-            ORC_LOG_ERROR("DropoutMapStage: failed to parse dropout_map parameter: {}", e.what());
-            return false;
-        }
+        dropout_map_str_ = std::get<std::string>(params.at("dropout_map"));
+        return true;
     }
     return true;
 }
@@ -375,6 +374,9 @@ std::vector<DropoutRegion> DropoutMapStage::apply_modifications(
     // Start with source dropouts
     std::vector<DropoutRegion> result = source_dropouts;
     
+    ORC_LOG_DEBUG("DropoutMapStage::apply_modifications - Source has {} dropouts, {} additions, {} removals",
+                  source_dropouts.size(), modifications.additions.size(), modifications.removals.size());
+    
     // Remove specified dropouts
     // For each removal, we remove any source dropout that matches the line and overlaps the range
     for (const auto& removal : modifications.removals) {
@@ -394,8 +396,12 @@ std::vector<DropoutRegion> DropoutMapStage::apply_modifications(
     
     // Add new dropouts
     for (const auto& addition : modifications.additions) {
+        ORC_LOG_DEBUG("  Adding dropout: line={}, start={}, end={}", 
+                      addition.line, addition.start_sample, addition.end_sample);
         result.push_back(addition);
     }
+    
+    ORC_LOG_DEBUG("DropoutMapStage::apply_modifications - Result has {} dropouts after modifications", result.size());
     
     // Sort by line, then by start_sample for consistency
     std::sort(result.begin(), result.end(),

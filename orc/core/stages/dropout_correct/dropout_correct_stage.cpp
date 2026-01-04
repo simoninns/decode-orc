@@ -412,8 +412,14 @@ void DropoutCorrectStage::correct_single_field(
     
     // Get dropout hints from source
     auto dropouts = source->get_dropout_hints(field_id);
-    ORC_LOG_DEBUG("DropoutCorrectStage: field {} has {} dropout hints", 
-                  field_id.value(), dropouts.size());
+    ORC_LOG_DEBUG("DropoutCorrectStage: field {} has {} dropout hints from source type '{}'", 
+                  field_id.value(), dropouts.size(), source->type_name());
+    
+    // Log first few dropouts for debugging
+    for (size_t i = 0; i < std::min(dropouts.size(), size_t(3)); ++i) {
+        ORC_LOG_DEBUG("  Source Dropout {}: line {}, samples {}-{}", 
+                      i, dropouts[i].line, dropouts[i].start_sample, dropouts[i].end_sample);
+    }
     
     // OPTIMIZATION: If there are no dropouts, skip the expensive full field copy
     // Instead, just mark field as processed without storing anything

@@ -146,9 +146,6 @@ private:
     // Current parameters
     std::string dropout_map_str_;
     
-    // Cached parsed dropout map (updated when dropout_map_str_ changes)
-    std::map<uint64_t, FieldDropoutMap> cached_dropout_map_;
-    
     // Cached output for preview rendering
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };

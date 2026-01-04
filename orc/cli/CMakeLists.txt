@@ -20,3 +20,7 @@ pkg_check_modules(FFTW3 REQUIRED fftw3)
 target_link_libraries(orc-cli PRIVATE ${FFTW3_LIBRARIES})
 target_include_directories(orc-cli PRIVATE ${FFTW3_INCLUDE_DIRS})
 
+# Install target
+install(TARGETS orc-cli
+    RUNTIME DESTINATION bin
+)

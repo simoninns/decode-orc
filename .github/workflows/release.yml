@@ -1,0 +1,349 @@
+name: Release Deployment
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers on version tags like v1.0.0
+
+jobs:
+  # Windows MSI Build
+  build-windows-msi:
+    name: Build Windows MSI
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: true
+      
+      - name: Setup vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/vcpkg/installed
+            C:/vcpkg/packages
+            C:/Users/runneradmin/AppData/Local/vcpkg/archives
+          key: vcpkg-release-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-${{ hashFiles('.github/workflows/release.yml') }}
+          restore-keys: |
+            vcpkg-release-${{ runner.os }}-
+      
+      - name: Install vcpkg dependencies
+        run: |
+          vcpkg install --triplet x64-windows `
+            spdlog `
+            sqlite3 `
+            yaml-cpp `
+            libpng `
+            fftw3 `
+            pkgconf
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_GUI=ON `
+            -DBUILD_TESTS=OFF `
+            -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}" `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
+      
+      - name: Install to staging directory
+        run: |
+          cd build
+          cmake --install . --config Release --prefix install
+      
+      - name: Deploy Qt dependencies
+        run: |
+          cd build/install/bin
+          & "${env:Qt6_DIR}/../../../bin/windeployqt.exe" --release --no-translations orc-gui.exe
+      
+      - name: Copy vcpkg runtime dependencies
+        run: |
+          $vcpkgRoot = "C:/vcpkg/installed/x64-windows"
+          $binDir = "build/install/bin"
+          
+          # Copy DLL files
+          Copy-Item "$vcpkgRoot/bin/*.dll" $binDir -ErrorAction SilentlyContinue
+          
+          Write-Host "Copied vcpkg runtime dependencies"
+      
+      - name: Install WiX Toolset
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add WixToolset.UI.wixext/5.0.2
+      
+      - name: Get version from tag
+        id: get_version
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+      
+      - name: Create WiX installer configuration
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          
+          @"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+            <Package Name="Decode ORC" Version="$version" Manufacturer="Simon Inns" UpgradeCode="12345678-1234-1234-1234-123456789012">
+              <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+              <MediaTemplate EmbedCab="yes" />
+              
+              <Feature Id="ProductFeature" Title="Decode ORC" Level="1">
+                <ComponentGroupRef Id="ProductComponents" />
+              </Feature>
+            </Package>
+            
+            <Fragment>
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFiles64Folder">
+                  <Directory Id="INSTALLFOLDER" Name="DecodeORC" />
+                </Directory>
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="ApplicationProgramsFolder" Name="Decode ORC"/>
+                </Directory>
+              </Directory>
+            </Fragment>
+            
+            <Fragment>
+              <ComponentGroup Id="ProductComponents" Directory="INSTALLFOLDER">
+                <Component Id="MainExecutable" Guid="*">
+                  <File Id="OrcGuiExe" Source="build/install/bin/orc-gui.exe" KeyPath="yes">
+                    <Shortcut Id="startmenuOrcGui" Directory="ApplicationProgramsFolder" Name="Decode ORC" WorkingDirectory="INSTALLFOLDER" Icon="OrcIcon.exe" IconIndex="0" Advertise="yes" />
+                  </File>
+                </Component>
+                <Component Id="CliExecutable" Guid="*">
+                  <File Id="OrcCliExe" Source="build/install/bin/orc-cli.exe" KeyPath="yes" />
+                </Component>
+              </ComponentGroup>
+              
+              <Icon Id="OrcIcon.exe" SourceFile="build/install/bin/orc-gui.exe" />
+            </Fragment>
+          </Wix>
+          "@ | Out-File -FilePath "installer.wxs" -Encoding UTF8
+      
+      - name: Build MSI installer
+        run: |
+          # Harvest all files from the install directory
+          wix extension add WixToolset.Util.wixext/5.0.2
+          
+          # Build the installer
+          wix build installer.wxs -arch x64 -out decode-orc-${{ steps.get_version.outputs.version }}-x64.msi
+      
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-msi
+          path: decode-orc-${{ steps.get_version.outputs.version }}-x64.msi
+          retention-days: 7
+
+  # macOS DMG Build
+  build-macos-dmg:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Install system dependencies
+        run: |
+          brew update || true
+          brew install \
+            cmake \
+            pkg-config \
+            spdlog \
+            sqlite \
+            yaml-cpp \
+            libpng \
+            fftw \
+            qt@6 \
+            create-dmg
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          export HOMEBREW_PREFIX=$(brew --prefix)
+          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
+            -DQt6_DIR=$Qt6_DIR \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Create app bundle
+        run: |
+          mkdir -p "Decode ORC.app/Contents/MacOS"
+          mkdir -p "Decode ORC.app/Contents/Resources"
+          
+          # Copy executables
+          cp build/bin/orc-gui "Decode ORC.app/Contents/MacOS/"
+          cp build/bin/orc-cli "Decode ORC.app/Contents/MacOS/"
+          
+          # Create Info.plist
+          cat > "Decode ORC.app/Contents/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>orc-gui</string>
+            <key>CFBundleIdentifier</key>
+            <string>io.github.simoninns.decode-orc</string>
+            <key>CFBundleName</key>
+            <string>Decode ORC</string>
+            <key>CFBundleVersion</key>
+            <string>1.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+      
+      - name: Deploy Qt dependencies
+        run: |
+          HOMEBREW_PREFIX=$(brew --prefix)
+          $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "Decode ORC.app" -verbose=2
+      
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+      
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "Decode ORC" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --app-drop-link 600 185 \
+            "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg" \
+            "Decode ORC.app" || true
+          
+          # Fallback if create-dmg fails
+          if [ ! -f "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg" ]; then
+            hdiutil create -volname "Decode ORC" -srcfolder "Decode ORC.app" -ov -format UDZO "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg"
+          fi
+      
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg
+          retention-days: 7
+
+  # Flatpak Build
+  build-flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+      
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: decode-orc-${{ steps.get_version.outputs.version }}.flatpak
+          manifest-path: io.github.simoninns.decode-orc.yml
+          cache-key: flatpak-builder-release-${{ github.sha }}
+      
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-bundle
+          path: decode-orc-${{ steps.get_version.outputs.version }}.flatpak
+          retention-days: 7
+
+  # Create GitHub Release and Upload Assets
+  create-release:
+    name: Create GitHub Release
+    needs: [build-windows-msi, build-macos-dmg, build-flatpak]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+      
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      
+      - name: Display structure of downloaded files
+        run: ls -R release-artifacts
+      
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ steps.get_version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            release-artifacts/windows-msi/*.msi
+            release-artifacts/macos-dmg/*.dmg
+            release-artifacts/flatpak-bundle/*.flatpak
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

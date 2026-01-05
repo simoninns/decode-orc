@@ -26,6 +26,12 @@ public:
      */
     explicit LRUCache(size_t max_size) : max_size_(max_size) {}
     
+    // Disable copy and move - cache contains mutex and is not safely copyable
+    LRUCache(const LRUCache&) = delete;
+    LRUCache& operator=(const LRUCache&) = delete;
+    LRUCache(LRUCache&&) = delete;
+    LRUCache& operator=(LRUCache&&) = delete;
+    
     /**
      * @brief Get value from cache
      * @param key Key to look up

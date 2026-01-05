@@ -200,6 +200,14 @@ jobs:
           cp build/bin/orc-gui "Decode ORC.app/Contents/MacOS/"
           cp build/bin/orc-cli "Decode ORC.app/Contents/MacOS/"
           
+          # Copy icon if available
+          if [ -f "assets/orc-gui-icon.icns" ]; then
+            cp assets/orc-gui-icon.icns "Decode ORC.app/Contents/Resources/"
+          fi
+          
+          # Create PkgInfo
+          echo "APPL????" > "Decode ORC.app/Contents/PkgInfo"
+          
           # Create Info.plist
           cat > "Decode ORC.app/Contents/Info.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -216,10 +224,16 @@ jobs:
             <string>1.0</string>
             <key>CFBundleShortVersionString</key>
             <string>1.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleIconFile</key>
+            <string>orc-gui-icon</string>
             <key>LSMinimumSystemVersion</key>
             <string>11.0</string>
             <key>NSHighResolutionCapable</key>
             <true/>
+            <key>NSPrincipalClass</key>
+            <string>NSApplication</string>
           </dict>
           </plist>
           EOF
@@ -229,12 +243,89 @@ jobs:
           HOMEBREW_PREFIX=$(brew --prefix)
           $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "Decode ORC.app" -verbose=2
       
+      - name: Code sign app bundle (ad-hoc)
+        run: |
+          # Ad-hoc signing - allows the app to run but users will need to right-click > Open first time
+          # This prevents the "app is damaged" error
+          codesign --force --deep --sign - "Decode ORC.app"
+          
+          # Verify the signature
+          codesign --verify --verbose=2 "Decode ORC.app"
+      
+      - name: Create CLI symlink installer script
+        run: |
+          cat > "Install CLI Tool.command" << 'EOF'
+          #!/bin/bash
+          # This script creates a symlink to orc-cli in /usr/local/bin
+          # so it can be run from anywhere in the terminal
+          
+          echo "Installing orc-cli to /usr/local/bin..."
+          
+          # Find the app bundle location
+          APP_PATH="/Applications/Decode ORC.app"
+          
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: Decode ORC.app not found in /Applications"
+            echo "Please drag the app to /Applications first, then run this script again."
+            read -p "Press Enter to exit..."
+            exit 1
+          fi
+          
+          # Create /usr/local/bin if it doesn't exist
+          sudo mkdir -p /usr/local/bin
+          
+          # Remove old symlink if it exists
+          if [ -L /usr/local/bin/orc-cli ]; then
+            sudo rm /usr/local/bin/orc-cli
+          fi
+          
+          # Create the symlink
+          sudo ln -s "$APP_PATH/Contents/MacOS/orc-cli" /usr/local/bin/orc-cli
+          
+          if [ $? -eq 0 ]; then
+            echo "✓ Successfully installed orc-cli!"
+            echo "You can now run 'orc-cli' from anywhere in the terminal."
+          else
+            echo "✗ Failed to install orc-cli"
+            exit 1
+          fi
+          
+          read -p "Press Enter to exit..."
+          EOF
+          
+          chmod +x "Install CLI Tool.command"
+      
       - name: Get version from tag
         id: get_version
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
+      
+      - name: Create DMG staging directory
+        run: |
+          mkdir -p dmg-staging
+          cp -R "Decode ORC.app" dmg-staging/
+          cp "Install CLI Tool.command" dmg-staging/
+          
+          # Create a README
+          cat > "dmg-staging/README.txt" << 'EOF'
+          Decode ORC - Installation Instructions
+          ========================================
+          
+          1. Drag "Decode ORC" to your Applications folder
+          
+          2. To launch the GUI:
+             - Right-click "Decode ORC" in Applications and select "Open"
+             - Click "Open" in the security dialog
+             - After first launch, you can double-click normally
+          
+          3. To install the CLI tool (optional):
+             - Double-click "Install CLI Tool" in this DMG
+             - Enter your password when prompted
+             - You can then run "orc-cli" from any terminal
+          
+          EOF
       
       - name: Create DMG
         run: |
@@ -245,11 +336,11 @@ jobs:
             --icon-size 100 \
             --app-drop-link 600 185 \
             "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg" \
-            "Decode ORC.app" || true
+            "dmg-staging" || true
           
           # Fallback if create-dmg fails
           if [ ! -f "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg" ]; then
-            hdiutil create -volname "Decode ORC" -srcfolder "Decode ORC.app" -ov -format UDZO "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg"
+            hdiutil create -volname "Decode ORC" -srcfolder "dmg-staging" -ov -format UDZO "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg"
           fi
       
       - name: Upload DMG artifact

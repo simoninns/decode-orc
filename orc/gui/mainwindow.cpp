@@ -99,8 +99,6 @@ MainWindow::MainWindow(QWidget *parent)
     , preview_update_pending_(false)
     , last_update_was_sequential_(false)
     , trigger_progress_dialog_(nullptr)
-    , dropout_progress_dialog_(nullptr)
-    , snr_progress_dialog_(nullptr)
 {
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
@@ -251,62 +249,8 @@ void MainWindow::setupUI()
     // Create pulldown dialog (initially hidden)
     pulldown_dialog_ = new PulldownDialog(this);
     
-    // Create dropout analysis dialog (initially hidden)
-    dropout_analysis_dialog_ = new DropoutAnalysisDialog(this);
-    dropout_analysis_dialog_->setWindowTitle("Dropout Analysis");
-    dropout_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
-    // Note: modeChanged will trigger re-request of data when user changes mode
-    connect(dropout_analysis_dialog_, &DropoutAnalysisDialog::modeChanged,
-            [this]() {
-                // Re-request data with new mode when dialog is visible
-                if (dropout_analysis_dialog_->isVisible() && current_view_node_id_.is_valid()) {
-                    // Show progress dialog
-                    if (dropout_progress_dialog_) {
-                        delete dropout_progress_dialog_;
-                    }
-                    dropout_progress_dialog_ = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
-                    dropout_progress_dialog_->setWindowTitle("Dropout Analysis");
-                    dropout_progress_dialog_->setWindowModality(Qt::WindowModal);
-                    dropout_progress_dialog_->setMinimumDuration(0);
-                    dropout_progress_dialog_->setCancelButton(nullptr);
-                    dropout_progress_dialog_->setValue(0);
-                    dropout_progress_dialog_->show();
-                    
-                    auto mode = dropout_analysis_dialog_->getCurrentMode();
-                    pending_dropout_request_id_ = render_coordinator_->requestDropoutData(current_view_node_id_, mode);
-                }
-            });
-    
-    // Create SNR analysis dialog (initially hidden)
-    snr_analysis_dialog_ = new SNRAnalysisDialog(this);
-    snr_analysis_dialog_->setWindowTitle("SNR Analysis");
-    snr_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
-    // Note: modeChanged will trigger re-request of data when user changes mode
-    connect(snr_analysis_dialog_, &SNRAnalysisDialog::modeChanged,
-            [this]() {
-                // Re-request data with new mode when dialog is visible
-                if (snr_analysis_dialog_->isVisible() && current_view_node_id_.is_valid()) {
-                    // Show progress dialog
-                    if (snr_progress_dialog_) {
-                        delete snr_progress_dialog_;
-                    }
-                    snr_progress_dialog_ = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
-                    snr_progress_dialog_->setWindowTitle("SNR Analysis");
-                    snr_progress_dialog_->setWindowModality(Qt::WindowModal);
-                    snr_progress_dialog_->setMinimumDuration(0);
-                    snr_progress_dialog_->setCancelButton(nullptr);
-                    snr_progress_dialog_->setValue(0);
-                    snr_progress_dialog_->show();
-                    
-                    auto mode = snr_analysis_dialog_->getCurrentMode();
-                    pending_snr_request_id_ = render_coordinator_->requestSNRData(current_view_node_id_, mode);
-                }
-            });
-    
-    // Create burst level analysis dialog (initially hidden)
-    burst_level_analysis_dialog_ = new BurstLevelAnalysisDialog(this);
-    burst_level_analysis_dialog_->setWindowTitle("Burst Level Analysis");
-    burst_level_analysis_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
+    // Note: Dropout, SNR, and Burst Level analysis dialogs are now created per-stage
+    // in runAnalysisForNode() to allow each stage to have its own independent dialog
     
     // Create quality metrics dialog (initially hidden)
     quality_metrics_dialog_ = new QualityMetricsDialog(this);
@@ -2048,81 +1992,238 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     
     // Special-case: Dropout Analysis triggers batch processing and shows dialog
     if (tool->id() == "dropout_analysis") {
-        if (!dropout_analysis_dialog_) {
-            ORC_LOG_ERROR("Dropout analysis dialog not initialized");
-            return;
+        // Get node info from project
+        auto& project = project_.coreProject();
+        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
+            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        
+        QString node_label = QString::fromStdString(stage_name);
+        if (node_it != project.get_nodes().end()) {
+            node_label = QString::fromStdString(
+                node_it->user_label.empty() ? node_it->display_name : node_it->user_label);
+        }
+        QString title = QString("Dropout Analysis - %1 (%2)")
+            .arg(node_label)
+            .arg(QString::fromStdString(node_id.to_string()));
+        
+        // Get or create dialog for this stage
+        DropoutAnalysisDialog* dialog = nullptr;
+        auto it = dropout_analysis_dialogs_.find(node_id);
+        if (it == dropout_analysis_dialogs_.end()) {
+            // Create new dialog for this stage
+            dialog = new DropoutAnalysisDialog(this);
+            dialog->setWindowTitle(title);
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            
+            // Connect mode changed to re-request data
+            connect(dialog, &DropoutAnalysisDialog::modeChanged,
+                    [this, node_id, dialog]() {
+                        if (dialog->isVisible()) {
+                            // Show progress dialog for this stage
+                            auto& prog_dialog = dropout_progress_dialogs_[node_id];
+                            if (prog_dialog) {
+                                delete prog_dialog;
+                            }
+                            prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
+                            prog_dialog->setWindowTitle(dialog->windowTitle());
+                            prog_dialog->setWindowModality(Qt::WindowModal);
+                            prog_dialog->setMinimumDuration(0);
+                            prog_dialog->setCancelButton(nullptr);
+                            prog_dialog->setValue(0);
+                            prog_dialog->show();
+                            
+                            auto mode = dialog->getCurrentMode();
+                            uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
+                            pending_dropout_requests_[request_id] = node_id;
+                        }
+                    });
+            
+            // Connect destroyed signal to clean up map entry
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                dropout_analysis_dialogs_.erase(node_id);
+                dropout_progress_dialogs_.erase(node_id);
+            });
+            
+            dropout_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
         }
         
-        // Set the node for analysis
-        current_view_node_id_ = node_id;
-        
-        // Create and show progress dialog
-        createAnalysisProgressDialog("Dropout Analysis", "Loading dropout analysis data...", dropout_progress_dialog_);
+        // Create and show progress dialog for this stage
+        auto& prog_dialog = dropout_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::WindowModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
         
         // Show the dialog (but it will be empty until data arrives)
-        dropout_analysis_dialog_->show();
-        dropout_analysis_dialog_->raise();
-        dropout_analysis_dialog_->activateWindow();
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
         
         // Request dropout data from coordinator (triggers batch processing)
-        auto mode = dropout_analysis_dialog_->getCurrentMode();
-        pending_dropout_request_id_ = render_coordinator_->requestDropoutData(node_id, mode);
+        auto mode = dialog->getCurrentMode();
+        uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
+        pending_dropout_requests_[request_id] = node_id;
         
         ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
-                      node_id.to_string(), static_cast<int>(mode), pending_dropout_request_id_);
+                      node_id.to_string(), static_cast<int>(mode), request_id);
         return;
     }
     
     // Special-case: SNR Analysis triggers batch processing and shows dialog
     if (tool->id() == "snr_analysis") {
-        if (!snr_analysis_dialog_) {
-            ORC_LOG_ERROR("SNR analysis dialog not initialized");
-            return;
+        // Get node info from project
+        auto& project = project_.coreProject();
+        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
+            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        
+        QString node_label = QString::fromStdString(stage_name);
+        if (node_it != project.get_nodes().end()) {
+            node_label = QString::fromStdString(
+                node_it->user_label.empty() ? node_it->display_name : node_it->user_label);
+        }
+        QString title = QString("SNR Analysis - %1 (%2)")
+            .arg(node_label)
+            .arg(QString::fromStdString(node_id.to_string()));
+        
+        // Get or create dialog for this stage
+        SNRAnalysisDialog* dialog = nullptr;
+        auto it = snr_analysis_dialogs_.find(node_id);
+        if (it == snr_analysis_dialogs_.end()) {
+            // Create new dialog for this stage
+            dialog = new SNRAnalysisDialog(this);
+            dialog->setWindowTitle(title);
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            
+            // Connect mode changed to re-request data
+            connect(dialog, &SNRAnalysisDialog::modeChanged,
+                    [this, node_id, dialog]() {
+                        if (dialog->isVisible()) {
+                            // Show progress dialog for this stage
+                            auto& prog_dialog = snr_progress_dialogs_[node_id];
+                            if (prog_dialog) {
+                                delete prog_dialog;
+                            }
+                            prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
+                            prog_dialog->setWindowTitle(dialog->windowTitle());
+                            prog_dialog->setWindowModality(Qt::WindowModal);
+                            prog_dialog->setMinimumDuration(0);
+                            prog_dialog->setCancelButton(nullptr);
+                            prog_dialog->setValue(0);
+                            prog_dialog->show();
+                            
+                            auto mode = dialog->getCurrentMode();
+                            uint64_t request_id = render_coordinator_->requestSNRData(node_id, mode);
+                            pending_snr_requests_[request_id] = node_id;
+                        }
+                    });
+            
+            // Connect destroyed signal to clean up map entry
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                snr_analysis_dialogs_.erase(node_id);
+                snr_progress_dialogs_.erase(node_id);
+            });
+            
+            snr_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
         }
         
-        // Set the node for analysis
-        current_view_node_id_ = node_id;
-        
-        // Create and show progress dialog
-        createAnalysisProgressDialog("SNR Analysis", "Loading SNR analysis data...", snr_progress_dialog_);
+        // Create and show progress dialog for this stage
+        auto& prog_dialog = snr_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::WindowModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
         
         // Show the dialog (but it will be empty until data arrives)
-        snr_analysis_dialog_->show();
-        snr_analysis_dialog_->raise();
-        snr_analysis_dialog_->activateWindow();
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
         
         // Request SNR data from coordinator (triggers batch processing)
-        auto mode = snr_analysis_dialog_->getCurrentMode();
-        pending_snr_request_id_ = render_coordinator_->requestSNRData(node_id, mode);
+        auto mode = dialog->getCurrentMode();
+        uint64_t request_id = render_coordinator_->requestSNRData(node_id, mode);
+        pending_snr_requests_[request_id] = node_id;
         
         ORC_LOG_DEBUG("Requested SNR analysis data for node '{}', mode {}, request_id={}",
-                      node_id.to_string(), static_cast<int>(mode), pending_snr_request_id_);
+                      node_id.to_string(), static_cast<int>(mode), request_id);
         return;
     }
     
     // Special-case: Burst Level Analysis triggers batch processing and shows dialog
     if (tool->id() == "burst_level_analysis") {
-        if (!burst_level_analysis_dialog_) {
-            ORC_LOG_ERROR("Burst level analysis dialog not initialized");
-            return;
+        // Get node info from project
+        auto& project = project_.coreProject();
+        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
+            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        
+        QString node_label = QString::fromStdString(stage_name);
+        if (node_it != project.get_nodes().end()) {
+            node_label = QString::fromStdString(
+                node_it->user_label.empty() ? node_it->display_name : node_it->user_label);
+        }
+        QString title = QString("Burst Level Analysis - %1 (%2)")
+            .arg(node_label)
+            .arg(QString::fromStdString(node_id.to_string()));
+        
+        // Get or create dialog for this stage
+        BurstLevelAnalysisDialog* dialog = nullptr;
+        auto it = burst_level_analysis_dialogs_.find(node_id);
+        if (it == burst_level_analysis_dialogs_.end()) {
+            // Create new dialog for this stage
+            dialog = new BurstLevelAnalysisDialog(this);
+            dialog->setWindowTitle(title);
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            
+            // Connect destroyed signal to clean up map entry
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                burst_level_analysis_dialogs_.erase(node_id);
+                burst_level_progress_dialogs_.erase(node_id);
+            });
+            
+            burst_level_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
         }
         
-        // Set the node for analysis
-        current_view_node_id_ = node_id;
-        
-        // Create and show progress dialog
-        createAnalysisProgressDialog("Burst Level Analysis", "Loading burst level analysis data...", burst_level_progress_dialog_);
+        // Create and show progress dialog for this stage
+        auto& prog_dialog = burst_level_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::WindowModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
         
         // Show the dialog (but it will be empty until data arrives)
-        burst_level_analysis_dialog_->show();
-        burst_level_analysis_dialog_->raise();
-        burst_level_analysis_dialog_->activateWindow();
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
         
         // Request burst level data from coordinator (triggers batch processing)
-        pending_burst_level_request_id_ = render_coordinator_->requestBurstLevelData(node_id);
+        uint64_t request_id = render_coordinator_->requestBurstLevelData(node_id);
+        pending_burst_level_requests_[request_id] = node_id;
         
         ORC_LOG_DEBUG("Requested burst level analysis data for node '{}', request_id={}",
-                      node_id.to_string(), pending_burst_level_request_id_);
+                      node_id.to_string(), request_id);
         return;
     }
     
@@ -2342,28 +2443,30 @@ void MainWindow::updateAllPreviewComponents()
     
     // For analysis dialogs, only update the frame marker position (not the full data)
     // Full data is only loaded when the dialog is first opened
-    if (dropout_analysis_dialog_ && dropout_analysis_dialog_->isVisible()) {
-        int32_t current_frame = 1;
-        if (preview_dialog_ && preview_dialog_->previewSlider()) {
-            current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
-        }
-        dropout_analysis_dialog_->updateFrameMarker(current_frame);
+    int32_t current_frame = 1;
+    if (preview_dialog_ && preview_dialog_->previewSlider()) {
+        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
     }
     
-    if (snr_analysis_dialog_ && snr_analysis_dialog_->isVisible()) {
-        int32_t current_frame = 1;
-        if (preview_dialog_ && preview_dialog_->previewSlider()) {
-            current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+    // Update all visible dropout analysis dialogs
+    for (auto& pair : dropout_analysis_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->updateFrameMarker(current_frame);
         }
-        snr_analysis_dialog_->updateFrameMarker(current_frame);
     }
     
-    if (burst_level_analysis_dialog_ && burst_level_analysis_dialog_->isVisible()) {
-        int32_t current_frame = 1;
-        if (preview_dialog_ && preview_dialog_->previewSlider()) {
-            current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+    // Update all visible SNR analysis dialogs
+    for (auto& pair : snr_analysis_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->updateFrameMarker(current_frame);
         }
-        burst_level_analysis_dialog_->updateFrameMarker(current_frame);
+    }
+    
+    // Update all visible burst level analysis dialogs
+    for (auto& pair : burst_level_analysis_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->updateFrameMarker(current_frame);
+        }
     }
 }
 

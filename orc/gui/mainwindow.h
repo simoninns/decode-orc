@@ -180,9 +180,9 @@ private:
     uint64_t pending_vbi_request_id_{0};
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
-    uint64_t pending_dropout_request_id_{0};
-    uint64_t pending_snr_request_id_{0};
-    uint64_t pending_burst_level_request_id_{0};
+    std::unordered_map<uint64_t, orc::NodeID> pending_dropout_requests_;  // request_id -> node_id
+    std::unordered_map<uint64_t, orc::NodeID> pending_snr_requests_;      // request_id -> node_id
+    std::unordered_map<uint64_t, orc::NodeID> pending_burst_level_requests_;  // request_id -> node_id
     
     // Dropout analysis state tracking
     orc::NodeID last_dropout_node_id_;
@@ -200,9 +200,9 @@ private:
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
     PulldownDialog* pulldown_dialog_;
-    DropoutAnalysisDialog* dropout_analysis_dialog_;
-    SNRAnalysisDialog* snr_analysis_dialog_;
-    BurstLevelAnalysisDialog* burst_level_analysis_dialog_;
+    std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
+    std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;
+    std::unordered_map<orc::NodeID, BurstLevelAnalysisDialog*> burst_level_analysis_dialogs_;
     std::unordered_map<orc::NodeID, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
@@ -228,10 +228,10 @@ private:
     // Trigger progress tracking (now via coordinator signals)
     QProgressDialog* trigger_progress_dialog_;
     
-    // Analysis progress dialogs (QPointer auto-nulls when deleted)
-    QPointer<QProgressDialog> dropout_progress_dialog_;
-    QPointer<QProgressDialog> snr_progress_dialog_;
-    QPointer<QProgressDialog> burst_level_progress_dialog_;
+    // Analysis progress dialogs per node (QPointer auto-nulls when deleted)
+    std::unordered_map<orc::NodeID, QPointer<QProgressDialog>> dropout_progress_dialogs_;
+    std::unordered_map<orc::NodeID, QPointer<QProgressDialog>> snr_progress_dialogs_;
+    std::unordered_map<orc::NodeID, QPointer<QProgressDialog>> burst_level_progress_dialogs_;
 };
 
 #endif // MAINWINDOW_H

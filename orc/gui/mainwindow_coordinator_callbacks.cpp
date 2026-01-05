@@ -220,26 +220,37 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
                                     std::vector<orc::FrameDropoutStats> frame_stats, 
                                     int32_t total_frames)
 {
-    // Ignore stale responses
-    if (request_id != pending_dropout_request_id_) {
-        ORC_LOG_DEBUG("Ignoring stale dropout data response (id {} != {})", 
-                     request_id, pending_dropout_request_id_);
+    // Find which node this request was for
+    auto req_it = pending_dropout_requests_.find(request_id);
+    if (req_it == pending_dropout_requests_.end()) {
+        ORC_LOG_DEBUG("Ignoring stale dropout data response (unknown request_id {})", request_id);
         return;
     }
     
-    // Close progress dialog (QPointer will auto-null when deleted)
-    if (dropout_progress_dialog_) {
-        dropout_progress_dialog_->close();
-        dropout_progress_dialog_->deleteLater();
+    orc::NodeID node_id = req_it->second;
+    pending_dropout_requests_.erase(req_it);
+    
+    ORC_LOG_DEBUG("onDropoutDataReady for node '{}': {} frames, total={}", 
+                  node_id.to_string(), frame_stats.size(), total_frames);
+    
+    // Close progress dialog for this stage
+    auto prog_it = dropout_progress_dialogs_.find(node_id);
+    if (prog_it != dropout_progress_dialogs_.end() && prog_it->second) {
+        prog_it->second->close();
+        prog_it->second->deleteLater();
     }
     
-    if (!dropout_analysis_dialog_ || !dropout_analysis_dialog_->isVisible()) {
+    // Find the dialog for this stage
+    auto dialog_it = dropout_analysis_dialogs_.find(node_id);
+    if (dialog_it == dropout_analysis_dialogs_.end() || !dialog_it->second || !dialog_it->second->isVisible()) {
         return;
     }
+    
+    auto* dialog = dialog_it->second;
     
     // If no data available, show message
     if (frame_stats.empty() || total_frames == 0) {
-        dropout_analysis_dialog_->showNoDataMessage(
+        dialog->showNoDataMessage(
             "No dropout analysis data available.\n\n"
             "Make sure dropout detection is enabled in the pipeline."
         );
@@ -247,51 +258,59 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
     }
     
     // Start update cycle
-    dropout_analysis_dialog_->startUpdate(total_frames);
+    dialog->startUpdate(total_frames);
     
     // Add all data points
     for (const auto& stats : frame_stats) {
         if (stats.has_data) {
-            dropout_analysis_dialog_->addDataPoint(stats.frame_number, stats.total_dropout_length);
+            dialog->addDataPoint(stats.frame_number, stats.total_dropout_length);
         }
     }
     
     // Finish update with current frame marker
-    // Use current view index if available
     int32_t current_frame = 1;  // Default to first frame
     if (preview_dialog_ && preview_dialog_->previewSlider()) {
         current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
     }
     
-    dropout_analysis_dialog_->finishUpdate(current_frame);
+    dialog->finishUpdate(current_frame);
 }
 
 void MainWindow::onSNRDataReady(uint64_t request_id,
                                std::vector<orc::FrameSNRStats> frame_stats,
                                int32_t total_frames)
 {
-    // Ignore stale responses
-    if (request_id != pending_snr_request_id_) {
-        ORC_LOG_DEBUG("Ignoring stale SNR data response (id {} != {})", 
-                     request_id, pending_snr_request_id_);
+    // Find which node this request was for
+    auto req_it = pending_snr_requests_.find(request_id);
+    if (req_it == pending_snr_requests_.end()) {
+        ORC_LOG_DEBUG("Ignoring stale SNR data response (unknown request_id {})", request_id);
         return;
     }
     
-    ORC_LOG_DEBUG("onSNRDataReady: {} frames, total={}", frame_stats.size(), total_frames);
+    orc::NodeID node_id = req_it->second;
+    pending_snr_requests_.erase(req_it);
     
-    // Close progress dialog (QPointer will auto-null when deleted)
-    if (snr_progress_dialog_) {
-        snr_progress_dialog_->close();
-        snr_progress_dialog_->deleteLater();
+    ORC_LOG_DEBUG("onSNRDataReady for node '{}': {} frames, total={}", 
+                  node_id.to_string(), frame_stats.size(), total_frames);
+    
+    // Close progress dialog for this stage
+    auto prog_it = snr_progress_dialogs_.find(node_id);
+    if (prog_it != snr_progress_dialogs_.end() && prog_it->second) {
+        prog_it->second->close();
+        prog_it->second->deleteLater();
     }
     
-    if (!snr_analysis_dialog_ || !snr_analysis_dialog_->isVisible()) {
+    // Find the dialog for this stage
+    auto dialog_it = snr_analysis_dialogs_.find(node_id);
+    if (dialog_it == snr_analysis_dialogs_.end() || !dialog_it->second || !dialog_it->second->isVisible()) {
         return;
     }
+    
+    auto* dialog = dialog_it->second;
     
     // If no data available, show message
     if (frame_stats.empty() || total_frames == 0) {
-        snr_analysis_dialog_->showNoDataMessage(
+        dialog->showNoDataMessage(
             "No SNR analysis data available.\n\n"
             "Make sure VITS (Vertical Interval Test Signal) is present in the source."
         );
@@ -299,14 +318,14 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     }
     
     // Start update cycle
-    snr_analysis_dialog_->startUpdate(total_frames);
+    dialog->startUpdate(total_frames);
     
     // Add all data points
     for (const auto& stats : frame_stats) {
         if (stats.has_data) {
             double white_snr = stats.has_white_snr ? stats.white_snr : std::numeric_limits<double>::quiet_NaN();
             double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::numeric_limits<double>::quiet_NaN();
-            snr_analysis_dialog_->addDataPoint(stats.frame_number, white_snr, black_psnr);
+            dialog->addDataPoint(stats.frame_number, white_snr, black_psnr);
         }
     }
     
@@ -316,24 +335,30 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
         current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
     }
     
-    snr_analysis_dialog_->finishUpdate(current_frame);
+    dialog->finishUpdate(current_frame);
 }
 
 void MainWindow::onDropoutProgress(size_t current, size_t total, QString message)
 {
-    if (dropout_progress_dialog_) {
-        dropout_progress_dialog_->setMaximum(static_cast<int>(total));
-        dropout_progress_dialog_->setValue(static_cast<int>(current));
-        dropout_progress_dialog_->setLabelText(message);
+    // Update all active dropout progress dialogs
+    for (auto& pair : dropout_progress_dialogs_) {
+        if (pair.second) {
+            pair.second->setMaximum(static_cast<int>(total));
+            pair.second->setValue(static_cast<int>(current));
+            pair.second->setLabelText(message);
+        }
     }
 }
 
 void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
 {
-    if (snr_progress_dialog_) {
-        snr_progress_dialog_->setMaximum(static_cast<int>(total));
-        snr_progress_dialog_->setValue(static_cast<int>(current));
-        snr_progress_dialog_->setLabelText(message);
+    // Update all active SNR progress dialogs
+    for (auto& pair : snr_progress_dialogs_) {
+        if (pair.second) {
+            pair.second->setMaximum(static_cast<int>(total));
+            pair.second->setValue(static_cast<int>(current));
+            pair.second->setLabelText(message);
+        }
     }
 }
 
@@ -341,28 +366,37 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
                                       std::vector<orc::FrameBurstLevelStats> frame_stats,
                                       int32_t total_frames)
 {
-    // Ignore stale responses
-    if (request_id != pending_burst_level_request_id_) {
-        ORC_LOG_DEBUG("Ignoring stale burst level data response (id {} != {})", 
-                     request_id, pending_burst_level_request_id_);
+    // Find which node this request was for
+    auto req_it = pending_burst_level_requests_.find(request_id);
+    if (req_it == pending_burst_level_requests_.end()) {
+        ORC_LOG_DEBUG("Ignoring stale burst level data response (unknown request_id {})", request_id);
         return;
     }
     
-    ORC_LOG_DEBUG("onBurstLevelDataReady: {} frames, total={}", frame_stats.size(), total_frames);
+    orc::NodeID node_id = req_it->second;
+    pending_burst_level_requests_.erase(req_it);
     
-    // Close progress dialog
-    if (burst_level_progress_dialog_) {
-        burst_level_progress_dialog_->close();
-        burst_level_progress_dialog_->deleteLater();
+    ORC_LOG_DEBUG("onBurstLevelDataReady for node '{}': {} frames, total={}", 
+                  node_id.to_string(), frame_stats.size(), total_frames);
+    
+    // Close progress dialog for this stage
+    auto prog_it = burst_level_progress_dialogs_.find(node_id);
+    if (prog_it != burst_level_progress_dialogs_.end() && prog_it->second) {
+        prog_it->second->close();
+        prog_it->second->deleteLater();
     }
     
-    if (!burst_level_analysis_dialog_ || !burst_level_analysis_dialog_->isVisible()) {
+    // Find the dialog for this stage
+    auto dialog_it = burst_level_analysis_dialogs_.find(node_id);
+    if (dialog_it == burst_level_analysis_dialogs_.end() || !dialog_it->second || !dialog_it->second->isVisible()) {
         return;
     }
+    
+    auto* dialog = dialog_it->second;
     
     // If no data available, show message
     if (frame_stats.empty() || total_frames == 0) {
-        burst_level_analysis_dialog_->showNoDataMessage(
+        dialog->showNoDataMessage(
             "No burst level data available.\n\n"
             "Color burst detection may have failed."
         );
@@ -370,12 +404,12 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
     }
     
     // Start update cycle
-    burst_level_analysis_dialog_->startUpdate(total_frames);
+    dialog->startUpdate(total_frames);
     
     // Add all data points
     for (const auto& stats : frame_stats) {
         if (stats.has_data) {
-            burst_level_analysis_dialog_->addDataPoint(stats.frame_number, stats.median_burst_ire);
+            dialog->addDataPoint(stats.frame_number, stats.median_burst_ire);
         }
     }
     
@@ -385,14 +419,17 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
         current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
     }
     
-    burst_level_analysis_dialog_->finishUpdate(current_frame);
+    dialog->finishUpdate(current_frame);
 }
 
 void MainWindow::onBurstLevelProgress(size_t current, size_t total, QString message)
 {
-    if (burst_level_progress_dialog_) {
-        burst_level_progress_dialog_->setMaximum(static_cast<int>(total));
-        burst_level_progress_dialog_->setValue(static_cast<int>(current));
-        burst_level_progress_dialog_->setLabelText(message);
+    // Update all active burst level progress dialogs
+    for (auto& pair : burst_level_progress_dialogs_) {
+        if (pair.second) {
+            pair.second->setMaximum(static_cast<int>(total));
+            pair.second->setValue(static_cast<int>(current));
+            pair.second->setLabelText(message);
+        }
     }
 }

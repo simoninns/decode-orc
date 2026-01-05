@@ -140,6 +140,7 @@ private slots:
 signals:
 
 private:
+    bool checkUnsavedChanges();  // Returns true if safe to proceed, false if cancelled
     void setupUI();
     void setupMenus();
     void setupToolbar();

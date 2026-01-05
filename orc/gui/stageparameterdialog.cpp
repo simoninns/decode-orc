@@ -184,7 +184,7 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                                 (display_name.find("Output") != std::string::npos);
                 
                 // Connect browse button to file dialog
-                connect(browse_btn, &QPushButton::clicked, [edit, stage_name_copy, display_name, file_ext_hint, is_output]() {
+                connect(browse_btn, &QPushButton::clicked, [this, edit, stage_name_copy, display_name, file_ext_hint, is_output]() {
                     QSettings settings("orc-project", "orc-gui");
                     QString settings_key = QString("lastSourceDirectory/%1").arg(QString::fromStdString(stage_name_copy));
                     
@@ -235,14 +235,14 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                     QString file;
                     if (is_output) {
                         file = QFileDialog::getSaveFileName(
-                            nullptr,
+                            this,
                             dialog_title,
                             start_dir,
                             filter
                         );
                     } else {
                         file = QFileDialog::getOpenFileName(
-                            nullptr,
+                            this,
                             dialog_title,
                             start_dir,
                             filter

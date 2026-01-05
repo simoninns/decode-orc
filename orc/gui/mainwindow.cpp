@@ -64,6 +64,7 @@
 #include <QTimer>
 #include <QMoveEvent>
 #include <QResizeEvent>
+#include <QRegularExpression>
 
 #include <queue>
 #include <map>
@@ -193,6 +194,11 @@ MainWindow::~MainWindow()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    if (!checkUnsavedChanges()) {
+        event->ignore();
+        return;
+    }
+    
     saveSettings();
     QMainWindow::closeEvent(event);
 }
@@ -534,7 +540,6 @@ void MainWindow::onEditProject()
                      new_name.toStdString(), new_description.toStdString());
         
         // Update UI to reflect changes
-        updateWindowTitle();
         updateUIState();
         
         statusBar()->showMessage("Project properties updated", 3000);
@@ -544,10 +549,19 @@ void MainWindow::onEditProject()
 
 void MainWindow::newProject(orc::VideoSystem video_format)
 {
+    // Check for unsaved changes before creating new project
+    if (!checkUnsavedChanges()) {
+        return;
+    }
+    
+    // Construct a default filename for the new project dialog
+    QDir dir(getLastProjectDirectory());
+    QString defaultPath = dir.filePath("Untitled.orcprj");
+    
     QString filename = QFileDialog::getSaveFileName(
         this,
         "New Project",
-        getLastProjectDirectory(),
+        defaultPath,  // Full path with default filename
         "ORC Project Files (*.orcprj);;All Files (*)"
     );
     
@@ -590,7 +604,6 @@ void MainWindow::newProject(orc::VideoSystem video_format)
     }
     
     ORC_LOG_INFO("Project created successfully: {}", project_name.toStdString());
-    updateWindowTitle();
     updateUIState();
     
     // Initialize preview renderer for new project
@@ -604,6 +617,11 @@ void MainWindow::newProject(orc::VideoSystem video_format)
 
 void MainWindow::openProject(const QString& filename)
 {
+    // Check for unsaved changes before opening new project
+    if (!checkUnsavedChanges()) {
+        return;
+    }
+    
     ORC_LOG_INFO("Loading project: {}", filename.toStdString());
     
     // Clear existing project state
@@ -631,7 +649,6 @@ void MainWindow::openProject(const QString& filename)
         ORC_LOG_DEBUG("Project has no source");
     }
     
-    updateWindowTitle();
     updateUIState();
     
     // Initialize preview renderer with project DAG
@@ -660,16 +677,42 @@ void MainWindow::saveProject()
     }
     
     ORC_LOG_DEBUG("Project saved successfully");
-    updateWindowTitle();
+    updateUIState();  // Update UI state after save (disable save button)
     statusBar()->showMessage("Project saved");
 }
 
 void MainWindow::saveProjectAs()
 {
+    // Determine the full default path (directory + filename)
+    QString defaultPath;
+    
+    ORC_LOG_DEBUG("saveProjectAs: project path = '{}'", project_.projectPath().toStdString());
+    ORC_LOG_DEBUG("saveProjectAs: project name = '{}'", project_.projectName().toStdString());
+    
+    if (!project_.projectPath().isEmpty()) {
+        // Use existing project path if available
+        defaultPath = project_.projectPath();
+        ORC_LOG_DEBUG("saveProjectAs: using existing path: '{}'", defaultPath.toStdString());
+    } else {
+        // Construct filename from project name
+        QString projectName = project_.projectName();
+        if (projectName.isEmpty()) {
+            projectName = "Untitled";
+        }
+        // Remove any characters that might be problematic in filenames
+        projectName = projectName.replace(QRegularExpression("[<>:\"/\\\\|?*]"), "_");
+        // Use QDir to properly construct the full path
+        QDir dir(getLastProjectDirectory());
+        defaultPath = dir.filePath(projectName + ".orcprj");
+        ORC_LOG_DEBUG("saveProjectAs: constructed path: '{}'", defaultPath.toStdString());
+    }
+    
+    ORC_LOG_DEBUG("saveProjectAs: final default path = '{}'", defaultPath.toStdString());
+    
     QString filename = QFileDialog::getSaveFileName(
         this,
         "Save Project As",
-        getLastProjectDirectory(),
+        defaultPath,  // Full path including filename
         "ORC Project Files (*.orcprj);;All Files (*)"
     );
     
@@ -691,7 +734,6 @@ void MainWindow::saveProjectAs()
         return;
     }
     
-    updateWindowTitle();
     updateUIState();
     statusBar()->showMessage("Project saved as " + filename);
 }
@@ -852,6 +894,43 @@ void MainWindow::updateWindowTitle()
     // Force window manager to update the title bar immediately
     // This ensures the title updates even when the DAG editor window is active
     QApplication::processEvents();
+}
+
+bool MainWindow::checkUnsavedChanges()
+{
+    // Check if project has unsaved changes
+    if (!project_.isModified()) {
+        return true;  // No unsaved changes, safe to proceed
+    }
+    
+    // Show confirmation dialog
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("Unsaved Changes");
+    msgBox.setText("The project has unsaved changes.");
+    msgBox.setInformativeText("Do you want to save your changes?");
+    msgBox.setStandardButtons(QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+    msgBox.setDefaultButton(QMessageBox::Save);
+    msgBox.setIcon(QMessageBox::Question);
+    
+    int ret = msgBox.exec();
+    
+    switch (ret) {
+        case QMessageBox::Save:
+            // Always show SaveAs dialog to make it clear what's being saved
+            saveProjectAs();
+            // After saving, return to editor (don't proceed with the operation)
+            // User must explicitly choose the action again after saving
+            return false;
+            
+        case QMessageBox::Discard:
+            // Discard changes and proceed
+            return true;
+            
+        case QMessageBox::Cancel:
+        default:
+            // Cancel the operation
+            return false;
+    }
 }
 
 void MainWindow::updatePreviewInfo()
@@ -1136,6 +1215,9 @@ void MainWindow::onDAGModified()
     
     // Refresh the displayed preview to show the changes
     updatePreview();
+    
+    // Update UI state to reflect modified project (window title, save button, etc.)
+    updateUIState();
 }
 
 void MainWindow::onArrangeDAGToGrid()

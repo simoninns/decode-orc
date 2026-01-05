@@ -1,13 +1,13 @@
-# orc-process - TBC Processing CLI Tool
+# orc-cli - TBC Processing CLI Tool
 
 ## Overview
 
-`orc-process` is a command-line tool that executes observer pipelines on TBC (Time Base Corrected) files. It processes video fields through configured observers and generates complete SQLite metadata databases.
+`orc-cli` is a command-line tool that executes observer pipelines on TBC (Time Base Corrected) files. It processes video fields through configured observers and generates complete SQLite metadata databases.
 
-## Usage
+## Basic Usage
 
 ```bash
-orc-process --dag <pipeline.yaml> <input.tbc> <output.tbc>
+orc-cli --dag <pipeline.yaml> <input.tbc> <output.tbc>
 ```
 
 **Arguments:**
@@ -57,7 +57,7 @@ observers:
 ## Processing Example
 
 ```bash
-orc-process --dag examples/vbi-observers.yaml \
+orc-cli --dag examples/vbi-observers.yaml \
   test-data/laserdisc/ntsc/cinder/9000-9210/cinder_ntsc_clv_9000-9210.tbc \
   output/cinder_processed.tbc
 ```
@@ -101,7 +101,7 @@ Done! Output written to:
 The generated SQLite database includes:
 
 ### Core Tables
-- **capture** - Video parameters (format, sample rate, dimensions, decoder='orc-process')
+- **capture** - Video parameters (format, sample rate, dimensions, decoder='orc-cli')
 - **field_record** - Per-field metadata (field_id, parity, line count, NTSC-specific fields)
 - **pcm_audio_parameters** - Audio settings (if present in input)
 

@@ -60,7 +60,7 @@ orc/
   - [x] FmCodeObserver ([fm_code_observer.h](core/include/fm_code_observer.h))
   - [x] WhiteFlagObserver ([white_flag_observer.h](core/include/white_flag_observer.h))
 - [x] VITS Quality Observer ([vits_observer.h](core/include/vits_observer.h))
-- [x] orc-process CLI tool with YAML pipeline support
+- [x] orc-cli tool with YAML pipeline support
 
 ### Phase 3: Dropout Detection and Correction (Not Started)
 

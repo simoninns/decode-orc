@@ -3,7 +3,7 @@
 #---------------------------------------------------------------------------
 # Project related configuration options
 #---------------------------------------------------------------------------
-PROJECT_NAME           = "Decode ORC"
+PROJECT_NAME           = "Decode Orc"
 PROJECT_NUMBER         = 
 PROJECT_BRIEF          = "Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows"
 PROJECT_LOGO           = 

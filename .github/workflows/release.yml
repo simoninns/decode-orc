@@ -123,9 +123,9 @@ jobs:
           
           # Create a README
           @"
-          Decode ORC v$version - Portable Windows Build
+          Decode Orc v$version - Portable Windows Build
           
-          This is a portable build of Decode ORC for Windows.
+          This is a portable build of Decode Orc for Windows.
           
           To run the GUI application: Double-click orc-gui.exe
           To run the CLI application: Run orc-cli.exe from command prompt
@@ -193,23 +193,23 @@ jobs:
       
       - name: Create app bundle
         run: |
-          mkdir -p "Decode ORC.app/Contents/MacOS"
-          mkdir -p "Decode ORC.app/Contents/Resources"
+          mkdir -p "orc-gui.app/Contents/MacOS"
+          mkdir -p "orc-gui.app/Contents/Resources"
           
           # Copy executables
-          cp build/bin/orc-gui "Decode ORC.app/Contents/MacOS/"
-          cp build/bin/orc-cli "Decode ORC.app/Contents/MacOS/"
+          cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
+          cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
           
           # Copy icon if available
           if [ -f "assets/orc-gui-icon.icns" ]; then
-            cp assets/orc-gui-icon.icns "Decode ORC.app/Contents/Resources/"
+            cp assets/orc-gui-icon.icns "orc-gui.app/Contents/Resources/"
           fi
           
           # Create PkgInfo
-          echo "APPL????" > "Decode ORC.app/Contents/PkgInfo"
+          echo "APPL????" > "orc-gui.app/Contents/PkgInfo"
           
           # Create Info.plist
-          cat > "Decode ORC.app/Contents/Info.plist" << 'EOF'
+          cat > "orc-gui.app/Contents/Info.plist" << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -219,7 +219,7 @@ jobs:
             <key>CFBundleIdentifier</key>
             <string>io.github.simoninns.decode-orc</string>
             <key>CFBundleName</key>
-            <string>Decode ORC</string>
+            <string>Decode Orc</string>
             <key>CFBundleVersion</key>
             <string>1.0</string>
             <key>CFBundleShortVersionString</key>
@@ -241,16 +241,16 @@ jobs:
       - name: Deploy Qt dependencies
         run: |
           HOMEBREW_PREFIX=$(brew --prefix)
-          $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "Decode ORC.app" -verbose=2
+          $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
       
       - name: Code sign app bundle (ad-hoc)
         run: |
           # Ad-hoc signing - allows the app to run but users will need to right-click > Open first time
           # This prevents the "app is damaged" error
-          codesign --force --deep --sign - "Decode ORC.app"
+          codesign --force --deep --sign - "orc-gui.app"
           
           # Verify the signature
-          codesign --verify --verbose=2 "Decode ORC.app"
+          codesign --verify --verbose=2 "orc-gui.app"
       
       - name: Create CLI symlink installer script
         run: |
@@ -262,11 +262,11 @@ jobs:
           echo "Installing orc-cli to /usr/local/bin..."
           
           # Find the app bundle location
-          APP_PATH="/Applications/Decode ORC.app"
+          APP_PATH="/Applications/orc-gui.app"
           
           if [ ! -d "$APP_PATH" ]; then
-            echo "Error: Decode ORC.app not found in /Applications"
-            echo "Please drag the app to /Applications first, then run this script again."
+            echo "Error: orc-gui.app not found in /Applications"
+            echo "Please drag orc-gui to /Applications first, then run this script again."
             read -p "Press Enter to exit..."
             exit 1
           fi
@@ -305,18 +305,18 @@ jobs:
       - name: Create DMG staging directory
         run: |
           mkdir -p dmg-staging
-          cp -R "Decode ORC.app" dmg-staging/
+          cp -R "orc-gui.app" dmg-staging/
           cp "Install CLI Tool.command" dmg-staging/
           
           # Create a README
           cat > "dmg-staging/README.txt" << 'EOF'
-          Decode ORC - Installation Instructions
+          Decode Orc - Installation Instructions
           ========================================
           
-          1. Drag "Decode ORC" to your Applications folder
+          1. Drag "orc-gui" to your Applications folder
           
           2. To launch the GUI:
-             - Right-click "Decode ORC" in Applications and select "Open"
+             - Right-click "orc-gui" in Applications and select "Open"
              - Click "Open" in the security dialog
              - After first launch, you can double-click normally
           
@@ -330,7 +330,7 @@ jobs:
       - name: Create DMG
         run: |
           create-dmg \
-            --volname "Decode ORC" \
+            --volname "Decode Orc" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
@@ -340,7 +340,7 @@ jobs:
           
           # Fallback if create-dmg fails
           if [ ! -f "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg" ]; then
-            hdiutil create -volname "Decode ORC" -srcfolder "dmg-staging" -ov -format UDZO "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg"
+            hdiutil create -volname "Decode Orc" -srcfolder "dmg-staging" -ov -format UDZO "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg"
           fi
       
       - name: Upload DMG artifact

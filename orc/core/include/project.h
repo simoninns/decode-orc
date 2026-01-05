@@ -125,7 +125,7 @@ struct ProjectDAGEdge {
  * - DAG structure (nodes, edges, parameters)
  * - SOURCE nodes use TBCSourceStage with tbc_path in parameters
  * 
- * The project file format is shared between orc-gui and orc-process.
+ * The project file format is shared between orc-gui and orc-cli.
  * Both tools can load and save projects in the same format.
  * 
  * The Project class owns and caches the source TBC representation,

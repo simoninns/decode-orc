@@ -343,6 +343,8 @@ void MainWindow::setupUI()
     dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
     
     dag_view_->setScene(dag_scene_);
+    // Set alignment so (0,0) appears at top-left of view
+    dag_view_->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     
     // Connect scene/model signals for DAG modifications  
     connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
@@ -481,6 +483,11 @@ void MainWindow::onNewPALProject()
 
 void MainWindow::onOpenProject()
 {
+    // Check for unsaved changes before showing file dialog
+    if (!checkUnsavedChanges()) {
+        return;
+    }
+    
     QString filename = QFileDialog::getOpenFileName(
         this,
         "Open Project",
@@ -617,11 +624,6 @@ void MainWindow::newProject(orc::VideoSystem video_format)
 
 void MainWindow::openProject(const QString& filename)
 {
-    // Check for unsaved changes before opening new project
-    if (!checkUnsavedChanges()) {
-        return;
-    }
-    
     ORC_LOG_INFO("Loading project: {}", filename.toStdString());
     
     // Clear existing project state
@@ -1048,7 +1050,42 @@ void MainWindow::loadProjectDAG()
     // Just need to refresh the model to update the view
     dag_model_->refresh();
     
+    // Position view to show top-left node
+    positionViewToTopLeft();
+    
     statusBar()->showMessage("Loaded DAG from project", 2000);
+}
+
+void MainWindow::positionViewToTopLeft()
+{
+    if (!dag_view_ || !dag_scene_) {
+        return;
+    }
+    
+    const auto& nodes = project_.coreProject().get_nodes();
+    if (nodes.empty()) {
+        return;
+    }
+    
+    // Find the minimum x and y coordinates to determine top-left position
+    double min_x = std::numeric_limits<double>::max();
+    double min_y = std::numeric_limits<double>::max();
+    
+    for (const auto& node : nodes) {
+        if (node.x_position < min_x) min_x = node.x_position;
+        if (node.y_position < min_y) min_y = node.y_position;
+    }
+    
+    // Add padding from viewport edges
+    const double viewport_padding = 20.0;
+    
+    // Calculate the center point needed to show top-left node at viewport's top-left
+    // We want min_x, min_y to appear at the top-left with padding, so we center on a point
+    // that's offset by half the viewport size minus the padding
+    QRectF viewportRect = dag_view_->viewport()->rect();
+    QPointF centerPoint(min_x + viewportRect.width() / 2 - viewport_padding, 
+                       min_y + viewportRect.height() / 2 - viewport_padding);
+    dag_view_->centerOn(centerPoint);
 }
 
 void MainWindow::onEditParameters(const orc::NodeID& node_id)
@@ -1234,8 +1271,10 @@ void MainWindow::onArrangeDAGToGrid()
         return;
     }
     
-    const double grid_spacing_x = 300.0;
-    const double grid_spacing_y = 150.0;
+    const double grid_spacing_x = 225.0;
+    const double grid_spacing_y = 125.0;
+    const double grid_offset_x = 50.0;  // Small offset from edges
+    const double grid_offset_y = 50.0;  // Small offset from edges
     
     // Build adjacency list (forward edges: source -> targets)
     std::map<orc::NodeID, std::vector<orc::NodeID>> forward_edges;
@@ -1343,11 +1382,11 @@ void MainWindow::onArrangeDAGToGrid()
         std::sort(nodes_with_order.begin(), nodes_with_order.end());
         
         // Position nodes: each depth level gets a column
-        double x = depth * grid_spacing_x;
+        double x = grid_offset_x + depth * grid_spacing_x;
         
         for (size_t i = 0; i < nodes_with_order.size(); ++i) {
             const auto& node_id = nodes_with_order[i].second;
-            double y = i * grid_spacing_y;
+            double y = grid_offset_y + i * grid_spacing_y;
             node_y_position[node_id] = y;  // Remember position for next layer
             orc::project_io::set_node_position(project_.coreProject(), node_id, x, y);
         }
@@ -1355,6 +1394,16 @@ void MainWindow::onArrangeDAGToGrid()
     
     // Refresh the view
     dag_model_->refresh();
+    
+    // Position view to show top-left corner (where grid starts)
+    positionViewToTopLeft();
+    
+    // Mark project as modified since we changed node positions
+    project_.setModified(true);
+    
+    // Update UI to reflect modified state
+    updateUIState();
+    
     statusBar()->showMessage("Arranged DAG to grid", 2000);
 }
 

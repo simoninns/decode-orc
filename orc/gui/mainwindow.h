@@ -155,6 +155,7 @@ private:
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
     void updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image);
     void loadProjectDAG();  // Load DAG into embedded viewer
+    void positionViewToTopLeft();  // Position view to show top-left node
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
     void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);

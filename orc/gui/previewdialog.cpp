@@ -151,7 +151,7 @@ void PreviewDialog::setupUI()
     
     // Status bar
     status_bar_ = new QStatusBar(this);
-    status_bar_->showMessage("No node selected");
+    status_bar_->showMessage("No stage selected");
     mainLayout->addWidget(status_bar_);
     
     // Connect signals
@@ -220,5 +220,5 @@ void PreviewDialog::setupUI()
 
 void PreviewDialog::setCurrentNode(const QString& node_label, const QString& node_id)
 {
-    status_bar_->showMessage(QString("Viewing \"%1\" (%2)").arg(node_label, node_id));
+    status_bar_->showMessage(QString("Viewing output from stage: %1").arg(node_id));
 }

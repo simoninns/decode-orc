@@ -175,17 +175,17 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
     
     // Create context menu
     QMenu* menu = new QMenu();
-    menu->addSection(QString("Node: %1").arg(node_label));
+    menu->addSection(QString("%1 (%2)").arg(node_label).arg(orc_node_id.value()));
     
-    // Rename Node action - always available
-    auto* rename_action = menu->addAction("Rename Node...");
+    // Rename Stage action - always available
+    auto* rename_action = menu->addAction("Rename Stage...");
     connect(rename_action, &QAction::triggered, [this, nodeId, node_label]() {
         // Prompt for new name
         bool ok;
         QString new_label = QInputDialog::getText(
             nullptr,
-            "Rename Node",
-            "Enter new name for node:",
+            "Rename Stage",
+            "Enter new name for stage:",
             QLineEdit::Normal,
             node_label,
             &ok
@@ -226,7 +226,7 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
     menu->addSeparator();
     
     // Run Analysis submenu - populate with tools applicable to this stage
-    QMenu* analysis_menu = menu->addMenu("Run Analysis");
+    QMenu* analysis_menu = menu->addMenu("Stage Tools");
     auto& analysis_registry = orc::AnalysisRegistry::instance();
     auto all_tools = analysis_registry.tools();
     
@@ -266,8 +266,8 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
     
     menu->addSeparator();
     
-    // Delete Node action
-    auto* delete_action = menu->addAction("Delete Node");
+    // Delete Stage action
+    auto* delete_action = menu->addAction("Delete Stage");
     delete_action->setEnabled(caps.can_remove);
     if (!caps.can_remove && !caps.remove_reason.empty()) {
         delete_action->setToolTip(QString::fromStdString(caps.remove_reason));

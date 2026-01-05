@@ -27,7 +27,7 @@ StageParameterDialog::StageParameterDialog(
     , stage_name_(stage_name)
     , descriptors_(descriptors)
 {
-    setWindowTitle(QString("Edit %1 Parameters").arg(QString::fromStdString(stage_name)));
+    setWindowTitle(QString("%1 Parameters").arg(QString::fromStdString(stage_name)));
     setMinimumWidth(400);
     
     auto* main_layout = new QVBoxLayout(this);

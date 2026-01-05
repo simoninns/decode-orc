@@ -45,7 +45,6 @@ private slots:
     void runAnalysis();
     void cancelAnalysis();
     void onApplyClicked();
-    void exportResults();
     void addPartialResult(const AnalysisResult::ResultItem& item);
     void onAnalysisComplete(const AnalysisResult& result);
     void update_dependencies();

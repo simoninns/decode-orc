@@ -113,8 +113,8 @@ void OrcGraphicsView::onDeleteSelectedObjects()
     }
     
     if (!cannot_delete.empty()) {
-        // Prevent deletion - show message with node IDs
-        QString msg = "Cannot delete node";
+        // Prevent deletion - show message with stage IDs
+        QString msg = "Cannot delete stage";
         if (cannot_delete.size() > 1) {
             msg += "s";
         }
@@ -125,7 +125,7 @@ void OrcGraphicsView::onDeleteSelectedObjects()
         }
         msg += "). Disconnect all edges first.";
         
-        QMessageBox::warning(this, "Cannot Delete Node", msg);
+        QMessageBox::warning(this, "Cannot Delete Stage", msg);
         return;  // Don't proceed with deletion
     }
     

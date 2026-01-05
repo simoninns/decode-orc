@@ -39,7 +39,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(
-            QString("Render ERROR at node %1: %2")
+            QString("Render ERROR at stage %1: %2")
                 .arg(QString::fromStdString(current_view_node_id_.to_string()))
                 .arg(QString::fromStdString(result.error_message)),
             5000
@@ -141,9 +141,9 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     }
     preview_dialog_->setCurrentNode(node_label, QString::fromStdString(current_view_node_id_.to_string()));
     
-    // Update status bar to show which node is being viewed
+    // Update status bar to show which stage is being viewed
     QString node_display = QString::fromStdString(current_view_node_id_.to_string());
-    statusBar()->showMessage(QString("Viewing output from node: %1").arg(node_display), 5000);
+    statusBar()->showMessage(QString("Viewing output from stage: %1").arg(node_display), 5000);
     
     // Update UI controls
     updatePreviewModeCombo();

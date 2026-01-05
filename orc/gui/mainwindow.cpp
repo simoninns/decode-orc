@@ -33,6 +33,7 @@
 #include "../core/analysis/dropout/dropout_analysis_decoder.h"
 #include "../core/analysis/snr/snr_analysis_decoder.h"
 #include "../core/include/stage_registry.h"
+#include "../core/include/node_type.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/stages/chroma_sink/chroma_sink_stage.h"
@@ -641,12 +642,12 @@ void MainWindow::openProject(const QString& filename)
     
     ORC_LOG_DEBUG("Project loaded: {}", project_.projectName().toStdString());
     
-    // Project loaded - user can select a node in the DAG editor for viewing
+    // Project loaded - user can select a stage in the DAG editor for viewing
     if (project_.hasSource()) {
-        ORC_LOG_DEBUG("Source loaded - select a node in DAG editor for viewing");
+        ORC_LOG_DEBUG("Source loaded - select a stage in DAG editor for viewing");
         
         // Show helpful message
-        statusBar()->showMessage("Project loaded - select a node in DAG editor to view", 5000);
+        statusBar()->showMessage("Project loaded - select a stage in DAG editor to view", 5000);
     } else {
         ORC_LOG_DEBUG("Project has no source");
     }
@@ -938,7 +939,7 @@ bool MainWindow::checkUnsavedChanges()
 void MainWindow::updatePreviewInfo()
 {
     if (current_view_node_id_.is_valid() == false) {
-        preview_dialog_->previewInfoLabel()->setText("No node selected");
+        preview_dialog_->previewInfoLabel()->setText("No stage selected");
         preview_dialog_->sliderMinLabel()->setText("");
         preview_dialog_->sliderMaxLabel()->setText("");
         return;
@@ -1099,7 +1100,7 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     
     if (node_it == nodes.end()) {
         QMessageBox::warning(this, "Edit Parameters",
-            QString("Node '%1' not found").arg(QString::fromStdString(node_id.to_string())));
+            QString("Stage '%1' not found").arg(QString::fromStdString(node_id.to_string())));
         return;
     }
     
@@ -1140,8 +1141,15 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     // Get current parameter values from the node
     auto current_values = node_it->parameters;
     
+    // Get display name for the dialog title
+    std::string display_name = stage_name;  // Fallback to stage_name
+    const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
+    if (type_info && !type_info->display_name.empty()) {
+        display_name = type_info->display_name;
+    }
+    
     // Show parameter dialog
-    StageParameterDialog dialog(stage_name, param_descriptors, current_values, this);
+    StageParameterDialog dialog(display_name, param_descriptors, current_values, this);
     
     if (dialog.exec() == QDialog::Accepted) {
         auto new_values = dialog.get_values();
@@ -1162,7 +1170,7 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
             updatePreview();
             
             statusBar()->showMessage(
-                QString("Updated parameters for node '%1'")
+                QString("Updated parameters for stage '%1'")
                     .arg(QString::fromStdString(node_id.to_string())),
                 3000
             );
@@ -1788,9 +1796,9 @@ void MainWindow::onInspectStage(const NodeID& node_id)
         [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
     
     if (node_it == nodes.end()) {
-        ORC_LOG_ERROR("Node '{}' not found in project", node_id);
+        ORC_LOG_ERROR("Stage '{}' not found in project", node_id);
         QMessageBox::warning(this, "Inspection Failed",
-            QString("Node '%1' not found.").arg(QString::fromStdString(node_id.to_string())));
+            QString("Stage '%1' not found.").arg(QString::fromStdString(node_id.to_string())));
         return;
     }
     

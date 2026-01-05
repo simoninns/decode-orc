@@ -200,21 +200,25 @@ jobs:
           cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
           cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
           
-          # Convert PNG icon to ICNS format for macOS
-          # Create an iconset from the PNG
+          # Convert SVG icon to ICNS format for macOS
+          # First convert SVG to PNG at high resolution, then create iconset
           mkdir -p orc-gui.iconset
           
-          # Use sips to resize the icon to various sizes needed for .icns
-          sips -z 16 16     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_16x16.png
-          sips -z 32 32     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_16x16@2x.png
-          sips -z 32 32     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_32x32.png
-          sips -z 64 64     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_32x32@2x.png
-          sips -z 128 128   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_128x128.png
-          sips -z 256 256   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_128x128@2x.png
-          sips -z 256 256   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_256x256.png
-          sips -z 512 512   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_256x256@2x.png
-          sips -z 512 512   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_512x512.png
-          cp assets/orc-gui-icon-256.png orc-gui.iconset/icon_512x512@2x.png
+          # Convert SVG to PNG at 1024x1024 for highest quality
+          brew list qlmarkdown &>/dev/null || brew install librsvg
+          rsvg-convert -w 1024 -h 1024 assets/orc-gui-icon.svg -o icon-1024.png
+          
+          # Use sips to resize to all needed sizes for .icns
+          sips -z 16 16     icon-1024.png --out orc-gui.iconset/icon_16x16.png
+          sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_16x16@2x.png
+          sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_32x32.png
+          sips -z 64 64     icon-1024.png --out orc-gui.iconset/icon_32x32@2x.png
+          sips -z 128 128   icon-1024.png --out orc-gui.iconset/icon_128x128.png
+          sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_128x128@2x.png
+          sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_256x256.png
+          sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_256x256@2x.png
+          sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_512x512.png
+          sips -z 1024 1024 icon-1024.png --out orc-gui.iconset/icon_512x512@2x.png
           
           # Convert iconset to icns
           iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
@@ -278,7 +282,7 @@ jobs:
             fi
           fi
           
-          # Bundle any missing frameworks
+          # Bundle any missing frameworks and their dependencies
           for framework in $MISSING_FRAMEWORKS; do
             if [ -d "$QT_LIB/${framework}.framework" ]; then
               echo "Copying ${framework}.framework..."
@@ -294,6 +298,36 @@ jobs:
                 "$QT_LIB/QtCore.framework/Versions/A/QtCore" \
                 "@rpath/QtCore.framework/Versions/A/QtCore" \
                 "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
+              
+              # QtDBus depends on libdbus-1 - bundle it if needed
+              if [ "$framework" = "QtDBus" ]; then
+                echo "Bundling QtDBus dependencies..."
+                # Find and copy libdbus
+                DBUS_LIB=$(find $HOMEBREW_PREFIX/opt/dbus/lib -name "libdbus-1.*.dylib" -type f | head -n 1)
+                if [ -n "$DBUS_LIB" ]; then
+                  DBUS_NAME=$(basename "$DBUS_LIB")
+                  echo "Copying $DBUS_NAME..."
+                  cp "$DBUS_LIB" "orc-gui.app/Contents/Frameworks/"
+                  
+                  # Fix libdbus install name
+                  install_name_tool -id "@rpath/$DBUS_NAME" \
+                    "orc-gui.app/Contents/Frameworks/$DBUS_NAME"
+                  
+                  # Fix QtDBus to reference bundled libdbus
+                  install_name_tool -change \
+                    "$DBUS_LIB" \
+                    "@rpath/$DBUS_NAME" \
+                    "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null || true
+                  
+                  # Also fix any wildcard paths that might exist
+                  for DBUS_PATH in $(otool -L "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null | grep "dbus" | awk '{print $1}'); do
+                    install_name_tool -change \
+                      "$DBUS_PATH" \
+                      "@rpath/$DBUS_NAME" \
+                      "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null || true
+                  done
+                fi
+              fi
             fi
           done
           

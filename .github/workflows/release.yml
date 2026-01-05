@@ -258,18 +258,57 @@ jobs:
       - name: Deploy Qt dependencies
         run: |
           HOMEBREW_PREFIX=$(brew --prefix)
-          # Deploy Qt frameworks - macdeployqt will bundle required Qt frameworks
+          QT_LIB="$HOMEBREW_PREFIX/opt/qt@6/lib"
+          
+          # First, run macdeployqt to bundle the main Qt frameworks
+          echo "Running macdeployqt..."
           $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
           
-          # QtGui from Homebrew has a dependency on QtDBus even if the app doesn't use it
-          # Copy QtDBus if it exists and wasn't already bundled by macdeployqt
-          if [ ! -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ] && [ -d "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" ]; then
-            echo "Copying QtDBus framework (required by QtGui)..."
-            cp -R "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" "orc-gui.app/Contents/Frameworks/"
-            
-            # Let macdeployqt fix the install names by running it again
-            $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=1
+          # QtGui depends on QtDBus in Qt 6.9+ but macdeployqt doesn't always detect it
+          # Manually bundle QtDBus and fix all references
+          echo "Checking for missing Qt dependencies..."
+          
+          MISSING_FRAMEWORKS=""
+          
+          # Check if QtDBus is needed but missing
+          if ! [ -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            if otool -L "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null | grep -q "QtDBus"; then
+              echo "QtDBus is required by QtGui but not bundled - adding it"
+              MISSING_FRAMEWORKS="QtDBus"
+            fi
           fi
+          
+          # Bundle any missing frameworks
+          for framework in $MISSING_FRAMEWORKS; do
+            if [ -d "$QT_LIB/${framework}.framework" ]; then
+              echo "Copying ${framework}.framework..."
+              # Use ditto to preserve symlinks and structure correctly on macOS
+              ditto "$QT_LIB/${framework}.framework" "orc-gui.app/Contents/Frameworks/${framework}.framework"
+              
+              # Fix the framework's install name
+              install_name_tool -id "@rpath/${framework}.framework/Versions/A/${framework}" \
+                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}"
+              
+              # Fix references to QtCore in the new framework (QtDBus depends on QtCore)
+              install_name_tool -change \
+                "$QT_LIB/QtCore.framework/Versions/A/QtCore" \
+                "@rpath/QtCore.framework/Versions/A/QtCore" \
+                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
+            fi
+          done
+          
+          # Fix QtGui to reference the bundled QtDBus instead of Homebrew path
+          if [ -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            echo "Fixing QtGui references to QtDBus..."
+            install_name_tool -change \
+              "$QT_LIB/QtDBus.framework/Versions/A/QtDBus" \
+              "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+              "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null || true
+          fi
+          
+          # Verify all frameworks are present
+          echo "Bundled Qt frameworks:"
+          ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
       
       - name: Code sign app bundle (ad-hoc)
         run: |

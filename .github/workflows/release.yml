@@ -200,10 +200,27 @@ jobs:
           cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
           cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
           
-          # Copy icon if available
-          if [ -f "assets/orc-gui-icon.icns" ]; then
-            cp assets/orc-gui-icon.icns "orc-gui.app/Contents/Resources/"
-          fi
+          # Convert PNG icon to ICNS format for macOS
+          # Create an iconset from the PNG
+          mkdir -p orc-gui.iconset
+          
+          # Use sips to resize the icon to various sizes needed for .icns
+          sips -z 16 16     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_16x16.png
+          sips -z 32 32     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_16x16@2x.png
+          sips -z 32 32     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_32x32.png
+          sips -z 64 64     assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_32x32@2x.png
+          sips -z 128 128   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_128x128.png
+          sips -z 256 256   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_128x128@2x.png
+          sips -z 256 256   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_256x256.png
+          sips -z 512 512   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_256x256@2x.png
+          sips -z 512 512   assets/orc-gui-icon-256.png --out orc-gui.iconset/icon_512x512.png
+          cp assets/orc-gui-icon-256.png orc-gui.iconset/icon_512x512@2x.png
+          
+          # Convert iconset to icns
+          iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+          
+          # Also create a volume icon for the DMG
+          iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
           
           # Create PkgInfo
           echo "APPL????" > "orc-gui.app/Contents/PkgInfo"
@@ -241,7 +258,33 @@ jobs:
       - name: Deploy Qt dependencies
         run: |
           HOMEBREW_PREFIX=$(brew --prefix)
+          # Deploy Qt frameworks - macdeployqt will bundle required Qt frameworks
           $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
+          
+          # QtGui depends on QtDBus but macdeployqt doesn't always detect it
+          # Manually copy QtDBus framework if not already present
+          if [ ! -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            echo "Manually copying QtDBus framework..."
+            cp -R "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" "orc-gui.app/Contents/Frameworks/"
+            
+            # Fix the install names for QtDBus
+            install_name_tool -id "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+              "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus"
+            
+            # Update QtDBus dependencies to use @rpath
+            for framework in QtCore; do
+              install_name_tool -change \
+                "$HOMEBREW_PREFIX/opt/qt@6/lib/$framework.framework/Versions/A/$framework" \
+                "@rpath/$framework.framework/Versions/A/$framework" \
+                "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null || true
+            done
+            
+            # Update QtGui to reference the bundled QtDBus
+            install_name_tool -change \
+              "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework/Versions/A/QtDBus" \
+              "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+              "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null || true
+          fi
       
       - name: Code sign app bundle (ad-hoc)
         run: |
@@ -329,11 +372,16 @@ jobs:
       
       - name: Create DMG
         run: |
+          # Copy volume icon to staging directory
+          cp .VolumeIcon.icns dmg-staging/.VolumeIcon.icns
+          
           create-dmg \
             --volname "Decode Orc" \
+            --volicon ".VolumeIcon.icns" \
             --window-pos 200 120 \
             --window-size 800 400 \
             --icon-size 100 \
+            --icon "orc-gui.app" 200 185 \
             --app-drop-link 600 185 \
             "decode-orc-${{ steps.get_version.outputs.version }}-macOS.dmg" \
             "dmg-staging" || true

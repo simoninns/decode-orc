@@ -260,6 +260,16 @@ jobs:
           HOMEBREW_PREFIX=$(brew --prefix)
           # Deploy Qt frameworks - macdeployqt will bundle required Qt frameworks
           $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
+          
+          # QtGui from Homebrew has a dependency on QtDBus even if the app doesn't use it
+          # Copy QtDBus if it exists and wasn't already bundled by macdeployqt
+          if [ ! -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ] && [ -d "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" ]; then
+            echo "Copying QtDBus framework (required by QtGui)..."
+            cp -R "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" "orc-gui.app/Contents/Frameworks/"
+            
+            # Let macdeployqt fix the install names by running it again
+            $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=1
+          fi
       
       - name: Code sign app bundle (ad-hoc)
         run: |

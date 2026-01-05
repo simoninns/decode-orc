@@ -260,37 +260,6 @@ jobs:
           HOMEBREW_PREFIX=$(brew --prefix)
           # Deploy Qt frameworks - macdeployqt will bundle required Qt frameworks
           $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
-          
-          # QtGui depends on QtDBus but macdeployqt doesn't always detect it
-          # Manually copy QtDBus framework if not already present
-          if [ ! -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
-            if [ -d "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" ]; then
-              echo "Manually copying QtDBus framework..."
-              cp -R "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework" "orc-gui.app/Contents/Frameworks/"
-              
-              # Fix the install names for QtDBus
-              install_name_tool -id "@rpath/QtDBus.framework/Versions/A/QtDBus" \
-                "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus"
-              
-              # Update QtDBus dependencies to use @rpath
-              for framework in QtCore; do
-                install_name_tool -change \
-                  "$HOMEBREW_PREFIX/opt/qt@6/lib/$framework.framework/Versions/A/$framework" \
-                  "@rpath/$framework.framework/Versions/A/$framework" \
-                  "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null || true
-              done
-            else
-              echo "QtDBus framework not found in Qt installation, skipping..."
-            fi
-            
-            # Update QtGui to reference the bundled QtDBus (only if QtDBus was copied)
-            if [ -f "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" ]; then
-              install_name_tool -change \
-                "$HOMEBREW_PREFIX/opt/qt@6/lib/QtDBus.framework/Versions/A/QtDBus" \
-                "@rpath/QtDBus.framework/Versions/A/QtDBus" \
-                "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null || true
-            fi
-          fi
       
       - name: Code sign app bundle (ad-hoc)
         run: |

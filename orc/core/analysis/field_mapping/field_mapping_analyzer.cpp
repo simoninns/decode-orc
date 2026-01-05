@@ -59,7 +59,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         }
     }
     
-    ORC_LOG_INFO("Collected observations for {} fields (field range: {} to {})", 
+    ORC_LOG_DEBUG("Collected observations for {} fields (field range: {} to {})", 
                  stats_.total_fields, field_range.start.value(), field_range.end.value() - 1);
     ORC_LOG_DEBUG("Field IDs: {} to {}", field_range.start.value(), field_range.end.value());
     
@@ -67,7 +67,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     // Combine pairs of fields into frames
     std::vector<FrameInfo> frames;
     
-    ORC_LOG_INFO("Building frame map from field pairs...");
+    ORC_LOG_DEBUG("Building frame map from field pairs...");
     
     // Determine video format from first field descriptor
     auto first_descriptor = source.get_descriptor(field_range.start);
@@ -149,7 +149,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         frames.push_back(frame);
     }
     
-    ORC_LOG_INFO("Built frame map with {} frames (format={} disc_type={})",
+    ORC_LOG_DEBUG("Built frame map with {} frames (format={} disc_type={})",
                  frames.size(), is_pal ? "PAL" : "NTSC", is_cav ? "CAV" : "CLV");
     
     if (progress) {
@@ -173,7 +173,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         progress->setStatus("Applying corrections...");
     }
     
-    ORC_LOG_INFO("Applying disc mapping corrections...");
+    ORC_LOG_DEBUG("Applying disc mapping corrections...");
     remove_lead_in_out(frames);
     ORC_LOG_DEBUG("After lead-in/out removal: {} frames remaining", frames.size());
     
@@ -232,7 +232,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
         progress->setStatus("Generating mapping specification...");
     }
     
-    ORC_LOG_INFO("Generating field mapping specification...");
+    ORC_LOG_DEBUG("Generating field mapping specification...");
     ORC_LOG_DEBUG("Before generate_mapping_spec: {} frames remaining", frames.size());
     if (frames.size() > 0) {
         ORC_LOG_DEBUG("  First frame: fields {}-{}", 
@@ -248,25 +248,25 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     decision.rationale = generate_rationale(stats_, is_cav, is_pal);
     
     ORC_LOG_INFO("Disc mapping analysis complete");
-    ORC_LOG_INFO("  Input: {} fields ({} field pairs/frames)", stats_.total_fields, stats_.total_fields / 2);
-    ORC_LOG_INFO("  Output: {} frames ({} fields)", frames.size(), frames.size() * 2);
-    ORC_LOG_INFO("  Mapping spec length: {} chars", decision.mapping_spec.length());
+    ORC_LOG_DEBUG("  Input: {} fields ({} field pairs/frames)", stats_.total_fields, stats_.total_fields / 2);
+    ORC_LOG_DEBUG("  Output: {} frames ({} fields)", frames.size(), frames.size() * 2);
+    ORC_LOG_DEBUG("  Mapping spec length: {} chars", decision.mapping_spec.length());
     if (decision.mapping_spec.length() <= 200) {
-        ORC_LOG_INFO("  Mapping spec: {}", decision.mapping_spec);
+        ORC_LOG_DEBUG("  Mapping spec: {}", decision.mapping_spec);
     } else {
-        ORC_LOG_INFO("  Mapping spec (first 200 chars): {}...", decision.mapping_spec.substr(0, 200));
+        ORC_LOG_DEBUG("  Mapping spec (first 200 chars): {}...", decision.mapping_spec.substr(0, 200));
     }
-    ORC_LOG_INFO("  Frames removed: lead-in/out={} invalid_phase={} duplicates={} unmappable={}",
+    ORC_LOG_DEBUG("  Frames removed: lead-in/out={} invalid_phase={} duplicates={} unmappable={}",
                  stats_.removed_lead_in_out, stats_.removed_invalid_phase,
                  stats_.removed_duplicates, stats_.removed_unmappable);
-    ORC_LOG_INFO("  Frames added: gap_padding={} (filled {} gaps)",
+    ORC_LOG_DEBUG("  Frames added: gap_padding={} (filled {} gaps)",
                  stats_.padding_frames, stats_.gaps_padded);
     
     return decision;
 }
 
 void FieldMappingAnalyzer::remove_lead_in_out(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Removing lead-in/out frames...");
+    ORC_LOG_DEBUG("Removing lead-in/out frames...");
     
     size_t removed = 0;
     for (auto& frame : frames) {
@@ -293,14 +293,14 @@ void FieldMappingAnalyzer::remove_lead_in_out(std::vector<FrameInfo>& frames) {
         frames.end());
     
     stats_.removed_lead_in_out = removed;
-    ORC_LOG_INFO("Removed {} lead-in/out frames", removed);
+    ORC_LOG_DEBUG("Removed {} lead-in/out frames", removed);
 }
 
 void FieldMappingAnalyzer::remove_invalid_frames_by_phase(
     std::vector<FrameInfo>& frames,
     VideoFormat format) {
     
-    ORC_LOG_INFO("Removing frames with invalid phase sequences...");
+    ORC_LOG_DEBUG("Removing frames with invalid phase sequences...");
     
     size_t removed = 0;
     for (auto& frame : frames) {
@@ -344,11 +344,11 @@ void FieldMappingAnalyzer::remove_invalid_frames_by_phase(
         frames.end());
     
     stats_.removed_invalid_phase = removed;
-    ORC_LOG_INFO("Removed {} frames with invalid phase sequences", removed);
+    ORC_LOG_DEBUG("Removed {} frames with invalid phase sequences", removed);
 }
 
 void FieldMappingAnalyzer::correct_vbi_using_sequence_analysis(std::vector<FrameInfo>& frames, VideoFormat format) {
-    ORC_LOG_INFO("Correcting VBI frame numbers using sequence analysis...");
+    ORC_LOG_DEBUG("Correcting VBI frame numbers using sequence analysis...");
     
     const int scan_distance = 10;
     size_t corrections = 0;
@@ -477,11 +477,11 @@ void FieldMappingAnalyzer::correct_vbi_using_sequence_analysis(std::vector<Frame
     }
     
     stats_.corrected_vbi_errors = corrections;
-    ORC_LOG_INFO("Corrected {} VBI frame numbers using sequence analysis", corrections);
+    ORC_LOG_DEBUG("Corrected {} VBI frame numbers using sequence analysis", corrections);
 }
 
 void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Removing duplicate frames...");
+    ORC_LOG_DEBUG("Removing duplicate frames...");
     
     // Find all VBI numbers that appear more than once
     std::map<int32_t, std::vector<size_t>> vbi_to_frames;
@@ -538,11 +538,11 @@ void FieldMappingAnalyzer::remove_duplicate_frames(std::vector<FrameInfo>& frame
         frames.end());
     
     stats_.removed_duplicates = removed;
-    ORC_LOG_INFO("Removed {} duplicate frames", removed);
+    ORC_LOG_DEBUG("Removed {} duplicate frames", removed);
 }
 
 void FieldMappingAnalyzer::number_pulldown_frames(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Numbering pulldown frames...");
+    ORC_LOG_DEBUG("Numbering pulldown frames...");
     
     size_t pulldown_count = 0;
     
@@ -563,11 +563,11 @@ void FieldMappingAnalyzer::number_pulldown_frames(std::vector<FrameInfo>& frames
     }
     
     stats_.pulldown_frames = pulldown_count;
-    ORC_LOG_INFO("Numbered {} pulldown frames", pulldown_count);
+    ORC_LOG_DEBUG("Numbered {} pulldown frames", pulldown_count);
 }
 
 bool FieldMappingAnalyzer::verify_frame_numbers(const std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Verifying all frames have valid VBI frame numbers...");
+    ORC_LOG_DEBUG("Verifying all frames have valid VBI frame numbers...");
     
     size_t unmappable = 0;
     for (const auto& frame : frames) {
@@ -583,12 +583,12 @@ bool FieldMappingAnalyzer::verify_frame_numbers(const std::vector<FrameInfo>& fr
         return false;
     }
     
-    ORC_LOG_INFO("Verification successful - all frames have valid VBI frame numbers");
+    ORC_LOG_DEBUG("Verification successful - all frames have valid VBI frame numbers");
     return true;
 }
 
 void FieldMappingAnalyzer::delete_unmappable_frames(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Deleting unmappable frames...");
+    ORC_LOG_DEBUG("Deleting unmappable frames...");
     
     size_t removed = 0;
     for (auto& frame : frames) {
@@ -606,11 +606,11 @@ void FieldMappingAnalyzer::delete_unmappable_frames(std::vector<FrameInfo>& fram
         frames.end());
     
     stats_.removed_unmappable = removed;
-    ORC_LOG_INFO("Deleted {} unmappable frames", removed);
+    ORC_LOG_DEBUG("Deleted {} unmappable frames", removed);
 }
 
 void FieldMappingAnalyzer::reorder_frames(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Sorting frames by VBI number...");
+    ORC_LOG_DEBUG("Sorting frames by VBI number...");
     
     std::sort(frames.begin(), frames.end(),
         [](const FrameInfo& a, const FrameInfo& b) {
@@ -621,11 +621,11 @@ void FieldMappingAnalyzer::reorder_frames(std::vector<FrameInfo>& frames) {
             return !a.is_pulldown && b.is_pulldown;
         });
     
-    ORC_LOG_INFO("Sorting complete");
+    ORC_LOG_DEBUG("Sorting complete");
 }
 
 void FieldMappingAnalyzer::pad_gaps(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Padding gaps in frame sequence...");
+    ORC_LOG_DEBUG("Padding gaps in frame sequence...");
     
     std::vector<FrameInfo> padded_frames;
     size_t gaps = 0;
@@ -668,18 +668,18 @@ void FieldMappingAnalyzer::pad_gaps(std::vector<FrameInfo>& frames) {
     stats_.gaps_padded = gaps;
     stats_.padding_frames = total_padding;
     
-    ORC_LOG_INFO("Padded {} gaps with {} total padding frames", gaps, total_padding);
+    ORC_LOG_DEBUG("Padded {} gaps with {} total padding frames", gaps, total_padding);
 }
 
 void FieldMappingAnalyzer::renumber_for_pulldown(std::vector<FrameInfo>& frames) {
-    ORC_LOG_INFO("Renumbering all frames to include pulldown frames...");
+    ORC_LOG_DEBUG("Renumbering all frames to include pulldown frames...");
     
     int32_t new_vbi = frames.empty() ? 0 : frames[0].vbi_frame_number;
     for (auto& frame : frames) {
         frame.vbi_frame_number = new_vbi++;
     }
     
-    ORC_LOG_INFO("Renumbering complete");
+    ORC_LOG_DEBUG("Renumbering complete");
 }
 
 std::string FieldMappingAnalyzer::generate_mapping_spec(const std::vector<FrameInfo>& frames) {

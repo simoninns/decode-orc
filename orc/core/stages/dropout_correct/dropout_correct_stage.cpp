@@ -676,7 +676,7 @@ PreviewImage DropoutCorrectStage::render_preview(const std::string& option_id, u
     auto result = PreviewHelpers::render_standard_preview(cached_output_, option_id, index, hint);
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    ORC_LOG_INFO("DropoutCorrect PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
+    ORC_LOG_DEBUG("DropoutCorrect PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
                  option_id, index, duration_ms, hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
     return result;
 }

@@ -111,7 +111,7 @@ bool LDSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters)
 {
-    ORC_LOG_INFO("LDSink: Trigger started");
+    ORC_LOG_DEBUG("LDSink: Trigger started");
     trigger_status_ = "Starting export...";
     
     // Validate parameters
@@ -151,7 +151,7 @@ bool LDSinkStage::trigger(
     if (success) {
         auto range = representation->field_range();
         trigger_status_ = "Exported " + std::to_string(range.size()) + " fields to " + output_path;
-        ORC_LOG_INFO("LDSink: Trigger completed successfully");
+        ORC_LOG_DEBUG("LDSink: Trigger completed successfully");
     } else {
         trigger_status_ = "Error: Failed to write output files";
         ORC_LOG_ERROR("LDSink: Trigger failed");
@@ -197,7 +197,7 @@ bool LDSinkStage::write_tbc_file(
     const std::string& tbc_path)
 {
     try {
-        ORC_LOG_INFO("Opening TBC file for writing: {}", tbc_path);
+        ORC_LOG_DEBUG("Opening TBC file for writing: {}", tbc_path);
         
         // Open output file
         std::ofstream tbc_file(tbc_path, std::ios::binary | std::ios::trunc);
@@ -210,7 +210,7 @@ bool LDSinkStage::write_tbc_file(
         size_t field_count = range.size();
         size_t fields_written = 0;
         
-        ORC_LOG_INFO("Writing {} fields to TBC file (range: {} to {})", field_count, range.start.value(), range.end.value());
+        ORC_LOG_DEBUG("Writing {} fields to TBC file (range: {} to {})", field_count, range.start.value(), range.end.value());
         
         // Iterate through all fields and write them
         for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
@@ -254,7 +254,7 @@ bool LDSinkStage::write_tbc_file(
         }
         
         tbc_file.close();
-        ORC_LOG_INFO("Successfully wrote {} fields to TBC file", fields_written);
+        ORC_LOG_DEBUG("Successfully wrote {} fields to TBC file", fields_written);
         return true;
         
     } catch (const std::exception& e) {
@@ -268,7 +268,7 @@ bool LDSinkStage::write_metadata_file(
     const std::string& db_path)
 {
     try {
-        ORC_LOG_INFO("Writing SQLite metadata to {}", db_path);
+        ORC_LOG_DEBUG("Writing SQLite metadata to {}", db_path);
         
         // Create metadata writer
         TBCMetadataWriter writer;
@@ -307,7 +307,7 @@ bool LDSinkStage::write_metadata_file(
         // Note: PALPhaseObserver removed - PAL phase comes from hints only
         // (TBC files have normalized sync patterns, making field parity detection impossible)
         
-        ORC_LOG_INFO("Running observers on all fields...");
+        ORC_LOG_DEBUG("Running observers on all fields...");
         
         // Process all fields with observers
         auto range = representation->field_range();
@@ -418,7 +418,7 @@ bool LDSinkStage::write_metadata_file(
         writer.commit_transaction();
         writer.close();
         
-        ORC_LOG_INFO("Successfully wrote metadata for {} fields", fields_processed);
+        ORC_LOG_DEBUG("Successfully wrote metadata for {} fields", fields_processed);
         return true;
         
     } catch (const std::exception& e) {

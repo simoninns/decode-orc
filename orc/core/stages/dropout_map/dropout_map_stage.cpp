@@ -84,7 +84,7 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters)
 {
-    ORC_LOG_INFO("DropoutMapStage::execute - starting with {} inputs", inputs.size());
+    ORC_LOG_DEBUG("DropoutMapStage::execute - starting with {} inputs", inputs.size());
     
     if (inputs.size() != 1) {
         throw std::runtime_error("DropoutMapStage requires exactly one input (ONE-to-ONE connection)");
@@ -101,7 +101,7 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
         ORC_LOG_DEBUG("DropoutMapStage: parsed {} field mappings from parameters", dropout_map.size());
     }
     
-    ORC_LOG_INFO("DropoutMapStage: loaded {} field dropout mappings", dropout_map.size());
+    ORC_LOG_DEBUG("DropoutMapStage: loaded {} field dropout mappings", dropout_map.size());
     
     // Process the single input
     auto source = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
@@ -113,7 +113,7 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
     auto mapped = std::make_shared<DropoutMappedRepresentation>(source, dropout_map);
     cached_output_ = mapped;
     
-    ORC_LOG_INFO("DropoutMapStage: produced output with modified dropout hints");
+    ORC_LOG_DEBUG("DropoutMapStage: produced output with modified dropout hints");
     return {std::static_pointer_cast<VideoFieldRepresentation>(mapped)};
 }
 
@@ -173,7 +173,7 @@ PreviewImage DropoutMapStage::render_preview(const std::string& option_id, uint6
     auto result = PreviewHelpers::render_standard_preview(cached_output_, option_id, index, hint);
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    ORC_LOG_INFO("DropoutMap PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
+    ORC_LOG_DEBUG("DropoutMap PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
                  option_id, index, duration_ms, hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
     return result;
 }

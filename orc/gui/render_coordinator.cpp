@@ -34,7 +34,7 @@ void RenderCoordinator::start()
     shutdown_requested_ = false;
     worker_thread_ = std::thread(&RenderCoordinator::workerLoop, this);
     
-    ORC_LOG_INFO("RenderCoordinator: Worker thread started");
+    ORC_LOG_DEBUG("RenderCoordinator: Worker thread started");
 }
 
 void RenderCoordinator::stop()
@@ -43,7 +43,7 @@ void RenderCoordinator::stop()
         return;
     }
     
-    ORC_LOG_INFO("RenderCoordinator: Requesting shutdown...");
+    ORC_LOG_DEBUG("RenderCoordinator: Requesting shutdown...");
     
     // Send shutdown request
     shutdown_requested_ = true;
@@ -59,7 +59,7 @@ void RenderCoordinator::stop()
         worker_thread_.join();
     }
     
-    ORC_LOG_INFO("RenderCoordinator: Worker thread stopped");
+    ORC_LOG_DEBUG("RenderCoordinator: Worker thread stopped");
 }
 
 uint64_t RenderCoordinator::nextRequestId()
@@ -155,7 +155,7 @@ uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
 void RenderCoordinator::cancelTrigger()
 {
     trigger_cancel_requested_ = true;
-    ORC_LOG_INFO("RenderCoordinator: Trigger cancellation requested");
+    ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested");
 }
 
 // ============================================================================
@@ -164,7 +164,7 @@ void RenderCoordinator::cancelTrigger()
 
 void RenderCoordinator::workerLoop()
 {
-    ORC_LOG_INFO("RenderCoordinator: Worker thread loop started");
+    ORC_LOG_DEBUG("RenderCoordinator: Worker thread loop started");
     
     while (!shutdown_requested_) {
         std::unique_ptr<RenderRequest> request;
@@ -200,7 +200,7 @@ void RenderCoordinator::workerLoop()
         }
     }
     
-    ORC_LOG_INFO("RenderCoordinator: Worker thread loop exiting");
+    ORC_LOG_DEBUG("RenderCoordinator: Worker thread loop exiting");
 }
 
 void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
@@ -254,7 +254,7 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
 
 void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
 {
-    ORC_LOG_INFO("RenderCoordinator: Updating DAG (request {})", req.request_id);
+    ORC_LOG_DEBUG("RenderCoordinator: Updating DAG (request {})", req.request_id);
     
     if (!req.dag) {
         // Null DAG is valid - happens with empty projects or projects with no stages
@@ -270,7 +270,7 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         worker_snr_decoder_.reset();
         worker_burst_level_decoder_.reset();
         
-        ORC_LOG_INFO("RenderCoordinator: Cleared all rendering state for empty project");
+        ORC_LOG_DEBUG("RenderCoordinator: Cleared all rendering state for empty project");
         return;
     }
     
@@ -296,7 +296,7 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         worker_burst_level_decoder_->set_observation_cache(worker_obs_cache_);
         worker_burst_level_decoder_->set_observation_cache(worker_obs_cache_);
         
-        ORC_LOG_INFO("RenderCoordinator: DAG updated successfully with shared observation cache");
+        ORC_LOG_DEBUG("RenderCoordinator: DAG updated successfully with shared observation cache");
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Failed to create renderers: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
@@ -511,7 +511,7 @@ void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsReque
 
 void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
 {
-    ORC_LOG_INFO("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id.to_string(), req.request_id);
+    ORC_LOG_DEBUG("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id.to_string(), req.request_id);
     
     if (!worker_dag_) {
         ORC_LOG_ERROR("RenderCoordinator: DAG not initialized");
@@ -569,7 +569,7 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
             }
         }
         
-        ORC_LOG_INFO("RenderCoordinator: Triggering with {} input(s)", inputs.size());
+        ORC_LOG_DEBUG("RenderCoordinator: Triggering with {} input(s)", inputs.size());
         
         // Store pointer to current trigger stage for cancellation
         current_trigger_stage_ = trigger_stage;
@@ -580,7 +580,7 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
             
             // Check for cancellation and call cancel_trigger() on the stage
             if (trigger_cancel_requested_) {
-                ORC_LOG_INFO("RenderCoordinator: Trigger cancellation requested, calling cancel_trigger()");
+                ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested, calling cancel_trigger()");
                 trigger_stage->cancel_trigger();
             }
             
@@ -592,7 +592,7 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
         bool success = trigger_stage->trigger(inputs, target_node->parameters);
         std::string status = trigger_stage->get_trigger_status();
         
-        ORC_LOG_INFO("RenderCoordinator: Trigger complete, success={}, status={}", success, status);
+        ORC_LOG_DEBUG("RenderCoordinator: Trigger complete, success={}, status={}", success, status);
         
         // Clear current trigger stage pointer
         current_trigger_stage_ = nullptr;
@@ -629,7 +629,7 @@ void RenderCoordinator::setShowDropouts(bool show)
 
 void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
 {
-    ORC_LOG_INFO("RenderCoordinator: Saving PNG for node '{}', type {}, index {} to '{}'",
+    ORC_LOG_DEBUG("RenderCoordinator: Saving PNG for node '{}', type {}, index {} to '{}'",
                  req.node_id.to_string(), static_cast<int>(req.output_type), req.output_index, req.filename);
     
     if (!worker_preview_renderer_) {
@@ -649,7 +649,7 @@ void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
         );
         
         if (success) {
-            ORC_LOG_INFO("RenderCoordinator: PNG saved successfully to '{}'", req.filename);
+            ORC_LOG_DEBUG("RenderCoordinator: PNG saved successfully to '{}'", req.filename);
         } else {
             ORC_LOG_ERROR("RenderCoordinator: Failed to save PNG to '{}'", req.filename);
             emit error(req.request_id, QString::fromStdString("Failed to save PNG file: " + req.filename));

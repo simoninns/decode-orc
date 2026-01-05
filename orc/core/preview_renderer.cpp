@@ -873,6 +873,24 @@ uint8_t PreviewRenderer::tbc_sample_to_8bit(uint16_t sample) {
     return static_cast<uint8_t>((sample >> 8) & 0xFF);
 }
 
+namespace {
+/**
+ * @brief Helper to copy all metadata fields from one PreviewImage to another
+ * 
+ * This ensures that when creating a new PreviewImage (e.g., during scaling),
+ * all metadata fields are preserved. Only excludes width, height, and rgb_data
+ * which are typically set explicitly by the caller.
+ * 
+ * @param from Source PreviewImage to copy metadata from
+ * @param to Destination PreviewImage to copy metadata to
+ */
+void copy_preview_metadata(const PreviewImage& from, PreviewImage& to) {
+    to.vectorscope_data = from.vectorscope_data;
+    // Note: dropout_regions often need transformation, so not copied here
+    // Caller should handle dropout_regions explicitly if needed
+}
+} // anonymous namespace
+
 PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& input) const {
     // If SAR 1:1 mode or invalid image, return as-is
     if (aspect_ratio_mode_ == AspectRatioMode::SAR_1_1 || !input.is_valid()) {
@@ -915,6 +933,9 @@ PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& inp
         // Line numbers (y-axis) remain unchanged
         output.dropout_regions.push_back(scaled_region);
     }
+    
+    // Copy all metadata fields (vectorscope_data, etc.)
+    copy_preview_metadata(input, output);
     
     return output;
 }

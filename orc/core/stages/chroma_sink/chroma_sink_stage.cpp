@@ -396,7 +396,7 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
     
     // Log if decoder configuration was changed
     if (decoder_config_changed) {
-        ORC_LOG_INFO("ChromaSink: Decoder configuration changed - cached decoder will be recreated on next preview");
+        ORC_LOG_DEBUG("ChromaSink: Decoder configuration changed - cached decoder will be recreated on next preview");
     }
     
     return true;
@@ -406,7 +406,7 @@ bool ChromaSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters)
 {
-    ORC_LOG_INFO("ChromaSink: Trigger called - starting decode");
+    ORC_LOG_DEBUG("ChromaSink: Trigger called - starting decode");
     
     // Mark trigger as in progress and reset cancel flag
     trigger_in_progress_.store(true);
@@ -451,11 +451,11 @@ bool ChromaSinkStage::trigger(
     // 3. Use orc-core VideoParameters directly
     auto videoParams = *video_params_opt;  // Make a copy so we can modify it
     
-    ORC_LOG_INFO("ChromaSink: Video parameters from source metadata:");
-    ORC_LOG_INFO("  Horizontal active region: {} to {} ({} samples)",
+    ORC_LOG_DEBUG("ChromaSink: Video parameters from source metadata:");
+    ORC_LOG_DEBUG("  Horizontal active region: {} to {} ({} samples)",
                  videoParams.active_video_start, videoParams.active_video_end,
                  videoParams.active_video_end - videoParams.active_video_start);
-    ORC_LOG_INFO("  Vertical active region: {} to {} ({} lines)",
+    ORC_LOG_DEBUG("  Vertical active region: {} to {} ({} lines)",
                  videoParams.first_active_frame_line, videoParams.last_active_frame_line,
                  videoParams.last_active_frame_line - videoParams.first_active_frame_line);
     
@@ -498,7 +498,7 @@ bool ChromaSinkStage::trigger(
     // Set flag so decoders know to use relative indexing when writing to ComponentFrame
     videoParams.active_area_cropping_applied = true;
     
-    ORC_LOG_INFO("ChromaSink: Using active area from video parameters: {}x{}",
+    ORC_LOG_DEBUG("ChromaSink: Using active area from video parameters: {}x{}",
                  videoParams.active_video_end - videoParams.active_video_start,
                  videoParams.last_active_frame_line - videoParams.first_active_frame_line);
     
@@ -522,7 +522,7 @@ bool ChromaSinkStage::trigger(
         config.filterChroma = false;  // Mono decoder doesn't need comb filtering
         config.videoParameters = videoParams;
         monoDecoder = std::make_unique<MonoDecoder>(config);
-        ORC_LOG_INFO("ChromaSink: Using decoder: mono");
+        ORC_LOG_DEBUG("ChromaSink: Using decoder: mono");
     }
     else if (usePalDecoder) {
         PalColour::Configuration config;
@@ -551,7 +551,7 @@ bool ChromaSinkStage::trigger(
         
         palDecoder = std::make_unique<PalColour>();
         palDecoder->updateConfiguration(videoParams, config);
-        ORC_LOG_INFO("ChromaSink: Using decoder: {} (PAL)", filterName);
+        ORC_LOG_DEBUG("ChromaSink: Using decoder: {} (PAL)", filterName);
     }
     else if (useNtscDecoder) {
         Comb::Configuration config;
@@ -584,7 +584,7 @@ bool ChromaSinkStage::trigger(
         
         ntscDecoder = std::make_unique<Comb>();
         ntscDecoder->updateConfiguration(videoParams, config);
-        ORC_LOG_INFO("ChromaSink: Using decoder: {} (NTSC)", decoderName);
+        ORC_LOG_DEBUG("ChromaSink: Using decoder: {} (NTSC)", decoderName);
     }
     else {
         ORC_LOG_ERROR("ChromaSink: Unknown decoder type: {}", decoder_type_);
@@ -606,7 +606,7 @@ bool ChromaSinkStage::trigger(
     size_t start_frame = field_range.start.value() / 2;
     size_t end_frame = (field_range.end.value() + 1) / 2;  // +1 because end is inclusive in field IDs
     
-    ORC_LOG_INFO("ChromaSink: Processing frames {} to {} (of {} in source, field range {}-{})", 
+    ORC_LOG_DEBUG("ChromaSink: Processing frames {} to {} (of {} in source, field range {}-{})", 
                  start_frame + 1, end_frame, total_source_frames, 
                  field_range.start.value(), field_range.end.value());
     
@@ -641,7 +641,7 @@ bool ChromaSinkStage::trigger(
         }
     }
     
-    ORC_LOG_INFO("ChromaSink: Decoder requires lookBehind={} frames, lookAhead={} frames",
+    ORC_LOG_DEBUG("ChromaSink: Decoder requires lookBehind={} frames, lookAhead={} frames",
                  lookBehindFrames, lookAheadFrames);
     
     // 7. Calculate extended frame range including lookbehind/lookahead
@@ -661,7 +661,7 @@ bool ChromaSinkStage::trigger(
     int32_t total_fields_needed = (extended_end_frame - extended_start_frame) * 2;
     fieldInfoList.reserve(total_fields_needed);
     
-    ORC_LOG_INFO("ChromaSink: Preparing {} field descriptors (frames {}-{}) for decode",
+    ORC_LOG_DEBUG("ChromaSink: Preparing {} field descriptors (frames {}-{}) for decode",
                  total_fields_needed, extended_start_frame + 1, extended_end_frame);
     
     for (int32_t frame = extended_start_frame; frame < extended_end_frame; frame++) {
@@ -721,7 +721,7 @@ bool ChromaSinkStage::trigger(
     int32_t numOutputFrames = (end_frame - start_frame) - lookAheadFrames;
     int32_t numFrames = numOutputFrames;
     
-    ORC_LOG_INFO("ChromaSink: Will output {} frames (total range {} - lookahead {})", 
+    ORC_LOG_DEBUG("ChromaSink: Will output {} frames (total range {} - lookahead {})", 
                  numOutputFrames, end_frame - start_frame, lookAheadFrames);
     
     // Initialize output backend BEFORE decoding to enable streaming writes
@@ -747,7 +747,7 @@ bool ChromaSinkStage::trigger(
         // Audio should start from actual output frames, not extended range with lookbehind
         backendConfig.start_field_index = start_frame * 2;
         backendConfig.num_fields = numOutputFrames * 2;
-        ORC_LOG_INFO("ChromaSink: Audio embedding enabled for output (fields {} to {})",
+        ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output (fields {} to {})",
                      start_frame * 2, (start_frame * 2) + (numOutputFrames * 2));
     }
     
@@ -758,7 +758,7 @@ bool ChromaSinkStage::trigger(
         return false;
     }
     
-    ORC_LOG_INFO("ChromaSink: Streaming {} frames to {}", numOutputFrames, backend->getFormatInfo());
+    ORC_LOG_DEBUG("ChromaSink: Streaming {} frames to {}", numOutputFrames, backend->getFormatInfo());
     
     // Use vector of optional frames to track which have been written
     // This allows out-of-order completion while maintaining sequential writes
@@ -774,7 +774,7 @@ bool ChromaSinkStage::trigger(
     // Don't use more threads than frames
     numThreads = std::min(numThreads, numFrames);
     
-    ORC_LOG_INFO("ChromaSink: Processing {} frames using {} worker threads", numFrames, numThreads);
+    ORC_LOG_DEBUG("ChromaSink: Processing {} frames using {} worker threads", numFrames, numThreads);
     
     // Start timing for performance measurement
     auto decode_start_time = std::chrono::high_resolution_clock::now();
@@ -1029,7 +1029,7 @@ bool ChromaSinkStage::trigger(
     double fields_per_second = total_fields / decode_seconds;
     
     ORC_LOG_INFO("ChromaSink: Successfully wrote {} frames to: {}", numFrames, output_path_);
-    ORC_LOG_INFO("ChromaSink: Performance - {:.2f} seconds, {:.2f} fps, {:.2f} fields/sec", 
+    ORC_LOG_DEBUG("ChromaSink: Performance - {:.2f} seconds, {:.2f} fps, {:.2f} fields/sec", 
                  decode_seconds, fps, fields_per_second);
     
     trigger_status_ = "Decode complete: " + std::to_string(numFrames) + " frames (" + 
@@ -1181,7 +1181,7 @@ bool ChromaSinkStage::writeOutputFile(
         config.vfr = vfr;
         config.start_field_index = start_field_index;
         config.num_fields = num_fields;
-        ORC_LOG_INFO("ChromaSink: Audio embedding enabled for output");
+        ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output");
     } else if (embed_audio_) {
         ORC_LOG_WARN("ChromaSink: Audio embedding requested but no audio available");
     }
@@ -1200,7 +1200,7 @@ bool ChromaSinkStage::writeOutputFile(
         return false;
     }
     
-    ORC_LOG_INFO("ChromaSink: Writing {} frames as {}", frames.size(), backend->getFormatInfo());
+    ORC_LOG_DEBUG("ChromaSink: Writing {} frames as {}", frames.size(), backend->getFormatInfo());
     
     // Write all frames
     for (const auto& frame : frames) {
@@ -1219,7 +1219,7 @@ bool ChromaSinkStage::writeOutputFile(
         return false;
     }
     
-    ORC_LOG_INFO("ChromaSink: Wrote {} frames to {}", frames.size(), output_path);
+    ORC_LOG_DEBUG("ChromaSink: Wrote {} frames to {}", frames.size(), output_path);
     return true;
 }
 

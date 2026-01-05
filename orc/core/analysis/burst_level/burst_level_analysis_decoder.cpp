@@ -117,7 +117,7 @@ std::vector<FieldBurstLevelStats> BurstLevelAnalysisDecoder::get_burst_level_for
         
         results.resize(field_count);
         
-        ORC_LOG_INFO("BurstLevelAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
+        ORC_LOG_DEBUG("BurstLevelAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
                     field_count, node_id.to_string(), std::thread::hardware_concurrency());
         
         // Process fields in parallel using all available cores

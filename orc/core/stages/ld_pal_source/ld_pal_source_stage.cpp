@@ -92,9 +92,9 @@ std::vector<ArtifactPtr> LDPALSourceStage::execute(
             case VideoSystem::NTSC: system_str = "NTSC"; break;
             default: system_str = "UNKNOWN"; break;
         }
-        ORC_LOG_INFO("  Decoder: {}", video_params->decoder);
-        ORC_LOG_INFO("  System: {}", system_str);
-        ORC_LOG_INFO("  Fields: {} ({}x{} pixels)", 
+        ORC_LOG_DEBUG("  Decoder: {}", video_params->decoder);
+        ORC_LOG_DEBUG("  System: {}", system_str);
+        ORC_LOG_DEBUG("  Fields: {} ({}x{} pixels)", 
                     video_params->number_of_sequential_fields,
                     video_params->field_width, 
                     video_params->field_height);

@@ -45,9 +45,9 @@ int process_command(const ProcessOptions& options) {
     
     ORC_LOG_INFO("Project loaded: {} (version {})", project.get_name(), project.get_version());
     if (!project.get_description().empty()) {
-        ORC_LOG_INFO("Project description: {}", project.get_description());
+        ORC_LOG_DEBUG("Project description: {}", project.get_description());
     }
-    ORC_LOG_INFO("Project contains {} nodes and {} edges", 
+    ORC_LOG_DEBUG("Project contains {} nodes and {} edges", 
                  project.get_nodes().size(), project.get_edges().size());
     
     // Convert project to DAG
@@ -76,7 +76,7 @@ int process_command(const ProcessOptions& options) {
         auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
         if (trigger_stage) {
             sink_nodes.push_back(node.node_id);
-            ORC_LOG_INFO("Found triggerable node: {} ({})", node.node_id, node.stage_name);
+            ORC_LOG_DEBUG("Found triggerable node: {} ({})", node.node_id, node.stage_name);
         }
     }
     
@@ -88,9 +88,9 @@ int process_command(const ProcessOptions& options) {
     // Trigger each sink node
     bool all_success = true;
     for (const auto& node_id : sink_nodes) {
-        ORC_LOG_INFO("========================================");
-        ORC_LOG_INFO("Triggering node: {}", node_id);
-        ORC_LOG_INFO("========================================");
+        ORC_LOG_DEBUG("========================================");
+        ORC_LOG_DEBUG("Triggering node: {}", node_id);
+        ORC_LOG_DEBUG("========================================");
         
         // Find node in DAG
         const auto& nodes = dag->nodes();
@@ -112,7 +112,7 @@ int process_command(const ProcessOptions& options) {
         }
         
         // Execute DAG to collect inputs
-        ORC_LOG_INFO("Executing DAG to collect {} input nodes", node_it->input_node_ids.size());
+        ORC_LOG_DEBUG("Executing DAG to collect {} input nodes", node_it->input_node_ids.size());
         DAGExecutor executor;
         
         std::vector<ArtifactPtr> inputs;
@@ -152,7 +152,7 @@ int process_command(const ProcessOptions& options) {
         
         // Trigger the stage
         try {
-            ORC_LOG_INFO("Calling trigger() with {} inputs", inputs.size());
+            ORC_LOG_DEBUG("Calling trigger() with {} inputs", inputs.size());
             
             // Set up progress callback
             std::string last_message;
@@ -175,7 +175,7 @@ int process_command(const ProcessOptions& options) {
             
             if (success) {
                 std::string status = trigger_stage->get_trigger_status();
-                ORC_LOG_INFO("Trigger SUCCESS: {}", status);
+                ORC_LOG_DEBUG("Trigger SUCCESS: {}", status);
             } else {
                 std::string status = trigger_stage->get_trigger_status();
                 ORC_LOG_ERROR("Trigger FAILED: {}", status);

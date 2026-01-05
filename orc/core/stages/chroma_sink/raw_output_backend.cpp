@@ -78,7 +78,7 @@ bool RawOutputBackend::initialize(const Configuration& config)
         }
     }
     
-    ORC_LOG_INFO("RawOutputBackend: Initialized {} output to {}", format_string_, config.output_path);
+    ORC_LOG_DEBUG("RawOutputBackend: Initialized {} output to {}", format_string_, config.output_path);
     writer_->printOutputInfo();
     
     return true;
@@ -123,7 +123,7 @@ bool RawOutputBackend::finalize()
 {
     if (output_file_.is_open()) {
         output_file_.close();
-        ORC_LOG_INFO("RawOutputBackend: Wrote {} frames", frames_written_);
+        ORC_LOG_DEBUG("RawOutputBackend: Wrote {} frames", frames_written_);
     }
     
     return true;

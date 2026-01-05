@@ -224,7 +224,7 @@ std::vector<FieldID> SourceAlignStage::apply_field_order_enforcement(
             } else if (target_is_first_field.value() != is_first) {
                 // This source has wrong parity - add one to offset
                 offsets[i] = FieldID(offsets[i].value() + 1);
-                ORC_LOG_INFO("Field order enforcement: adjusted source {} offset from {} to {} to match parity",
+                ORC_LOG_DEBUG("Field order enforcement: adjusted source {} offset from {} to {} to match parity",
                             i, offsets[i].value() - 1, offsets[i].value());
             }
         }
@@ -287,7 +287,7 @@ std::vector<FieldID> SourceAlignStage::find_alignment_offsets(
         return {FieldID(0)};
     }
     
-    ORC_LOG_INFO("SourceAlignStage: Finding alignment for {} sources", sources.size());
+    ORC_LOG_DEBUG("SourceAlignStage: Finding alignment for {} sources", sources.size());
     
     // Build a map of frame_number -> field_id for each source
     struct FrameLocation {

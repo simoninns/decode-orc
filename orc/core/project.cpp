@@ -153,13 +153,13 @@ Project load_project(const std::string& filename) {
                     auto param_map = param.second;
                     std::string type = param_map["type"].as<std::string>("string");
                     
-                    ORC_LOG_INFO("Loading parameter '{}' for node '{}', type={}", 
+                    ORC_LOG_DEBUG("Loading parameter '{}' for node '{}', type={}", 
                                  param_name, node.node_id.to_string(), type);
                     
                     if (type == "int32" || type == "int" || type == "integer") {
                         int value = param_map["value"].as<int>();
                         node.parameters[param_name] = value;
-                        ORC_LOG_INFO("  Set to int: {}", value);
+                        ORC_LOG_DEBUG("  Set to int: {}", value);
                     } else if (type == "uint32") {
                         node.parameters[param_name] = param_map["value"].as<uint32_t>();
                     } else if (type == "double") {

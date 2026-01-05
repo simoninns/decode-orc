@@ -545,8 +545,8 @@ bool TBCVideoFieldRepresentation::set_audio_file(const std::string& pcm_path) {
         return false;
     }
     
-    ORC_LOG_INFO("TBCVideoFieldRepresentation: Opened PCM audio file: {}", pcm_path);
-    ORC_LOG_INFO("  PCM validation passed: {} samples match metadata", expected_samples);
+    ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Opened PCM audio file: {}", pcm_path);
+    ORC_LOG_DEBUG("  PCM validation passed: {} samples match metadata", expected_samples);
     
     pcm_audio_path_ = pcm_path;
     has_audio_ = true;

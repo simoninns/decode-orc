@@ -160,7 +160,7 @@ AnalysisResult FieldCorruptionAnalysisTool::analyze(const AnalysisContext& ctx,
                         auto source = std::dynamic_pointer_cast<VideoFieldRepresentation>(artifact);
                         if (source) {
                             field_count = source->field_range().size();
-                            ORC_LOG_INFO("Auto-detected field count: {}", field_count);
+                            ORC_LOG_DEBUG("Auto-detected field count: {}", field_count);
                             break;
                         }
                     }
@@ -320,7 +320,7 @@ AnalysisResult FieldCorruptionAnalysisTool::analyze(const AnalysisContext& ctx,
         progress->setStatus("Complete");
     }
     
-    ORC_LOG_INFO("Field corruption analysis complete: {} events, {} output fields",
+    ORC_LOG_DEBUG("Field corruption analysis complete: {} events, {} output fields",
                  analysis_result.events.size(), analysis_result.stats.total_output_fields);
     
     return result;
@@ -381,7 +381,7 @@ bool FieldCorruptionAnalysisTool::applyToGraph(const AnalysisResult& result,
     // Apply updated parameters back to project using project_io
     project_io::set_node_parameters(project, node_id, params);
     
-    ORC_LOG_INFO("Applied corruption pattern to node {}: ranges={}, seed={}", 
+    ORC_LOG_DEBUG("Applied corruption pattern to node {}: ranges={}, seed={}", 
                  node_id, it_ranges->second, it_seed->second);
     
     return true;

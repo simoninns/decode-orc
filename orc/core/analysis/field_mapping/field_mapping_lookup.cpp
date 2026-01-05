@@ -151,7 +151,7 @@ void FieldMappingLookup::build_mapping(const VideoFieldRepresentation& source) {
     // Determine if CAV or CLV
     is_cav_ = has_picture_numbers && !has_timecodes;
     
-    ORC_LOG_INFO("Built field mapping: {} frames, {} ({})",
+    ORC_LOG_DEBUG("Built field mapping: {} frames, {} ({})",
                  frame_map_.size(),
                  is_cav_ ? "CAV" : "CLV",
                  is_pal_ ? "PAL" : "NTSC");

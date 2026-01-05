@@ -65,7 +65,7 @@ int analyze_source_aligns_command(const AnalyzeSourceAlignsOptions& options) {
         return 1;
     }
     
-    ORC_LOG_INFO("Found {} source_align node(s)", source_align_node_ids.size());
+    ORC_LOG_DEBUG("Found {} source_align node(s)", source_align_node_ids.size());
     
     // Get the analysis tool from registry
     auto& analysis_registry = AnalysisRegistry::instance();
@@ -80,8 +80,8 @@ int analyze_source_aligns_command(const AnalyzeSourceAlignsOptions& options) {
     int success_count = 0;
     
     for (const auto& node_id : source_align_node_ids) {
-        ORC_LOG_INFO("");
-        ORC_LOG_INFO("=== Analyzing source_align node: {} ===", node_id);
+        ORC_LOG_DEBUG("");
+        ORC_LOG_DEBUG("=== Analyzing source_align node: {} ===", node_id);
         
         // Set up analysis context
         AnalysisContext ctx;
@@ -95,9 +95,9 @@ int analyze_source_aligns_command(const AnalyzeSourceAlignsOptions& options) {
             results[node_id] = result;
             
             if (result.status == AnalysisResult::Success) {
-                ORC_LOG_INFO("Source alignment analysis successful for node {}", node_id);
-                ORC_LOG_INFO("");
-                ORC_LOG_INFO("{}", result.summary);
+                ORC_LOG_DEBUG("Source alignment analysis successful for node {}", node_id);
+                ORC_LOG_DEBUG("");
+                ORC_LOG_DEBUG("{}", result.summary);
                 
                 // Extract the alignment map from the result
                 if (result.graphData.count("alignmentMap")) {
@@ -109,7 +109,7 @@ int analyze_source_aligns_command(const AnalyzeSourceAlignsOptions& options) {
                     
                     try {
                         project_io::set_node_parameters(project, node_id, params);
-                        ORC_LOG_INFO("Updated node '{}' alignmentMap parameter to: {}", node_id, alignment_map);
+                        ORC_LOG_DEBUG("Updated node '{}' alignmentMap parameter to: {}", node_id, alignment_map);
                         success_count++;
                     } catch (const std::exception& e) {
                         ORC_LOG_ERROR("Failed to update node '{}' parameters: {}", node_id, e.what());

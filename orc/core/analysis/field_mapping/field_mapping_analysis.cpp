@@ -111,7 +111,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
     }
     
     NodeID input_node_id = node.input_node_ids[0];
-    ORC_LOG_INFO("Node '{}': Field mapping analysis - getting input from node '{}'", ctx.node_id, input_node_id);
+    ORC_LOG_DEBUG("Node '{}': Field mapping analysis - getting input from node '{}'", ctx.node_id, input_node_id);
     
     // Execute DAG to get the VideoFieldRepresentation from the input node
     // We need to get it as a stage output
@@ -145,7 +145,7 @@ AnalysisResult FieldMappingAnalysisTool::analyze(const AnalysisContext& ctx,
             return result;
         }
         
-        ORC_LOG_INFO("Got VideoFieldRepresentation with {} fields", source->field_range().size());
+        ORC_LOG_DEBUG("Got VideoFieldRepresentation with {} fields", source->field_range().size());
         
         if (progress) {
             progress->setStatus("Running field analysis...");
@@ -341,16 +341,16 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     }
     std::string mappingSpec = mapping_it->second;
     
-    ORC_LOG_INFO("Node '{}': Applying field mapping results", node_id);
+    ORC_LOG_DEBUG("Node '{}': Applying field mapping results", node_id);
     if (node_it->parameters.count("ranges")) {
         auto& old_value = node_it->parameters.at("ranges");
         if (auto* str_val = std::get_if<std::string>(&old_value)) {
-            ORC_LOG_INFO("Node '{}':   Old ranges parameter: {}", node_id, *str_val);
+            ORC_LOG_DEBUG("Node '{}':   Old ranges parameter: {}", node_id, *str_val);
         }
     } else {
-        ORC_LOG_INFO("Node '{}':   Old ranges parameter: (not set)", node_id);
+        ORC_LOG_DEBUG("Node '{}':   Old ranges parameter: (not set)", node_id);
     }
-    ORC_LOG_INFO("Node '{}':   New mapping spec: {}", node_id, mappingSpec);
+    ORC_LOG_DEBUG("Node '{}':   New mapping spec: {}", node_id, mappingSpec);
     
     std::cout << "Applying field mapping results to node " << node_id.value() << std::endl;
     std::cout << "  Mapping spec: " << mappingSpec << std::endl;
@@ -365,7 +365,7 @@ bool FieldMappingAnalysisTool::applyToGraph(const AnalysisResult& result,
     updated_params["ranges"] = mappingSpec;
     project_io::set_node_parameters(project, node_id, updated_params);
     
-    ORC_LOG_INFO("Successfully applied mapping spec to FieldMapStage 'ranges' parameter");
+    ORC_LOG_DEBUG("Successfully applied mapping spec to FieldMapStage 'ranges' parameter");
     std::cout << "Successfully applied mapping spec to FieldMapStage 'ranges' parameter" << std::endl;
     return true;
 }

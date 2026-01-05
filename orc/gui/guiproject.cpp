@@ -126,7 +126,7 @@ void GUIProject::rebuildDAG()
     try {
         ORC_LOG_DEBUG("Converting project to executable DAG");
         dag_ = orc::project_to_dag(core_project_);
-        ORC_LOG_INFO("DAG built successfully from project");
+        ORC_LOG_DEBUG("DAG built successfully from project");
     } catch (const std::exception& e) {
         // Conversion failed - leave null
         // GUI will handle the error

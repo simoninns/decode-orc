@@ -121,7 +121,7 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
         
         results.resize(field_count);
         
-        ORC_LOG_INFO("DropoutAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
+        ORC_LOG_DEBUG("DropoutAnalysisDecoder: Processing {} fields at node '{}' with {} threads",
                     field_count, node_id.to_string(), std::thread::hardware_concurrency());
         
         // Process fields in parallel using all available cores

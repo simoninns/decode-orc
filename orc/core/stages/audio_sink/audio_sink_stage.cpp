@@ -147,7 +147,7 @@ bool AudioSinkStage::trigger(
         FieldID end_field = field_range.end;
         
         uint64_t total_fields = end_field.value() - start_field.value();
-        ORC_LOG_INFO("  Processing {} fields", total_fields);
+        ORC_LOG_DEBUG("  Processing {} fields", total_fields);
         
         // First pass: count total samples
         uint64_t total_samples = 0;
@@ -155,7 +155,7 @@ bool AudioSinkStage::trigger(
             total_samples += vfr->get_audio_sample_count(fid);
         }
         
-        ORC_LOG_INFO("  Total audio samples: {} ({:.2f} seconds at 44.1kHz)", 
+        ORC_LOG_DEBUG("  Total audio samples: {} ({:.2f} seconds at 44.1kHz)", 
                     total_samples, total_samples / 44100.0);
         
         if (total_samples == 0) {

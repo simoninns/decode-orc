@@ -109,7 +109,7 @@ void OutputWriter::printOutputInfo() const
 {
     // Show output information to the user
     const int32_t frameHeight = (videoParameters.field_height * 2) - 1;
-    ORC_LOG_INFO("Input video of {}x{} will be colourised and trimmed to {}x{} {} frames",
+    ORC_LOG_DEBUG("Input video of {}x{} will be colourised and trimmed to {}x{} {} frames",
                  videoParameters.field_width, frameHeight, activeWidth, outputHeight, getPixelName());
 }
 

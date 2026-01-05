@@ -374,7 +374,7 @@ StackerStage::process(
         const_cast<StackerStage*>(this)
     );
     
-    ORC_LOG_INFO("StackerStage::process - Returning StackedVideoFieldRepresentation with type: {}", stacked->type_name());
+    ORC_LOG_DEBUG("StackerStage::process - Returning StackedVideoFieldRepresentation with type: {}", stacked->type_name());
     return stacked;
 }
 
@@ -519,7 +519,7 @@ void StackerStage::stack_field(
         }
     }
     
-    ORC_LOG_INFO("StackerStage::stack_field - Field {}: {} dropout regions, {} pixels affected, {} diff_dod recoveries",
+    ORC_LOG_DEBUG("StackerStage::stack_field - Field {}: {} dropout regions, {} pixels affected, {} diff_dod recoveries",
                  field_id.value(), output_dropouts.size(), total_dropouts, total_diff_dod_recoveries);
 }
 void StackerStage::process_lines_range(
@@ -1064,7 +1064,7 @@ PreviewImage StackerStage::render_preview(const std::string& option_id, uint64_t
     auto result = PreviewHelpers::render_standard_preview(cached_output_, option_id, index, hint);
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    ORC_LOG_INFO("Stacker PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
+    ORC_LOG_DEBUG("Stacker PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
                  option_id, index, duration_ms, hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
     return result;
 }

@@ -134,7 +134,7 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
     }
     
     NodeID input_node_id = node.input_node_ids[0];
-    ORC_LOG_INFO("Node '{}': Field range analysis - getting input from node '{}'", ctx.node_id, input_node_id);
+    ORC_LOG_DEBUG("Node '{}': Field range analysis - getting input from node '{}'", ctx.node_id, input_node_id);
     
     // Execute DAG to get the VideoFieldRepresentation from the input node
     DAGExecutor executor;
@@ -166,7 +166,7 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
             return result;
         }
         
-        ORC_LOG_INFO("Got VideoFieldRepresentation with {} fields", source->field_range().size());
+        ORC_LOG_DEBUG("Got VideoFieldRepresentation with {} fields", source->field_range().size());
     } catch (const std::exception& e) {
         result.status = AnalysisResult::Failed;
         result.summary = std::string("Failed to execute DAG: ") + e.what();
@@ -319,7 +319,7 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
         progress->setProgress(100);
     }
     
-    ORC_LOG_INFO("Field range analysis complete - {} fields", 
+    ORC_LOG_DEBUG("Field range analysis complete - {} fields", 
                  lookup_result.end_field_id.value() - lookup_result.start_field_id.value());
     return result;
 }
@@ -367,7 +367,7 @@ bool FieldMappingRangeAnalysisTool::applyToGraph(const AnalysisResult& result,
     updated_params["ranges"] = ranges_spec;
     project_io::set_node_parameters(project, node_id, updated_params);
     
-    ORC_LOG_INFO("Successfully applied field range to field_map 'ranges' parameter");
+    ORC_LOG_DEBUG("Successfully applied field range to field_map 'ranges' parameter");
     std::cout << "Successfully applied field range to field_map 'ranges' parameter" << std::endl;
     return true;
 }

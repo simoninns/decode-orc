@@ -181,7 +181,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
             }
             
             // Log artifact ID to verify we're getting different sources
-            ORC_LOG_INFO("Input {}: node_id='{}', artifact_id='{}', field_count={}, ptr={}", 
+            ORC_LOG_DEBUG("Input {}: node_id='{}', artifact_id='{}', field_count={}, ptr={}", 
                         i + 1, input_node_id, source->id().to_string(), source->field_count(), 
                         static_cast<const void*>(source.get()));
             
@@ -193,7 +193,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
             }
         }
         
-        ORC_LOG_INFO("Got {} input sources for alignment analysis", input_sources.size());
+        ORC_LOG_DEBUG("Got {} input sources for alignment analysis", input_sources.size());
         
         // Check if all sources are the same object (pointer equality)
         if (input_sources.size() > 1) {
@@ -249,7 +249,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         // We'll scan up to MAX_SCAN_FIELDS per source to find initial VBI frames
         constexpr size_t MAX_SCAN_FIELDS = 1000;  // Usually enough to find VBI data
         
-        ORC_LOG_INFO("Phase 1: Quick scan for initial VBI frames (up to {} fields per source)", MAX_SCAN_FIELDS);
+        ORC_LOG_DEBUG("Phase 1: Quick scan for initial VBI frames (up to {} fields per source)", MAX_SCAN_FIELDS);
         
         for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
             const auto& source = input_sources[src_idx];
@@ -334,7 +334,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         if (!common_frames.empty()) {
             // Use the earliest common frame found
             first_common_frame = *common_frames.begin();
-            ORC_LOG_INFO("Found first common VBI frame {} in quick scan (appears in all {} sources)", 
+            ORC_LOG_DEBUG("Found first common VBI frame {} in quick scan (appears in all {} sources)", 
                         first_common_frame, input_sources.size());
         } else {
             // Need to do a full scan - sources might have non-overlapping VBI frames in the quick scan
@@ -348,7 +348,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         // Phase 3: If we didn't find a common frame, do a full scan to gather all VBI data
         // This is the fallback - only happens if sources have very sparse or non-overlapping VBI in first 1000 fields
         if (first_common_frame < 0) {
-            ORC_LOG_INFO("Phase 3: Full scan to find best alignment");
+            ORC_LOG_DEBUG("Phase 3: Full scan to find best alignment");
             
             for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
                 const auto& source = input_sources[src_idx];
@@ -483,10 +483,10 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         }
         
         // Log the results
-        ORC_LOG_INFO("  Best common VBI frame {} found in {} of {} sources:", 
+        ORC_LOG_DEBUG("  Best common VBI frame {} found in {} of {} sources:", 
                     first_common_frame, max_sources_found, input_sources.size());
         for (size_t src_idx : participating_sources) {
-            ORC_LOG_INFO("    Source {}: at field_id {} (offset = {})", 
+            ORC_LOG_DEBUG("    Source {}: at field_id {} (offset = {})", 
                         src_idx + 1, alignment_offsets[src_idx].value(), alignment_offsets[src_idx].value());
         }
         
@@ -700,7 +700,7 @@ bool SourceAlignmentAnalysisTool::applyToGraph(const AnalysisResult& result,
         std::map<std::string, ParameterValue> params;
         params["alignmentMap"] = alignment_map;
         project_io::set_node_parameters(project, node_id, params);
-        ORC_LOG_INFO("Applied alignment map '{}' to node '{}'", alignment_map, node_id);
+        ORC_LOG_DEBUG("Applied alignment map '{}' to node '{}'", alignment_map, node_id);
         return true;
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Failed to apply alignment map: {}", e.what());

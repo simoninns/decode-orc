@@ -238,7 +238,7 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(qtMessageHandler);
     
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
-    ORC_LOG_INFO("GNOME theme detected: {}", isDark ? "dark" : "light");
+    ORC_LOG_DEBUG("GNOME theme detected: {}", isDark ? "dark" : "light");
     
     MainWindow window;
     

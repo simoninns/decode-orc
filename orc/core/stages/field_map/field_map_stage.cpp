@@ -324,7 +324,7 @@ std::vector<ArtifactPtr> FieldMapStage::execute(
     }
     
     auto source_range = source->field_range();
-    ORC_LOG_INFO("FieldMapStage: Input has {} fields (range {}-{}), output will have {} fields based on specification: {}", 
+    ORC_LOG_DEBUG("FieldMapStage: Input has {} fields (range {}-{}), output will have {} fields based on specification: {}", 
                   source->field_count(), source_range.start.value(), source_range.end.value(),
                   field_mapping.size(), range_spec);
     

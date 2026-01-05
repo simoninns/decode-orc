@@ -157,7 +157,7 @@ size_t ObservationCache::populate_node(NodeID node_id, size_t max_fields)
         field_count = max_fields;
     }
     
-    ORC_LOG_INFO("ObservationCache: Populating {} fields for node '{}'", field_count, node_id.to_string());
+    ORC_LOG_DEBUG("ObservationCache: Populating {} fields for node '{}'", field_count, node_id.to_string());
     
     size_t cached_count = 0;
     for (size_t i = 0; i < field_count; ++i) {
@@ -175,7 +175,7 @@ size_t ObservationCache::populate_node(NodeID node_id, size_t max_fields)
         }
     }
     
-    ORC_LOG_INFO("ObservationCache: Cached {} / {} fields for node '{}'", 
+    ORC_LOG_DEBUG("ObservationCache: Cached {} / {} fields for node '{}'", 
                 cached_count, field_count, node_id.to_string());
     
     return cached_count;

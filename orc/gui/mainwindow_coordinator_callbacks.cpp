@@ -192,7 +192,7 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
         return;
     }
     
-    ORC_LOG_INFO("onTriggerComplete: success={}, status={}", success, status.toStdString());
+    ORC_LOG_DEBUG("onTriggerComplete: success={}, status={}", success, status.toStdString());
     
     // Close progress dialog
     if (trigger_progress_dialog_) {

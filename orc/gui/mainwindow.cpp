@@ -623,7 +623,7 @@ void MainWindow::openProject(const QString& filename)
     
     // Project loaded - user can select a node in the DAG editor for viewing
     if (project_.hasSource()) {
-        ORC_LOG_INFO("Source loaded - select a node in DAG editor for viewing");
+        ORC_LOG_DEBUG("Source loaded - select a node in DAG editor for viewing");
         
         // Show helpful message
         statusBar()->showMessage("Project loaded - select a node in DAG editor to view", 5000);
@@ -1896,7 +1896,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             // Update the preview renderer with the new DAG (contains updated parameters)
             updatePreviewRenderer();
             
-            ORC_LOG_INFO("Dropout map updated for node '{}'", node_id.to_string());
+            ORC_LOG_DEBUG("Dropout map updated for node '{}'", node_id.to_string());
             
             // Trigger preview update to show the changes
             updatePreview();
@@ -2007,7 +2007,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     // Connect apply signal to handle applying results to the node
     connect(&dialog, &orc::gui::AnalysisDialog::applyToGraph, 
             [this, tool, node_id](const orc::AnalysisResult& result) {
-        ORC_LOG_INFO("Applying analysis results to node '{}'", node_id.to_string());
+        ORC_LOG_DEBUG("Applying analysis results to node '{}'", node_id.to_string());
         
         try {
             bool success = tool->applyToGraph(result, project_.coreProject(), node_id);
@@ -2146,7 +2146,7 @@ void MainWindow::updateQualityMetricsDialog()
     // Get field representations from the current DAG/node
     // Note: This is a synchronous access - we'll create a temporary renderer
     try {
-        auto dag = orc::project_to_dag(project_.coreProject());
+        auto dag = project_.getDAG();
         if (!dag) {
             quality_metrics_dialog_->clearMetrics();
             return;
@@ -2292,7 +2292,7 @@ void MainWindow::updateHintsDialog()
     // Get hints from the current DAG/node
     // Note: This is a synchronous access - we'll create a temporary renderer
     try {
-        auto dag = orc::project_to_dag(project_.coreProject());
+        auto dag = project_.getDAG();
         if (!dag) {
             hints_dialog_->clearHints();
             return;
@@ -2353,7 +2353,7 @@ void MainWindow::updatePulldownDialog()
     
     // Get pulldown observation from the current DAG/node
     try {
-        auto dag = orc::project_to_dag(project_.coreProject());
+        auto dag = project_.getDAG();
         if (!dag) {
             pulldown_dialog_->clearPulldownInfo();
             return;

@@ -118,7 +118,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
         ffmpeg_format = "matroska";
     }
     
-    ORC_LOG_INFO("FFmpegOutputBackend: Initializing {} output with {} codec", container_format_, codec_name_);
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Initializing {} output with {} codec", container_format_, codec_name_);
     
     // Map codec names to FFmpeg codec IDs with fallbacks
     std::vector<std::string> codec_candidates;
@@ -151,7 +151,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
         if (setupEncoder(candidate, config.video_params)) {
             encoder_found = true;
             used_codec = candidate;
-            ORC_LOG_INFO("FFmpegOutputBackend: Using codec '{}'", candidate);
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Using codec '{}'", candidate);
             break;
         }
     }
@@ -172,7 +172,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     
     // Setup audio encoder if requested
     if (embed_audio_ && vfr_ && vfr_->has_audio()) {
-        ORC_LOG_INFO("FFmpegOutputBackend: Setting up audio encoder");
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Setting up audio encoder");
         if (!setupAudioEncoder()) {
             ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup audio encoder");
             cleanup();
@@ -203,7 +203,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
         return false;
     }
     
-    ORC_LOG_INFO("FFmpegOutputBackend: Initialized {} encoder ({}x{})", codec_name_, width_, height_);
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Initialized {} encoder ({}x{})", codec_name_, width_, height_);
     
     return true;
 }
@@ -358,7 +358,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     codec_ctx_->thread_count = thread_count;
     codec_ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;  // Enable both frame and slice threading
     
-    ORC_LOG_INFO("FFmpegOutputBackend: Enabling multi-threaded encoding with {} threads", thread_count);
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Enabling multi-threaded encoding with {} threads", thread_count);
     
     // Some formats require global headers
     if (format_ctx_->oformat->flags & AVFMT_GLOBALHEADER) {
@@ -710,7 +710,7 @@ bool FFmpegOutputBackend::finalize()
     // Write trailer
     av_write_trailer(format_ctx_);
     
-    ORC_LOG_INFO("FFmpegOutputBackend: Encoded {} frames", frames_written_);
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Encoded {} frames", frames_written_);
     
     cleanup();
     return true;
@@ -797,7 +797,7 @@ bool FFmpegOutputBackend::setupAudioEncoder()
         return false;
     }
     
-    ORC_LOG_INFO("FFmpegOutputBackend: Audio encoder initialized (AAC 44.1kHz stereo)");
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Audio encoder initialized (AAC 44.1kHz stereo)");
     return true;
 }
 

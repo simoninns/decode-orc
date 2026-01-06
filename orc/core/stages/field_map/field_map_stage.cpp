@@ -269,6 +269,43 @@ public:
         }
         return source_->get_audio_samples(source_id);
     }
+    
+    // EFM methods - remap field IDs to follow field reordering
+    uint32_t get_efm_sample_count(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return 0;
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no EFM
+        if (!source_id.is_valid()) {
+            return 0;
+        }
+        
+        if (!source_) {
+            return 0;
+        }
+        return source_->get_efm_sample_count(source_id);
+    }
+    
+    std::vector<uint8_t> get_efm_samples(FieldID id) const override {
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return {};
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Padding fields have no EFM
+        if (!source_id.is_valid()) {
+            return {};
+        }
+        
+        if (!source_) {
+            return {};
+        }
+        return source_->get_efm_samples(source_id);
+    }
 
 private:
     std::vector<FieldID> field_mapping_;  // Maps output field index -> source FieldID

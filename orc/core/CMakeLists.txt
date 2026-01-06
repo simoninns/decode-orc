@@ -90,6 +90,7 @@ add_library(orc-core STATIC
     stages/chroma_sink/raw_output_backend.cpp
     stages/chroma_sink/ffmpeg_output_backend.cpp
     stages/audio_sink/audio_sink_stage.cpp
+    stages/efm_sink/efm_sink_stage.cpp
     stages/video_params/video_params_stage.cpp
     
     # Dropout decision utilities
@@ -133,6 +134,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/audio_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/video_params
 )
 

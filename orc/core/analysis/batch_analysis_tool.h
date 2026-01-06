@@ -72,14 +72,19 @@ public:
      * @brief Check if this tool is applicable to the given stage type
      * 
      * Batch analysis tools work with field-based stages. They are not
-     * applicable to frame-based output stages like chroma_sink.
+     * applicable to frame-based output stages like chroma_sink, or
+     * sink stages that don't produce outputs (AudioSink, EFMSink, LDSink).
      * 
      * @param stage_name Name of the stage type
-     * @return true if applicable (all stages except chroma_sink)
+     * @return true if applicable (excludes output/sink stages)
      */
     bool isApplicableToStage(const std::string& stage_name) const override {
         // ChromaSinkStage produces RGB frames, not fields with observations
-        return stage_name != "chroma_sink";
+        // Sink stages (AudioSink, EFMSink, ld_sink) produce no outputs
+        return stage_name != "chroma_sink" && 
+               stage_name != "AudioSink" && 
+               stage_name != "EFMSink" && 
+               stage_name != "ld_sink";
     }
 
     /**

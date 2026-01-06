@@ -33,6 +33,7 @@ StackedVideoFieldRepresentation::StackedVideoFieldRepresentation(
     , stacked_fields_(MAX_CACHED_FIELDS)
     , stacked_dropouts_(MAX_CACHED_FIELDS)
     , stacked_audio_(MAX_CACHED_FIELDS)
+    , stacked_efm_(MAX_CACHED_FIELDS)
     , best_field_index_(MAX_CACHED_FIELDS)
 {
 }
@@ -268,6 +269,55 @@ bool StackedVideoFieldRepresentation::has_audio() const {
     return false;
 }
 
+uint32_t StackedVideoFieldRepresentation::get_efm_sample_count(FieldID id) const {
+    // Check if any source has EFM
+    if (!has_efm()) {
+        return 0;
+    }
+    
+    // Return sample count from first source that has this field with EFM
+    for (const auto& source : sources_) {
+        if (source && source->has_field(id) && source->has_efm()) {
+            return source->get_efm_sample_count(id);
+        }
+    }
+    
+    return 0;
+}
+
+std::vector<uint8_t> StackedVideoFieldRepresentation::get_efm_samples(FieldID id) const {
+    if (!has_efm()) {
+        return {};
+    }
+    
+    // Check EFM cache first
+    const auto* cached_efm = stacked_efm_.get_ptr(id);
+    if (cached_efm) {
+        return *cached_efm;
+    }
+    
+    // Get best source index for this field
+    size_t best_index = get_best_source_index(id);
+    
+    // Stack the EFM samples
+    auto stacked_efm = stage_->stack_efm(id, sources_, best_index);
+    
+    // Cache the result
+    stacked_efm_.put(id, stacked_efm);
+    
+    return stacked_efm;
+}
+
+bool StackedVideoFieldRepresentation::has_efm() const {
+    // Check if any source has EFM
+    for (const auto& source : sources_) {
+        if (source && source->has_efm()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // ============================================================================
 // StackerStage implementation
 // ============================================================================
@@ -283,6 +333,7 @@ StackerStage::StackerStage()
     , m_passthrough(false)
     , m_thread_count(0)       // Auto (use all available cores)
     , m_audio_stacking_mode(AudioStackingMode::MEAN)  // Default: mean averaging
+    , m_efm_stacking_mode(EFMStackingMode::MEAN)      // Default: mean averaging
 {
 }
 
@@ -912,6 +963,25 @@ std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSy
     audio_stacking_desc.constraints.required = false;
     descriptors.push_back(audio_stacking_desc);
     
+    // EFM stacking mode
+    ParameterDescriptor efm_stacking_desc;
+    efm_stacking_desc.name = "efm_stacking";
+    efm_stacking_desc.display_name = "EFM Stacking Mode";
+    efm_stacking_desc.description = "How to combine EFM t-values from multiple sources:\n"
+                                   "Disabled = Use EFM from best field (determined by video quality)\n"
+                                   "Mean = Average EFM t-values across all sources\n"
+                                   "Median = Use median EFM t-value across all sources\n"
+                                   "Note: Only fields with matching t-value counts are stacked together";
+    efm_stacking_desc.type = ParameterType::STRING;
+    efm_stacking_desc.constraints.allowed_strings = {
+        "Disabled",
+        "Mean",
+        "Median"
+    };
+    efm_stacking_desc.constraints.default_value = std::string("Mean");
+    efm_stacking_desc.constraints.required = false;
+    descriptors.push_back(efm_stacking_desc);
+    
     return descriptors;
 }
 
@@ -1010,6 +1080,21 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
             } else {
                 return false;
             }
+        } else if (key == "efm_stacking") {
+            if (auto* val = std::get_if<std::string>(&value)) {
+                if (*val == "Disabled") {
+                    m_efm_stacking_mode = EFMStackingMode::DISABLED;
+                } else if (*val == "Mean") {
+                    m_efm_stacking_mode = EFMStackingMode::MEAN;
+                } else if (*val == "Median") {
+                    m_efm_stacking_mode = EFMStackingMode::MEDIAN;
+                } else {
+                    ORC_LOG_WARN("StackerStage: Invalid efm_stacking value '{}'", *val);
+                    return false;
+                }
+            } else {
+                return false;
+            }
         }
     }
     
@@ -1029,9 +1114,12 @@ std::optional<StageReport> StackerStage::generate_report() const {
     int mode_index = m_mode + 1;  // -1 (Auto) becomes 0
     if (mode_index < 0 || mode_index >= 6) mode_index = 0;
     
-    const char* audio_mode_names[] = {"Disabled", "Mean", "Median"};
+    const char* stacking_mode_names[] = {"Disabled", "Mean", "Median"};
     int audio_mode_index = static_cast<int>(m_audio_stacking_mode);
     if (audio_mode_index < 0 || audio_mode_index >= 3) audio_mode_index = 0;
+    
+    int efm_mode_index = static_cast<int>(m_efm_stacking_mode);
+    if (efm_mode_index < 0 || efm_mode_index >= 3) efm_mode_index = 0;
     
     report.summary = "Stacker Configuration";
     
@@ -1042,12 +1130,14 @@ std::optional<StageReport> StackerStage::generate_report() const {
     report.items.push_back({"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
     std::string thread_info = m_thread_count == 0 ? "Auto (" + std::to_string(std::thread::hardware_concurrency()) + " cores)" : std::to_string(m_thread_count);
     report.items.push_back({"Thread Count", thread_info});
-    report.items.push_back({"Audio Stacking", audio_mode_names[audio_mode_index]});
+    report.items.push_back({"Audio Stacking", stacking_mode_names[audio_mode_index]});
+    report.items.push_back({"EFM Stacking", stacking_mode_names[efm_mode_index]});
     
     // Metrics
     report.metrics["mode"] = static_cast<int64_t>(m_mode);
     report.metrics["smart_threshold"] = static_cast<int64_t>(m_smart_threshold);
     report.metrics["audio_stacking_mode"] = static_cast<int64_t>(m_audio_stacking_mode);
+    report.metrics["efm_stacking_mode"] = static_cast<int64_t>(m_efm_stacking_mode);
     
     return report;
 }
@@ -1257,6 +1347,170 @@ int16_t StackerStage::audio_median(std::vector<int16_t> values) const
         std::nth_element(values.begin(), values.begin() + n / 2, values.end());
         std::nth_element(values.begin(), values.begin() + (n - 1) / 2, values.end());
         return static_cast<int16_t>((static_cast<int32_t>(values[(n - 1) / 2]) + static_cast<int32_t>(values[n / 2])) / 2);
+    } else {
+        // Odd number of elements
+        std::nth_element(values.begin(), values.begin() + n / 2, values.end());
+        return values[n / 2];
+    }
+}
+
+std::vector<uint8_t> StackerStage::stack_efm(
+    FieldID field_id,
+    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+    size_t best_source_index) const
+{
+    // If EFM stacking is disabled, use the best source's EFM
+    if (m_efm_stacking_mode == EFMStackingMode::DISABLED) {
+        if (best_source_index < sources.size() && 
+            sources[best_source_index] && 
+            sources[best_source_index]->has_efm()) {
+            return sources[best_source_index]->get_efm_samples(field_id);
+        }
+        // Fallback to first source with EFM
+        for (const auto& source : sources) {
+            if (source && source->has_efm() && source->has_field(field_id)) {
+                return source->get_efm_samples(field_id);
+            }
+        }
+        return {};
+    }
+    
+    // Collect EFM t-values from all sources
+    std::vector<std::vector<uint8_t>> all_efm_samples;
+    std::vector<uint32_t> sample_counts;
+    std::vector<size_t> source_indices;
+    size_t total_sources_with_efm = 0;
+    size_t sources_without_efm = 0;
+    size_t sources_without_field = 0;
+    
+    for (size_t i = 0; i < sources.size(); ++i) {
+        const auto& source = sources[i];
+        if (!source) {
+            continue;
+        }
+        
+        if (!source->has_efm()) {
+            sources_without_efm++;
+            continue;
+        }
+        
+        if (!source->has_field(field_id)) {
+            sources_without_field++;
+            continue;
+        }
+        
+        auto efm_samples = source->get_efm_samples(field_id);
+        uint32_t sample_count = static_cast<uint32_t>(efm_samples.size());
+        
+        if (sample_count == 0) {
+            continue;
+        }
+        
+        all_efm_samples.push_back(std::move(efm_samples));
+        sample_counts.push_back(sample_count);
+        source_indices.push_back(i);
+        total_sources_with_efm++;
+    }
+    
+    // If no sources have EFM for this field, return empty
+    if (all_efm_samples.empty()) {
+        ORC_LOG_DEBUG("StackerStage: Field {} - no sources have EFM data ({} sources without EFM, {} without field)",
+                     field_id.value(), sources_without_efm, sources_without_field);
+        return {};
+    }
+    
+    // If only one source has EFM, return it directly
+    if (all_efm_samples.size() == 1) {
+        ORC_LOG_DEBUG("StackerStage: Field {} - only 1 source has EFM, using directly", field_id.value());
+        return all_efm_samples[0];
+    }
+    
+    // Verify all sources have the same number of t-values
+    uint32_t expected_sample_count = sample_counts[0];
+    bool all_match = true;
+    for (size_t i = 1; i < sample_counts.size(); ++i) {
+        if (sample_counts[i] != expected_sample_count) {
+            ORC_LOG_WARN("StackerStage: Field {} - EFM t-value count mismatch: source {} has {}, expected {}",
+                        field_id.value(), source_indices[i], sample_counts[i], expected_sample_count);
+            all_match = false;
+        }
+    }
+    
+    if (!all_match) {
+        ORC_LOG_WARN("StackerStage: Field {} - EFM t-value counts don't match, using first source with EFM", field_id.value());
+        return all_efm_samples[0];
+    }
+    
+    // Calculate total number of t-values to stack
+    size_t num_samples_total = expected_sample_count;
+    
+    // Allocate output buffer
+    std::vector<uint8_t> stacked_efm(num_samples_total);
+    
+    // Build sources string for logging
+    std::string sources_str = "[";
+    for (size_t i = 0; i < source_indices.size(); ++i) {
+        if (i > 0) sources_str += ", ";
+        sources_str += std::to_string(source_indices[i]);
+    }
+    sources_str += "]";
+    
+    // Stack each t-value position across all sources
+    for (size_t sample_idx = 0; sample_idx < num_samples_total; ++sample_idx) {
+        std::vector<uint8_t> values;
+        values.reserve(all_efm_samples.size());
+        
+        // Collect value from each source at this sample position
+        for (const auto& source_samples : all_efm_samples) {
+            if (sample_idx < source_samples.size()) {
+                values.push_back(source_samples[sample_idx]);
+            }
+        }
+        
+        // Calculate stacked value based on mode
+        if (m_efm_stacking_mode == EFMStackingMode::MEAN) {
+            stacked_efm[sample_idx] = efm_mean(values);
+        } else if (m_efm_stacking_mode == EFMStackingMode::MEDIAN) {
+            stacked_efm[sample_idx] = efm_median(values);
+        } else {
+            // Shouldn't reach here, but fallback to mean
+            stacked_efm[sample_idx] = efm_mean(values);
+        }
+    }
+    
+    ORC_LOG_DEBUG("StackerStage: Field {} - {} EFM sources used for stacking {} ({} t-values each) - complete",
+                 field_id.value(), all_efm_samples.size(), sources_str, expected_sample_count);
+    
+    return stacked_efm;
+}
+
+uint8_t StackerStage::efm_mean(const std::vector<uint8_t>& values) const
+{
+    if (values.empty()) {
+        return 0;
+    }
+    
+    uint32_t sum = 0;
+    for (const auto& val : values) {
+        sum += val;
+    }
+    
+    return static_cast<uint8_t>(sum / static_cast<uint32_t>(values.size()));
+}
+
+uint8_t StackerStage::efm_median(std::vector<uint8_t> values) const
+{
+    if (values.empty()) {
+        return 0;
+    }
+    
+    const size_t n = values.size();
+    
+    if (n % 2 == 0) {
+        // Even number of elements
+        std::nth_element(values.begin(), values.begin() + n / 2, values.end());
+        std::nth_element(values.begin(), values.begin() + (n - 1) / 2, values.end());
+        return static_cast<uint8_t>((static_cast<uint16_t>(values[(n - 1) / 2]) + static_cast<uint16_t>(values[n / 2])) / 2);
     } else {
         // Odd number of elements
         std::nth_element(values.begin(), values.begin() + n / 2, values.end());

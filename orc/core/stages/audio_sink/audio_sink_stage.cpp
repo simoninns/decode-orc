@@ -204,8 +204,13 @@ bool AudioSinkStage::trigger(
             }
             
             // Update progress
-            if ((fid.value() - start_field.value()) % 100 == 0) {
-                double progress = static_cast<double>(fid.value() - start_field.value()) / total_fields * 100.0;
+            uint64_t current_field = fid.value() - start_field.value();
+            if (current_field % 10 == 0 && progress_callback_) {
+                progress_callback_(current_field, total_fields, 
+                                 "Writing audio field " + std::to_string(current_field) + "/" + std::to_string(total_fields));
+            }
+            if (current_field % 100 == 0) {
+                double progress = static_cast<double>(current_field) / total_fields * 100.0;
                 ORC_LOG_DEBUG("AudioSink: Progress {:.1f}%", progress);
             }
         }

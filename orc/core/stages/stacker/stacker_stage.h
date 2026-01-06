@@ -66,6 +66,11 @@ public:
     std::vector<int16_t> get_audio_samples(FieldID id) const override;
     bool has_audio() const override;
     
+    // Override EFM methods to provide stacked EFM
+    uint32_t get_efm_sample_count(FieldID id) const override;
+    std::vector<uint8_t> get_efm_samples(FieldID id) const override;
+    bool has_efm() const override;
+    
     friend class StackerStage;
     
 private:
@@ -82,6 +87,9 @@ private:
     
     // Stacked audio data cache
     mutable LRUCache<FieldID, std::vector<int16_t>> stacked_audio_;
+    
+    // Stacked EFM data cache
+    mutable LRUCache<FieldID, std::vector<uint8_t>> stacked_efm_;
     
     // Best field index for each field (for video stacking quality tracking)
     mutable LRUCache<FieldID, size_t> best_field_index_;
@@ -186,6 +194,15 @@ public:
         MEDIAN     // Median averaging of audio samples
     };
     
+    /**
+     * @brief EFM stacking mode
+     */
+    enum class EFMStackingMode {
+        DISABLED,  // No EFM stacking - use best field's EFM
+        MEAN,      // Mean averaging of EFM t-values
+        MEDIAN     // Median averaging of EFM t-values
+    };
+    
 private:
     // Stacking parameters
     int32_t m_mode;              // Stacking mode (-1=Auto, 0=Mean, 1=Median, 2=Smart Mean, 3=Smart Neighbor, 4=Neighbor)
@@ -194,6 +211,7 @@ private:
     bool m_passthrough;          // Pass through dropouts present on all sources
     int32_t m_thread_count;      // Number of threads for parallel processing (0=auto, max=hardware concurrency)
     AudioStackingMode m_audio_stacking_mode;  // Audio stacking mode (default: mean)
+    EFMStackingMode m_efm_stacking_mode;      // EFM stacking mode (default: mean)
     
     // Store parameters for inspection
     std::map<std::string, ParameterValue> parameters_;
@@ -315,6 +333,29 @@ private:
      * @brief Calculate median of audio sample values
      */
     int16_t audio_median(std::vector<int16_t> values) const;
+    
+    /**
+     * @brief Stack EFM t-values from multiple sources
+     * 
+     * @param field_id Field ID
+     * @param sources Input field representations
+     * @param best_source_index Index of best source (used when EFM stacking disabled)
+     * @return Stacked EFM t-values
+     */
+    std::vector<uint8_t> stack_efm(
+        FieldID field_id,
+        const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+        size_t best_source_index) const;
+    
+    /**
+     * @brief Calculate mean of EFM t-value samples
+     */
+    uint8_t efm_mean(const std::vector<uint8_t>& values) const;
+    
+    /**
+     * @brief Calculate median of EFM t-value samples
+     */
+    uint8_t efm_median(std::vector<uint8_t> values) const;
 };
 
 } // namespace orc

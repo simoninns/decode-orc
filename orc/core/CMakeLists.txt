@@ -22,6 +22,9 @@ add_library(orc-core STATIC
     vbi_utilities.cpp
     vbi_decoder.cpp
     
+    # EIA-608 decoder for closed captions
+    eia608_decoder.cpp
+    
     # Observers (organized in subdirectory)
     observers/observer.cpp
     observers/observation_history.cpp

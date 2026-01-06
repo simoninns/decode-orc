@@ -54,6 +54,7 @@ ChromaSinkStage::ChromaSinkStage()
     , simple_pal_(false)
     , output_padding_(8)
     , embed_audio_(false)
+    , embed_closed_captions_(false)
     , encoder_preset_("medium")
     , encoder_crf_(18)
     , encoder_bitrate_(0)  // 0 = use CRF
@@ -207,6 +208,14 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             ParameterType::BOOL,
             {{}, {}, false, {}, false,
              ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
+        },
+        ParameterDescriptor{
+            "embed_closed_captions",
+            "Embed Closed Captions",
+            "Embed closed captions as mov_text subtitles (converts EIA-608 to text, MP4 only)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false,
+             ParameterDependency{"output_format", {"mp4-h264"}}}
         }
     };
     
@@ -266,6 +275,7 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["encoder_crf"] = encoder_crf_;
     params["encoder_bitrate"] = encoder_bitrate_;
     params["embed_audio"] = embed_audio_;
+    params["embed_closed_captions"] = embed_closed_captions_;
     return params;
 }
 
@@ -390,6 +400,13 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
             } else if (std::holds_alternative<std::string>(value)) {
                 auto str_val = std::get<std::string>(value);
                 embed_audio_ = (str_val == "true" || str_val == "1" || str_val == "yes");
+            }
+        } else if (key == "embed_closed_captions") {
+            if (std::holds_alternative<bool>(value)) {
+                embed_closed_captions_ = std::get<bool>(value);
+            } else if (std::holds_alternative<std::string>(value)) {
+                auto str_val = std::get<std::string>(value);
+                embed_closed_captions_ = (str_val == "true" || str_val == "1" || str_val == "yes");
             }
         }
     }
@@ -742,6 +759,7 @@ bool ChromaSinkStage::trigger(
     backendConfig.encoder_crf = encoder_crf_;
     backendConfig.encoder_bitrate = encoder_bitrate_;
     backendConfig.embed_audio = embed_audio_;
+    backendConfig.embed_closed_captions = embed_closed_captions_;
     if (embed_audio_ && vfr && vfr->has_audio()) {
         backendConfig.vfr = vfr.get();
         // Audio should start from actual output frames, not extended range with lookbehind
@@ -1177,6 +1195,7 @@ bool ChromaSinkStage::writeOutputFile(
     
     // Pass audio information if embedding is enabled
     config.embed_audio = embed_audio_;
+    config.embed_closed_captions = embed_closed_captions_;
     if (embed_audio_ && vfr && vfr->has_audio()) {
         config.vfr = vfr;
         config.start_field_index = start_field_index;

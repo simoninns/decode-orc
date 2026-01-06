@@ -57,6 +57,9 @@ public:
         const class VideoFieldRepresentation* vfr = nullptr;  ///< VFR for audio access (if embed_audio=true)
         uint64_t start_field_index = 0;         ///< Starting field for audio extraction
         uint64_t num_fields = 0;                ///< Number of fields to extract audio from
+        
+        // Closed caption settings (MP4 only, converts EIA-608 to mov_text)
+        bool embed_closed_captions = false;     ///< Embed closed captions as mov_text subtitle (MP4 only)
     };
     
     /**

@@ -11,6 +11,7 @@
 #include "logging.h"
 #include "closed_caption_observer.h"
 #include "observation_history.h"
+#include "eia608_decoder.h"
 #include <stage_registry.h>
 #include <stdexcept>
 #include <fstream>
@@ -348,7 +349,7 @@ bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
     return true;
 }
 
-// Export to plain text format (strip control codes)
+// Export to plain text format using EIA608Decoder for proper caption parsing
 bool CCSinkStage::export_plain_text(const VideoFieldRepresentation* vfr,
                                    const std::string& output_path,
                                    VideoFormat format) {
@@ -359,9 +360,10 @@ bool CCSinkStage::export_plain_text(const VideoFieldRepresentation* vfr,
         return false;
     }
     
-    // Create CC observer to extract data
+    // Create CC observer and EIA-608 decoder
     auto cc_observer = std::make_shared<ClosedCaptionObserver>();
     ObservationHistory history;
+    EIA608Decoder decoder;
     
     // Get field range
     auto field_range = vfr->field_range();
@@ -370,12 +372,11 @@ bool CCSinkStage::export_plain_text(const VideoFieldRepresentation* vfr,
     ORC_LOG_DEBUG("Plain text export: Processing {} fields from {} to {}", 
                   total_fields, field_range.start.value(), field_range.end.value());
     
-    // Process all fields
-    bool caption_in_progress = false;
+    // Process all fields and feed to EIA608Decoder
     int32_t processed_fields = 0;
-    int32_t last_control_data0 = -1;
-    int32_t last_control_data1 = -1;
-    bool last_output_was_space = false;
+    
+    // Calculate frame rate for timing
+    double frames_per_second = (format == VideoFormat::PAL) ? 25.0 : 29.97;
     
     for (FieldID field_id = field_range.start; field_id < field_range.end; field_id = field_id + 1) {
         if (cancel_requested_.load()) {
@@ -391,146 +392,42 @@ bool CCSinkStage::export_plain_text(const VideoFieldRepresentation* vfr,
         processed_fields++;
         
         // Run CC observer on this field
-        int32_t data0 = -1;
-        int32_t data1 = -1;
-        
         auto observations = cc_observer->process_field(*vfr, field_id, history);
-        if (processed_fields <= 10) {
-            ORC_LOG_DEBUG("Plain text Field {}: {} observations from observer", field_id.value(), observations.size());
-        }
         
+        // Feed CC data to EIA608Decoder
         for (const auto& obs : observations) {
             if (obs->observation_type() == "ClosedCaption") {
                 auto* cc_obs = dynamic_cast<ClosedCaptionObservation*>(obs.get());
-                if (cc_obs) {
-                    if (processed_fields <= 10) {
-                        ORC_LOG_DEBUG("Plain text Field {}: CC obs - data0={:#04x}, data1={:#04x}, confidence={}", 
-                                      field_id.value(), cc_obs->data0, cc_obs->data1, 
-                                      static_cast<int>(cc_obs->confidence));
-                    }
-                    if (cc_obs->confidence != ConfidenceLevel::NONE) {
-                        data0 = sanity_check_data(cc_obs->data0);
-                        data1 = sanity_check_data(cc_obs->data1);
-                    }
+                if (cc_obs && cc_obs->confidence != ConfidenceLevel::NONE) {
+                    uint8_t byte1 = static_cast<uint8_t>(sanity_check_data(cc_obs->data0));
+                    uint8_t byte2 = static_cast<uint8_t>(sanity_check_data(cc_obs->data1));
+                    
+                    // Calculate timestamp for this field
+                    double timestamp = (field_id.value() / 2.0) / frames_per_second;
+                    
+                    // Feed to decoder
+                    decoder.process_bytes(timestamp, byte1, byte2);
                 }
                 break;
             }
         }
-        
-        // Check if data is valid
-        if (data0 == -1 || data1 == -1) {
-            // Invalid - skip
-            continue;
-        }
-        
-        // Check for null data
-        if (data0 == 0 && data1 == 0) {
-            // No CC data for this frame
-            if (caption_in_progress) {
-                file << "\n";  // End caption with newline
-            }
-            caption_in_progress = false;
-            continue;
-        }
-        
-        // Debug: Log all non-zero data
-        ORC_LOG_DEBUG("CC field {}: data0=0x{:02x}, data1=0x{:02x}", field_id.value(), data0, data1);
-        
-        // Following the ld-analyse reference implementation:
-        // Check for non-display control codes (0x10-0x1F in data0)
-        if (data0 >= 0x10 && data0 <= 0x1F) {
-            // Check if this is a repeated control code (command repeat)
-            if (data0 == last_control_data0 && data1 == last_control_data1) {
-                // Command repeat - ignore
-                ORC_LOG_DEBUG("  -> Control code repeat, skipping");
-                continue;
-            }
-            
-            ORC_LOG_DEBUG("  -> Control code 0x{:02x}, data1=0x{:02x}", data0, data1);
-            last_control_data0 = data0;
-            last_control_data1 = data1;
-            
-            // Decode control codes to determine if we should output spacing
-            // Only specific commands output spaces/newlines in plain text
-            if (data1 >= 0x20 && data1 <= 0x7F) {
-                // Check for miscellaneous control codes: (data0 & 0x76) == 0x14
-                if ((data0 & 0x76) == 0x14) {
-                    int32_t commandGroup = (data0 & 0x02) >> 1;
-                    int32_t commandType = (data1 & 0x0F);
-                    
-                    if (commandGroup == 0) {
-                        // Normal miscellaneous commands
-                        switch (commandType) {
-                        case 0:  // Resume caption loading
-                        case 2:  // Reserved 1
-                        case 4:  // Delete to end of row
-                            // These output a space, but avoid consecutive spaces
-                            if (!last_output_was_space) {
-                                if (!caption_in_progress) {
-                                    std::string timestamp = generate_timestamp(field_id.value(), format);
-                                    file << "\n[" << timestamp << "]\n";
-                                    caption_in_progress = true;
-                                }
-                                file << " ";
-                                last_output_was_space = true;
-                            }
-                            break;
-                        case 15: // End of caption (flip memories)
-                            // Output newline
-                            file << "\n";
-                            caption_in_progress = false;
-                            last_output_was_space = false;
-                            break;
-                        default:
-                            // Other commands don't output anything
-                            break;
-                        }
-                    }
-                    // Tab offset commands (commandGroup == 1) don't output anything for plain text
-                }
-                // Midrow commands and preamble address codes don't output anything for plain text
-            }
-            continue;
-        }
-        
-        // Reset control code tracking when we get normal text
-        last_control_data0 = -1;
-        last_control_data1 = -1;
-        
-        // Mask off parity bit (bit 7) to get 7-bit ASCII value
-        uint8_t char0 = static_cast<uint8_t>(data0) & 0x7F;
-        uint8_t char1 = static_cast<uint8_t>(data1) & 0x7F;
-        
-        // Create text output from the two characters
-        std::string text;
-        if (char0 >= 0x20 && char0 < 0x7F) {
-            // Skip space if last output was already a space (collapse multiple spaces)
-            if (char0 != ' ' || !last_output_was_space) {
-                text += static_cast<char>(char0);
-            }
-        }
-        if (char1 >= 0x20 && char1 < 0x7F) {
-            // Skip space if last output was already a space (collapse multiple spaces)
-            if (char1 != ' ' || !last_output_was_space) {
-                text += static_cast<char>(char1);
-            }
-        }
-        
-        // Only output if we have printable text
-        if (!text.empty()) {
-            if (!caption_in_progress) {
-                // Start of new caption
-                std::string timestamp = generate_timestamp(field_id.value(), format);
-                file << "\n[" << timestamp << "]\n";
-                caption_in_progress = true;
-            }
-            file << text;
-            // Track whether last character was a space
-            last_output_was_space = !text.empty() && text.back() == ' ';
-        }
     }
     
-    file << "\n";
+    // Get all caption cues from decoder
+    auto cues = decoder.get_cues();
+    
+    ORC_LOG_INFO("Extracted {} caption cues", cues.size());
+    
+    // Write cues to file with timestamps
+    for (const auto& cue : cues) {
+        // Convert seconds to timecode
+        int frame_number = static_cast<int>(cue.start_time * frames_per_second * 2.0);  // *2 for fields
+        std::string timestamp = generate_timestamp(frame_number, format);
+        
+        file << "\n[" << timestamp << "]\n";
+        file << cue.text << "\n";
+    }
+    
     file.close();
     
     return true;

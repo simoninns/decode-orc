@@ -159,6 +159,7 @@ private:
     bool simple_pal_;
     int output_padding_;
     bool embed_audio_;  // Embed analogue audio in output (MP4/MKV only)
+    bool embed_closed_captions_;  // Embed closed captions in MP4 output (MP4 only, converted to mov_text)
     
     // Encoder quality parameters (for FFmpeg output)
     std::string encoder_preset_;   // "fast", "medium", "slow", "veryslow"

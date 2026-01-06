@@ -12,6 +12,8 @@
 
 #include "output_backend.h"
 #include "field_id.h"
+#include "eia608_decoder.h"
+#include <memory>
 
 #ifdef HAVE_FFMPEG
 
@@ -63,6 +65,15 @@ private:
     bool embed_audio_ = false;
     std::vector<int16_t> audio_buffer_;  // Persistent buffer for audio samples across frames
     
+    // Subtitle structures (for closed captions)
+    AVCodecContext* subtitle_codec_ctx_ = nullptr;
+    AVStream* subtitle_stream_ = nullptr;
+    bool embed_closed_captions_ = false;
+    uint64_t current_field_for_captions_ = 0;
+    std::unique_ptr<EIA608Decoder> eia608_decoder_;
+    std::vector<CaptionCue> pending_cues_;
+    size_t next_cue_index_ = 0;
+    
     // State
     int64_t pts_ = 0;
     int frames_written_ = 0;
@@ -95,7 +106,9 @@ private:
     // Helper methods
     bool setupEncoder(const std::string& codec_id, const orc::VideoParameters& params);
     bool setupAudioEncoder();
+    bool setupSubtitleEncoder();
     bool encodeAudioForFrame();
+    bool encodeClosedCaptionsForFrame();
     bool convertAndEncode(const ComponentFrame& component_frame);
     void cleanup();
 };

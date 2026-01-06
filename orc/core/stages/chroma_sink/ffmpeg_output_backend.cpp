@@ -14,6 +14,11 @@
 #include "componentframe.h"
 #include "logging.h"
 #include "video_field_representation.h"
+#include "tbc_video_field_representation.h"
+#include "field_id.h"
+#include "closed_caption_observer.h"
+#include "observation_history.h"
+#include "eia608_decoder.h"
 #include <algorithm>
 #include <cstring>
 #include <thread>
@@ -45,6 +50,9 @@ void FFmpegOutputBackend::cleanup()
         avcodec_free_context(&audio_codec_ctx_);
         audio_codec_ctx_ = nullptr;
     }
+    
+    // subtitle_codec_ctx_ is just a marker (non-null = enabled), not a real context
+    subtitle_codec_ctx_ = nullptr;
     
     if (packet_) {
         av_packet_free(&packet_);
@@ -107,10 +115,12 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     
     // Store audio configuration
     embed_audio_ = config.embed_audio;
+    embed_closed_captions_ = config.embed_closed_captions;
     vfr_ = config.vfr;
     start_field_index_ = config.start_field_index;
     num_fields_ = config.num_fields;
     current_field_for_audio_ = start_field_index_;
+    current_field_for_captions_ = start_field_index_;
     
     // Map user-friendly container names to FFmpeg format names
     std::string ffmpeg_format = container_format_;
@@ -181,6 +191,65 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     } else if (embed_audio_) {
         ORC_LOG_WARN("FFmpegOutputBackend: Audio embedding requested but no audio available");
         embed_audio_ = false;  // Disable audio
+    }
+    
+    // Setup subtitle encoder for closed captions if requested
+    // We decode all captions upfront and store them as timed cues
+    if (embed_closed_captions_ && vfr_) {
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Setting up subtitle encoder for closed captions");
+        if (!setupSubtitleEncoder()) {
+            ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup subtitle encoder");
+            cleanup();
+            return false;
+        }
+        
+        // Process all fields to extract closed caption cues
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Decoding closed captions from all fields");
+        eia608_decoder_ = std::make_unique<EIA608Decoder>();
+        
+        ClosedCaptionObserver cc_observer;
+        ObservationHistory history;
+        
+        // Calculate frame rate for timestamp conversion
+        double fps = (video_system_ == VideoSystem::NTSC) ? 29.97 : 25.0;
+        
+        for (uint64_t field_idx = start_field_index_; field_idx < start_field_index_ + num_fields_; ++field_idx) {
+            FieldID field_id(field_idx);
+            
+            // Run observer to get CC data
+            auto observations = cc_observer.process_field(*vfr_, field_id, history);
+            
+            for (const auto& obs : observations) {
+                if (obs->observation_type() != "ClosedCaption") continue;
+                
+                auto cc_obs = std::dynamic_pointer_cast<ClosedCaptionObservation>(obs);
+                if (!cc_obs) continue;
+                
+                // Skip invalid data
+                if (cc_obs->confidence == ConfidenceLevel::NONE) continue;
+                if (!cc_obs->parity_valid[0] && !cc_obs->parity_valid[1]) continue;
+                
+                // Convert field index to timestamp (seconds)
+                double timestamp = static_cast<double>(field_idx - start_field_index_) / (2.0 * fps);
+                
+                // Extract bytes (remove parity bits)
+                uint8_t byte1 = static_cast<uint8_t>(cc_obs->data0 & 0x7F);
+                uint8_t byte2 = static_cast<uint8_t>(cc_obs->data1 & 0x7F);
+                
+                // Feed to decoder
+                eia608_decoder_->process_bytes(timestamp, byte1, byte2);
+            }
+        }
+        
+        // Finalize and get all cues
+        double total_duration = static_cast<double>(num_fields_) / (2.0 * fps);
+        pending_cues_ = eia608_decoder_->finalize(total_duration);
+        next_cue_index_ = 0;
+        
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Decoded {} closed caption cues", pending_cues_.size());
+    } else if (embed_closed_captions_) {
+        ORC_LOG_WARN("FFmpegOutputBackend: Closed caption embedding requested but no VFR available");
+        embed_closed_captions_ = false;  // Disable captions
     }
     
     // Open output file
@@ -479,6 +548,11 @@ bool FFmpegOutputBackend::writeFrame(const ComponentFrame& component_frame)
         return false;
     }
     
+    // Encode closed captions for this frame
+    if (!encodeClosedCaptionsForFrame()) {
+        return false;
+    }
+    
     return convertAndEncode(component_frame);
 }
 
@@ -718,7 +792,11 @@ bool FFmpegOutputBackend::finalize()
 
 std::string FFmpegOutputBackend::getFormatInfo() const
 {
-    return container_format_ + " (" + codec_name_ + (embed_audio_ ? " + audio" : "") + ")";
+    std::string info = container_format_ + " (" + codec_name_;
+    if (embed_audio_) info += " + audio";
+    if (embed_closed_captions_) info += " + CC";
+    info += ")";
+    return info;
 }
 
 bool FFmpegOutputBackend::setupAudioEncoder()
@@ -878,6 +956,111 @@ bool FFmpegOutputBackend::encodeAudioForFrame()
         
         // Remove the encoded samples from the buffer
         audio_buffer_.erase(audio_buffer_.begin(), audio_buffer_.begin() + frame_size * 2);
+    }
+    
+    return true;
+}
+
+bool FFmpegOutputBackend::setupSubtitleEncoder()
+{
+    // Create subtitle stream for mov_text
+    subtitle_stream_ = avformat_new_stream(format_ctx_, nullptr);
+    if (!subtitle_stream_) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create subtitle stream");
+        return false;
+    }
+    subtitle_stream_->id = format_ctx_->nb_streams - 1;
+    
+    // Configure stream parameters directly (mov_text doesn't need a codec context)
+    subtitle_stream_->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
+    subtitle_stream_->codecpar->codec_id = AV_CODEC_ID_MOV_TEXT;
+    subtitle_stream_->codecpar->codec_tag = MKTAG('t', 'x', '3', 'g');  // tx3g for MP4
+    subtitle_stream_->time_base = time_base_;  // Same as video time base
+    
+    // For mov_text, we don't need to open an encoder - we write packets directly
+    // The codec context is only used as a flag to indicate subtitles are enabled
+    subtitle_codec_ctx_ = reinterpret_cast<AVCodecContext*>(1);  // Non-null marker
+    
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Subtitle stream initialized (mov_text/tx3g for EIA-608)");
+    return true;
+}
+
+bool FFmpegOutputBackend::encodeClosedCaptionsForFrame()
+{
+    if (!embed_closed_captions_ || !subtitle_codec_ctx_ || pending_cues_.empty()) {
+        return true;  // No captions to encode
+    }
+    
+    // Calculate current frame time in seconds
+    // pts_ is in time_base units, convert to seconds
+    double frame_time_sec = static_cast<double>(pts_) * time_base_.num / time_base_.den;
+    
+    // Write all cues that should start at or before this frame
+    while (next_cue_index_ < pending_cues_.size()) {
+        const auto& cue = pending_cues_[next_cue_index_];
+        
+        // If this cue starts in the future, we're done for now
+        if (cue.start_time > frame_time_sec + 0.1) {  // Small tolerance
+            break;
+        }
+        
+        // Create subtitle packet for this cue
+        AVPacket* pkt = av_packet_alloc();
+        if (!pkt) {
+            ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate subtitle packet");
+            return false;
+        }
+        
+        // mov_text format: 2-byte big-endian length + UTF-8 text
+        std::string text = cue.text;
+        size_t text_len = text.length();
+        
+        if (text_len > 0xFFFF) {
+            text_len = 0xFFFF;  // Truncate if too long
+            text = text.substr(0, text_len);
+        }
+        
+        size_t packet_size = 2 + text_len;
+        av_new_packet(pkt, packet_size);
+        
+        // Write length prefix (big-endian uint16)
+        pkt->data[0] = (text_len >> 8) & 0xFF;
+        pkt->data[1] = text_len & 0xFF;
+        
+        // Copy text
+        memcpy(pkt->data + 2, text.c_str(), text_len);
+        
+        // Convert cue times to time_base units
+        int64_t start_pts = static_cast<int64_t>(cue.start_time * subtitle_stream_->time_base.den / subtitle_stream_->time_base.num);
+        int64_t end_pts = static_cast<int64_t>(cue.end_time * subtitle_stream_->time_base.den / subtitle_stream_->time_base.num);
+        int64_t duration = end_pts - start_pts;
+        
+        if (duration <= 0) {
+            duration = 1;  // Ensure non-zero duration
+        }
+        
+        // Set packet properties
+        pkt->stream_index = subtitle_stream_->index;
+        pkt->pts = start_pts;
+        pkt->dts = start_pts;
+        pkt->duration = duration;
+        
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Writing subtitle cue: start={:.2f}s, end={:.2f}s, duration={}, text='{}'", 
+                     cue.start_time, cue.end_time, duration, 
+                     text.length() > 50 ? text.substr(0, 50) + "..." : text);
+        
+        // Write packet
+        int ret = av_interleaved_write_frame(format_ctx_, pkt);
+        av_packet_free(&pkt);
+        
+        if (ret < 0) {
+            char errbuf[AV_ERROR_MAX_STRING_SIZE];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            ORC_LOG_ERROR("FFmpegOutputBackend: Error writing subtitle packet: {}", errbuf);
+            return false;
+        }
+        
+        next_cue_index_++;
     }
     
     return true;

@@ -2,7 +2,7 @@
 
 **decode-orc** is a cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows.
 
-![](./assets/decode-orc-icon-small.png)
+![](./assets/decode-orc-logo-small.png)
 
 It aims to brings structure and consistency to complex decoding processes, making them easier to run, repeat, and understand.
 

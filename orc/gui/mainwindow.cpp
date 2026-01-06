@@ -1368,11 +1368,9 @@ void MainWindow::onAbout()
     QString about_text = QString(
         "<h2>Orc GUI</h2>"
         "<p><b>Version:</b> %1</p>"
-        "<p>*-decode Orchestration GUI for LaserDisc video processing</p>"
-        "<br>"
-        "<p><b>Copyright:</b> © 2025 Simon Inns</p>"
+        "<p>Decode Orchestration GUI</p>"
+        "<p><b>Copyright:</b> © 2026 Simon Inns</p>"
         "<p><b>License:</b> GNU General Public License v3.0 or later</p>"
-        "<br>"
         "<p>This program is free software: you can redistribute it and/or modify "
         "it under the terms of the GNU General Public License as published by "
         "the Free Software Foundation, either version 3 of the License, or "

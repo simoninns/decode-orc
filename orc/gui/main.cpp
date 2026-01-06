@@ -17,6 +17,10 @@
 #include <QStyleHints>
 #include <QStyle>
 #include <QProcess>
+#include <QSplashScreen>
+#include <QPixmap>
+#include <QTimer>
+#include <QPainter>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 namespace orc {
@@ -250,7 +254,52 @@ int main(int argc, char *argv[])
     }
     
     window.show();
-    ORC_LOG_DEBUG("Main window shown, entering event loop");
+    ORC_LOG_DEBUG("Main window shown");
+    
+    // Create and show splash screen after main window to ensure proper z-order
+    QPixmap logoPixmap(":/orc-gui/decode-orc-logo-small.png");
+    
+    // Create a larger pixmap to hold logo + text below it
+    QPixmap splashPixmap(logoPixmap.width(), logoPixmap.height() + 120);
+    splashPixmap.fill(Qt::transparent);
+    
+    // Paint logo and text onto the splash pixmap
+    QPainter painter(&splashPixmap);
+    painter.drawPixmap(0, 0, logoPixmap);
+    
+    // Set up font for main text
+    QFont titleFont = painter.font();
+    titleFont.setPointSize(titleFont.pointSize() * 4);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.setPen(Qt::white);
+    
+    // Draw "Decode Orc" below the logo
+    QRect titleRect(0, logoPixmap.height() + 5, splashPixmap.width(), 60);
+    painter.drawText(titleRect, Qt::AlignCenter, "Decode Orc");
+    
+    // Set up font for copyright text (smaller, normal weight)
+    QFont copyrightFont = painter.font();
+    copyrightFont.setPointSize(titleFont.pointSize() / 4);
+    copyrightFont.setBold(false);
+    painter.setFont(copyrightFont);
+    
+    // Draw copyright below the title
+    QRect copyrightRect(0, logoPixmap.height() + 65, splashPixmap.width(), 40);
+    painter.drawText(copyrightRect, Qt::AlignCenter, "(c) 2026 Simon Inns");
+    painter.end();
+    
+    QSplashScreen splash(splashPixmap, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
+    splash.show();
+    app.processEvents();
+    
+    ORC_LOG_DEBUG("Splash screen displayed");
+    
+    // Close splash screen after 3 seconds
+    QTimer::singleShot(3000, [&splash]() {
+        splash.close();
+        ORC_LOG_DEBUG("Splash screen closed");
+    });
     
     int result = app.exec();
     ORC_LOG_INFO("orc-gui exiting");

@@ -134,6 +134,10 @@ public:
     
     std::string get_trigger_status() const override;
     
+    void set_progress_callback(TriggerProgressCallback callback) override {
+        progress_callback_ = callback;
+    }
+    
     // PreviewableStage interface
     bool supports_preview() const override { return true; }
     std::vector<PreviewOption> get_preview_options() const override;
@@ -144,6 +148,7 @@ private:
     std::string output_path_;
     std::string trigger_status_;
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
+    TriggerProgressCallback progress_callback_;  // Progress callback for trigger operations
     
     // Helper methods
     bool write_tbc_and_metadata(

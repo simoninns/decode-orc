@@ -21,6 +21,7 @@
 #include "white_flag_observer.h"
 #include "vits_observer.h"
 #include "burst_level_observer.h"
+#include "buffered_file_io.h"
 #include "logging.h"
 #include <fstream>
 #include <filesystem>
@@ -199,9 +200,9 @@ bool LDSinkStage::write_tbc_file(
     try {
         ORC_LOG_DEBUG("Opening TBC file for writing: {}", tbc_path);
         
-        // Open output file
-        std::ofstream tbc_file(tbc_path, std::ios::binary | std::ios::trunc);
-        if (!tbc_file) {
+        // Open output file with buffered writer (16MB buffer for large field writes)
+        BufferedFileWriter<uint16_t> writer(16 * 1024 * 1024);
+        if (!writer.open(tbc_path)) {
             ORC_LOG_ERROR("Failed to open TBC file for writing: {}", tbc_path);
             return false;
         }
@@ -227,33 +228,42 @@ bool LDSinkStage::write_tbc_file(
             }
             
             size_t expected_lines = descriptor->height;
+            size_t line_width = descriptor->width;
             
-            // Write each line of the field
+            // Buffer for accumulating the entire field before writing
+            std::vector<uint16_t> field_buffer;
+            field_buffer.reserve(expected_lines * line_width);
+            
+            // Accumulate all lines of the field into buffer
             for (size_t line_num = 0; line_num < expected_lines; ++line_num) {
                 const uint16_t* line_data = representation->get_line(field_id, line_num);
                 if (!line_data) {
                     ORC_LOG_WARN("Field {} line {} has no data", field_id.value(), line_num);
-                    // Write zeros for missing lines
-                    std::vector<uint16_t> zero_line(1135, 0);  // Default line length
-                    tbc_file.write(reinterpret_cast<const char*>(zero_line.data()), 
-                                 zero_line.size() * sizeof(uint16_t));
+                    // Add zeros for missing lines
+                    field_buffer.insert(field_buffer.end(), line_width, 0);
                 } else {
-                    // Write the line - we know the width from the descriptor
-                    tbc_file.write(reinterpret_cast<const char*>(line_data),
-                                 descriptor->width * sizeof(uint16_t));
+                    // Add the line to field buffer
+                    field_buffer.insert(field_buffer.end(), line_data, line_data + line_width);
                 }
             }
             
+            // Write the entire field at once using buffered writer
+            writer.write(field_buffer);
+            
             fields_written++;
             
-            // Log progress every 10 fields
+            // Update progress callback every 10 fields
             if (fields_written % 10 == 0) {
+                if (progress_callback_) {
+                    progress_callback_(fields_written, field_count,
+                                     "Writing TBC field " + std::to_string(fields_written) + "/" + std::to_string(field_count));
+                }
                 ORC_LOG_DEBUG("Written {}/{} fields ({:.1f}%)", fields_written, field_count, 
                             (fields_written * 100.0) / field_count);
             }
         }
         
-        tbc_file.close();
+        writer.close();
         ORC_LOG_DEBUG("Successfully wrote {} fields to TBC file", fields_written);
         return true;
         
@@ -406,6 +416,14 @@ bool LDSinkStage::write_metadata_file(
             }
             
             fields_processed++;
+            
+            // Update progress callback every 10 fields
+            if (fields_processed % 10 == 0) {
+                if (progress_callback_) {
+                    progress_callback_(fields_processed, field_count,
+                                     "Processing metadata field " + std::to_string(fields_processed) + "/" + std::to_string(field_count));
+                }
+            }
             
             // Log progress every 50 fields
             if (fields_processed % 50 == 0) {

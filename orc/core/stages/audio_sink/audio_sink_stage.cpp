@@ -10,6 +10,7 @@
 #include "audio_sink_stage.h"
 #include "logging.h"
 #include "tbc_metadata.h"
+#include "buffered_file_io.h"
 #include <stage_registry.h>
 #include <stdexcept>
 #include <fstream>
@@ -162,27 +163,35 @@ bool AudioSinkStage::trigger(
             throw std::runtime_error("No audio samples found in field range");
         }
         
-        // Open output file
-        std::ofstream out(output_path, std::ios::binary);
-        if (!out.is_open()) {
+        // Open output file with buffered writer (4MB buffer for optimal performance)
+        BufferedFileWriter<int16_t> writer(4 * 1024 * 1024);
+        if (!writer.open(output_path)) {
             throw std::runtime_error("Failed to open output file: " + output_path);
         }
         
-        // Write WAV header
-        const uint32_t sample_rate = 44100;
-        const uint16_t num_channels = 2;  // Stereo
-        const uint16_t bits_per_sample = 16;
-        
-        if (!write_wav_header(out, total_samples, sample_rate, num_channels, bits_per_sample)) {
-            throw std::runtime_error("Failed to write WAV header");
+        // Write WAV header using a temporary ofstream
+        // (header is small, no need for buffering)
+        {
+            std::ofstream header_out(output_path, std::ios::binary);
+            const uint32_t sample_rate = 44100;
+            const uint16_t num_channels = 2;  // Stereo
+            const uint16_t bits_per_sample = 16;
+            
+            if (!write_wav_header(header_out, total_samples, sample_rate, num_channels, bits_per_sample)) {
+                throw std::runtime_error("Failed to write WAV header");
+            }
+            header_out.close();
         }
         
-        // Second pass: write audio data
+        // Reopen with buffered writer in append mode to write audio data
+        writer.open(output_path, std::ios::binary | std::ios::app);
+        
+        // Second pass: write audio data using buffered writer
         uint64_t samples_written = 0;
         uint64_t frames_written = 0;
         for (FieldID fid = start_field; fid < end_field; ++fid) {
             if (cancel_requested_.load()) {
-                out.close();
+                writer.close();
                 last_status_ = "Cancelled by user";
                 ORC_LOG_WARN("AudioSink: {}", last_status_);
                 is_processing_.store(false);
@@ -192,15 +201,10 @@ bool AudioSinkStage::trigger(
             // Get audio samples for this field
             auto samples = vfr->get_audio_samples(fid);
             if (!samples.empty()) {
-                // Write samples to file (already in correct format: 16-bit signed, little endian)
-                out.write(reinterpret_cast<const char*>(samples.data()), 
-                         samples.size() * sizeof(int16_t));
+                // Write samples using buffered writer (automatically batches writes)
+                writer.write(samples);
                 samples_written += samples.size();  // Total int16_t values written
                 frames_written += samples.size() / 2;  // Stereo frames (each frame = L+R sample pair)
-                
-                if (!out.good()) {
-                    throw std::runtime_error("Failed to write audio data");
-                }
             }
             
             // Update progress
@@ -215,7 +219,7 @@ bool AudioSinkStage::trigger(
             }
         }
         
-        out.close();
+        writer.close();
         
         ORC_LOG_INFO("AudioSink: Successfully wrote {} frames ({} channel samples) to {}", 
                     frames_written, samples_written, output_path);

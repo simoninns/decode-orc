@@ -10,6 +10,7 @@
 #include "efm_sink_stage.h"
 #include "logging.h"
 #include "tbc_metadata.h"
+#include "buffered_file_io.h"
 #include <stage_registry.h>
 #include <stdexcept>
 #include <fstream>
@@ -127,19 +128,19 @@ bool EFMSinkStage::trigger(
             throw std::runtime_error("No EFM t-values found in field range");
         }
         
-        // Open output file
-        std::ofstream out(output_path, std::ios::binary);
-        if (!out.is_open()) {
+        // Open output file with buffered writer (4MB buffer for optimal performance)
+        BufferedFileWriter<uint8_t> writer(4 * 1024 * 1024);
+        if (!writer.open(output_path)) {
             throw std::runtime_error("Failed to open output file: " + output_path);
         }
         
-        // Second pass: write EFM data
+        // Second pass: write EFM data using buffered writer
         uint64_t tvalues_written = 0;
         uint64_t invalid_tvalue_count = 0;
         
         for (FieldID fid = start_field; fid < end_field; ++fid) {
             if (cancel_requested_.load()) {
-                out.close();
+                writer.close();
                 last_status_ = "Cancelled by user";
                 ORC_LOG_WARN("EFMSink: {}", last_status_);
                 is_processing_.store(false);
@@ -156,14 +157,9 @@ bool EFMSinkStage::trigger(
                     }
                 }
                 
-                // Write t-values to file (raw 8-bit unsigned values)
-                out.write(reinterpret_cast<const char*>(tvalues.data()), 
-                         tvalues.size() * sizeof(uint8_t));
+                // Write t-values using buffered writer (automatically batches writes)
+                writer.write(tvalues);
                 tvalues_written += tvalues.size();
-                
-                if (!out.good()) {
-                    throw std::runtime_error("Failed to write EFM data");
-                }
             }
             
             // Update progress
@@ -178,7 +174,7 @@ bool EFMSinkStage::trigger(
             }
         }
         
-        out.close();
+        writer.close();
         
         ORC_LOG_INFO("EFMSink: Successfully wrote {} t-values to {}", 
                     tvalues_written, output_path);

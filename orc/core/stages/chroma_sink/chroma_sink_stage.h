@@ -120,6 +120,7 @@ public:
                                PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
     
 private:
+    mutable std::mutex cached_input_mutex_;  // Protects cached_input_ from race conditions
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
     
     // Cached decoder for preview (avoid recreating expensive FFTW plans)

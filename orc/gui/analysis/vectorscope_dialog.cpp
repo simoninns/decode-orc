@@ -215,6 +215,17 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     constexpr double SCALE = 65536.0 / SIZE;
     constexpr int HALF_SIZE = SIZE / 2;
     
+    // Check if this is mono/no-chroma data (all samples near origin)
+    // Mono decoders produce no chroma, so all U/V values will be ~0
+    constexpr double CHROMA_THRESHOLD = 1000.0;  // Small threshold for noise
+    bool has_chroma = false;
+    for (const auto& sample : data.samples) {
+        if (std::abs(sample.u) > CHROMA_THRESHOLD || std::abs(sample.v) > CHROMA_THRESHOLD) {
+            has_chroma = true;
+            break;
+        }
+    }
+    
     // Create image
     QImage image(SIZE, SIZE, QImage::Format_RGB888);
     image.fill(Qt::black);
@@ -275,6 +286,17 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
             painter.drawPoint(x, y);
         }
+    }
+    
+    // Draw warning text if no chroma detected
+    if (!has_chroma) {
+        painter.setPen(Qt::yellow);
+        QFont font = painter.font();
+        font.setPointSize(16);
+        font.setBold(true);
+        painter.setFont(font);
+        painter.drawText(QRect(0, SIZE/2 - 40, SIZE, 80), Qt::AlignCenter | Qt::TextWordWrap,
+                        "NO CHROMA DATA\n(Using mono decoder?)");
     }
     
     painter.end();

@@ -79,9 +79,11 @@ public:
      * @return true if applicable (excludes output/sink stages)
      */
     bool isApplicableToStage(const std::string& stage_name) const override {
-        // ChromaSinkStage produces RGB frames, not fields with observations
+        // Video sink stages (raw/ffmpeg) produce RGB frames, not fields with observations
         // Sink stages (AudioSink, EFMSink, ld_sink) produce no outputs
-        return stage_name != "chroma_sink" && 
+        return stage_name != "raw_video_sink" && 
+               stage_name != "ffmpeg_video_sink" &&
+               stage_name != "chroma_sink_base" &&  // Legacy base class
                stage_name != "AudioSink" && 
                stage_name != "EFMSink" && 
                stage_name != "ld_sink";

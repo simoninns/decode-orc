@@ -9,6 +9,7 @@
 
 
 #include "stage_registry.h"
+#include "logging.h"
 #include <algorithm>
 
 namespace orc {

@@ -35,7 +35,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     
     if (result.success) {
         preview_dialog_->previewWidget()->setImage(result.image);
-        updateVectorscope(current_view_node_id_, result.image);
+        updateVectorscope(result.node_id, result.image);
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(

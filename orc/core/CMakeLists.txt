@@ -89,6 +89,8 @@ add_library(orc-core STATIC
     stages/source_align/source_align_stage.cpp
     stages/stacker/stacker_stage.cpp
     stages/chroma_sink/chroma_sink_stage.cpp
+    stages/chroma_sink/raw_video_sink_stage.cpp
+    stages/chroma_sink/ffmpeg_video_sink_stage.cpp
     stages/chroma_sink/output_backend.cpp
     stages/chroma_sink/raw_output_backend.cpp
     stages/chroma_sink/ffmpeg_output_backend.cpp

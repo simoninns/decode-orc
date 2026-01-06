@@ -2,6 +2,8 @@
 
 add_library(chroma_sink_stage STATIC
     chroma_sink_stage.cpp
+    raw_video_sink_stage.cpp
+    ffmpeg_video_sink_stage.cpp
     output_backend.cpp
     raw_output_backend.cpp
     ffmpeg_output_backend.cpp

@@ -35,11 +35,9 @@
 
 namespace orc {
 
-// Register stage with registry
-ORC_REGISTER_STAGE(ChromaSinkStage)
-
-// Force linker to include this object file
-void force_link_ChromaSinkStage() {}
+// NOTE: ChromaSinkStage is no longer registered as a stage.
+// It serves as a base class for RawVideoSinkStage and FFmpegVideoSinkStage.
+// Those are the stages users should use.
 
 ChromaSinkStage::ChromaSinkStage()
     : output_path_("")
@@ -66,11 +64,13 @@ ChromaSinkStage::~ChromaSinkStage() {
 
 NodeTypeInfo ChromaSinkStage::get_node_type_info() const
 {
+    // This should never be called since ChromaSinkStage is not registered.
+    // It's kept for compatibility as a base class.
     return NodeTypeInfo{
         NodeType::SINK,
-        "chroma_sink",
-        "Chroma Decoder Sink",
-        "Decodes composite video to RGB/YUV. Supports PAL and NTSC decoders. Trigger to export.",
+        "chroma_sink_base",
+        "Chroma Sink Base Class",
+        "Internal base class - use Raw Video Sink or FFmpeg Video Sink instead.",
         1,  // min_inputs
         1,  // max_inputs
         0,  // min_outputs
@@ -83,8 +83,9 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
 {
-    // Cache input for preview rendering
+    // Cache input for preview rendering (thread-safe)
     if (!inputs.empty()) {
+        std::lock_guard<std::mutex> lock(cached_input_mutex_);
         cached_input_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
     }
     
@@ -1322,14 +1323,21 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     ORC_LOG_DEBUG("ChromaSink: render_preview called on instance {} for frame {}, has_cached_input={}", 
                   static_cast<const void*>(this), index, (cached_input_ != nullptr));
     
-    if (!cached_input_ || option_id != "frame") {
+    // Make a local copy of cached_input_ to avoid race conditions
+    std::shared_ptr<const VideoFieldRepresentation> local_input;
+    {
+        std::lock_guard<std::mutex> lock(cached_input_mutex_);
+        local_input = cached_input_;
+    }
+    
+    if (!local_input || option_id != "frame") {
         ORC_LOG_WARN("ChromaSink: Invalid preview request (cached_input={}, option='{}')", 
-                     cached_input_ ? "valid" : "null", option_id);
+                     local_input ? "valid" : "null", option_id);
         return result;
     }
     
     // Get video parameters
-    auto video_params_opt = cached_input_->get_video_parameters();
+    auto video_params_opt = local_input->get_video_parameters();
     if (!video_params_opt) {
         return result;
     }
@@ -1337,7 +1345,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     
     // Calculate first field offset
     uint64_t first_field_offset = 0;
-    auto parity_hint = cached_input_->get_field_parity_hint(FieldID(0));
+    auto parity_hint = local_input->get_field_parity_hint(FieldID(0));
     if (parity_hint.has_value() && !parity_hint->is_first_field) {
         first_field_offset = 1;
     }
@@ -1380,14 +1388,14 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     int64_t end_field = static_cast<int64_t>(field_b_index) + num_lookahead_fields;
     
     // Get video parameters for field metadata
-    auto video_desc = cached_input_->get_descriptor(FieldID(0));
+    auto video_desc = local_input->get_descriptor(FieldID(0));
     if (!video_desc) {
         return result;  // Can't get field descriptor
     }
     
     for (int64_t f = start_field; f <= end_field; ++f) {
-        if (f >= 0 && cached_input_->has_field(FieldID(f))) {
-            SourceField sf = convertToSourceField(cached_input_.get(), FieldID(f));
+        if (f >= 0 && local_input->has_field(FieldID(f))) {
+            SourceField sf = convertToSourceField(local_input.get(), FieldID(f));
             if (!sf.data.empty()) {
                 inputFields.push_back(sf);
             }

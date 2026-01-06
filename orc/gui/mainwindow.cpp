@@ -1847,8 +1847,11 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         dialog->raise();
         dialog->activateWindow();
 
-        // If we're currently previewing this node, trigger an immediate update
-        if (current_view_node_id_ == node_id) {
+        // Trigger an immediate update to populate the vectorscope
+        // If not currently previewing this node, switch to it
+        if (current_view_node_id_ != node_id) {
+            onNodeSelectedForView(node_id);
+        } else {
             updatePreview();
         }
         return;

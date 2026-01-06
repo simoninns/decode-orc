@@ -403,7 +403,33 @@ std::optional<ClosedCaptionData> TBCMetadataReader::read_closed_caption(FieldID 
         return std::nullopt;
     }
     
-    // Closed caption reading implementation would go here
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT data0, data1 FROM closed_caption WHERE capture_id = ? AND field_id = ?";
+    
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        return std::nullopt;
+    }
+    
+    sqlite3_bind_int(stmt, 1, impl_->capture_id);
+    sqlite3_bind_int(stmt, 2, field_id.value());
+    
+    ClosedCaptionData cc;
+    cc.in_use = false;
+    
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        cc.in_use = true;
+        cc.data0 = sqlite3_column_int(stmt, 0);
+        cc.data1 = sqlite3_column_int(stmt, 1);
+    }
+    
+    sqlite3_finalize(stmt);
+    
+    if (cc.in_use) {
+        return cc;
+    }
+    
     return std::nullopt;
 }
 

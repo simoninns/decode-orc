@@ -23,6 +23,7 @@ void force_link_StackerStage();
 void force_link_ChromaSinkStage();
 void force_link_AudioSinkStage();
 void force_link_EFMSinkStage();
+void force_link_CCSinkStage();
 void force_link_VideoParamsStage();
 
 /**
@@ -54,6 +55,7 @@ void force_stage_linking() {
     force_link_ChromaSinkStage();
     force_link_AudioSinkStage();
     force_link_EFMSinkStage();
+    force_link_CCSinkStage();
     force_link_VideoParamsStage();
     force_link_VideoParamsStage();
 }

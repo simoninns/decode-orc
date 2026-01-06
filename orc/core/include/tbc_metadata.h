@@ -176,6 +176,14 @@ struct FieldMetadata {
     std::optional<int32_t> sync_confidence;
     std::optional<bool> is_pad;
     
+    // Cumulative byte offsets for efficient O(1) random access
+    // These are computed from audio_samples and efm_t_values counts
+    // when the metadata is loaded, eliminating the need for offset caching
+    std::optional<uint64_t> audio_byte_start;    // Start offset in PCM file (bytes)
+    std::optional<uint64_t> audio_byte_end;      // End offset in PCM file (bytes, exclusive)
+    std::optional<uint64_t> efm_byte_start;      // Start offset in EFM file (bytes)
+    std::optional<uint64_t> efm_byte_end;        // End offset in EFM file (bytes, exclusive)
+    
     // VBI/metadata structures (from observers)
     VitsMetrics vits_metrics;
     VbiData vbi;

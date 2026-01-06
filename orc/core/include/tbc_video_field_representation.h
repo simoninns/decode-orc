@@ -173,18 +173,12 @@ private:
     mutable std::mutex efm_mutex_;  // Protect EFM file access
     bool has_efm_;
     
-    // Offset caches to avoid O(n²) sequential scanning
-    mutable std::map<FieldID, uint64_t> audio_offset_cache_;
-    mutable std::map<FieldID, uint64_t> efm_offset_cache_;
-    
-    // Sequential access optimization - track last accessed field and offset
-    mutable FieldID last_audio_field_;
-    mutable uint64_t last_audio_offset_;
-    mutable FieldID last_efm_field_;
-    mutable uint64_t last_efm_offset_;
-    
     // Access to metadata reader for internal use only
     const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
+    
+    // Compute cumulative byte offsets from sample/t-value counts
+    void compute_audio_offsets();
+    void compute_efm_offsets();
     
     // Line data cache (for get_line calls)
     // Cache size: 500 fields × ~1.4MB/field = ~700MB max for preview navigation

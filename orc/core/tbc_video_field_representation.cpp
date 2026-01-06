@@ -28,10 +28,6 @@ TBCVideoFieldRepresentation::TBCVideoFieldRepresentation(
     metadata_reader_(std::move(metadata_reader)),
     has_audio_(false),
     has_efm_(false),
-    last_audio_field_(),  // Default constructor creates invalid FieldID
-    last_audio_offset_(0),
-    last_efm_field_(),    // Default constructor creates invalid FieldID
-    last_efm_offset_(0),
     field_data_cache_(MAX_CACHED_TBC_FIELDS)
 {
     ensure_video_parameters();
@@ -432,6 +428,62 @@ std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_obser
 }
 
 // ============================================================================
+// Cumulative offset computation
+// ============================================================================
+
+void TBCVideoFieldRepresentation::compute_audio_offsets() {
+    uint64_t byte_offset = 0;
+    auto field_range = this->field_range();
+    
+    for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+        auto it = field_metadata_cache_.find(fid);
+        if (it != field_metadata_cache_.end()) {
+            auto& metadata = it->second;
+            
+            // Set start offset
+            metadata.audio_byte_start = byte_offset;
+            
+            // Advance offset by this field's sample count
+            if (metadata.audio_samples) {
+                // Stereo 16-bit samples = 4 bytes per sample
+                byte_offset += static_cast<uint64_t>(metadata.audio_samples.value()) * 4;
+            }
+            
+            // Set end offset (exclusive)
+            metadata.audio_byte_end = byte_offset;
+        }
+    }
+    
+    ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Computed audio offsets, total size: {} bytes", byte_offset);
+}
+
+void TBCVideoFieldRepresentation::compute_efm_offsets() {
+    uint64_t byte_offset = 0;
+    auto field_range = this->field_range();
+    
+    for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+        auto it = field_metadata_cache_.find(fid);
+        if (it != field_metadata_cache_.end()) {
+            auto& metadata = it->second;
+            
+            // Set start offset
+            metadata.efm_byte_start = byte_offset;
+            
+            // Advance offset by this field's t-value count
+            if (metadata.efm_t_values) {
+                // Each t-value is 1 byte
+                byte_offset += static_cast<uint64_t>(metadata.efm_t_values.value());
+            }
+            
+            // Set end offset (exclusive)
+            metadata.efm_byte_end = byte_offset;
+        }
+    }
+    
+    ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Computed EFM offsets, total size: {} bytes", byte_offset);
+}
+
+// ============================================================================
 // Audio interface implementation
 // ============================================================================
 
@@ -454,58 +506,22 @@ std::vector<int16_t> TBCVideoFieldRepresentation::get_audio_samples(FieldID id) 
         return {};
     }
     
-    uint32_t sample_count = get_audio_sample_count(id);
-    if (sample_count == 0) {
+    // Get metadata with precomputed offsets
+    auto metadata = get_field_metadata(id);
+    if (!metadata || !metadata->audio_byte_start || !metadata->audio_byte_end) {
         return {};
     }
     
-    // Calculate file offset for this field's audio data
-    // Optimized for sequential access: O(1) for sequential, O(log n) for random
-    uint64_t byte_offset = 0;
-    auto field_range = this->field_range();
+    uint64_t start_offset = metadata->audio_byte_start.value();
+    uint64_t end_offset = metadata->audio_byte_end.value();
+    uint64_t byte_count = end_offset - start_offset;
     
-    // FAST PATH: Sequential access (reading field N+1 after field N)
-    if (last_audio_field_.is_valid() && id == last_audio_field_ + 1) {
-        // Simply add the previous field's sample count to get current offset
-        byte_offset = last_audio_offset_;
-        auto prev_metadata = get_field_metadata(last_audio_field_);
-        if (prev_metadata && prev_metadata->audio_samples) {
-            byte_offset += prev_metadata->audio_samples.value() * 4;  // Stereo, 16-bit
-        }
-    }
-    // Check cache for exact match
-    else if (auto cached_it = audio_offset_cache_.find(id); cached_it != audio_offset_cache_.end()) {
-        byte_offset = cached_it->second;
-    }
-    // Need to calculate - find nearest cached offset and compute from there
-    else {
-        FieldID start_field = field_range.start;
-        byte_offset = 0;
-        
-        // Find the closest cached offset before our target
-        for (auto it = audio_offset_cache_.rbegin(); it != audio_offset_cache_.rend(); ++it) {
-            if (it->first <= id) {
-                start_field = it->first;
-                byte_offset = it->second;
-                break;
-            }
-        }
-        
-        // Calculate from nearest cached point to target
-        for (FieldID fid = start_field; fid < id; ++fid) {
-            auto metadata = get_field_metadata(fid);
-            if (metadata && metadata->audio_samples) {
-                byte_offset += metadata->audio_samples.value() * 4;  // Stereo, 16-bit
-            }
-        }
-        
-        // Cache this offset
-        audio_offset_cache_[id] = byte_offset;
+    if (byte_count == 0) {
+        return {};
     }
     
-    // Update sequential access tracker
-    last_audio_field_ = id;
-    last_audio_offset_ = byte_offset;
+    // Calculate sample count (stereo 16-bit = 4 bytes per sample pair)
+    size_t sample_count = byte_count / 2;  // Total int16 values (L+R interleaved)
     
     // Read audio data using buffered reader
     std::lock_guard<std::mutex> lock(audio_mutex_);
@@ -516,7 +532,7 @@ std::vector<int16_t> TBCVideoFieldRepresentation::get_audio_samples(FieldID id) 
     }
     
     try {
-        return pcm_audio_reader_->read(byte_offset, sample_count * 2);  // Stereo
+        return pcm_audio_reader_->read(start_offset, sample_count);
     } catch (const std::exception& e) {
         ORC_LOG_WARN("TBCVideoFieldRepresentation: Failed to read audio for field {}: {}", 
                     id.value(), e.what());
@@ -535,11 +551,6 @@ bool TBCVideoFieldRepresentation::set_audio_file(const std::string& pcm_path) {
     }
     
     std::lock_guard<std::mutex> lock(audio_mutex_);
-    
-    // Invalidate caches when changing audio file
-    audio_offset_cache_.clear();
-    last_audio_field_ = FieldID();  // Reset to invalid
-    last_audio_offset_ = 0;
     
     // Create and open buffered reader (4MB buffer)
     pcm_audio_reader_ = std::make_unique<BufferedFileReader<int16_t>>(4 * 1024 * 1024);
@@ -589,6 +600,12 @@ bool TBCVideoFieldRepresentation::set_audio_file(const std::string& pcm_path) {
     ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Opened PCM audio file: {}", pcm_path);
     ORC_LOG_DEBUG("  PCM validation passed: {} samples match metadata", expected_samples);
     
+    // Ensure metadata is loaded before computing offsets
+    ensure_field_metadata();
+    
+    // Compute cumulative byte offsets for O(1) access
+    compute_audio_offsets();
+    
     pcm_audio_path_ = pcm_path;
     has_audio_ = true;
     
@@ -618,58 +635,19 @@ std::vector<uint8_t> TBCVideoFieldRepresentation::get_efm_samples(FieldID id) co
         return {};
     }
     
-    uint32_t sample_count = get_efm_sample_count(id);
-    if (sample_count == 0) {
+    // Get metadata with precomputed offsets
+    auto metadata = get_field_metadata(id);
+    if (!metadata || !metadata->efm_byte_start || !metadata->efm_byte_end) {
         return {};
     }
     
-    // Calculate file offset for this field's EFM data
-    // Optimized for sequential access: O(1) for sequential, O(log n) for random
-    uint64_t byte_offset = 0;
-    auto field_range = this->field_range();
+    uint64_t start_offset = metadata->efm_byte_start.value();
+    uint64_t end_offset = metadata->efm_byte_end.value();
+    uint64_t byte_count = end_offset - start_offset;
     
-    // FAST PATH: Sequential access (reading field N+1 after field N)
-    if (last_efm_field_.is_valid() && id == last_efm_field_ + 1) {
-        // Simply add the previous field's t-value count to get current offset
-        byte_offset = last_efm_offset_;
-        auto prev_metadata = get_field_metadata(last_efm_field_);
-        if (prev_metadata && prev_metadata->efm_t_values) {
-            byte_offset += prev_metadata->efm_t_values.value();  // 1 byte per t-value
-        }
+    if (byte_count == 0) {
+        return {};
     }
-    // Check cache for exact match
-    else if (auto cached_it = efm_offset_cache_.find(id); cached_it != efm_offset_cache_.end()) {
-        byte_offset = cached_it->second;
-    }
-    // Need to calculate - find nearest cached offset and compute from there
-    else {
-        FieldID start_field = field_range.start;
-        byte_offset = 0;
-        
-        // Find the closest cached offset before our target
-        for (auto it = efm_offset_cache_.rbegin(); it != efm_offset_cache_.rend(); ++it) {
-            if (it->first <= id) {
-                start_field = it->first;
-                byte_offset = it->second;
-                break;
-            }
-        }
-        
-        // Calculate from nearest cached point to target
-        for (FieldID fid = start_field; fid < id; ++fid) {
-            auto metadata = get_field_metadata(fid);
-            if (metadata && metadata->efm_t_values) {
-                byte_offset += metadata->efm_t_values.value();  // 1 byte per t-value
-            }
-        }
-        
-        // Cache this offset
-        efm_offset_cache_[id] = byte_offset;
-    }
-    
-    // Update sequential access tracker
-    last_efm_field_ = id;
-    last_efm_offset_ = byte_offset;
     
     // Read EFM data using buffered reader
     std::vector<uint8_t> samples;
@@ -683,7 +661,7 @@ std::vector<uint8_t> TBCVideoFieldRepresentation::get_efm_samples(FieldID id) co
         }
         
         try {
-            samples = efm_data_reader_->read(byte_offset, sample_count);
+            samples = efm_data_reader_->read(start_offset, byte_count);
         } catch (const std::exception& e) {
             ORC_LOG_WARN("TBCVideoFieldRepresentation: Failed to read EFM for field {}: {}", 
                         id.value(), e.what());
@@ -713,11 +691,6 @@ bool TBCVideoFieldRepresentation::set_efm_file(const std::string& efm_path) {
     }
     
     std::lock_guard<std::mutex> lock(efm_mutex_);
-    
-    // Invalidate caches when changing EFM file
-    efm_offset_cache_.clear();
-    last_efm_field_ = FieldID();  // Reset to invalid
-    last_efm_offset_ = 0;
     
     // Create and open buffered reader (4MB buffer)
     efm_data_reader_ = std::make_unique<BufferedFileReader<uint8_t>>(4 * 1024 * 1024);
@@ -765,6 +738,12 @@ bool TBCVideoFieldRepresentation::set_efm_file(const std::string& efm_path) {
     
     ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Opened EFM data file: {}", efm_path);
     ORC_LOG_DEBUG("  EFM validation passed: {} t-values match metadata", expected_tvalues);
+    
+    // Ensure metadata is loaded before computing offsets
+    ensure_field_metadata();
+    
+    // Compute cumulative byte offsets for O(1) access
+    compute_efm_offsets();
     
     efm_data_path_ = efm_path;
     has_efm_ = true;

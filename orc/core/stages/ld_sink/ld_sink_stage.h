@@ -19,6 +19,7 @@
 #include <string>
 #include <memory>
 #include <functional>
+#include <atomic>
 
 namespace orc {
 
@@ -138,6 +139,14 @@ public:
         progress_callback_ = callback;
     }
     
+    bool is_trigger_in_progress() const override {
+        return is_processing_.load();
+    }
+    
+    void cancel_trigger() override {
+        cancel_requested_.store(true);
+    }
+    
     // PreviewableStage interface
     bool supports_preview() const override { return true; }
     std::vector<PreviewOption> get_preview_options() const override;
@@ -149,21 +158,13 @@ private:
     std::string trigger_status_;
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
     TriggerProgressCallback progress_callback_;  // Progress callback for trigger operations
+    std::atomic<bool> is_processing_{false};
+    std::atomic<bool> cancel_requested_{false};
     
     // Helper methods
     bool write_tbc_and_metadata(
         const VideoFieldRepresentation* representation,
         const std::string& tbc_path
-    );
-    
-    bool write_tbc_file(
-        const VideoFieldRepresentation* representation,
-        const std::string& tbc_path
-    );
-    
-    bool write_metadata_file(
-        const VideoFieldRepresentation* representation,
-        const std::string& db_path
     );
 };
 

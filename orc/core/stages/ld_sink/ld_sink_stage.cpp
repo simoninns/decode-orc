@@ -114,6 +114,8 @@ bool LDSinkStage::trigger(
 {
     ORC_LOG_DEBUG("LDSink: Trigger started");
     trigger_status_ = "Starting export...";
+    is_processing_.store(true);
+    cancel_requested_.store(false);
     
     // Validate parameters
     auto it = parameters.find("output_path");
@@ -158,6 +160,7 @@ bool LDSinkStage::trigger(
         ORC_LOG_ERROR("LDSink: Trigger failed");
     }
     
+    is_processing_.store(false);
     return success;
 }
 
@@ -179,48 +182,99 @@ bool LDSinkStage::write_tbc_and_metadata(
         ORC_LOG_DEBUG("Added .tbc extension: {}", final_tbc_path);
     }
     
-    // Write TBC file
-    if (!write_tbc_file(representation, final_tbc_path)) {
-        return false;
-    }
-    
-    // Write metadata file
     std::string db_path = final_tbc_path + ".db";
-    if (!write_metadata_file(representation, db_path)) {
-        return false;
+    
+    // Get field count early for progress reporting
+    auto range = representation->field_range();
+    size_t field_count = range.size();
+    
+    // Show initial progress
+    if (progress_callback_) {
+        progress_callback_(0, field_count, "Preparing export...");
     }
     
-    return true;
-}
-
-bool LDSinkStage::write_tbc_file(
-    const VideoFieldRepresentation* representation,
-    const std::string& tbc_path)
-{
     try {
-        ORC_LOG_DEBUG("Opening TBC file for writing: {}", tbc_path);
+        ORC_LOG_DEBUG("Opening TBC file for writing: {}", final_tbc_path);
+        ORC_LOG_DEBUG("Opening metadata database: {}", db_path);
         
-        // Open output file with buffered writer (16MB buffer for large field writes)
-        BufferedFileWriter<uint16_t> writer(16 * 1024 * 1024);
-        if (!writer.open(tbc_path)) {
-            ORC_LOG_ERROR("Failed to open TBC file for writing: {}", tbc_path);
+        // Open TBC file with buffered writer (16MB buffer for large field writes)
+        BufferedFileWriter<uint16_t> tbc_writer(16 * 1024 * 1024);
+        if (!tbc_writer.open(final_tbc_path)) {
+            ORC_LOG_ERROR("Failed to open TBC file for writing: {}", final_tbc_path);
             return false;
         }
         
-        auto range = representation->field_range();
-        size_t field_count = range.size();
-        size_t fields_written = 0;
+        // Open metadata database
+        TBCMetadataWriter metadata_writer;
+        if (!metadata_writer.open(db_path)) {
+            ORC_LOG_ERROR("Failed to open metadata database for writing: {}", db_path);
+            return false;
+        }
         
-        ORC_LOG_DEBUG("Writing {} fields to TBC file (range: {} to {})", field_count, range.start.value(), range.end.value());
+        // Get video parameters and write them
+        auto video_params = representation->get_video_parameters();
+        if (!video_params) {
+            ORC_LOG_ERROR("No video parameters available");
+            return false;
+        }
+        video_params->decoder = "orc";
+        if (!metadata_writer.write_video_parameters(*video_params)) {
+            ORC_LOG_ERROR("Failed to write video parameters");
+            return false;
+        }
         
-        // Iterate through all fields and write them
+        // Create all observers
+        std::vector<std::shared_ptr<Observer>> observers;
+        observers.push_back(std::make_shared<BiphaseObserver>());
+        observers.push_back(std::make_shared<VitcObserver>());
+        observers.push_back(std::make_shared<ClosedCaptionObserver>());
+        observers.push_back(std::make_shared<VideoIdObserver>());
+        observers.push_back(std::make_shared<FmCodeObserver>());
+        observers.push_back(std::make_shared<WhiteFlagObserver>());
+        observers.push_back(std::make_shared<VITSQualityObserver>());
+        observers.push_back(std::make_shared<BurstLevelObserver>());
+        
+        // Build sorted list of field IDs
+        std::vector<FieldID> field_ids;
+        field_ids.reserve(field_count);
         for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
-            if (!representation->has_field(field_id)) {
-                ORC_LOG_WARN("Field {} not available, skipping", field_id.value());
-                continue;
+            if (representation->has_field(field_id)) {
+                field_ids.push_back(field_id);
+            }
+        }
+        std::sort(field_ids.begin(), field_ids.end());
+        
+        ORC_LOG_DEBUG("Processing {} fields (TBC + metadata) in single pass", field_ids.size());
+        
+        // Begin transaction for metadata writes
+        metadata_writer.begin_transaction();
+        
+        // Observation history for observers that need previous field context
+        ObservationHistory history;
+        
+        // Pre-populate history from source representations
+        for (FieldID field_id : field_ids) {
+            auto source_observations = representation->get_observations(field_id);
+            if (!source_observations.empty()) {
+                history.add_observations(field_id, source_observations);
+            }
+        }
+        
+        size_t fields_processed = 0;
+        
+        // Single pass: write TBC data and process metadata for each field
+        for (FieldID field_id : field_ids) {
+            // Check for cancellation
+            if (cancel_requested_.load()) {
+                metadata_writer.commit_transaction();
+                metadata_writer.close();
+                tbc_writer.close();
+                ORC_LOG_WARN("LDSink: Export cancelled by user");
+                is_processing_.store(false);
+                return false;
             }
             
-            // Get field metadata to determine line count
+            // ===== Write TBC data =====
             auto descriptor = representation->get_descriptor(field_id);
             if (!descriptor) {
                 ORC_LOG_WARN("No descriptor for field {}, skipping", field_id.value());
@@ -239,176 +293,52 @@ bool LDSinkStage::write_tbc_file(
                 const uint16_t* line_data = representation->get_line(field_id, line_num);
                 if (!line_data) {
                     ORC_LOG_WARN("Field {} line {} has no data", field_id.value(), line_num);
-                    // Add zeros for missing lines
                     field_buffer.insert(field_buffer.end(), line_width, 0);
                 } else {
-                    // Add the line to field buffer
                     field_buffer.insert(field_buffer.end(), line_data, line_data + line_width);
                 }
             }
             
-            // Write the entire field at once using buffered writer
-            writer.write(field_buffer);
+            // Write the entire field to TBC
+            tbc_writer.write(field_buffer);
             
-            fields_written++;
-            
-            // Update progress callback every 10 fields
-            if (fields_written % 10 == 0) {
-                if (progress_callback_) {
-                    progress_callback_(fields_written, field_count,
-                                     "Writing TBC field " + std::to_string(fields_written) + "/" + std::to_string(field_count));
-                }
-                ORC_LOG_DEBUG("Written {}/{} fields ({:.1f}%)", fields_written, field_count, 
-                            (fields_written * 100.0) / field_count);
-            }
-        }
-        
-        writer.close();
-        ORC_LOG_DEBUG("Successfully wrote {} fields to TBC file", fields_written);
-        return true;
-        
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Exception writing TBC file: {}", e.what());
-        return false;
-    }
-}
-
-bool LDSinkStage::write_metadata_file(
-    const VideoFieldRepresentation* representation,
-    const std::string& db_path)
-{
-    try {
-        ORC_LOG_DEBUG("Writing SQLite metadata to {}", db_path);
-        
-        // Create metadata writer
-        TBCMetadataWriter writer;
-        if (!writer.open(db_path)) {
-            ORC_LOG_ERROR("Failed to open metadata database for writing: {}", db_path);
-            return false;
-        }
-        
-        // Get video parameters
-        auto video_params = representation->get_video_parameters();
-        if (!video_params) {
-            ORC_LOG_ERROR("No video parameters available");
-            return false;
-        }
-        
-        // Set decoder to "orc"
-        video_params->decoder = "orc";
-        
-        // Write video parameters (creates capture record)
-        if (!writer.write_video_parameters(*video_params)) {
-            ORC_LOG_ERROR("Failed to write video parameters");
-            return false;
-        }
-        
-        // Create all observers
-        std::vector<std::shared_ptr<Observer>> observers;
-        observers.push_back(std::make_shared<BiphaseObserver>());
-        observers.push_back(std::make_shared<VitcObserver>());
-        observers.push_back(std::make_shared<ClosedCaptionObserver>());
-        observers.push_back(std::make_shared<VideoIdObserver>());
-        observers.push_back(std::make_shared<FmCodeObserver>());
-        observers.push_back(std::make_shared<WhiteFlagObserver>());
-        observers.push_back(std::make_shared<VITSQualityObserver>());
-        observers.push_back(std::make_shared<BurstLevelObserver>());
-        // Note: FieldParityObserver removed - field parity comes from hints only
-        // Note: PALPhaseObserver removed - PAL phase comes from hints only
-        // (TBC files have normalized sync patterns, making field parity detection impossible)
-        
-        ORC_LOG_DEBUG("Running observers on all fields...");
-        
-        // Process all fields with observers
-        auto range = representation->field_range();
-        size_t field_count = range.size();
-        size_t fields_processed = 0;
-        
-        // Build list of field IDs in sorted order
-        // This ensures consistent processing regardless of field map reordering
-        std::vector<FieldID> field_ids;
-        field_ids.reserve(field_count);
-        for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
-            if (representation->has_field(field_id)) {
-                field_ids.push_back(field_id);
-            }
-        }
-        // Sort by field_id to ensure deterministic order
-        std::sort(field_ids.begin(), field_ids.end());
-        
-        // Begin transaction for bulk inserts
-        writer.begin_transaction();
-        
-        // Observation history for observers that need previous field context
-        // Processing fields in field_id order ensures history is built correctly
-        // even if fields were reordered by upstream stages
-        ObservationHistory history;
-        
-        // Pre-populate history from source representations
-        // This enables correct behavior when fields come from multiple sources
-        // (e.g., after a merge stage that interleaves two inputs)
-        for (FieldID field_id : field_ids) {
-            auto source_observations = representation->get_observations(field_id);
-            if (!source_observations.empty()) {
-                history.add_observations(field_id, source_observations);
-            }
-        }
-        
-        for (FieldID field_id : field_ids) {
-            
+            // ===== Write metadata =====
             // Create minimal field record
-            // Note: Field-level metadata (sync_confidence, median_burst_ire, field_phase_id, is_first_field)
-            // is NOT copied from input - it should flow through the pipeline via observers/hints.
-            // The sink only writes what can be determined from the current representation.
             FieldMetadata field_meta;
             field_meta.seq_no = field_id.value() + 1;  // seq_no is 1-based
             
-            // Check for field parity HINT (from upstream processor like ld-decode)
-            // Hints are preferred over observations as they represent authoritative metadata
+            // Check for field parity HINT
             auto parity_hint = representation->get_field_parity_hint(field_id);
             if (parity_hint.has_value()) {
                 field_meta.is_first_field = parity_hint->is_first_field;
-                ORC_LOG_DEBUG("Writing field {} (seq_no={}) with field parity HINT: is_first_field={}", 
-                             field_id.value(), field_meta.seq_no, field_meta.is_first_field.value());
             } else {
-                field_meta.is_first_field = false;  // Default if no hint
-                ORC_LOG_DEBUG("Writing field {} (seq_no={}) - no parity hint", 
-                             field_id.value(), field_meta.seq_no);
+                field_meta.is_first_field = false;
             }
             
-            // Check for field phase HINT (from upstream processor like ld-decode)
-            // Works for both PAL and NTSC
+            // Check for field phase HINT
             auto phase_hint = representation->get_field_phase_hint(field_id);
             if (phase_hint.has_value()) {
                 field_meta.field_phase_id = phase_hint->field_phase_id;
-                ORC_LOG_DEBUG("Writing field {} (seq_no={}) with phase HINT: field_phase_id={}", 
-                             field_id.value(), field_meta.seq_no, field_meta.field_phase_id.value());
-            } else {
-                ORC_LOG_DEBUG("Writing field {} (seq_no={}) - no phase hint", 
-                             field_id.value(), field_meta.seq_no);
             }
             
-            // Observers will populate VBI, VITC, VITS, etc. from the actual field data
-            writer.write_field_metadata(field_meta);
+            metadata_writer.write_field_metadata(field_meta);
             
-            // Get dropout hints and write them
+            // Write dropout hints
             auto dropout_hints = representation->get_dropout_hints(field_id);
             for (const auto& hint : dropout_hints) {
                 DropoutInfo dropout;
                 dropout.line = hint.line;
                 dropout.start_sample = hint.start_sample;
                 dropout.end_sample = hint.end_sample;
-                writer.write_dropout(field_id, dropout);
+                metadata_writer.write_dropout(field_id, dropout);
             }
             
-            // Run all observers on this field, passing the observation history
-            // Note: Observations are added to history incrementally so later observers
-            // can use results from earlier observers in the same field
+            // Run all observers on this field
             for (const auto& observer : observers) {
                 auto observations = observer->process_field(*representation, field_id, history);
-                writer.write_observations(field_id, observations);
+                metadata_writer.write_observations(field_id, observations);
                 
-                // Add observations to history immediately so subsequent observers can use them
+                // Add observations to history for subsequent observers
                 auto current_field_obs = history.get_observations(field_id);
                 current_field_obs.insert(current_field_obs.end(), 
                                         observations.begin(), observations.end());
@@ -421,26 +351,27 @@ bool LDSinkStage::write_metadata_file(
             if (fields_processed % 10 == 0) {
                 if (progress_callback_) {
                     progress_callback_(fields_processed, field_count,
-                                     "Processing metadata field " + std::to_string(fields_processed) + "/" + std::to_string(field_count));
+                                     "Exporting field " + std::to_string(fields_processed) + "/" + std::to_string(field_count));
                 }
             }
             
             // Log progress every 50 fields
             if (fields_processed % 50 == 0) {
-                ORC_LOG_DEBUG("Processed {}/{} fields ({:.1f}%)", fields_processed, field_count, 
+                ORC_LOG_DEBUG("Exported {}/{} fields ({:.1f}%)", fields_processed, field_count, 
                             (fields_processed * 100.0) / field_count);
             }
         }
         
-        // Commit transaction
-        writer.commit_transaction();
-        writer.close();
+        // Commit metadata transaction and close files
+        metadata_writer.commit_transaction();
+        metadata_writer.close();
+        tbc_writer.close();
         
-        ORC_LOG_DEBUG("Successfully wrote metadata for {} fields", fields_processed);
+        ORC_LOG_DEBUG("Successfully exported {} fields", fields_processed);
         return true;
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Exception writing metadata file: {}", e.what());
+        ORC_LOG_ERROR("Exception during export: {}", e.what());
         return false;
     }
 }

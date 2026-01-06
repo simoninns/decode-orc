@@ -191,6 +191,47 @@ public:
         return false;  // Default: no audio
     }
     
+    // ========================================================================
+    // EFM - EFM (Eight to Fourteen Modulation) data access
+    // ========================================================================
+    
+    /**
+     * @brief Get number of EFM t-values for a specific field
+     * 
+     * Returns the number of EFM t-values that correspond to this field.
+     * T-values are 8-bit values from 3 to 11 (inclusive).
+     * Returns 0 if no EFM data is available.
+     * 
+     * @param id Field ID
+     * @return Number of EFM t-values (0 if no EFM)
+     */
+    virtual uint32_t get_efm_sample_count(FieldID /*id*/) const {
+        return 0;  // Default: no EFM
+    }
+    
+    /**
+     * @brief Get EFM t-values for a specific field
+     * 
+     * Returns EFM t-values as 8-bit unsigned integers.
+     * Valid t-values are in the range [3, 11] inclusive.
+     * Values outside this range are invalid.
+     * 
+     * @param id Field ID
+     * @return Vector of EFM t-values (empty if no EFM)
+     */
+    virtual std::vector<uint8_t> get_efm_samples(FieldID /*id*/) const {
+        return {};  // Default: no EFM
+    }
+    
+    /**
+     * @brief Check if EFM data is available
+     * 
+     * @return True if this representation has EFM data
+     */
+    virtual bool has_efm() const {
+        return false;  // Default: no EFM
+    }
+    
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }
     
@@ -289,6 +330,19 @@ public:
     
     bool has_audio() const override {
         return source_ ? source_->has_audio() : false;
+    }
+    
+    // Automatically propagate EFM through the chain
+    uint32_t get_efm_sample_count(FieldID id) const override {
+        return source_ ? source_->get_efm_sample_count(id) : 0;
+    }
+    
+    std::vector<uint8_t> get_efm_samples(FieldID id) const override {
+        return source_ ? source_->get_efm_samples(id) : std::vector<uint8_t>{};
+    }
+    
+    bool has_efm() const override {
+        return source_ ? source_->has_efm() : false;
     }
     
     // Access to wrapped source

@@ -27,6 +27,7 @@ TBCVideoFieldRepresentation::TBCVideoFieldRepresentation(
     tbc_reader_(std::move(tbc_reader)),
     metadata_reader_(std::move(metadata_reader)),
     has_audio_(false),
+    has_efm_(false),
     field_data_cache_(MAX_CACHED_TBC_FIELDS)
 {
     ensure_video_parameters();
@@ -198,7 +199,8 @@ std::optional<FieldMetadata> TBCVideoFieldRepresentation::get_field_metadata(Fie
 std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     const std::string& tbc_filename,
     const std::string& metadata_filename,
-    const std::string& pcm_filename
+    const std::string& pcm_filename,
+    const std::string& efm_filename
 ) {
     // Create readers
     auto tbc_reader = std::make_shared<TBCReader>();
@@ -285,6 +287,14 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
         provenance.parameters["pcm_file"] = pcm_filename;
         if (!representation->set_audio_file(pcm_filename)) {
             ORC_LOG_WARN("Failed to set PCM audio file, continuing without audio");
+        }
+    }
+    
+    // Set EFM file if provided
+    if (!efm_filename.empty()) {
+        provenance.parameters["efm_file"] = efm_filename;
+        if (!representation->set_efm_file(efm_filename)) {
+            ORC_LOG_WARN("Failed to set EFM data file, continuing without EFM");
         }
     }
     
@@ -550,6 +560,150 @@ bool TBCVideoFieldRepresentation::set_audio_file(const std::string& pcm_path) {
     
     pcm_audio_path_ = pcm_path;
     has_audio_ = true;
+    
+    return true;
+}
+
+// ============================================================================
+// EFM interface implementation
+// ============================================================================
+
+uint32_t TBCVideoFieldRepresentation::get_efm_sample_count(FieldID id) const {
+    if (!has_efm_ || !has_field(id)) {
+        return 0;
+    }
+    
+    // Get EFM sample count from field metadata
+    auto metadata = get_field_metadata(id);
+    if (!metadata || !metadata->efm_t_values) {
+        return 0;
+    }
+    
+    return static_cast<uint32_t>(metadata->efm_t_values.value());
+}
+
+std::vector<uint8_t> TBCVideoFieldRepresentation::get_efm_samples(FieldID id) const {
+    if (!has_efm_ || !has_field(id)) {
+        return {};
+    }
+    
+    uint32_t sample_count = get_efm_sample_count(id);
+    if (sample_count == 0) {
+        return {};
+    }
+    
+    // Calculate file offset for this field's EFM data
+    // EFM is stored sequentially, so we need to sum up all previous fields
+    uint64_t byte_offset = 0;
+    auto field_range = this->field_range();
+    
+    for (FieldID fid = field_range.start; fid < id; ++fid) {
+        auto metadata = get_field_metadata(fid);
+        if (metadata && metadata->efm_t_values) {
+            // Each t-value is 1 byte
+            byte_offset += metadata->efm_t_values.value();
+        }
+    }
+    
+    // Read EFM data from file
+    std::vector<uint8_t> samples(sample_count);
+    size_t bytes_to_read = sample_count;
+    
+    {
+        std::lock_guard<std::mutex> lock(efm_mutex_);
+        
+        if (!efm_data_file_.is_open()) {
+            ORC_LOG_WARN("TBCVideoFieldRepresentation: EFM data file not open");
+            return {};
+        }
+        
+        efm_data_file_.seekg(byte_offset, std::ios::beg);
+        efm_data_file_.read(reinterpret_cast<char*>(samples.data()), bytes_to_read);
+        
+        if (efm_data_file_.gcount() != static_cast<std::streamsize>(bytes_to_read)) {
+            ORC_LOG_WARN("TBCVideoFieldRepresentation: Failed to read complete EFM for field {}", id.value());
+            return {};
+        }
+    }
+    
+    // Validate t-values are in range [3, 11]
+    for (size_t i = 0; i < samples.size(); ++i) {
+        if (samples[i] < 3 || samples[i] > 11) {
+            ORC_LOG_WARN("TBCVideoFieldRepresentation: Invalid EFM t-value {} at index {} for field {}", 
+                        samples[i], i, id.value());
+        }
+    }
+    
+    return samples;
+}
+
+bool TBCVideoFieldRepresentation::has_efm() const {
+    return has_efm_;
+}
+
+bool TBCVideoFieldRepresentation::set_efm_file(const std::string& efm_path) {
+    if (efm_path.empty()) {
+        has_efm_ = false;
+        return true;
+    }
+    
+    std::lock_guard<std::mutex> lock(efm_mutex_);
+    
+    // Close any previously opened file
+    if (efm_data_file_.is_open()) {
+        efm_data_file_.close();
+    }
+    
+    // Open EFM data file
+    efm_data_file_.open(efm_path, std::ios::binary);
+    if (!efm_data_file_.is_open()) {
+        ORC_LOG_ERROR("TBCVideoFieldRepresentation: Failed to open EFM data file: {}", efm_path);
+        has_efm_ = false;
+        return false;
+    }
+    
+    // Validate EFM file size matches metadata expectations
+    // Get actual file size
+    efm_data_file_.seekg(0, std::ios::end);
+    uint64_t actual_file_size = efm_data_file_.tellg();
+    efm_data_file_.seekg(0, std::ios::beg);
+    
+    // Calculate expected file size from metadata
+    uint64_t expected_tvalues = 0;
+    auto field_range = this->field_range();
+    
+    for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+        auto metadata = get_field_metadata(fid);
+        if (metadata && metadata->efm_t_values) {
+            expected_tvalues += metadata->efm_t_values.value();
+        }
+    }
+    
+    // Each t-value is 1 byte
+    uint64_t expected_file_size = expected_tvalues;
+    
+    // Always log the comparison for debugging
+    ORC_LOG_DEBUG("  EFM file size: {} bytes ({} t-values)", actual_file_size, actual_file_size);
+    ORC_LOG_DEBUG("  Expected from metadata: {} t-values ({} bytes)", expected_tvalues, expected_file_size);
+    
+    if (actual_file_size != expected_file_size) {
+        ORC_LOG_ERROR("EFM data file size mismatch!");
+        ORC_LOG_ERROR("  EFM file: {}", efm_path);
+        ORC_LOG_ERROR("  File contains {} bytes ({} t-values)", actual_file_size, actual_file_size);
+        ORC_LOG_ERROR("  Metadata specifies {} t-values ({} bytes expected)", 
+                     expected_tvalues, expected_file_size);
+        ORC_LOG_ERROR("  The EFM file and metadata are inconsistent.");
+        ORC_LOG_ERROR("  This file may be corrupted, truncated, or not match the TBC metadata.");
+        efm_data_file_.close();
+        has_efm_ = false;
+        return false;
+    }
+    
+    ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Opened EFM data file: {}", efm_path);
+    ORC_LOG_DEBUG("  EFM validation passed: {} t-values match metadata", expected_tvalues);
+    
+    efm_data_path_ = efm_path;
+    has_efm_ = true;
     
     return true;
 }

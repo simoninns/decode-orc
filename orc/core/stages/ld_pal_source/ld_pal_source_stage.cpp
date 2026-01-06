@@ -59,6 +59,13 @@ std::vector<ArtifactPtr> LDPALSourceStage::execute(
     if (pcm_path_it != parameters.end()) {
         pcm_path = std::get<std::string>(pcm_path_it->second);
     }
+    
+    // Get optional EFM data path
+    std::string efm_path;
+    auto efm_path_it = parameters.find("efm_path");
+    if (efm_path_it != parameters.end()) {
+        efm_path = std::get<std::string>(efm_path_it->second);
+    }
 
     // Check cache
     if (cached_representation_ && cached_input_path_ == input_path) {
@@ -72,9 +79,12 @@ std::vector<ArtifactPtr> LDPALSourceStage::execute(
     if (!pcm_path.empty()) {
         ORC_LOG_DEBUG("  PCM Audio: {}", pcm_path);
     }
+    if (!efm_path.empty()) {
+        ORC_LOG_DEBUG("  EFM Data: {}", efm_path);
+    }
     
     try {
-        auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path);
+        auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
         if (!tbc_representation) {
             throw std::runtime_error("Failed to load TBC file (validation failed - see logs above)");
         }
@@ -156,6 +166,18 @@ std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors(Vid
         descriptors.push_back(desc);
     }
     
+    // efm_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "efm_path";
+        desc.display_name = "EFM Data File Path";
+        desc.description = "Path to the EFM data .efm file (8-bit t-values from 3-11)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.file_extension_hint = ".efm";
+        descriptors.push_back(desc);
+    }
+    
     return descriptors;
 }
 
@@ -211,6 +233,13 @@ std::optional<StageReport> LDPALSourceStage::generate_report() const {
         pcm_path = std::get<std::string>(pcm_path_it->second);
     }
     
+    // Get optional EFM data path
+    std::string efm_path;
+    auto efm_path_it = parameters_.find("efm_path");
+    if (efm_path_it != parameters_.end()) {
+        efm_path = std::get<std::string>(efm_path_it->second);
+    }
+    
     // Display PCM file path if configured
     if (!pcm_path.empty()) {
         report.items.push_back({"PCM Audio File", pcm_path});
@@ -218,9 +247,16 @@ std::optional<StageReport> LDPALSourceStage::generate_report() const {
         report.items.push_back({"PCM Audio File", "Not configured"});
     }
     
+    // Display EFM file path if configured
+    if (!efm_path.empty()) {
+        report.items.push_back({"EFM Data File", efm_path});
+    } else {
+        report.items.push_back({"EFM Data File", "Not configured"});
+    }
+    
     // Try to load the file to get actual information
     try {
-        auto representation = create_tbc_representation(input_path, db_path, pcm_path);
+        auto representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             
@@ -245,11 +281,43 @@ std::optional<StageReport> LDPALSourceStage::generate_report() const {
                 report.items.push_back({"Total Frames", 
                     std::to_string(video_params->number_of_sequential_fields / 2)});
                 
+                // Calculate total audio samples and EFM t-values from metadata
+                uint64_t total_audio_samples = 0;
+                uint64_t total_efm_tvalues = 0;
+                auto field_range = representation->field_range();
+                
+                for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+                    total_audio_samples += representation->get_audio_sample_count(fid);
+                    total_efm_tvalues += representation->get_efm_sample_count(fid);
+                }
+                
+                // Display audio information
+                if (representation->has_audio() && total_audio_samples > 0) {
+                    report.items.push_back({"Audio Samples", std::to_string(total_audio_samples)});
+                    // Calculate approximate duration (44.1kHz stereo)
+                    double duration_seconds = static_cast<double>(total_audio_samples) / 44100.0;
+                    int minutes = static_cast<int>(duration_seconds / 60.0);
+                    int seconds = static_cast<int>(duration_seconds) % 60;
+                    report.items.push_back({"Audio Duration", 
+                        std::to_string(minutes) + "m " + std::to_string(seconds) + "s"});
+                } else {
+                    report.items.push_back({"Audio Samples", "0 (no audio)"});
+                }
+                
+                // Display EFM information
+                if (representation->has_efm() && total_efm_tvalues > 0) {
+                    report.items.push_back({"EFM T-Values", std::to_string(total_efm_tvalues)});
+                } else {
+                    report.items.push_back({"EFM T-Values", "0 (no EFM)"});
+                }
+                
                 // Metrics
                 report.metrics["field_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields);
                 report.metrics["frame_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields / 2);
                 report.metrics["field_width"] = static_cast<int64_t>(video_params->field_width);
                 report.metrics["field_height"] = static_cast<int64_t>(video_params->field_height);
+                report.metrics["audio_samples"] = static_cast<int64_t>(total_audio_samples);
+                report.metrics["efm_tvalues"] = static_cast<int64_t>(total_efm_tvalues);
             }
         } else {
             report.items.push_back({"Status", "Error loading file"});

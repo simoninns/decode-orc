@@ -256,6 +256,46 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                     }
                 });
                 
+                // Special handling for input_path: auto-populate pcm_path and efm_path
+                if (param_name == "input_path") {
+                    connect(edit, &QLineEdit::textChanged, [this, edit]() {
+                        QString tbc_path = edit->text();
+                        if (tbc_path.isEmpty()) return;
+                        
+                        // Get base path (remove .tbc extension if present)
+                        QString base_path = tbc_path;
+                        if (base_path.endsWith(".tbc", Qt::CaseInsensitive)) {
+                            base_path = base_path.left(base_path.length() - 4);
+                        }
+                        
+                        // Check for .pcm file
+                        auto pcm_it = parameter_widgets_.find("pcm_path");
+                        if (pcm_it != parameter_widgets_.end()) {
+                            QWidget* pcm_container = pcm_it->second.widget;
+                            QLineEdit* pcm_edit = pcm_container->findChild<QLineEdit*>("file_path_edit");
+                            if (pcm_edit && pcm_edit->text().isEmpty()) {
+                                QString pcm_path = base_path + ".pcm";
+                                if (QFileInfo::exists(pcm_path)) {
+                                    pcm_edit->setText(pcm_path);
+                                }
+                            }
+                        }
+                        
+                        // Check for .efm file
+                        auto efm_it = parameter_widgets_.find("efm_path");
+                        if (efm_it != parameter_widgets_.end()) {
+                            QWidget* efm_container = efm_it->second.widget;
+                            QLineEdit* efm_edit = efm_container->findChild<QLineEdit*>("file_path_edit");
+                            if (efm_edit && efm_edit->text().isEmpty()) {
+                                QString efm_path = base_path + ".efm";
+                                if (QFileInfo::exists(efm_path)) {
+                                    efm_edit->setText(efm_path);
+                                }
+                            }
+                        }
+                    });
+                }
+                
                 layout->addWidget(edit, 1);  // Line edit takes most space
                 layout->addWidget(browse_btn);
                 

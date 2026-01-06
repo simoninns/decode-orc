@@ -121,6 +121,18 @@ public:
      */
     bool set_audio_file(const std::string& pcm_path);
     
+    // EFM interface
+    uint32_t get_efm_sample_count(FieldID id) const override;
+    std::vector<uint8_t> get_efm_samples(FieldID id) const override;
+    bool has_efm() const override;
+    
+    /**
+     * @brief Set the EFM data file path
+     * @param efm_path Path to .efm file
+     * @return true if file opened successfully, false otherwise
+     */
+    bool set_efm_file(const std::string& efm_path);
+    
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
     
 private:
@@ -154,6 +166,12 @@ private:
     mutable std::mutex audio_mutex_;  // Protect audio file access
     bool has_audio_;
     
+    // EFM data file handle and path
+    std::string efm_data_path_;
+    mutable std::ifstream efm_data_file_;
+    mutable std::mutex efm_mutex_;  // Protect EFM file access
+    bool has_efm_;
+    
     // Access to metadata reader for internal use only
     const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
     
@@ -172,12 +190,14 @@ private:
  * @param tbc_filename Path to .tbc file
  * @param metadata_filename Path to .tbc.json.db or .db file
  * @param pcm_filename Optional path to .pcm audio file
+ * @param efm_filename Optional path to .efm EFM data file
  * @return Shared pointer to representation, or nullptr on failure
  */
 std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     const std::string& tbc_filename,
     const std::string& metadata_filename,
-    const std::string& pcm_filename = ""
+    const std::string& pcm_filename = "",
+    const std::string& efm_filename = ""
 );
 
 } // namespace orc

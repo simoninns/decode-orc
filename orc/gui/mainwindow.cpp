@@ -1152,9 +1152,12 @@ void MainWindow::onTriggerStage(const orc::NodeID& node_id)
         // Create progress dialog
         trigger_progress_dialog_ = new QProgressDialog("Starting trigger...", "Cancel", 0, 100, this);
         trigger_progress_dialog_->setWindowTitle("Processing");
-        trigger_progress_dialog_->setWindowModality(Qt::WindowModal);
+        trigger_progress_dialog_->setWindowModality(Qt::ApplicationModal);
         trigger_progress_dialog_->setMinimumDuration(0);
         trigger_progress_dialog_->setValue(0);
+        trigger_progress_dialog_->show();
+        trigger_progress_dialog_->raise();
+        trigger_progress_dialog_->activateWindow();
         
         // Connect cancel button
         connect(trigger_progress_dialog_, &QProgressDialog::canceled,
@@ -2157,11 +2160,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
                             }
                             prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
                             prog_dialog->setWindowTitle(dialog->windowTitle());
-                            prog_dialog->setWindowModality(Qt::WindowModal);
+                            prog_dialog->setWindowModality(Qt::ApplicationModal);
                             prog_dialog->setMinimumDuration(0);
                             prog_dialog->setCancelButton(nullptr);
                             prog_dialog->setValue(0);
                             prog_dialog->show();
+                            prog_dialog->raise();
+                            prog_dialog->activateWindow();
                             
                             auto mode = dialog->getCurrentMode();
                             uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
@@ -2187,17 +2192,19 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         }
         prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
         prog_dialog->setWindowTitle(dialog->windowTitle());
-        prog_dialog->setWindowModality(Qt::WindowModal);
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
         prog_dialog->setMinimumDuration(0);
         prog_dialog->setCancelButton(nullptr);
         prog_dialog->setValue(0);
         prog_dialog->show();
-        
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+
         // Show the dialog (but it will be empty until data arrives)
         dialog->show();
         dialog->raise();
         dialog->activateWindow();
-        
+
         // Request dropout data from coordinator (triggers batch processing)
         auto mode = dialog->getCurrentMode();
         uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
@@ -2244,11 +2251,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
                             }
                             prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
                             prog_dialog->setWindowTitle(dialog->windowTitle());
-                            prog_dialog->setWindowModality(Qt::WindowModal);
+                            prog_dialog->setWindowModality(Qt::ApplicationModal);
                             prog_dialog->setMinimumDuration(0);
                             prog_dialog->setCancelButton(nullptr);
                             prog_dialog->setValue(0);
                             prog_dialog->show();
+                            prog_dialog->raise();
+                            prog_dialog->activateWindow();
                             
                             auto mode = dialog->getCurrentMode();
                             uint64_t request_id = render_coordinator_->requestSNRData(node_id, mode);
@@ -2274,12 +2283,14 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         }
         prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
         prog_dialog->setWindowTitle(dialog->windowTitle());
-        prog_dialog->setWindowModality(Qt::WindowModal);
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
         prog_dialog->setMinimumDuration(0);
         prog_dialog->setCancelButton(nullptr);
         prog_dialog->setValue(0);
         prog_dialog->show();
-        
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+
         // Show the dialog (but it will be empty until data arrives)
         dialog->show();
         dialog->raise();
@@ -2338,11 +2349,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         }
         prog_dialog = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
         prog_dialog->setWindowTitle(dialog->windowTitle());
-        prog_dialog->setWindowModality(Qt::WindowModal);
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
         prog_dialog->setMinimumDuration(0);
         prog_dialog->setCancelButton(nullptr);
         prog_dialog->setValue(0);
         prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
         
         // Show the dialog (but it will be empty until data arrives)
         dialog->show();
@@ -2419,11 +2432,13 @@ QProgressDialog* MainWindow::createAnalysisProgressDialog(const QString& title, 
     
     auto* dialog = new QProgressDialog(message, QString(), 0, 100, this);
     dialog->setWindowTitle(title);
-    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setWindowModality(Qt::ApplicationModal);
     dialog->setMinimumDuration(0);
     dialog->setCancelButton(nullptr);  // No cancel for now
     dialog->setValue(0);
     dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
     
     existingDialog = dialog;
     return dialog;

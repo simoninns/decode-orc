@@ -41,7 +41,7 @@ std::vector<ParameterDescriptor> MaskLineAnalysisTool::parameters() const {
     ParameterDescriptor mask_ntsc_cc;
     mask_ntsc_cc.name = "maskNTSC_CC";
     mask_ntsc_cc.display_name = "Mask NTSC Closed Captions";
-    mask_ntsc_cc.description = "Mask field line 21 in first field (NTSC closed caption line)";
+    mask_ntsc_cc.description = "Mask field line 20 in first field (NTSC closed caption - traditional 'line 21' is index 20)";
     mask_ntsc_cc.type = ParameterType::BOOL;
     mask_ntsc_cc.constraints.default_value = false;
     params.push_back(mask_ntsc_cc);
@@ -140,8 +140,9 @@ AnalysisResult MaskLineAnalysisTool::analyze(const AnalysisContext& ctx,
     std::string line_spec_result;
     
     if (mask_ntsc_cc) {
-        // NTSC CC is on field line 21 (0-based), first field only
-        line_spec_result = "F:21";
+        // NTSC CC is on field line 20 (0-based index), first field only
+        // Traditional "line 21" in 1-based video terminology = index 20
+        line_spec_result = "F:20";
     } else if (mask_pal_tt) {
         // PAL Teletext/WSS is on field lines 6-22 (0-based), both fields
         line_spec_result = "A:6-22";
@@ -168,7 +169,7 @@ AnalysisResult MaskLineAnalysisTool::analyze(const AnalysisContext& ctx,
     } else {
         summary << line_spec_result << "\n";
         if (mask_ntsc_cc) {
-            summary << "  → NTSC Closed Captions (field line 21, first field only)\n";
+            summary << "  → NTSC Closed Captions (field line 20, first field - traditional 'line 21')\n";
         } else if (mask_pal_tt) {
             summary << "  → PAL Teletext/WSS (field lines 6-22, both fields)\n";
         }

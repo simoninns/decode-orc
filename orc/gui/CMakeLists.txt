@@ -76,6 +76,14 @@ add_executable(orc-gui
     analysisdialogbase.cpp
     analysisdialogbase.h
     
+    # Config dialog base class
+    configdialogbase.cpp
+    configdialogbase.h
+    
+    # Mask line config dialog
+    masklineconfigdialog.cpp
+    masklineconfigdialog.h
+    
     # Dropout analysis dialog
     dropoutanalysisdialog.cpp
     dropoutanalysisdialog.h

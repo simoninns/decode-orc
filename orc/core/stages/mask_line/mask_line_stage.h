@@ -58,7 +58,7 @@ private:
  * 
  * This stage allows masking (blanking) specific lines in fields based on
  * field parity and line numbers. Common uses include:
- * - Masking NTSC closed caption line 21 (field line 21, first field only)
+ * - Masking NTSC closed caption line (field line 20, first field only - traditional "line 21" is index 20)
  * - Removing visible VBI data
  * - Hiding other unwanted visible information on specific lines
  * 
@@ -66,7 +66,7 @@ private:
  * - F: = First field only
  * - S: = Second field only  
  * - A: = All fields (both)
- * Examples: "F:21" (NTSC CC), "S:6-22" (second field lines 6-22), "A:10,F:21"
+ * Examples: "F:20" (NTSC CC), "S:6-22" (second field lines 6-22), "A:10,F:20"
  * 
  * Mask value is in IRE units (0-100), where 0 = black, 100 = white.
  * Line numbers are 0-based field line numbers (not frame line numbers).

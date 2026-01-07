@@ -17,6 +17,7 @@
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
+#include "masklineconfigdialog.h"
 #include "qualitymetricsdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
@@ -1811,6 +1812,70 @@ void MainWindow::onInspectStage(const NodeID& node_id)
 void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name)
 {
     ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool->name(), node_id.to_string());
+
+    // Special-case: Mask Line Configuration uses a custom rules-based config dialog
+    if (tool->id() == "mask_line_config") {
+        ORC_LOG_DEBUG("Opening mask line configuration dialog for node '{}'", node_id.to_string());
+        
+        // Get current parameters from the node
+        auto& project = project_.coreProject();
+        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
+            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        
+        if (node_it == project.get_nodes().end()) {
+            QMessageBox::warning(this, "Error",
+                "Could not find node in project.");
+            return;
+        }
+        
+        // Create and show the config dialog
+        MaskLineConfigDialog dialog(this);
+        
+        // Load current parameters
+        dialog.set_parameters(node_it->parameters);
+        
+        // Show dialog and apply if accepted
+        if (dialog.exec() == QDialog::Accepted) {
+            auto new_params = dialog.get_parameters();
+            
+            ORC_LOG_DEBUG("Mask line config accepted, applying parameters");
+            
+            try {
+                // Update node parameters using project_io
+                orc::project_io::set_node_parameters(project, node_id, new_params);
+                
+                // Mark project as modified
+                project_.setModified(true);
+                
+                // Update UI to reflect modified state
+                updateUIState();
+                
+                // Rebuild DAG to pick up the new parameter values
+                project_.rebuildDAG();
+                
+                // Update the preview renderer with the new DAG
+                updatePreviewRenderer();
+                
+                // Refresh QtNodes view
+                dag_model_->refresh();
+                
+                // Update the preview to show the changes
+                updatePreview();
+                
+                statusBar()->showMessage(
+                    QString("Applied mask line configuration to '%1'")
+                        .arg(QString::fromStdString(node_id.to_string())),
+                    3000
+                );
+            } catch (const std::exception& e) {
+                QMessageBox::critical(this, "Configuration Error",
+                    QString("Failed to apply configuration: %1")
+                        .arg(QString::fromStdString(e.what())));
+            }
+        }
+        
+        return;
+    }
 
     // Special-case: Vectorscope is a live visualization dialog, not a batch analysis
     if (tool->id() == "vectorscope") {

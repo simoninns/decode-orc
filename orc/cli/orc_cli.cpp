@@ -9,8 +9,6 @@
 
 #include "version.h"
 #include "command_process.h"
-#include "command_analyze_field_mapping.h"
-#include "command_analyze_source_aligns.h"
 #include "logging.h"
 
 #include <iostream>
@@ -28,14 +26,10 @@ using namespace orc;
  * @param program_name Name of the executable (argv[0])
  */
 void print_usage(const char* program_name) {
-    std::cerr << "Usage: " << program_name << " <project-file> [command] [options]\n";
+    std::cerr << "Usage: " << program_name << " <project-file> [options]\n";
     std::cerr << "\n";
     std::cerr << "Commands:\n";
     std::cerr << "  --process                      Process the whole DAG chain (trigger all sinks)\n";
-    std::cerr << "  --analyse-field-maps           Run analysis on all field_map stages\n";
-    std::cerr << "                                 and update project with mapping specifications\n";
-    std::cerr << "  --analyse-source-aligns        Run analysis on all source_align stages\n";
-    std::cerr << "                                 and update project with alignment maps\n";
     std::cerr << "\n";
     std::cerr << "Options:\n";
     std::cerr << "  --log-level LEVEL              Set logging verbosity\n";
@@ -43,18 +37,9 @@ void print_usage(const char* program_name) {
     std::cerr << "                                 Default: info\n";
     std::cerr << "  --log-file FILE                Write logs to specified file\n";
     std::cerr << "\n";
-    std::cerr << "Field Mapping Analysis Options (only valid with --analyse-field-maps):\n";
-    std::cerr << "  --no-pad-gaps                  Don't pad gaps with black frames\n";
-    std::cerr << "  --delete-unmappable            Delete frames that can't be mapped\n";
-    std::cerr << "\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << program_name << " project.orcprj --process\n";
-    std::cerr << "  " << program_name << " project.orcprj --analyse-field-maps\n";
-    std::cerr << "  " << program_name << " project.orcprj --analyse-source-aligns\n";
     std::cerr << "  " << program_name << " project.orcprj --process --log-level debug\n";
-    std::cerr << "\n";
-    std::cerr << "Note: You must specify at least one command (--process, --analyse-field-maps,\n";
-    std::cerr << "      or --analyse-source-aligns). Running without any command will show this help.\n";
 }
 
 /**
@@ -75,12 +60,6 @@ int main(int argc, char* argv[]) {
     
     // Command flags
     bool do_process = false;
-    bool do_analyse_field_maps = false;
-    bool do_analyse_source_aligns = false;
-    
-    // Field mapping analysis options
-    bool pad_gaps = true;
-    bool delete_unmappable = false;
     
     // Check for help or empty args
     if (argc < 2) {
@@ -108,14 +87,6 @@ int main(int argc, char* argv[]) {
             log_file = argv[++i];
         } else if (arg == "--process") {
             do_process = true;
-        } else if (arg == "--analyse-field-maps") {
-            do_analyse_field_maps = true;
-        } else if (arg == "--analyse-source-aligns") {
-            do_analyse_source_aligns = true;
-        } else if (arg == "--no-pad-gaps") {
-            pad_gaps = false;
-        } else if (arg == "--delete-unmappable") {
-            delete_unmappable = true;
         } else if (arg[0] != '-') {
             // Positional argument - project file
             if (project_path.empty()) {
@@ -140,16 +111,8 @@ int main(int argc, char* argv[]) {
     }
     
     // Check if at least one command was specified
-    if (!do_process && !do_analyse_field_maps && !do_analyse_source_aligns) {
-        std::cerr << "Error: No command specified. You must use at least one of:\n";
-        std::cerr << "  --process, --analyse-field-maps, or --analyse-source-aligns\n\n";
-        print_usage(argv[0]);
-        return 1;
-    }
-    
-    // Validate field mapping options are only used with --analyse-field-maps
-    if (!do_analyse_field_maps && (!pad_gaps || delete_unmappable)) {
-        std::cerr << "Error: --no-pad-gaps and --delete-unmappable can only be used with --analyse-field-maps\n";
+    if (!do_process) {
+        std::cerr << "Error: No command specified. You must use --process\n\n";
         print_usage(argv[0]);
         return 1;
     }
@@ -157,51 +120,14 @@ int main(int argc, char* argv[]) {
     // Initialize logging
     orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
-    // Execute commands in order: analysis first, then processing
+    // Execute processing command
     int exit_code = 0;
     
     try {
-        // Run field mapping analysis if requested
-        if (do_analyse_field_maps) {
-            cli::AnalyzeFieldMappingOptions options;
-            options.project_path = project_path;
-            options.update_project = true;  // Always update project when using this command
-            options.pad_gaps = pad_gaps;
-            options.delete_unmappable = delete_unmappable;
-            
-            int result = cli::analyze_field_mapping_command(options);
-            if (result != 0) {
-                exit_code = result;
-                if (!do_analyse_source_aligns && !do_process) {
-                    return exit_code;
-                }
-            }
-        }
+        cli::ProcessOptions options;
+        options.project_path = project_path;
         
-        // Run source alignment analysis if requested
-        if (do_analyse_source_aligns) {
-            cli::AnalyzeSourceAlignsOptions options;
-            options.project_path = project_path;
-            
-            int result = cli::analyze_source_aligns_command(options);
-            if (result != 0) {
-                exit_code = result;
-                if (!do_process) {
-                    return exit_code;
-                }
-            }
-        }
-        
-        // Run processing if requested
-        if (do_process) {
-            cli::ProcessOptions options;
-            options.project_path = project_path;
-            
-            int result = cli::process_command(options);
-            if (result != 0) {
-                exit_code = result;
-            }
-        }
+        exit_code = cli::process_command(options);
     } catch (const std::exception& e) {
         std::cerr << "\nFATAL ERROR: " << e.what() << "\n";
         return 1;

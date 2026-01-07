@@ -4,8 +4,6 @@
 add_executable(orc-cli 
     orc_cli.cpp
     command_process.cpp
-    command_analyze_field_mapping.cpp
-    command_analyze_source_aligns.cpp
 )
 target_link_libraries(orc-cli PRIVATE orc-core)
 target_include_directories(orc-cli PRIVATE 

@@ -32,7 +32,7 @@ This project is under active development.
 
 ## User documentation
 
-TBA
+The user documentation is available via [Github Pages](https://simoninns.github.io/decode-orc-docs/index.html)
 
 ## Technical documentation
 

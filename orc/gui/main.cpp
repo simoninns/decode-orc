@@ -246,15 +246,15 @@ int main(int argc, char *argv[])
     
     MainWindow window;
     
-    // Open project if provided
+    window.show();
+    ORC_LOG_DEBUG("Main window shown");
+    
+    // Open project if provided (after window is shown so viewport has correct dimensions)
     const QStringList args = parser.positionalArguments();
     if (!args.isEmpty()) {
         ORC_LOG_INFO("Opening project from command line: {}", args.first().toStdString());
         window.openProject(args.first());
     }
-    
-    window.show();
-    ORC_LOG_DEBUG("Main window shown");
     
     // Create and show splash screen after main window to ensure proper z-order
     QPixmap logoPixmap(":/orc-gui/decode-orc-logo-small.png");

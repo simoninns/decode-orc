@@ -15,12 +15,15 @@
 #include <QPushButton>
 #include <QSpinBox>
 #include <QListWidget>
+#include <QScrollArea>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QImage>
 #include <QPixmap>
 #include <QMouseEvent>
+#include <QWheelEvent>
+#include <QKeyEvent>
 #include <QRubberBand>
 #include <memory>
 #include <map>
@@ -64,16 +67,39 @@ public:
      * @brief Get the current additions list
      */
     const std::vector<orc::DropoutRegion>& getAdditions() const { return additions_; }
+    std::vector<orc::DropoutRegion>& getAdditionsMutable() { return additions_; }
 
     /**
      * @brief Get the current removals list
      */
     const std::vector<orc::DropoutRegion>& getRemovals() const { return removals_; }
+    std::vector<orc::DropoutRegion>& getRemovalsMutable() { return removals_; }
 
     /**
      * @brief Clear all edits
      */
     void clearEdits();
+    
+    /**
+     * @brief Update the display (redraw the field with current data)
+     */
+    void updateDisplay();
+    
+    /**
+     * @brief Get field dimensions for external access
+     */
+    int getFieldWidth() const { return field_width_; }
+    int getFieldHeight() const { return field_height_; }
+    
+    /**
+     * @brief Get field data for external access
+     */
+    const std::vector<uint8_t>& getFieldData() const { return field_data_; }
+    
+    /**
+     * @brief Get source dropouts for external access
+     */
+    const std::vector<orc::DropoutRegion>& getSourceDropouts() const { return source_dropouts_; }
 
 protected:
     QSize sizeHint() const override;
@@ -84,14 +110,39 @@ signals:
      * @brief Emitted when the user modifies dropout regions
      */
     void regionsModified();
+    
+    /**
+     * @brief Emitted when zoom level changes via scroll wheel
+     */
+    void zoomChanged(float zoom_level);
+    
+    /**
+     * @brief Emitted when a new addition is created (index in additions list)
+     */
+    void additionCreated(int index);
+    
+    /**
+     * @brief Emitted when a new removal is marked (index in removals list)
+     */
+    void removalCreated(int index);
+    
+    /**
+     * @brief Emitted when an addition is clicked for selection (index in additions list)
+     */
+    void additionClicked(int index);
+    
+    /**
+     * @brief Emitted when a removal is clicked for selection (index in removals list)
+     */
+    void removalClicked(int index);
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void wheelEvent(QWheelEvent *event) override;
 
 private:
-    void updateDisplay();
     bool isPointInRegion(int x, int y, const orc::DropoutRegion& region) const;
     void removeRegionAtPoint(int x, int y);
 
@@ -114,7 +165,21 @@ public:
     };
 
     InteractionMode mode_;
+    
+    // Hover/highlight region type
+    enum class HoverRegionType { None, Source, Addition, Removal };
 
+public:
+    void setZoomLevel(float zoom);
+    float getZoomLevel() const { return zoom_level_; }
+    
+    /**
+     * @brief Set highlighted region (e.g., from list selection)
+     * @param type Type of region (Addition, Removal, None)
+     * @param index Index in the respective list (-1 for none)
+     */
+    void setHighlightedRegion(HoverRegionType type, int index);
+    
 private:
     QPoint drag_start_;
     QPoint drag_current_;
@@ -123,8 +188,10 @@ private:
     
     // Hover highlighting
     int hover_region_index_;  // Index in combined list, -1 for none
-    enum class HoverRegionType { None, Source, Addition, Removal };
     HoverRegionType hover_region_type_;
+    
+    // Zoom support
+    float zoom_level_;  // 1.0 = 100%, 2.0 = 200%, etc.
 };
 
 /**
@@ -168,12 +235,31 @@ private slots:
     void onRegionsModified();
     void onAddDropout();
     void onRemoveDropout();
+    void onZoomIn();
+    void onZoomOut();
+    void onZoomReset();
+    void onMoveDropoutUp();
+    void onMoveDropoutDown();
+    void onDeleteDropout();
+    void onAdditionsListItemClicked(QListWidgetItem* item);
+    void onRemovalsListItemClicked(QListWidgetItem* item);
+    void onFieldViewZoomChanged(float zoom_level);
+    void onAdditionCreated(int index);
+    void onRemovalCreated(int index);
+    void onAdditionClicked(int index);
+    void onRemovalClicked(int index);
+    void onAdditionsListSelectionChanged();
+    void onRemovalsListSelectionChanged();
 
 private:
     void setupUI();
     void loadField(uint64_t field_id);
     void saveCurrentField();
     void updateFieldInfo();
+    void keyPressEvent(QKeyEvent *event) override;
+    
+    // Helper to set button states based on whether an addition or removal is selected
+    void updateButtonStatesForSelection(bool is_addition);
 
     // Source data
     std::shared_ptr<const orc::VideoFieldRepresentation> source_repr_;
@@ -194,6 +280,16 @@ private:
     QListWidget* additions_list_;
     QListWidget* removals_list_;
     DropoutFieldView* field_view_;
+    QScrollArea* scroll_area_;
+    QPushButton* zoom_in_button_;
+    QPushButton* zoom_out_button_;
+    QPushButton* zoom_reset_button_;
+    QLabel* zoom_label_;
+    QPushButton* move_up_button_;
+    QPushButton* move_down_button_;
+    QPushButton* delete_dropout_button_;
+    int selected_addition_index_;  // -1 if none selected
+    int selected_removal_index_;   // -1 if none selected
     
     // Interaction mode
     enum class EditMode {

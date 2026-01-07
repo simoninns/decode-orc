@@ -274,6 +274,13 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         return;
     }
     
+    // Save current show_dropouts state before recreating preview renderer
+    bool show_dropouts = false;
+    if (worker_preview_renderer_) {
+        show_dropouts = worker_preview_renderer_->get_show_dropouts();
+        ORC_LOG_DEBUG("RenderCoordinator: Preserving show_dropouts={}", show_dropouts);
+    }
+    
     // Update DAG
     worker_dag_ = req.dag;
     
@@ -283,6 +290,11 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
     // Recreate all renderers/decoders with new DAG
     try {
         worker_preview_renderer_ = std::make_unique<orc::PreviewRenderer>(worker_dag_);
+        
+        // Restore show_dropouts state
+        worker_preview_renderer_->set_show_dropouts(show_dropouts);
+        ORC_LOG_DEBUG("RenderCoordinator: Restored show_dropouts={}", show_dropouts);
+        
         worker_field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(worker_dag_);
         worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>(worker_dag_);
         worker_dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(worker_dag_);

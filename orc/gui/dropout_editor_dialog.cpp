@@ -11,6 +11,7 @@
 #include "../core/include/logging.h"
 #include <QPainter>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QDialogButtonBox>
 #include <QMessageBox>
 #include <algorithm>
@@ -28,6 +29,7 @@ DropoutFieldView::DropoutFieldView(QWidget *parent)
     , rubber_band_(new QRubberBand(QRubberBand::Rectangle, this))
     , hover_region_index_(-1)
     , hover_region_type_(HoverRegionType::None)
+    , zoom_level_(1.0f)
 {
     setAlignment(Qt::AlignCenter);
     setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
@@ -67,8 +69,13 @@ void DropoutFieldView::clearEdits()
 
 QSize DropoutFieldView::sizeHint() const
 {
-    // Return a fixed size to prevent auto-expansion
-    return QSize(640, 480);
+    // Return the actual field size if available, scaled by zoom
+    if (field_width_ > 0 && field_height_ > 0) {
+        return QSize(static_cast<int>(field_width_ * zoom_level_), 
+                     static_cast<int>(field_height_ * zoom_level_));
+    }
+    // Default size if no field loaded
+    return QSize(800, 600);
 }
 
 void DropoutFieldView::resizeEvent(QResizeEvent *event)
@@ -78,6 +85,71 @@ void DropoutFieldView::resizeEvent(QResizeEvent *event)
     if (!field_data_.empty() && field_width_ > 0 && field_height_ > 0) {
         updateDisplay();
     }
+}
+
+void DropoutFieldView::wheelEvent(QWheelEvent *event)
+{
+    // Zoom in/out with scroll wheel, centered on cursor
+    if (event->modifiers() == Qt::NoModifier) {
+        float delta = event->angleDelta().y() / 120.0f;  // Standard wheel delta is 120 per step
+        float zoom_factor = 1.0f + (delta * 0.1f);  // 10% per wheel step
+        float old_zoom = zoom_level_;
+        float new_zoom = old_zoom * zoom_factor;
+        new_zoom = std::max(0.5f, std::min(4.0f, new_zoom));  // Clamp between 50% and 400%
+        
+        if (new_zoom != zoom_level_) {
+            // Get scroll area and current scroll position
+            QScrollArea* scroll_area = qobject_cast<QScrollArea*>(parentWidget()->parentWidget());
+            if (scroll_area) {
+                // Get mouse position relative to the scroll area viewport
+                QPoint viewport_pos = scroll_area->viewport()->mapFromGlobal(event->globalPosition().toPoint());
+                
+                // Get current scroll position
+                int old_h_scroll = scroll_area->horizontalScrollBar()->value();
+                int old_v_scroll = scroll_area->verticalScrollBar()->value();
+                
+                // Calculate mouse position in content coordinates (before zoom)
+                float content_x = old_h_scroll + viewport_pos.x();
+                float content_y = old_v_scroll + viewport_pos.y();
+                
+                // Apply new zoom
+                zoom_level_ = new_zoom;
+                updateDisplay();
+                
+                // Calculate new scroll position to keep same point under cursor
+                float zoom_ratio = new_zoom / old_zoom;
+                int new_h_scroll = static_cast<int>(content_x * zoom_ratio - viewport_pos.x());
+                int new_v_scroll = static_cast<int>(content_y * zoom_ratio - viewport_pos.y());
+                
+                // Set new scroll position
+                scroll_area->horizontalScrollBar()->setValue(new_h_scroll);
+                scroll_area->verticalScrollBar()->setValue(new_v_scroll);
+                
+                Q_EMIT zoomChanged(zoom_level_);
+            } else {
+                zoom_level_ = new_zoom;
+                updateDisplay();
+                Q_EMIT zoomChanged(zoom_level_);
+            }
+        }
+        
+        event->accept();
+    } else {
+        QLabel::wheelEvent(event);
+    }
+}
+
+void DropoutFieldView::setZoomLevel(float zoom)
+{
+    zoom_level_ = std::max(0.5f, std::min(4.0f, zoom));  // Clamp between 50% and 400%
+    updateDisplay();
+}
+
+void DropoutFieldView::setHighlightedRegion(HoverRegionType type, int index)
+{
+    hover_region_type_ = type;
+    hover_region_index_ = index;
+    updateDisplay();
 }
 
 void DropoutFieldView::updateDisplay()
@@ -162,14 +234,17 @@ void DropoutFieldView::updateDisplay()
 
     // Scale image to fit widget while maintaining aspect ratio
     QPixmap pixmap = QPixmap::fromImage(image);
-    int target_width = width();
-    int target_height = height();
     
-    if (target_width > 0 && target_height > 0) {
-        setPixmap(pixmap.scaled(target_width, target_height, Qt::KeepAspectRatio, Qt::SmoothTransformation));
-    } else {
-        setPixmap(pixmap);
-    }
+    // Apply zoom level by resizing the widget itself
+    int zoomed_width = static_cast<int>(field_width_ * zoom_level_);
+    int zoomed_height = static_cast<int>(field_height_ * zoom_level_);
+    
+    // Resize the label to match the zoomed size
+    resize(zoomed_width, zoomed_height);
+    setFixedSize(zoomed_width, zoomed_height);
+    
+    // Scale the pixmap to the zoomed size
+    setPixmap(pixmap.scaled(zoomed_width, zoomed_height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
 }
 
 void DropoutFieldView::mousePressEvent(QMouseEvent *event)
@@ -201,6 +276,18 @@ void DropoutFieldView::mousePressEvent(QMouseEvent *event)
     float scale_y = static_cast<float>(field_height_) / pm_size.height();
     int field_x = static_cast<int>(click_x * scale_x);
     int field_y = static_cast<int>(click_y * scale_y);
+
+    // If clicking on a hovered region, emit selection signal (works in any mode)
+    if (hover_region_index_ >= 0) {
+        if (hover_region_type_ == HoverRegionType::Addition) {
+            Q_EMIT additionClicked(hover_region_index_);
+            return;  // Don't start drag or other interactions
+        } else if (hover_region_type_ == HoverRegionType::Removal) {
+            Q_EMIT removalClicked(hover_region_index_);
+            return;  // Don't start drag or other interactions
+        }
+        // Source dropouts can't be selected, fall through to normal behavior
+    }
 
     // Check if clicking on existing region for removal mode
     if (mode_ == InteractionMode::RemovingDropout) {
@@ -334,8 +421,10 @@ void DropoutFieldView::mouseReleaseEvent(QMouseEvent *event)
         region.basis = orc::DropoutRegion::DetectionBasis::HINT_DERIVED;
 
         additions_.push_back(region);
+        int new_index = static_cast<int>(additions_.size()) - 1;
         updateDisplay();
         Q_EMIT regionsModified();
+        Q_EMIT additionCreated(new_index);
     }
 }
 
@@ -390,8 +479,10 @@ void DropoutFieldView::removeRegionAtPoint(int x, int y)
             
             if (!already_removed) {
                 removals_.push_back(region);
+                int new_index = static_cast<int>(removals_.size()) - 1;
                 updateDisplay();
                 Q_EMIT regionsModified();
+                Q_EMIT removalCreated(new_index);
             }
             return;
         }
@@ -412,6 +503,8 @@ DropoutEditorDialog::DropoutEditorDialog(
     , total_fields_(0)
     , dropout_map_(existing_map)
     , edit_mode_(EditMode::Add)
+    , selected_addition_index_(-1)
+    , selected_removal_index_(-1)
 {
     if (source_repr_) {
         total_fields_ = source_repr_->field_count();
@@ -457,13 +550,53 @@ void DropoutEditorDialog::setupUI()
     nav_layout->addWidget(field_info_label_);
     nav_layout->addStretch();
 
+    // Add zoom controls to same row
+    nav_layout->addWidget(new QLabel("Zoom:"));
+    
+    zoom_out_button_ = new QPushButton("-");
+    zoom_out_button_->setMaximumWidth(40);
+    connect(zoom_out_button_, &QPushButton::clicked, this, &DropoutEditorDialog::onZoomOut);
+    nav_layout->addWidget(zoom_out_button_);
+    
+    zoom_reset_button_ = new QPushButton("100%");
+    zoom_reset_button_->setMaximumWidth(60);
+    connect(zoom_reset_button_, &QPushButton::clicked, this, &DropoutEditorDialog::onZoomReset);
+    nav_layout->addWidget(zoom_reset_button_);
+    
+    zoom_in_button_ = new QPushButton("+");
+    zoom_in_button_->setMaximumWidth(40);
+    connect(zoom_in_button_, &QPushButton::clicked, this, &DropoutEditorDialog::onZoomIn);
+    nav_layout->addWidget(zoom_in_button_);
+    
+    zoom_label_ = new QLabel("100%");
+    nav_layout->addWidget(zoom_label_);
+
     main_layout->addWidget(nav_group);
 
-    // Field view (top)
+    // Field view (top) - wrap in scroll area for zoom support
+    scroll_area_ = new QScrollArea();
+    scroll_area_->setWidgetResizable(false);
+    scroll_area_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll_area_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scroll_area_->setAlignment(Qt::AlignCenter);
+    scroll_area_->setFrameShape(QFrame::StyledPanel);
     field_view_ = new DropoutFieldView();
+    field_view_->setMinimumSize(400, 300);
     connect(field_view_, &DropoutFieldView::regionsModified,
             this, &DropoutEditorDialog::onRegionsModified);
-    main_layout->addWidget(field_view_, 3);
+    connect(field_view_, &DropoutFieldView::zoomChanged,
+            this, &DropoutEditorDialog::onFieldViewZoomChanged);
+    connect(field_view_, &DropoutFieldView::additionCreated,
+            this, &DropoutEditorDialog::onAdditionCreated);
+    connect(field_view_, &DropoutFieldView::removalCreated,
+            this, &DropoutEditorDialog::onRemovalCreated);
+    connect(field_view_, &DropoutFieldView::additionClicked,
+            this, &DropoutEditorDialog::onAdditionClicked);
+    connect(field_view_, &DropoutFieldView::removalClicked,
+            this, &DropoutEditorDialog::onRemovalClicked);
+    
+    scroll_area_->setWidget(field_view_);
+    main_layout->addWidget(scroll_area_, 3);
 
     // Control panel (bottom) - use horizontal layout for controls
     auto* control_layout = new QHBoxLayout();
@@ -489,10 +622,37 @@ void DropoutEditorDialog::setupUI()
 
     control_layout->addWidget(controls_group);
 
+    // Line adjustment controls
+    auto* adjust_group = new QGroupBox("Adjust Selected Dropout");
+    auto* adjust_layout = new QVBoxLayout(adjust_group);
+    
+    move_up_button_ = new QPushButton("Move Up ↑");
+    move_up_button_->setEnabled(false);
+    connect(move_up_button_, &QPushButton::clicked, this, &DropoutEditorDialog::onMoveDropoutUp);
+    adjust_layout->addWidget(move_up_button_);
+    
+    move_down_button_ = new QPushButton("Move Down ↓");
+    move_down_button_->setEnabled(false);
+    connect(move_down_button_, &QPushButton::clicked, this, &DropoutEditorDialog::onMoveDropoutDown);
+    adjust_layout->addWidget(move_down_button_);
+    
+    delete_dropout_button_ = new QPushButton("Delete");
+    delete_dropout_button_->setEnabled(false);
+    connect(delete_dropout_button_, &QPushButton::clicked, this, &DropoutEditorDialog::onDeleteDropout);
+    adjust_layout->addWidget(delete_dropout_button_);
+    
+    adjust_layout->addWidget(new QLabel("Click a dropout in the\nlist to select it"));
+    
+    control_layout->addWidget(adjust_group);
+
     // Additions list
     auto* additions_group = new QGroupBox("Additions (Green)");
     auto* additions_layout = new QVBoxLayout(additions_group);
     additions_list_ = new QListWidget();
+    connect(additions_list_, &QListWidget::itemClicked, 
+            this, &DropoutEditorDialog::onAdditionsListItemClicked);
+    connect(additions_list_, &QListWidget::itemSelectionChanged,
+            this, &DropoutEditorDialog::onAdditionsListSelectionChanged);
     additions_layout->addWidget(additions_list_);
     control_layout->addWidget(additions_group);
 
@@ -500,6 +660,10 @@ void DropoutEditorDialog::setupUI()
     auto* removals_group = new QGroupBox("Removals (Yellow)");
     auto* removals_layout = new QVBoxLayout(removals_group);
     removals_list_ = new QListWidget();
+    connect(removals_list_, &QListWidget::itemClicked,
+            this, &DropoutEditorDialog::onRemovalsListItemClicked);
+    connect(removals_list_, &QListWidget::itemSelectionChanged,
+            this, &DropoutEditorDialog::onRemovalsListSelectionChanged);
     removals_layout->addWidget(removals_list_);
     control_layout->addWidget(removals_group);
 
@@ -565,6 +729,23 @@ void DropoutEditorDialog::loadField(uint64_t field_id)
 
     // Update field view
     field_view_->setField(field_data, width, height, source_dropouts, additions, removals);
+
+    // Calculate zoom to fit if this is the first field load
+    if (current_field_id_ == 0 && field_id == 0) {
+        // Calculate zoom to fit field in scroll area
+        int available_width = scroll_area_->width() - 20;  // Leave some margin
+        int available_height = scroll_area_->height() - 20;
+        
+        float zoom_x = static_cast<float>(available_width) / width;
+        float zoom_y = static_cast<float>(available_height) / height;
+        float fit_zoom = std::min(zoom_x, zoom_y);
+        
+        // Clamp to valid zoom range and set
+        fit_zoom = std::max(0.5f, std::min(1.0f, fit_zoom));  // Don't zoom in beyond 100% initially
+        field_view_->setZoomLevel(fit_zoom);
+        zoom_label_->setText(QString("%1%").arg(static_cast<int>(fit_zoom * 100)));
+        zoom_reset_button_->setText(QString("%1%").arg(static_cast<int>(fit_zoom * 100)));
+    }
 
     // Update UI
     updateFieldInfo();
@@ -692,4 +873,321 @@ std::map<uint64_t, orc::FieldDropoutMap> DropoutEditorDialog::getDropoutMap() co
     }
 
     return map;
+}
+
+void DropoutEditorDialog::onZoomIn()
+{
+    float current_zoom = field_view_->getZoomLevel();
+    float new_zoom = std::min(4.0f, current_zoom * 1.25f);
+    field_view_->setZoomLevel(new_zoom);
+    zoom_label_->setText(QString("%1%").arg(static_cast<int>(new_zoom * 100)));
+    zoom_reset_button_->setText(QString("%1%").arg(static_cast<int>(new_zoom * 100)));
+}
+
+void DropoutEditorDialog::onZoomOut()
+{
+    float current_zoom = field_view_->getZoomLevel();
+    float new_zoom = std::max(0.5f, current_zoom / 1.25f);
+    field_view_->setZoomLevel(new_zoom);
+    zoom_label_->setText(QString("%1%").arg(static_cast<int>(new_zoom * 100)));
+    zoom_reset_button_->setText(QString("%1%").arg(static_cast<int>(new_zoom * 100)));
+}
+
+void DropoutEditorDialog::onZoomReset()
+{
+    field_view_->setZoomLevel(1.0f);
+    zoom_label_->setText("100%");
+    zoom_reset_button_->setText("100%");
+}
+
+void DropoutEditorDialog::onMoveDropoutUp()
+{
+    if (selected_addition_index_ >= 0) {
+        auto& additions = field_view_->getAdditionsMutable();
+        if (selected_addition_index_ < static_cast<int>(additions.size())) {
+            auto& region = additions[selected_addition_index_];
+            if (region.line > 0) {
+                region.line--;
+                field_view_->updateDisplay();
+                updateFieldInfo();
+                // Re-select the item
+                additions_list_->setCurrentRow(selected_addition_index_);
+            }
+        }
+    } else if (selected_removal_index_ >= 0) {
+        auto& removals = field_view_->getRemovalsMutable();
+        if (selected_removal_index_ < static_cast<int>(removals.size())) {
+            auto& region = removals[selected_removal_index_];
+            if (region.line > 0) {
+                region.line--;
+                field_view_->updateDisplay();
+                updateFieldInfo();
+                // Re-select the item
+                removals_list_->setCurrentRow(selected_removal_index_);
+            }
+        }
+    }
+}
+
+void DropoutEditorDialog::onMoveDropoutDown()
+{
+    if (selected_addition_index_ >= 0) {
+        auto& additions = field_view_->getAdditionsMutable();
+        if (selected_addition_index_ < static_cast<int>(additions.size())) {
+            auto& region = additions[selected_addition_index_];
+            if (region.line < static_cast<uint32_t>(field_view_->getFieldHeight()) - 1) {
+                region.line++;
+                field_view_->updateDisplay();
+                updateFieldInfo();
+                // Re-select the item
+                additions_list_->setCurrentRow(selected_addition_index_);
+            }
+        }
+    } else if (selected_removal_index_ >= 0) {
+        auto& removals = field_view_->getRemovalsMutable();
+        if (selected_removal_index_ < static_cast<int>(removals.size())) {
+            auto& region = removals[selected_removal_index_];
+            if (region.line < static_cast<uint32_t>(field_view_->getFieldHeight()) - 1) {
+                region.line++;
+                field_view_->updateDisplay();
+                updateFieldInfo();
+                // Re-select the item
+                removals_list_->setCurrentRow(selected_removal_index_);
+            }
+        }
+    }
+}
+
+void DropoutEditorDialog::onAdditionsListItemClicked(QListWidgetItem* item)
+{
+    selected_addition_index_ = additions_list_->row(item);
+    selected_removal_index_ = -1;
+    removals_list_->clearSelection();
+    updateButtonStatesForSelection(true);
+}
+
+void DropoutEditorDialog::onRemovalsListItemClicked(QListWidgetItem* item)
+{
+    selected_removal_index_ = removals_list_->row(item);
+    selected_addition_index_ = -1;
+    additions_list_->clearSelection();
+    updateButtonStatesForSelection(false);
+}
+
+void DropoutEditorDialog::updateButtonStatesForSelection(bool is_addition)
+{
+    if (is_addition) {
+        // Additions can be moved up/down and deleted
+        move_up_button_->setEnabled(true);
+        move_down_button_->setEnabled(true);
+        delete_dropout_button_->setEnabled(true);
+    } else {
+        // Removals can only be deleted (moving doesn't make sense)
+        move_up_button_->setEnabled(false);
+        move_down_button_->setEnabled(false);
+        delete_dropout_button_->setEnabled(true);
+    }
+}
+
+void DropoutEditorDialog::onFieldViewZoomChanged(float zoom_level)
+{
+    // Update zoom UI when changed via scroll wheel
+    zoom_label_->setText(QString("%1%").arg(static_cast<int>(zoom_level * 100)));
+    zoom_reset_button_->setText(QString("%1%").arg(static_cast<int>(zoom_level * 100)));
+}
+
+void DropoutEditorDialog::onAdditionCreated(int index)
+{
+    // Auto-select the newly created addition
+    selected_addition_index_ = index;
+    selected_removal_index_ = -1;
+    
+    // Update the lists first to make sure the item exists
+    updateFieldInfo();
+    
+    // Select the item in the list
+    if (index >= 0 && index < additions_list_->count()) {
+        additions_list_->setCurrentRow(index);
+        removals_list_->clearSelection();
+        
+        // Enable adjustment buttons
+        updateButtonStatesForSelection(true);
+    }
+}
+
+void DropoutEditorDialog::onRemovalCreated(int index)
+{
+    // Auto-select the newly created removal
+    selected_removal_index_ = index;
+    selected_addition_index_ = -1;
+    
+    // Update the lists first to make sure the item exists
+    updateFieldInfo();
+    
+    // Select the item in the list
+    if (index >= 0 && index < removals_list_->count()) {
+        removals_list_->setCurrentRow(index);
+        additions_list_->clearSelection();
+        
+        // Enable delete button only (removals can't be moved)
+        updateButtonStatesForSelection(false);
+    }
+}
+
+void DropoutEditorDialog::onAdditionClicked(int index)
+{
+    // Select the clicked addition in the list
+    selected_addition_index_ = index;
+    selected_removal_index_ = -1;
+    
+    if (index >= 0 && index < additions_list_->count()) {
+        additions_list_->setCurrentRow(index);
+        removals_list_->clearSelection();
+        
+        // Enable adjustment buttons
+        updateButtonStatesForSelection(true);
+    }
+}
+
+void DropoutEditorDialog::onRemovalClicked(int index)
+{
+    // Select the clicked removal in the list
+    selected_removal_index_ = index;
+    selected_addition_index_ = -1;
+    
+    if (index >= 0 && index < removals_list_->count()) {
+        removals_list_->setCurrentRow(index);
+        additions_list_->clearSelection();
+        
+        // Enable delete button only (removals can't be moved)
+        updateButtonStatesForSelection(false);
+    }
+}
+
+void DropoutEditorDialog::onAdditionsListSelectionChanged()
+{
+    // Get current selection
+    int current_row = additions_list_->currentRow();
+    
+    if (current_row >= 0) {
+        // Clear the other list's selection
+        removals_list_->clearSelection();
+        
+        // Highlight the selected addition in the field view
+        field_view_->setHighlightedRegion(DropoutFieldView::HoverRegionType::Addition, current_row);
+        
+        // Update selection tracking
+        selected_addition_index_ = current_row;
+        selected_removal_index_ = -1;
+        
+        // Enable adjustment buttons (additions can be moved up/down)
+        updateButtonStatesForSelection(true);
+    } else {
+        // No selection - clear highlight if no removal is selected either
+        if (removals_list_->currentRow() < 0) {
+            field_view_->setHighlightedRegion(DropoutFieldView::HoverRegionType::None, -1);
+        }
+        selected_addition_index_ = -1;
+    }
+}
+
+void DropoutEditorDialog::onRemovalsListSelectionChanged()
+{
+    // Get current selection
+    int current_row = removals_list_->currentRow();
+    
+    if (current_row >= 0) {
+        // Clear the other list's selection
+        additions_list_->clearSelection();
+        
+        // Highlight the selected removal in the field view
+        field_view_->setHighlightedRegion(DropoutFieldView::HoverRegionType::Removal, current_row);
+        
+        // Update selection tracking
+        selected_removal_index_ = current_row;
+        selected_addition_index_ = -1;
+        
+        // Enable delete button only (removals can't be moved, only deleted)
+        updateButtonStatesForSelection(false);
+    } else {
+        // No selection - clear highlight if no addition is selected either
+        if (additions_list_->currentRow() < 0) {
+            field_view_->setHighlightedRegion(DropoutFieldView::HoverRegionType::None, -1);
+        }
+        selected_removal_index_ = -1;
+    }
+}
+
+void DropoutEditorDialog::onDeleteDropout()
+{
+    if (selected_addition_index_ >= 0) {
+        auto& additions = field_view_->getAdditionsMutable();
+        if (selected_addition_index_ < static_cast<int>(additions.size())) {
+            additions.erase(additions.begin() + selected_addition_index_);
+            selected_addition_index_ = -1;
+            move_up_button_->setEnabled(false);
+            move_down_button_->setEnabled(false);
+            delete_dropout_button_->setEnabled(false);
+            field_view_->updateDisplay();
+            updateFieldInfo();
+            additions_list_->clearSelection();
+        }
+    } else if (selected_removal_index_ >= 0) {
+        auto& removals = field_view_->getRemovalsMutable();
+        if (selected_removal_index_ < static_cast<int>(removals.size())) {
+            removals.erase(removals.begin() + selected_removal_index_);
+            selected_removal_index_ = -1;
+            move_up_button_->setEnabled(false);
+            move_down_button_->setEnabled(false);
+            delete_dropout_button_->setEnabled(false);
+            field_view_->updateDisplay();
+            updateFieldInfo();
+            removals_list_->clearSelection();
+        }
+    }
+}
+
+void DropoutEditorDialog::keyPressEvent(QKeyEvent *event)
+{
+    // Arrow keys for panning
+    const int pan_step = 50;  // pixels to pan per keypress
+    
+    switch (event->key()) {
+        case Qt::Key_Left:
+            scroll_area_->horizontalScrollBar()->setValue(
+                scroll_area_->horizontalScrollBar()->value() - pan_step);
+            event->accept();
+            break;
+        case Qt::Key_Right:
+            scroll_area_->horizontalScrollBar()->setValue(
+                scroll_area_->horizontalScrollBar()->value() + pan_step);
+            event->accept();
+            break;
+        case Qt::Key_Up:
+            scroll_area_->verticalScrollBar()->setValue(
+                scroll_area_->verticalScrollBar()->value() - pan_step);
+            event->accept();
+            break;
+        case Qt::Key_Down:
+            scroll_area_->verticalScrollBar()->setValue(
+                scroll_area_->verticalScrollBar()->value() + pan_step);
+            event->accept();
+            break;
+        case Qt::Key_Plus:
+        case Qt::Key_Equal:  // For US keyboards where + is Shift+=
+            onZoomIn();
+            event->accept();
+            break;
+        case Qt::Key_Minus:
+            onZoomOut();
+            event->accept();
+            break;
+        case Qt::Key_0:
+            onZoomReset();
+            event->accept();
+            break;
+        default:
+            QDialog::keyPressEvent(event);
+            break;
+    }
 }

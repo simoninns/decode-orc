@@ -17,6 +17,7 @@ void force_link_DropoutCorrectStage();
 void force_link_DropoutMapStage();
 void force_link_FieldInvertStage();
 void force_link_FieldMapStage();
+void force_link_MaskLineStage();
 void force_link_SourceAlignStage();
 void force_link_LDSinkStage();
 void force_link_StackerStage();
@@ -50,6 +51,7 @@ void force_stage_linking() {
     force_link_DropoutMapStage();
     force_link_FieldInvertStage();
     force_link_FieldMapStage();
+    force_link_MaskLineStage();
     force_link_SourceAlignStage();
     force_link_LDSinkStage();
     force_link_StackerStage();

@@ -16,6 +16,7 @@
 #include "snr/snr_analysis.h"
 #include "burst_level/burst_level_analysis.h"
 #include "source_alignment/source_alignment_analysis.h"
+#include "mask_line/mask_line_analysis.h"
 #include "logging.h"
 #include <memory>
 
@@ -41,6 +42,7 @@ void force_analysis_tool_linking() {
     [[maybe_unused]] auto dummy7 = std::make_unique<SNRAnalysisTool>();
     [[maybe_unused]] auto dummy8 = std::make_unique<BurstLevelAnalysisTool>();
     [[maybe_unused]] auto dummy9 = std::make_unique<SourceAlignmentAnalysisTool>();
+    [[maybe_unused]] auto dummy10 = std::make_unique<MaskLineAnalysisTool>();
     ORC_LOG_DEBUG("Analysis tool linking complete");
 }
 

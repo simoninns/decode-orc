@@ -77,6 +77,9 @@ add_library(orc-core STATIC
     # Source alignment analysis
     analysis/source_alignment/source_alignment_analysis.cpp
     
+    # Mask line configuration
+    analysis/mask_line/mask_line_analysis.cpp
+    
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
@@ -86,6 +89,7 @@ add_library(orc-core STATIC
     stages/dropout_map/dropout_map_stage.cpp
     stages/field_invert/field_invert_stage.cpp
     stages/field_map/field_map_stage.cpp
+    stages/mask_line/mask_line_stage.cpp
     stages/source_align/source_align_stage.cpp
     stages/stacker/stacker_stage.cpp
     stages/chroma_sink/chroma_sink_stage.cpp

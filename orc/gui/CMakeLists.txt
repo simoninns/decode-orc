@@ -84,6 +84,10 @@ add_executable(orc-gui
     masklineconfigdialog.cpp
     masklineconfigdialog.h
     
+    # FFmpeg preset config dialog
+    ffmpegpresetdialog.cpp
+    ffmpegpresetdialog.h
+    
     # Dropout analysis dialog
     dropoutanalysisdialog.cpp
     dropoutanalysisdialog.h

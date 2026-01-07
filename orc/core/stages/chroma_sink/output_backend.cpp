@@ -27,7 +27,8 @@ std::unique_ptr<OutputBackend> OutputBackendFactory::create(const std::string& f
     // Encoded formats (require FFmpeg)
     if (format.find("mp4-") == 0 || 
         format.find("mkv-") == 0 || 
-        format.find("mov-") == 0) {
+        format.find("mov-") == 0 ||
+        format.find("mxf-") == 0) {
         return std::make_unique<FFmpegOutputBackend>();
     }
 #endif
@@ -41,8 +42,29 @@ std::vector<std::string> OutputBackendFactory::getSupportedFormats()
     std::vector<std::string> formats = {"rgb", "yuv", "y4m"};
     
 #ifdef HAVE_FFMPEG
-    formats.push_back("mp4-h264");
+    // Lossless/Archive formats
     formats.push_back("mkv-ffv1");
+    
+    // ProRes formats (variant selected by prores_profile parameter)
+    formats.push_back("mov-prores");
+    
+    // Uncompressed formats
+    formats.push_back("mov-v210");
+    formats.push_back("mov-v410");
+    
+    // D10 (Sony IMX/XDCAM)
+    formats.push_back("mxf-mpeg2video");
+    
+    // H.264 formats (hardware variant selected by hardware_encoder parameter)
+    formats.push_back("mp4-h264");
+    formats.push_back("mov-h264");
+    
+    // H.265 formats (hardware variant selected by hardware_encoder parameter)
+    formats.push_back("mp4-hevc");
+    formats.push_back("mov-hevc");
+    
+    // AV1 format
+    formats.push_back("mp4-av1");
 #endif
     
     return formats;

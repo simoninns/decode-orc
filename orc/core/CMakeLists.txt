@@ -80,6 +80,9 @@ add_library(orc-core STATIC
     # Mask line configuration
     analysis/mask_line/mask_line_analysis.cpp
     
+    # FFmpeg preset configuration
+    analysis/ffmpeg_preset/ffmpeg_preset_analysis.cpp
+    
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp

@@ -196,6 +196,38 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
              ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}
         },
         ParameterDescriptor{
+            "hardware_encoder",
+            "Hardware Encoder",
+            "Use hardware accelerated encoding (none, vaapi, nvenc, qsv, amf, videotoolbox). Auto-detection in preset dialog.",
+            ParameterType::STRING,
+            {{}, {}, {}, {"none", "vaapi", "nvenc", "qsv", "amf", "videotoolbox"}, false,
+             ParameterDependency{"output_format", {"mp4-h264", "mp4-hevc", "mov-h264", "mov-hevc"}}}
+        },
+        ParameterDescriptor{
+            "prores_profile",
+            "ProRes Profile",
+            "ProRes quality profile: proxy, lt, standard, hq (default), 4444, 4444xq",
+            ParameterType::STRING,
+            {{}, {}, {}, {"proxy", "lt", "standard", "hq", "4444", "4444xq"}, false,
+             ParameterDependency{"output_format", {"mov-prores"}}}
+        },
+        ParameterDescriptor{
+            "use_lossless_mode",
+            "Use Lossless Mode",
+            "Enable mathematically lossless encoding (H.264/H.265/AV1 only, overrides CRF)",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false,
+             ParameterDependency{"output_format", {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}
+        },
+        ParameterDescriptor{
+            "apply_deinterlace",
+            "Apply Deinterlacing",
+            "Apply bwdif deinterlacing filter for progressive web playback",
+            ParameterType::BOOL,
+            {{}, {}, false, {}, false,
+             ParameterDependency{"output_format", {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}
+        },
+        ParameterDescriptor{
             "embed_audio",
             "Embed Analogue Audio",
             "Embed analogue audio in output file (requires audio in source, MP4/MKV only)",
@@ -206,10 +238,10 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
         ParameterDescriptor{
             "embed_closed_captions",
             "Embed Closed Captions",
-            "Embed closed captions as mov_text subtitles (converts EIA-608 to text, MP4 only)",
+            "Embed closed captions as mov_text subtitles (converts EIA-608 to text, MP4/MOV only)",
             ParameterType::BOOL,
             {{}, {}, false, {}, false,
-             ParameterDependency{"output_format", {"mp4-h264"}}}
+             ParameterDependency{"output_format", {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}
         }
     };
     

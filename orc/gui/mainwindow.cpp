@@ -18,6 +18,7 @@
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
 #include "masklineconfigdialog.h"
+#include "ffmpegpresetdialog.h"
 #include "qualitymetricsdialog.h"
 #include "projectpropertiesdialog.h"
 #include "stageparameterdialog.h"
@@ -1864,6 +1865,70 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
                 
                 statusBar()->showMessage(
                     QString("Applied mask line configuration to '%1'")
+                        .arg(QString::fromStdString(node_id.to_string())),
+                    3000
+                );
+            } catch (const std::exception& e) {
+                QMessageBox::critical(this, "Configuration Error",
+                    QString("Failed to apply configuration: %1")
+                        .arg(QString::fromStdString(e.what())));
+            }
+        }
+        
+        return;
+    }
+
+    // Special-case: FFmpeg Preset Configuration uses a custom preset dialog
+    if (tool->id() == "ffmpeg_preset_config") {
+        ORC_LOG_DEBUG("Opening FFmpeg preset configuration dialog for node '{}'", node_id.to_string());
+        
+        // Get current parameters from the node
+        auto& project = project_.coreProject();
+        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
+            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        
+        if (node_it == project.get_nodes().end()) {
+            QMessageBox::warning(this, "Error",
+                "Could not find node in project.");
+            return;
+        }
+        
+        // Create and show the preset dialog
+        FFmpegPresetDialog dialog(this);
+        
+        // Load current parameters
+        dialog.set_parameters(node_it->parameters);
+        
+        // Show dialog and apply if accepted
+        if (dialog.exec() == QDialog::Accepted) {
+            auto new_params = dialog.get_parameters();
+            
+            ORC_LOG_DEBUG("FFmpeg preset config accepted, applying parameters");
+            
+            try {
+                // Update node parameters using project_io
+                orc::project_io::set_node_parameters(project, node_id, new_params);
+                
+                // Mark project as modified
+                project_.setModified(true);
+                
+                // Update UI to reflect modified state
+                updateUIState();
+                
+                // Rebuild DAG to pick up the new parameter values
+                project_.rebuildDAG();
+                
+                // Update the preview renderer with the new DAG
+                updatePreviewRenderer();
+                
+                // Refresh QtNodes view
+                dag_model_->refresh();
+                
+                // Update the preview to show the changes
+                updatePreview();
+                
+                statusBar()->showMessage(
+                    QString("Applied FFmpeg export preset to '%1'")
                         .arg(QString::fromStdString(node_id.to_string())),
                     3000
                 );

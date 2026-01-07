@@ -108,6 +108,27 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     container_format_ = format_str.substr(0, dash_pos);
     codec_name_ = format_str.substr(dash_pos + 1);
     
+    // Get hardware encoder preference
+    std::string hardware_encoder = "none";
+    auto hw_it = config.options.find("hardware_encoder");
+    if (hw_it != config.options.end()) {
+        hardware_encoder = hw_it->second;
+    }
+    
+    // Get ProRes profile preference
+    std::string prores_profile = "hq";
+    auto prores_it = config.options.find("prores_profile");
+    if (prores_it != config.options.end()) {
+        prores_profile = prores_it->second;
+    }
+    
+    // Get lossless mode preference
+    bool use_lossless = false;
+    auto lossless_it = config.options.find("use_lossless_mode");
+    if (lossless_it != config.options.end()) {
+        use_lossless = (lossless_it->second == "true" || lossless_it->second == "1");
+    }
+    
     // Store encoder quality settings
     encoder_preset_ = config.encoder_preset;
     encoder_crf_ = config.encoder_crf;
@@ -126,23 +147,87 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     std::string ffmpeg_format = container_format_;
     if (container_format_ == "mkv") {
         ffmpeg_format = "matroska";
+    } else if (container_format_ == "mov") {
+        ffmpeg_format = "mov";
+    } else if (container_format_ == "mxf") {
+        ffmpeg_format = "mxf_d10";  // D10 variant
+    } else if (container_format_ == "mp4") {
+        ffmpeg_format = "mp4";
     }
     
-    ORC_LOG_DEBUG("FFmpegOutputBackend: Initializing {} output with {} codec", container_format_, codec_name_);
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Initializing {} output with {} codec (hardware: {}, lossless: {})", 
+                  container_format_, codec_name_, hardware_encoder, use_lossless);
     
     // Map codec names to FFmpeg codec IDs with fallbacks
     std::vector<std::string> codec_candidates;
     if (codec_name_ == "h264") {
-        // Try encoders in order of preference: libx264, libopenh264, hardware encoders
-        codec_candidates = {"libx264", "libopenh264", "h264_vaapi", "h264_qsv", "h264_nvenc"};
-    } else if (codec_name_ == "h265" || codec_name_ == "hevc") {
-        codec_candidates = {"libx265", "hevc_vaapi", "hevc_qsv", "hevc_nvenc"};
+        // Apply hardware encoder preference
+        if (hardware_encoder == "vaapi") {
+            codec_candidates = {"h264_vaapi", "libx264"};
+        } else if (hardware_encoder == "nvenc") {
+            codec_candidates = {"h264_nvenc", "libx264"};
+        } else if (hardware_encoder == "qsv") {
+            codec_candidates = {"h264_qsv", "libx264"};
+        } else if (hardware_encoder == "amf") {
+            codec_candidates = {"h264_amf", "libx264"};
+        } else if (hardware_encoder == "videotoolbox") {
+            codec_candidates = {"h264_videotoolbox", "libx264"};
+        } else {
+            // None/auto: prefer software encoder
+            codec_candidates = {"libx264", "libopenh264"};
+        }
+    } else if (codec_name_ == "hevc") {
+        // Apply hardware encoder preference
+        if (hardware_encoder == "vaapi") {
+            codec_candidates = {"hevc_vaapi", "libx265"};
+        } else if (hardware_encoder == "nvenc") {
+            codec_candidates = {"hevc_nvenc", "libx265"};
+        } else if (hardware_encoder == "qsv") {
+            codec_candidates = {"hevc_qsv", "libx265"};
+        } else if (hardware_encoder == "amf") {
+            codec_candidates = {"hevc_amf", "libx265"};
+        } else if (hardware_encoder == "videotoolbox") {
+            codec_candidates = {"hevc_videotoolbox", "libx265"};
+        } else {
+            codec_candidates = {"libx265"};
+        }
+    } else if (codec_name_ == "av1") {
+        // Apply hardware encoder preference
+        if (hardware_encoder == "vaapi") {
+            codec_candidates = {"av1_vaapi", "libsvtav1", "libaom-av1"};
+        } else if (hardware_encoder == "nvenc") {
+            codec_candidates = {"av1_nvenc", "libsvtav1", "libaom-av1"};
+        } else if (hardware_encoder == "qsv") {
+            codec_candidates = {"av1_qsv", "libsvtav1", "libaom-av1"};
+        } else if (hardware_encoder == "amf") {
+            codec_candidates = {"av1_amf", "libsvtav1", "libaom-av1"};
+        } else {
+            codec_candidates = {"libsvtav1", "libaom-av1"};
+        }
+    } else if (codec_name_ == "prores") {
+        // Apply ProRes profile preference
+        if (hardware_encoder == "videotoolbox") {
+            codec_candidates = {"prores_videotoolbox", "prores_ks", "prores"};
+        } else {
+            // Software encoder
+            codec_candidates = {"prores_ks", "prores"};
+        }
     } else if (codec_name_ == "ffv1") {
         codec_candidates = {"ffv1"};
+    } else if (codec_name_ == "v210") {
+        codec_candidates = {"v210"};
+    } else if (codec_name_ == "v410") {
+        codec_candidates = {"v410"};
+    } else if (codec_name_ == "mpeg2video") {
+        codec_candidates = {"mpeg2video"};
     } else {
         ORC_LOG_ERROR("FFmpegOutputBackend: Unknown codec '{}'", codec_name_);
         return false;
     }
+    
+    // Store lossless mode for later use in setupEncoder
+    use_lossless_mode_ = use_lossless;
+    prores_profile_ = prores_profile;
     
     // Allocate format context
     int ret = avformat_alloc_output_context2(&format_ctx_, nullptr, ffmpeg_format.c_str(), config.output_path.c_str());
@@ -194,19 +279,26 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     }
     
     // Setup subtitle encoder for closed captions if requested
-    // We decode all captions upfront and store them as timed cues
+    // Note: Closed captions are only supported in MP4/MOV containers
     if (embed_closed_captions_ && vfr_) {
-        ORC_LOG_DEBUG("FFmpegOutputBackend: Setting up subtitle encoder for closed captions");
-        if (!setupSubtitleEncoder()) {
-            ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup subtitle encoder");
-            cleanup();
-            return false;
+        if (container_format_ != "mp4" && container_format_ != "mov") {
+            ORC_LOG_WARN("FFmpegOutputBackend: Closed captions only supported in MP4/MOV containers, disabling");
+            embed_closed_captions_ = false;
+        } else {
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Setting up subtitle encoder for closed captions");
+            if (!setupSubtitleEncoder()) {
+                ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup subtitle encoder");
+                cleanup();
+                return false;
+            }
+            
+            // Process all fields to extract closed caption cues
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Decoding closed captions from all fields");
+            eia608_decoder_ = std::make_unique<EIA608Decoder>();
         }
-        
-        // Process all fields to extract closed caption cues
-        ORC_LOG_DEBUG("FFmpegOutputBackend: Decoding closed captions from all fields");
-        eia608_decoder_ = std::make_unique<EIA608Decoder>();
-        
+    }
+    
+    if (embed_closed_captions_ && eia608_decoder_) {
         ClosedCaptionObserver cc_observer;
         ObservationHistory history;
         
@@ -286,15 +378,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
         return false;
     }
     
-    // Create stream
-    stream_ = avformat_new_stream(format_ctx_, nullptr);
-    if (!stream_) {
-        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create stream");
-        return false;
-    }
-    stream_->id = format_ctx_->nb_streams - 1;
-    
-    // Allocate codec context
+    // Allocate codec context first (before creating stream)
     codec_ctx_ = avcodec_alloc_context3(codec);
     if (!codec_ctx_) {
         ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate codec context");
@@ -334,12 +418,37 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     
     codec_ctx_->time_base = time_base_;
     codec_ctx_->framerate = av_inv_q(time_base_);
-    stream_->time_base = time_base_;
     
     // Select pixel format based on what the encoder supports
     // Our source is YUV444P16LE, but most encoders don't support that
     // We'll convert during encoding using swscale
-    if (codec_id == "libx264" || codec_id == "libx265") {
+    if (codec_id == "ffv1") {
+        // FFV1 supports high bit depth
+        codec_ctx_->pix_fmt = AV_PIX_FMT_YUV422P10LE;
+    } else if (codec_id == "prores" || codec_id == "prores_ks") {
+        // ProRes format depends on profile
+        if (codec_name_ == "prores_4444" || codec_name_ == "prores_4444xq") {
+            codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P10LE;
+        } else {
+            codec_ctx_->pix_fmt = AV_PIX_FMT_YUV422P10LE;
+        }
+    } else if (codec_id == "prores_videotoolbox") {
+        // VideoToolbox ProRes uses different formats
+        if (codec_name_ == "prores_4444" || codec_name_ == "prores_4444xq") {
+            codec_ctx_->pix_fmt = AV_PIX_FMT_P416LE;
+        } else {
+            codec_ctx_->pix_fmt = AV_PIX_FMT_UYVY422;
+        }
+    } else if (codec_id == "v210") {
+        // V210 is 10-bit 4:2:2
+        codec_ctx_->pix_fmt = AV_PIX_FMT_YUV422P10LE;
+    } else if (codec_id == "v410") {
+        // V410 is 10-bit 4:4:4
+        codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P10LE;
+    } else if (codec_id == "mpeg2video") {
+        // MPEG-2 (D10) uses 8-bit 4:2:2
+        codec_ctx_->pix_fmt = AV_PIX_FMT_YUV422P;
+    } else if (codec_id == "libx264" || codec_id == "libx265") {
         // libx264/libx265 support high quality formats
         codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P;  // 8-bit 4:4:4
     } else if (codec_id == "libopenh264") {
@@ -354,18 +463,108 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     } else if (codec_id.find("_nvenc") != std::string::npos) {
         // NVENC typically uses NV12
         codec_ctx_->pix_fmt = AV_PIX_FMT_NV12;
+    } else if (codec_id.find("_amf") != std::string::npos) {
+        // AMD AMF uses NV12
+        codec_ctx_->pix_fmt = AV_PIX_FMT_NV12;
+    } else if (codec_id.find("_videotoolbox") != std::string::npos) {
+        // Apple VideoToolbox
+        codec_ctx_->pix_fmt = AV_PIX_FMT_VIDEOTOOLBOX;
+    } else if (codec_id == "libsvtav1" || codec_id == "libaom-av1") {
+        // AV1 encoders
+        codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
     } else {
         // Default fallback
         codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
     }
     
     // Codec-specific settings
-    if (codec_id == "libx264" || codec_id == "libx265") {
+    if (codec_id == "ffv1") {
+        // FFV1 lossless settings (from tbc-video-export)
+        av_opt_set(codec_ctx_->priv_data, "coder", "1", 0);
+        av_opt_set(codec_ctx_->priv_data, "context", "1", 0);
+        av_opt_set(codec_ctx_->priv_data, "slices", "4", 0);
+        av_opt_set(codec_ctx_->priv_data, "slicecrc", "1", 0);
+        av_opt_set_int(codec_ctx_->priv_data, "level", 3, 0);
+        codec_ctx_->gop_size = 1;  // Intra-only
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using FFV1 lossless settings");
+    } else if (codec_id == "prores" || codec_id == "prores_ks") {
+        // ProRes settings - use prores_profile_ parameter
+        int profile_num = 3;  // Default to HQ
+        if (prores_profile_ == "proxy") {
+            profile_num = 0;
+        } else if (prores_profile_ == "lt") {
+            profile_num = 1;
+        } else if (prores_profile_ == "standard") {
+            profile_num = 2;
+        } else if (prores_profile_ == "hq") {
+            profile_num = 3;
+        } else if (prores_profile_ == "4444") {
+            profile_num = 4;
+            codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P10LE;  // 4444 needs 4:4:4
+        } else if (prores_profile_ == "4444xq" || prores_profile_ == "xq") {
+            profile_num = 5;
+            codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P10LE;  // XQ needs 4:4:4
+        }
+        
+        char profile_str[16];
+        snprintf(profile_str, sizeof(profile_str), "%d", profile_num);
+        av_opt_set(codec_ctx_->priv_data, "profile", profile_str, 0);
+        av_opt_set(codec_ctx_->priv_data, "vendor", "apl0", 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using ProRes profile: {}", prores_profile_);
+    } else if (codec_id == "prores_videotoolbox") {
+        // Apple VideoToolbox ProRes - use prores_profile_ parameter
+        std::string vt_profile = "hq";  // Default
+        if (prores_profile_ == "4444xq" || prores_profile_ == "xq") {
+            vt_profile = "xq";
+            codec_ctx_->pix_fmt = AV_PIX_FMT_P416LE;  // XQ needs 4:4:4
+        } else if (prores_profile_ == "4444") {
+            vt_profile = "4444";
+            codec_ctx_->pix_fmt = AV_PIX_FMT_P416LE;  // 4444 needs 4:4:4
+        } else {
+            vt_profile = prores_profile_;  // Use as-is for proxy/lt/standard/hq
+        }
+        
+        av_opt_set(codec_ctx_->priv_data, "profile", vt_profile.c_str(), 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using ProRes VideoToolbox profile: {}", vt_profile);
+    } else if (codec_id == "v210" || codec_id == "v410") {
+        // V210/V410 are uncompressed, no special settings needed
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using uncompressed {} codec", codec_id);
+    } else if (codec_id == "mpeg2video") {
+        // D10 (Sony IMX/XDCAM) settings
+        bool is_pal = (params.system == VideoSystem::PAL || params.system == VideoSystem::PAL_M);
+        int64_t bitrate = is_pal ? 50000000 : 49999840;  // 50 Mbps PAL, ~50 Mbps NTSC
+        int bufsize = is_pal ? 2000000 : 1668328;
+        
+        codec_ctx_->bit_rate = bitrate;
+        codec_ctx_->rc_min_rate = bitrate;
+        codec_ctx_->rc_max_rate = bitrate;
+        codec_ctx_->rc_buffer_size = bufsize;
+        codec_ctx_->rc_initial_buffer_occupancy = bufsize;
+        codec_ctx_->gop_size = 1;  // Intra-only (I-frame only)
+        codec_ctx_->qmin = 1;
+        codec_ctx_->qmax = 3;
+        
+        av_opt_set(codec_ctx_->priv_data, "intra_vlc", "1", 0);
+        av_opt_set(codec_ctx_->priv_data, "non_linear_quant", "1", 0);
+        av_opt_set_int(codec_ctx_->priv_data, "dc", 10, 0);
+        av_opt_set_int(codec_ctx_->priv_data, "ps", 1, 0);
+        
+        // Set interlaced flags
+        codec_ctx_->flags |= AV_CODEC_FLAG_INTERLACED_DCT | AV_CODEC_FLAG_INTERLACED_ME | AV_CODEC_FLAG_LOW_DELAY;
+        
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using D10 settings ({})", is_pal ? "PAL" : "NTSC");
+    } else if (codec_id == "libx264" || codec_id == "libx265") {
         // Use user-specified preset and quality settings
         av_opt_set(codec_ctx_->priv_data, "preset", encoder_preset_.c_str(), 0);
         
-        // Use CRF or bitrate based on encoder_bitrate setting
-        if (encoder_bitrate_ > 0) {
+        if (use_lossless_mode_) {
+            // Lossless mode
+            av_opt_set(codec_ctx_->priv_data, "qp", "0", 0);
+            if (codec_id == "libx264") {
+                codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P;  // Use 4:4:4 for lossless
+            }
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Using lossless mode");
+        } else if (encoder_bitrate_ > 0) {
             // Explicit bitrate mode
             codec_ctx_->bit_rate = encoder_bitrate_;
             ORC_LOG_DEBUG("FFmpegOutputBackend: Using bitrate mode: {} bps", encoder_bitrate_);
@@ -376,6 +575,91 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
             av_opt_set(codec_ctx_->priv_data, "crf", crf_str, 0);
             ORC_LOG_DEBUG("FFmpegOutputBackend: Using CRF mode: {}", encoder_crf_);
         }
+        
+        // Add interlaced flag if not deinterlacing
+        // TODO: check for apply_deinterlace parameter
+        if (codec_id == "libx264") {
+            av_opt_set(codec_ctx_->priv_data, "x264opts", "interlaced=1", 0);
+        } else {
+            av_opt_set(codec_ctx_->priv_data, "x265-params", "interlace=true", 0);
+        }
+    } else if (codec_id == "libsvtav1" || codec_id == "libaom-av1") {
+        // AV1 encoder settings
+        if (use_lossless_mode_) {
+            // Lossless AV1
+            if (codec_id == "libaom-av1") {
+                av_opt_set(codec_ctx_->priv_data, "cpu-used", "4", 0);
+                av_opt_set(codec_ctx_->priv_data, "crf", "0", 0);
+                av_opt_set(codec_ctx_->priv_data, "lossless", "1", 0);
+            } else {
+                // SVT-AV1 doesn't have direct lossless mode, use CRF=0
+                av_opt_set(codec_ctx_->priv_data, "crf", "0", 0);
+            }
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Using AV1 lossless mode");
+        } else {
+            // Quality mode
+            if (codec_id == "libsvtav1") {
+                av_opt_set(codec_ctx_->priv_data, "preset", "6", 0);
+                av_opt_set_int(codec_ctx_->priv_data, "crf", encoder_crf_, 0);
+            } else {
+                av_opt_set(codec_ctx_->priv_data, "cpu-used", "4", 0);
+                av_opt_set_int(codec_ctx_->priv_data, "crf", encoder_crf_, 0);
+            }
+            ORC_LOG_DEBUG("FFmpegOutputBackend: Using AV1 CRF mode: {}", encoder_crf_);
+        }
+    } else if (codec_id == "h264_vaapi" || codec_id == "hevc_vaapi") {
+        // VA-API settings
+        av_opt_set(codec_ctx_->priv_data, "rc_mode", "CQP", 0);
+        av_opt_set_int(codec_ctx_->priv_data, "global_quality", 24, 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using VA-API settings");
+    } else if (codec_id == "h264_nvenc" || codec_id == "hevc_nvenc") {
+        // NVENC settings
+        av_opt_set(codec_ctx_->priv_data, "rc", "constqp", 0);
+        int qp = (codec_id == "h264_nvenc") ? 22 : 24;
+        av_opt_set_int(codec_ctx_->priv_data, "qp", qp, 0);
+        if (codec_id == "hevc_nvenc") {
+            av_opt_set_int(codec_ctx_->priv_data, "b_ref_mode", 0, 0);
+        }
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using NVENC settings");
+    } else if (codec_id == "h264_qsv" || codec_id == "hevc_qsv") {
+        // Intel QuickSync settings
+        av_opt_set_int(codec_ctx_->priv_data, "global_quality", 19, 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using QuickSync settings");
+    } else if (codec_id == "h264_amf" || codec_id == "hevc_amf") {
+        // AMD AMF settings
+        av_opt_set_int(codec_ctx_->priv_data, "quality", 2, 0);
+        av_opt_set(codec_ctx_->priv_data, "rc", "cqp", 0);
+        av_opt_set_int(codec_ctx_->priv_data, "qp_i", 28, 0);
+        av_opt_set_int(codec_ctx_->priv_data, "qp_p", 28, 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using AMF settings");
+    } else if (codec_id == "h264_videotoolbox" || codec_id == "hevc_videotoolbox") {
+        // Apple VideoToolbox settings
+        av_opt_set(codec_ctx_->priv_data, "profile", "main", 0);
+        av_opt_set_int(codec_ctx_->priv_data, "q", 60, 0);
+        if (codec_id == "hevc_videotoolbox") {
+            stream_->codecpar->codec_tag = MKTAG('h','v','c','1');
+        } else {
+            stream_->codecpar->codec_tag = MKTAG('h','v','c','1');
+        }
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using VideoToolbox settings");
+    } else if (codec_id == "libsvtav1") {
+        // SVT-AV1 settings
+        av_opt_set_int(codec_ctx_->priv_data, "crf", 24, 0);
+        av_opt_set_int(codec_ctx_->priv_data, "cpu-used", 6, 0);
+        av_opt_set_int(codec_ctx_->priv_data, "row-mt", 1, 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using SVT-AV1 settings");
+    } else if (codec_id == "libaom-av1") {
+        // libaom-av1 settings
+        if (codec_name_ == "av1_lossless") {
+            av_opt_set_int(codec_ctx_->priv_data, "crf", 0, 0);
+            av_opt_set(codec_ctx_->priv_data, "aom-params", "lossless=1", 0);
+        } else {
+            av_opt_set_int(codec_ctx_->priv_data, "crf", 24, 0);
+        }
+        av_opt_set_int(codec_ctx_->priv_data, "cpu-used", 6, 0);
+        av_opt_set_int(codec_ctx_->priv_data, "row-mt", 1, 0);
+        av_opt_set_int(codec_ctx_->priv_data, "error-resilience", 1, 0);
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using libaom-av1 settings");
     } else if (codec_id == "libopenh264") {
         // OpenH264 doesn't support CRF, use bitrate
         if (encoder_bitrate_ > 0) {
@@ -387,7 +671,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     } else if (codec_id.find("_vaapi") != std::string::npos || 
                codec_id.find("_qsv") != std::string::npos ||
                codec_id.find("_nvenc") != std::string::npos) {
-        // Hardware encoders - use bitrate mode
+        // Hardware encoders - use bitrate mode (fallback for unhandled variants)
         if (encoder_bitrate_ > 0) {
             codec_ctx_->bit_rate = encoder_bitrate_;
         } else {
@@ -440,8 +724,19 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
         char errbuf[AV_ERROR_MAX_STRING_SIZE];
         av_strerror(ret, errbuf, sizeof(errbuf));
         ORC_LOG_ERROR("FFmpegOutputBackend: Failed to open codec: {}", errbuf);
+        avcodec_free_context(&codec_ctx_);
         return false;
     }
+    
+    // Now create the stream (only after codec is successfully opened)
+    stream_ = avformat_new_stream(format_ctx_, nullptr);
+    if (!stream_) {
+        ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create stream");
+        avcodec_free_context(&codec_ctx_);
+        return false;
+    }
+    stream_->id = format_ctx_->nb_streams - 1;
+    stream_->time_base = time_base_;
     
     // Copy codec parameters to stream
     ret = avcodec_parameters_from_context(stream_->codecpar, codec_ctx_);
@@ -801,10 +1096,35 @@ std::string FFmpegOutputBackend::getFormatInfo() const
 
 bool FFmpegOutputBackend::setupAudioEncoder()
 {
-    // Find AAC encoder
-    const AVCodec* audio_codec = avcodec_find_encoder(AV_CODEC_ID_AAC);
+    // Determine audio codec based on video codec/container
+    AVCodecID audio_codec_id;
+    int sample_rate = 44100;  // Source audio is 44.1kHz (from TBC/ld-decode)
+    int64_t bit_rate = 256000;  // Default bitrate for AAC
+    int compression_level = 12;  // For FLAC
+    
+    // Select audio codec based on video codec
+    if (codec_name_ == "ffv1") {
+        // FFV1 uses FLAC
+        audio_codec_id = AV_CODEC_ID_FLAC;
+        sample_rate = 44100;  // Keep original 44.1kHz
+    } else if (codec_name_.find("prores") != std::string::npos || 
+               codec_name_.find("v210") != std::string::npos ||
+               codec_name_.find("v410") != std::string::npos ||
+               codec_name_.find("mpeg2video") != std::string::npos) {
+        // ProRes, V210, V410, D10 use PCM S24LE
+        audio_codec_id = AV_CODEC_ID_PCM_S24LE;
+        sample_rate = 44100;  // Keep original 44.1kHz
+    } else {
+        // H.264, H.265, AV1 use AAC
+        audio_codec_id = AV_CODEC_ID_AAC;
+        sample_rate = 44100;  // Keep original 44.1kHz
+        bit_rate = 256000;
+    }
+    
+    // Find audio encoder
+    const AVCodec* audio_codec = avcodec_find_encoder(audio_codec_id);
     if (!audio_codec) {
-        ORC_LOG_ERROR("FFmpegOutputBackend: AAC encoder not found");
+        ORC_LOG_ERROR("FFmpegOutputBackend: Audio encoder not found for codec ID {}", static_cast<int>(audio_codec_id));
         return false;
     }
     
@@ -823,14 +1143,23 @@ bool FFmpegOutputBackend::setupAudioEncoder()
         return false;
     }
     
-    // Configure audio encoder for PCM input (16-bit stereo at 44.1kHz)
-    audio_codec_ctx_->codec_id = AV_CODEC_ID_AAC;
+    // Configure audio encoder
+    audio_codec_ctx_->codec_id = audio_codec_id;
     audio_codec_ctx_->codec_type = AVMEDIA_TYPE_AUDIO;
-    audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
-    audio_codec_ctx_->bit_rate = 192000;  // 192 kbps
-    audio_codec_ctx_->sample_rate = 44100;
+    audio_codec_ctx_->sample_rate = sample_rate;
     audio_codec_ctx_->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-    audio_codec_ctx_->time_base = {1, 44100};
+    audio_codec_ctx_->time_base = {1, sample_rate};
+    
+    // Codec-specific settings
+    if (audio_codec_id == AV_CODEC_ID_AAC) {
+        audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
+        audio_codec_ctx_->bit_rate = bit_rate;
+    } else if (audio_codec_id == AV_CODEC_ID_FLAC) {
+        audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_S16;  // FLAC uses 16-bit samples
+        av_opt_set_int(audio_codec_ctx_->priv_data, "compression_level", compression_level, 0);
+    } else if (audio_codec_id == AV_CODEC_ID_PCM_S24LE) {
+        audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_S32;  // FFmpeg uses S32 for 24-bit PCM
+    }
     
     // Open audio encoder
     int ret = avcodec_open2(audio_codec_ctx_, audio_codec, nullptr);
@@ -860,7 +1189,7 @@ bool FFmpegOutputBackend::setupAudioEncoder()
     audio_frame_->format = audio_codec_ctx_->sample_fmt;
     audio_frame_->ch_layout = audio_codec_ctx_->ch_layout;
     audio_frame_->sample_rate = audio_codec_ctx_->sample_rate;
-    audio_frame_->nb_samples = audio_codec_ctx_->frame_size;
+    audio_frame_->nb_samples = audio_codec_ctx_->frame_size ? audio_codec_ctx_->frame_size : 1024;
     
     ret = av_frame_get_buffer(audio_frame_, 0);
     if (ret < 0) {
@@ -875,7 +1204,8 @@ bool FFmpegOutputBackend::setupAudioEncoder()
         return false;
     }
     
-    ORC_LOG_DEBUG("FFmpegOutputBackend: Audio encoder initialized (AAC 44.1kHz stereo)");
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Audio encoder initialized ({} {}kHz stereo)", 
+                  audio_codec->name, sample_rate / 1000);
     return true;
 }
 

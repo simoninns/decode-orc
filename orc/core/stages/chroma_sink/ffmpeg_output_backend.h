@@ -102,6 +102,8 @@ private:
     std::string encoder_preset_ = "medium";
     int encoder_crf_ = 18;
     int encoder_bitrate_ = 0;
+    bool use_lossless_mode_ = false;
+    std::string prores_profile_ = "hq";
     
     // Helper methods
     bool setupEncoder(const std::string& codec_id, const orc::VideoParameters& params);

@@ -68,9 +68,42 @@ std::vector<ParameterDescriptor> FFmpegVideoSinkStage::get_parameter_descriptors
         // Modify output_format to show only FFmpeg formats
         if (param.name == "output_format") {
             ParameterDescriptor modified_param = param;
-            modified_param.description = "Output format:\n"
-                                         "  mp4-h264 - H.264/AVC encoding in MP4 container\n"
-                                         "  mkv-ffv1 - FFV1 lossless encoding in MKV container";
+            modified_param.description = "Output format - container and codec combinations:\n"
+                                         "Lossless/Archive:\n"
+                                         "  mkv-ffv1 - FFV1 lossless in MKV\n"
+                                         "ProRes (professional):\n"
+                                         "  mov-prores - ProRes 422 HQ\n"
+                                         "  mov-prores_4444 - ProRes 4444\n"
+                                         "  mov-prores_4444xq - ProRes 4444 XQ\n"
+                                         "  mov-prores_videotoolbox - ProRes (Apple hardware)\n"
+                                         "Uncompressed:\n"
+                                         "  mov-v210 - 10-bit 4:2:2 uncompressed\n"
+                                         "  mov-v410 - 10-bit 4:4:4 uncompressed\n"
+                                         "Broadcast:\n"
+                                         "  mxf-mpeg2video - D10 (Sony IMX/XDCAM)\n"
+                                         "H.264 (universal):\n"
+                                         "  mp4-h264 - Standard H.264\n"
+                                         "  mp4-h264_lossless - Lossless H.264\n"
+                                         "  mov-h264 - H.264 in MOV\n"
+                                         "H.264 Hardware:\n"
+                                         "  mp4-h264_vaapi - VA-API (Intel/AMD Linux)\n"
+                                         "  mp4-h264_nvenc - NVIDIA NVENC\n"
+                                         "  mp4-h264_qsv - Intel QuickSync\n"
+                                         "  mp4-h264_amf - AMD AMF\n"
+                                         "  mp4-h264_videotoolbox - Apple VideoToolbox\n"
+                                         "H.265/HEVC (better compression):\n"
+                                         "  mp4-hevc - Standard H.265\n"
+                                         "  mp4-hevc_lossless - Lossless H.265\n"
+                                         "  mov-hevc - H.265 in MOV\n"
+                                         "H.265 Hardware:\n"
+                                         "  mp4-hevc_vaapi - VA-API\n"
+                                         "  mp4-hevc_nvenc - NVIDIA NVENC\n"
+                                         "  mp4-hevc_qsv - Intel QuickSync\n"
+                                         "  mp4-hevc_amf - AMD AMF\n"
+                                         "  mp4-hevc_videotoolbox - Apple VideoToolbox\n"
+                                         "AV1 (modern):\n"
+                                         "  mp4-av1 - Standard AV1\n"
+                                         "  mp4-av1_lossless - Lossless AV1";
             // Override options to only include FFmpeg formats
             modified_param.constraints.allowed_strings = ffmpeg_formats;
             filtered_params.push_back(modified_param);
@@ -80,8 +113,8 @@ std::vector<ParameterDescriptor> FFmpegVideoSinkStage::get_parameter_descriptors
         // Modify file extension hint for output_path
         if (param.name == "output_path") {
             ParameterDescriptor modified_param = param;
-            modified_param.file_extension_hint = ".mp4|.mkv";
-            modified_param.description = "Path to output video file (MP4 or MKV format)";
+            modified_param.file_extension_hint = ".mp4|.mkv|.mov|.mxf";
+            modified_param.description = "Path to output video file (MP4, MKV, MOV, or MXF format)";
             filtered_params.push_back(modified_param);
             continue;
         }

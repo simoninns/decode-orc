@@ -73,20 +73,21 @@ public:
      * 
      * Batch analysis tools work with field-based stages. They are not
      * applicable to frame-based output stages like chroma_sink, or
-     * sink stages that don't produce outputs (AudioSink, EFMSink, LDSink).
+     * sink stages that don't produce outputs (AudioSink, EFMSink, LDSink, CCSink).
      * 
      * @param stage_name Name of the stage type
      * @return true if applicable (excludes output/sink stages)
      */
     bool isApplicableToStage(const std::string& stage_name) const override {
         // Video sink stages (raw/ffmpeg) produce RGB frames, not fields with observations
-        // Sink stages (AudioSink, EFMSink, ld_sink) produce no outputs
+        // Sink stages (AudioSink, EFMSink, ld_sink, CCSink) produce no outputs
         return stage_name != "raw_video_sink" && 
                stage_name != "ffmpeg_video_sink" &&
                stage_name != "chroma_sink_base" &&  // Legacy base class
                stage_name != "AudioSink" && 
                stage_name != "EFMSink" && 
-               stage_name != "ld_sink";
+               stage_name != "ld_sink" &&
+               stage_name != "CCSink";
     }
 
     /**

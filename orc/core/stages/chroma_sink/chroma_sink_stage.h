@@ -64,7 +64,6 @@ namespace orc {
  * - chroma_phase: Chroma phase rotation in degrees (-180 to 180, default 0)
  * - start_frame: Optional start frame number
  * - length: Optional number of frames to process
- * - threads: Number of worker threads (default: auto)
  * - reverse_fields: Reverse field order (default: false)
  * - embed_audio: Embed analogue audio in output (MP4/MKV only, default: false)
  */

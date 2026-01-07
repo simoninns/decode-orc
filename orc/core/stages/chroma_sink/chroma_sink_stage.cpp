@@ -151,13 +151,6 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             {-180.0, 180.0, 0.0, {}, false, std::nullopt}
         },
         ParameterDescriptor{
-            "threads",
-            "Threads",
-            "Number of worker threads. 0 means auto-detect. Default: 0",
-            ParameterType::INT32,
-            {0, 64, 0, {}, false, std::nullopt}
-        },
-        ParameterDescriptor{
             "luma_nr",
             "Luma Noise Reduction",
             "Luma noise reduction level in dB. 0 = disabled. Range: 0.0-10.0",
@@ -266,7 +259,6 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["output_format"] = output_format_;
     params["chroma_gain"] = chroma_gain_;
     params["chroma_phase"] = chroma_phase_;
-    params["threads"] = threads_;
     params["luma_nr"] = luma_nr_;
     params["chroma_nr"] = chroma_nr_;
     params["ntsc_phase_comp"] = ntsc_phase_comp_;
@@ -320,11 +312,6 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
                     decoder_config_changed = true;
                 }
             }
-        } else if (key == "threads") {
-            if (std::holds_alternative<int>(value)) {
-                threads_ = std::get<int>(value);
-            }
-
         } else if (key == "luma_nr") {
             if (std::holds_alternative<double>(value)) {
                 auto new_val = std::get<double>(value);

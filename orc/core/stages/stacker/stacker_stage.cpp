@@ -354,8 +354,8 @@ std::vector<ArtifactPtr> StackerStage::execute(
     // Update parameters
     if (!parameters.empty()) {
         set_parameters(parameters);
-        ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}, thread_count={}",
-                     m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough, m_thread_count);
+        ORC_LOG_DEBUG("StackerStage: Parameters updated - mode={}, smart_threshold={}, no_diff_dod={}, passthrough={}",
+                     m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough);
         // Parameters changed - invalidate cache
         cached_output_.reset();
     }
@@ -928,22 +928,6 @@ std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSy
     passthrough_desc.constraints.required = false;
     descriptors.push_back(passthrough_desc);
     
-    // Thread count
-    ParameterDescriptor thread_count_desc;
-    thread_count_desc.name = "thread_count";
-    thread_count_desc.display_name = "Thread Count";
-    thread_count_desc.description = "Number of threads for parallel processing\n"
-                                   "0 = Auto (use all available CPU cores)\n"
-                                   "1 = Single-threaded (no parallelization)\n"
-                                   "2+ = Use specified number of threads\n"
-                                   "Higher values improve performance on multi-core systems";
-    thread_count_desc.type = ParameterType::INT32;
-    thread_count_desc.constraints.min_value = static_cast<int32_t>(0);
-    thread_count_desc.constraints.max_value = static_cast<int32_t>(std::thread::hardware_concurrency() * 2);
-    thread_count_desc.constraints.default_value = static_cast<int32_t>(0);
-    thread_count_desc.constraints.required = false;
-    descriptors.push_back(thread_count_desc);
-    
     // Audio stacking mode
     ParameterDescriptor audio_stacking_desc;
     audio_stacking_desc.name = "audio_stacking";
@@ -1056,15 +1040,6 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
             } else {
                 return false;
             }
-        } else if (key == "thread_count") {
-            if (auto* val = std::get_if<int32_t>(&value)) {
-                if (*val < 0) {
-                    return false;
-                }
-                m_thread_count = *val;
-            } else {
-                return false;
-            }
         } else if (key == "audio_stacking") {
             if (auto* val = std::get_if<std::string>(&value)) {
                 if (*val == "Disabled") {
@@ -1128,8 +1103,6 @@ std::optional<StageReport> StackerStage::generate_report() const {
     report.items.push_back({"Smart Threshold", std::to_string(m_smart_threshold)});
     report.items.push_back({"Differential Dropout Detection", m_no_diff_dod ? "Disabled" : "Enabled"});
     report.items.push_back({"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
-    std::string thread_info = m_thread_count == 0 ? "Auto (" + std::to_string(std::thread::hardware_concurrency()) + " cores)" : std::to_string(m_thread_count);
-    report.items.push_back({"Thread Count", thread_info});
     report.items.push_back({"Audio Stacking", stacking_mode_names[audio_mode_index]});
     report.items.push_back({"EFM Stacking", stacking_mode_names[efm_mode_index]});
     

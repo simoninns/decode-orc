@@ -4,7 +4,7 @@
  * Purpose:     Multi-source TBC stacking stage implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #include <stacker_stage.h>

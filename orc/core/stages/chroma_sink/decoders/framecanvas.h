@@ -4,7 +4,7 @@
  * Purpose:     Frame canvas for comb filtering
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2018-2025 Simon Inns
+ * SPDX-FileCopyrightText: 2018-2026 Simon Inns
  * SPDX-FileCopyrightText: 2021 Adam Sampson
  */
 

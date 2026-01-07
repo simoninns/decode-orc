@@ -4,7 +4,7 @@
  * Purpose:     Project to DAG conversion
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns *
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns *
  * ARCHITECTURE NOTE:
  * This file uses READ-ONLY access to Project via const getters.
  * It NEVER modifies Project state - use project_io:: functions for that. */

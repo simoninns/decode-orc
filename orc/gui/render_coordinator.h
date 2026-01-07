@@ -8,7 +8,7 @@
  * a thread-safe queue and receives responses via Qt signals.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #ifndef RENDER_COORDINATOR_H

@@ -5,7 +5,7 @@
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2018 William Andrew Steer
- * SPDX-FileCopyrightText: 2018-2025 Simon Inns
+ * SPDX-FileCopyrightText: 2018-2026 Simon Inns
  * SPDX-FileCopyrightText: 2019-2021 Adam Sampson
  */
 

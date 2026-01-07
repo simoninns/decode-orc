@@ -4,7 +4,7 @@
  * Purpose:     Process DAG command
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #include "command_process.h"

@@ -4,7 +4,7 @@
  * Purpose:     ld-decode sink Stage - writes TBC and metadata to disk
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #ifndef ORC_CORE_LD_SINK_STAGE_H

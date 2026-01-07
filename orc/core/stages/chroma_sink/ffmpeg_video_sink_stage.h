@@ -4,7 +4,7 @@
  * Purpose:     FFmpeg video sink stage (MP4/MKV output with audio/subtitles)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #ifndef ORC_CORE_FFMPEG_VIDEO_SINK_STAGE_H

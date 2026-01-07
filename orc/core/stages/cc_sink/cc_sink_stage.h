@@ -4,7 +4,7 @@
  * Purpose:     Closed Caption Sink Stage - exports CC data to SCC or plain text
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2025 Simon Inns
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #ifndef ORC_CORE_CC_SINK_STAGE_H

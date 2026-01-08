@@ -59,6 +59,12 @@ public:
         }
     }
     
+    // Explicitly delete copy/move to prevent issues (this object is always used via shared_ptr)
+    FieldMappedRepresentation(const FieldMappedRepresentation&) = delete;
+    FieldMappedRepresentation& operator=(const FieldMappedRepresentation&) = delete;
+    FieldMappedRepresentation(FieldMappedRepresentation&&) = delete;
+    FieldMappedRepresentation& operator=(FieldMappedRepresentation&&) = delete;
+    
     FieldIDRange field_range() const override {
         if (field_mapping_.empty()) {
             return FieldIDRange{};

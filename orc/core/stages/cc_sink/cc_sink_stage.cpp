@@ -64,6 +64,7 @@ std::vector<ParameterDescriptor> CCSinkStage::get_parameter_descriptors(VideoSys
         desc.description = "Path to output closed caption file";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = true;
+        desc.constraints.default_value = std::string("");
         descriptors.push_back(desc);
     }
     

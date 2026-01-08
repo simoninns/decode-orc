@@ -150,6 +150,7 @@ std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors(Vid
         desc.description = "Path to the PAL .tbc file from ld-decode (database file is automatically located)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
+        desc.constraints.default_value = std::string("");
         desc.file_extension_hint = ".tbc";
         descriptors.push_back(desc);
     }
@@ -162,6 +163,7 @@ std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors(Vid
         desc.description = "Path to the analogue audio .pcm file (raw 16-bit stereo PCM at 44.1kHz)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
         desc.file_extension_hint = ".pcm";
         descriptors.push_back(desc);
     }
@@ -174,6 +176,7 @@ std::vector<ParameterDescriptor> LDPALSourceStage::get_parameter_descriptors(Vid
         desc.description = "Path to the EFM data .efm file (8-bit t-values from 3-11)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
         desc.file_extension_hint = ".efm";
         descriptors.push_back(desc);
     }

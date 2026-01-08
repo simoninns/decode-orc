@@ -60,6 +60,7 @@ std::vector<ParameterDescriptor> EFMSinkStage::get_parameter_descriptors(VideoSy
         desc.description = "Path to output EFM data file (raw t-values)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = true;
+        desc.constraints.default_value = std::string("");
         desc.file_extension_hint = ".efm";
         descriptors.push_back(desc);
     }

@@ -117,7 +117,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Output Path",
             "Path to output file (RGB, YUV, or Y4M format based on output_format)",
             ParameterType::FILE_PATH,
-            ParameterConstraints{},
+            ParameterConstraints{std::nullopt, std::nullopt, std::string(""), {}, false, std::nullopt},
             ".rgb|.yuv|.y4m|.mp4|.mkv"  // file_extension_hint - multiple options
         },
         ParameterDescriptor{

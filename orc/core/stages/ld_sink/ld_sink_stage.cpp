@@ -79,7 +79,7 @@ std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors(VideoSys
             "TBC Output Path",
             "Path to output TBC file (metadata will be written to .db)",
             ParameterType::FILE_PATH,
-            ParameterConstraints{},  // No constraints for file paths
+            ParameterConstraints{std::nullopt, std::nullopt, std::string(""), {}, false, std::nullopt},
             ".tbc"  // file_extension_hint
         }
     };

@@ -12,10 +12,9 @@
 
 #include "field_id.h"
 #include "video_field_representation.h"
+#include "lru_cache.h"
 #include <string>
 #include <memory>
-#include <map>
-#include <mutex>
 
 namespace orc {
 
@@ -60,13 +59,8 @@ private:
     size_t field_byte_length_; // Bytes per field (field_length * 2)
     size_t line_length_;      // Samples per line (0 if not set)
     
-    // Simple LRU cache for recently accessed fields
-    std::map<FieldID, std::shared_ptr<std::vector<sample_type>>> field_cache_;
-    static constexpr size_t MAX_CACHE_SIZE = 100;
-    mutable std::mutex cache_mutex_;  // Protects field_cache_
-    
-    void cache_field(FieldID field_id, std::shared_ptr<std::vector<sample_type>> data);
-    std::shared_ptr<std::vector<sample_type>> get_cached_field(FieldID field_id);
+    // LRU cache for recently accessed fields (max 100 entries, thread-safe)
+    mutable LRUCache<FieldID, std::shared_ptr<std::vector<sample_type>>> field_cache_;
 };
 
 } // namespace orc

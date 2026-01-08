@@ -234,8 +234,8 @@ int main(int argc, char *argv[])
             gui_logger->set_level(spdlog::level::info);
         }
         
-        // Flush on every log for debugging
-        gui_logger->flush_on(spdlog::level::trace);
+        // Flush on warnings and above to avoid I/O thrashing during debug logging
+        gui_logger->flush_on(spdlog::level::warn);
     }
     
     // Install Qt message handler to bridge Qt messages to spdlog

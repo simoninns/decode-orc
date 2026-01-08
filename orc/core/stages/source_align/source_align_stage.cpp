@@ -456,13 +456,22 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
             continue;
         }
         
-        auto aligned = std::make_shared<AlignedSourceRepresentation>(
-            sources[i], offsets[i], i);
-        outputs.push_back(aligned);
-        cached_outputs_.push_back(aligned);
-        
-        ORC_LOG_DEBUG("  Source {}: offset by {} fields, new range has {} fields",
-                     i, offsets[i].value(), aligned->field_count());
+        // Skip wrapping if offset is 0 (no alignment needed)
+        // This prevents unnecessary wrapper overhead and observer thrashing
+        if (offsets[i].value() == 0) {
+            outputs.push_back(std::const_pointer_cast<Artifact>(
+                std::static_pointer_cast<const Artifact>(sources[i])));
+            cached_outputs_.push_back(sources[i]);
+            ORC_LOG_DEBUG("  Source {}: no alignment needed (offset=0), passing through unchanged", i);
+        } else {
+            auto aligned = std::make_shared<AlignedSourceRepresentation>(
+                sources[i], offsets[i], i);
+            outputs.push_back(aligned);
+            cached_outputs_.push_back(aligned);
+            
+            ORC_LOG_DEBUG("  Source {}: offset by {} fields, new range has {} fields",
+                         i, offsets[i].value(), aligned->field_count());
+        }
     }
     
     return outputs;

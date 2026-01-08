@@ -12,11 +12,10 @@
 
 #include "field_id.h"
 #include "node_id.h"
+#include "lru_cache.h"
 #include <memory>
-#include <unordered_map>
 #include <string>
 #include <optional>
-#include <mutex>
 
 namespace orc {
 
@@ -129,14 +128,11 @@ private:
     std::shared_ptr<const DAG> dag_;
     std::shared_ptr<DAGFieldRenderer> renderer_;
     
-    // Cache of rendered field representations
-    std::unordered_map<CacheKey, std::shared_ptr<const VideoFieldRepresentation>, CacheKeyHash> cache_;
+    // LRU cache of rendered field representations (max 1000 entries)
+    mutable LRUCache<CacheKey, std::shared_ptr<const VideoFieldRepresentation>, CacheKeyHash> cache_;
     
-    // Cache of field counts per node
-    std::unordered_map<NodeID, size_t> field_count_cache_;
-    
-    // Mutex for thread-safe access
-    mutable std::mutex cache_mutex_;
+    // LRU cache of field counts per node (max 100 entries)
+    mutable LRUCache<NodeID, size_t> field_count_cache_;
     
     // Render a single field and cache it
     std::optional<std::shared_ptr<const VideoFieldRepresentation>> render_and_cache(

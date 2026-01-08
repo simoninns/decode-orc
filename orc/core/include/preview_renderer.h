@@ -381,7 +381,7 @@ private:
     bool show_dropouts_ = false;
     
     /// Ensure node has been executed (execute on-demand if needed)
-    void ensure_node_executed(const NodeID& node_id) const;
+    void ensure_node_executed(const NodeID& node_id, bool disable_cache = false) const;
     
     // ========================================================================
     // Internal rendering functions

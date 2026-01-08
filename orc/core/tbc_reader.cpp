@@ -46,7 +46,7 @@ namespace orc {
 
 TBCReader::TBCReader()
     : fd_(-1), is_open_(false), field_count_(0), field_length_(0), 
-      field_byte_length_(0), line_length_(0) {
+      field_byte_length_(0), line_length_(0), field_cache_(100) {
 }
 
 TBCReader::~TBCReader() {
@@ -100,9 +100,6 @@ bool TBCReader::open(const std::string& filename, size_t field_length, size_t li
 }
 
 void TBCReader::close() {
-    // Lock cache mutex to ensure no concurrent cache access
-    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
-    
     if (fd_ >= 0) {
 #ifdef _WIN32
         _close(fd_);
@@ -120,10 +117,10 @@ std::vector<TBCReader::sample_type> TBCReader::read_field(FieldID field_id) {
         throw std::runtime_error("TBC file not open");
     }
     
-    // Check cache first (cache check doesn't need file mutex)
-    auto cached = get_cached_field(field_id);
-    if (cached) {
-        return *cached;
+    // Check cache first (LRUCache is thread-safe)
+    auto cached = field_cache_.get(field_id);
+    if (cached.has_value()) {
+        return *cached.value();
     }
     
     // Validate field number
@@ -153,8 +150,8 @@ std::vector<TBCReader::sample_type> TBCReader::read_field(FieldID field_id) {
         throw std::runtime_error("Short read from file: " + filename_);
     }
     
-    // Cache the field (cache access has its own mutex)
-    cache_field(field_id, field_data);
+    // Cache the field (LRUCache handles thread-safety and eviction)
+    field_cache_.put(field_id, field_data);
     
     return *field_data;
 }
@@ -184,24 +181,6 @@ std::vector<TBCReader::sample_type> TBCReader::read_field_lines(
 
 std::vector<TBCReader::sample_type> TBCReader::read_line(FieldID field_id, size_t line_number) {
     return read_field_lines(field_id, line_number, line_number + 1);
-}
-
-void TBCReader::cache_field(FieldID field_id, std::shared_ptr<std::vector<sample_type>> data) {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    // Simple cache eviction: if full, remove first entry
-    if (field_cache_.size() >= MAX_CACHE_SIZE) {
-        field_cache_.erase(field_cache_.begin());
-    }
-    field_cache_[field_id] = data;
-}
-
-std::shared_ptr<std::vector<TBCReader::sample_type>> TBCReader::get_cached_field(FieldID field_id) {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    auto it = field_cache_.find(field_id);
-    if (it != field_cache_.end()) {
-        return it->second;
-    }
-    return nullptr;
 }
 
 } // namespace orc

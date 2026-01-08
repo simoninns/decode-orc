@@ -1333,7 +1333,7 @@ SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {
 // Stage preview support
 // ============================================================================
 
-void PreviewRenderer::ensure_node_executed(const NodeID& node_id) const
+void PreviewRenderer::ensure_node_executed(const NodeID& node_id, bool disable_cache) const
 {
     if (!dag_) {
         return;
@@ -1352,18 +1352,24 @@ void PreviewRenderer::ensure_node_executed(const NodeID& node_id) const
     
     bool is_sink = (node_it->stage && node_it->stage->get_node_type_info().type == NodeType::SINK);
     
-    // CRITICAL: Disable artifact caching for preview execution
+    // CRITICAL: Only disable artifact caching when explicitly requested (e.g., for actual rendering)
     // We need execute() to be called on the stage instance so it can populate
     // its cached_output_ member for preview rendering. If artifact caching is enabled,
     // the executor returns cached artifacts without calling execute(), leaving the
     // stage's cached_output_ null.
+    // However, when just querying available outputs, we can use cached results to avoid
+    // re-executing the entire DAG and triggering observers on all fields.
     bool prev_cache_state = dag_executor_.is_cache_enabled();
-    const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(false);
+    if (disable_cache) {
+        const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(false);
+    }
     
     const_cast<DAGExecutor&>(dag_executor_).execute_to_node(*dag_, node_id);
     
-    // Restore previous cache state
-    const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(prev_cache_state);
+    // Restore previous cache state if it was changed
+    if (disable_cache) {
+        const_cast<DAGExecutor&>(dag_executor_).set_cache_enabled(prev_cache_state);
+    }
     
     if (is_sink) {
         ORC_LOG_DEBUG("Executed inputs for sink node '{}' (sink's cached_input_ should now be populated)", node_id.to_string());
@@ -1383,7 +1389,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
     ORC_LOG_DEBUG("get_stage_preview_outputs called for node '{}'", stage_node_id.to_string());
     
     // Ensure the node has been executed so it has cached output
-    ensure_node_executed(stage_node_id);
+    // Use cached execution to avoid re-processing all fields through observers
+    ensure_node_executed(stage_node_id, false);
     
     // Get options from the stage
     auto options = previewable.get_preview_options();
@@ -1449,7 +1456,8 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     result.success = false;
     
     // Ensure the node and its inputs have been executed so the stage has cached input data
-    ensure_node_executed(stage_node_id);
+    // Disable cache to force fresh execution with cached_output_ populated
+    ensure_node_executed(stage_node_id, true);
     
     // Get preview image from the stage
     auto stage_result = previewable.render_preview(requested_option_id, index, hint);

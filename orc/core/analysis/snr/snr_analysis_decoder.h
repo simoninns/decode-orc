@@ -13,11 +13,11 @@
 #include "../observers/snr_analysis_observer.h"
 #include "field_id.h"
 #include "node_id.h"
+#include "lru_cache.h"
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
-#include <unordered_map>
 
 namespace orc {
 
@@ -161,11 +161,11 @@ private:
     std::shared_ptr<ObservationCache> obs_cache_;
     SNRAnalysisObserver observer_;
     
-    // Cache for processed field stats (after observer extraction)
-    std::unordered_map<CacheKey, std::vector<FieldSNRStats>, CacheKeyHash> field_cache_;
+    // LRU cache for processed field stats (after observer extraction, max 100 entries)
+    mutable LRUCache<CacheKey, std::vector<FieldSNRStats>, CacheKeyHash> field_cache_;
     
-    // Cache for processed frame stats
-    std::unordered_map<CacheKey, std::vector<FrameSNRStats>, CacheKeyHash> frame_cache_;
+    // LRU cache for processed frame stats (max 100 entries)
+    mutable LRUCache<CacheKey, std::vector<FrameSNRStats>, CacheKeyHash> frame_cache_;
 };
 
 } // namespace orc

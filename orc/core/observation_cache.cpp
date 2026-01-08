@@ -16,6 +16,8 @@ namespace orc {
 
 ObservationCache::ObservationCache(std::shared_ptr<const DAG> dag)
     : dag_(dag)
+    , cache_(1000)  // Max 1000 cached field representations
+    , field_count_cache_(100)  // Max 100 cached field counts
 {
     if (!dag_) {
         throw std::invalid_argument("ObservationCache: DAG cannot be null");
@@ -37,7 +39,6 @@ void ObservationCache::update_dag(std::shared_ptr<const DAG> dag)
 
 void ObservationCache::clear()
 {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
     cache_.clear();
     field_count_cache_.clear();
     ORC_LOG_DEBUG("ObservationCache: All cached observations cleared");
@@ -45,41 +46,26 @@ void ObservationCache::clear()
 
 void ObservationCache::clear_node(NodeID node_id)
 {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    size_t cleared = 0;
-    auto it = cache_.begin();
-    while (it != cache_.end()) {
-        if (it->first.node_id == node_id) {
-            it = cache_.erase(it);
-            ++cleared;
-        } else {
-            ++it;
-        }
-    }
-    
-    field_count_cache_.erase(node_id);
-    
-    if (cleared > 0) {
-        ORC_LOG_DEBUG("ObservationCache: Cleared {} observations for node '{}'", cleared, node_id.to_string());
-    }
+    // Note: LRUCache doesn't support selective removal by predicate
+    // For now, we just clear the entire cache when any node needs clearing
+    // This is safe but may be less efficient than selective clearing
+    cache_.clear();
+    field_count_cache_.clear();
+    ORC_LOG_DEBUG("ObservationCache: Cleared all observations (requested for node '{}')", node_id.to_string());
 }
 
 bool ObservationCache::is_cached(NodeID node_id, FieldID field_id) const
 {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
     CacheKey key{node_id, field_id};
-    return cache_.find(key) != cache_.end();
+    return cache_.contains(key);
 }
 
 size_t ObservationCache::get_field_count(NodeID node_id)
 {
-    {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        // Check cache first
-        auto it = field_count_cache_.find(node_id);
-        if (it != field_count_cache_.end()) {
-            return it->second;
-        }
+    // Check cache first
+    auto cached_count = field_count_cache_.get(node_id);
+    if (cached_count.has_value()) {
+        return cached_count.value();
     }
     
     // Render and cache field 0 to get count (don't waste the render!)
@@ -90,10 +76,7 @@ size_t ObservationCache::get_field_count(NodeID node_id)
     }
     
     size_t count = field_repr.value()->field_count();
-    {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        field_count_cache_[node_id] = count;
-    }
+    field_count_cache_.put(node_id, count);
     
     return count;
 }
@@ -114,10 +97,7 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
         
         // Cache the full representation
         CacheKey key{node_id, field_id};
-        {
-            std::lock_guard<std::mutex> lock(cache_mutex_);
-            cache_[key] = result.representation;
-        }
+        cache_.put(key, result.representation);
         
         return result.representation;
         
@@ -132,14 +112,11 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
     NodeID node_id,
     FieldID field_id)
 {
-    {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        // Check cache first
-        CacheKey key{node_id, field_id};
-        auto it = cache_.find(key);
-        if (it != cache_.end()) {
-            return it->second;
-        }
+    // Check cache first
+    CacheKey key{node_id, field_id};
+    auto cached = cache_.get(key);
+    if (cached.has_value()) {
+        return cached.value();
     }
     
     // Not cached - render and cache

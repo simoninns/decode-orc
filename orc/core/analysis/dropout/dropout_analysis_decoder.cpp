@@ -21,6 +21,8 @@ namespace orc {
 
 DropoutAnalysisDecoder::DropoutAnalysisDecoder(std::shared_ptr<const DAG> dag)
     : observer_(DropoutAnalysisMode::FULL_FIELD)
+    , field_cache_(100)  // Max 100 cached field results
+    , frame_cache_(100)  // Max 100 cached frame results
 {
     if (!dag) {
         throw std::invalid_argument("DropoutAnalysisDecoder: DAG cannot be null");
@@ -97,10 +99,10 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
     // Check processed cache first (only if max_fields is 0, meaning all fields)
     if (max_fields == 0) {
         CacheKey key{node_id, mode};
-        auto it = field_cache_.find(key);
-        if (it != field_cache_.end()) {
+        auto cached = field_cache_.get(key);
+        if (cached.has_value()) {
             ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached field data for node '{}'", node_id.to_string());
-            return it->second;
+            return cached.value();
         }
     }
     
@@ -181,7 +183,7 @@ std::vector<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_all_field
     // Cache the results if we processed all fields
     if (max_fields == 0 && !results.empty()) {
         CacheKey key{node_id, mode};
-        field_cache_[key] = results;
+        field_cache_.put(key, results);
         ORC_LOG_DEBUG("DropoutAnalysisDecoder: Cached field data for node '{}' ({} fields)", 
                      node_id.to_string(), results.size());
     }
@@ -198,10 +200,10 @@ std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
     // Check cache first (only if max_frames is 0, meaning all frames)
     if (max_frames == 0) {
         CacheKey key{node_id, mode};
-        auto it = frame_cache_.find(key);
-        if (it != frame_cache_.end()) {
+        auto cached = frame_cache_.get(key);
+        if (cached.has_value()) {
             ORC_LOG_DEBUG("DropoutAnalysisDecoder: Returning cached frame data for node '{}'", node_id.to_string());
-            return it->second;
+            return cached.value();
         }
     }
     
@@ -254,7 +256,7 @@ std::vector<FrameDropoutStats> DropoutAnalysisDecoder::get_dropout_by_frames(
     // Cache the results if we processed all frames
     if (max_frames == 0 && !results.empty()) {
         CacheKey key{node_id, mode};
-        frame_cache_[key] = results;
+        frame_cache_.put(key, results);
         ORC_LOG_DEBUG("DropoutAnalysisDecoder: Cached frame data for node '{}' ({} frames)", 
                      node_id.to_string(), results.size());
     }

@@ -260,7 +260,8 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Simple PAL",
             "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false, std::nullopt}
+            {{}, {}, false, {}, false,
+             ParameterDependency{"decoder_type", {"transform2d", "transform3d"}}}
         });
     } else {
         // Unknown format - include both for backwards compatibility
@@ -276,7 +277,8 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Simple PAL",
             "Use 1D UV filter for Transform PAL (simpler, faster, lower quality)",
             ParameterType::BOOL,
-            {{}, {}, false, {}, false, std::nullopt}
+            {{}, {}, false, {}, false,
+             ParameterDependency{"decoder_type", {"transform2d", "transform3d"}}}
         });
     }
     

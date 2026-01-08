@@ -52,7 +52,11 @@ std::vector<ParameterDescriptor> RawVideoSinkStage::get_parameter_descriptors(Vi
             param.name == "encoder_crf" ||
             param.name == "encoder_bitrate" ||
             param.name == "embed_audio" ||
-            param.name == "embed_closed_captions") {
+            param.name == "embed_closed_captions" ||
+            param.name == "hardware_encoder" ||
+            param.name == "prores_profile" ||
+            param.name == "use_lossless_mode" ||
+            param.name == "apply_deinterlace") {
             continue;
         }
         
@@ -95,6 +99,10 @@ std::map<std::string, ParameterValue> RawVideoSinkStage::get_parameters() const
     params.erase("encoder_bitrate");
     params.erase("embed_audio");
     params.erase("embed_closed_captions");
+    params.erase("hardware_encoder");
+    params.erase("prores_profile");
+    params.erase("use_lossless_mode");
+    params.erase("apply_deinterlace");
     
     return params;
 }
@@ -116,6 +124,10 @@ bool RawVideoSinkStage::set_parameters(const std::map<std::string, ParameterValu
     // Create a filtered parameter map without FFmpeg-specific parameters
     std::map<std::string, ParameterValue> filtered_params = params;
     filtered_params.erase("encoder_preset");
+    filtered_params.erase("hardware_encoder");
+    filtered_params.erase("prores_profile");
+    filtered_params.erase("use_lossless_mode");
+    filtered_params.erase("apply_deinterlace");
     filtered_params.erase("encoder_crf");
     filtered_params.erase("encoder_bitrate");
     filtered_params.erase("embed_audio");

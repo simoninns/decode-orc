@@ -10,12 +10,19 @@
 #include "ffmpegpresetdialog.h"
 #include <QFormLayout>
 #include <QVBoxLayout>
+#include <QHBoxLayout>
 #include <QTextEdit>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QDir>
 
 FFmpegPresetDialog::FFmpegPresetDialog(QWidget *parent)
     : ConfigDialogBase("FFmpeg Export Preset Configuration", parent),
       updating_ui_(false)
 {
+    // Increase minimum height to accommodate all sections
+    setMinimumHeight(800);
+    
     // Initialize preset database
     all_presets_ = {
         // Lossless/Archive
@@ -108,6 +115,27 @@ FFmpegPresetDialog::FFmpegPresetDialog(QWidget *parent)
     description_label_->setWordWrap(true);
     description_label_->setMinimumHeight(80);
     preset_layout->addRow("Description:", description_label_);
+    
+    // Output filename group
+    auto* filename_group = create_group("Output Filename");
+    auto* filename_layout = qobject_cast<QFormLayout*>(filename_group->layout());
+    
+    auto* filename_container = new QWidget();
+    auto* filename_hlayout = new QHBoxLayout(filename_container);
+    filename_hlayout->setContentsMargins(0, 0, 0, 0);
+    
+    filename_edit_ = new QLineEdit();
+    filename_edit_->setPlaceholderText("output.mp4");
+    browse_btn_ = new QPushButton("Browse...");
+    
+    filename_hlayout->addWidget(filename_edit_);
+    filename_hlayout->addWidget(browse_btn_);
+    
+    filename_layout->addRow("Filename:", filename_container);
+    add_info_label(filename_layout, 
+        "Output filename with extension. Extension will automatically update when you change the preset.");
+    
+    connect(browse_btn_, &QPushButton::clicked, this, &FFmpegPresetDialog::on_browse_filename_clicked);
     
     // Hardware encoder group (hidden by default)
     hardware_group_ = create_group("Hardware Acceleration");
@@ -236,6 +264,12 @@ void FFmpegPresetDialog::apply_configuration()
     // Set options
     set_parameter("embed_audio", embed_audio_checkbox_->isChecked());
     set_parameter("embed_closed_captions", embed_captions_checkbox_->isChecked());
+    
+    // Set output filename (output_path parameter)
+    QString filename = filename_edit_->text().trimmed();
+    if (!filename.isEmpty()) {
+        set_parameter("output_path", filename.toStdString());
+    }
 }
 
 void FFmpegPresetDialog::load_from_parameters(const std::map<std::string, orc::ParameterValue>& params)
@@ -309,6 +343,12 @@ void FFmpegPresetDialog::load_from_parameters(const std::map<std::string, orc::P
         embed_captions_checkbox_->setChecked(std::get<bool>(captions_it->second));
     }
     
+    // Load output filename
+    auto output_path_it = params.find("output_path");
+    if (output_path_it != params.end() && std::holds_alternative<std::string>(output_path_it->second)) {
+        filename_edit_->setText(QString::fromStdString(std::get<std::string>(output_path_it->second)));
+    }
+    
     updating_ui_ = false;
 }
 
@@ -328,6 +368,29 @@ void FFmpegPresetDialog::on_preset_changed(int index)
         const auto& preset = current_category_presets_[index];
         hardware_group_->setVisible(preset.supports_hardware && !available_hw_encoders_.empty());
         deinterlace_checkbox_->setEnabled(preset.supports_deinterlace);
+        
+        // Auto-update file extension based on selected output format
+        QString current_filename = filename_edit_->text();
+        std::string new_extension = get_file_extension_for_format(preset.format_string);
+        
+        if (!current_filename.isEmpty()) {
+            // Get the base filename without extension
+            QFileInfo file_info(current_filename);
+            QString base_name = file_info.completeBaseName();
+            QString dir_path = file_info.path();
+            
+            // Construct new filename with updated extension
+            QString new_filename;
+            if (dir_path != ".") {
+                new_filename = dir_path + "/" + base_name + QString::fromStdString(new_extension);
+            } else {
+                new_filename = base_name + QString::fromStdString(new_extension);
+            }
+            filename_edit_->setText(new_filename);
+        } else {
+            // Set default filename with appropriate extension
+            filename_edit_->setText(QString("output") + QString::fromStdString(new_extension));
+        }
     }
 }
 
@@ -398,7 +461,11 @@ void FFmpegPresetDialog::update_preset_list()
     
     if (preset_combo_->count() > 0) {
         preset_combo_->setCurrentIndex(0);
-        update_preset_description();
+        // Manually trigger preset update since signal may not fire if index was already 0
+        on_preset_changed(0);
+    } else {
+        // No presets available - hide hardware group
+        hardware_group_->setVisible(false);
     }
 }
 
@@ -436,4 +503,70 @@ void FFmpegPresetDialog::detect_available_hardware_encoders()
     // - QuickSync (qsv)
     // - AMF (amd)
     // by trying to create encoders
+}
+
+std::string FFmpegPresetDialog::get_file_extension_for_format(const std::string& format_string) const
+{
+    // Extract container from format string (e.g., "mp4-h264" -> "mp4")
+    size_t dash_pos = format_string.find('-');
+    if (dash_pos != std::string::npos) {
+        std::string container = format_string.substr(0, dash_pos);
+        return "." + container;
+    }
+    
+    // Fallback to .mp4 if format string is invalid
+    return ".mp4";
+}
+
+void FFmpegPresetDialog::on_browse_filename_clicked()
+{
+    // Get current filename or use default
+    QString current_filename = filename_edit_->text();
+    if (current_filename.isEmpty()) {
+        // Get current preset to determine default extension
+        int preset_idx = preset_combo_->currentIndex();
+        if (preset_idx >= 0 && preset_idx < static_cast<int>(current_category_presets_.size())) {
+            const auto& preset = current_category_presets_[preset_idx];
+            std::string ext = get_file_extension_for_format(preset.format_string);
+            current_filename = QString("output") + QString::fromStdString(ext);
+        } else {
+            current_filename = "output.mp4";
+        }
+    }
+    
+    // Determine start directory
+    QString start_dir = QDir::homePath();
+    QFileInfo file_info(current_filename);
+    if (!current_filename.isEmpty()) {
+        if (file_info.exists() && file_info.dir().exists()) {
+            start_dir = file_info.dir().absolutePath();
+        } else if (!file_info.path().isEmpty() && file_info.path() != ".") {
+            QFileInfo parent_info(file_info.absolutePath());
+            if (parent_info.exists() && parent_info.isDir()) {
+                start_dir = parent_info.absolutePath();
+            }
+        }
+    }
+    
+    // Build file filter based on current preset
+    QString filter = "All Files (*)";
+    int preset_idx = preset_combo_->currentIndex();
+    if (preset_idx >= 0 && preset_idx < static_cast<int>(current_category_presets_.size())) {
+        const auto& preset = current_category_presets_[preset_idx];
+        std::string ext = get_file_extension_for_format(preset.format_string);
+        QString ext_upper = QString::fromStdString(ext).mid(1).toUpper();  // Remove . and uppercase
+        filter = ext_upper + " Files (*" + QString::fromStdString(ext) + ");;All Files (*)";
+    }
+    
+    // Show save file dialog
+    QString selected_file = QFileDialog::getSaveFileName(
+        this,
+        "Select Output Video File",
+        start_dir + "/" + file_info.fileName(),
+        filter
+    );
+    
+    if (!selected_file.isEmpty()) {
+        filename_edit_->setText(selected_file);
+    }
 }

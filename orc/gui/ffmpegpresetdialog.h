@@ -16,6 +16,8 @@
 #include <QGroupBox>
 #include <QCheckBox>
 #include <QSpinBox>
+#include <QLineEdit>
+#include <QPushButton>
 
 /**
  * @brief Configuration dialog for FFmpeg Video Sink presets
@@ -55,6 +57,8 @@ private:
     void update_preset_list();
     void update_preset_description();
     void detect_available_hardware_encoders();
+    void on_browse_filename_clicked();
+    std::string get_file_extension_for_format(const std::string& format_string) const;
     
     struct PresetInfo {
         std::string format_string;      // e.g., "mov-prores"
@@ -73,6 +77,10 @@ private:
     QComboBox* category_combo_;
     QComboBox* preset_combo_;
     QLabel* description_label_;
+    
+    // Output filename group
+    QLineEdit* filename_edit_;
+    QPushButton* browse_btn_;
     
     // Hardware encoder group
     QGroupBox* hardware_group_;

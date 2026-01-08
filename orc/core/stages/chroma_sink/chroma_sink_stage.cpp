@@ -641,9 +641,10 @@ bool ChromaSinkStage::trigger(
     
     // Calculate frame range from field_range
     // field_range.start and field_range.end are field IDs (0-based)
+    // field_range.end is EXCLUSIVE (half-open range [start, end))
     // Convert to frame numbers (also 0-based): frame = field / 2
     size_t start_frame = field_range.start.value() / 2;
-    size_t end_frame = (field_range.end.value() + 1) / 2;  // +1 because end is inclusive in field IDs
+    size_t end_frame = field_range.end.value() / 2;  // exclusive end for frames too
     
     ORC_LOG_DEBUG("ChromaSink: Processing frames {} to {} (of {} in source, field range {}-{})", 
                  start_frame + 1, end_frame, total_source_frames, 
@@ -755,13 +756,14 @@ bool ChromaSinkStage::trigger(
     // THREAD SAFETY: Each worker thread creates its own decoder instance to avoid state conflicts.
     // Transform PAL decoders use FFT buffers that cannot be shared between threads.
     
-    // Calculate how many frames to OUTPUT (excluding lookahead frames used only for context)
-    // The field_range may include extra frames for lookahead, but we only output up to end_frame - lookAheadFrames
-    int32_t numOutputFrames = (end_frame - start_frame) - lookAheadFrames;
+    // Calculate how many frames to OUTPUT
+    // field_range represents the actual fields to output (already filtered by upstream stages)
+    // We output all these frames - lookahead is only for decoder context (extended_range handles that)
+    int32_t numOutputFrames = end_frame - start_frame;
     int32_t numFrames = numOutputFrames;
     
-    ORC_LOG_DEBUG("ChromaSink: Will output {} frames (total range {} - lookahead {})", 
-                 numOutputFrames, end_frame - start_frame, lookAheadFrames);
+    ORC_LOG_DEBUG("ChromaSink: Will output {} frames from field range {}-{}", 
+                 numOutputFrames, field_range.start.value(), field_range.end.value());
     
     // Initialize output backend BEFORE decoding to enable streaming writes
     auto backend = OutputBackendFactory::create(output_format_);
@@ -784,11 +786,13 @@ bool ChromaSinkStage::trigger(
     backendConfig.embed_closed_captions = embed_closed_captions_;
     if (embed_audio_ && vfr && vfr->has_audio()) {
         backendConfig.vfr = vfr.get();
-        // Audio should start from actual output frames, not extended range with lookbehind
-        backendConfig.start_field_index = start_frame * 2;
-        backendConfig.num_fields = numOutputFrames * 2;
-        ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output (fields {} to {})",
-                     start_frame * 2, (start_frame * 2) + (numOutputFrames * 2));
+        // Audio should use the VFR's field_range which is already adjusted by field_map stages
+        // Use the actual field count from the VFR (field_range.end is exclusive)
+        backendConfig.start_field_index = field_range.start.value();
+        backendConfig.num_fields = field_range.end.value() - field_range.start.value();
+        ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output (fields {} to {} = {} fields, {} frames)",
+                     field_range.start.value(), field_range.end.value(), 
+                     backendConfig.num_fields, numOutputFrames);
     }
     
     if (!backend->initialize(backendConfig)) {

@@ -1218,8 +1218,31 @@ bool FFmpegOutputBackend::encodeAudioForFrame()
     int frame_size = audio_codec_ctx_->frame_size;  // AAC typically uses 1024 samples
     
     // Collect audio samples for these 2 fields and add to persistent buffer
+    // NOTE: Padding fields (from field_map) may have no audio samples - we still need
+    // to process them to maintain audio/video sync
     for (int field_offset = 0; field_offset < 2 && current_field_for_audio_ < start_field_index_ + num_fields_; field_offset++) {
         auto samples = vfr_->get_audio_samples(FieldID(current_field_for_audio_));
+        
+        if (samples.empty()) {
+            // Padding field with no audio - generate silence to maintain sync
+            // Typical field has ~1470 samples for NTSC (48kHz / 29.97 fps / 2 fields)
+            // or ~1920 samples for PAL (48kHz / 25 fps / 2 fields)
+            uint32_t sample_count = vfr_->get_audio_sample_count(FieldID(current_field_for_audio_));
+            if (sample_count == 0) {
+                // Estimate based on system if no sample count available
+                auto video_params = vfr_->get_video_parameters();
+                if (video_params) {
+                    // Calculate expected samples per field
+                    // Assuming 48kHz audio sample rate
+                    double field_rate = (video_params->system == VideoSystem::PAL) ? 50.0 : 59.94;
+                    sample_count = static_cast<uint32_t>((48000.0 / field_rate) + 0.5);
+                    sample_count *= 2;  // stereo (interleaved L/R pairs)
+                }
+            }
+            // Insert silence (zeros) for padding fields
+            samples.resize(sample_count, 0);
+        }
+        
         audio_buffer_.insert(audio_buffer_.end(), samples.begin(), samples.end());
         current_field_for_audio_++;
     }

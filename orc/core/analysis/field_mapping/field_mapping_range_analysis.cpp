@@ -86,6 +86,104 @@ std::vector<ParameterDescriptor> FieldMappingRangeAnalysisTool::parameters() con
     return params;
 }
 
+std::vector<ParameterDescriptor> FieldMappingRangeAnalysisTool::parametersForContext(const AnalysisContext& ctx) const {
+    // Get base parameters
+    auto params = parameters();
+    
+    // Try to detect disc type from VBI data and set appropriate default
+    // Use a quick sample of fields rather than scanning the entire source
+    if (ctx.dag && ctx.project) {
+        try {
+            // Find the field_map node in the DAG
+            const auto& dag_nodes = ctx.dag->nodes();
+            auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+                [&ctx](const DAGNode& node) { return node.node_id == ctx.node_id; });
+            
+            if (node_it != dag_nodes.end() && !node_it->input_node_ids.empty()) {
+                NodeID input_node_id = node_it->input_node_ids[0];
+                
+                // Execute DAG to get the VideoFieldRepresentation
+                DAGExecutor executor;
+                auto all_outputs = executor.execute_to_node(*ctx.dag, input_node_id);
+                
+                auto output_it = all_outputs.find(input_node_id);
+                if (output_it != all_outputs.end() && !output_it->second.empty()) {
+                    // Find the VideoFieldRepresentation output
+                    std::shared_ptr<VideoFieldRepresentation> source;
+                    for (const auto& artifact : output_it->second) {
+                        source = std::dynamic_pointer_cast<VideoFieldRepresentation>(artifact);
+                        if (source) {
+                            break;
+                        }
+                    }
+                    
+                    if (source) {
+                        // Quick detection: sample just the first ~20 fields to detect disc type
+                        // This avoids processing the entire source which can be very slow
+                        auto field_range = source->field_range();
+                        if (!field_range.is_valid()) {
+                            ORC_LOG_DEBUG("Field mapping range analysis: Invalid field range");
+                            return params;
+                        }
+                        
+                        bool has_picture_numbers = false;
+                        bool has_timecodes = false;
+                        int fields_checked = 0;
+                        const int max_fields_to_check = 20;
+                        
+                        for (FieldID fid = field_range.start; 
+                             fid < field_range.end && fields_checked < max_fields_to_check; 
+                             ++fid, ++fields_checked) {
+                            
+                            auto observations = source->get_observations(fid);
+                            for (const auto& obs : observations) {
+                                if (obs && obs->observation_type() == "Biphase") {
+                                    auto biphase = std::dynamic_pointer_cast<BiphaseObservation>(obs);
+                                    if (biphase) {
+                                        if (biphase->picture_number.has_value()) {
+                                            has_picture_numbers = true;
+                                        }
+                                        if (biphase->clv_timecode.has_value()) {
+                                            has_timecodes = true;
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // If we've found evidence of disc type, we can stop early
+                            if (has_picture_numbers || has_timecodes) {
+                                break;
+                            }
+                        }
+                        
+                        // Determine disc type (same logic as FieldMappingLookup)
+                        bool is_cav = has_picture_numbers && !has_timecodes;
+                        
+                        // Update the mode parameter default based on detected type
+                        for (auto& param : params) {
+                            if (param.name == "mode") {
+                                if (is_cav) {
+                                    param.constraints.default_value = std::string("Picture Numbers");
+                                    ORC_LOG_DEBUG("Field mapping range analysis: Detected CAV disc, defaulting to Picture Numbers mode");
+                                } else {
+                                    param.constraints.default_value = std::string("Timecodes");
+                                    ORC_LOG_DEBUG("Field mapping range analysis: Detected CLV disc, defaulting to Timecodes mode");
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            // If detection fails, just use the default from parameters()
+            ORC_LOG_DEBUG("Field mapping range analysis: Could not detect disc type, using default: {}", e.what());
+        }
+    }
+    
+    return params;
+}
+
 bool FieldMappingRangeAnalysisTool::canAnalyze(AnalysisSourceType source_type) const {
     return source_type == AnalysisSourceType::LaserDisc;
 }
@@ -179,9 +277,6 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
         progress->setProgress(30);
     }
     
-    // Create the lookup helper
-    FieldMappingLookup lookup(*source);
-    
     // Get parameters
     std::string mode = "Picture Numbers";
     auto mode_param = ctx.parameters.find("mode");
@@ -223,11 +318,12 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
         }
         
         if (progress) {
-            progress->setStatus("Converting picture numbers to fields...");
+            progress->setStatus("Scanning for picture numbers...");
             progress->setProgress(60);
         }
         
-        lookup_result = lookup.get_fields_for_frame_range(start_picture, end_picture, true);
+        // Use optimized sequential scan instead of building full mapping
+        lookup_result = FieldMappingLookup::find_picture_range_sequential(*source, start_picture, end_picture);
         
         if (!lookup_result.success) {
             result.status = AnalysisResult::Failed;
@@ -266,11 +362,12 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
         }
         
         if (progress) {
-            progress->setStatus("Converting timecodes to fields...");
+            progress->setStatus("Scanning for timecodes...");
             progress->setProgress(60);
         }
         
-        lookup_result = lookup.get_fields_for_timecode_range(*start_tc, *end_tc);
+        // Use optimized sequential scan instead of building full mapping
+        lookup_result = FieldMappingLookup::find_timecode_range_sequential(*source, *start_tc, *end_tc);
         
         if (!lookup_result.success) {
             result.status = AnalysisResult::Failed;

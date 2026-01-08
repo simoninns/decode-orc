@@ -15,6 +15,8 @@
 #include <regex>
 #include <algorithm>
 #include <stdexcept>
+#include <limits>
+#include <cmath>
 
 namespace orc {
 
@@ -105,33 +107,40 @@ void FieldMappingLookup::build_mapping(const VideoFieldRepresentation& source) {
         frame.second_field = second_fid;
         frame.sequential_frame_number = sequential_frame;
         
-        // Check for VBI data (picture number or timecode)
-        if (desc1->frame_number.has_value()) {
-            frame.picture_number = desc1->frame_number;
+        // Check for VBI data (picture number or timecode) from observations
+        // Get observations for both fields
+        auto obs1 = source.get_observations(fid);
+        auto obs2 = source.get_observations(second_fid);
+        
+        // Helper to find BiphaseObservation
+        auto find_biphase = [](const std::vector<std::shared_ptr<Observation>>& observations) 
+            -> std::shared_ptr<BiphaseObservation> {
+            for (const auto& obs : observations) {
+                if (obs && obs->observation_type() == "Biphase") {
+                    return std::dynamic_pointer_cast<BiphaseObservation>(obs);
+                }
+            }
+            return nullptr;
+        };
+        
+        auto biphase1 = find_biphase(obs1);
+        auto biphase2 = find_biphase(obs2);
+        
+        // Get picture number from observations
+        if (biphase1 && biphase1->picture_number.has_value()) {
+            frame.picture_number = biphase1->picture_number;
             has_picture_numbers = true;
-        } else if (desc2->frame_number.has_value()) {
-            frame.picture_number = desc2->frame_number;
+        } else if (biphase2 && biphase2->picture_number.has_value()) {
+            frame.picture_number = biphase2->picture_number;
             has_picture_numbers = true;
         }
         
-        if (desc1->timecode.has_value()) {
-            // Decode timecode from uint32_t (packed format from VBI)
-            uint32_t tc_val = desc1->timecode.value();
-            CLVTimecode clv;
-            clv.hours = (tc_val >> 24) & 0xFF;
-            clv.minutes = (tc_val >> 16) & 0xFF;
-            clv.seconds = (tc_val >> 8) & 0xFF;
-            clv.picture_number = tc_val & 0xFF;
-            frame.clv_timecode = clv;
+        // Get timecode from observations
+        if (biphase1 && biphase1->clv_timecode.has_value()) {
+            frame.clv_timecode = biphase1->clv_timecode;
             has_timecodes = true;
-        } else if (desc2->timecode.has_value()) {
-            uint32_t tc_val = desc2->timecode.value();
-            CLVTimecode clv;
-            clv.hours = (tc_val >> 24) & 0xFF;
-            clv.minutes = (tc_val >> 16) & 0xFF;
-            clv.seconds = (tc_val >> 8) & 0xFF;
-            clv.picture_number = tc_val & 0xFF;
-            frame.clv_timecode = clv;
+        } else if (biphase2 && biphase2->clv_timecode.has_value()) {
+            frame.clv_timecode = biphase2->clv_timecode;
             has_timecodes = true;
         }
         
@@ -275,27 +284,55 @@ FieldLookupResult FieldMappingLookup::get_fields_for_timecode(const ParsedTimeco
         return result;
     }
     
-    // Find matching timecode in frame map
-    for (const auto& frame : frame_map_) {
+    // Convert timecode to frame number for comparison
+    int32_t target_frame = timecode_to_frame_number(timecode);
+    
+    // Find the closest frame with timecode data
+    size_t best_match_idx = 0;
+    int32_t best_distance = std::numeric_limits<int32_t>::max();
+    bool found_any = false;
+    
+    for (size_t i = 0; i < frame_map_.size(); ++i) {
+        const auto& frame = frame_map_[i];
         if (frame.clv_timecode.has_value()) {
             const auto& clv = frame.clv_timecode.value();
-            if (clv.hours == timecode.hours &&
-                clv.minutes == timecode.minutes &&
-                clv.seconds == timecode.seconds &&
-                clv.picture_number == timecode.picture_number) {
-                
-                result.success = true;
-                result.field_range = FieldIDRange(frame.first_field, frame.second_field + 1);
-                result.start_field_id = frame.first_field;
-                result.end_field_id = frame.second_field + 1;
-                result.timecode = timecode;
-                return result;
+            ParsedTimecode frame_tc{clv.hours, clv.minutes, clv.seconds, clv.picture_number};
+            int32_t frame_num = timecode_to_frame_number(frame_tc);
+            int32_t distance = std::abs(frame_num - target_frame);
+            
+            if (distance < best_distance) {
+                best_distance = distance;
+                best_match_idx = i;
+                found_any = true;
+            }
+            
+            // If we found an exact match, use it immediately
+            if (distance == 0) {
+                break;
             }
         }
     }
     
-    result.success = false;
-    result.error_message = "Timecode " + timecode.to_string() + " not found in source";
+    if (!found_any) {
+        result.success = false;
+        result.error_message = "No timecode data found in source";
+        return result;
+    }
+    
+    const auto& frame = frame_map_[best_match_idx];
+    result.success = true;
+    result.field_range = FieldIDRange(frame.first_field, frame.second_field + 1);
+    result.start_field_id = frame.first_field;
+    result.end_field_id = frame.second_field + 1;
+    result.timecode = timecode;
+    
+    // Add warning if not an exact match
+    if (best_distance > 0) {
+        const auto& clv = frame.clv_timecode.value();
+        ParsedTimecode actual_tc{clv.hours, clv.minutes, clv.seconds, clv.picture_number};
+        result.warnings.push_back("Exact timecode not found, using closest match: " + actual_tc.to_string());
+    }
+    
     return result;
 }
 
@@ -350,6 +387,175 @@ FieldLookupResult FieldMappingLookup::get_info_for_field(FieldID field_id) const
         const auto& clv = frame.clv_timecode.value();
         result.timecode = ParsedTimecode{clv.hours, clv.minutes, clv.seconds, clv.picture_number};
     }
+    
+    return result;
+}
+
+FieldLookupResult FieldMappingLookup::find_timecode_range_sequential(
+    const VideoFieldRepresentation& source,
+    const ParsedTimecode& start_tc,
+    const ParsedTimecode& end_tc) {
+    
+    FieldLookupResult result;
+    
+    auto field_range = source.field_range();
+    if (!field_range.is_valid()) {
+        result.success = false;
+        result.error_message = "Invalid field range";
+        return result;
+    }
+    
+    // Get video format
+    auto first_descriptor = source.get_descriptor(field_range.start);
+    if (!first_descriptor) {
+        result.success = false;
+        result.error_message = "Cannot get descriptor";
+        return result;
+    }
+    result.is_pal = (first_descriptor->format == VideoFormat::PAL);
+    result.is_cav = false;
+    
+    // Convert timecodes to frame numbers for comparison
+    int frames_per_second = result.is_pal ? 25 : 30;
+    
+    auto tc_to_frame = [frames_per_second](const ParsedTimecode& tc) -> int32_t {
+        int total_seconds = tc.hours * 3600 + tc.minutes * 60 + tc.seconds;
+        return total_seconds * frames_per_second + tc.picture_number;
+    };
+    
+    int32_t target_start = tc_to_frame(start_tc);
+    int32_t target_end = tc_to_frame(end_tc);
+    
+    ORC_LOG_DEBUG("Sequential timecode scan: looking for frames {} to {}", target_start, target_end);
+    
+    // Scan fields sequentially
+    FieldID start_field_id;
+    FieldID end_field_id;
+    bool found_start = false;
+    bool found_end = false;
+    
+    for (FieldID fid = field_range.start; fid < field_range.end && !found_end; ++fid) {
+        auto observations = source.get_observations(fid);
+        
+        for (const auto& obs : observations) {
+            if (obs && obs->observation_type() == "Biphase") {
+                auto biphase = std::dynamic_pointer_cast<BiphaseObservation>(obs);
+                if (biphase && biphase->clv_timecode.has_value()) {
+                    const auto& clv = biphase->clv_timecode.value();
+                    ParsedTimecode field_tc{clv.hours, clv.minutes, clv.seconds, clv.picture_number};
+                    int32_t field_frame = tc_to_frame(field_tc);
+                    
+                    if (!found_start && field_frame >= target_start) {
+                        start_field_id = fid;
+                        found_start = true;
+                        ORC_LOG_DEBUG("Found start at field {} (tc: {})", fid.value(), field_tc.to_string());
+                    }
+                    
+                    if (found_start && field_frame >= target_end) {
+                        end_field_id = fid + 1;  // Exclusive
+                        found_end = true;
+                        ORC_LOG_DEBUG("Found end at field {} (tc: {})", fid.value(), field_tc.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (!found_start) {
+        result.success = false;
+        result.error_message = "Start timecode " + start_tc.to_string() + " not found in source";
+        return result;
+    }
+    
+    if (!found_end) {
+        // Reached end of source - use last field
+        end_field_id = field_range.end;
+        result.warnings.push_back("End timecode not found, using end of source");
+    }
+    
+    result.success = true;
+    result.start_field_id = start_field_id;
+    result.end_field_id = end_field_id;
+    result.field_range = FieldIDRange(start_field_id, end_field_id);
+    
+    return result;
+}
+
+FieldLookupResult FieldMappingLookup::find_picture_range_sequential(
+    const VideoFieldRepresentation& source,
+    int32_t start_picture,
+    int32_t end_picture) {
+    
+    FieldLookupResult result;
+    
+    auto field_range = source.field_range();
+    if (!field_range.is_valid()) {
+        result.success = false;
+        result.error_message = "Invalid field range";
+        return result;
+    }
+    
+    // Get video format
+    auto first_descriptor = source.get_descriptor(field_range.start);
+    if (!first_descriptor) {
+        result.success = false;
+        result.error_message = "Cannot get descriptor";
+        return result;
+    }
+    result.is_pal = (first_descriptor->format == VideoFormat::PAL);
+    result.is_cav = true;
+    
+    ORC_LOG_DEBUG("Sequential picture scan: looking for pictures {} to {}", start_picture, end_picture);
+    
+    // Scan fields sequentially
+    FieldID start_field_id;
+    FieldID end_field_id;
+    bool found_start = false;
+    bool found_end = false;
+    
+    for (FieldID fid = field_range.start; fid < field_range.end && !found_end; ++fid) {
+        auto observations = source.get_observations(fid);
+        
+        for (const auto& obs : observations) {
+            if (obs && obs->observation_type() == "Biphase") {
+                auto biphase = std::dynamic_pointer_cast<BiphaseObservation>(obs);
+                if (biphase && biphase->picture_number.has_value()) {
+                    int32_t pic_num = biphase->picture_number.value();
+                    
+                    if (!found_start && pic_num >= start_picture) {
+                        start_field_id = fid;
+                        found_start = true;
+                        ORC_LOG_DEBUG("Found start at field {} (picture: {})", fid.value(), pic_num);
+                    }
+                    
+                    if (found_start && pic_num >= end_picture) {
+                        end_field_id = fid + 1;  // Exclusive
+                        found_end = true;
+                        ORC_LOG_DEBUG("Found end at field {} (picture: {})", fid.value(), pic_num);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    if (!found_start) {
+        result.success = false;
+        result.error_message = "Start picture number " + std::to_string(start_picture) + " not found in source";
+        return result;
+    }
+    
+    if (!found_end) {
+        // Reached end of source - use last field
+        end_field_id = field_range.end;
+        result.warnings.push_back("End picture number not found, using end of source");
+    }
+    
+    result.success = true;
+    result.start_field_id = start_field_id;
+    result.end_field_id = end_field_id;
+    result.field_range = FieldIDRange(start_field_id, end_field_id);
     
     return result;
 }

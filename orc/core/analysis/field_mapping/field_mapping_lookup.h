@@ -162,6 +162,38 @@ public:
      * @brief Get field ID range covered by this lookup
      */
     FieldIDRange get_field_range() const { return field_range_; }
+    
+    /**
+     * @brief Find field IDs for a timecode range by sequential scan (optimized)
+     * 
+     * This method scans fields sequentially from the beginning until it finds
+     * both the start and end timecodes, then stops. Much more efficient than
+     * building a complete mapping for the entire source.
+     * 
+     * @param source Video source to scan
+     * @param start_tc Start timecode
+     * @param end_tc End timecode
+     * @return Lookup result with field ID range
+     */
+    static FieldLookupResult find_timecode_range_sequential(
+        const VideoFieldRepresentation& source,
+        const ParsedTimecode& start_tc,
+        const ParsedTimecode& end_tc);
+    
+    /**
+     * @brief Find field IDs for a picture number range by sequential scan (optimized)
+     * 
+     * Similar to find_timecode_range_sequential but for CAV picture numbers.
+     * 
+     * @param source Video source to scan
+     * @param start_picture Start picture number
+     * @param end_picture End picture number
+     * @return Lookup result with field ID range
+     */
+    static FieldLookupResult find_picture_range_sequential(
+        const VideoFieldRepresentation& source,
+        int32_t start_picture,
+        int32_t end_picture);
 
 private:
     struct FrameInfo {

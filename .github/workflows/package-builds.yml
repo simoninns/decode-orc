@@ -214,7 +214,7 @@ jobs:
       - name: Install system dependencies
         run: |
           brew update || true
-          brew install \
+          brew install --quiet \
             cmake \
             pkg-config \
             spdlog \
@@ -224,7 +224,7 @@ jobs:
             fftw \
             qt@6 \
             create-dmg \
-            ffmpeg
+            ffmpeg 2>&1 | grep -v "is already installed" || true
       
       - name: Create build directory
         run: mkdir -p build
@@ -539,6 +539,7 @@ jobs:
           bundle: ${{ steps.set-bundle-name.outputs.bundle }}
           manifest-path: io.github.simoninns.decode-orc.yml
           cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: false
       
       - name: Set artifact name
         id: set-artifact-name

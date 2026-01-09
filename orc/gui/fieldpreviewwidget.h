@@ -12,6 +12,7 @@
 
 #include <QWidget>
 #include <QImage>
+#include <QTimer>
 #include <memory>
 #include <cstdint>
 #include "preview_renderer.h"
@@ -71,15 +72,39 @@ public:
     
     QSize sizeHint() const override;
 
+signals:
+    /**
+     * @brief Emitted when user clicks on a line in the preview
+     * @param image_x X coordinate in image space (0 to width-1)
+     * @param image_y Y coordinate in image space (0 to height-1)
+     */
+    void lineClicked(int image_x, int image_y);
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
 
 private:
     QImage current_image_;
     double aspect_correction_ = 0.7;  // Default for PAL/NTSC DAR 4:3
     std::vector<orc::DropoutRegion> dropout_regions_;
     bool show_dropouts_ = false;
+    QPoint mouse_pos_;  // Current mouse position
+    bool mouse_over_ = false;  // Whether mouse is over the widget
+    QRect image_rect_;  // Where the image is drawn in widget coordinates
+    
+    // Line scope update throttling
+    QTimer* line_scope_update_timer_;
+    QPoint pending_line_scope_pos_;
+    bool line_scope_update_pending_ = false;
+    bool mouse_button_pressed_ = false;
+    
+private slots:
+    void onLineScopeUpdateTimer();
 };
 
 #endif // FIELDPREVIEWWIDGET_H

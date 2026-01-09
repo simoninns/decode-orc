@@ -1044,6 +1044,26 @@ bool PreviewRenderer::get_show_dropouts() const {
     return show_dropouts_;
 }
 
+std::shared_ptr<const VideoFieldRepresentation> PreviewRenderer::get_representation_at_node(const NodeID& node_id) {
+    // Ensure node is executed
+    ensure_node_executed(node_id);
+    
+    // Use field renderer to get the representation
+    // We need to render a field to get the representation - use field 0 as a representative
+    if (!field_renderer_) {
+        return nullptr;
+    }
+    
+    // Render field 0 to get the representation at this node
+    auto result = field_renderer_->render_field_at_node(node_id, FieldID(0));
+    
+    if (!result.is_valid || !result.representation) {
+        return nullptr;
+    }
+    
+    return result.representation;
+}
+
 void PreviewRenderer::render_dropouts(PreviewImage& image) const {
     if (!show_dropouts_ || image.dropout_regions.empty() || !image.is_valid()) {
         return;

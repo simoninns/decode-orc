@@ -19,9 +19,14 @@
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QString>
+#include <vector>
+#include <cstdint>
+#include <optional>
 #include "../core/include/preview_renderer.h"
+#include "../core/include/tbc_metadata.h"
 
 class FieldPreviewWidget;
+class LineScopeDialog;
 
 /**
  * @brief Separate dialog window for previewing field/frame outputs from DAG nodes
@@ -62,6 +67,19 @@ public:
      * @param node_id Node identifier string
      */
     void setCurrentNode(const QString& node_label, const QString& node_id);
+    
+    /**
+     * @brief Show line scope dialog with sample data
+     * @param field_index Field number being displayed
+     * @param line_number Line number being displayed
+     * @param sample_x Sample X position that was clicked
+     * @param samples Vector of 16-bit samples for the line
+     * @param video_params Optional video parameters for region markers
+     */
+    void showLineScope(uint64_t field_index, int line_number, int sample_x, 
+                       const std::vector<uint16_t>& samples,
+                       const std::optional<orc::VideoParameters>& video_params,
+                       int preview_image_width, int original_sample_x);
 
 Q_SIGNALS:
     void previewIndexChanged(int index);
@@ -74,6 +92,8 @@ Q_SIGNALS:
     void showQualityMetricsDialogRequested();  // Emitted when Quality Metrics menu item selected
     void showPulldownDialogRequested();  // Emitted when Pulldown Observer menu item selected
     void showDropoutsChanged(bool show);  // Emitted when dropout visibility changes
+    void lineScopeRequested(int image_x, int image_y);  // Emitted when user clicks a line
+    void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);  // Emitted when navigating lines
 
 private:
     void setupUI();
@@ -93,6 +113,7 @@ private:
     QAction* show_hints_action_;
     QAction* show_quality_metrics_action_;
     QAction* show_pulldown_action_;
+    LineScopeDialog* line_scope_dialog_;
     
     // Navigation buttons
     QPushButton* first_button_;

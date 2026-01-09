@@ -248,6 +248,17 @@ public:
     bool get_show_dropouts() const;
     
     /**
+     * @brief Get the field representation at a node
+     * 
+     * This allows direct access to the underlying 16-bit field data
+     * for operations like line scope display.
+     * 
+     * @param node_id The node to get representation from
+     * @return Shared pointer to the field representation, or nullptr if not available
+     */
+    std::shared_ptr<const VideoFieldRepresentation> get_representation_at_node(const NodeID& node_id);
+    
+    /**
      * @brief Get available aspect ratio modes
      * @return Vector of available aspect ratio mode options
      */

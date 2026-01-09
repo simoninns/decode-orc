@@ -59,6 +59,7 @@ enum class RenderRequestType {
     TriggerStage,           // Trigger a stage (batch processing)
     CancelTrigger,          // Cancel ongoing trigger
     GetAvailableOutputs,    // Query available preview outputs
+    GetLineSamples,         // Get 16-bit samples for a line
     SavePNG,                // Save preview as PNG file
     Shutdown                // Shutdown the worker thread
 };
@@ -198,6 +199,28 @@ struct GetAvailableOutputsRequest : public RenderRequest {
     GetAvailableOutputsRequest(uint64_t id, orc::NodeID node)
         : RenderRequest(RenderRequestType::GetAvailableOutputs, id)
         , node_id(std::move(node)) {}
+};
+
+/**
+ * @brief Request to get line samples
+ */
+struct GetLineSamplesRequest : public RenderRequest {
+    orc::NodeID node_id;
+    orc::PreviewOutputType output_type;
+    uint64_t output_index;
+    int line_number;
+    int sample_x;
+    int preview_image_width;  // Width of the preview image for coordinate mapping
+    
+    GetLineSamplesRequest(uint64_t id, orc::NodeID node, orc::PreviewOutputType type,
+                         uint64_t index, int line, int x, int img_width)
+        : RenderRequest(RenderRequestType::GetLineSamples, id)
+        , node_id(std::move(node))
+        , output_type(type)
+        , output_index(index)
+        , line_number(line)
+        , sample_x(x)
+        , preview_image_width(img_width) {}
 };
 
 /**
@@ -425,7 +448,27 @@ public:
      * @param node_id Node to query
      * @return Request ID for matching response
      */
-    uint64_t requestAvailableOutputs(const orc::NodeID& node_id);    uint64_t requestSavePNG(const orc::NodeID& node_id, 
+    uint64_t requestAvailableOutputs(const orc::NodeID& node_id);
+    
+    /**
+     * @brief Request line samples from a field (async)
+     * 
+     * Result will be emitted via lineSamplesReady signal.
+     * 
+     * @param node_id Node to get samples from
+     * @param output_type Type of output (field/frame)
+     * @param output_index Which field/frame
+     * @param line_number Line number to retrieve (0-based)
+     * @param sample_x Sample X position that was clicked (in preview image coordinates)
+     * @param preview_image_width Width of the preview image for coordinate mapping
+     * @return Request ID for matching response
+     */
+    uint64_t requestLineSamples(const orc::NodeID& node_id,
+                               orc::PreviewOutputType output_type,
+                               uint64_t output_index,
+                               int line_number,
+                               int sample_x,
+                               int preview_image_width);    uint64_t requestSavePNG(const orc::NodeID& node_id, 
                            orc::PreviewOutputType output_type,
                            uint64_t output_index,
                            const std::string& filename,
@@ -515,6 +558,12 @@ signals:
     void availableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     
     /**
+     * @brief Emitted when line samples are ready
+     */
+    void lineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
+                          std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params);
+    
+    /**
      * @brief Emitted during trigger progress
      */
     void triggerProgress(size_t current, size_t total, QString message);
@@ -578,6 +627,12 @@ private:
      * @brief Handle GetAvailableOutputs request
      */
     void handleGetAvailableOutputs(const GetAvailableOutputsRequest& req);
+    
+    /**
+     * @brief Handle GetLineSamples request
+     */
+    void handleGetLineSamples(const GetLineSamplesRequest& req);
+    
     void handleSavePNG(const SavePNGRequest& req);
     
     /**

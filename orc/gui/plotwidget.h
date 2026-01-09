@@ -54,6 +54,11 @@ public:
     void setAxisAutoScale(Qt::Orientation orientation, bool enable);
     void setYAxisIntegerLabels(bool integerOnly);
     
+    // Secondary Y-axis (right side)
+    void setSecondaryYAxisEnabled(bool enabled);
+    void setSecondaryYAxisTitle(const QString &title);
+    void setSecondaryYAxisRange(double min, double max);
+    
     // Grid
     void setGridEnabled(bool enabled);
     void setGridPen(const QPen &pen);
@@ -108,12 +113,15 @@ private:
     // Axes
     QString m_xAxisTitle;
     QString m_yAxisTitle;
+    QString m_secondaryYAxisTitle;
     double m_xMin, m_xMax;
     double m_yMin, m_yMax;
+    double m_secondaryYMin, m_secondaryYMax;
     bool m_xAutoScale;
     bool m_yAutoScale;
     bool m_yIntegerLabels;
     bool m_isDarkTheme;
+    bool m_secondaryYAxisEnabled;
     
     // Components
     PlotGrid *m_grid;
@@ -261,7 +269,9 @@ public:
     void updateLabels(const QRectF &plotRect, const QRectF &dataRect, 
                      const QString &xTitle, const QString &yTitle,
                      double xMin, double xMax, double yMin, double yMax,
-                     bool yIntegerLabels = false, bool isDarkTheme = false);
+                     bool yIntegerLabels = false, bool isDarkTheme = false,
+                     bool secondaryYEnabled = false, const QString &secondaryYTitle = QString(),
+                     double secondaryYMin = 0, double secondaryYMax = 100);
     
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
@@ -271,9 +281,12 @@ private:
     QRectF m_dataRect;
     QString m_xTitle;
     QString m_yTitle;
+    QString m_secondaryYTitle;
     bool m_yIntegerLabels;
     bool m_isDarkTheme;
+    bool m_secondaryYEnabled;
     double m_xMin, m_xMax, m_yMin, m_yMax;
+    double m_secondaryYMin, m_secondaryYMax;
     PlotWidget *m_plotWidget;
 };
 

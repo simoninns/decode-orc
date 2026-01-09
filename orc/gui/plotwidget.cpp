@@ -26,6 +26,9 @@ PlotWidget::PlotWidget(QWidget *parent)
     , m_yAutoScale(true)
     , m_yIntegerLabels(false)
     , m_isDarkTheme(false)
+    , m_secondaryYAxisEnabled(false)
+    , m_secondaryYMin(0)
+    , m_secondaryYMax(100)
     , m_grid(nullptr)
     , m_legend(nullptr)
     , m_axisLabels(nullptr)
@@ -119,6 +122,25 @@ void PlotWidget::setAxisAutoScale(Qt::Orientation orientation, bool enable)
 void PlotWidget::setYAxisIntegerLabels(bool integerOnly)
 {
     m_yIntegerLabels = integerOnly;
+    replot();
+}
+
+void PlotWidget::setSecondaryYAxisEnabled(bool enabled)
+{
+    m_secondaryYAxisEnabled = enabled;
+    replot();
+}
+
+void PlotWidget::setSecondaryYAxisTitle(const QString &title)
+{
+    m_secondaryYAxisTitle = title;
+    replot();
+}
+
+void PlotWidget::setSecondaryYAxisRange(double min, double max)
+{
+    m_secondaryYMin = min;
+    m_secondaryYMax = max;
     replot();
 }
 
@@ -289,7 +311,9 @@ void PlotWidget::replot()
     // Update axis labels
     if (m_axisLabels) {
         m_axisLabels->updateLabels(m_plotRect, m_dataRect, m_xAxisTitle, m_yAxisTitle, 
-                                  m_xMin, m_xMax, m_yMin, m_yMax, m_yIntegerLabels, m_isDarkTheme);
+                                  m_xMin, m_xMax, m_yMin, m_yMax, m_yIntegerLabels, m_isDarkTheme,
+                                  m_secondaryYAxisEnabled, m_secondaryYAxisTitle,
+                                  m_secondaryYMin, m_secondaryYMax);
     }
     
     // Reset view transformation to 1:1 scale
@@ -315,7 +339,12 @@ void PlotWidget::updatePlotArea()
     const int leftMargin = 80;   // Space for Y-axis labels and title
     const int bottomMargin = 60; // Space for X-axis labels and title
     const int topMargin = 20;    // Small top margin
-    const int rightMargin = 20;  // Small right margin
+    int rightMargin = 20;  // Small right margin (or larger if secondary Y-axis enabled)
+    
+    // Increase right margin if secondary Y-axis is enabled
+    if (m_secondaryYAxisEnabled) {
+        rightMargin = 100;  // Space for secondary Y-axis labels and title
+    }
     
     m_plotRect = QRectF(leftMargin, topMargin, 
                        viewSize.width() - leftMargin - rightMargin, 
@@ -719,24 +748,33 @@ PlotAxisLabels::PlotAxisLabels(PlotWidget *parent)
 void PlotAxisLabels::updateLabels(const QRectF &plotRect, const QRectF &dataRect, 
                                   const QString &xTitle, const QString &yTitle,
                                   double xMin, double xMax, double yMin, double yMax,
-                                  bool yIntegerLabels, bool isDarkTheme)
+                                  bool yIntegerLabels, bool isDarkTheme,
+                                  bool secondaryYEnabled, const QString &secondaryYTitle,
+                                  double secondaryYMin, double secondaryYMax)
 {
     m_plotRect = plotRect;
+    m_dataRect = dataRect;
     m_xTitle = xTitle;
     m_yTitle = yTitle;
+    m_secondaryYTitle = secondaryYTitle;
     m_xMin = xMin;
     m_xMax = xMax;
     m_yMin = yMin;
     m_yMax = yMax;
+    m_secondaryYMin = secondaryYMin;
+    m_secondaryYMax = secondaryYMax;
     m_yIntegerLabels = yIntegerLabels;
     m_isDarkTheme = isDarkTheme;
+    m_secondaryYEnabled = secondaryYEnabled;
     update();
 }
 
 QRectF PlotAxisLabels::boundingRect() const
 {
     // Expand beyond plot area to include space for labels
-    return QRectF(0, 0, m_plotRect.right() + 50, m_plotRect.bottom() + 50);
+    // Extra space on right if secondary Y-axis is enabled
+    int rightSpace = m_secondaryYEnabled ? 100 : 50;
+    return QRectF(0, 0, m_plotRect.right() + rightSpace, m_plotRect.bottom() + 50);
 }
 
 void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget)
@@ -807,6 +845,37 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
         QRect titleRect = fm.boundingRect(m_yTitle);
         painter->drawText(-titleRect.width() / 2, titleRect.height() / 2, m_yTitle);
         painter->restore();
+    }
+    
+    // Draw secondary Y-axis (right side) if enabled
+    if (m_secondaryYEnabled) {
+        int numYTicks = 10;  // 0, 10, 20, ..., 100 IRE
+        for (int i = 0; i <= numYTicks; ++i) {
+            double dataY = m_secondaryYMin + (m_secondaryYMax - m_secondaryYMin) * i / numYTicks;
+            double sceneY = m_plotRect.bottom() - m_plotRect.height() * i / numYTicks;
+            
+            // Draw tick mark
+            painter->setPen(QPen(axisColor, 1));
+            painter->drawLine(QPointF(m_plotRect.right(), sceneY), 
+                             QPointF(m_plotRect.right() + 5, sceneY));
+            
+            // Draw label
+            QString label = QString::number(qRound(dataY));
+            QRect textRect = fm.boundingRect(label);
+            QPointF textPos(m_plotRect.right() + 10, 
+                           sceneY + textRect.height() / 4);
+            painter->drawText(textPos, label);
+        }
+        
+        // Draw secondary Y-axis title (rotated)
+        if (!m_secondaryYTitle.isEmpty()) {
+            painter->save();
+            painter->translate(m_plotRect.right() + 60, m_plotRect.center().y());
+            painter->rotate(-90);
+            QRect titleRect = fm.boundingRect(m_secondaryYTitle);
+            painter->drawText(-titleRect.width() / 2, titleRect.height() / 2, m_secondaryYTitle);
+            painter->restore();
+        }
     }
     
     // Draw plot border

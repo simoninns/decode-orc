@@ -112,6 +112,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onVBIDataReady);
     connect(render_coordinator_.get(), &RenderCoordinator::availableOutputsReady,
             this, &MainWindow::onAvailableOutputsReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::lineSamplesReady,
+            this, &MainWindow::onLineSamplesReady);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
             this, &MainWindow::onDropoutDataReady);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress,
@@ -283,6 +285,10 @@ void MainWindow::setupUI()
             this, &MainWindow::onShowQualityMetricsDialog);
     connect(preview_dialog_, &PreviewDialog::showPulldownDialogRequested,
             this, &MainWindow::onShowPulldownDialog);
+    connect(preview_dialog_, &PreviewDialog::lineScopeRequested,
+            this, &MainWindow::onLineScopeRequested);
+    connect(preview_dialog_, &PreviewDialog::lineNavigationRequested,
+            this, &MainWindow::onLineNavigation);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -2783,3 +2789,184 @@ void MainWindow::updatePulldownDialog()
         pulldown_dialog_->clearPulldownInfo();
     }
 }
+void MainWindow::onLineScopeRequested(int image_x, int image_y)
+{
+    ORC_LOG_DEBUG("Line scope requested at image position ({}, {})", image_x, image_y);
+    
+    if (!current_view_node_id_.is_valid()) {
+        ORC_LOG_WARN("No node selected for line scope");
+        return;
+    }
+    
+    // Store original image_x for later use in navigation
+    last_line_scope_image_x_ = image_x;
+    
+    // Determine the actual field and line based on the output type
+    uint64_t field_index;
+    int field_line;
+    
+    uint64_t current_index = preview_dialog_->previewSlider()->value();
+    
+    if (current_output_type_ == orc::PreviewOutputType::Field) {
+        // Simple case: viewing a single field
+        field_index = current_index;
+        field_line = image_y;
+    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
+               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+        // Frame mode: image has interlaced fields
+        // Even lines are from first field, odd lines are from second field
+        // Line number within field is image_y / 2
+        bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
+        
+        if (image_y % 2 == 0) {
+            // Even line - first field (or second if reversed)
+            field_index = current_index * 2 + (is_reversed ? 1 : 0);
+        } else {
+            // Odd line - second field (or first if reversed)
+            field_index = current_index * 2 + (is_reversed ? 0 : 1);
+        }
+        field_line = image_y / 2;
+    } else if (current_output_type_ == orc::PreviewOutputType::Split) {
+        // Split mode: image shows two fields stacked vertically
+        // Top half is first field, bottom half is second field
+        // Split point is at half the image height
+        int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+        int split_point = image_height / 2;
+        
+        if (image_y < split_point) {
+            // Top half - first field
+            field_index = current_index * 2;
+            field_line = image_y;
+        } else {
+            // Bottom half - second field
+            field_index = current_index * 2 + 1;
+            field_line = image_y - split_point;
+        }
+    } else {
+        ORC_LOG_WARN("Unsupported output type for line scope: {}", static_cast<int>(current_output_type_));
+        return;
+    }
+    
+    // Map image_x from preview image coordinates to field sample coordinates
+    // The preview widget gives us coordinates in the rendered RGB image space,
+    // but the field data may have a different width (no aspect ratio correction in samples)
+    // We need to get the original field width to do proper mapping
+    // For now, we'll pass image_x and let the backend handle clamping
+    // TODO: Get actual field descriptor to properly map coordinates
+    int sample_x = image_x;
+    
+    ORC_LOG_DEBUG("Requesting line samples for field {}, line {}, sample_x {}", field_index, field_line, sample_x);
+    
+    // Get the preview image width for coordinate mapping
+    int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
+    
+    // Request line samples from the coordinator using Field output type
+    render_coordinator_->requestLineSamples(
+        current_view_node_id_,
+        orc::PreviewOutputType::Field,
+        field_index,
+        field_line,
+        sample_x,
+        preview_image_width
+    );
+}
+
+void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
+                                    std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params)
+{
+    Q_UNUSED(request_id);
+    
+    ORC_LOG_DEBUG("Line samples ready: {} samples for field {}, line {}, sample_x={}", samples.size(), field_index, line_number, sample_x);
+    
+    if (!preview_dialog_) {
+        return;
+    }
+    
+    // Get preview image width for coordinate mapping
+    int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
+    
+    // Use the stored original image_x to avoid rounding errors from reverse-mapping
+    int original_sample_x = last_line_scope_image_x_;
+    
+    ORC_LOG_DEBUG("Using original_sample_x={} from last request", original_sample_x);
+    
+    // Show the line scope dialog with the samples
+    preview_dialog_->showLineScope(field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+}
+
+void MainWindow::onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width)
+{
+    ORC_LOG_DEBUG("Line navigation requested: direction={}, field={}, line={}, sample_x={}", direction, current_field, current_line, sample_x);
+    
+    if (!current_view_node_id_.is_valid()) {
+        return;
+    }
+    
+    // Store original sample_x for when the response arrives
+    last_line_scope_image_x_ = sample_x;
+    
+    // Calculate new field and line based on output type
+    uint64_t new_field_index = current_field;
+    int new_line_number = current_line + direction;
+    
+    // Get the image size to determine field height
+    int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    
+    if (current_output_type_ == orc::PreviewOutputType::Field) {
+        // Simple field mode - just move within the same field
+        // Bounds checking will be done by backend
+        if (new_line_number < 0) {
+            new_line_number = 0;
+        }
+    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
+               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+        // Frame mode - moving between interlaced fields
+        // Each frame line corresponds to half a field line
+        // Need to alternate between fields
+        
+        bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
+        
+        // Determine if current field is even or odd in the frame
+        bool current_is_first_field = (current_field % 2 == (is_reversed ? 1 : 0));
+        
+        if (direction > 0) {
+            // Moving down - toggle field
+            if (current_is_first_field) {
+                new_field_index = current_field + 1;
+            } else {
+                new_field_index = current_field - 1;
+                new_line_number = current_line + 1;
+            }
+        } else {
+            // Moving up - toggle field
+            if (current_is_first_field) {
+                new_field_index = current_field + 1;
+                new_line_number = current_line - 1;
+                if (new_line_number < 0) {
+                    new_line_number = 0;
+                }
+            } else {
+                new_field_index = current_field - 1;
+            }
+        }
+    } else if (current_output_type_ == orc::PreviewOutputType::Split) {
+        // Split mode - two fields stacked vertically
+        // Stay within the same field
+        if (new_line_number < 0) {
+            new_line_number = 0;
+        }
+    }
+    
+    ORC_LOG_DEBUG("Navigating to field {}, line {}", new_field_index, new_line_number);
+    
+    // Request samples for the new line, preserving the sample_x position
+    render_coordinator_->requestLineSamples(
+        current_view_node_id_,
+        orc::PreviewOutputType::Field,
+        new_field_index,
+        new_line_number,
+        sample_x,
+        preview_image_width
+    );
+}
+

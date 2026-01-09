@@ -24,6 +24,7 @@
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
+#include "tbc_metadata.h"
 #include "../core/include/node_id.h"
 
 class OrcGraphicsView;
@@ -121,11 +122,15 @@ private slots:
     void updateQualityMetricsDialog();
     void onShowPulldownDialog();
     void updatePulldownDialog();
+    void onLineScopeRequested(int image_x, int image_y);
+    void onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
     void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
+    void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
+                            std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     void onDropoutProgress(size_t current, size_t total, QString message);
     void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
@@ -218,6 +223,7 @@ private:
     std::string current_option_id_;  ///< Current option ID for PreviewableStage rendering
     orc::AspectRatioMode current_aspect_ratio_mode_;  ///< Current aspect ratio mode
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
+    int last_line_scope_image_x_;  ///< Store original preview-space X coordinate for line scope navigation
     
     // Preview update debouncing (for slider scrubbing)
     QTimer* preview_update_timer_;

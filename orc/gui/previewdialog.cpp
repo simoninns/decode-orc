@@ -9,6 +9,7 @@
 
 #include "previewdialog.h"
 #include "fieldpreviewwidget.h"
+#include "linescopedialog.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -25,6 +26,7 @@
 
 PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
+    , line_scope_dialog_(nullptr)
 {
     setupUI();
     setWindowTitle("Field/Frame Preview");
@@ -216,9 +218,34 @@ void PreviewDialog::setupUI()
         preview_widget_->setMinimumSize(320, 240);
         preview_widget_->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     });
+    
+    // Create line scope dialog
+    line_scope_dialog_ = new LineScopeDialog(this);
+    
+    // Connect line clicked signal
+    connect(preview_widget_, &FieldPreviewWidget::lineClicked, [this](int image_x, int image_y) {
+        emit lineScopeRequested(image_x, image_y);
+    });
 }
 
 void PreviewDialog::setCurrentNode(const QString& node_label, const QString& node_id)
 {
     status_bar_->showMessage(QString("Viewing output from stage: %1").arg(node_id));
+}
+
+void PreviewDialog::showLineScope(uint64_t field_index, int line_number, int sample_x, 
+                                  const std::vector<uint16_t>& samples,
+                                  const std::optional<orc::VideoParameters>& video_params,
+                                  int preview_image_width, int original_sample_x)
+{
+    if (line_scope_dialog_) {
+        // Connect navigation signal if not already connected
+        connect(line_scope_dialog_, &LineScopeDialog::lineNavigationRequested,
+                this, &PreviewDialog::lineNavigationRequested, Qt::UniqueConnection);
+        
+        line_scope_dialog_->setLineSamples(field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+        line_scope_dialog_->show();
+        line_scope_dialog_->raise();
+        line_scope_dialog_->activateWindow();
+    }
 }

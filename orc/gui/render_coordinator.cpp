@@ -132,6 +132,21 @@ uint64_t RenderCoordinator::requestAvailableOutputs(const orc::NodeID& node_id)
     enqueueRequest(std::move(req));
     return id;
 }
+
+uint64_t RenderCoordinator::requestLineSamples(const orc::NodeID& node_id,
+                                              orc::PreviewOutputType output_type,
+                                              uint64_t output_index,
+                                              int line_number,
+                                              int sample_x,
+                                              int preview_image_width)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetLineSamplesRequest>(id, node_id, output_type, 
+                                                        output_index, line_number, sample_x, preview_image_width);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
 uint64_t RenderCoordinator::requestSavePNG(const orc::NodeID& node_id, 
                                           orc::PreviewOutputType output_type,
                                           uint64_t output_index,
@@ -232,6 +247,10 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             
         case RenderRequestType::GetAvailableOutputs:
             handleGetAvailableOutputs(*static_cast<GetAvailableOutputsRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::GetLineSamples:
+            handleGetLineSamples(*static_cast<GetLineSamplesRequest*>(request.get()));
             break;
             
         case RenderRequestType::SavePNG:
@@ -517,6 +536,86 @@ void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsReque
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Get available outputs failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting line samples for node '{}', line {} (request {})",
+                  req.node_id.to_string(), req.line_number, req.request_id);
+    
+    if (!worker_preview_renderer_) {
+        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
+        emit error(req.request_id, "Preview renderer not initialized");
+        return;
+    }
+    
+    try {
+        // Get the representation at this node
+        auto repr = worker_preview_renderer_->get_representation_at_node(req.node_id);
+        if (!repr) {
+            throw std::runtime_error("No representation available at node");
+        }
+        
+        // Determine which field to get samples from
+        orc::FieldID field_id;
+        if (req.output_type == orc::PreviewOutputType::Field) {
+            field_id = orc::FieldID(req.output_index);
+        } else if (req.output_type == orc::PreviewOutputType::Frame) {
+            // For frame mode, use the first field of the frame
+            field_id = orc::FieldID(req.output_index * 2);
+        } else {
+            throw std::runtime_error("Unsupported output type for line scope");
+        }
+        
+        // Get descriptor to know field dimensions
+        auto descriptor = repr->get_descriptor(field_id);
+        if (!descriptor) {
+            throw std::runtime_error("Field descriptor not available");
+        }
+        
+        // Validate line number is within bounds
+        if (req.line_number < 0 || static_cast<size_t>(req.line_number) >= descriptor->height) {
+            throw std::runtime_error("Line number out of bounds");
+        }
+        
+        // Get the line data
+        const uint16_t* line_data = repr->get_line(field_id, req.line_number);
+        if (!line_data) {
+            throw std::runtime_error("Line data not available");
+        }
+        
+        // Copy the line samples
+        std::vector<uint16_t> samples(line_data, line_data + descriptor->width);
+        
+        // Get video parameters for markers
+        auto video_params = repr->get_video_parameters();
+        
+        // Map the image X coordinate from preview image space to field sample space
+        // The preview image may have aspect ratio correction applied, so its width
+        // differs from the field width. We need to scale the X coordinate accordingly.
+        int actual_sample_x = req.sample_x;
+        
+        if (req.preview_image_width > 0) {
+            // Map from preview image coordinates to field sample coordinates
+            actual_sample_x = (req.sample_x * static_cast<int>(descriptor->width)) / req.preview_image_width;
+        }
+        
+        // Clamp to valid sample range
+        if (actual_sample_x < 0) actual_sample_x = 0;
+        if (actual_sample_x >= static_cast<int>(descriptor->width)) {
+            actual_sample_x = static_cast<int>(descriptor->width) - 1;
+        }
+        
+        ORC_LOG_DEBUG("RenderCoordinator: Retrieved {} samples from line {}, sample_x {} (preview width {}, field width {}, mapped to {})", 
+                      samples.size(), req.line_number, req.sample_x, req.preview_image_width, descriptor->width, actual_sample_x);
+        
+        // Emit result on GUI thread
+        emit lineSamplesReady(req.request_id, req.output_index, req.line_number, actual_sample_x, std::move(samples), video_params);
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }

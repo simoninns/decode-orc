@@ -45,7 +45,8 @@ jobs:
             yaml-cpp `
             libpng `
             fftw3 `
-            pkgconf
+            pkgconf `
+            ffmpeg[core,avcodec,avformat,avutil,swscale]
       
       - name: Create build directory
         run: mkdir -p build
@@ -90,12 +91,24 @@ jobs:
             "fmt.dll",
             "libpng16.dll",
             "zlib1.dll",
-            "sqlite3.dll"
+            "sqlite3.dll",
+            "avcodec-*.dll",
+            "avformat-*.dll",
+            "avutil-*.dll",
+            "swscale-*.dll",
+            "swresample-*.dll"
           )
           
           foreach ($dll in $dlls) {
             $sourcePath = Join-Path "$vcpkgRoot/bin" $dll
-            if (Test-Path $sourcePath) {
+            # Handle wildcards for versioned DLLs
+            $files = Get-ChildItem -Path "$vcpkgRoot/bin" -Filter $dll -ErrorAction SilentlyContinue
+            if ($files) {
+              foreach ($file in $files) {
+                Copy-Item $file.FullName $binDir -Force
+                Write-Host "Copied $($file.Name)"
+              }
+            } elseif (Test-Path $sourcePath) {
               Copy-Item $sourcePath $binDir -Force
               Write-Host "Copied $dll"
             }
@@ -168,7 +181,8 @@ jobs:
             libpng \
             fftw \
             qt@6 \
-            create-dmg
+            create-dmg \
+            ffmpeg
       
       - name: Create build directory
         run: mkdir -p build

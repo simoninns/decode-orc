@@ -74,6 +74,32 @@ modules:
         url: https://github.com/paceholder/nodeeditor.git
         commit: 0813551215ce44235b7365f133eec057d5e7fcd2
 
+  - name: nasm
+    buildsystem: autotools
+    sources:
+      - type: archive
+        url: https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz
+        sha256: 1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148
+
+  - name: ffmpeg
+    buildsystem: autotools
+    config-opts:
+      - --enable-shared
+      - --disable-static
+      - --disable-doc
+      - --disable-programs
+      - --enable-gpl
+      - --enable-version3
+      - --enable-optimizations
+      - --disable-debug
+      - --enable-libx264
+      - --enable-libx265
+      - --enable-libvpx
+    sources:
+      - type: archive
+        url: https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz
+        sha256: 40973d44970dbc83ef302b0609f2e74982be2d85916dd2ee7472d30678a7abe6
+
   - name: decode-orc
     buildsystem: cmake-ninja
     config-opts:

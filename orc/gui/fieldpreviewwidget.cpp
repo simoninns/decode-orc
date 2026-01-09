@@ -94,6 +94,33 @@ void FieldPreviewWidget::setShowDropouts(bool show)
     update();
 }
 
+void FieldPreviewWidget::setCrosshairsEnabled(bool enabled)
+{
+    crosshairs_enabled_ = enabled;
+    if (!enabled) {
+        // Clear locked state when disabling
+        crosshairs_locked_ = false;
+    }
+    update();
+}
+
+void FieldPreviewWidget::updateCrosshairsPosition(int image_x, int image_y)
+{
+    if (current_image_.isNull()) {
+        return;
+    }
+    
+    // Map image coordinates to widget coordinates
+    QSize image_size = current_image_.size();
+    int widget_x = image_rect_.left() + (image_x * image_rect_.width()) / image_size.width();
+    int widget_y = image_rect_.top() + (image_y * image_rect_.height()) / image_size.height();
+    
+    // Update locked cross-hairs position
+    crosshairs_locked_ = true;
+    locked_crosshairs_pos_ = QPoint(widget_x, widget_y);
+    update();
+}
+
 QSize FieldPreviewWidget::sizeHint() const
 {
     return QSize(768, 576); // PAL-ish aspect
@@ -137,16 +164,17 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(dest_rect, current_image_);
     
-    // Draw cross-hairs if mouse is over the image area
-    if (mouse_over_ && image_rect_.contains(mouse_pos_)) {
+    // Draw cross-hairs if enabled and (mouse is over the image area or cross-hairs are locked)
+    QPoint draw_pos = crosshairs_locked_ ? locked_crosshairs_pos_ : mouse_pos_;
+    if (crosshairs_enabled_ && (mouse_over_ || crosshairs_locked_) && image_rect_.contains(draw_pos)) {
         painter.setRenderHint(QPainter::Antialiasing, false);
         QPen pen(Qt::green);
         pen.setWidth(1);
         painter.setPen(pen);
         
-        // Map mouse position to image pixel coordinates
-        int img_x = ((mouse_pos_.x() - image_rect_.left()) * image_size.width()) / image_rect_.width();
-        int img_y = ((mouse_pos_.y() - image_rect_.top()) * image_size.height()) / image_rect_.height();
+        // Map position to image pixel coordinates
+        int img_x = ((draw_pos.x() - image_rect_.left()) * image_size.width()) / image_rect_.width();
+        int img_y = ((draw_pos.y() - image_rect_.top()) * image_size.height()) / image_rect_.height();
         
         // Clamp to image bounds
         img_x = qBound(0, img_x, image_size.width() - 1);
@@ -175,6 +203,12 @@ void FieldPreviewWidget::mouseMoveEvent(QMouseEvent *event)
 {
     mouse_pos_ = event->pos();
     mouse_over_ = true;
+    
+    // If button is pressed and we're dragging, unlock cross-hairs
+    if (mouse_button_pressed_) {
+        crosshairs_locked_ = false;
+    }
+    
     update();  // Trigger repaint to show cross-hairs at new position
     
     // If mouse button is pressed and we're over the image, request line scope update
@@ -196,6 +230,11 @@ void FieldPreviewWidget::mousePressEvent(QMouseEvent *event)
     // Track mouse button state for drag detection
     if (event->button() == Qt::LeftButton) {
         mouse_button_pressed_ = true;
+        
+        // Lock cross-hairs at click position
+        crosshairs_locked_ = true;
+        locked_crosshairs_pos_ = event->pos();
+        update();  // Redraw with locked cross-hairs
         
         // Emit signal for initial click if over the image area
         if (image_rect_.contains(event->pos()) && !current_image_.isNull()) {
@@ -222,6 +261,13 @@ void FieldPreviewWidget::mouseReleaseEvent(QMouseEvent *event)
         mouse_button_pressed_ = false;
         line_scope_update_timer_->stop();
         line_scope_update_pending_ = false;
+        
+        // Lock cross-hairs at final position after drag
+        if (image_rect_.contains(event->pos())) {
+            crosshairs_locked_ = true;
+            locked_crosshairs_pos_ = event->pos();
+            update();
+        }
     }
     
     QWidget::mouseReleaseEvent(event);
@@ -251,7 +297,8 @@ void FieldPreviewWidget::onLineScopeUpdateTimer()
 void FieldPreviewWidget::leaveEvent(QEvent *event)
 {
     mouse_over_ = false;
-    update();  // Trigger repaint to hide cross-hairs
+    // Keep cross-hairs locked when mouse leaves - don't unlock them
+    update();  // Trigger repaint
     QWidget::leaveEvent(event);
 }
 

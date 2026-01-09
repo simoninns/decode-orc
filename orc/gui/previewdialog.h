@@ -80,6 +80,11 @@ public:
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::VideoParameters>& video_params,
                        int preview_image_width, int original_sample_x);
+    
+    /**
+     * @brief Close all child dialogs (e.g., line scope)
+     */
+    void closeChildDialogs();
 
 Q_SIGNALS:
     void previewIndexChanged(int index);
@@ -94,6 +99,10 @@ Q_SIGNALS:
     void showDropoutsChanged(bool show);  // Emitted when dropout visibility changes
     void lineScopeRequested(int image_x, int image_y);  // Emitted when user clicks a line
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);  // Emitted when navigating lines
+    void sampleMarkerMovedInLineScope(int sample_x);  // Emitted when sample marker moves in line scope
+
+private slots:
+    void onSampleMarkerMoved(int sample_x);
 
 private:
     void setupUI();
@@ -114,6 +123,11 @@ private:
     QAction* show_quality_metrics_action_;
     QAction* show_pulldown_action_;
     LineScopeDialog* line_scope_dialog_;
+    
+    // Current line scope context for cross-hair updates
+    int current_line_scope_line_ = -1;  // Image Y coordinate of current line being scoped
+    int current_line_scope_preview_width_ = 0;
+    int current_line_scope_samples_count_ = 0;
     
     // Navigation buttons
     QPushButton* first_button_;

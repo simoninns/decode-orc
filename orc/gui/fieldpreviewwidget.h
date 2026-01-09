@@ -70,6 +70,19 @@ public:
      */
     void setShowDropouts(bool show);
     
+    /**
+     * @brief Enable or disable cross-hairs display
+     * @param enabled True to allow cross-hairs, false to hide them
+     */
+    void setCrosshairsEnabled(bool enabled);
+    
+    /**
+     * @brief Update cross-hairs position (in image coordinates)
+     * @param image_x X coordinate in image space
+     * @param image_y Y coordinate in image space
+     */
+    void updateCrosshairsPosition(int image_x, int image_y);
+    
     QSize sizeHint() const override;
 
 signals:
@@ -96,6 +109,11 @@ private:
     QPoint mouse_pos_;  // Current mouse position
     bool mouse_over_ = false;  // Whether mouse is over the widget
     QRect image_rect_;  // Where the image is drawn in widget coordinates
+    
+    // Cross-hairs locking
+    bool crosshairs_enabled_ = false;  // Whether cross-hairs are enabled (line scope open)
+    bool crosshairs_locked_ = false;  // Whether cross-hairs are locked at a position
+    QPoint locked_crosshairs_pos_;  // Locked cross-hairs position
     
     // Line scope update throttling
     QTimer* line_scope_update_timer_;

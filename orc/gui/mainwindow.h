@@ -124,6 +124,7 @@ private slots:
     void updatePulldownDialog();
     void onLineScopeRequested(int image_x, int image_y);
     void onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
+    void onSampleMarkerMoved(int sample_x);
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -165,6 +166,7 @@ private:
     void onTriggerStage(const orc::NodeID& node_id);
     void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);
     QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
+    void closeAllDialogs();  ///< Close all open dialogs when switching projects
     
     // Settings helpers
     QString getLastProjectDirectory() const;
@@ -224,6 +226,9 @@ private:
     orc::AspectRatioMode current_aspect_ratio_mode_;  ///< Current aspect ratio mode
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
     int last_line_scope_image_x_;  ///< Store original preview-space X coordinate for line scope navigation
+    int last_line_scope_image_y_;  ///< Store original preview-space Y coordinate for line scope
+    int last_line_scope_preview_width_;  ///< Store preview width for coordinate mapping
+    int last_line_scope_samples_count_;  ///< Store samples count for coordinate mapping
     
     // Preview update debouncing (for slider scrubbing)
     QTimer* preview_update_timer_;

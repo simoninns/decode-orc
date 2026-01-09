@@ -37,6 +37,7 @@ PlotWidget::PlotWidget(QWidget *parent)
     , m_zoomEnabled(true)
     , m_panEnabled(true)
     , m_canvasBackground(Qt::white)
+    , m_isDragging(false)
 {
     setupView();
 }
@@ -56,9 +57,12 @@ void PlotWidget::setupView()
     m_view = new QGraphicsView(m_scene, this);
     
     m_view->setRenderHint(QPainter::Antialiasing, true);
-    m_view->setDragMode(QGraphicsView::RubberBandDrag);
+    m_view->setDragMode(QGraphicsView::NoDrag);  // Disable default drag to allow custom interaction
     m_view->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     m_view->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    
+    // Install event filter to capture mouse events
+    m_view->viewport()->installEventFilter(this);
     
     m_mainLayout->addWidget(m_view);
     
@@ -326,6 +330,96 @@ void PlotWidget::resizeEvent(QResizeEvent *event)
     QWidget::resizeEvent(event);
     updatePlotArea();
     replot();
+}
+
+void PlotWidget::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        // Map click position to scene coordinates
+        QPoint viewPos = m_view->mapFromParent(event->pos());
+        QPointF scenePos = m_view->mapToScene(viewPos);
+        
+        // Check if click is within plot area
+        if (m_plotRect.contains(scenePos)) {
+            m_isDragging = true;
+            // Convert to data coordinates
+            QPointF dataPoint = mapToData(scenePos);
+            emit plotClicked(dataPoint);
+        }
+    }
+    
+    QWidget::mousePressEvent(event);
+}
+
+void PlotWidget::mouseMoveEvent(QMouseEvent *event)
+{
+    if (m_isDragging) {
+        // Map position to scene coordinates
+        QPoint viewPos = m_view->mapFromParent(event->pos());
+        QPointF scenePos = m_view->mapToScene(viewPos);
+        
+        // Check if still within plot area
+        if (m_plotRect.contains(scenePos)) {
+            // Convert to data coordinates
+            QPointF dataPoint = mapToData(scenePos);
+            emit plotDragged(dataPoint);
+        }
+    }
+    
+    QWidget::mouseMoveEvent(event);
+}
+
+void PlotWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton) {
+        m_isDragging = false;
+    }
+    
+    QWidget::mouseReleaseEvent(event);
+}
+
+bool PlotWidget::eventFilter(QObject *obj, QEvent *event)
+{
+    if (obj == m_view->viewport()) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                // Map to scene coordinates
+                QPointF scenePos = m_view->mapToScene(mouseEvent->pos());
+                
+                // Check if click is within plot area
+                if (m_plotRect.contains(scenePos)) {
+                    m_isDragging = true;
+                    // Convert to data coordinates
+                    QPointF dataPoint = mapToData(scenePos);
+                    emit plotClicked(dataPoint);
+                    return true;  // Event handled
+                }
+            }
+        } else if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (m_isDragging) {
+                // Map to scene coordinates
+                QPointF scenePos = m_view->mapToScene(mouseEvent->pos());
+                
+                // Check if still within plot area
+                if (m_plotRect.contains(scenePos)) {
+                    // Convert to data coordinates
+                    QPointF dataPoint = mapToData(scenePos);
+                    emit plotDragged(dataPoint);
+                }
+                return true;  // Event handled
+            }
+        } else if (event->type() == QEvent::MouseButtonRelease) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
+            if (mouseEvent->button() == Qt::LeftButton) {
+                m_isDragging = false;
+                return true;  // Event handled
+            }
+        }
+    }
+    
+    return QWidget::eventFilter(obj, event);
 }
 
 void PlotWidget::onSceneSelectionChanged()

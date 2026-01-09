@@ -289,6 +289,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onLineScopeRequested);
     connect(preview_dialog_, &PreviewDialog::lineNavigationRequested,
             this, &MainWindow::onLineNavigation);
+    connect(preview_dialog_, &PreviewDialog::sampleMarkerMovedInLineScope,
+            this, &MainWindow::onSampleMarkerMoved);
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -507,6 +509,90 @@ void MainWindow::onEditProject()
 }
 
 
+void MainWindow::closeAllDialogs()
+{
+    // Close main dialogs (these are persistent, not deleted on close)
+    if (preview_dialog_) {
+        preview_dialog_->closeChildDialogs();  // Close child dialogs like line scope
+        if (preview_dialog_->isVisible()) {
+            preview_dialog_->hide();
+        }
+    }
+    if (vbi_dialog_ && vbi_dialog_->isVisible()) {
+        vbi_dialog_->hide();
+    }
+    if (hints_dialog_ && hints_dialog_->isVisible()) {
+        hints_dialog_->hide();
+    }
+    if (pulldown_dialog_ && pulldown_dialog_->isVisible()) {
+        pulldown_dialog_->hide();
+    }
+    if (quality_metrics_dialog_ && quality_metrics_dialog_->isVisible()) {
+        quality_metrics_dialog_->hide();
+    }
+    
+    // Close and delete all per-node analysis dialogs
+    // These are set to WA_DeleteOnClose, so closing them will trigger deletion
+    for (auto& pair : dropout_analysis_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->close();
+        }
+    }
+    dropout_analysis_dialogs_.clear();
+    
+    for (auto& pair : snr_analysis_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->close();
+        }
+    }
+    snr_analysis_dialogs_.clear();
+    
+    for (auto& pair : burst_level_analysis_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->close();
+        }
+    }
+    burst_level_analysis_dialogs_.clear();
+    
+    for (auto& pair : vectorscope_dialogs_) {
+        if (pair.second && pair.second->isVisible()) {
+            pair.second->close();
+        }
+    }
+    vectorscope_dialogs_.clear();
+    
+    // Close all progress dialogs
+    if (trigger_progress_dialog_) {
+        trigger_progress_dialog_->close();
+        delete trigger_progress_dialog_;
+        trigger_progress_dialog_ = nullptr;
+    }
+    
+    for (auto& pair : dropout_progress_dialogs_) {
+        if (pair.second) {
+            pair.second->close();
+            delete pair.second;
+        }
+    }
+    dropout_progress_dialogs_.clear();
+    
+    for (auto& pair : snr_progress_dialogs_) {
+        if (pair.second) {
+            pair.second->close();
+            delete pair.second;
+        }
+    }
+    snr_progress_dialogs_.clear();
+    
+    for (auto& pair : burst_level_progress_dialogs_) {
+        if (pair.second) {
+            pair.second->close();
+            delete pair.second;
+        }
+    }
+    burst_level_progress_dialogs_.clear();
+}
+
 void MainWindow::newProject(orc::VideoSystem video_format)
 {
     // Check for unsaved changes before creating new project
@@ -539,6 +625,9 @@ void MainWindow::newProject(orc::VideoSystem video_format)
     setLastProjectDirectory(QFileInfo(filename).absolutePath());
     
     ORC_LOG_INFO("Creating new project: {}", filename.toStdString());
+    
+    // Close all dialogs before clearing project
+    closeAllDialogs();
     
     // Clear existing project state
     project_.clear();
@@ -578,6 +667,9 @@ void MainWindow::newProject(orc::VideoSystem video_format)
 void MainWindow::openProject(const QString& filename)
 {
     ORC_LOG_INFO("Loading project: {}", filename.toStdString());
+    
+    // Close all dialogs before clearing project
+    closeAllDialogs();
     
     // Clear existing project state
     project_.clear();
@@ -2798,8 +2890,9 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
         return;
     }
     
-    // Store original image_x for later use in navigation
+    // Store original image coordinates for later use
     last_line_scope_image_x_ = image_x;
+    last_line_scope_image_y_ = image_y;
     
     // Determine the actual field and line based on the output type
     uint64_t field_index;
@@ -2884,6 +2977,50 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     // Get preview image width for coordinate mapping
     int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
+    int preview_image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    
+    // Store context for sample marker updates
+    last_line_scope_preview_width_ = preview_image_width;
+    last_line_scope_samples_count_ = samples.size();
+    
+    // Calculate image_y from field_index and line_number based on current output type
+    int image_y = 0;
+    uint64_t current_index = preview_dialog_->previewSlider()->value();
+    
+    if (current_output_type_ == orc::PreviewOutputType::Field) {
+        // Simple case: image_y is just the line number
+        image_y = line_number;
+    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
+               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+        // Frame mode: need to determine if this is even or odd field
+        bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
+        uint64_t first_field = current_index * 2 + (is_reversed ? 1 : 0);
+        
+        if (field_index == first_field) {
+            // First field - even lines
+            image_y = line_number * 2;
+        } else {
+            // Second field - odd lines
+            image_y = line_number * 2 + 1;
+        }
+    } else if (current_output_type_ == orc::PreviewOutputType::Split) {
+        // Split mode: top half is first field, bottom half is second field
+        int split_point = preview_image_height / 2;
+        
+        if (field_index == current_index * 2) {
+            // First field - top half
+            image_y = line_number;
+        } else {
+            // Second field - bottom half
+            image_y = line_number + split_point;
+        }
+    }
+    
+    // Update stored Y position
+    last_line_scope_image_y_ = image_y;
+    
+    // Update cross-hairs to new position
+    preview_dialog_->previewWidget()->updateCrosshairsPosition(last_line_scope_image_x_, image_y);
     
     // Use the stored original image_x to avoid rounding errors from reverse-mapping
     int original_sample_x = last_line_scope_image_x_;
@@ -2892,6 +3029,19 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     // Show the line scope dialog with the samples
     preview_dialog_->showLineScope(field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+}
+
+void MainWindow::onSampleMarkerMoved(int sample_x)
+{
+    if (!preview_dialog_) {
+        return;
+    }
+    
+    // Map sample_x from field-space back to preview-space
+    int preview_x = (sample_x * last_line_scope_preview_width_) / last_line_scope_samples_count_;
+    
+    // Update cross-hairs at the new X position, keeping the same Y
+    preview_dialog_->previewWidget()->updateCrosshairsPosition(preview_x, last_line_scope_image_y_);
 }
 
 void MainWindow::onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width)

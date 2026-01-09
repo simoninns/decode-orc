@@ -20,6 +20,7 @@ LineScopeDialog::LineScopeDialog(QWidget *parent)
     , current_sample_x_(0)
     , original_sample_x_(0)
     , preview_image_width_(0)
+    , sample_marker_(nullptr)
 {
     setupUI();
     setWindowTitle("Line Scope");
@@ -58,24 +59,45 @@ void LineScopeDialog::setupUI()
     
     line_up_button_ = new QPushButton("↑ Up", this);
     line_up_button_->setToolTip("Move to previous line");
+    line_up_button_->setAutoRepeat(true);
+    line_up_button_->setAutoRepeatDelay(500);  // 500ms initial delay
+    line_up_button_->setAutoRepeatInterval(100);  // 100ms repeat interval
     connect(line_up_button_, &QPushButton::clicked, this, &LineScopeDialog::onLineUp);
     controlLayout->addWidget(line_up_button_);
     
     line_down_button_ = new QPushButton("↓ Down", this);
     line_down_button_->setToolTip("Move to next line");
+    line_down_button_->setAutoRepeat(true);
+    line_down_button_->setAutoRepeatDelay(500);  // 500ms initial delay
+    line_down_button_->setAutoRepeatInterval(100);  // 100ms repeat interval
     connect(line_down_button_, &QPushButton::clicked, this, &LineScopeDialog::onLineDown);
     controlLayout->addWidget(line_down_button_);
     
-    // Center the button column
+    // Sample info display
+    sample_info_label_ = new QLabel(this);
+    sample_info_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    QFont monoFont("Monospace");
+    monoFont.setStyleHint(QFont::TypeWriter);
+    sample_info_label_->setFont(monoFont);
+    
+    // Center the button column and add sample info to the right
     auto* buttonContainer = new QHBoxLayout();
     buttonContainer->addStretch();
     buttonContainer->addLayout(controlLayout);
+    buttonContainer->addSpacing(20);
+    buttonContainer->addWidget(sample_info_label_);
     buttonContainer->addStretch();
     
     mainLayout->addLayout(buttonContainer);
     
     // Add series for line data
     line_series_ = plot_widget_->addSeries("Line Samples");
+    
+    // Connect plot click to update marker
+    connect(plot_widget_, &PlotWidget::plotClicked, this, &LineScopeDialog::onPlotClicked);
+    
+    // Connect plot drag for continuous marker updates
+    connect(plot_widget_, &PlotWidget::plotDragged, this, &LineScopeDialog::onPlotClicked);
 }
 
 void LineScopeDialog::setLineSamples(uint64_t field_index, int line_number, int sample_x, 
@@ -93,6 +115,8 @@ void LineScopeDialog::setLineSamples(uint64_t field_index, int line_number, int 
     current_sample_x_ = sample_x;  // Mapped field-space coordinate
     original_sample_x_ = original_sample_x;  // Original preview-space coordinate
     preview_image_width_ = preview_image_width;
+    current_samples_ = samples;  // Store samples for later updates
+    current_video_params_ = video_params;  // Store video params for IRE calculations
     
     setWindowTitle(QString("Line Scope - Field %1, Line %2").arg(field_index).arg(line_number));
     
@@ -199,26 +223,82 @@ void LineScopeDialog::setLineSamples(uint64_t field_index, int line_number, int 
     }
     
     // Add click position marker (green)
-    if (sample_x >= 0 && sample_x < static_cast<int>(samples.size())) {
-        auto* marker = plot_widget_->addMarker();
-        marker->setStyle(PlotMarker::VLine);
-        marker->setPosition(QPointF(static_cast<double>(sample_x), 0));
-        marker->setPen(QPen(Qt::green, 2));
+    updateSampleMarker(sample_x);
+    
+    plot_widget_->replot();
+}
+
+void LineScopeDialog::updateSampleMarker(int sample_x)
+{
+    if (current_samples_.empty()) {
+        return;
+    }
+    
+    // Remove existing sample marker if present
+    if (sample_marker_) {
+        plot_widget_->removeMarker(sample_marker_);
+        sample_marker_ = nullptr;
+    }
+    
+    // Add new click position marker (green)
+    if (sample_x >= 0 && sample_x < static_cast<int>(current_samples_.size())) {
+        current_sample_x_ = sample_x;
+        
+        sample_marker_ = plot_widget_->addMarker();
+        sample_marker_->setStyle(PlotMarker::VLine);
+        sample_marker_->setPosition(QPointF(static_cast<double>(sample_x), 0));
+        sample_marker_->setPen(QPen(Qt::green, 2));
+        
+        // Update sample info display
+        uint16_t sample_value = current_samples_[sample_x];
+        QString info_text = QString("Sample: %1\nValue: %2")
+            .arg(sample_x)
+            .arg(sample_value);
+        
+        // Add IRE if we have video parameters
+        if (current_video_params_.has_value()) {
+            const auto& vp = current_video_params_.value();
+            if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                double ire = (static_cast<double>(sample_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
+            }
+        }
+        
+        sample_info_label_->setText(info_text);
+    } else {
+        sample_info_label_->setText("");
     }
     
     plot_widget_->replot();
 }
 
+void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
+{
+    // Round X coordinate to nearest integer sample position
+    int new_sample_x = qRound(dataPoint.x());
+    
+    // Clamp to valid range
+    new_sample_x = qBound(0, new_sample_x, static_cast<int>(current_samples_.size()) - 1);
+    
+    // Update marker and info
+    updateSampleMarker(new_sample_x);
+    
+    // Emit signal to update cross-hairs in preview
+    emit sampleMarkerMoved(new_sample_x);
+}
+
 void LineScopeDialog::onLineUp()
 {
     // Request previous line (direction = -1)
-    // Use original_sample_x (preview-space) for navigation to avoid double-mapping
-    emit lineNavigationRequested(-1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
+    // Map current_sample_x back to preview-space for navigation
+    int nav_sample_x = (current_sample_x_ * preview_image_width_) / current_samples_.size();
+    emit lineNavigationRequested(-1, current_field_index_, current_line_number_, nav_sample_x, preview_image_width_);
 }
 
 void LineScopeDialog::onLineDown()
 {
     // Request next line (direction = +1)
-    // Use original_sample_x (preview-space) for navigation to avoid double-mapping
-    emit lineNavigationRequested(+1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
+    // Map current_sample_x back to preview-space for navigation
+    int nav_sample_x = (current_sample_x_ * preview_image_width_) / current_samples_.size();
+    emit lineNavigationRequested(+1, current_field_index_, current_line_number_, nav_sample_x, preview_image_width_);
 }

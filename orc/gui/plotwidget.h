@@ -94,9 +94,15 @@ public:
 signals:
     void plotAreaChanged(const QRectF &rect);
     void seriesClicked(PlotSeries *series, const QPointF &point);
+    void plotClicked(const QPointF &dataPoint);  // Emitted when plot area is clicked, in data coordinates
+    void plotDragged(const QPointF &dataPoint);  // Emitted continuously during drag, in data coordinates
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 private slots:
     void onSceneSelectionChanged();
@@ -136,6 +142,7 @@ private:
     bool m_zoomEnabled;
     bool m_panEnabled;
     QColor m_canvasBackground;
+    bool m_isDragging;  // Track if mouse is being dragged
     
 public:
     // Coordinate mapping methods (needed by plot items)

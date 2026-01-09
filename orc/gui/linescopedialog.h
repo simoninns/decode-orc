@@ -49,18 +49,22 @@ public:
 
 Q_SIGNALS:
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
+    void sampleMarkerMoved(int sample_x);  // Emitted when sample marker position changes (field-space)
 
 private slots:
     void onLineUp();
     void onLineDown();
+    void onPlotClicked(const QPointF &dataPoint);
 
 private:
     void setupUI();
+    void updateSampleMarker(int sample_x);
     
     PlotWidget* plot_widget_;
     PlotSeries* line_series_;
     QPushButton* line_up_button_;
     QPushButton* line_down_button_;
+    QLabel* sample_info_label_;
     
     // Current line info for navigation
     uint64_t current_field_index_;
@@ -68,6 +72,9 @@ private:
     int current_sample_x_;  // Mapped field-space coordinate for display
     int original_sample_x_;  // Original preview-space coordinate for navigation
     int preview_image_width_;
+    std::vector<uint16_t> current_samples_;  // Store samples for marker updates
+    std::optional<orc::VideoParameters> current_video_params_;  // Store video params for IRE calc
+    PlotMarker* sample_marker_;  // Green marker showing current sample position
 };
 
 #endif // LINESCOPEDIALOG_H

@@ -1,0 +1,557 @@
+name: Package Builds (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version string for package names (empty for dev builds)'
+        required: false
+        type: string
+        default: 'dev'
+    outputs:
+      windows-artifact:
+        description: "Name of Windows artifact"
+        value: ${{ jobs.build-windows-package.outputs.artifact-name }}
+      macos-artifact:
+        description: "Name of macOS artifact"
+        value: ${{ jobs.build-macos-package.outputs.artifact-name }}
+      flatpak-artifact:
+        description: "Name of Flatpak artifact"
+        value: ${{ jobs.build-flatpak-package.outputs.artifact-name }}
+
+jobs:
+  build-windows-package:
+    name: Build Windows Package
+    runs-on: windows-latest
+    outputs:
+      artifact-name: ${{ steps.set-artifact-name.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.1'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: true
+      
+      - name: Setup vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/vcpkg/installed
+            C:/vcpkg/packages
+            C:/Users/runneradmin/AppData/Local/vcpkg/archives
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-${{ hashFiles('.github/workflows/package-builds.yml') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-
+      
+      - name: Install vcpkg dependencies
+        run: |
+          vcpkg install --triplet x64-windows `
+            spdlog `
+            sqlite3 `
+            yaml-cpp `
+            libpng `
+            fftw3 `
+            pkgconf `
+            ffmpeg
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          cmake .. `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_GUI=ON `
+            -DBUILD_TESTS=OFF `
+            -DCMAKE_PREFIX_PATH="${env:Qt6_DIR}" `
+            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
+      
+      - name: Install to staging directory
+        run: |
+          cd build
+          cmake --install . --config Release --prefix install
+      
+      - name: Deploy Qt dependencies
+        run: |
+          cd build/install/bin
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations orc-gui.exe
+      
+      - name: Copy vcpkg runtime dependencies
+        run: |
+          $vcpkgRoot = "C:/vcpkg/installed/x64-windows"
+          $binDir = "build/install/bin"
+          
+          # Copy DLL files - get specific required DLLs
+          $dlls = @(
+            "fftw3.dll",
+            "fftw3f.dll", 
+            "fftw3l.dll",
+            "spdlog.dll",
+            "yaml-cpp.dll",
+            "fmt.dll",
+            "libpng16.dll",
+            "zlib1.dll",
+            "sqlite3.dll",
+            "avcodec-*.dll",
+            "avformat-*.dll",
+            "avutil-*.dll",
+            "swscale-*.dll",
+            "swresample-*.dll"
+          )
+          
+          foreach ($dll in $dlls) {
+            $sourcePath = Join-Path "$vcpkgRoot/bin" $dll
+            # Handle wildcards for versioned DLLs
+            $files = Get-ChildItem -Path "$vcpkgRoot/bin" -Filter $dll -ErrorAction SilentlyContinue
+            if ($files) {
+              foreach ($file in $files) {
+                Copy-Item $file.FullName $binDir -Force
+                Write-Host "Copied $($file.Name)"
+              }
+            } elseif (Test-Path $sourcePath) {
+              Copy-Item $sourcePath $binDir -Force
+              Write-Host "Copied $dll"
+            }
+          }
+          
+          Write-Host "Copied vcpkg runtime dependencies"
+      
+      - name: Create portable ZIP package
+        run: |
+          $version = "${{ inputs.version }}"
+          
+          # Create a clean directory for the package
+          New-Item -ItemType Directory -Path "decode-orc-portable" -Force
+          
+          # Copy all files from install/bin
+          Copy-Item -Path "build/install/bin/*" -Destination "decode-orc-portable/" -Recurse -Force
+          
+          # Create a README
+          $readmeText = if ($version -eq "dev") {
+            @"
+          Decode Orc - Portable Windows Build (Development)
+          
+          This is a development build of Decode Orc for Windows.
+          
+          To run the GUI application: Double-click orc-gui.exe
+          To run the CLI application: Run orc-cli.exe from command prompt
+          
+          All required DLLs and Qt dependencies are included in this package.
+          "@
+          } else {
+            @"
+          Decode Orc v$version - Portable Windows Build
+          
+          This is a portable build of Decode Orc for Windows.
+          
+          To run the GUI application: Double-click orc-gui.exe
+          To run the CLI application: Run orc-cli.exe from command prompt
+          
+          All required DLLs and Qt dependencies are included in this package.
+          "@
+          }
+          
+          $readmeText | Out-File -FilePath "decode-orc-portable/README.txt" -Encoding UTF8
+          
+          # Create ZIP archive with version in name
+          $zipName = if ($version -eq "dev") {
+            "decode-orc-windows-x64.zip"
+          } else {
+            "decode-orc-$version-windows-x64.zip"
+          }
+          
+          Compress-Archive -Path "decode-orc-portable/*" -DestinationPath $zipName -Force
+          
+          Write-Host "Created portable package: $zipName"
+          
+          # Save the filename for upload step
+          $zipName | Out-File -FilePath "package-name.txt" -NoNewline
+      
+      - name: Set artifact name
+        id: set-artifact-name
+        shell: bash
+        run: |
+          if [ "${{ inputs.version }}" = "dev" ]; then
+            echo "name=decode-orc-windows-zip" >> $GITHUB_OUTPUT
+          else
+            echo "name=windows-zip" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload Windows ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-artifact-name.outputs.name }}
+          path: decode-orc-*.zip
+          retention-days: 7
+
+  build-macos-package:
+    name: Build macOS Package
+    runs-on: macos-latest
+    outputs:
+      artifact-name: ${{ steps.set-artifact-name.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Install system dependencies
+        run: |
+          brew update || true
+          brew install \
+            cmake \
+            pkg-config \
+            spdlog \
+            sqlite \
+            yaml-cpp \
+            libpng \
+            fftw \
+            qt@6 \
+            create-dmg \
+            ffmpeg
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          export HOMEBREW_PREFIX=$(brew --prefix)
+          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
+            -DQt6_DIR=$Qt6_DIR \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Create app bundle
+        run: |
+          mkdir -p "orc-gui.app/Contents/MacOS"
+          mkdir -p "orc-gui.app/Contents/Resources"
+          
+          # Copy executables
+          cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
+          cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
+          
+          # Convert SVG icon to ICNS format for macOS
+          mkdir -p orc-gui.iconset
+          
+          # Convert SVG to PNG at 1024x1024 for highest quality
+          brew list librsvg &>/dev/null || brew install librsvg
+          rsvg-convert -w 1024 -h 1024 assets/orc-gui-icon.svg -o icon-1024.png
+          
+          # Use sips to resize to all needed sizes for .icns
+          sips -z 16 16     icon-1024.png --out orc-gui.iconset/icon_16x16.png
+          sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_16x16@2x.png
+          sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_32x32.png
+          sips -z 64 64     icon-1024.png --out orc-gui.iconset/icon_32x32@2x.png
+          sips -z 128 128   icon-1024.png --out orc-gui.iconset/icon_128x128.png
+          sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_128x128@2x.png
+          sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_256x256.png
+          sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_256x256@2x.png
+          sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_512x512.png
+          sips -z 1024 1024 icon-1024.png --out orc-gui.iconset/icon_512x512@2x.png
+          
+          # Convert iconset to icns
+          iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+          iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
+          
+          # Create PkgInfo
+          echo "APPL????" > "orc-gui.app/Contents/PkgInfo"
+          
+          # Create Info.plist
+          cat > "orc-gui.app/Contents/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>orc-gui</string>
+            <key>CFBundleIdentifier</key>
+            <string>io.github.simoninns.decode-orc</string>
+            <key>CFBundleName</key>
+            <string>Decode Orc</string>
+            <key>CFBundleVersion</key>
+            <string>1.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleIconFile</key>
+            <string>orc-gui-icon</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>NSPrincipalClass</key>
+            <string>NSApplication</string>
+          </dict>
+          </plist>
+          EOF
+      
+      - name: Deploy Qt dependencies
+        run: |
+          HOMEBREW_PREFIX=$(brew --prefix)
+          QT_LIB="$HOMEBREW_PREFIX/opt/qt@6/lib"
+          
+          # Run macdeployqt to bundle Qt frameworks
+          echo "Running macdeployqt..."
+          $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
+          
+          # Check for missing Qt dependencies and bundle them
+          echo "Checking for missing Qt dependencies..."
+          MISSING_FRAMEWORKS=""
+          
+          if ! [ -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            if otool -L "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null | grep -q "QtDBus"; then
+              echo "QtDBus is required by QtGui but not bundled - adding it"
+              MISSING_FRAMEWORKS="QtDBus"
+            fi
+          fi
+          
+          # Bundle any missing frameworks and their dependencies
+          for framework in $MISSING_FRAMEWORKS; do
+            if [ -d "$QT_LIB/${framework}.framework" ]; then
+              echo "Copying ${framework}.framework..."
+              ditto "$QT_LIB/${framework}.framework" "orc-gui.app/Contents/Frameworks/${framework}.framework"
+              
+              install_name_tool -id "@rpath/${framework}.framework/Versions/A/${framework}" \
+                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}"
+              
+              install_name_tool -change \
+                "$QT_LIB/QtCore.framework/Versions/A/QtCore" \
+                "@rpath/QtCore.framework/Versions/A/QtCore" \
+                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
+              
+              # QtDBus depends on libdbus-1 - bundle it if needed
+              if [ "$framework" = "QtDBus" ]; then
+                echo "Bundling QtDBus dependencies..."
+                DBUS_LIB=$(find $HOMEBREW_PREFIX/opt/dbus/lib -name "libdbus-1.*.dylib" -type f | head -n 1)
+                if [ -n "$DBUS_LIB" ]; then
+                  DBUS_NAME=$(basename "$DBUS_LIB")
+                  echo "Copying $DBUS_NAME..."
+                  cp "$DBUS_LIB" "orc-gui.app/Contents/Frameworks/"
+                  
+                  install_name_tool -id "@rpath/$DBUS_NAME" \
+                    "orc-gui.app/Contents/Frameworks/$DBUS_NAME"
+                  
+                  install_name_tool -change \
+                    "$DBUS_LIB" \
+                    "@rpath/$DBUS_NAME" \
+                    "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null || true
+                  
+                  for DBUS_PATH in $(otool -L "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null | grep "dbus" | awk '{print $1}'); do
+                    install_name_tool -change \
+                      "$DBUS_PATH" \
+                      "@rpath/$DBUS_NAME" \
+                      "orc-gui.app/Contents/Frameworks/QtDBus.framework/Versions/A/QtDBus" 2>/dev/null || true
+                  done
+                fi
+              fi
+            fi
+          done
+          
+          # Fix QtGui to reference the bundled QtDBus
+          if [ -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            echo "Fixing QtGui references to QtDBus..."
+            install_name_tool -change \
+              "$QT_LIB/QtDBus.framework/Versions/A/QtDBus" \
+              "@rpath/QtDBus.framework/Versions/A/QtDBus" \
+              "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null || true
+          fi
+          
+          echo "Bundled Qt frameworks:"
+          ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
+      
+      - name: Code sign app bundle (ad-hoc)
+        run: |
+          codesign --force --deep --sign - "orc-gui.app"
+          codesign --verify --verbose=2 "orc-gui.app"
+      
+      - name: Create CLI symlink installer script
+        if: inputs.version != 'dev'
+        run: |
+          cat > "Install CLI Tool.command" << 'EOF'
+          #!/bin/bash
+          # This script creates a symlink to orc-cli in /usr/local/bin
+          
+          echo "Installing orc-cli to /usr/local/bin..."
+          
+          APP_PATH="/Applications/orc-gui.app"
+          
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Error: orc-gui.app not found in /Applications"
+            echo "Please drag orc-gui to /Applications first, then run this script again."
+            read -p "Press Enter to exit..."
+            exit 1
+          fi
+          
+          sudo mkdir -p /usr/local/bin
+          
+          if [ -L /usr/local/bin/orc-cli ]; then
+            sudo rm /usr/local/bin/orc-cli
+          fi
+          
+          sudo ln -s "$APP_PATH/Contents/MacOS/orc-cli" /usr/local/bin/orc-cli
+          
+          if [ $? -eq 0 ]; then
+            echo "✓ Successfully installed orc-cli!"
+            echo "You can now run 'orc-cli' from anywhere in the terminal."
+          else
+            echo "✗ Failed to install orc-cli"
+            exit 1
+          fi
+          
+          read -p "Press Enter to exit..."
+          EOF
+          
+          chmod +x "Install CLI Tool.command"
+      
+      - name: Create DMG
+        run: |
+          VERSION="${{ inputs.version }}"
+          
+          mkdir -p dmg-staging
+          cp -R "orc-gui.app" dmg-staging/
+          
+          if [ "$VERSION" != "dev" ] && [ -f "Install CLI Tool.command" ]; then
+            cp "Install CLI Tool.command" dmg-staging/
+          fi
+          
+          # Create appropriate README
+          if [ "$VERSION" = "dev" ]; then
+            cat > "dmg-staging/README.txt" << 'EOF'
+          Decode Orc - Development Build
+          ===============================
+          
+          1. Drag "orc-gui" to your Applications folder
+          2. Right-click "orc-gui" and select "Open" (first time only)
+          3. CLI tool is located inside the app at: orc-gui.app/Contents/MacOS/orc-cli
+          
+          EOF
+          else
+            cat > "dmg-staging/README.txt" << 'EOF'
+          Decode Orc - Installation Instructions
+          ========================================
+          
+          1. Drag "orc-gui" to your Applications folder
+          
+          2. To launch the GUI:
+             - Right-click "orc-gui" in Applications and select "Open"
+             - Click "Open" in the security dialog
+             - After first launch, you can double-click normally
+          
+          3. To install the CLI tool (optional):
+             - Double-click "Install CLI Tool" in this DMG
+             - Enter your password when prompted
+             - You can then run "orc-cli" from any terminal
+          
+          EOF
+          fi
+          
+          cp .VolumeIcon.icns dmg-staging/.VolumeIcon.icns
+          
+          # Set DMG filename
+          if [ "$VERSION" = "dev" ]; then
+            DMG_NAME="decode-orc-macOS.dmg"
+          else
+            DMG_NAME="decode-orc-$VERSION-macOS.dmg"
+          fi
+          
+          create-dmg \
+            --volname "Decode Orc" \
+            --volicon ".VolumeIcon.icns" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "orc-gui.app" 200 185 \
+            --app-drop-link 600 185 \
+            "$DMG_NAME" \
+            "dmg-staging" || hdiutil create -volname "Decode Orc" -srcfolder "dmg-staging" -ov -format UDZO "$DMG_NAME"
+      
+      - name: Set artifact name
+        id: set-artifact-name
+        run: |
+          if [ "${{ inputs.version }}" = "dev" ]; then
+            echo "name=decode-orc-macos-dmg" >> $GITHUB_OUTPUT
+          else
+            echo "name=macos-dmg" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-artifact-name.outputs.name }}
+          path: decode-orc-*.dmg
+          retention-days: 7
+
+  build-flatpak-package:
+    name: Build Flatpak Package
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    outputs:
+      artifact-name: ${{ steps.set-artifact-name.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      
+      - name: Set bundle name
+        id: set-bundle-name
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ "$VERSION" = "dev" ]; then
+            echo "bundle=decode-orc.flatpak" >> $GITHUB_OUTPUT
+          else
+            echo "bundle=decode-orc-$VERSION.flatpak" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: ${{ steps.set-bundle-name.outputs.bundle }}
+          manifest-path: io.github.simoninns.decode-orc.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+      
+      - name: Set artifact name
+        id: set-artifact-name
+        run: |
+          if [ "${{ inputs.version }}" = "dev" ]; then
+            echo "name=decode-orc-flatpak" >> $GITHUB_OUTPUT
+          else
+            echo "name=flatpak-bundle" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.set-artifact-name.outputs.name }}
+          path: decode-orc*.flatpak
+          retention-days: 7

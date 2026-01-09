@@ -1288,6 +1288,9 @@ void MainWindow::onNodeSelectedForView(const orc::NodeID& node_id)
     // Request available outputs from coordinator
     pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
     
+    // If line scope is visible, refresh it for the new stage
+    refreshLineScopeForCurrentStage();
+    
     // Note: Analysis dialogs (dropout/SNR) are triggered from stage context menu,
     // not automatically updated when switching nodes
     
@@ -2954,7 +2957,7 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
     int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
     
     // Request line samples from the coordinator using Field output type
-    render_coordinator_->requestLineSamples(
+    pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
         current_view_node_id_,
         orc::PreviewOutputType::Field,
         field_index,
@@ -3027,8 +3030,9 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     ORC_LOG_DEBUG("Using original_sample_x={} from last request", original_sample_x);
     
-    // Show the line scope dialog with the samples
-    preview_dialog_->showLineScope(field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+    // Show the line scope dialog with the samples, including the current node_id
+    QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
+    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
 }
 
 void MainWindow::onSampleMarkerMoved(int sample_x)
@@ -3042,6 +3046,37 @@ void MainWindow::onSampleMarkerMoved(int sample_x)
     
     // Update cross-hairs at the new X position, keeping the same Y
     preview_dialog_->previewWidget()->updateCrosshairsPosition(preview_x, last_line_scope_image_y_);
+    
+    // Update stored position so it's maintained when changing stages
+    last_line_scope_image_x_ = preview_x;
+}
+
+void MainWindow::refreshLineScopeForCurrentStage()
+{
+    if (!preview_dialog_ || !preview_dialog_->isLineScopeVisible()) {
+        return;  // Line scope not visible, nothing to do
+    }
+    
+    if (!current_view_node_id_.is_valid()) {
+        // No valid stage selected - clear line scope and cross-hairs
+        ORC_LOG_DEBUG("No valid stage for line scope, clearing");
+        preview_dialog_->previewWidget()->setCrosshairsEnabled(false);
+        
+        // Show empty line scope
+        QString node_id_str = "(none)";
+        preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
+                                      std::vector<uint16_t>(),  // Empty samples
+                                      std::nullopt, 0, 0);
+        return;
+    }
+    
+    // Re-request line samples for the same position but new stage
+    // Use the stored image coordinates from the last line scope request
+    if (last_line_scope_image_x_ >= 0 && last_line_scope_image_y_ >= 0) {
+        ORC_LOG_DEBUG("Refreshing line scope for new stage at last position ({}, {})", 
+                     last_line_scope_image_x_, last_line_scope_image_y_);
+        onLineScopeRequested(last_line_scope_image_x_, last_line_scope_image_y_);
+    }
 }
 
 void MainWindow::onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width)
@@ -3110,7 +3145,7 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
     ORC_LOG_DEBUG("Navigating to field {}, line {}", new_field_index, new_line_number);
     
     // Request samples for the new line, preserving the sample_x position
-    render_coordinator_->requestLineSamples(
+    pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
         current_view_node_id_,
         orc::PreviewOutputType::Field,
         new_field_index,

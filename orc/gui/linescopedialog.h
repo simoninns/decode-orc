@@ -36,13 +36,14 @@ public:
 
     /**
      * @brief Display line samples
+     * @param node_id Node identifier for the stage being viewed
      * @param field_index The field number being displayed
      * @param line_number The line number being displayed
      * @param sample_x Sample X position that was clicked
      * @param samples Vector of 16-bit sample values for the line
      * @param video_params Optional video parameters for region markers
      */
-    void setLineSamples(uint64_t field_index, int line_number, int sample_x, 
+    void setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                         const std::vector<uint16_t>& samples,
                         const std::optional<orc::VideoParameters>& video_params,
                         int preview_image_width, int original_sample_x);
@@ -67,6 +68,7 @@ private:
     QLabel* sample_info_label_;
     
     // Current line info for navigation
+    QString current_node_id_;  // Node ID of the stage being viewed
     uint64_t current_field_index_;
     int current_line_number_;
     int current_sample_x_;  // Mapped field-space coordinate for display

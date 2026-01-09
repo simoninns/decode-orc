@@ -100,16 +100,13 @@ void LineScopeDialog::setupUI()
     connect(plot_widget_, &PlotWidget::plotDragged, this, &LineScopeDialog::onPlotClicked);
 }
 
-void LineScopeDialog::setLineSamples(uint64_t field_index, int line_number, int sample_x, 
+void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                       const std::vector<uint16_t>& samples,
                                       const std::optional<orc::VideoParameters>& video_params,
                                       int preview_image_width, int original_sample_x)
 {
-    if (!line_series_ || samples.empty()) {
-        return;
-    }
-    
     // Store current line info for navigation
+    current_node_id_ = node_id;
     current_field_index_ = field_index;
     current_line_number_ = line_number;
     current_sample_x_ = sample_x;  // Mapped field-space coordinate
@@ -118,7 +115,44 @@ void LineScopeDialog::setLineSamples(uint64_t field_index, int line_number, int 
     current_samples_ = samples;  // Store samples for later updates
     current_video_params_ = video_params;  // Store video params for IRE calculations
     
-    setWindowTitle(QString("Line Scope - Field %1, Line %2").arg(field_index).arg(line_number));
+    // Update window title to show stage (node_id), field, and line
+    setWindowTitle(QString("Line Scope - Stage: %1 - Field %2, Line %3")
+                   .arg(node_id)
+                   .arg(field_index)
+                   .arg(line_number));
+    
+    // Handle empty samples gracefully
+    if (samples.empty()) {
+        // Clear everything and show "No data available" message
+        plot_widget_->showNoDataMessage("No data available for this line");
+        
+        // The series was deleted by showNoDataMessage, null it out
+        line_series_ = nullptr;
+        
+        // Clear sample marker reference
+        sample_marker_ = nullptr;
+        
+        // Clear sample info label
+        sample_info_label_->setText("");
+        
+        // Disable navigation buttons when no data is available
+        line_up_button_->setEnabled(false);
+        line_down_button_->setEnabled(false);
+        
+        return;
+    }
+    
+    // Re-enable navigation buttons when we have data
+    line_up_button_->setEnabled(true);
+    line_down_button_->setEnabled(true);
+    
+    // Recreate series if it was deleted (e.g., by showNoDataMessage)
+    if (!line_series_) {
+        line_series_ = plot_widget_->addSeries("Line Samples");
+    }
+    
+    // Clear any "no data" message that might be showing
+    plot_widget_->clearNoDataMessage();
     
     // Enable and configure secondary Y-axis if we have video parameters with IRE levels
     if (video_params.has_value()) {
@@ -289,6 +323,11 @@ void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
 
 void LineScopeDialog::onLineUp()
 {
+    // Safety check: don't navigate if no samples available
+    if (current_samples_.empty()) {
+        return;
+    }
+    
     // Request previous line (direction = -1)
     // Map current_sample_x back to preview-space for navigation
     int nav_sample_x = (current_sample_x_ * preview_image_width_) / current_samples_.size();
@@ -297,6 +336,11 @@ void LineScopeDialog::onLineUp()
 
 void LineScopeDialog::onLineDown()
 {
+    // Safety check: don't navigate if no samples available
+    if (current_samples_.empty()) {
+        return;
+    }
+    
     // Request next line (direction = +1)
     // Map current_sample_x back to preview-space for navigation
     int nav_sample_x = (current_sample_x_ * preview_image_width_) / current_samples_.size();

@@ -259,7 +259,12 @@ void PreviewDialog::closeChildDialogs()
         preview_widget_->setCrosshairsEnabled(false);
     }
 }
-void PreviewDialog::showLineScope(uint64_t field_index, int line_number, int sample_x, 
+
+bool PreviewDialog::isLineScopeVisible() const
+{
+    return line_scope_dialog_ && line_scope_dialog_->isVisible();
+}
+void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                   const std::vector<uint16_t>& samples,
                                   const std::optional<orc::VideoParameters>& video_params,
                                   int preview_image_width, int original_sample_x)
@@ -278,10 +283,15 @@ void PreviewDialog::showLineScope(uint64_t field_index, int line_number, int sam
         connect(line_scope_dialog_, &LineScopeDialog::sampleMarkerMoved,
                 this, &PreviewDialog::onSampleMarkerMoved, Qt::UniqueConnection);
         
-        // Enable cross-hairs when line scope is shown
-        preview_widget_->setCrosshairsEnabled(true);
+        // Only enable cross-hairs if there's actual data to display
+        // For stages like FFmpeg video sync that don't have line data, hide cross-hairs
+        if (samples.empty()) {
+            preview_widget_->setCrosshairsEnabled(false);
+        } else {
+            preview_widget_->setCrosshairsEnabled(true);
+        }
         
-        line_scope_dialog_->setLineSamples(field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+        line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
         line_scope_dialog_->show();
         line_scope_dialog_->raise();
         line_scope_dialog_->activateWindow();

@@ -73,6 +73,10 @@ public:
     void removeMarker(PlotMarker *marker);
     void clearMarkers();
     
+    // Clear and show message
+    void showNoDataMessage(const QString &message = "No data available");
+    void clearNoDataMessage();  ///< Clear the "no data" message if showing
+    
     // Legend
     void setLegendEnabled(bool enabled);
     
@@ -135,6 +139,7 @@ private:
     PlotAxisLabels *m_axisLabels;
     QList<PlotSeries*> m_series;
     QList<PlotMarker*> m_markers;
+    QGraphicsTextItem *m_noDataTextItem;  // Track "no data" message
     
     // Settings
     bool m_gridEnabled;

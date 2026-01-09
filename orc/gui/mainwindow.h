@@ -125,6 +125,7 @@ private slots:
     void onLineScopeRequested(int image_x, int image_y);
     void onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
     void onSampleMarkerMoved(int sample_x);
+    void refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -187,6 +188,7 @@ private:
     uint64_t pending_vbi_request_id_{0};
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
+    uint64_t pending_line_sample_request_id_{0};
     std::unordered_map<uint64_t, orc::NodeID> pending_dropout_requests_;  // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_snr_requests_;      // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_burst_level_requests_;  // request_id -> node_id

@@ -38,6 +38,7 @@ PlotWidget::PlotWidget(QWidget *parent)
     , m_panEnabled(true)
     , m_canvasBackground(Qt::white)
     , m_isDragging(false)
+    , m_noDataTextItem(nullptr)
 {
     setupView();
 }
@@ -214,6 +215,53 @@ void PlotWidget::clearMarkers()
         delete marker;
     }
     m_markers.clear();
+}
+
+void PlotWidget::showNoDataMessage(const QString &message)
+{
+    // Clear all series and markers
+    clearSeries();
+    clearMarkers();
+    
+    // Remove any existing no-data text item
+    if (m_noDataTextItem) {
+        m_scene->removeItem(m_noDataTextItem);
+        delete m_noDataTextItem;
+        m_noDataTextItem = nullptr;
+    }
+    
+    // Disable secondary Y-axis
+    setSecondaryYAxisEnabled(false);
+    
+    // Add a centered text item to the scene
+    m_noDataTextItem = new QGraphicsTextItem(message);
+    
+    // Set font and color based on theme
+    QFont font = m_noDataTextItem->font();
+    font.setPointSize(14);
+    m_noDataTextItem->setFont(font);
+    
+    if (isDarkTheme()) {
+        m_noDataTextItem->setDefaultTextColor(Qt::lightGray);
+    } else {
+        m_noDataTextItem->setDefaultTextColor(Qt::darkGray);
+    }
+    
+    // Center the text in the plot area
+    QRectF textRect = m_noDataTextItem->boundingRect();
+    m_noDataTextItem->setPos(m_plotRect.center().x() - textRect.width() / 2,
+                    m_plotRect.center().y() - textRect.height() / 2);
+    
+    m_scene->addItem(m_noDataTextItem);
+}
+
+void PlotWidget::clearNoDataMessage()
+{
+    if (m_noDataTextItem) {
+        m_scene->removeItem(m_noDataTextItem);
+        delete m_noDataTextItem;
+        m_noDataTextItem = nullptr;
+    }
 }
 
 void PlotWidget::setLegendEnabled(bool enabled)

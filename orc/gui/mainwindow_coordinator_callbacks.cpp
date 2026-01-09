@@ -212,7 +212,28 @@ void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
 {
     ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id, message.toStdString());
     
-    // Show error in status bar
+    // Check if this is a line sample request error
+    if (request_id == pending_line_sample_request_id_) {
+        pending_line_sample_request_id_ = 0;
+        
+        // Show empty line scope with appropriate message
+        if (preview_dialog_ && preview_dialog_->isLineScopeVisible()) {
+            ORC_LOG_DEBUG("Line samples not available for this stage, showing empty line scope");
+            
+            QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
+            
+            // Show empty line scope (no samples) - this will display "No data available for this line"
+            preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
+                                          std::vector<uint16_t>(),  // Empty samples
+                                          std::nullopt, 0, 0);
+        }
+        
+        // Show brief message in status bar
+        statusBar()->showMessage(QString("Line data not available for this stage"), 3000);
+        return;
+    }
+    
+    // Show error in status bar for other errors
     statusBar()->showMessage(QString("Error: %1").arg(message), 5000);
 }
 

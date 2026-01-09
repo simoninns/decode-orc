@@ -70,13 +70,14 @@ public:
     
     /**
      * @brief Show line scope dialog with sample data
+     * @param node_id Node identifier for the stage being viewed
      * @param field_index Field number being displayed
      * @param line_number Line number being displayed
      * @param sample_x Sample X position that was clicked
      * @param samples Vector of 16-bit samples for the line
      * @param video_params Optional video parameters for region markers
      */
-    void showLineScope(uint64_t field_index, int line_number, int sample_x, 
+    void showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::VideoParameters>& video_params,
                        int preview_image_width, int original_sample_x);
@@ -85,6 +86,16 @@ public:
      * @brief Close all child dialogs (e.g., line scope)
      */
     void closeChildDialogs();
+    
+    /**
+     * @brief Check if line scope dialog is currently visible
+     */
+    bool isLineScopeVisible() const;
+    
+    /**
+     * @brief Get line scope dialog (for updating when stage changes)
+     */
+    LineScopeDialog* lineScopeDialog() { return line_scope_dialog_; }
 
 Q_SIGNALS:
     void previewIndexChanged(int index);

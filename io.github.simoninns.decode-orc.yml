@@ -81,6 +81,44 @@ modules:
         url: https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz
         sha256: 1412a1c760bbd05db026b6c0d1657affd6631cd0a63cddb6f73cc6d4aa616148
 
+  - name: x264
+    config-opts:
+      - --enable-shared
+      - --enable-pic
+      - --disable-cli
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/x264.git
+        commit: 31e19f92f00c7003fa115047ce50978bc98c3a0d
+
+  - name: x265
+    buildsystem: cmake-ninja
+    builddir: true
+    subdir: source
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DENABLE_SHARED=ON
+      - -DENABLE_CLI=OFF
+    sources:
+      - type: archive
+        url: https://bitbucket.org/multicoreware/x265_git/downloads/x265_3.6.tar.gz
+        sha256: 663531f341c5389f460d730e62e10a4fcca3428ca2ca109693867bc5fe2e2807
+
+  - name: libvpx
+    buildsystem: autotools
+    config-opts:
+      - --enable-shared
+      - --disable-static
+      - --enable-pic
+      - --disable-install-docs
+      - --disable-install-srcs
+      - --disable-unit-tests
+      - --disable-examples
+    sources:
+      - type: archive
+        url: https://github.com/webmproject/libvpx/archive/v1.14.1.tar.gz
+        sha256: 901747254d80a7937c933d03bd7c5d41e8e6c883e0665fadcb172542167c7977
+
   - name: ffmpeg
     buildsystem: autotools
     config-opts:

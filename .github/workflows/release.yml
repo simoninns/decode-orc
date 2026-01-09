@@ -46,7 +46,7 @@ jobs:
             libpng `
             fftw3 `
             pkgconf `
-            ffmpeg[core,avcodec,avformat,avutil,swscale]
+            ffmpeg
       
       - name: Create build directory
         run: mkdir -p build

@@ -143,20 +143,20 @@ install(TARGETS orc-gui
 )
 
 # Install desktop file
-install(FILES io.github.simoninns.orc-gui.desktop
+install(FILES io.github.simoninns.decode-orc.desktop
     DESTINATION share/applications
 )
 
 # Install application icon
 install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png
     DESTINATION share/icons/hicolor/256x256/apps
-    RENAME io.github.simoninns.orc-gui.png
+    RENAME io.github.simoninns.decode-orc.png
 )
 
 # Install SVG icon for scalability
 if(EXISTS ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg)
     install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg
         DESTINATION share/icons/hicolor/scalable/apps
-        RENAME io.github.simoninns.orc-gui.svg
+        RENAME io.github.simoninns.decode-orc.svg
     )
 endif()

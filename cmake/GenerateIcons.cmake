@@ -6,19 +6,39 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
     
     # Windows: Generate .ico file
     if(WIN32)
+        # On Windows, prefer 'magick' over 'convert' to avoid Windows' built-in convert.exe
+        find_program(IMAGEMAGICK_MAGICK magick)
         find_program(IMAGEMAGICK_CONVERT convert)
-        if(IMAGEMAGICK_CONVERT)
+        
+        if(IMAGEMAGICK_MAGICK)
+            set(CONVERT_CMD ${IMAGEMAGICK_MAGICK} convert)
+        elseif(IMAGEMAGICK_CONVERT)
+            # Verify this is ImageMagick's convert, not Windows' convert.exe
+            execute_process(
+                COMMAND ${IMAGEMAGICK_CONVERT} -version
+                OUTPUT_VARIABLE CONVERT_VERSION
+                ERROR_QUIET
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+            )
+            if(CONVERT_VERSION MATCHES "ImageMagick")
+                set(CONVERT_CMD ${IMAGEMAGICK_CONVERT})
+            else()
+                message(WARNING "Found convert.exe but it's not ImageMagick - Windows icon will not be generated")
+            endif()
+        else()
+            message(WARNING "ImageMagick not found - Windows icon will not be generated")
+        endif()
+        
+        if(CONVERT_CMD)
             set(ICO_FILE "${ICON_BASE}.ico")
             add_custom_command(
                 OUTPUT ${ICO_FILE}
-                COMMAND ${IMAGEMAGICK_CONVERT} ${SOURCE_PNG} -define icon:auto-resize=256,128,64,48,32,16 ${ICO_FILE}
+                COMMAND ${CONVERT_CMD} ${SOURCE_PNG} -define icon:auto-resize=256,128,64,48,32,16 ${ICO_FILE}
                 DEPENDS ${SOURCE_PNG}
                 COMMENT "Generating Windows .ico from ${SOURCE_PNG}"
                 VERBATIM
             )
             set(WINDOWS_ICON_FILE ${ICO_FILE} PARENT_SCOPE)
-        else()
-            message(WARNING "ImageMagick convert not found - Windows icon will not be generated")
         endif()
     endif()
     

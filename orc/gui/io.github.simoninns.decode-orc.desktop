@@ -4,7 +4,7 @@ Type=Application
 Name=Orc GUI
 GenericName=Video Decode Orchestration
 Comment=*-decode Orchestration GUI for LaserDisc video processing
-Exec=env QT_QPA_PLATFORMTHEME=gnome orc-gui %F
+Exec=orc-gui %F
 Icon=io.github.simoninns.decode-orc
 Terminal=false
 Categories=AudioVideo;Video;

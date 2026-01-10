@@ -13,6 +13,14 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+# Generate platform-specific icons from source PNG
+include(${CMAKE_SOURCE_DIR}/cmake/GenerateIcons.cmake)
+set(ICON_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/icons")
+generate_platform_icons(
+    "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png"
+    "${ICON_OUTPUT_DIR}"
+)
+
 # GUI application sources
 add_executable(orc-gui
     main.cpp
@@ -136,6 +144,31 @@ target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
     ${CMAKE_BINARY_DIR}/generated
 )
+
+# Platform-specific icon configuration
+if(WIN32 AND WINDOWS_ICON_FILE)
+    # Create Windows resource file for icon
+    set(RC_FILE "${CMAKE_CURRENT_BINARY_DIR}/orc-gui.rc")
+    file(WRITE ${RC_FILE} "IDI_ICON1 ICON \"${WINDOWS_ICON_FILE}\"\n")
+    target_sources(orc-gui PRIVATE ${RC_FILE})
+    add_custom_target(generate_windows_icon DEPENDS ${WINDOWS_ICON_FILE})
+    add_dependencies(orc-gui generate_windows_icon)
+endif()
+
+if(APPLE AND MACOS_ICON_FILE)
+    # Configure macOS bundle icon
+    set_target_properties(orc-gui PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_ICON_FILE orc-gui.icns
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+    )
+    set_source_files_properties(${MACOS_ICON_FILE} PROPERTIES
+        MACOSX_PACKAGE_LOCATION Resources
+    )
+    target_sources(orc-gui PRIVATE ${MACOS_ICON_FILE})
+    add_custom_target(generate_macos_icon DEPENDS ${MACOS_ICON_FILE})
+    add_dependencies(orc-gui generate_macos_icon)
+endif()
 
 # Install target
 install(TARGETS orc-gui

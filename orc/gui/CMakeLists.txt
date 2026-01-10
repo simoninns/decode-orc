@@ -156,16 +156,8 @@ if(WIN32 AND WINDOWS_ICON_FILE)
 endif()
 
 if(APPLE AND MACOS_ICON_FILE)
-    # Configure macOS bundle icon
-    set_target_properties(orc-gui PROPERTIES
-        MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_ICON_FILE orc-gui.icns
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
-    )
-    set_source_files_properties(${MACOS_ICON_FILE} PROPERTIES
-        MACOSX_PACKAGE_LOCATION Resources
-    )
-    target_sources(orc-gui PRIVATE ${MACOS_ICON_FILE})
+    # Generate the .icns file for use by the release packaging workflow
+    # The workflow creates its own bundle structure manually
     add_custom_target(generate_macos_icon DEPENDS ${MACOS_ICON_FILE})
     add_dependencies(orc-gui generate_macos_icon)
 endif()
@@ -173,7 +165,6 @@ endif()
 # Install target
 install(TARGETS orc-gui
     RUNTIME DESTINATION bin
-    BUNDLE DESTINATION .
 )
 
 # Install desktop file

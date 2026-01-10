@@ -32,6 +32,9 @@ jobs:
         with:
           lfs: true
       
+      - name: Install ImageMagick
+        run: choco install imagemagick -y
+      
       - name: Install Qt6
         uses: jurplel/install-qt-action@v4
         with:
@@ -256,28 +259,35 @@ jobs:
           cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
           cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
           
-          # Convert SVG icon to ICNS format for macOS
-          mkdir -p orc-gui.iconset
-          
-          # Convert SVG to PNG at 1024x1024 for highest quality
-          brew list librsvg &>/dev/null || brew install librsvg
-          rsvg-convert -w 1024 -h 1024 assets/orc-gui-icon.svg -o icon-1024.png
-          
-          # Use sips to resize to all needed sizes for .icns
-          sips -z 16 16     icon-1024.png --out orc-gui.iconset/icon_16x16.png
-          sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_16x16@2x.png
-          sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_32x32.png
-          sips -z 64 64     icon-1024.png --out orc-gui.iconset/icon_32x32@2x.png
-          sips -z 128 128   icon-1024.png --out orc-gui.iconset/icon_128x128.png
-          sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_128x128@2x.png
-          sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_256x256.png
-          sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_256x256@2x.png
-          sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_512x512.png
-          sips -z 1024 1024 icon-1024.png --out orc-gui.iconset/icon_512x512@2x.png
-          
-          # Convert iconset to icns
-          iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
-          iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
+          # Use CMake-generated icon if available, otherwise create from SVG
+          if [ -f "build/orc/gui/icons/orc-gui.icns" ]; then
+            echo "Using CMake-generated icon"
+            cp "build/orc/gui/icons/orc-gui.icns" "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+            cp "build/orc/gui/icons/orc-gui.icns" ".VolumeIcon.icns"
+          else
+            echo "CMake icon not found, generating from SVG"
+            mkdir -p orc-gui.iconset
+            
+            # Convert SVG to PNG at 1024x1024 for highest quality
+            brew list librsvg &>/dev/null || brew install librsvg
+            rsvg-convert -w 1024 -h 1024 assets/orc-gui-icon.svg -o icon-1024.png
+            
+            # Use sips to resize to all needed sizes for .icns
+            sips -z 16 16     icon-1024.png --out orc-gui.iconset/icon_16x16.png
+            sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_16x16@2x.png
+            sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_32x32.png
+            sips -z 64 64     icon-1024.png --out orc-gui.iconset/icon_32x32@2x.png
+            sips -z 128 128   icon-1024.png --out orc-gui.iconset/icon_128x128.png
+            sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_128x128@2x.png
+            sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_256x256.png
+            sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_256x256@2x.png
+            sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_512x512.png
+            sips -z 1024 1024 icon-1024.png --out orc-gui.iconset/icon_512x512@2x.png
+            
+            # Convert iconset to icns
+            iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+            iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
+          fi
           
           # Create PkgInfo
           echo "APPL????" > "orc-gui.app/Contents/PkgInfo"

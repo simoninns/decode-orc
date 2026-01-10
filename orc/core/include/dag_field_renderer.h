@@ -88,9 +88,9 @@ public:
     DAGFieldRenderer(const DAGFieldRenderer&) = delete;
     DAGFieldRenderer& operator=(const DAGFieldRenderer&) = delete;
     
-    // Allow moving for efficiency
-    DAGFieldRenderer(DAGFieldRenderer&&) = default;
-    DAGFieldRenderer& operator=(DAGFieldRenderer&&) = default;
+    // Move operations deleted - internal executor contains non-movable cache
+    DAGFieldRenderer(DAGFieldRenderer&&) = delete;
+    DAGFieldRenderer& operator=(DAGFieldRenderer&&) = delete;
     
     // ========================================================================
     // Field Rendering API

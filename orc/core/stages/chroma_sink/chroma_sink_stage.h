@@ -24,7 +24,7 @@
 #include <thread>
 
 // Forward declarations for decoder classes
-class SourceField;
+struct SourceField;
 class Decoder;
 class ComponentFrame;
 class MonoDecoder;

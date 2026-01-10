@@ -80,3 +80,13 @@ test-run.log*.log
 **/tests/temp/
 **/tests/outputs/
 **/tests/*.log
+
+# Ignore workspace VS Code files but allow shared configs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Keep local/user-specific VS Code files ignored
+.vscode/c_cpp_properties.json
+.vscode/settings.json

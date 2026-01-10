@@ -279,34 +279,36 @@ jobs:
           cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
           cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
           
-          # Use CMake-generated icon if available, otherwise create from SVG
+          # Use CMake-generated icon if available, otherwise create from PNG
           if [ -f "build/orc/gui/icons/orc-gui.icns" ]; then
             echo "Using CMake-generated icon"
             cp "build/orc/gui/icons/orc-gui.icns" "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
             cp "build/orc/gui/icons/orc-gui.icns" ".VolumeIcon.icns"
           else
-            echo "CMake icon not found, generating from SVG"
+            echo "CMake icon not found, generating from PNG"
             mkdir -p orc-gui.iconset
             
-            # Convert SVG to PNG at 1024x1024 for highest quality
-            brew list librsvg &>/dev/null || brew install librsvg
-            rsvg-convert -w 1024 -h 1024 assets/orc-gui-icon.svg -o icon-1024.png
+            # Use the 256x256 PNG as source (better quality than converting from SVG with rsvg)
+            SOURCE_PNG="assets/orc-gui-icon-256.png"
             
             # Use sips to resize to all needed sizes for .icns
-            sips -z 16 16     icon-1024.png --out orc-gui.iconset/icon_16x16.png
-            sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_16x16@2x.png
-            sips -z 32 32     icon-1024.png --out orc-gui.iconset/icon_32x32.png
-            sips -z 64 64     icon-1024.png --out orc-gui.iconset/icon_32x32@2x.png
-            sips -z 128 128   icon-1024.png --out orc-gui.iconset/icon_128x128.png
-            sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_128x128@2x.png
-            sips -z 256 256   icon-1024.png --out orc-gui.iconset/icon_256x256.png
-            sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_256x256@2x.png
-            sips -z 512 512   icon-1024.png --out orc-gui.iconset/icon_512x512.png
-            sips -z 1024 1024 icon-1024.png --out orc-gui.iconset/icon_512x512@2x.png
+            # Note: sips handles alpha channel properly for macOS icons
+            sips -z 16 16     "$SOURCE_PNG" --out orc-gui.iconset/icon_16x16.png
+            sips -z 32 32     "$SOURCE_PNG" --out orc-gui.iconset/icon_16x16@2x.png
+            sips -z 32 32     "$SOURCE_PNG" --out orc-gui.iconset/icon_32x32.png
+            sips -z 64 64     "$SOURCE_PNG" --out orc-gui.iconset/icon_32x32@2x.png
+            sips -z 128 128   "$SOURCE_PNG" --out orc-gui.iconset/icon_128x128.png
+            sips -z 256 256   "$SOURCE_PNG" --out orc-gui.iconset/icon_128x128@2x.png
+            sips -z 256 256   "$SOURCE_PNG" --out orc-gui.iconset/icon_256x256.png
+            sips -z 512 512   "$SOURCE_PNG" --out orc-gui.iconset/icon_256x256@2x.png
+            sips -z 512 512   "$SOURCE_PNG" --out orc-gui.iconset/icon_512x512.png
+            sips -z 1024 1024 "$SOURCE_PNG" --out orc-gui.iconset/icon_512x512@2x.png
             
             # Convert iconset to icns
             iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
             iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
+            
+            echo "Generated icon from PNG"
           fi
           
           # Create PkgInfo
@@ -324,6 +326,8 @@ jobs:
             <string>io.github.simoninns.decode-orc</string>
             <key>CFBundleName</key>
             <string>Decode Orc</string>
+            <key>CFBundleDisplayName</key>
+            <string>Decode Orc</string>
             <key>CFBundleVersion</key>
             <string>1.0</string>
             <key>CFBundleShortVersionString</key>
@@ -331,6 +335,8 @@ jobs:
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleIconFile</key>
+            <string>orc-gui-icon.icns</string>
+            <key>CFBundleIconName</key>
             <string>orc-gui-icon</string>
             <key>LSMinimumSystemVersion</key>
             <string>11.0</string>
@@ -341,6 +347,22 @@ jobs:
           </dict>
           </plist>
           EOF
+          
+          # Verify the icon file is correctly named and in place
+          if [ -f "orc-gui.app/Contents/Resources/orc-gui-icon.icns" ]; then
+            echo "✓ App icon properly installed at Resources/orc-gui-icon.icns"
+            ls -lh "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+            
+            # Set proper file attributes for the icon
+            SetFile -a C "orc-gui.app" 2>/dev/null || true
+            
+            # Verify icon has all required sizes
+            echo "Verifying icon contains all required sizes..."
+            sips -g allProperties "orc-gui.app/Contents/Resources/orc-gui-icon.icns" | grep -E "pixelWidth|pixelHeight"
+          else
+            echo "ERROR: Icon file not found!"
+            exit 1
+          fi
       
       - name: Deploy Qt dependencies
         run: |
@@ -420,15 +442,16 @@ jobs:
         run: |
           HOMEBREW_PREFIX=$(brew --prefix)
           
-          # Add correct rpath to main executable for bundled frameworks
-          echo "Adding @executable_path/../Frameworks to main executable rpath..."
-          if ! otool -l "orc-gui.app/Contents/MacOS/orc-gui" | grep -q "@executable_path/../Frameworks"; then
-            install_name_tool -add_rpath "@executable_path/../Frameworks" \
-              "orc-gui.app/Contents/MacOS/orc-gui"
-            echo "  Added successfully"
-          else
-            echo "  Already exists"
-          fi
+          # Add correct rpath to both executables for bundled frameworks
+          echo "Adding @executable_path/../Frameworks to executable rpaths..."
+          for EXE in "orc-gui.app/Contents/MacOS/orc-gui" "orc-gui.app/Contents/MacOS/orc-cli"; do
+            if ! otool -l "$EXE" | grep -q "@executable_path/../Frameworks"; then
+              install_name_tool -add_rpath "@executable_path/../Frameworks" "$EXE"
+              echo "  Added to $(basename $EXE)"
+            else
+              echo "  $(basename $EXE) already has correct rpath"
+            fi
+          done
           
           # Find and copy libsharpyuv (dependency of libwebp)
           # libsharpyuv is part of the webp package but may be in different locations
@@ -487,10 +510,52 @@ jobs:
           echo "Bundled libraries:"
           ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.dylib" | head -20
           
+          # Find and copy libjxl_cms (dependency of libjxl)
+          JXL_CMS_LIB=$(find $HOMEBREW_PREFIX/opt/jpeg-xl/lib $HOMEBREW_PREFIX/Cellar/jpeg-xl/*/lib $HOMEBREW_PREFIX/lib -name "libjxl_cms.*.dylib" ! -name "*.*.*.dylib" 2>/dev/null | head -n 1)
+          if [ -n "$JXL_CMS_LIB" ] && [ -f "$JXL_CMS_LIB" ]; then
+            JXL_CMS_NAME=$(basename "$JXL_CMS_LIB")
+            echo "Found libjxl_cms at: $JXL_CMS_LIB"
+            echo "Copying $JXL_CMS_NAME to bundle..."
+            cp "$JXL_CMS_LIB" "orc-gui.app/Contents/Frameworks/"
+            chmod 644 "orc-gui.app/Contents/Frameworks/$JXL_CMS_NAME"
+            
+            # Fix the library ID
+            install_name_tool -id "@rpath/$JXL_CMS_NAME" \
+              "orc-gui.app/Contents/Frameworks/$JXL_CMS_NAME"
+            
+            # Fix all libraries that reference libjxl_cms (mainly libjxl)
+            echo "Fixing references to libjxl_cms in all bundled libraries..."
+            for LIB in orc-gui.app/Contents/Frameworks/*.dylib; do
+              if otool -L "$LIB" 2>/dev/null | grep -q "libjxl_cms"; then
+                echo "  Fixing $(basename $LIB)..."
+                
+                # Add @loader_path rpath so the library can find siblings in same directory
+                if ! otool -l "$LIB" | grep -A 2 "LC_RPATH" | grep -q "@loader_path\$"; then
+                  echo "    Adding @loader_path rpath..."
+                  install_name_tool -add_rpath "@loader_path" "$LIB" 2>/dev/null || echo "    (add failed, may already exist)"
+                fi
+                
+                for PATH_TO_FIX in $(otool -L "$LIB" 2>/dev/null | grep "libjxl_cms" | awk '{print $1}'); do
+                  echo "    Changing $PATH_TO_FIX to @rpath/$JXL_CMS_NAME"
+                  install_name_tool -change \
+                    "$PATH_TO_FIX" \
+                    "@rpath/$JXL_CMS_NAME" \
+                    "$LIB" 2>/dev/null || true
+                done
+                echo "    After fix:"
+                otool -L "$LIB" | grep "libjxl_cms" || echo "    No libjxl_cms reference"
+              fi
+            done
+          else
+            echo "Warning: libjxl_cms not found, but may not be needed"
+          fi
+          
           echo ""
           echo "Verifying critical dependencies:"
           echo "libsharpyuv in bundle:"
           ls -la "orc-gui.app/Contents/Frameworks/libsharpyuv"* || echo "NOT FOUND!"
+          echo "libjxl_cms in bundle:"
+          ls -la "orc-gui.app/Contents/Frameworks/libjxl_cms"* || echo "NOT FOUND!"
           echo ""
           echo "Main executable rpaths:"
           otool -l "orc-gui.app/Contents/MacOS/orc-gui" | grep -A 2 LC_RPATH | head -15
@@ -500,6 +565,214 @@ jobs:
           echo ""
           echo "libwebp dependencies:"
           otool -L "orc-gui.app/Contents/Frameworks/libwebp"* | grep -E "(libsharpyuv|@rpath)"
+          echo ""
+          echo "libjxl dependencies:"
+          otool -L "orc-gui.app/Contents/Frameworks/libjxl"*.dylib 2>/dev/null | grep -E "(libjxl_cms|@rpath)" || echo "No libjxl found"
+      
+      - name: Scan and fix all missing dependencies recursively
+        run: |
+          HOMEBREW_PREFIX=$(brew --prefix)
+          
+          # This step recursively scans all bundled libraries and executables to find
+          # any missing dependencies from homebrew that weren't caught by macdeployqt
+          # or the manual bundling steps above. This ensures all transitive dependencies
+          # like libjxl_cms (dependency of libjxl) are properly bundled.
+          
+          echo "Scanning for missing dependencies recursively..."
+          
+          # Function to get dependencies of a library
+          get_dependencies() {
+            local lib="$1"
+            otool -L "$lib" 2>/dev/null | tail -n +2 | awk '{print $1}' | grep -E "^$HOMEBREW_PREFIX|^@rpath"
+          }
+          
+          # Function to copy a homebrew library to the bundle
+          copy_homebrew_lib() {
+            local lib_path="$1"
+            local lib_name=$(basename "$lib_path")
+            
+            # Skip if already bundled
+            if [ -f "orc-gui.app/Contents/Frameworks/$lib_name" ]; then
+              return 0
+            fi
+            
+            # Find the actual library file in homebrew
+            if [ ! -f "$lib_path" ]; then
+              # Try to find it in homebrew
+              local found_lib=$(find $HOMEBREW_PREFIX/opt $HOMEBREW_PREFIX/Cellar -name "$lib_name" -type f 2>/dev/null | head -n 1)
+              if [ -z "$found_lib" ]; then
+                echo "  Warning: Could not find $lib_name in homebrew"
+                return 1
+              fi
+              lib_path="$found_lib"
+            fi
+            
+            echo "  Copying $lib_name..."
+            cp "$lib_path" "orc-gui.app/Contents/Frameworks/"
+            chmod 644 "orc-gui.app/Contents/Frameworks/$lib_name"
+            
+            # Fix the library ID
+            install_name_tool -id "@rpath/$lib_name" \
+              "orc-gui.app/Contents/Frameworks/$lib_name" 2>/dev/null || true
+            
+            return 0
+          }
+          
+          # Scan all bundled libraries for missing dependencies (multiple passes)
+          for pass in {1..3}; do
+            echo ""
+            echo "Pass $pass: Scanning bundled libraries..."
+            
+            for LIB in orc-gui.app/Contents/Frameworks/*.dylib orc-gui.app/Contents/MacOS/orc-gui orc-gui.app/Contents/MacOS/orc-cli; do
+              if [ ! -f "$LIB" ]; then
+                continue
+              fi
+              
+              # Get all homebrew dependencies
+              for DEP in $(get_dependencies "$LIB"); do
+                # Skip system libraries and already-relative paths
+                if [[ "$DEP" == "/System/"* ]] || [[ "$DEP" == "/usr/lib/"* ]]; then
+                  continue
+                fi
+                
+                if [[ "$DEP" == "@rpath/"* ]]; then
+                  # Extract library name from @rpath
+                  DEP_NAME=$(echo "$DEP" | sed 's|@rpath/||')
+                  
+                  # Check if it exists in our bundle
+                  if [ ! -f "orc-gui.app/Contents/Frameworks/$DEP_NAME" ]; then
+                    echo "  $(basename $LIB) needs $DEP_NAME (not in bundle)"
+                    # Try to find and copy it
+                    FOUND_LIB=$(find $HOMEBREW_PREFIX/opt $HOMEBREW_PREFIX/Cellar -name "$DEP_NAME" -type f 2>/dev/null | head -n 1)
+                    if [ -n "$FOUND_LIB" ]; then
+                      copy_homebrew_lib "$FOUND_LIB"
+                    fi
+                  fi
+                elif [[ "$DEP" == "$HOMEBREW_PREFIX/"* ]]; then
+                  # Direct homebrew path reference
+                  DEP_NAME=$(basename "$DEP")
+                  
+                  if [ ! -f "orc-gui.app/Contents/Frameworks/$DEP_NAME" ]; then
+                    echo "  $(basename $LIB) needs $DEP_NAME from homebrew"
+                    copy_homebrew_lib "$DEP"
+                  fi
+                  
+                  # Fix the reference to use @rpath
+                  install_name_tool -change "$DEP" "@rpath/$DEP_NAME" "$LIB" 2>/dev/null || true
+                fi
+              done
+            done
+          done
+          
+          echo ""
+          echo "Fixing all libraries to use @loader_path for sibling dependencies..."
+          for LIB in orc-gui.app/Contents/Frameworks/*.dylib; do
+            if [ ! -f "$LIB" ]; then
+              continue
+            fi
+            
+            # Remove bad @loader_path/../lib rpath if it exists (common in homebrew libs)
+            if otool -l "$LIB" | grep -A 2 "LC_RPATH" | grep -q "@loader_path/../lib"; then
+              echo "  Removing bad @loader_path/../lib rpath from $(basename $LIB)..."
+              install_name_tool -delete_rpath "@loader_path/../lib" "$LIB" 2>/dev/null || true
+            fi
+            
+            # Add @loader_path rpath if not present
+            if ! otool -l "$LIB" | grep -A 2 "LC_RPATH" | grep -q "@loader_path\$"; then
+              install_name_tool -add_rpath "@loader_path" "$LIB" 2>/dev/null || true
+            fi
+            
+            # Fix references to other bundled libraries
+            for DEP in $(otool -L "$LIB" 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+              DEP_NAME=$(basename "$DEP")
+              
+              # If this dependency is in our bundle and not already using @rpath, fix it
+              if [ -f "orc-gui.app/Contents/Frameworks/$DEP_NAME" ] && [[ "$DEP" != "@rpath/"* ]]; then
+                install_name_tool -change "$DEP" "@rpath/$DEP_NAME" "$LIB" 2>/dev/null || true
+              fi
+            done
+          done
+          
+          echo ""
+          echo "Final dependency check - looking for missing dependencies..."
+          MISSING_COUNT=0
+          
+          # Check executables and .dylib files
+          for LIB in orc-gui.app/Contents/Frameworks/*.dylib orc-gui.app/Contents/MacOS/orc-gui orc-gui.app/Contents/MacOS/orc-cli; do
+            if [ ! -f "$LIB" ]; then
+              continue
+            fi
+            
+            for DEP in $(otool -L "$LIB" 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+              # Skip system libraries and self-references
+              if [[ "$DEP" == "/System/"* ]] || [[ "$DEP" == "/usr/lib/"* ]] || [[ "$DEP" == "$LIB" ]]; then
+                continue
+              fi
+              
+              # Skip Qt framework references (they're in Frameworks/)
+              if [[ "$DEP" == *".framework/"* ]]; then
+                continue
+              fi
+              
+              if [[ "$DEP" == "@rpath/"* ]]; then
+                DEP_NAME=$(echo "$DEP" | sed 's|@rpath/||')
+                if [ ! -f "orc-gui.app/Contents/Frameworks/$DEP_NAME" ]; then
+                  echo "  WARNING: $(basename $LIB) needs $DEP_NAME which is NOT bundled!"
+                  MISSING_COUNT=$((MISSING_COUNT + 1))
+                fi
+              elif [[ "$DEP" == "$HOMEBREW_PREFIX/"* ]]; then
+                echo "  WARNING: $(basename $LIB) has hard-coded homebrew path: $DEP"
+                MISSING_COUNT=$((MISSING_COUNT + 1))
+              fi
+            done
+          done
+          
+          # Also check Qt frameworks for .dylib dependencies
+          for FRAMEWORK in orc-gui.app/Contents/Frameworks/*.framework/Versions/A/*; do
+            if [ ! -f "$FRAMEWORK" ] || [[ "$FRAMEWORK" == *"Resources"* ]] || [[ "$FRAMEWORK" == *"Headers"* ]]; then
+              continue
+            fi
+            
+            for DEP in $(otool -L "$FRAMEWORK" 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+              # Skip system libraries, framework references, and self-references
+              if [[ "$DEP" == "/System/"* ]] || [[ "$DEP" == "/usr/lib/"* ]] || [[ "$DEP" == *".framework/"* ]] || [[ "$DEP" == "$FRAMEWORK" ]]; then
+                continue
+              fi
+              
+              if [[ "$DEP" == "@rpath/"* ]]; then
+                DEP_NAME=$(echo "$DEP" | sed 's|@rpath/||')
+                if [ ! -f "orc-gui.app/Contents/Frameworks/$DEP_NAME" ]; then
+                  echo "  WARNING: $(basename $FRAMEWORK) needs $DEP_NAME which is NOT bundled!"
+                  MISSING_COUNT=$((MISSING_COUNT + 1))
+                fi
+              elif [[ "$DEP" == "$HOMEBREW_PREFIX/"* ]]; then
+                echo "  WARNING: $(basename $FRAMEWORK) has hard-coded homebrew path: $DEP"
+                MISSING_COUNT=$((MISSING_COUNT + 1))
+              fi
+            done
+          done
+          
+          if [ $MISSING_COUNT -gt 0 ]; then
+            echo ""
+            echo "ERROR: Found $MISSING_COUNT missing or incorrectly referenced dependencies!"
+            echo ""
+            echo "Listing all bundled .dylib files:"
+            ls -lh orc-gui.app/Contents/Frameworks/*.dylib 2>/dev/null || echo "No .dylib files found"
+            echo ""
+            echo "Listing all bundled frameworks:"
+            ls -d orc-gui.app/Contents/Frameworks/*.framework 2>/dev/null || echo "No frameworks found"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✓ All dependencies verified and bundled successfully"
+          echo ""
+          echo "Final bundle contents:"
+          echo "Bundled .dylib libraries ($(ls -1 orc-gui.app/Contents/Frameworks/*.dylib 2>/dev/null | wc -l | xargs)):"
+          ls -1 orc-gui.app/Contents/Frameworks/*.dylib 2>/dev/null | xargs -n 1 basename | sort
+          echo ""
+          echo "Bundled frameworks ($(ls -d1 orc-gui.app/Contents/Frameworks/*.framework 2>/dev/null | wc -l | xargs)):"
+          ls -d1 orc-gui.app/Contents/Frameworks/*.framework 2>/dev/null | xargs -n 1 basename
       
       - name: Code sign app bundle (ad-hoc)
         run: |
@@ -587,7 +860,15 @@ jobs:
           EOF
           fi
           
+          # Copy volume icon and set attributes
           cp .VolumeIcon.icns dmg-staging/.VolumeIcon.icns
+          SetFile -a C dmg-staging/.VolumeIcon.icns 2>/dev/null || true
+          
+          echo "Verifying DMG staging contents:"
+          ls -la dmg-staging/
+          echo ""
+          echo "App icon verification:"
+          ls -lh dmg-staging/orc-gui.app/Contents/Resources/*.icns
           
           # Set DMG filename
           if [ "$VERSION" = "dev" ]; then
@@ -596,6 +877,7 @@ jobs:
             DMG_NAME="decode-orc-$VERSION-macOS.dmg"
           fi
           
+          echo "Creating DMG: $DMG_NAME"
           create-dmg \
             --volname "Decode Orc" \
             --volicon ".VolumeIcon.icns" \
@@ -604,8 +886,12 @@ jobs:
             --icon-size 100 \
             --icon "orc-gui.app" 200 185 \
             --app-drop-link 600 185 \
+            --hide-extension "orc-gui.app" \
             "$DMG_NAME" \
             "dmg-staging" || hdiutil create -volname "Decode Orc" -srcfolder "dmg-staging" -ov -format UDZO "$DMG_NAME"
+          
+          echo "✓ DMG created successfully"
+          ls -lh "$DMG_NAME"
       
       - name: Set artifact name
         id: set-artifact-name

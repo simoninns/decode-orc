@@ -158,9 +158,9 @@ public:
     PreviewRenderer(const PreviewRenderer&) = delete;
     PreviewRenderer& operator=(const PreviewRenderer&) = delete;
     
-    // Allow moving
-    PreviewRenderer(PreviewRenderer&&) = default;
-    PreviewRenderer& operator=(PreviewRenderer&&) = default;
+    // Move operations deleted - internal renderer contains non-movable components
+    PreviewRenderer(PreviewRenderer&&) = delete;
+    PreviewRenderer& operator=(PreviewRenderer&&) = delete;
     
     // ========================================================================
     // Query API

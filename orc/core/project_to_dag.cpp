@@ -45,8 +45,8 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         // Copy parameters directly (already strongly typed)
         dag_node.parameters = proj_node.parameters;
         for (const auto& [key, value] : proj_node.parameters) {
-            std::visit([&proj_node, &key](const auto& v) {
-                ORC_LOG_DEBUG("Node '{}':   param '{}' = {}", proj_node.node_id, key, v);
+            std::visit([&proj_node, key_ref = std::cref(key)](const auto& v) {
+                ORC_LOG_DEBUG("Node '{}':   param '{}' = {}", proj_node.node_id, key_ref.get(), v);
             }, value);
         }
         

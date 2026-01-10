@@ -102,9 +102,9 @@ public:
     DAGExecutor(const DAGExecutor&) = delete;
     DAGExecutor& operator=(const DAGExecutor&) = delete;
     
-    // Allow moving for efficiency
-    DAGExecutor(DAGExecutor&&) = default;
-    DAGExecutor& operator=(DAGExecutor&&) = default;
+    // Move operations deleted - cache contains mutex which is not movable
+    DAGExecutor(DAGExecutor&&) = delete;
+    DAGExecutor& operator=(DAGExecutor&&) = delete;
     
     // Execution
     std::vector<ArtifactPtr> execute(const DAG& dag);

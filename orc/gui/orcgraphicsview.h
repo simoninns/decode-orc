@@ -29,5 +29,5 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private slots:
-    void onDeleteSelectedObjects();
+    void onDeleteSelectedObjects() override;
 };

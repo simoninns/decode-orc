@@ -1352,7 +1352,6 @@ std::vector<uint8_t> StackerStage::stack_efm(
     std::vector<std::vector<uint8_t>> all_efm_samples;
     std::vector<uint32_t> sample_counts;
     std::vector<size_t> source_indices;
-    size_t total_sources_with_efm = 0;
     size_t sources_without_efm = 0;
     size_t sources_without_field = 0;
     
@@ -1382,7 +1381,6 @@ std::vector<uint8_t> StackerStage::stack_efm(
         all_efm_samples.push_back(std::move(efm_samples));
         sample_counts.push_back(sample_count);
         source_indices.push_back(i);
-        total_sources_with_efm++;
     }
     
     // If no sources have EFM for this field, return empty

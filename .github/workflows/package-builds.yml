@@ -132,51 +132,69 @@ jobs:
           cd build
           
           # Run CPack to generate the MSI with verbose output
-          cpack -C Release -G WIX --verbose
+          cpack -C Release -G WIX --verbose 2>&1 | Tee-Object -FilePath cpack-output.log
+          $CPACK_RESULT = $LASTEXITCODE
           
-          if ($LASTEXITCODE -ne 0) {
+          if ($CPACK_RESULT -ne 0) {
             Write-Host "`nCPack failed. Checking for WiX log..." -ForegroundColor Red
             $logPath = "_CPack_Packages/win64/WIX/wix.log"
             if (Test-Path $logPath) {
               Write-Host "`nWiX Log Contents:" -ForegroundColor Yellow
               Get-Content $logPath
             }
-            
-            # Also check if the issue is missing DLLs in the package
-            $stagingDir = Get-ChildItem -Path "_CPack_Packages/win64/WIX" -Filter "Decode Orc-*" -Directory | Select-Object -First 1
-            if ($stagingDir) {
-              Write-Host "`nFiles in CPack staging bin directory:" -ForegroundColor Yellow
-              Get-ChildItem -Path "$($stagingDir.FullName)/bin" -ErrorAction SilentlyContinue | Format-Table Name
-            }
-            
             exit 1
           }
           
+          # Show install-related messages from CPack output
+          Write-Host "`nSearching for install messages in CPack output:" -ForegroundColor Cyan
+          Get-Content cpack-output.log | Select-String -Pattern "(windeployqt|Installing|vcpkg|yaml-cpp|Qt6)" | ForEach-Object { Write-Host $_ }
+          
           # Verify DLLs were deployed correctly
-          $stagingDir = Get-ChildItem -Path "_CPack_Packages/win64/WIX" -Filter "Decode Orc-*" -Directory | Select-Object -First 1
+          $stagingDir = Get-ChildItem -Path "_CPack_Packages/win64/WIX" -Filter "Decode Orc-*" -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($stagingDir) {
             Write-Host "`nVerifying deployed DLLs in MSI package:" -ForegroundColor Cyan
-            $binPath = "$($stagingDir.FullName)/bin"
+            $binPath = Join-Path $stagingDir.FullName "bin"
             
-            # Check for Qt DLLs
-            $qtDlls = Get-ChildItem -Path $binPath -Filter "Qt6*.dll" -ErrorAction SilentlyContinue
-            Write-Host "`nQt DLLs:" -ForegroundColor Yellow
-            $qtDlls | ForEach-Object { Write-Host "  $($_.Name)" }
-            
-            # Check for vcpkg DLLs
-            $vcpkgDlls = @("yaml-cpp.dll", "spdlog.dll", "fftw3.dll", "libpng16.dll", "sqlite3.dll")
-            Write-Host "`nvcpkg DLLs:" -ForegroundColor Yellow
-            foreach ($dll in $vcpkgDlls) {
-              if (Test-Path "$binPath\$dll") {
-                Write-Host "  ✓ $dll" -ForegroundColor Green
+            if (Test-Path $binPath) {
+              # Check for Qt DLLs
+              $qtDlls = Get-ChildItem -Path $binPath -Filter "Qt6*.dll" -ErrorAction SilentlyContinue
+              Write-Host "`nQt DLLs:" -ForegroundColor Yellow
+              if ($qtDlls) {
+                $qtDlls | ForEach-Object { Write-Host "  $($_.Name)" }
               } else {
-                Write-Host "  ✗ $dll MISSING" -ForegroundColor Red
+                Write-Host "  (none found)" -ForegroundColor Red
               }
+              
+              # Check for vcpkg DLLs
+              $vcpkgDlls = @("yaml-cpp.dll", "spdlog.dll", "fftw3.dll", "libpng16.dll", "sqlite3.dll")
+              Write-Host "`nvcpkg DLLs:" -ForegroundColor Yellow
+              foreach ($dll in $vcpkgDlls) {
+                if (Test-Path (Join-Path $binPath $dll)) {
+                  Write-Host "  ✓ $dll" -ForegroundColor Green
+                } else {
+                  Write-Host "  ✗ $dll MISSING" -ForegroundColor Red
+                }
+              }
+              
+              # List all DLLs
+              Write-Host "`nAll DLLs in package:" -ForegroundColor Yellow
+              $allDlls = Get-ChildItem -Path $binPath -Filter "*.dll" -ErrorAction SilentlyContinue
+              if ($allDlls) {
+                $allDlls | Format-Table Name, Length -AutoSize
+              } else {
+                Write-Host "  (no DLLs found)" -ForegroundColor Red
+              }
+              
+              # List all files
+              Write-Host "`nAll files in bin:" -ForegroundColor Yellow
+              Get-ChildItem -Path $binPath | Format-Table Name -AutoSize
+            } else {
+              Write-Host "`nERROR: bin directory does not exist at: $binPath" -ForegroundColor Red
+              Write-Host "`nStaging directory contents:" -ForegroundColor Yellow
+              Get-ChildItem -Path $stagingDir.FullName -Recurse | Format-Table FullName -AutoSize
             }
-            
-            # List all DLLs
-            Write-Host "`nAll DLLs in package:" -ForegroundColor Yellow
-            Get-ChildItem -Path $binPath -Filter "*.dll" | Format-Table Name, Length -AutoSize
+          } else {
+            Write-Host "`nERROR: Could not find staging directory" -ForegroundColor Red
           }
           
           # List generated packages

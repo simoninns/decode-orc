@@ -292,8 +292,8 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
         }
         
         line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+        
+        // Just show the dialog - Qt will remember its position
         line_scope_dialog_->show();
-        line_scope_dialog_->raise();
-        line_scope_dialog_->activateWindow();
     }
 }

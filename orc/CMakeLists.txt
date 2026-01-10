@@ -132,8 +132,15 @@ if(WIN32)
     set(CPACK_WIX_PRODUCT_GUID "*") # Generate new GUID for each version
     set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png")
     set(CPACK_WIX_LICENSE_RTF "${CMAKE_BINARY_DIR}/LICENSE.rtf")
-    set(CPACK_WIX_UI_BANNER "${CMAKE_SOURCE_DIR}/assets/wix-banner.bmp" CACHE FILEPATH "Top banner image")
-    set(CPACK_WIX_UI_DIALOG "${CMAKE_SOURCE_DIR}/assets/wix-dialog.bmp" CACHE FILEPATH "Background image")
+    
+    # Optional: Custom WiX UI images (only if they exist)
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/wix-banner.bmp")
+        set(CPACK_WIX_UI_BANNER "${CMAKE_SOURCE_DIR}/assets/wix-banner.bmp")
+    endif()
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/wix-dialog.bmp")
+        set(CPACK_WIX_UI_DIALOG "${CMAKE_SOURCE_DIR}/assets/wix-dialog.bmp")
+    endif()
+    
     set(CPACK_WIX_PROGRAM_MENU_FOLDER "Decode Orc")
     
     # Create start menu shortcuts

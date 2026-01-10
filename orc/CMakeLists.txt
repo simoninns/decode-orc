@@ -109,3 +109,42 @@ if(BUILD_DOCS)
         message(WARNING "Doxygen not found - documentation will not be built")
     endif()
 endif()
+
+# CPack configuration for installer generation
+set(CPACK_PACKAGE_NAME "DecodeOrc")
+set(CPACK_PACKAGE_VENDOR "Simon Inns")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Cross-platform orchestration framework for LaserDisc and tape decoding workflows")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
+set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
+set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "DecodeOrc")
+set(CPACK_PACKAGE_EXECUTABLES "orc-gui;Decode Orc GUI" "orc-cli;Decode Orc CLI")
+
+# License and readme
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/../LICENSE")
+set(CPACK_RESOURCE_FILE_README "${CMAKE_SOURCE_DIR}/../README.md")
+
+# WiX specific settings for MSI generation on Windows
+if(WIN32)
+    set(CPACK_GENERATOR "WIX")
+    set(CPACK_WIX_UPGRADE_GUID "8A4B5C6D-7E8F-9A0B-1C2D-3E4F5A6B7C8D")
+    set(CPACK_WIX_PRODUCT_GUID "*") # Generate new GUID for each version
+    set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/../assets/orc-gui-icon-256.png")
+    set(CPACK_WIX_LICENSE_RTF "${CMAKE_CURRENT_BINARY_DIR}/LICENSE.rtf")
+    set(CPACK_WIX_UI_BANNER "${CMAKE_SOURCE_DIR}/../assets/wix-banner.bmp" CACHE FILEPATH "Top banner image")
+    set(CPACK_WIX_UI_DIALOG "${CMAKE_SOURCE_DIR}/../assets/wix-dialog.bmp" CACHE FILEPATH "Background image")
+    set(CPACK_WIX_PROGRAM_MENU_FOLDER "Decode Orc")
+    
+    # Create start menu shortcuts
+    set(CPACK_PACKAGE_EXECUTABLES "orc-gui;Decode Orc")
+    
+    # Add to Programs and Features
+    set(CPACK_WIX_PROPERTY_ARPURLINFOABOUT "https://github.com/simoninns/decode-orc")
+    set(CPACK_WIX_PROPERTY_ARPHELPLINK "https://simoninns.github.io/decode-orc-docs/")
+    
+    # Generate RTF license from plain text LICENSE file
+    # This will be done in the GitHub Actions workflow
+endif()
+
+include(CPack)

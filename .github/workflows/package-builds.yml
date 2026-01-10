@@ -35,6 +35,13 @@ jobs:
       - name: Install ImageMagick
         run: choco install imagemagick -y
       
+      - name: Install WiX Toolset
+        run: |
+          choco install wixtoolset -y
+          # Add WiX to PATH for this session
+          $env:PATH += ";C:\Program Files (x86)\WiX Toolset v3.14\bin"
+          echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      
       - name: Install Qt6
         uses: jurplel/install-qt-action@v4
         with:
@@ -88,6 +95,25 @@ jobs:
         run: |
           cd build
           cmake --install . --config Release --prefix install
+      
+      - name: Create RTF license for WiX
+        run: |
+          # Convert LICENSE to RTF format for WiX
+          $licenseContent = Get-Content -Path "LICENSE" -Raw
+          
+          # Create simple RTF file with license text
+          $rtfHeader = "{\rtf1\ansi\deff0 {\fonttbl {\f0 Courier New;}}\f0\fs18"
+          $rtfFooter = "}"
+          
+          # Escape special RTF characters and convert to RTF
+          $licenseRtf = $licenseContent -replace '\\', '\\\\' -replace '{', '\{' -replace '}', '\}' -replace "`n", "\par`n"
+          
+          $fullRtf = $rtfHeader + "`n" + $licenseRtf + "`n" + $rtfFooter
+          
+          # Save to build directory where CMake expects it
+          $fullRtf | Out-File -FilePath "build/LICENSE.rtf" -Encoding ASCII
+          
+          Write-Host "Created LICENSE.rtf for WiX installer"
       
       - name: Deploy Qt dependencies
         run: |
@@ -154,72 +180,32 @@ jobs:
           
           Write-Host "Copied vcpkg runtime dependencies"
       
-      - name: Create portable ZIP package
+      - name: Generate MSI installer with CPack
         run: |
-          $version = "${{ inputs.version }}"
+          cd build
           
-          # Create a clean directory for the package
-          New-Item -ItemType Directory -Path "decode-orc-portable" -Force
+          # Run CPack to generate the MSI
+          cpack -C Release -G WIX
           
-          # Copy all files from install/bin
-          Copy-Item -Path "build/install/bin/*" -Destination "decode-orc-portable/" -Recurse -Force
-          
-          # Create a README
-          $readmeText = if ($version -eq "dev") {
-            @"
-          Decode Orc - Portable Windows Build (Development)
-          
-          This is a development build of Decode Orc for Windows.
-          
-          To run the GUI application: Double-click orc-gui.exe
-          To run the CLI application: Run orc-cli.exe from command prompt
-          
-          All required DLLs and Qt dependencies are included in this package.
-          "@
-          } else {
-            @"
-          Decode Orc v$version - Portable Windows Build
-          
-          This is a portable build of Decode Orc for Windows.
-          
-          To run the GUI application: Double-click orc-gui.exe
-          To run the CLI application: Run orc-cli.exe from command prompt
-          
-          All required DLLs and Qt dependencies are included in this package.
-          "@
-          }
-          
-          $readmeText | Out-File -FilePath "decode-orc-portable/README.txt" -Encoding UTF8
-          
-          # Create ZIP archive with version in name
-          $zipName = if ($version -eq "dev") {
-            "decode-orc-windows-x64.zip"
-          } else {
-            "decode-orc-$version-windows-x64.zip"
-          }
-          
-          Compress-Archive -Path "decode-orc-portable/*" -DestinationPath $zipName -Force
-          
-          Write-Host "Created portable package: $zipName"
-          
-          # Save the filename for upload step
-          $zipName | Out-File -FilePath "package-name.txt" -NoNewline
+          # List generated packages
+          Write-Host "`nGenerated installer packages:"
+          Get-ChildItem -Filter "*.msi"
       
       - name: Set artifact name
         id: set-artifact-name
         shell: bash
         run: |
           if [ "${{ inputs.version }}" = "dev" ]; then
-            echo "name=decode-orc-windows-zip" >> $GITHUB_OUTPUT
+            echo "name=decode-orc-windows" >> $GITHUB_OUTPUT
           else
-            echo "name=windows-zip" >> $GITHUB_OUTPUT
+            echo "name=windows-installer" >> $GITHUB_OUTPUT
           fi
       
-      - name: Upload Windows ZIP artifact
+      - name: Upload Windows MSI installer
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.set-artifact-name.outputs.name }}
-          path: decode-orc-*.zip
+          path: build/*.msi
           retention-days: 7
 
   build-macos-package:

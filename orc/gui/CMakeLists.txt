@@ -22,7 +22,7 @@ generate_platform_icons(
 )
 
 # GUI application sources
-add_executable(orc-gui
+add_executable(orc-gui WIN32
     main.cpp
     mainwindow.cpp
     mainwindow.h

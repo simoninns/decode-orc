@@ -47,7 +47,7 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            release-artifacts/windows-zip/*.zip
+            release-artifacts/windows-installer/*.msi
             release-artifacts/macos-dmg/*.dmg
             release-artifacts/flatpak-bundle/*.flatpak
         env:

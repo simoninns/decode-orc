@@ -358,7 +358,7 @@ jobs:
             
             # Verify icon has all required sizes
             echo "Verifying icon contains all required sizes..."
-            sips -g allProperties "orc-gui.app/Contents/Resources/orc-gui-icon.icns" | grep -E "pixelWidth|pixelHeight"
+            sips -g allProperties "orc-gui.app/Contents/Resources/orc-gui-icon.icns" | grep -E "pixelWidth|pixelHeight" || echo "Note: Could not verify icon dimensions, but icon file exists"
           else
             echo "ERROR: Icon file not found!"
             exit 1

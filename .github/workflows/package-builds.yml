@@ -110,7 +110,7 @@ jobs:
           
           $fullRtf = $rtfHeader + "`n" + $licenseRtf + "`n" + $rtfFooter
           
-          # Save to build directory where CMake expects it
+          # Save to build directory (CMAKE_BINARY_DIR is the root build directory)
           $fullRtf | Out-File -FilePath "build/LICENSE.rtf" -Encoding ASCII
           
           Write-Host "Created LICENSE.rtf for WiX installer"

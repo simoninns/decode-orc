@@ -779,6 +779,11 @@ jobs:
       
       - name: Code sign app bundle (ad-hoc)
         run: |
+          # Clean extended attributes and resource forks that interfere with codesigning
+          echo "Cleaning extended attributes and resource forks..."
+          xattr -cr "orc-gui.app"
+          find "orc-gui.app" -type f -name "._*" -delete 2>/dev/null || true
+          
           codesign --force --deep --sign - "orc-gui.app"
           codesign --verify --verbose=2 "orc-gui.app"
       

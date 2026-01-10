@@ -169,20 +169,41 @@ if(WIN32)
     get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
     
+    # Find windeployqt
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
+    
+    if(NOT WINDEPLOYQT_EXECUTABLE)
+        message(WARNING "windeployqt not found - Qt runtime dependencies will not be automatically deployed")
+    endif()
+    
     # Install script to run windeployqt and copy vcpkg DLLs during installation
     install(CODE "
         # Run windeployqt
-        message(STATUS \"Running windeployqt...\")
-        execute_process(
-            COMMAND \"${QT_BIN_DIR}/windeployqt.exe\" 
-                --release 
-                --no-translations 
-                --no-compiler-runtime
-                \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\"
-            RESULT_VARIABLE WINDEPLOYQT_RESULT
-        )
-        if(NOT WINDEPLOYQT_RESULT EQUAL 0)
-            message(WARNING \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\")
+        set(WINDEPLOYQT_EXECUTABLE \"${WINDEPLOYQT_EXECUTABLE}\")
+        if(EXISTS \"\${WINDEPLOYQT_EXECUTABLE}\")
+            message(STATUS \"Running windeployqt from: \${WINDEPLOYQT_EXECUTABLE}\")
+            message(STATUS \"Target executable: \${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
+            execute_process(
+                COMMAND \"\${WINDEPLOYQT_EXECUTABLE}\"
+                    --release 
+                    --no-translations 
+                    --no-compiler-runtime
+                    --no-system-d3d-compiler
+                    --no-opengl-sw
+                    \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\"
+                RESULT_VARIABLE WINDEPLOYQT_RESULT
+                OUTPUT_VARIABLE WINDEPLOYQT_OUTPUT
+                ERROR_VARIABLE WINDEPLOYQT_ERROR
+            )
+            if(NOT WINDEPLOYQT_RESULT EQUAL 0)
+                message(WARNING \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\")
+                message(WARNING \"Output: \${WINDEPLOYQT_OUTPUT}\")
+                message(WARNING \"Error: \${WINDEPLOYQT_ERROR}\")
+            else()
+                message(STATUS \"windeployqt completed successfully\")
+            endif()
+        else()
+            message(WARNING \"windeployqt executable not found at \${WINDEPLOYQT_EXECUTABLE}\")
         endif()
         
         # Copy vcpkg runtime DLLs

@@ -131,7 +131,7 @@ jobs:
         run: |
           cd build
           
-          # First, run CPack install phase to create staging directory
+          # Run CPack to generate the MSI with verbose output
           cpack -C Release -G WIX --verbose
           
           if ($LASTEXITCODE -ne 0) {
@@ -150,6 +150,33 @@ jobs:
             }
             
             exit 1
+          }
+          
+          # Verify DLLs were deployed correctly
+          $stagingDir = Get-ChildItem -Path "_CPack_Packages/win64/WIX" -Filter "Decode Orc-*" -Directory | Select-Object -First 1
+          if ($stagingDir) {
+            Write-Host "`nVerifying deployed DLLs in MSI package:" -ForegroundColor Cyan
+            $binPath = "$($stagingDir.FullName)/bin"
+            
+            # Check for Qt DLLs
+            $qtDlls = Get-ChildItem -Path $binPath -Filter "Qt6*.dll" -ErrorAction SilentlyContinue
+            Write-Host "`nQt DLLs:" -ForegroundColor Yellow
+            $qtDlls | ForEach-Object { Write-Host "  $($_.Name)" }
+            
+            # Check for vcpkg DLLs
+            $vcpkgDlls = @("yaml-cpp.dll", "spdlog.dll", "fftw3.dll", "libpng16.dll", "sqlite3.dll")
+            Write-Host "`nvcpkg DLLs:" -ForegroundColor Yellow
+            foreach ($dll in $vcpkgDlls) {
+              if (Test-Path "$binPath\$dll") {
+                Write-Host "  ✓ $dll" -ForegroundColor Green
+              } else {
+                Write-Host "  ✗ $dll MISSING" -ForegroundColor Red
+              }
+            }
+            
+            # List all DLLs
+            Write-Host "`nAll DLLs in package:" -ForegroundColor Yellow
+            Get-ChildItem -Path $binPath -Filter "*.dll" | Format-Table Name, Length -AutoSize
           }
           
           # List generated packages

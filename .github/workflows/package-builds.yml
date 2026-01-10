@@ -64,7 +64,7 @@ jobs:
             libpng `
             fftw3 `
             pkgconf `
-            ffmpeg
+            "ffmpeg[x264,x265,vpx,gpl]"
       
       - name: Create build directory
         run: mkdir -p build
@@ -395,6 +395,39 @@ jobs:
           
           echo "Bundled Qt frameworks:"
           ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
+      
+      - name: Bundle additional dependencies
+        run: |
+          HOMEBREW_PREFIX=$(brew --prefix)
+          
+          # Find and copy libsharpyuv (dependency of libwebp)
+          SHARPYUV_LIB=$(find $HOMEBREW_PREFIX/opt/libwebp/lib $HOMEBREW_PREFIX/Cellar/webp/*/lib -name "libsharpyuv.*.dylib" 2>/dev/null | head -n 1)
+          if [ -n "$SHARPYUV_LIB" ] && [ -f "$SHARPYUV_LIB" ]; then
+            SHARPYUV_NAME=$(basename "$SHARPYUV_LIB")
+            echo "Copying $SHARPYUV_NAME to bundle..."
+            cp "$SHARPYUV_LIB" "orc-gui.app/Contents/Frameworks/"
+            
+            # Fix the library ID
+            install_name_tool -id "@rpath/$SHARPYUV_NAME" \
+              "orc-gui.app/Contents/Frameworks/$SHARPYUV_NAME"
+            
+            # Fix libwebp to reference the bundled libsharpyuv
+            LIBWEBP=$(find "orc-gui.app/Contents/Frameworks" -name "libwebp.*.dylib" | head -n 1)
+            if [ -n "$LIBWEBP" ]; then
+              echo "Fixing libwebp references to libsharpyuv..."
+              for PATH_TO_FIX in $(otool -L "$LIBWEBP" 2>/dev/null | grep "libsharpyuv" | awk '{print $1}'); do
+                install_name_tool -change \
+                  "$PATH_TO_FIX" \
+                  "@rpath/$SHARPYUV_NAME" \
+                  "$LIBWEBP" 2>/dev/null || true
+              done
+            fi
+          else
+            echo "Warning: libsharpyuv not found - libwebp may not work"
+          fi
+          
+          echo "Bundled libraries:"
+          ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.dylib" | head -20
       
       - name: Code sign app bundle (ad-hoc)
         run: |

@@ -108,11 +108,6 @@ jobs:
           cd build
           cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
       
-      - name: Install to staging directory
-        run: |
-          cd build
-          cmake --install . --config Release --prefix install
-      
       - name: Create RTF license for WiX
         run: |
           # Convert LICENSE to RTF format for WiX
@@ -132,76 +127,11 @@ jobs:
           
           Write-Host "Created LICENSE.rtf for WiX installer"
       
-      - name: Deploy Qt dependencies
-        run: |
-          cd build/install/bin
-          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations orc-gui.exe
-      
-      - name: Copy vcpkg runtime dependencies
-        run: |
-          $vcpkgRoot = "C:/vcpkg/installed/x64-windows"
-          $binDir = "build/install/bin"
-          
-          # Copy DLL files - get specific required DLLs
-          $dlls = @(
-            "fftw3.dll",
-            "fftw3f.dll", 
-            "fftw3l.dll",
-            "spdlog.dll",
-            "yaml-cpp.dll",
-            "fmt.dll",
-            "libpng16.dll",
-            "zlib1.dll",
-            "sqlite3.dll",
-            "avcodec-*.dll",
-            "avformat-*.dll",
-            "avutil-*.dll",
-            "swscale-*.dll",
-            "swresample-*.dll",
-            "libx264-*.dll",
-            "libx265.dll",
-            "vpxmt.dll",
-            "vpxmd.dll"
-          )
-          
-          foreach ($dll in $dlls) {
-            $sourcePath = Join-Path "$vcpkgRoot/bin" $dll
-            # Handle wildcards for versioned DLLs
-            $files = Get-ChildItem -Path "$vcpkgRoot/bin" -Filter $dll -ErrorAction SilentlyContinue
-            if ($files) {
-              foreach ($file in $files) {
-                Copy-Item $file.FullName $binDir -Force
-                Write-Host "Copied $($file.Name)"
-              }
-            } elseif (Test-Path $sourcePath) {
-              Copy-Item $sourcePath $binDir -Force
-              Write-Host "Copied $dll"
-            } else {
-              Write-Host "Warning: $dll not found in vcpkg"
-            }
-          }
-          
-          # Also copy any other DLLs that the FFmpeg libraries depend on
-          Write-Host "`nCopying additional codec dependencies..."
-          $additionalDlls = Get-ChildItem -Path "$vcpkgRoot/bin" -Filter "*.dll" | Where-Object {
-            $_.Name -match "(x264|x265|vpx|opus|vorbis|ogg|webp|dav1d|aom|svt)" -and
-            -not (Test-Path (Join-Path $binDir $_.Name))
-          }
-          foreach ($dll in $additionalDlls) {
-            Copy-Item $dll.FullName $binDir -Force
-            Write-Host "Copied additional dependency: $($dll.Name)"
-          }
-          
-          Write-Host "`nListing all DLLs in package:"
-          Get-ChildItem -Path $binDir -Filter "*.dll" | Format-Table Name, Length
-          
-          Write-Host "Copied vcpkg runtime dependencies"
-      
       - name: Generate MSI installer with CPack
         run: |
           cd build
           
-          # Run CPack to generate the MSI with verbose output
+          # First, run CPack install phase to create staging directory
           cpack -C Release -G WIX --verbose
           
           if ($LASTEXITCODE -ne 0) {
@@ -211,6 +141,14 @@ jobs:
               Write-Host "`nWiX Log Contents:" -ForegroundColor Yellow
               Get-Content $logPath
             }
+            
+            # Also check if the issue is missing DLLs in the package
+            $stagingDir = Get-ChildItem -Path "_CPack_Packages/win64/WIX" -Filter "Decode Orc-*" -Directory | Select-Object -First 1
+            if ($stagingDir) {
+              Write-Host "`nFiles in CPack staging bin directory:" -ForegroundColor Yellow
+              Get-ChildItem -Path "$($stagingDir.FullName)/bin" -ErrorAction SilentlyContinue | Format-Table Name
+            }
+            
             exit 1
           }
           

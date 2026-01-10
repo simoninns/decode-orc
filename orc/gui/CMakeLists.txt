@@ -163,6 +163,71 @@ install(TARGETS orc-gui
     RUNTIME DESTINATION bin
 )
 
+# On Windows, install Qt runtime dependencies using windeployqt
+if(WIN32)
+    # Get the Qt bin directory
+    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
+    
+    # Install script to run windeployqt during installation
+    install(CODE "
+        execute_process(
+            COMMAND \"${QT_BIN_DIR}/windeployqt.exe\" 
+                --release 
+                --no-translations 
+                --no-compiler-runtime
+                \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\"
+            RESULT_VARIABLE WINDEPLOYQT_RESULT
+        )
+        if(NOT WINDEPLOYQT_RESULT EQUAL 0)
+            message(WARNING \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\")
+        endif()
+    " COMPONENT Runtime)
+    
+    # Install vcpkg runtime DLLs if using vcpkg
+    if(DEFINED ENV{VCPKG_ROOT})
+        set(VCPKG_BIN_DIR \"$ENV{VCPKG_ROOT}/installed/x64-windows/bin\")
+        if(EXISTS \"${VCPKG_BIN_DIR}\")
+            file(GLOB VCPKG_DLLS 
+                \"${VCPKG_BIN_DIR}/fftw3*.dll\"
+                \"${VCPKG_BIN_DIR}/spdlog.dll\"
+                \"${VCPKG_BIN_DIR}/yaml-cpp.dll\"
+                \"${VCPKG_BIN_DIR}/fmt.dll\"
+                \"${VCPKG_BIN_DIR}/libpng16.dll\"
+                \"${VCPKG_BIN_DIR}/zlib1.dll\"
+                \"${VCPKG_BIN_DIR}/sqlite3.dll\"
+                \"${VCPKG_BIN_DIR}/avcodec-*.dll\"
+                \"${VCPKG_BIN_DIR}/avformat-*.dll\"
+                \"${VCPKG_BIN_DIR}/avutil-*.dll\"
+                \"${VCPKG_BIN_DIR}/swscale-*.dll\"
+                \"${VCPKG_BIN_DIR}/swresample-*.dll\"
+            )
+            if(VCPKG_DLLS)
+                install(FILES ${VCPKG_DLLS} DESTINATION bin COMPONENT Runtime)
+            endif()
+        endif()
+    elseif(EXISTS \"C:/vcpkg/installed/x64-windows/bin\")
+        # Default vcpkg location for GitHub Actions
+        file(GLOB VCPKG_DLLS 
+            \"C:/vcpkg/installed/x64-windows/bin/fftw3*.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/spdlog.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/yaml-cpp.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/fmt.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/libpng16.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/zlib1.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/sqlite3.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/avcodec-*.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/avformat-*.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/avutil-*.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/swscale-*.dll\"
+            \"C:/vcpkg/installed/x64-windows/bin/swresample-*.dll\"
+        )
+        if(VCPKG_DLLS)
+            install(FILES ${VCPKG_DLLS} DESTINATION bin COMPONENT Runtime)
+        endif()
+    endif()
+endif()
+
 # Install desktop file
 install(FILES io.github.simoninns.decode-orc.desktop
     DESTINATION share/applications

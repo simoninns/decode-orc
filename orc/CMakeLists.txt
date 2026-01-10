@@ -111,7 +111,7 @@ if(BUILD_DOCS)
 endif()
 
 # CPack configuration for installer generation
-set(CPACK_PACKAGE_NAME "DecodeOrc")
+set(CPACK_PACKAGE_NAME "Decode Orc")
 set(CPACK_PACKAGE_VENDOR "Simon Inns")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Cross-platform orchestration framework for LaserDisc and tape decoding workflows")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")

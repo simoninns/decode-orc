@@ -38,9 +38,26 @@ jobs:
       - name: Install WiX Toolset
         run: |
           choco install wixtoolset -y
-          # Add WiX to PATH for this session
-          $env:PATH += ";C:\Program Files (x86)\WiX Toolset v3.14\bin"
-          echo "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          
+          # Find WiX installation directory
+          $wixPath = Get-ChildItem "C:\Program Files (x86)" -Filter "WiX Toolset*" -Directory | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $wixPath) {
+            $wixPath = "C:\Program Files (x86)\WiX Toolset v3.14"
+          }
+          $wixBin = Join-Path $wixPath "bin"
+          
+          Write-Host "WiX Toolset found at: $wixBin"
+          
+          # Add WiX to PATH for subsequent steps
+          echo "$wixBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          
+          # Verify candle.exe is accessible
+          if (Test-Path (Join-Path $wixBin "candle.exe")) {
+            Write-Host "✓ candle.exe found"
+          } else {
+            Write-Host "ERROR: candle.exe not found in $wixBin" -ForegroundColor Red
+            exit 1
+          }
       
       - name: Install Qt6
         uses: jurplel/install-qt-action@v4
@@ -184,8 +201,18 @@ jobs:
         run: |
           cd build
           
-          # Run CPack to generate the MSI
-          cpack -C Release -G WIX
+          # Run CPack to generate the MSI with verbose output
+          cpack -C Release -G WIX --verbose
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "`nCPack failed. Checking for WiX log..." -ForegroundColor Red
+            $logPath = "_CPack_Packages/win64/WIX/wix.log"
+            if (Test-Path $logPath) {
+              Write-Host "`nWiX Log Contents:" -ForegroundColor Yellow
+              Get-Content $logPath
+            }
+            exit 1
+          }
           
           # List generated packages
           Write-Host "`nGenerated installer packages:"

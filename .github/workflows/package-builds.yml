@@ -418,7 +418,6 @@ jobs:
       
       - name: Bundle additional dependencies
         run: |
-          cd build
           HOMEBREW_PREFIX=$(brew --prefix)
           
           # Add correct rpath to main executable for bundled frameworks

@@ -114,7 +114,11 @@ jobs:
             "avformat-*.dll",
             "avutil-*.dll",
             "swscale-*.dll",
-            "swresample-*.dll"
+            "swresample-*.dll",
+            "libx264-*.dll",
+            "libx265.dll",
+            "vpxmt.dll",
+            "vpxmd.dll"
           )
           
           foreach ($dll in $dlls) {
@@ -129,8 +133,24 @@ jobs:
             } elseif (Test-Path $sourcePath) {
               Copy-Item $sourcePath $binDir -Force
               Write-Host "Copied $dll"
+            } else {
+              Write-Host "Warning: $dll not found in vcpkg"
             }
           }
+          
+          # Also copy any other DLLs that the FFmpeg libraries depend on
+          Write-Host "`nCopying additional codec dependencies..."
+          $additionalDlls = Get-ChildItem -Path "$vcpkgRoot/bin" -Filter "*.dll" | Where-Object {
+            $_.Name -match "(x264|x265|vpx|opus|vorbis|ogg|webp|dav1d|aom|svt)" -and
+            -not (Test-Path (Join-Path $binDir $_.Name))
+          }
+          foreach ($dll in $additionalDlls) {
+            Copy-Item $dll.FullName $binDir -Force
+            Write-Host "Copied additional dependency: $($dll.Name)"
+          }
+          
+          Write-Host "`nListing all DLLs in package:"
+          Get-ChildItem -Path $binDir -Filter "*.dll" | Format-Table Name, Length
           
           Write-Host "Copied vcpkg runtime dependencies"
       
@@ -398,7 +418,13 @@ jobs:
       
       - name: Bundle additional dependencies
         run: |
+          cd build
           HOMEBREW_PREFIX=$(brew --prefix)
+          
+          # Add correct rpath to main executable for bundled frameworks
+          echo "Adding @executable_path/../Frameworks to main executable rpath..."
+          install_name_tool -add_rpath "@executable_path/../Frameworks" \
+            "orc-gui.app/Contents/MacOS/orc-gui" 2>/dev/null || echo "  (rpath already exists or failed to add)"
           
           # Find and copy libsharpyuv (dependency of libwebp)
           # libsharpyuv is part of the webp package but may be in different locations
@@ -408,26 +434,32 @@ jobs:
             echo "Found libsharpyuv at: $SHARPYUV_LIB"
             echo "Copying $SHARPYUV_NAME to bundle..."
             cp "$SHARPYUV_LIB" "orc-gui.app/Contents/Frameworks/"
+            chmod 644 "orc-gui.app/Contents/Frameworks/$SHARPYUV_NAME"
             
             # Fix the library ID
             install_name_tool -id "@rpath/$SHARPYUV_NAME" \
               "orc-gui.app/Contents/Frameworks/$SHARPYUV_NAME"
             
-            # Fix libwebp to reference the bundled libsharpyuv
-            LIBWEBP=$(find "orc-gui.app/Contents/Frameworks" -name "libwebp.*.dylib" | head -n 1)
-            if [ -n "$LIBWEBP" ]; then
-              echo "Fixing libwebp ($LIBWEBP) references to libsharpyuv..."
-              otool -L "$LIBWEBP" | grep "libsharpyuv" || echo "No libsharpyuv reference found in libwebp"
-              for PATH_TO_FIX in $(otool -L "$LIBWEBP" 2>/dev/null | grep "libsharpyuv" | awk '{print $1}'); do
-                echo "Changing $PATH_TO_FIX to @rpath/$SHARPYUV_NAME"
-                install_name_tool -change \
-                  "$PATH_TO_FIX" \
-                  "@rpath/$SHARPYUV_NAME" \
-                  "$LIBWEBP" 2>/dev/null || true
-              done
-              echo "After fix:"
-              otool -L "$LIBWEBP" | grep "libsharpyuv" || echo "No libsharpyuv reference found"
-            fi
+            # Fix all libraries that reference libsharpyuv (libwebp, libwebpmux, etc.)
+            echo "Fixing references to libsharpyuv in all bundled libraries..."
+            for LIB in orc-gui.app/Contents/Frameworks/*.dylib; do
+              if otool -L "$LIB" 2>/dev/null | grep -q "libsharpyuv"; then
+                echo "  Fixing $(basename $LIB)..."
+                
+                # Add @loader_path rpath so the library can find siblings in same directory
+                install_name_tool -add_rpath "@loader_path" "$LIB" 2>/dev/null || echo "    (rpath already exists or failed to add)"
+                
+                for PATH_TO_FIX in $(otool -L "$LIB" 2>/dev/null | grep "libsharpyuv" | awk '{print $1}'); do
+                  echo "    Changing $PATH_TO_FIX to @rpath/$SHARPYUV_NAME"
+                  install_name_tool -change \
+                    "$PATH_TO_FIX" \
+                    "@rpath/$SHARPYUV_NAME" \
+                    "$LIB" 2>/dev/null || true
+                done
+                echo "    After fix:"
+                otool -L "$LIB" | grep "libsharpyuv" || echo "    No libsharpyuv reference"
+              fi
+            done
           else
             echo "ERROR: libsharpyuv not found! Searched in:"
             echo "  - $HOMEBREW_PREFIX/opt/webp/lib"
@@ -435,11 +467,26 @@ jobs:
             echo "  - $HOMEBREW_PREFIX/lib"
             echo "Listing webp package contents:"
             brew list webp || echo "webp package not installed"
+            exit 1
           fi
           
           echo ""
           echo "Bundled libraries:"
           ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.dylib" | head -20
+          
+          echo ""
+          echo "Verifying critical dependencies:"
+          echo "libsharpyuv in bundle:"
+          ls -la "orc-gui.app/Contents/Frameworks/libsharpyuv"* || echo "NOT FOUND!"
+          echo ""
+          echo "Main executable rpaths:"
+          otool -l "orc-gui.app/Contents/MacOS/orc-gui" | grep -A 2 LC_RPATH | head -15
+          echo ""
+          echo "libwebp rpaths:"
+          otool -l "orc-gui.app/Contents/Frameworks/libwebp"*.dylib | grep -A 2 LC_RPATH
+          echo ""
+          echo "libwebp dependencies:"
+          otool -L "orc-gui.app/Contents/Frameworks/libwebp"* | grep -E "(libsharpyuv|@rpath)"
       
       - name: Code sign app bundle (ad-hoc)
         run: |

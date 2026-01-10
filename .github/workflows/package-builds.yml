@@ -511,7 +511,7 @@ jobs:
           ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.dylib" | head -20
           
           # Find and copy libjxl_cms (dependency of libjxl)
-          JXL_CMS_LIB=$(find $HOMEBREW_PREFIX/opt/jpeg-xl/lib $HOMEBREW_PREFIX/Cellar/jpeg-xl/*/lib $HOMEBREW_PREFIX/lib -name "libjxl_cms.*.dylib" ! -name "*.*.*.dylib" 2>/dev/null | head -n 1)
+          JXL_CMS_LIB=$(find $HOMEBREW_PREFIX/opt/jpeg-xl/lib $HOMEBREW_PREFIX/Cellar/jpeg-xl/*/lib $HOMEBREW_PREFIX/lib -name "libjxl_cms*.dylib" 2>/dev/null | head -n 1)
           if [ -n "$JXL_CMS_LIB" ] && [ -f "$JXL_CMS_LIB" ]; then
             JXL_CMS_NAME=$(basename "$JXL_CMS_LIB")
             echo "Found libjxl_cms at: $JXL_CMS_LIB"

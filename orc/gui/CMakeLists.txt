@@ -163,14 +163,16 @@ install(TARGETS orc-gui
     RUNTIME DESTINATION bin
 )
 
-# On Windows, install Qt runtime dependencies using windeployqt
+# On Windows, install Qt runtime dependencies and vcpkg DLLs
 if(WIN32)
     # Get the Qt bin directory
     get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
     
-    # Install script to run windeployqt during installation
+    # Install script to run windeployqt and copy vcpkg DLLs during installation
     install(CODE "
+        # Run windeployqt
+        message(STATUS \"Running windeployqt...\")
         execute_process(
             COMMAND \"${QT_BIN_DIR}/windeployqt.exe\" 
                 --release 
@@ -182,50 +184,75 @@ if(WIN32)
         if(NOT WINDEPLOYQT_RESULT EQUAL 0)
             message(WARNING \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\")
         endif()
-    " COMPONENT Runtime)
-    
-    # Install vcpkg runtime DLLs if using vcpkg
-    if(DEFINED ENV{VCPKG_ROOT})
-        set(VCPKG_BIN_DIR \"$ENV{VCPKG_ROOT}/installed/x64-windows/bin\")
-        if(EXISTS \"${VCPKG_BIN_DIR}\")
-            file(GLOB VCPKG_DLLS 
-                \"${VCPKG_BIN_DIR}/fftw3*.dll\"
-                \"${VCPKG_BIN_DIR}/spdlog.dll\"
-                \"${VCPKG_BIN_DIR}/yaml-cpp.dll\"
-                \"${VCPKG_BIN_DIR}/fmt.dll\"
-                \"${VCPKG_BIN_DIR}/libpng16.dll\"
-                \"${VCPKG_BIN_DIR}/zlib1.dll\"
-                \"${VCPKG_BIN_DIR}/sqlite3.dll\"
-                \"${VCPKG_BIN_DIR}/avcodec-*.dll\"
-                \"${VCPKG_BIN_DIR}/avformat-*.dll\"
-                \"${VCPKG_BIN_DIR}/avutil-*.dll\"
-                \"${VCPKG_BIN_DIR}/swscale-*.dll\"
-                \"${VCPKG_BIN_DIR}/swresample-*.dll\"
+        
+        # Copy vcpkg runtime DLLs
+        set(VCPKG_BIN_DIR \"C:/vcpkg/installed/x64-windows/bin\")
+        if(EXISTS \"\${VCPKG_BIN_DIR}\")
+            message(STATUS \"Installing vcpkg runtime dependencies...\")
+            
+            # List of required DLL patterns
+            set(DLL_PATTERNS
+                \"fftw3.dll\"
+                \"fftw3f.dll\"
+                \"fftw3l.dll\"
+                \"spdlog.dll\"
+                \"yaml-cpp.dll\"
+                \"fmt.dll\"
+                \"libpng16.dll\"
+                \"zlib1.dll\"
+                \"sqlite3.dll\"
             )
-            if(VCPKG_DLLS)
-                install(FILES ${VCPKG_DLLS} DESTINATION bin COMPONENT Runtime)
-            endif()
+            
+            foreach(DLL_PATTERN \${DLL_PATTERNS})
+                file(GLOB DLL_FILES \"\${VCPKG_BIN_DIR}/\${DLL_PATTERN}\")
+                foreach(DLL_FILE \${DLL_FILES})
+                    get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
+                    message(STATUS \"  Installing \${DLL_NAME}\")
+                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
+                endforeach()
+            endforeach()
+            
+            # Copy FFmpeg DLLs (with version numbers)
+            file(GLOB FFMPEG_DLLS 
+                \"\${VCPKG_BIN_DIR}/avcodec-*.dll\"
+                \"\${VCPKG_BIN_DIR}/avformat-*.dll\"
+                \"\${VCPKG_BIN_DIR}/avutil-*.dll\"
+                \"\${VCPKG_BIN_DIR}/swscale-*.dll\"
+                \"\${VCPKG_BIN_DIR}/swresample-*.dll\"
+            )
+            foreach(DLL_FILE \${FFMPEG_DLLS})
+                get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
+                message(STATUS \"  Installing \${DLL_NAME}\")
+                file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
+            endforeach()
+            
+            # Copy codec DLLs
+            file(GLOB CODEC_DLLS
+                \"\${VCPKG_BIN_DIR}/libx264-*.dll\"
+                \"\${VCPKG_BIN_DIR}/libx265.dll\"
+                \"\${VCPKG_BIN_DIR}/vpx*.dll\"
+            )
+            foreach(DLL_FILE \${CODEC_DLLS})
+                if(EXISTS \"\${DLL_FILE}\")
+                    get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
+                    message(STATUS \"  Installing \${DLL_NAME}\")
+                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
+                endif()
+            endforeach()
+            
+            # Copy additional codec dependencies
+            file(GLOB ADDITIONAL_DLLS \"\${VCPKG_BIN_DIR}/*.dll\")
+            foreach(DLL_FILE \${ADDITIONAL_DLLS})
+                get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
+                if(DLL_NAME MATCHES \"(opus|vorbis|ogg|webp|dav1d|aom|svt)\")
+                    message(STATUS \"  Installing \${DLL_NAME}\")
+                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
+                endif()
+            endforeach()
+        else()
+            message(WARNING \"vcpkg bin directory not found at \${VCPKG_BIN_DIR}\")
         endif()
-    elseif(EXISTS \"C:/vcpkg/installed/x64-windows/bin\")
-        # Default vcpkg location for GitHub Actions
-        file(GLOB VCPKG_DLLS 
-            \"C:/vcpkg/installed/x64-windows/bin/fftw3*.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/spdlog.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/yaml-cpp.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/fmt.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/libpng16.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/zlib1.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/sqlite3.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/avcodec-*.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/avformat-*.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/avutil-*.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/swscale-*.dll\"
-            \"C:/vcpkg/installed/x64-windows/bin/swresample-*.dll\"
-        )
-        if(VCPKG_DLLS)
-            install(FILES ${VCPKG_DLLS} DESTINATION bin COMPONENT Runtime)
-        endif()
-    endif()
+    " COMPONENT Runtime)
 endif()
 
 # Install desktop file

@@ -728,8 +728,10 @@ jobs:
           done
           
           # Also check Qt frameworks for .dylib dependencies
-          for FRAMEWORK in orc-gui.app/Contents/Frameworks/*.framework/Versions/A/*; do
-            if [ ! -f "$FRAMEWORK" ] || [[ "$FRAMEWORK" == *"Resources"* ]] || [[ "$FRAMEWORK" == *"Headers"* ]]; then
+          shopt -s nullglob  # Make globs that don't match expand to nothing instead of literal string
+          for FRAMEWORK in orc-gui.app/Contents/Frameworks/*.framework/Versions/A/* orc-gui.app/Contents/Frameworks/*.framework/*; do
+            # Skip if not a file, or if it's a directory, or common non-binary paths
+            if [ ! -f "$FRAMEWORK" ] || [[ "$FRAMEWORK" == *"Resources"* ]] || [[ "$FRAMEWORK" == *"Headers"* ]] || [[ "$FRAMEWORK" == *"Versions"* ]]; then
               continue
             fi
             
@@ -751,6 +753,7 @@ jobs:
               fi
             done
           done
+          shopt -u nullglob  # Restore default behavior
           
           if [ $MISSING_COUNT -gt 0 ]; then
             echo ""

@@ -57,7 +57,7 @@ jobs:
       
       - name: Install vcpkg dependencies
         run: |
-          vcpkg install --triplet x64-windows `
+          vcpkg install --triplet x64-windows --recurse `
             spdlog `
             sqlite3 `
             yaml-cpp `

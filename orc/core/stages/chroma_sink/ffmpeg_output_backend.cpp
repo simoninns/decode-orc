@@ -397,8 +397,17 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     // Set source and output dimensions to active area
     src_width_ = active_width_;
     src_height_ = active_height_;
-    width_ = src_width_;
-    height_ = src_height_;
+    
+    // Ensure dimensions are even (required by most video codecs, especially H.264/H.265)
+    // If dimensions are odd, round up to the next even number
+    width_ = (src_width_ + 1) & ~1;   // Round up to even
+    height_ = (src_height_ + 1) & ~1; // Round up to even
+    
+    if (width_ != src_width_ || height_ != src_height_) {
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Padding dimensions from {}x{} to {}x{} (codecs require even dimensions)", 
+                     src_width_, src_height_, width_, height_);
+    }
+    
     crop_top_ = 0;
     
     // Set codec parameters

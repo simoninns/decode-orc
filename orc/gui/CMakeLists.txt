@@ -173,6 +173,7 @@ endif()
 # Install target
 install(TARGETS orc-gui
     RUNTIME DESTINATION bin
+    BUNDLE DESTINATION .
 )
 
 # Install desktop file

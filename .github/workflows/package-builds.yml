@@ -422,8 +422,13 @@ jobs:
           
           # Add correct rpath to main executable for bundled frameworks
           echo "Adding @executable_path/../Frameworks to main executable rpath..."
-          install_name_tool -add_rpath "@executable_path/../Frameworks" \
-            "orc-gui.app/Contents/MacOS/orc-gui" 2>/dev/null || echo "  (rpath already exists or failed to add)"
+          if ! otool -l "orc-gui.app/Contents/MacOS/orc-gui" | grep -q "@executable_path/../Frameworks"; then
+            install_name_tool -add_rpath "@executable_path/../Frameworks" \
+              "orc-gui.app/Contents/MacOS/orc-gui"
+            echo "  Added successfully"
+          else
+            echo "  Already exists"
+          fi
           
           # Find and copy libsharpyuv (dependency of libwebp)
           # libsharpyuv is part of the webp package but may be in different locations
@@ -445,8 +450,17 @@ jobs:
               if otool -L "$LIB" 2>/dev/null | grep -q "libsharpyuv"; then
                 echo "  Fixing $(basename $LIB)..."
                 
+                # Remove the bad @loader_path/../lib rpath if it exists
+                if otool -l "$LIB" | grep -A 2 "LC_RPATH" | grep -q "@loader_path/../lib"; then
+                  echo "    Removing @loader_path/../lib rpath..."
+                  install_name_tool -delete_rpath "@loader_path/../lib" "$LIB" 2>/dev/null || echo "    (delete failed, may not exist)"
+                fi
+                
                 # Add @loader_path rpath so the library can find siblings in same directory
-                install_name_tool -add_rpath "@loader_path" "$LIB" 2>/dev/null || echo "    (rpath already exists or failed to add)"
+                if ! otool -l "$LIB" | grep -A 2 "LC_RPATH" | grep -q "@loader_path\$"; then
+                  echo "    Adding @loader_path rpath..."
+                  install_name_tool -add_rpath "@loader_path" "$LIB" 2>/dev/null || echo "    (add failed)"
+                fi
                 
                 for PATH_TO_FIX in $(otool -L "$LIB" 2>/dev/null | grep "libsharpyuv" | awk '{print $1}'); do
                   echo "    Changing $PATH_TO_FIX to @rpath/$SHARPYUV_NAME"

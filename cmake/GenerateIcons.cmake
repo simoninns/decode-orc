@@ -11,7 +11,7 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
         find_program(IMAGEMAGICK_CONVERT convert)
         
         if(IMAGEMAGICK_MAGICK)
-            set(CONVERT_CMD ${IMAGEMAGICK_MAGICK} convert)
+            set(CONVERT_CMD ${IMAGEMAGICK_MAGICK})
         elseif(IMAGEMAGICK_CONVERT)
             # Verify this is ImageMagick's convert, not Windows' convert.exe
             execute_process(

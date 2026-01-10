@@ -8,6 +8,7 @@
  * SPDX-FileCopyrightText: 2019-2020 Adam Sampson
  */
 
+#define _USE_MATH_DEFINES
 
 #include "transformpal3d.h"
 

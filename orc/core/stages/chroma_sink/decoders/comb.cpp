@@ -10,6 +10,7 @@
  * SPDX-FileCopyrightText: 2021 Phillip Blucas
  */
 
+#define _USE_MATH_DEFINES
 
 #include "comb.h"
 

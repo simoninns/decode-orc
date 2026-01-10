@@ -401,9 +401,11 @@ jobs:
           HOMEBREW_PREFIX=$(brew --prefix)
           
           # Find and copy libsharpyuv (dependency of libwebp)
-          SHARPYUV_LIB=$(find $HOMEBREW_PREFIX/opt/libwebp/lib $HOMEBREW_PREFIX/Cellar/webp/*/lib -name "libsharpyuv.*.dylib" 2>/dev/null | head -n 1)
+          # libsharpyuv is part of the webp package but may be in different locations
+          SHARPYUV_LIB=$(find $HOMEBREW_PREFIX/opt/webp/lib $HOMEBREW_PREFIX/Cellar/webp/*/lib $HOMEBREW_PREFIX/lib -name "libsharpyuv.*.dylib" 2>/dev/null | head -n 1)
           if [ -n "$SHARPYUV_LIB" ] && [ -f "$SHARPYUV_LIB" ]; then
             SHARPYUV_NAME=$(basename "$SHARPYUV_LIB")
+            echo "Found libsharpyuv at: $SHARPYUV_LIB"
             echo "Copying $SHARPYUV_NAME to bundle..."
             cp "$SHARPYUV_LIB" "orc-gui.app/Contents/Frameworks/"
             
@@ -414,18 +416,28 @@ jobs:
             # Fix libwebp to reference the bundled libsharpyuv
             LIBWEBP=$(find "orc-gui.app/Contents/Frameworks" -name "libwebp.*.dylib" | head -n 1)
             if [ -n "$LIBWEBP" ]; then
-              echo "Fixing libwebp references to libsharpyuv..."
+              echo "Fixing libwebp ($LIBWEBP) references to libsharpyuv..."
+              otool -L "$LIBWEBP" | grep "libsharpyuv" || echo "No libsharpyuv reference found in libwebp"
               for PATH_TO_FIX in $(otool -L "$LIBWEBP" 2>/dev/null | grep "libsharpyuv" | awk '{print $1}'); do
+                echo "Changing $PATH_TO_FIX to @rpath/$SHARPYUV_NAME"
                 install_name_tool -change \
                   "$PATH_TO_FIX" \
                   "@rpath/$SHARPYUV_NAME" \
                   "$LIBWEBP" 2>/dev/null || true
               done
+              echo "After fix:"
+              otool -L "$LIBWEBP" | grep "libsharpyuv" || echo "No libsharpyuv reference found"
             fi
           else
-            echo "Warning: libsharpyuv not found - libwebp may not work"
+            echo "ERROR: libsharpyuv not found! Searched in:"
+            echo "  - $HOMEBREW_PREFIX/opt/webp/lib"
+            echo "  - $HOMEBREW_PREFIX/Cellar/webp/*/lib"
+            echo "  - $HOMEBREW_PREFIX/lib"
+            echo "Listing webp package contents:"
+            brew list webp || echo "webp package not installed"
           fi
           
+          echo ""
           echo "Bundled libraries:"
           ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.dylib" | head -20
       

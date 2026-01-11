@@ -8,8 +8,6 @@
  * SPDX-FileCopyrightText: 2019-2021 Adam Sampson
  */
 
-#define _USE_MATH_DEFINES
-
 // PALcolour original copyright notice:
 // Copyright (C) 2018  William Andrew Steer
 // Contact the author at palcolour@techmind.org

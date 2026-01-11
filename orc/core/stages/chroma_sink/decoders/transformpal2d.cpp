@@ -7,8 +7,6 @@
  * SPDX-FileCopyrightText: 2018-2026 Simon Inns
  */
 
-#define _USE_MATH_DEFINES
-
 #include "transformpal2d.h"
 
 #include <algorithm>

@@ -20,6 +20,7 @@ add_library(orc-core STATIC
     tbc_reader.cpp
     tbc_metadata.cpp
     tbc_video_field_representation.cpp
+    tbc_yc_video_field_representation.cpp
     
     # VBI utilities
     vbi_utilities.cpp
@@ -89,6 +90,8 @@ add_library(orc-core STATIC
     # Stages (organized in subdirectories)
     stages/ld_pal_source/ld_pal_source_stage.cpp
     stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
+    stages/ld_pal_yc_source/ld_pal_yc_source_stage.cpp
+    stages/ld_ntsc_yc_source/ld_ntsc_yc_source_stage.cpp
     stages/ld_sink/ld_sink_stage.cpp
     stages/ld_sink/tbc_metadata_writer.cpp
     stages/dropout_correct/dropout_correct_stage.cpp

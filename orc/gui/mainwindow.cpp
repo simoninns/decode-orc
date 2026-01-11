@@ -268,6 +268,8 @@ void MainWindow::setupUI()
             this, [this](int) { last_update_was_sequential_ = true; });
     connect(preview_dialog_, &PreviewDialog::previewModeChanged,
             this, &MainWindow::onPreviewModeChanged);
+    connect(preview_dialog_, &PreviewDialog::signalChanged,
+            this, [this](int) { updatePreview(); });  // Re-render when signal selection changes
     connect(preview_dialog_, &PreviewDialog::aspectRatioModeChanged,
             this, &MainWindow::onAspectRatioModeChanged);
     connect(preview_dialog_, &PreviewDialog::exportPNGRequested,
@@ -1510,12 +1512,28 @@ void MainWindow::updatePreview()
     ORC_LOG_DEBUG("updatePreview: rendering output type {} index {} at node '{}'", 
                   static_cast<int>(current_output_type_), current_index, current_view_node_id_.to_string());
     
+    // For YC sources, combine option_id with signal selection (Y/C/Y+C)
+    std::string effective_option_id = current_option_id_;
+    if (preview_dialog_->signalCombo()->isVisible()) {
+        int signal_index = preview_dialog_->signalCombo()->currentIndex();
+        std::string suffix;
+        switch (signal_index) {
+            case 0: suffix = "_yc"; break;  // Y+C composite
+            case 1: suffix = "_y"; break;   // Luma only
+            case 2: suffix = "_c"; break;   // Chroma only
+            default: suffix = "_yc"; break;
+        }
+        effective_option_id = current_option_id_ + suffix;
+        ORC_LOG_DEBUG("  YC source: base option '{}' + signal suffix '{}' = '{}'",
+                      current_option_id_, suffix, effective_option_id);
+    }
+    
     // Request preview from coordinator (async, thread-safe)
     pending_preview_request_id_ = render_coordinator_->requestPreview(
         current_view_node_id_,
         current_output_type_,
         current_index,
-        current_option_id_
+        effective_option_id
     );
     
     // Reset the sequential flag after use
@@ -1633,6 +1651,16 @@ void MainWindow::refreshViewerControls()
     
     // Update the aspect ratio combo box
     updateAspectRatioCombo();
+    
+    // Check if current output has separate channels (YC source) and show/hide signal selector
+    bool has_separate_channels = false;
+    for (const auto& output : available_outputs_) {
+        if (output.has_separate_channels) {
+            has_separate_channels = true;
+            break;
+        }
+    }
+    preview_dialog_->setSignalControlsVisible(has_separate_channels);
     
     // Get count for current output type and option_id
     int new_total = 0;

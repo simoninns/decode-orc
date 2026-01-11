@@ -41,6 +41,12 @@ PreviewDialog::PreviewDialog(QWidget *parent)
     resize(800, 700);
 }
 
+void PreviewDialog::setSignalControlsVisible(bool visible)
+{
+    signal_label_->setVisible(visible);
+    signal_combo_->setVisible(visible);
+}
+
 PreviewDialog::~PreviewDialog() = default;
 
 void PreviewDialog::setupUI()
@@ -132,6 +138,16 @@ void PreviewDialog::setupUI()
     preview_mode_combo_ = new QComboBox();
     controlLayout->addWidget(preview_mode_combo_);
     
+    signal_label_ = new QLabel("Signal:");
+    signal_label_->setVisible(false);  // Hidden by default, shown for YC sources
+    controlLayout->addWidget(signal_label_);
+    signal_combo_ = new QComboBox();
+    signal_combo_->addItem("Y+C");
+    signal_combo_->addItem("Y");
+    signal_combo_->addItem("C");
+    signal_combo_->setVisible(false);  // Hidden by default, shown for YC sources
+    controlLayout->addWidget(signal_combo_);
+    
     controlLayout->addWidget(new QLabel("Aspect Ratio:"));
     aspect_ratio_combo_ = new QComboBox();
     controlLayout->addWidget(aspect_ratio_combo_);
@@ -160,6 +176,8 @@ void PreviewDialog::setupUI()
     connect(preview_slider_, &QSlider::valueChanged, this, &PreviewDialog::previewIndexChanged);
     connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::previewModeChanged);
+    connect(signal_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &PreviewDialog::signalChanged);
     connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::aspectRatioModeChanged);
     

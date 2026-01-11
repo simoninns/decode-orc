@@ -13,6 +13,8 @@ namespace orc {
 // Forward declarations of force-link functions from each stage
 void force_link_LDPALSourceStage();
 void force_link_LDNTSCSourceStage();
+void force_link_LDPALYCSourceStage();
+void force_link_LDNTSCYCSourceStage();
 void force_link_DropoutCorrectStage();
 void force_link_DropoutMapStage();
 void force_link_FieldInvertStage();
@@ -47,6 +49,8 @@ void force_stage_linking() {
     // This ensures the ORC_REGISTER_STAGE static initializers execute
     force_link_LDPALSourceStage();
     force_link_LDNTSCSourceStage();
+    force_link_LDPALYCSourceStage();
+    force_link_LDNTSCYCSourceStage();
     force_link_DropoutCorrectStage();
     force_link_DropoutMapStage();
     force_link_FieldInvertStage();

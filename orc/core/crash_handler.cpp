@@ -66,7 +66,9 @@ namespace orc {
 static CrashHandlerConfig g_crash_config;
 static std::string g_last_crash_bundle;
 static bool g_crash_handler_initialized = false;
+#ifndef _WIN32
 static struct sigaction g_old_sigactions[32];
+#endif
 
 /**
  * @brief Get current timestamp as formatted string
@@ -188,8 +190,10 @@ static std::string get_signal_name(int sig) {
         case SIGABRT: return "SIGABRT (Abort)";
         case SIGFPE: return "SIGFPE (Floating point exception)";
         case SIGILL: return "SIGILL (Illegal instruction)";
+#ifndef _WIN32
         case SIGBUS: return "SIGBUS (Bus error)";
         case SIGTRAP: return "SIGTRAP (Trace/breakpoint trap)";
+#endif
         default: return "Signal " + std::to_string(sig);
     }
 }

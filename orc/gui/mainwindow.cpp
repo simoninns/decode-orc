@@ -3094,20 +3094,24 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
     uint64_t new_field_index = current_field;
     int new_line_number = current_line + direction;
     
-    // Get the image size to determine field height
+    // Get the image size to determine bounds
+    // In Field mode: image_height is the field height
+    // In Frame mode: image_height is 2x field height (interlaced)
+    // In Split mode: image_height is 2x field height (stacked)
     int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    int field_height = image_height;  // Will be adjusted based on mode
     
     if (current_output_type_ == orc::PreviewOutputType::Field) {
         // Simple field mode - just move within the same field
-        // Bounds checking will be done by backend
-        if (new_line_number < 0) {
-            new_line_number = 0;
-        }
+        // field_height already equals image_height
     } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
                current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
         // Frame mode - moving between interlaced fields
         // Each frame line corresponds to half a field line
         // Need to alternate between fields
+        
+        // In frame mode, image shows both fields interlaced, so field height is half
+        field_height = image_height / 2;
         
         bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
         
@@ -3127,9 +3131,6 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
             if (current_is_first_field) {
                 new_field_index = current_field + 1;
                 new_line_number = current_line - 1;
-                if (new_line_number < 0) {
-                    new_line_number = 0;
-                }
             } else {
                 new_field_index = current_field - 1;
             }
@@ -3137,9 +3138,19 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
     } else if (current_output_type_ == orc::PreviewOutputType::Split) {
         // Split mode - two fields stacked vertically
         // Stay within the same field
-        if (new_line_number < 0) {
-            new_line_number = 0;
-        }
+        // In split mode, image shows both fields stacked, so field height is half
+        field_height = image_height / 2;
+    }
+    
+    // Bounds check the line number to prevent out-of-bounds requests
+    // Use field_height since we're requesting individual field lines
+    if (new_line_number < 0) {
+        ORC_LOG_DEBUG("Line navigation rejected: line {} is below bounds", new_line_number);
+        return;
+    }
+    if (new_line_number >= field_height) {
+        ORC_LOG_DEBUG("Line navigation rejected: line {} is above bounds (field_height={})", new_line_number, field_height);
+        return;
     }
     
     ORC_LOG_DEBUG("Navigating to field {}, line {}", new_field_index, new_line_number);

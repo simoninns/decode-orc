@@ -10,10 +10,14 @@
 #include "version.h"
 #include "command_process.h"
 #include "logging.h"
+#include "crash_handler.h"
 
 #include <iostream>
 #include <string>
 #include <vector>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 using namespace orc;
 
@@ -120,6 +124,26 @@ int main(int argc, char* argv[]) {
     // Initialize logging
     orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
+    // Initialize crash handler
+    CrashHandlerConfig crash_config;
+    crash_config.application_name = "orc-cli";
+    crash_config.version = ORC_VERSION;
+    crash_config.output_directory = fs::current_path().string();
+    crash_config.enable_coredump = true;
+    crash_config.auto_upload_info = true;
+    
+    // Add callback for custom application state
+    crash_config.custom_info_callback = [&project_path]() -> std::string {
+        std::ostringstream info;
+        info << "Project file: " << project_path << "\n";
+        info << "Working directory: " << fs::current_path().string() << "\n";
+        return info.str();
+    };
+    
+    if (!init_crash_handler(crash_config)) {
+        ORC_LOG_WARN("Failed to initialize crash handler");
+    }
+    
     // Execute processing command
     int exit_code = 0;
     
@@ -130,11 +154,30 @@ int main(int argc, char* argv[]) {
         exit_code = cli::process_command(options);
     } catch (const std::exception& e) {
         std::cerr << "\nFATAL ERROR: " << e.what() << "\n";
+        
+        // Create crash bundle for unhandled exceptions
+        std::string bundle_path = create_crash_bundle(std::string("Exception: ") + e.what());
+        if (!bundle_path.empty()) {
+            std::cerr << "\nDiagnostic bundle created: " << bundle_path << "\n";
+            std::cerr << "Please report this issue at: https://github.com/simoninns/decode-orc/issues\n";
+        }
+        
+        cleanup_crash_handler();
         return 1;
     } catch (...) {
         std::cerr << "\nFATAL ERROR: Unknown exception occurred\n";
+        
+        // Create crash bundle for unknown exceptions
+        std::string bundle_path = create_crash_bundle("Unknown exception");
+        if (!bundle_path.empty()) {
+            std::cerr << "\nDiagnostic bundle created: " << bundle_path << "\n";
+            std::cerr << "Please report this issue at: https://github.com/simoninns/decode-orc/issues\n";
+        }
+        
+        cleanup_crash_handler();
         return 1;
     }
     
+    cleanup_crash_handler();
     return exit_code;
 }

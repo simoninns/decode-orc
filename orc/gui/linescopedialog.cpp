@@ -329,9 +329,8 @@ void LineScopeDialog::onLineUp()
     }
     
     // Request previous line (direction = -1)
-    // Map current_sample_x back to preview-space for navigation
-    int nav_sample_x = (current_sample_x_ * preview_image_width_) / current_samples_.size();
-    emit lineNavigationRequested(-1, current_field_index_, current_line_number_, nav_sample_x, preview_image_width_);
+    // Use the original preview-space coordinate to avoid rounding errors
+    emit lineNavigationRequested(-1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
 }
 
 void LineScopeDialog::onLineDown()
@@ -342,7 +341,6 @@ void LineScopeDialog::onLineDown()
     }
     
     // Request next line (direction = +1)
-    // Map current_sample_x back to preview-space for navigation
-    int nav_sample_x = (current_sample_x_ * preview_image_width_) / current_samples_.size();
-    emit lineNavigationRequested(+1, current_field_index_, current_line_number_, nav_sample_x, preview_image_width_);
+    // Use the original preview-space coordinate to avoid rounding errors
+    emit lineNavigationRequested(+1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
 }

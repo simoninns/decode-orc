@@ -13,6 +13,9 @@ add_library(orc-core STATIC
     # Logging
     logging.cpp
     
+    # Crash handler
+    crash_handler.cpp
+    
     # TBC file I/O
     tbc_reader.cpp
     tbc_metadata.cpp

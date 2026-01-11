@@ -9,6 +9,7 @@
 
 #include "mainwindow.h"
 #include "logging.h"
+#include "crash_handler.h"
 #include "version.h"
 #include <QApplication>
 #include <QCommandLineParser>
@@ -21,7 +22,12 @@
 #include <QPixmap>
 #include <QTimer>
 #include <QPainter>
+#include <QMessageBox>
+#include <QStandardPaths>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 namespace orc {
 
@@ -244,6 +250,42 @@ int main(int argc, char *argv[])
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
     ORC_LOG_DEBUG("GNOME theme detected: {}", isDark ? "dark" : "light");
     
+    // Initialize crash handler
+    orc::CrashHandlerConfig crash_config;
+    crash_config.application_name = "orc-gui";
+    crash_config.version = ORC_VERSION;
+    
+    // Use user's home directory or documents folder for crash bundles
+    QString crashDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+    if (crashDir.isEmpty()) {
+        crashDir = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
+    }
+    if (!crashDir.isEmpty()) {
+        crashDir += "/decode-orc-crashes";
+        fs::create_directories(crashDir.toStdString());
+        crash_config.output_directory = crashDir.toStdString();
+    } else {
+        crash_config.output_directory = fs::current_path().string();
+    }
+    
+    crash_config.enable_coredump = true;
+    crash_config.auto_upload_info = true;
+    
+    // Add callback for custom application state
+    crash_config.custom_info_callback = []() -> std::string {
+        std::ostringstream info;
+        info << "Working directory: " << fs::current_path().string() << "\n";
+        info << "Qt version: " << qVersion() << "\n";
+        return info.str();
+    };
+    
+    if (!orc::init_crash_handler(crash_config)) {
+        ORC_LOG_WARN("Failed to initialize crash handler");
+    } else {
+        ORC_LOG_DEBUG("Crash handler initialized - bundles will be saved to: {}", 
+                     crash_config.output_directory);
+    }
+    
     MainWindow window;
     
     window.show();
@@ -303,5 +345,9 @@ int main(int argc, char *argv[])
     
     int result = app.exec();
     ORC_LOG_INFO("orc-gui exiting");
+    
+    // Clean up crash handler
+    orc::cleanup_crash_handler();
+    
     return result;
 }

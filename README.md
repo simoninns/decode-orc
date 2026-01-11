@@ -33,6 +33,26 @@ The release packages can be found in the [release section](https://github.com/si
 
 For instructions on how to install please see the [release installtion](https://simoninns.github.io/decode-orc-docs/release-installation.html) instructions.
 
+# Crash Reporting
+
+If the application crashes unexpectedly, it will automatically create a diagnostic bundle to help identify and fix the issue. This bundle contains:
+
+- System information (OS, CPU, memory)
+- Stack backtrace showing where the crash occurred
+- Application logs
+- Coredump file (when available)
+
+The crash bundle is saved as a ZIP file in:
+- **orc-gui**: `~/Documents/decode-orc-crashes/` (or your home directory)
+- **orc-cli**: Current working directory
+
+When reporting a crash issue on [GitHub Issues](https://github.com/simoninns/decode-orc/issues), please:
+1. Attach the crash bundle ZIP file (or upload to a file sharing service if too large)
+2. Describe what you were doing when the crash occurred
+3. Include the contents of `crash_info.txt` from the bundle in your issue description
+
+This information is invaluable for diagnosing and fixing crashes quickly.
+
 # Credits
 
 Decode Orc was designed and written by Simon Inns.  Decode Orc's development heavily relied on the original GPLv3 ld-decode-tools which contained many contributions from others.

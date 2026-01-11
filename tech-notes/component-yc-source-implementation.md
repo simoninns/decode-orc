@@ -1,4 +1,4 @@
-# Component Y/C Source Implementation Plan
+# YC Source Implementation Plan
 
 **Date**: January 11, 2026  
 **Status**: Design Phase  
@@ -6,22 +6,24 @@
 
 ## Overview
 
-This document outlines the implementation plan for supporting component video sources where luma (Y) and chroma (C) are captured in separate files, as opposed to composite sources where Y and C are modulated together in a single file.
+This document outlines the implementation plan for supporting YC sources where luma (Y) and chroma (C) are captured in separate files, as opposed to composite sources where Y and C are modulated together in a single file.
+
+**Note**: YC sources (separate Y and C files) should not be confused with "component video" which refers to Y/Pb/Pr or RGB signals. YC sources contain separated luma and modulated chroma, typically from color-under formats like VHS.
 
 ### Motivation
 
 Different video sources provide signals in different formats:
 - **Composite sources** (LaserDisc, composite captures): Y+C modulated together → `.tbc` file
-- **Component sources** (color-under tapes like VHS/Betamax): Y and C separated → `.tbcy` + `.tbcc` files
+- **YC sources** (color-under tapes like VHS/Betamax): Y and C separated → `.tbcy` + `.tbcc` files
 
-Supporting component sources provides significant quality advantages:
+Supporting YC sources provides significant quality advantages:
 - **No comb filter artifacts on luma** - Y is already clean
 - **Simpler chroma decoding** - only demodulation needed, no Y/C separation
 - **Better preservation** of original signal quality
 
 ### File Format
 
-**Component source files**:
+**YC source files**:
 - `.tbcy` - Pure luma samples (16-bit, one sample per time position)
 - `.tbcc` - Pure chroma samples (16-bit, modulated, one sample per time position)
 - `.tbc.db` - Shared metadata (SQLite database, same format as composite)
@@ -50,7 +52,7 @@ ChromaSinkStage
 └─ Comb filter: Separate Y from C + Demodulate C → U/V
 ```
 
-### New Architecture (Component)
+### New Architecture (YC)
 
 ```
 TBCYCVideoFieldRepresentation
@@ -63,17 +65,17 @@ TBCYCVideoFieldRepresentation
 VideoFieldRepresentationWrapper chain (dual channel)
      ↓
 ChromaSinkStage
-└─ Component decoder: Y (direct) + Demodulate C → U/V
+└─ YC decoder: Y (direct) + Demodulate C → U/V
    (NO comb filter Y/C separation needed!)
 ```
 
 ### Key Design Principles
 
-1. **Channel mode propagates through entire pipeline** - once a source is component, it stays component until final decode
-2. **Wrappers are channel-agnostic** - they forward both composite and component interfaces
+1. **Channel mode propagates through entire pipeline** - once a source is YC, it stays YC until final decode
+2. **Wrappers are channel-agnostic** - they forward both composite and YC interfaces
 3. **Stages handle both modes** - check `has_separate_channels()` and branch accordingly
-4. **No mixing** - all inputs to stacker must be same mode (composite or component)
-5. **Quality preservation** - component sources bypass comb filtering entirely
+4. **No mixing in DAG** - a project must use exclusively composite OR exclusively YC sources (cannot mix both types)
+5. **Quality preservation** - YC sources bypass comb filtering entirely
 
 ---
 
@@ -109,7 +111,7 @@ ChromaSinkStage
 
 ---
 
-### Phase 2: Component Source Implementation
+### Phase 2: YC Source Implementation
 
 **Goal**: Implement Y/C source stages that read separate files
 
@@ -221,7 +223,7 @@ class FieldMappedRepresentation : public VideoFieldRepresentationWrapper {
 ```cpp
 class CorrectedVideoFieldRepresentation : public VideoFieldRepresentationWrapper {
 private:
-    // Dual caches for component sources
+    // Dual caches for YC sources
     mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_luma_fields_;
     mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_chroma_fields_;
     
@@ -247,7 +249,7 @@ private:
 **Key considerations**:
 - Same dropout map applies to both channels
 - Find replacement lines independently for Y and C
-- Memory: 2× cache size for component sources (840MB vs 420MB)
+- Memory: 2× cache size for YC sources (840MB vs 420MB)
 - Chroma phase matching works on C channel
 
 **Testing**:
@@ -292,14 +294,15 @@ class StackedVideoFieldRepresentation {
 ```
 
 **Validation**:
-- All sources to stacker must have same channel mode
-- Throw error if mixing composite and component sources
+- All sources in the DAG must have same channel mode
+- This is validated at the project/DAG level, not just stacker
+- Error should be thrown when attempting to add a YC source to a project with composite sources (or vice versa)
 
 **Testing**:
 - Stack 3 Y/C sources
 - Verify Y and C stacked independently
 - Verify average/median/max methods work on both channels
-- Test error when mixing composite + component
+- Test error when attempting to mix composite and YC sources in project
 
 **Estimated effort**: 1-2 days
 
@@ -327,7 +330,7 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 
 ### Phase 4: Chroma Decoder Integration
 
-**Goal**: Add component decode path that bypasses comb filter Y/C separation
+**Goal**: Add YC decode path that bypasses comb filter Y/C separation
 
 **Components**:
 
@@ -339,10 +342,10 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
        // For composite sources
        std::vector<uint16_t> data;  // Combined Y+C
        
-       // For component sources
+       // For YC sources
        std::vector<uint16_t> luma_data;   // Y only
        std::vector<uint16_t> chroma_data; // C only
-       bool is_component = false;
+       bool is_yc = false;
    };
    ```
 
@@ -353,22 +356,22 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
        sf.field = get_field_metadata(vfr, id);
        
        if (vfr->has_separate_channels()) {
-           sf.is_component = true;
+           sf.is_yc = true;
            sf.luma_data = vfr->get_field_luma(id);
            sf.chroma_data = vfr->get_field_chroma(id);
        } else {
-           sf.is_component = false;
+           sf.is_yc = false;
            sf.data = vfr->get_field(id);
        }
        return sf;
    }
    ```
 
-3. **Comb filter component path** (`decoders/comb.cpp`)
+3. **Comb filter YC path** (`decoders/comb.cpp`)
    ```cpp
    void Comb::decodeFrames(const std::vector<SourceField>& inputFields, ...) {
-       if (inputFields[0].is_component) {
-           // COMPONENT DECODE PATH
+       if (inputFields[0].is_yc) {
+           // YC DECODE PATH
            for (int i = 0; i < frame_count; i++) {
                auto& field1 = inputFields[startIndex + i*2];
                auto& field2 = inputFields[startIndex + i*2 + 1];
@@ -396,20 +399,20 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
    }
    ```
 
-4. **Component chroma demodulation**
+4. **YC chroma demodulation**
    - Extract existing demodulation logic from comb filter
    - Create `demodulateChromaOnly()` function
    - Input: modulated C samples from both fields
-   - Output: U and V component frames
+   - Output: U and V frames
    - Skip all Y/C separation (1D/2D/3D comb, phase matching)
 
 **Testing**:
 - Synthetic Y/C with known color bars
 - Verify output matches expected RGB
-- Compare component vs composite decode quality
-- Verify no comb artifacts on luma from component sources
+- Compare YC vs composite decode quality
+- Verify no comb artifacts on luma from YC sources
 - Test chroma gain/phase adjustments work
-- Test chroma/luma NR on component sources
+- Test chroma/luma NR on YC sources
 
 **Dependencies**: Phase 3 (need working pipeline to sink)  
 **Estimated effort**: 3-5 days
@@ -484,13 +487,14 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
    - "NTSC YC" entry
    - Icons/badges to distinguish from composite
 
-3. **Node display** - show component indicator
-   - Badge: "COMPONENT" on Y/C source nodes
-   - Different color scheme for component vs composite
+3. **Node display** - show YC indicator
+   - Badge: "YC" on Y/C source nodes
+   - Different color scheme for YC vs composite
 
 4. **Project validation**
-   - Warn if mixing composite and component sources into stacker
-   - Validate all sources in stacker have same mode
+   - **Prevent** adding YC sources to composite projects (and vice versa)
+   - Validate at project level that all sources have same mode
+   - Clear error message: "Cannot mix composite and YC sources in the same project. All sources must be the same type."
 
 **Testing**:
 - Create project with Y/C sources
@@ -512,9 +516,10 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 
 1. **User guide** (`docs-user/wiki-default/stages.md`)
    - Document "PAL YC" and "NTSC YC" stages
-   - Explain composite vs component
+   - Explain composite vs YC
    - When to use each source type
    - File format requirements
+   - Clarify that YC ≠ component video (Y/Pb/Pr)
 
 2. **Technical notes** (this document)
    - Architecture overview
@@ -522,8 +527,8 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
    - Performance characteristics
 
 3. **Example projects**
-   - `project-examples/component-pal-yc.orcprj`
-   - `project-examples/component-ntsc-yc.orcprj`
+   - `project-examples/yc-pal.orcprj`
+   - `project-examples/yc-ntsc.orcprj`
 
 4. **Test data** (if possible)
    - Sample `.tbcy` / `.tbcc` files
@@ -562,7 +567,8 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 
 2. **Mixed scenarios**
    - Multiple Y/C sources to stacker
-   - Verify error on composite + component mixing
+   - Verify error when attempting to add composite source to YC project
+   - Verify error when attempting to add YC source to composite project
 
 ### Quality Validation
 
@@ -586,23 +592,23 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 
 ### Memory
 
-**Component sources use more cache memory**:
+**YC sources use more cache memory**:
 - Dropout correction: 840MB (2× channels) vs 420MB (composite)
 - Stacker: 2× cached fields
 - Preview: 3× cached previews (Y, C, composite views)
 
-**Total estimated**: +400-500MB for component sources vs composite
+**Total estimated**: +400-500MB for YC sources vs composite
 
 ### CPU
 
-**Component decode is FASTER**:
+**YC decode is FASTER**:
 - Skips entire comb filter Y/C separation (expensive)
 - Only demodulation needed (simpler DSP)
-- Estimated 30-50% faster decode for component sources
+- Estimated 30-50% faster decode for YC sources
 
 ### I/O
 
-**Component sources**:
+**YC sources**:
 - 2 file descriptors instead of 1
 - 2× pread() calls per line
 - Mitigated by: OS page cache, LRU caching

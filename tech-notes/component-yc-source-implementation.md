@@ -678,7 +678,8 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 - [ ] Documentation complete
 - [ ] Example projects available
 - [ ] Quality validation passed (no comb artifacts on Y)
-- [ ] Performance acceptable (component decode faster than composite)
+- [ ] Performance acceptable (YC decode faster than composite)
+- [ ] DAG validation prevents mixing composite and YC sources
 
 ---
 
@@ -737,12 +738,14 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 
 ## Conclusion
 
-Supporting component Y/C sources is a significant enhancement that provides:
-- **Better quality** for color-under tape sources
+Supporting YC sources is a significant enhancement that provides:
+- **Better quality** for color-under tape sources (VHS, Betamax, etc.)
 - **Faster decode** (no comb filter on luma)
 - **Cleaner previews** and analysis
 - **Architectural flexibility** for future enhancements
 
 The implementation is well-scoped with clear phases and minimal risk to existing functionality. The dual-channel architecture is clean and maintainable, with automatic propagation through the wrapper chain reducing the implementation burden.
+
+**Important constraint**: Projects must be exclusively composite OR exclusively YC - no mixing allowed. This simplifies the implementation and avoids quality degradation from re-modulating separated channels.
 
 **Recommendation**: Proceed with phased implementation, starting with Phase 1-2 to establish foundation, then Phase 3-4 for core functionality.

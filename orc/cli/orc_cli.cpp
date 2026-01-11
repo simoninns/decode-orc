@@ -13,6 +13,7 @@
 #include "crash_handler.h"
 
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <filesystem>

@@ -37,6 +37,7 @@
 #include "logging.h"
 
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <fstream>
@@ -366,8 +367,15 @@ static std::string create_bundle_zip(const std::string& crash_info_content,
         readme.close();
         
         // Create ZIP file using system zip command
+#ifdef _WIN32
+        // Windows: Use PowerShell's Compress-Archive (built-in on Windows 10+)
+        std::string zip_command = "powershell -Command \"Compress-Archive -Path '" + bundle_dir + 
+                                 "' -DestinationPath '" + bundle_zip + "' -Force\"";
+#else
+        // Unix/Linux: Use standard zip command with shell commands
         std::string zip_command = "cd " + g_crash_config.output_directory + 
                                  " && zip -r -q crash_bundle_" + timestamp + ".zip crash_bundle_" + timestamp;
+#endif
         int result = system(zip_command.c_str());
         
         // Clean up temporary directory

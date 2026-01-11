@@ -25,6 +25,7 @@
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <sstream>
 #include <filesystem>
 
 namespace fs = std::filesystem;

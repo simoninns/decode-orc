@@ -667,9 +667,18 @@ jobs:
               continue
             fi
             
+            LIB_NAME=$(basename "$LIB")
+            
+            # Fix the library's install name (ID) to use @rpath instead of hard-coded paths
+            CURRENT_ID=$(otool -D "$LIB" 2>/dev/null | tail -n 1)
+            if [[ "$CURRENT_ID" == "$HOMEBREW_PREFIX/"* ]] || [[ "$CURRENT_ID" == "/"* && "$CURRENT_ID" != "@"* ]]; then
+              echo "  Fixing install name for $LIB_NAME (was: $CURRENT_ID)..."
+              install_name_tool -id "@rpath/$LIB_NAME" "$LIB" 2>/dev/null || true
+            fi
+            
             # Remove bad @loader_path/../lib rpath if it exists (common in homebrew libs)
             if otool -l "$LIB" | grep -A 2 "LC_RPATH" | grep -q "@loader_path/../lib"; then
-              echo "  Removing bad @loader_path/../lib rpath from $(basename $LIB)..."
+              echo "  Removing bad @loader_path/../lib rpath from $LIB_NAME..."
               install_name_tool -delete_rpath "@loader_path/../lib" "$LIB" 2>/dev/null || true
             fi
             

@@ -25,6 +25,14 @@ The user documentation is available via [Github Pages](https://simoninns.github.
 
 The technical documentation is available via [Doxygen](https://simoninns.github.io/decode-orc/index.html)
 
+# Installation
+
+The Decode Orc project provides ready-to-install packages for Linux (flatpak), Windows (MSI installer) and Mac OS (DMG).
+
+The release packages can be found in the [release section](https://github.com/simoninns/decode-orc/releases) of the Github repository.
+
+For instructions on how to install please see the [release installtion](https://simoninns.github.io/decode-orc-docs/release-installation.html) instructions.
+
 # Credits
 
 Decode Orc was designed and written by Simon Inns.  Decode Orc's development heavily relied on the original GPLv3 ld-decode-tools which contained many contributions from others.

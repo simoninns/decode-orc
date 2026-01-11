@@ -12,6 +12,7 @@
 #include <QDebug>
 #include <QtMath>
 #include <QApplication>
+#include <cmath>
 
 PlotWidget::PlotWidget(QWidget *parent)
     : QWidget(parent)
@@ -29,6 +30,12 @@ PlotWidget::PlotWidget(QWidget *parent)
     , m_secondaryYAxisEnabled(false)
     , m_secondaryYMin(0)
     , m_secondaryYMax(100)
+    , m_yAxisTickStep(0)
+    , m_yAxisTickOrigin(0)
+    , m_secondaryYAxisTickStep(0)
+    , m_secondaryYAxisTickOrigin(0)
+    , m_yAxisUseCustomTicks(false)
+    , m_secondaryYAxisUseCustomTicks(false)
     , m_grid(nullptr)
     , m_legend(nullptr)
     , m_axisLabels(nullptr)
@@ -130,6 +137,17 @@ void PlotWidget::setYAxisIntegerLabels(bool integerOnly)
     replot();
 }
 
+void PlotWidget::setAxisTickStep(Qt::Orientation orientation, double step, double origin)
+{
+    if (orientation == Qt::Vertical) {
+        m_yAxisTickStep = step;
+        m_yAxisTickOrigin = origin;
+        m_yAxisUseCustomTicks = (step > 0);
+        replot();
+    }
+    // Horizontal axis tick step not implemented yet
+}
+
 void PlotWidget::setSecondaryYAxisEnabled(bool enabled)
 {
     m_secondaryYAxisEnabled = enabled;
@@ -146,6 +164,14 @@ void PlotWidget::setSecondaryYAxisRange(double min, double max)
 {
     m_secondaryYMin = min;
     m_secondaryYMax = max;
+    replot();
+}
+
+void PlotWidget::setSecondaryYAxisTickStep(double step, double origin)
+{
+    m_secondaryYAxisTickStep = step;
+    m_secondaryYAxisTickOrigin = origin;
+    m_secondaryYAxisUseCustomTicks = (step > 0);
     replot();
 }
 
@@ -365,7 +391,9 @@ void PlotWidget::replot()
         m_axisLabels->updateLabels(m_plotRect, m_dataRect, m_xAxisTitle, m_yAxisTitle, 
                                   m_xMin, m_xMax, m_yMin, m_yMax, m_yIntegerLabels, m_isDarkTheme,
                                   m_secondaryYAxisEnabled, m_secondaryYAxisTitle,
-                                  m_secondaryYMin, m_secondaryYMax);
+                                  m_secondaryYMin, m_secondaryYMax,
+                                  m_yAxisUseCustomTicks, m_yAxisTickStep, m_yAxisTickOrigin,
+                                  m_secondaryYAxisUseCustomTicks, m_secondaryYAxisTickStep, m_secondaryYAxisTickOrigin);
     }
     
     // Reset view transformation to 1:1 scale
@@ -892,7 +920,9 @@ void PlotAxisLabels::updateLabels(const QRectF &plotRect, const QRectF &dataRect
                                   double xMin, double xMax, double yMin, double yMax,
                                   bool yIntegerLabels, bool isDarkTheme,
                                   bool secondaryYEnabled, const QString &secondaryYTitle,
-                                  double secondaryYMin, double secondaryYMax)
+                                  double secondaryYMin, double secondaryYMax,
+                                  bool yUseCustomTicks, double yTickStep, double yTickOrigin,
+                                  bool secondaryYUseCustomTicks, double secondaryYTickStep, double secondaryYTickOrigin)
 {
     m_plotRect = plotRect;
     m_dataRect = dataRect;
@@ -908,6 +938,12 @@ void PlotAxisLabels::updateLabels(const QRectF &plotRect, const QRectF &dataRect
     m_yIntegerLabels = yIntegerLabels;
     m_isDarkTheme = isDarkTheme;
     m_secondaryYEnabled = secondaryYEnabled;
+    m_yUseCustomTicks = yUseCustomTicks;
+    m_yTickStep = yTickStep;
+    m_yTickOrigin = yTickOrigin;
+    m_secondaryYUseCustomTicks = secondaryYUseCustomTicks;
+    m_secondaryYTickStep = secondaryYTickStep;
+    m_secondaryYTickOrigin = secondaryYTickOrigin;
     update();
 }
 
@@ -953,22 +989,46 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
     }
     
     // Draw Y-axis labels
-    int numYTicks = 8;
-    for (int i = 0; i <= numYTicks; ++i) {
-        double dataY = m_yMin + (m_yMax - m_yMin) * i / numYTicks;
-        double sceneY = m_plotRect.bottom() - m_plotRect.height() * i / numYTicks;
-        
-        // Draw tick mark
-        painter->setPen(QPen(axisColor, 1));
-        painter->drawLine(QPointF(m_plotRect.left() - 5, sceneY), 
-                         QPointF(m_plotRect.left(), sceneY));
-        
-        // Draw label
-        QString label = m_yIntegerLabels ? QString::number(qRound(dataY)) : QString::number(dataY, 'f', 1);
-        QRect textRect = fm.boundingRect(label);
-        QPointF textPos(m_plotRect.left() - 10 - textRect.width(), 
-                       sceneY + textRect.height() / 4);
-        painter->drawText(textPos, label);
+    if (m_yUseCustomTicks && m_yTickStep > 0) {
+        // Use custom tick positions starting from origin
+        double firstTick = std::ceil((m_yMin - m_yTickOrigin) / m_yTickStep) * m_yTickStep + m_yTickOrigin;
+        for (double dataY = firstTick; dataY <= m_yMax; dataY += m_yTickStep) {
+            if (dataY < m_yMin) continue;
+            
+            double fraction = (dataY - m_yMin) / (m_yMax - m_yMin);
+            double sceneY = m_plotRect.bottom() - m_plotRect.height() * fraction;
+            
+            // Draw tick mark
+            painter->setPen(QPen(axisColor, 1));
+            painter->drawLine(QPointF(m_plotRect.left() - 5, sceneY), 
+                             QPointF(m_plotRect.left(), sceneY));
+            
+            // Draw label
+            QString label = m_yIntegerLabels ? QString::number(qRound(dataY)) : QString::number(dataY, 'f', 1);
+            QRect textRect = fm.boundingRect(label);
+            QPointF textPos(m_plotRect.left() - 10 - textRect.width(), 
+                           sceneY + textRect.height() / 4);
+            painter->drawText(textPos, label);
+        }
+    } else {
+        // Use automatic tick generation
+        int numYTicks = 8;
+        for (int i = 0; i <= numYTicks; ++i) {
+            double dataY = m_yMin + (m_yMax - m_yMin) * i / numYTicks;
+            double sceneY = m_plotRect.bottom() - m_plotRect.height() * i / numYTicks;
+            
+            // Draw tick mark
+            painter->setPen(QPen(axisColor, 1));
+            painter->drawLine(QPointF(m_plotRect.left() - 5, sceneY), 
+                             QPointF(m_plotRect.left(), sceneY));
+            
+            // Draw label
+            QString label = m_yIntegerLabels ? QString::number(qRound(dataY)) : QString::number(dataY, 'f', 1);
+            QRect textRect = fm.boundingRect(label);
+            QPointF textPos(m_plotRect.left() - 10 - textRect.width(), 
+                           sceneY + textRect.height() / 4);
+            painter->drawText(textPos, label);
+        }
     }
     
     // Draw X-axis title
@@ -991,22 +1051,46 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
     
     // Draw secondary Y-axis (right side) if enabled
     if (m_secondaryYEnabled) {
-        int numYTicks = 10;  // 0, 10, 20, ..., 100 IRE
-        for (int i = 0; i <= numYTicks; ++i) {
-            double dataY = m_secondaryYMin + (m_secondaryYMax - m_secondaryYMin) * i / numYTicks;
-            double sceneY = m_plotRect.bottom() - m_plotRect.height() * i / numYTicks;
-            
-            // Draw tick mark
-            painter->setPen(QPen(axisColor, 1));
-            painter->drawLine(QPointF(m_plotRect.right(), sceneY), 
-                             QPointF(m_plotRect.right() + 5, sceneY));
-            
-            // Draw label
-            QString label = QString::number(qRound(dataY));
-            QRect textRect = fm.boundingRect(label);
-            QPointF textPos(m_plotRect.right() + 10, 
-                           sceneY + textRect.height() / 4);
-            painter->drawText(textPos, label);
+        if (m_secondaryYUseCustomTicks && m_secondaryYTickStep > 0) {
+            // Use custom tick positions starting from origin
+            double firstTick = std::ceil((m_secondaryYMin - m_secondaryYTickOrigin) / m_secondaryYTickStep) * m_secondaryYTickStep + m_secondaryYTickOrigin;
+            for (double dataY = firstTick; dataY <= m_secondaryYMax; dataY += m_secondaryYTickStep) {
+                if (dataY < m_secondaryYMin) continue;
+                
+                double fraction = (dataY - m_secondaryYMin) / (m_secondaryYMax - m_secondaryYMin);
+                double sceneY = m_plotRect.bottom() - m_plotRect.height() * fraction;
+                
+                // Draw tick mark
+                painter->setPen(QPen(axisColor, 1));
+                painter->drawLine(QPointF(m_plotRect.right(), sceneY), 
+                                 QPointF(m_plotRect.right() + 5, sceneY));
+                
+                // Draw label
+                QString label = QString::number(qRound(dataY));
+                QRect textRect = fm.boundingRect(label);
+                QPointF textPos(m_plotRect.right() + 10, 
+                               sceneY + textRect.height() / 4);
+                painter->drawText(textPos, label);
+            }
+        } else {
+            // Use automatic tick generation
+            int numYTicks = 10;  // 0, 10, 20, ..., 100 IRE
+            for (int i = 0; i <= numYTicks; ++i) {
+                double dataY = m_secondaryYMin + (m_secondaryYMax - m_secondaryYMin) * i / numYTicks;
+                double sceneY = m_plotRect.bottom() - m_plotRect.height() * i / numYTicks;
+                
+                // Draw tick mark
+                painter->setPen(QPen(axisColor, 1));
+                painter->drawLine(QPointF(m_plotRect.right(), sceneY), 
+                                 QPointF(m_plotRect.right() + 5, sceneY));
+                
+                // Draw label
+                QString label = QString::number(qRound(dataY));
+                QRect textRect = fm.boundingRect(label);
+                QPointF textPos(m_plotRect.right() + 10, 
+                               sceneY + textRect.height() / 4);
+                painter->drawText(textPos, label);
+            }
         }
         
         // Draw secondary Y-axis title (rotated)

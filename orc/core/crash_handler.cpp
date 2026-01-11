@@ -42,11 +42,16 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <iostream>
 #include <filesystem>
 #include <vector>
+
+// Unix/POSIX-specific headers (not available on Windows)
+#ifndef _WIN32
 #include <sys/utsname.h>
 #include <unistd.h>
 #include <sys/resource.h>
+#endif
 
 #ifdef __linux__
 #include <execinfo.h>
@@ -93,7 +98,8 @@ static std::string get_system_info() {
     
     info << "=== System Information ===\n\n";
     
-    // OS and kernel info
+#ifndef _WIN32
+    // OS and kernel info (Unix/POSIX only)
     struct utsname uname_data;
     if (uname(&uname_data) == 0) {
         info << "OS: " << uname_data.sysname << "\n";
@@ -101,6 +107,11 @@ static std::string get_system_info() {
         info << "Architecture: " << uname_data.machine << "\n";
         info << "Hostname: " << uname_data.nodename << "\n";
     }
+#else
+    // Windows system information
+    info << "OS: Windows\n";
+    // Could add more Windows-specific info here if needed
+#endif
     
 #ifdef __linux__
     // Memory info
@@ -241,8 +252,11 @@ static std::string create_crash_info(int signal_num, const std::string& custom_m
  * - ./core.PID (with process ID)
  * - /var/lib/systemd/coredump/core (systemd-coredump)
  * - /var/crash/ (Ubuntu apport)
+ * 
+ * @note Only available on Unix/POSIX systems
  */
 static std::string find_coredump() {
+#ifndef _WIN32
     // Common coredump locations
     std::vector<std::string> possible_paths = {
         "core",
@@ -260,6 +274,7 @@ static std::string find_coredump() {
             return path;
         }
     }
+#endif
     
     return "";
 }
@@ -387,7 +402,9 @@ static std::string create_bundle_zip(const std::string& crash_info_content,
  * 
  * @note Uses write() for stderr output (async-signal-safe)
  * @note Handler is one-shot (SA_RESETHAND) to prevent infinite loops
+ * @note Only available on Unix/POSIX systems
  */
+#ifndef _WIN32
 static void crash_signal_handler(int sig, siginfo_t* info, void* context) {
     // Prevent recursive crashes
     static volatile sig_atomic_t handling_crash = 0;
@@ -424,6 +441,7 @@ static void crash_signal_handler(int sig, siginfo_t* info, void* context) {
     
     // Print message to stderr
     if (!bundle_path.empty()) {
+        // Use write() on Unix (async-signal-safe)
         const char* msg1 = "\n\n==================================================\n";
         const char* msg2 = "CRASH DETECTED - Diagnostic bundle created:\n";
         const char* msg3 = "\n==================================================\n\n";
@@ -450,6 +468,7 @@ static void crash_signal_handler(int sig, siginfo_t* info, void* context) {
         raise(sig);
     }
 }
+#endif
 
 bool init_crash_handler(const CrashHandlerConfig& config) {
     if (g_crash_handler_initialized) {
@@ -465,8 +484,9 @@ bool init_crash_handler(const CrashHandlerConfig& config) {
         return false;
     }
     
+#ifndef _WIN32
 #ifdef __linux__
-    // Enable core dumps
+    // Enable core dumps (Linux only)
     if (g_crash_config.enable_coredump) {
         struct rlimit core_limit;
         core_limit.rlim_cur = RLIM_INFINITY;
@@ -475,7 +495,7 @@ bool init_crash_handler(const CrashHandlerConfig& config) {
     }
 #endif
     
-    // Install signal handlers
+    // Install signal handlers (Unix/POSIX only)
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = crash_signal_handler;
@@ -486,13 +506,19 @@ bool init_crash_handler(const CrashHandlerConfig& config) {
     for (int sig : signals) {
         sigaction(sig, &sa, &g_old_sigactions[sig]);
     }
+#endif
     
     g_crash_handler_initialized = true;
     
     auto logger = get_logger();
     if (logger) {
+#ifndef _WIN32
         logger->debug("Crash handler initialized - bundles will be saved to: {}", 
                      g_crash_config.output_directory);
+#else
+        logger->debug("Crash handler initialized (limited Windows support) - bundles will be saved to: {}", 
+                     g_crash_config.output_directory);
+#endif
     }
     
     return true;
@@ -532,11 +558,13 @@ void cleanup_crash_handler() {
         return;
     }
     
-    // Restore original signal handlers
+#ifndef _WIN32
+    // Restore original signal handlers (Unix/POSIX only)
     int signals[] = {SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, SIGTRAP};
     for (int sig : signals) {
         sigaction(sig, &g_old_sigactions[sig], nullptr);
     }
+#endif
     
     g_crash_handler_initialized = false;
 }

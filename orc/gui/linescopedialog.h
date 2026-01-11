@@ -23,8 +23,9 @@
 /**
  * @brief Dialog for displaying line scope - all samples in a selected line
  * 
- * Shows a graph of all 16-bit sample values across a horizontal line
- * from the field/frame data.
+ * Shows a graph of sample values in millivolts (mV) across a horizontal line
+ * from the field/frame data. Values are converted from 16-bit samples via IRE
+ * using video system-specific conversion factors (PAL: 7 mV/IRE, NTSC: 7.143 mV/IRE).
  */
 class LineScopeDialog : public QDialog
 {
@@ -40,8 +41,8 @@ public:
      * @param field_index The field number being displayed
      * @param line_number The line number being displayed
      * @param sample_x Sample X position that was clicked
-     * @param samples Vector of 16-bit sample values for the line
-     * @param video_params Optional video parameters for region markers
+     * @param samples Vector of 16-bit sample values for the line (will be converted to mV for display)
+     * @param video_params Optional video parameters for IRE conversion and region markers
      */
     void setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                         const std::vector<uint16_t>& samples,

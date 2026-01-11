@@ -11,6 +11,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <cmath>
 
 LineScopeDialog::LineScopeDialog(QWidget *parent)
     : QDialog(parent)
@@ -44,9 +45,9 @@ void LineScopeDialog::setupUI()
     // Plot widget
     plot_widget_ = new PlotWidget(this);
     plot_widget_->setAxisTitle(Qt::Horizontal, "Sample Position");
-    plot_widget_->setAxisTitle(Qt::Vertical, "16-bit Sample Value");
-    plot_widget_->setAxisRange(Qt::Vertical, 0, 65535);  // 16-bit range
-    plot_widget_->setYAxisIntegerLabels(true);
+    plot_widget_->setAxisTitle(Qt::Vertical, "mV (millivolts)");
+    plot_widget_->setAxisRange(Qt::Vertical, -200, 1000);  // Approximate mV range
+    plot_widget_->setYAxisIntegerLabels(false);
     plot_widget_->setGridEnabled(true);
     plot_widget_->setLegendEnabled(false);
     plot_widget_->setZoomEnabled(true);
@@ -154,38 +155,82 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     // Clear any "no data" message that might be showing
     plot_widget_->clearNoDataMessage();
     
-    // Enable and configure secondary Y-axis if we have video parameters with IRE levels
-    if (video_params.has_value()) {
-        const auto& vp = video_params.value();
-        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
-            // Calculate IRE range based on the 16-bit Y-axis range (0-65535)
-            // 0 IRE is at black_16b_ire, 100 IRE is at white_16b_ire
-            // Formula: IRE = (16bit_value - black_16b_ire) / (white_16b_ire - black_16b_ire) * 100
-            
-            double ire_per_16bit = 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
-            
-            // Calculate IRE at 16-bit value 0
-            double ire_at_0 = (0 - vp.black_16b_ire) * ire_per_16bit;
-            
-            // Calculate IRE at 16-bit value 65535
-            double ire_at_65535 = (65535 - vp.black_16b_ire) * ire_per_16bit;
-            
-            plot_widget_->setSecondaryYAxisEnabled(true);
-            plot_widget_->setSecondaryYAxisTitle("IRE");
-            plot_widget_->setSecondaryYAxisRange(ire_at_0, ire_at_65535);
-        } else {
-            plot_widget_->setSecondaryYAxisEnabled(false);
-        }
-    } else {
-        plot_widget_->setSecondaryYAxisEnabled(false);
-    }
-    
-    // Convert samples to plot points
+    // Convert samples to plot points in millivolts
     QVector<QPointF> points;
     points.reserve(samples.size());
     
+    // Determine mV conversion factor based on video system
+    double ire_to_mv = 7.0;  // Default to PAL
+    if (video_params.has_value()) {
+        const auto& vp = video_params.value();
+        if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
+            ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
+        }
+    }
+    
     for (size_t i = 0; i < samples.size(); ++i) {
-        points.append(QPointF(static_cast<double>(i), static_cast<double>(samples[i])));
+        double mv_value = static_cast<double>(samples[i]);
+        
+        // Convert to mV via IRE if we have video parameters
+        if (video_params.has_value()) {
+            const auto& vp = video_params.value();
+            if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                // First convert 16-bit value to IRE
+                double ire = (mv_value - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                // Then convert IRE to mV
+                mv_value = ire * ire_to_mv;
+            }
+        }
+        
+        points.append(QPointF(static_cast<double>(i), mv_value));
+    }
+    
+    // Determine tick intervals
+    double mv_tick_step = 100.0;  // 100 mV intervals
+    double ire_tick_step = 20.0;  // 20 IRE intervals
+    
+    // Calculate Y-axis range to align with tick steps
+    double min_mv, max_mv, min_ire, max_ire;
+    
+    if (video_params.has_value()) {
+        const auto& vp = video_params.value();
+        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+            // Convert 16-bit extremes (0 and 65535) to mV via IRE
+            double raw_min_ire = (0.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+            double raw_max_ire = (65535.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+            double raw_min_mv = raw_min_ire * ire_to_mv;
+            double raw_max_mv = raw_max_ire * ire_to_mv;
+            
+            // Find the range of tick marks that covers the data, anchored at 0
+            // For minimum: find the lowest tick that is <= raw_min_mv
+            min_mv = std::floor(raw_min_mv / mv_tick_step) * mv_tick_step;
+            // For maximum: find the highest tick that is >= raw_max_mv
+            max_mv = std::ceil(raw_max_mv / mv_tick_step) * mv_tick_step;
+            
+            // But don't extend beyond the actual data range
+            // The ticks will still be at nice intervals starting from 0
+            if (min_mv < raw_min_mv) {
+                min_mv = raw_min_mv;
+            }
+            if (max_mv > raw_max_mv) {
+                max_mv = raw_max_mv;
+            }
+            
+            // Calculate corresponding IRE range
+            min_ire = min_mv / ire_to_mv;
+            max_ire = max_mv / ire_to_mv;
+        } else {
+            // Defaults when no video params
+            min_mv = -200;
+            max_mv = 1000;
+            min_ire = min_mv / ire_to_mv;
+            max_ire = max_mv / ire_to_mv;
+        }
+    } else {
+        min_mv = -200;
+        max_mv = 1000;
+        min_ire = -28.6;
+        max_ire = 142.9;
     }
     
     // Set appropriate color based on theme
@@ -199,11 +244,30 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     }
     line_series_->setPen(QPen(line_color, 1));
     
-    // Update the plot
+    // Update the plot with calculated ranges based on 16-bit sample range
     line_series_->setData(points);
     plot_widget_->setAxisRange(Qt::Horizontal, 0, static_cast<double>(samples.size() - 1));
+    plot_widget_->setAxisRange(Qt::Vertical, min_mv, max_mv);
     plot_widget_->setAxisAutoScale(Qt::Horizontal, false);
     plot_widget_->setAxisAutoScale(Qt::Vertical, false);
+    
+    // Set custom tick steps with origin at 0
+    plot_widget_->setAxisTickStep(Qt::Vertical, mv_tick_step, 0.0);
+    
+    // Configure secondary Y-axis to show IRE values
+    if (video_params.has_value()) {
+        const auto& vp = video_params.value();
+        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+            plot_widget_->setSecondaryYAxisEnabled(true);
+            plot_widget_->setSecondaryYAxisTitle("IRE");
+            plot_widget_->setSecondaryYAxisRange(min_ire, max_ire);
+            plot_widget_->setSecondaryYAxisTickStep(ire_tick_step, 0.0);
+        } else {
+            plot_widget_->setSecondaryYAxisEnabled(false);
+        }
+    } else {
+        plot_widget_->setSecondaryYAxisEnabled(false);
+    }
     
     // Clear existing markers
     plot_widget_->clearMarkers();
@@ -238,20 +302,18 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
             av_end->setPen(QPen(Qt::yellow, 1, Qt::DashLine));
         }
         
-        // IRE level markers (horizontal lines)
+        // IRE level markers (horizontal lines) in mV
         // 0 IRE (black level) - gray
-        if (vp.black_16b_ire >= 0) {
+        // 100 IRE (white level) - white/light gray
+        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
             auto* ire0 = plot_widget_->addMarker();
             ire0->setStyle(PlotMarker::HLine);
-            ire0->setPosition(QPointF(0, static_cast<double>(vp.black_16b_ire)));
+            ire0->setPosition(QPointF(0, 0.0));  // 0 IRE = 0 mV
             ire0->setPen(QPen(Qt::gray, 1, Qt::DashLine));
-        }
-        
-        // 100 IRE (white level) - white/light gray
-        if (vp.white_16b_ire >= 0) {
+            
             auto* ire100 = plot_widget_->addMarker();
             ire100->setStyle(PlotMarker::HLine);
-            ire100->setPosition(QPointF(0, static_cast<double>(vp.white_16b_ire)));
+            ire100->setPosition(QPointF(0, 100.0 * ire_to_mv));  // 100 IRE in mV
             ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
         }
     }
@@ -285,17 +347,30 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         
         // Update sample info display
         uint16_t sample_value = current_samples_[sample_x];
-        QString info_text = QString("Sample: %1\nValue: %2")
-            .arg(sample_x)
-            .arg(sample_value);
         
-        // Add IRE if we have video parameters
+        // Determine mV conversion factor based on video system
+        double ire_to_mv = 7.0;  // Default to PAL
+        if (current_video_params_.has_value()) {
+            const auto& vp = current_video_params_.value();
+            if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
+                ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
+            }
+        }
+        
+        QString info_text = QString("Sample: %1").arg(sample_x);
+        
+        // Add mV and IRE if we have video parameters
         if (current_video_params_.has_value()) {
             const auto& vp = current_video_params_.value();
             if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
                 double ire = (static_cast<double>(sample_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                double mv = ire * ire_to_mv;
+                info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
                 info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
             }
+        } else {
+            // If no video parameters, show raw 16-bit value
+            info_text += QString("\n16-bit: %1").arg(sample_value);
         }
         
         sample_info_label_->setText(info_text);

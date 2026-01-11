@@ -53,11 +53,13 @@ public:
     void setAxisRange(Qt::Orientation orientation, double min, double max);
     void setAxisAutoScale(Qt::Orientation orientation, bool enable);
     void setYAxisIntegerLabels(bool integerOnly);
+    void setAxisTickStep(Qt::Orientation orientation, double step, double origin = 0.0);
     
     // Secondary Y-axis (right side)
     void setSecondaryYAxisEnabled(bool enabled);
     void setSecondaryYAxisTitle(const QString &title);
     void setSecondaryYAxisRange(double min, double max);
+    void setSecondaryYAxisTickStep(double step, double origin = 0.0);
     
     // Grid
     void setGridEnabled(bool enabled);
@@ -132,6 +134,12 @@ private:
     bool m_yIntegerLabels;
     bool m_isDarkTheme;
     bool m_secondaryYAxisEnabled;
+    double m_yAxisTickStep;
+    double m_yAxisTickOrigin;
+    double m_secondaryYAxisTickStep;
+    double m_secondaryYAxisTickOrigin;
+    bool m_yAxisUseCustomTicks;
+    bool m_secondaryYAxisUseCustomTicks;
     
     // Components
     PlotGrid *m_grid;
@@ -283,7 +291,9 @@ public:
                      double xMin, double xMax, double yMin, double yMax,
                      bool yIntegerLabels = false, bool isDarkTheme = false,
                      bool secondaryYEnabled = false, const QString &secondaryYTitle = QString(),
-                     double secondaryYMin = 0, double secondaryYMax = 100);
+                     double secondaryYMin = 0, double secondaryYMax = 100,
+                     bool yUseCustomTicks = false, double yTickStep = 0, double yTickOrigin = 0,
+                     bool secondaryYUseCustomTicks = false, double secondaryYTickStep = 0, double secondaryYTickOrigin = 0);
     
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
@@ -299,6 +309,12 @@ private:
     bool m_secondaryYEnabled;
     double m_xMin, m_xMax, m_yMin, m_yMax;
     double m_secondaryYMin, m_secondaryYMax;
+    bool m_yUseCustomTicks;
+    double m_yTickStep;
+    double m_yTickOrigin;
+    bool m_secondaryYUseCustomTicks;
+    double m_secondaryYTickStep;
+    double m_secondaryYTickOrigin;
     PlotWidget *m_plotWidget;
 };
 

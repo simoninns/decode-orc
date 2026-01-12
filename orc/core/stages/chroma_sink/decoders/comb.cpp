@@ -130,6 +130,72 @@ void Comb::decodeFrames(const std::vector<SourceField> &inputFields, int32_t sta
 {
     assert(configurationSet);
     assert((componentFrames.size() * 2) == (endIndex - startIndex));
+    
+    // Check if we have YC sources (separate Y and C channels)
+    // All fields must be the same type (YC or composite)
+    bool is_yc_source = !inputFields.empty() && inputFields[0].is_yc;
+    
+    if (is_yc_source) {
+        // YC DECODE PATH - Y is already clean, only demodulate C
+        ORC_LOG_INFO("Comb: Using YC decode path (separate Y/C channels)");
+        decodeFramesYC(inputFields, startIndex, endIndex, componentFrames);
+    } else {
+        // COMPOSITE DECODE PATH - full comb filter for Y/C separation
+        ORC_LOG_DEBUG("Comb: Using composite decode path (Y+C modulated)");
+        decodeFramesComposite(inputFields, startIndex, endIndex, componentFrames);
+    }
+}
+
+// YC decode path - for sources with separate Y and C channels
+void Comb::decodeFramesYC(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                          std::vector<ComponentFrame> &componentFrames)
+{
+    // For YC sources:
+    // - Y is already clean (no comb filtering needed)
+    // - C only needs demodulation (no Y/C separation needed)
+    // - This is MUCH simpler and faster than composite decode
+    // - No 1D/2D/3D comb filtering on luma
+    
+    // We still need one frame buffer for current frame
+    auto currentFrameBuffer = std::make_unique<FrameBuffer>(videoParameters, configuration);
+    
+    // Decode each pair of fields into a frame
+    for (int32_t fieldIndex = startIndex; fieldIndex < endIndex; fieldIndex += 2) {
+        const int32_t frameIndex = (fieldIndex - startIndex) / 2;
+        
+        // Load YC fields (separate Y and C) into the buffer
+        currentFrameBuffer->loadFieldsYC(inputFields[fieldIndex], inputFields[fieldIndex + 1]);
+        
+        // Initialize and clear the component frame
+        componentFrames[frameIndex].init(videoParameters);
+        currentFrameBuffer->setComponentFrame(componentFrames[frameIndex]);
+        
+        // Y channel: Direct copy from luma_buffer (already clean!)
+        // C channel: Demodulate to get I/Q (no comb filtering needed)
+        if (configuration.phaseCompensation) {
+            currentFrameBuffer->splitIQlocked_YC();
+        } else {
+            currentFrameBuffer->splitIQ_YC();
+        }
+        
+        // Filter I/Q (same as composite)
+        currentFrameBuffer->filterIQ();
+        
+        // Apply noise reduction
+        currentFrameBuffer->doCNR();
+        currentFrameBuffer->doYNR();
+        
+        // Transform I/Q to U/V (same as composite)
+        currentFrameBuffer->transformIQ(configuration.chromaGain, configuration.chromaPhase);
+    }
+}
+
+// Composite decode path - full comb filter for Y/C separation
+void Comb::decodeFramesComposite(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                                 std::vector<ComponentFrame> &componentFrames)
+{
+    assert(configurationSet);
+    assert((componentFrames.size() * 2) == (endIndex - startIndex));
 
     // Buffers for the next, current and previous frame.
     // Because we only need three of these, we allocate them upfront then
@@ -282,6 +348,59 @@ void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceFi
 
     // No component frame yet
     componentFrame = nullptr;
+    is_yc = false;
+}
+
+// Interlace two YC source fields into separate Y and C framebuffers
+// For YC sources, Y and C are already separated, so no comb filtering needed on Y
+void Comb::FrameBuffer::loadFieldsYC(const SourceField &firstField, const SourceField &secondField)
+{
+    // Interlace the Y fields into luma_buffer
+    int32_t fieldLine = 0;
+    luma_buffer.clear();
+    for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
+        // Insert first field Y line
+        auto firstYStart = firstField.luma_data.begin() + fieldLine * videoParameters.field_width;
+        auto firstYEnd = firstYStart + videoParameters.field_width;
+        luma_buffer.insert(luma_buffer.end(), firstYStart, firstYEnd);
+        // Insert second field Y line
+        auto secondYStart = secondField.luma_data.begin() + fieldLine * videoParameters.field_width;
+        auto secondYEnd = secondYStart + videoParameters.field_width;
+        luma_buffer.insert(luma_buffer.end(), secondYStart, secondYEnd);
+        fieldLine++;
+    }
+    
+    // Interlace the C fields into chroma_buffer
+    fieldLine = 0;
+    chroma_buffer.clear();
+    for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
+        // Insert first field C line
+        auto firstCStart = firstField.chroma_data.begin() + fieldLine * videoParameters.field_width;
+        auto firstCEnd = firstCStart + videoParameters.field_width;
+        chroma_buffer.insert(chroma_buffer.end(), firstCStart, firstCEnd);
+        // Insert second field C line
+        auto secondCStart = secondField.chroma_data.begin() + fieldLine * videoParameters.field_width;
+        auto secondCEnd = secondCStart + videoParameters.field_width;
+        chroma_buffer.insert(chroma_buffer.end(), secondCStart, secondCEnd);
+        fieldLine++;
+    }
+
+    // Set the phase IDs for the frame
+    firstFieldPhaseID = firstField.field.field_phase_id.value_or(-1);
+    secondFieldPhaseID = secondField.field.field_phase_id.value_or(-1);
+
+    // Clear clpbuffer (not used for YC, but clear anyway for consistency)
+    for (int32_t buf = 0; buf < 3; buf++) {
+        for (int32_t y = 0; y < MAX_HEIGHT; y++) {
+            for (int32_t x = 0; x < MAX_WIDTH; x++) {
+                clpbuffer[buf].pixel[y][x] = 0.0;
+            }
+        }
+    }
+
+    // No component frame yet
+    componentFrame = nullptr;
+    is_yc = true;
 }
 
 // Extract chroma into clpbuffer[0] using a 1D bandpass filter.
@@ -695,6 +814,91 @@ void Comb::FrameBuffer::adjustY()
 
             if (!linePhase) comp = -comp;
             Y[h - xOffset] -= comp;
+        }
+    }
+}
+
+// YC-specific: Demodulate chroma with phase compensation
+// Y is already clean in luma_buffer, C only needs demodulation
+void Comb::FrameBuffer::splitIQlocked_YC()
+{
+    const int32_t lineOffset = videoParameters.active_area_cropping_applied ? videoParameters.first_active_frame_line : 0;
+    const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
+    
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
+        // Get pointers to Y and C lines
+        const uint16_t *yLine = luma_buffer.data() + (lineNumber * videoParameters.field_width);
+        const uint16_t *cLine = chroma_buffer.data() + (lineNumber * videoParameters.field_width);
+        
+        // Calculate burst phase from C channel
+        const auto info = detectBurst(cLine, videoParameters);
+
+        double *Y = componentFrame->y(lineNumber - lineOffset);
+        double *I = componentFrame->u(lineNumber - lineOffset);
+        double *Q = componentFrame->v(lineNumber - lineOffset);
+
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+            // Y is clean - direct copy from luma_buffer
+            Y[h - xOffset] = yLine[h];
+            
+            // Demodulate C to get I/Q
+            const double cval = static_cast<double>(cLine[h]);
+            
+            // Demodulate the sine and cosine components.
+            const auto lsin = cval * sin4fsc(h) * 2;
+            const auto lcos = cval * cos4fsc(h) * 2;
+            // Rotate the demodulated vector by the burst phase.
+            const auto ti = (lsin * info.bcos - lcos * info.bsin);
+            const auto tq = (lsin * info.bsin + lcos * info.bcos);
+
+            // Invert Q and rotate to get the correct I/Q vector.
+            if (h + 1 < videoParameters.active_video_end) {
+                I[h + 1 - xOffset] = ti * ROTATE_COS - tq * -ROTATE_SIN;
+                Q[h + 1 - xOffset] = -(ti * -ROTATE_SIN + tq * ROTATE_COS);
+            }
+        }
+    }
+}
+
+// YC-specific: Demodulate chroma without phase compensation  
+// Y is already clean in luma_buffer, C only needs demodulation
+void Comb::FrameBuffer::splitIQ_YC()
+{
+    const int32_t lineOffset = videoParameters.active_area_cropping_applied ? videoParameters.first_active_frame_line : 0;
+    const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
+    
+    for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
+        // Get pointers to Y and C lines
+        const uint16_t *yLine = luma_buffer.data() + (lineNumber * videoParameters.field_width);
+        const uint16_t *cLine = chroma_buffer.data() + (lineNumber * videoParameters.field_width);
+
+        double *Y = componentFrame->y(lineNumber - lineOffset);
+        double *I = componentFrame->u(lineNumber - lineOffset);
+        double *Q = componentFrame->v(lineNumber - lineOffset);
+
+        bool linePhase = getLinePhase(lineNumber);
+
+        double si = 0, sq = 0;
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+            int32_t phase = h % 4;
+
+            // Get chroma value from C channel
+            double cavg = static_cast<double>(cLine[h]);
+
+            if (linePhase) cavg = -cavg;
+
+            switch (phase) {
+                case 0: sq = cavg; break;
+                case 1: si = -cavg; break;
+                case 2: sq = -cavg; break;
+                case 3: si = cavg; break;
+                default: break;
+            }
+
+            // Y is clean - direct copy from luma_buffer
+            Y[h - xOffset] = yLine[h];
+            I[h - xOffset] = si;
+            Q[h - xOffset] = sq;
         }
     }
 }

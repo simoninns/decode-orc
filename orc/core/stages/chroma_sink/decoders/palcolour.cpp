@@ -240,7 +240,29 @@ void PalColour::decodeFrames(const std::vector<SourceField> &inputFields, int32_
 {
     assert(configurationSet);
     assert((componentFrames.size() * 2) == (endIndex - startIndex));
-
+    
+    // Check if we have YC sources (separate Y and C channels)
+    bool is_yc_source = !inputFields.empty() && inputFields[0].is_yc;
+    
+    if (is_yc_source) {
+        // YC DECODE PATH - simplified decoding for separate Y/C
+        // For YC sources:
+        // - Y is already clean (no filtering needed)
+        // - C only needs demodulation (no Y/C separation needed)
+        ORC_LOG_INFO("PalColour: Using YC decode path (separate Y/C channels)");
+        
+        for (int32_t i = startIndex, k = 0; i < endIndex; i += 2, k++) {
+            // Initialize and clear the component frame
+            componentFrames[k].init(videoParameters);
+            
+            // Decode both fields directly - Y is clean, C needs demodulation
+            decodeFieldYC(inputFields[i], componentFrames[k]);
+            decodeFieldYC(inputFields[i + 1], componentFrames[k]);
+        }
+        return;
+    }
+    
+    // COMPOSITE DECODE PATH - full PAL color decoding with Y/C separation
     std::vector<const double *> chromaData(endIndex - startIndex);
     if (configuration.chromaFilter != palColourFilter) {
         // Use Transform PAL filter to extract chroma
@@ -290,6 +312,123 @@ void PalColour::decodeField(const SourceField &inputField, const double *chromaD
         } else {
             // Decode chroma and luma from the Transform PAL output
             decodeLine<double, true>(inputField, chromaData, line, componentFrame);
+        }
+    }
+}
+
+// Decode one YC field into componentFrame
+// For YC sources: Y is already clean, C needs demodulation with 2D filtering
+void PalColour::decodeFieldYC(const SourceField &inputField, ComponentFrame &componentFrame)
+{
+    // Pointers to separate Y and C data
+    const uint16_t *yPtr = inputField.luma_data.data();
+    const uint16_t *cPtr = inputField.chroma_data.data();
+
+    // Dummy black line for out-of-bounds access
+    static constexpr uint16_t blackLine[MAX_WIDTH] = {0};
+
+    // Convert frame-based active area limits to field-based coordinates
+    const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
+    const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
+    
+    for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {
+        LineInfo line(fieldLine);
+
+        // Detect the colourburst from the C channel (not composite)
+        // This also detects the V-switch state for PAL
+        detectBurst(line, cPtr);
+
+        // Rotate and scale burst to apply gain and phase adjustment
+        const double oldBp = line.bp, oldBq = line.bq;
+        const double theta = (configuration.chromaPhase * M_PI) / 180;
+        line.bp = (oldBp * cos(theta) - oldBq * sin(theta)) * configuration.chromaGain;
+        line.bq = (oldBp * sin(theta) + oldBq * cos(theta)) * configuration.chromaGain;
+
+        // Calculate frame line number (same as composite decoder)
+        const int32_t absoluteLineNumber = (fieldLine * 2) + inputField.getOffset();
+        const int32_t lineNumber = videoParameters.active_area_cropping_applied ? 
+                                   (absoluteLineNumber - videoParameters.first_active_frame_line) : absoluteLineNumber;
+        
+        // Get output pointers
+        double *outY = componentFrame.y(lineNumber);
+        double *outU = componentFrame.u(lineNumber);
+        double *outV = componentFrame.v(lineNumber);
+
+        // Get line pointers for Y (simple copy)
+        const uint16_t *yLine = yPtr + (fieldLine * videoParameters.field_width);
+
+        // Get pointers to chroma lines for 2D filtering (same as composite decoder)
+        const uint16_t *in0, *in1, *in2, *in3, *in4, *in5, *in6;
+        in0 =                              cPtr + (fieldLine      * videoParameters.field_width);
+        in1 = (fieldLine - 1) <  firstLine ? blackLine : (cPtr + ((fieldLine - 1) * videoParameters.field_width));
+        in2 = (fieldLine + 1) >= lastLine  ? blackLine : (cPtr + ((fieldLine + 1) * videoParameters.field_width));
+        in3 = (fieldLine - 2) <  firstLine ? blackLine : (cPtr + ((fieldLine - 2) * videoParameters.field_width));
+        in4 = (fieldLine + 2) >= lastLine  ? blackLine : (cPtr + ((fieldLine + 2) * videoParameters.field_width));
+        in5 = (fieldLine - 3) <  firstLine ? blackLine : (cPtr + ((fieldLine - 3) * videoParameters.field_width));
+        in6 = (fieldLine + 3) >= lastLine  ? blackLine : (cPtr + ((fieldLine + 3) * videoParameters.field_width));
+
+        // Demodulate chroma with 2D filtering
+        // Multiply by sine/cosine and sum vertically (same as composite 2D filter)
+        double m[4][MAX_WIDTH], n[4][MAX_WIDTH];
+        const auto endPos2 = std::min(videoParameters.active_video_end + FILTER_SIZE + 1, MAX_WIDTH);
+        for (int32_t i = videoParameters.active_video_start - FILTER_SIZE; i < endPos2; i++) {
+            m[0][i] =  in0[i] * sine[i];
+            m[2][i] =  in1[i] * sine[i] - in2[i] * sine[i];
+            m[1][i] = -in3[i] * sine[i] - in4[i] * sine[i];
+            m[3][i] = -in5[i] * sine[i] + in6[i] * sine[i];
+
+            n[0][i] =  in0[i] * cosine[i];
+            n[2][i] =  in1[i] * cosine[i] - in2[i] * cosine[i];
+            n[1][i] = -in3[i] * cosine[i] - in4[i] * cosine[i];
+            n[3][i] = -in5[i] * cosine[i] + in6[i] * cosine[i];
+        }
+
+        // Apply 2D filters to get U and V components
+        double pu[MAX_WIDTH], qu[MAX_WIDTH], pv[MAX_WIDTH], qv[MAX_WIDTH];
+        const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
+        
+        for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+            double PU = 0, QU = 0, PV = 0, QV = 0;
+
+            // Apply 2D filter coefficients
+            for (int32_t b = 0; b <= FILTER_SIZE; b++) {
+                const int32_t l = i - b;
+                const int32_t r = i + b;
+
+                PU += (m[0][r] + m[0][l]) * cfilt[b][0] + (m[1][r] + m[1][l]) * cfilt[b][1]
+                        + (n[2][r] + n[2][l]) * cfilt[b][2] + (n[3][r] + n[3][l]) * cfilt[b][3];
+                QU += (n[0][r] + n[0][l]) * cfilt[b][0] + (n[1][r] + n[1][l]) * cfilt[b][1]
+                        - (m[2][r] + m[2][l]) * cfilt[b][2] - (m[3][r] + m[3][l]) * cfilt[b][3];
+                PV += (m[0][r] + m[0][l]) * cfilt[b][0] + (m[1][r] + m[1][l]) * cfilt[b][1]
+                        - (n[2][r] + n[2][l]) * cfilt[b][2] - (n[3][r] + n[3][l]) * cfilt[b][3];
+                QV += (n[0][r] + n[0][l]) * cfilt[b][0] + (n[1][r] + n[1][l]) * cfilt[b][1]
+                        + (m[2][r] + m[2][l]) * cfilt[b][2] + (m[3][r] + m[3][l]) * cfilt[b][3];
+            }
+
+            pu[i] = PU;
+            qu[i] = QU;
+            pv[i] = PV;
+            qv[i] = QV;
+        }
+
+        // Output final Y/U/V values
+        for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+            int32_t outIdx = videoParameters.active_area_cropping_applied ? 
+                             (i - videoParameters.active_video_start) : i;
+            
+            // Y is clean - direct copy
+            outY[outIdx] = static_cast<double>(yLine[i]);
+            
+            // Rotate filtered quadrature components by burst phase to recover U and V
+            // Apply V-switch for PAL alternating lines
+            // Multiply by 2.0 because filtering extracts chroma at half amplitude
+            outU[outIdx] =            -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
+            outV[outIdx] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
+        }
+        
+        // Apply luma noise reduction to this line if enabled
+        if (configuration.yNRLevel > 0.0) {
+            doYNR(outY);
         }
     }
 }

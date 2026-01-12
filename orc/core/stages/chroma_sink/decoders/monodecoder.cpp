@@ -99,19 +99,35 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
 			}
 		}
 	} else {
-		// Simple mode: just copy composite signal to Y (includes chroma subcarrier)
+		// Simple mode: just copy signal to Y
+		// For composite sources: includes chroma subcarrier
+		// For YC sources: use clean luma channel
 		bool ignoreUV = false;
 		
 		const int32_t lineOffset = videoParameters.active_area_cropping_applied ? videoParameters.first_active_frame_line : 0;
 		const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
 		
+		// Check if this is a YC source
+		bool is_yc_source = !inputFields.empty() && inputFields[0].is_yc;
+		
 		for (int32_t fieldIndex = startIndex, frameIndex = 0; fieldIndex < endIndex; fieldIndex += 2, frameIndex++) {
 			componentFrames[frameIndex].init(videoParameters, ignoreUV);
 			for (int32_t y = videoParameters.first_active_frame_line; y < videoParameters.last_active_frame_line; y++) {
-				const std::vector<uint16_t> &inputFieldData = (y % 2) == 0 ? inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
-				const uint16_t *inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
+				const uint16_t *inputLine;
+				
+				if (is_yc_source) {
+					// YC source: use luma channel (already clean, no chroma subcarrier)
+					const std::vector<uint16_t> &inputFieldData = (y % 2) == 0 ? 
+						inputFields[fieldIndex].luma_data : inputFields[fieldIndex+1].luma_data;
+					inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
+				} else {
+					// Composite source: use composite data (includes chroma subcarrier)
+					const std::vector<uint16_t> &inputFieldData = (y % 2) == 0 ? 
+						inputFields[fieldIndex].data : inputFields[fieldIndex+1].data;
+					inputLine = inputFieldData.data() + ((y / 2) * videoParameters.field_width);
+				}
 
-				// Copy the whole composite signal to Y (leaving U and V blank)
+				// Copy the signal to Y (leaving U and V blank)
 				double *outY = componentFrames[frameIndex].y(y - lineOffset);
 				for (int32_t x = videoParameters.active_video_start; x < videoParameters.active_video_end; x++) {
 					outY[x - xOffset] = inputLine[x];

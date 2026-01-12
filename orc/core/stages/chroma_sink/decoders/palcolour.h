@@ -83,6 +83,7 @@ private:
 
     void buildLookUpTables();
     void decodeField(const SourceField &inputField, const double *chromaData, ComponentFrame &componentFrame);
+    void decodeFieldYC(const SourceField &inputField, ComponentFrame &componentFrame);
     void detectBurst(LineInfo &line, const uint16_t *inputData);
     template <typename ChromaSample, bool PREFILTERED_CHROMA>
     void decodeLine(const SourceField &inputField, const ChromaSample *chromaData, const LineInfo &line,

@@ -77,6 +77,16 @@ void TransformPal2D::filterFields(const std::vector<SourceField> &inputFields, i
 {
     assert(configurationSet);
 
+    // Check for YC sources - not supported by Transform PAL
+    if (!inputFields.empty() && inputFields[0].is_yc) {
+        ORC_LOG_ERROR("TransformPal2D: YC sources are not supported. Use NTSC/Comb decoder instead.");
+        // Return empty output to avoid crashes
+        for (int32_t i = 0; i < static_cast<int32_t>(outputFields.size()); i++) {
+            outputFields[i] = nullptr;
+        }
+        return;
+    }
+
     // Check we have a valid vector of input fields, and a matching output vector
     assert((inputFields.size() % 2) == 0);
     for (int32_t i = 0; i < inputFields.size(); i++) {

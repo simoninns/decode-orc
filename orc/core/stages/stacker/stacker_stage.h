@@ -46,6 +46,13 @@ public:
     const uint16_t* get_line(FieldID id, size_t line) const override;
     std::vector<uint16_t> get_field(FieldID id) const override;
     
+    // Dual-channel support for YC sources
+    bool has_separate_channels() const override;
+    const uint16_t* get_line_luma(FieldID id, size_t line) const override;
+    const uint16_t* get_line_chroma(FieldID id, size_t line) const override;
+    std::vector<uint16_t> get_field_luma(FieldID id) const override;
+    std::vector<uint16_t> get_field_chroma(FieldID id) const override;
+    
     // Override dropout hints - after stacking, dropouts are the ones that remain
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
     
@@ -78,9 +85,14 @@ private:
     StackerStage* stage_;  // Non-owning pointer to stage for lazy stacking
     
     // Stacked field data - LRU cache of whole fields for fast access
-    // Cache size: 600 fields × ~1.4MB/field = ~840MB max
+    // Cache size: 600 fields × ~1.4MB/field = ~840MB max (composite)
+    //           : 600 fields × ~2.8MB/field = ~1680MB max (YC - dual channels)
     mutable LRUCache<FieldID, std::vector<uint16_t>> stacked_fields_;
     static constexpr size_t MAX_CACHED_FIELDS = 600;
+    
+    // Dual-channel caches for YC sources
+    mutable LRUCache<FieldID, std::vector<uint16_t>> stacked_luma_fields_;
+    mutable LRUCache<FieldID, std::vector<uint16_t>> stacked_chroma_fields_;
     
     // Dropout regions for stacked fields
     mutable LRUCache<FieldID, std::vector<DropoutRegion>> stacked_dropouts_;
@@ -232,6 +244,22 @@ private:
         FieldID field_id,
         const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
         std::vector<uint16_t>& output_samples,
+        std::vector<DropoutRegion>& output_dropouts) const;
+    
+    /**
+     * @brief Stack a single YC field from multiple sources (separate Y and C channels)
+     * 
+     * @param field_id Field ID to stack
+     * @param sources Input field representations (must all have separate channels)
+     * @param output_luma Output buffer for stacked luma samples
+     * @param output_chroma Output buffer for stacked chroma samples
+     * @param output_dropouts Output dropout regions (applies to both Y and C)
+     */
+    void stack_field_yc(
+        FieldID field_id,
+        const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+        std::vector<uint16_t>& output_luma,
+        std::vector<uint16_t>& output_chroma,
         std::vector<DropoutRegion>& output_dropouts) const;
     
     /**

@@ -116,6 +116,43 @@ public:
         return source_->get_field(source_id);
     }
     
+    // Dual-channel support for YC sources
+    bool has_separate_channels() const override {
+        return source_ ? source_->has_separate_channels() : false;
+    }
+    
+    const sample_type* get_line_luma(FieldID id, size_t line) const override {
+        if (!source_) {
+            return nullptr;
+        }
+        FieldID source_id(id.value() + offset_.value());
+        return source_->get_line_luma(source_id, line);
+    }
+    
+    const sample_type* get_line_chroma(FieldID id, size_t line) const override {
+        if (!source_) {
+            return nullptr;
+        }
+        FieldID source_id(id.value() + offset_.value());
+        return source_->get_line_chroma(source_id, line);
+    }
+    
+    std::vector<sample_type> get_field_luma(FieldID id) const override {
+        if (!source_) {
+            return {};
+        }
+        FieldID source_id(id.value() + offset_.value());
+        return source_->get_field_luma(source_id);
+    }
+    
+    std::vector<sample_type> get_field_chroma(FieldID id) const override {
+        if (!source_) {
+            return {};
+        }
+        FieldID source_id(id.value() + offset_.value());
+        return source_->get_field_chroma(source_id);
+    }
+    
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override {
         if (!source_) {
             return {};

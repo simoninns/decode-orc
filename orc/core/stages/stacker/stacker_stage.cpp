@@ -31,36 +31,79 @@ StackedVideoFieldRepresentation::StackedVideoFieldRepresentation(
     , sources_(sources)
     , stage_(stage)
     , stacked_fields_(MAX_CACHED_FIELDS)
+    , stacked_luma_fields_(MAX_CACHED_FIELDS)
+    , stacked_chroma_fields_(MAX_CACHED_FIELDS)
     , stacked_dropouts_(MAX_CACHED_FIELDS)
     , stacked_audio_(MAX_CACHED_FIELDS)
     , stacked_efm_(MAX_CACHED_FIELDS)
     , best_field_index_(MAX_CACHED_FIELDS)
 {
+    // Validate that all sources have the same channel mode (all composite or all YC)
+    if (!sources_.empty()) {
+        bool first_has_separate = sources_[0]->has_separate_channels();
+        for (size_t i = 1; i < sources_.size(); ++i) {
+            if (sources_[i]->has_separate_channels() != first_has_separate) {
+                throw std::runtime_error(
+                    "StackerStage: Cannot mix composite and YC sources. "
+                    "All sources must have the same channel mode (all composite or all YC).");
+            }
+        }
+    }
 }
 
 void StackedVideoFieldRepresentation::ensure_field_stacked(FieldID field_id) const {
     // Note: Caller must already hold cache_mutex_
     
-    // Check if BOTH field data AND dropout data are in cache
-    // We need both to be consistent - if one is evicted, re-stack the field
-    if (stacked_fields_.contains(field_id) && stacked_dropouts_.contains(field_id)) {
+    if (sources_.empty() || !sources_[0]) {
         return;
     }
     
-    ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} (NOT fully cached)", field_id.value());
-    
-    // Stack the field from all sources (alignment is done by preceding field_map stages)
-    std::vector<uint16_t> stacked_samples;
-    std::vector<DropoutRegion> stacked_dropouts;
-    
-    stage_->stack_field(field_id, sources_, stacked_samples, stacked_dropouts);
-    
-    // Cache the result
-    stacked_fields_.put(field_id, std::move(stacked_samples));
-    stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
-    
-    ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions", 
-                  field_id.value(), stacked_dropouts.size());
+    // Check channel mode
+    if (sources_[0]->has_separate_channels()) {
+        // YC mode - check if BOTH luma AND chroma AND dropout data are in cache
+        if (stacked_luma_fields_.contains(field_id) && 
+            stacked_chroma_fields_.contains(field_id) && 
+            stacked_dropouts_.contains(field_id)) {
+            return;
+        }
+        
+        ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking YC field {} (NOT fully cached)", field_id.value());
+        
+        // Stack the YC field from all sources
+        std::vector<uint16_t> stacked_luma;
+        std::vector<uint16_t> stacked_chroma;
+        std::vector<DropoutRegion> stacked_dropouts;
+        
+        stage_->stack_field_yc(field_id, sources_, stacked_luma, stacked_chroma, stacked_dropouts);
+        
+        // Cache the results
+        stacked_luma_fields_.put(field_id, std::move(stacked_luma));
+        stacked_chroma_fields_.put(field_id, std::move(stacked_chroma));
+        stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
+        
+        ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions", 
+                      field_id.value(), stacked_dropouts.size());
+    } else {
+        // Composite mode - check if BOTH field data AND dropout data are in cache
+        if (stacked_fields_.contains(field_id) && stacked_dropouts_.contains(field_id)) {
+            return;
+        }
+        
+        ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} (NOT fully cached)", field_id.value());
+        
+        // Stack the field from all sources (alignment is done by preceding field_map stages)
+        std::vector<uint16_t> stacked_samples;
+        std::vector<DropoutRegion> stacked_dropouts;
+        
+        stage_->stack_field(field_id, sources_, stacked_samples, stacked_dropouts);
+        
+        // Cache the result
+        stacked_fields_.put(field_id, std::move(stacked_samples));
+        stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
+        
+        ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions", 
+                      field_id.value(), stacked_dropouts.size());
+    }
 }
 
 FieldIDRange StackedVideoFieldRepresentation::field_range() const {
@@ -319,6 +362,166 @@ bool StackedVideoFieldRepresentation::has_efm() const {
 }
 
 // ============================================================================
+// Dual-channel support for YC sources
+// ============================================================================
+
+bool StackedVideoFieldRepresentation::has_separate_channels() const {
+    return sources_.empty() ? false : sources_[0]->has_separate_channels();
+}
+
+const uint16_t* StackedVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
+    if (!has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_line_luma(id, line);
+    }
+    
+    // Ensure this field has been stacked (will use lock internally)
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    
+    ensure_field_stacked(id);
+    
+    // Return pointer to line within the cached stacked luma field data
+    const auto* cached_luma = stacked_luma_fields_.get_ptr(id);
+    if (cached_luma && !cached_luma->empty()) {
+        auto descriptor = source_->get_descriptor(id);
+        if (descriptor && line < descriptor->height) {
+            return &(*cached_luma)[line * descriptor->width];
+        }
+    }
+    
+    // Fallback to source (should not happen)
+    return source_->get_line_luma(id, line);
+}
+
+const uint16_t* StackedVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
+    if (!has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_line_chroma(id, line);
+    }
+    
+    // Ensure this field has been stacked (will use lock internally)
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    
+    ensure_field_stacked(id);
+    
+    // Return pointer to line within the cached stacked chroma field data
+    const auto* cached_chroma = stacked_chroma_fields_.get_ptr(id);
+    if (cached_chroma && !cached_chroma->empty()) {
+        auto descriptor = source_->get_descriptor(id);
+        if (descriptor && line < descriptor->height) {
+            return &(*cached_chroma)[line * descriptor->width];
+        }
+    }
+    
+    // Fallback to source (should not happen)
+    return source_->get_line_chroma(id, line);
+}
+
+std::vector<uint16_t> StackedVideoFieldRepresentation::get_field_luma(FieldID id) const {
+    if (!has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_field_luma(id);
+    }
+    
+    // First check if already cached (fast path with minimal lock time)
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        if (stacked_luma_fields_.contains(id) && 
+            stacked_chroma_fields_.contains(id) && 
+            stacked_dropouts_.contains(id)) {
+            const auto* cached_luma = stacked_luma_fields_.get_ptr(id);
+            if (cached_luma) {
+                return *cached_luma;
+            }
+        }
+    }
+    
+    // Not cached - stack the YC field WITHOUT holding the lock (slow path)
+    std::vector<uint16_t> stacked_luma;
+    std::vector<uint16_t> stacked_chroma;
+    std::vector<DropoutRegion> stacked_dropouts;
+    
+    ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking YC field {} for luma (NOT fully cached)", id.value());
+    stage_->stack_field_yc(id, sources_, stacked_luma, stacked_chroma, stacked_dropouts);
+    
+    // Re-acquire lock and cache the result
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        
+        // Check again if another thread already stacked it while we were computing
+        if (stacked_luma_fields_.contains(id) && 
+            stacked_chroma_fields_.contains(id) && 
+            stacked_dropouts_.contains(id)) {
+            // Another thread beat us to it - return their result and discard ours
+            const auto* cached_luma = stacked_luma_fields_.get_ptr(id);
+            if (cached_luma) {
+                return *cached_luma;
+            }
+        }
+        
+        // Store our result in cache
+        stacked_luma_fields_.put(id, stacked_luma);
+        stacked_chroma_fields_.put(id, stacked_chroma);
+        stacked_dropouts_.put(id, stacked_dropouts);
+        
+        ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions", 
+                      id.value(), stacked_dropouts.size());
+        
+        return stacked_luma;
+    }
+}
+
+std::vector<uint16_t> StackedVideoFieldRepresentation::get_field_chroma(FieldID id) const {
+    if (!has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_field_chroma(id);
+    }
+    
+    // First check if already cached (fast path with minimal lock time)
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        if (stacked_luma_fields_.contains(id) && 
+            stacked_chroma_fields_.contains(id) && 
+            stacked_dropouts_.contains(id)) {
+            const auto* cached_chroma = stacked_chroma_fields_.get_ptr(id);
+            if (cached_chroma) {
+                return *cached_chroma;
+            }
+        }
+    }
+    
+    // Not cached - stack the YC field WITHOUT holding the lock (slow path)
+    std::vector<uint16_t> stacked_luma;
+    std::vector<uint16_t> stacked_chroma;
+    std::vector<DropoutRegion> stacked_dropouts;
+    
+    ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking YC field {} for chroma (NOT fully cached)", id.value());
+    stage_->stack_field_yc(id, sources_, stacked_luma, stacked_chroma, stacked_dropouts);
+    
+    // Re-acquire lock and cache the result
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        
+        // Check again if another thread already stacked it while we were computing
+        if (stacked_luma_fields_.contains(id) && 
+            stacked_chroma_fields_.contains(id) && 
+            stacked_dropouts_.contains(id)) {
+            // Another thread beat us to it - return their result and discard ours
+            const auto* cached_chroma = stacked_chroma_fields_.get_ptr(id);
+            if (cached_chroma) {
+                return *cached_chroma;
+            }
+        }
+        
+        // Store our result in cache
+        stacked_luma_fields_.put(id, stacked_luma);
+        stacked_chroma_fields_.put(id, stacked_chroma);
+        stacked_dropouts_.put(id, stacked_dropouts);
+        
+        ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions", 
+                      id.value(), stacked_dropouts.size());
+        
+        return stacked_chroma;
+    }
+}
+
+// ============================================================================
 // StackerStage implementation
 // ============================================================================
 
@@ -573,6 +776,200 @@ void StackerStage::stack_field(
     ORC_LOG_DEBUG("StackerStage::stack_field - Field {}: {} dropout regions, {} pixels affected, {} diff_dod recoveries",
                  field_id.value(), output_dropouts.size(), total_dropouts, total_diff_dod_recoveries);
 }
+
+void StackerStage::stack_field_yc(
+    FieldID field_id,
+    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+    std::vector<uint16_t>& output_luma,
+    std::vector<uint16_t>& output_chroma,
+    std::vector<DropoutRegion>& output_dropouts) const
+{
+    ORC_LOG_DEBUG("StackerStage::stack_field_yc - Processing YC field {} from {} sources", 
+                 field_id.value(), sources.size());
+    
+    // Validate that all sources have separate channels
+    for (const auto& source : sources) {
+        if (source && source->has_field(field_id) && !source->has_separate_channels()) {
+            ORC_LOG_ERROR("StackerStage::stack_field_yc - Source does not have separate channels");
+            throw DAGExecutionError("StackerStage: stack_field_yc called with composite source");
+        }
+    }
+    
+    // Get descriptor from first valid source
+    std::optional<FieldDescriptor> descriptor;
+    size_t reference_idx = 0;
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (sources[i]->has_field(field_id)) {
+            descriptor = sources[i]->get_descriptor(field_id);
+            if (descriptor) {
+                reference_idx = i;
+                break;
+            }
+        }
+    }
+    
+    if (!descriptor) {
+        ORC_LOG_ERROR("StackerStage: No valid field descriptor available for YC field {}", field_id.value());
+        throw DAGExecutionError("StackerStage: No valid field descriptor available");
+    }
+    
+    size_t width = descriptor->width;
+    size_t height = descriptor->height;
+    
+    ORC_LOG_DEBUG("StackerStage::stack_field_yc - Field dimensions: {}x{}", width, height);
+    
+    // Get video parameters for black level
+    auto video_params = sources[reference_idx]->get_video_parameters();
+    if (!video_params) {
+        ORC_LOG_ERROR("StackerStage: Video parameters not available");
+        throw DAGExecutionError("StackerStage: Video parameters not available");
+    }
+    
+    // Resize outputs
+    output_luma.resize(width * height);
+    output_chroma.resize(width * height);
+    output_dropouts.clear();
+    
+    // Pre-load all source luma and chroma fields into memory
+    std::vector<std::vector<uint16_t>> all_luma_fields;
+    std::vector<std::vector<uint16_t>> all_chroma_fields;
+    std::vector<bool> field_valid;
+    all_luma_fields.reserve(sources.size());
+    all_chroma_fields.reserve(sources.size());
+    field_valid.reserve(sources.size());
+    
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (sources[i]->has_field(field_id)) {
+            all_luma_fields.push_back(sources[i]->get_field_luma(field_id));
+            all_chroma_fields.push_back(sources[i]->get_field_chroma(field_id));
+            field_valid.push_back(!all_luma_fields.back().empty() && !all_chroma_fields.back().empty());
+        } else {
+            all_luma_fields.push_back({});
+            all_chroma_fields.push_back({});
+            field_valid.push_back(false);
+        }
+    }
+    
+    // Pre-collect all dropout maps (same for Y and C)
+    std::vector<std::vector<DropoutRegion>> all_dropouts;
+    for (size_t i = 0; i < sources.size(); ++i) {
+        if (field_valid[i]) {
+            auto dropouts = sources[i]->get_dropout_hints(field_id);
+            all_dropouts.push_back(std::move(dropouts));
+        } else {
+            all_dropouts.push_back({});
+        }
+    }
+    
+    // Determine number of threads to use
+    size_t num_threads = m_thread_count;
+    if (num_threads == 0) {
+        num_threads = std::thread::hardware_concurrency();
+        if (num_threads == 0) num_threads = 4;
+    }
+    
+    if (num_threads == 1 || height < num_threads * 4) {
+        num_threads = 1;
+    }
+    
+    ORC_LOG_DEBUG("StackerStage::stack_field_yc - Using {} thread(s) for processing", num_threads);
+    
+    size_t total_dropouts = 0;
+    size_t total_diff_dod_recoveries = 0;
+    size_t total_stacked_pixels = 0;
+    
+    // Stack luma and chroma independently using the same dropout logic
+    if (num_threads == 1) {
+        // Single-threaded path
+        process_lines_range(0, height, width, all_luma_fields, field_valid, all_dropouts,
+                          sources.size(), *video_params, output_luma, output_dropouts,
+                          total_dropouts, total_diff_dod_recoveries, total_stacked_pixels);
+        
+        // Stack chroma (reuse dropout map)
+        std::vector<DropoutRegion> chroma_dropouts;  // Will be discarded
+        size_t chroma_total_dropouts = 0;
+        size_t chroma_total_recoveries = 0;
+        size_t chroma_total_stacked = 0;
+        process_lines_range(0, height, width, all_chroma_fields, field_valid, all_dropouts,
+                          sources.size(), *video_params, output_chroma, chroma_dropouts,
+                          chroma_total_dropouts, chroma_total_recoveries, chroma_total_stacked);
+    } else {
+        // Multi-threaded path
+        std::vector<std::thread> threads;
+        std::vector<std::vector<DropoutRegion>> thread_dropouts(num_threads);
+        std::vector<size_t> thread_total_dropouts(num_threads, 0);
+        std::vector<size_t> thread_total_recoveries(num_threads, 0);
+        std::vector<size_t> thread_total_stacked(num_threads, 0);
+        
+        size_t lines_per_thread = (height + num_threads - 1) / num_threads;
+        
+        // Launch worker threads for luma
+        for (size_t t = 0; t < num_threads; ++t) {
+            size_t start_line = t * lines_per_thread;
+            size_t end_line = std::min(start_line + lines_per_thread, height);
+            
+            if (start_line >= height) break;
+            
+            threads.emplace_back([this, start_line, end_line, width, &all_luma_fields, &field_valid,
+                                 &all_dropouts, num_sources = sources.size(), &video_params,
+                                 &output_luma, &thread_dropouts, &thread_total_dropouts,
+                                 &thread_total_recoveries, &thread_total_stacked, t]() {
+                process_lines_range(start_line, end_line, width, all_luma_fields, field_valid,
+                                  all_dropouts, num_sources, *video_params, output_luma,
+                                  thread_dropouts[t], thread_total_dropouts[t],
+                                  thread_total_recoveries[t], thread_total_stacked[t]);
+            });
+        }
+        
+        // Wait for luma threads
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        threads.clear();
+        
+        // Launch worker threads for chroma
+        std::vector<std::vector<DropoutRegion>> chroma_thread_dropouts(num_threads);  // Will be discarded
+        std::vector<size_t> chroma_thread_total_dropouts(num_threads, 0);
+        std::vector<size_t> chroma_thread_total_recoveries(num_threads, 0);
+        std::vector<size_t> chroma_thread_total_stacked(num_threads, 0);
+        
+        for (size_t t = 0; t < num_threads; ++t) {
+            size_t start_line = t * lines_per_thread;
+            size_t end_line = std::min(start_line + lines_per_thread, height);
+            
+            if (start_line >= height) break;
+            
+            threads.emplace_back([this, start_line, end_line, width, &all_chroma_fields, &field_valid,
+                                 &all_dropouts, num_sources = sources.size(), &video_params,
+                                 &output_chroma, &chroma_thread_dropouts, &chroma_thread_total_dropouts,
+                                 &chroma_thread_total_recoveries, &chroma_thread_total_stacked, t]() {
+                process_lines_range(start_line, end_line, width, all_chroma_fields, field_valid,
+                                  all_dropouts, num_sources, *video_params, output_chroma,
+                                  chroma_thread_dropouts[t], chroma_thread_total_dropouts[t],
+                                  chroma_thread_total_recoveries[t], chroma_thread_total_stacked[t]);
+            });
+        }
+        
+        // Wait for chroma threads
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        
+        // Merge luma thread results
+        for (size_t t = 0; t < num_threads; ++t) {
+            output_dropouts.insert(output_dropouts.end(),
+                                 thread_dropouts[t].begin(),
+                                 thread_dropouts[t].end());
+            total_dropouts += thread_total_dropouts[t];
+            total_diff_dod_recoveries += thread_total_recoveries[t];
+            total_stacked_pixels += thread_total_stacked[t];
+        }
+    }
+    
+    ORC_LOG_DEBUG("StackerStage::stack_field_yc - YC field {}: {} dropout regions, {} pixels affected, {} diff_dod recoveries",
+                 field_id.value(), output_dropouts.size(), total_dropouts, total_diff_dod_recoveries);
+}
+
 void StackerStage::process_lines_range(
     size_t start_line,
     size_t end_line,

@@ -215,6 +215,142 @@ MaskedLineRepresentation::get_field(FieldID id) const {
     return field_data;
 }
 
+// Dual-channel support for YC sources
+
+const MaskedLineRepresentation::sample_type* 
+MaskedLineRepresentation::get_line_luma(FieldID id, size_t line) const {
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_line_luma(id, line);
+    }
+    
+    // If this line shouldn't be masked, return source data
+    if (!should_mask_line(id, line)) {
+        return source_->get_line_luma(id, line);
+    }
+    
+    // Need to create and cache masked line
+    auto& field_cache = masked_luma_cache_[id];
+    auto cache_it = field_cache.find(line);
+    
+    if (cache_it != field_cache.end()) {
+        return cache_it->second.data();
+    }
+    
+    // Get source line to determine width
+    const sample_type* source_line = source_->get_line_luma(id, line);
+    if (!source_line) {
+        return nullptr;
+    }
+    
+    // Get field descriptor for width
+    auto descriptor = source_->get_descriptor(id);
+    if (!descriptor.has_value()) {
+        return nullptr;
+    }
+    
+    // Create masked line filled with mask value
+    uint16_t mask_sample = ire_to_sample(mask_ire_);
+    std::vector<uint16_t> masked_line(descriptor->width, mask_sample);
+    
+    // Cache it
+    field_cache[line] = std::move(masked_line);
+    
+    return field_cache[line].data();
+}
+
+const MaskedLineRepresentation::sample_type* 
+MaskedLineRepresentation::get_line_chroma(FieldID id, size_t line) const {
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_line_chroma(id, line);
+    }
+    
+    // If this line shouldn't be masked, return source data
+    if (!should_mask_line(id, line)) {
+        return source_->get_line_chroma(id, line);
+    }
+    
+    // Need to create and cache masked line
+    auto& field_cache = masked_chroma_cache_[id];
+    auto cache_it = field_cache.find(line);
+    
+    if (cache_it != field_cache.end()) {
+        return cache_it->second.data();
+    }
+    
+    // Get source line to determine width
+    const sample_type* source_line = source_->get_line_chroma(id, line);
+    if (!source_line) {
+        return nullptr;
+    }
+    
+    // Get field descriptor for width
+    auto descriptor = source_->get_descriptor(id);
+    if (!descriptor.has_value()) {
+        return nullptr;
+    }
+    
+    // Create masked line filled with mask value
+    uint16_t mask_sample = ire_to_sample(mask_ire_);
+    std::vector<uint16_t> masked_line(descriptor->width, mask_sample);
+    
+    // Cache it
+    field_cache[line] = std::move(masked_line);
+    
+    return field_cache[line].data();
+}
+
+std::vector<MaskedLineRepresentation::sample_type> 
+MaskedLineRepresentation::get_field_luma(FieldID id) const {
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_field_luma(id);
+    }
+    
+    auto descriptor = source_->get_descriptor(id);
+    if (!descriptor.has_value()) {
+        return {};
+    }
+    
+    std::vector<sample_type> field_data;
+    field_data.reserve(descriptor->width * descriptor->height);
+    
+    for (size_t line = 0; line < descriptor->height; ++line) {
+        const sample_type* line_data = get_line_luma(id, line);
+        if (line_data) {
+            field_data.insert(field_data.end(), line_data, line_data + descriptor->width);
+        } else {
+            field_data.insert(field_data.end(), descriptor->width, 0);
+        }
+    }
+    
+    return field_data;
+}
+
+std::vector<MaskedLineRepresentation::sample_type> 
+MaskedLineRepresentation::get_field_chroma(FieldID id) const {
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_field_chroma(id);
+    }
+    
+    auto descriptor = source_->get_descriptor(id);
+    if (!descriptor.has_value()) {
+        return {};
+    }
+    
+    std::vector<sample_type> field_data;
+    field_data.reserve(descriptor->width * descriptor->height);
+    
+    for (size_t line = 0; line < descriptor->height; ++line) {
+        const sample_type* line_data = get_line_chroma(id, line);
+        if (line_data) {
+            field_data.insert(field_data.end(), line_data, line_data + descriptor->width);
+        } else {
+            field_data.insert(field_data.end(), descriptor->width, 0);
+        }
+    }
+    
+    return field_data;
+}
+
 // ===== MaskLineStage Implementation =====
 
 std::vector<ArtifactPtr> MaskLineStage::execute(

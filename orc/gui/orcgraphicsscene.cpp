@@ -24,6 +24,12 @@ OrcGraphicsScene::OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent)
     : QtNodes::BasicGraphicsScene(graphModel, parent)
     , graph_model_(graphModel)
 {
+    // Disable BSP indexing for dynamic node graph to prevent BSP tree crashes
+    // See: https://doc.qt.io/qt-6/qgraphicsscene.html#ItemIndexMethod-enum
+    // Node graphs have frequent add/remove/update operations which can cause
+    // stale BSP tree entries and crashes during paint traversal
+    setItemIndexMethod(QGraphicsScene::NoIndex);
+    
     // Set custom node painter that distinguishes "one" vs "many" ports
     setNodePainter(std::make_unique<OrcNodePainter>());
     

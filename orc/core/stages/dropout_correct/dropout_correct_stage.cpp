@@ -92,14 +92,26 @@ CorrectedVideoFieldRepresentation::CorrectedVideoFieldRepresentation(
     , stage_(stage)
     , highlight_corrections_(highlight_corrections)
     , corrected_fields_(MAX_CACHED_FIELDS)  // Initialize LRU cache with max size
+    , corrected_luma_fields_(MAX_CACHED_FIELDS)  // For YC sources
+    , corrected_chroma_fields_(MAX_CACHED_FIELDS)  // For YC sources
 {
 }
 
 void CorrectedVideoFieldRepresentation::ensure_field_corrected(FieldID field_id) const {
     // Check if field data is in cache - if so, nothing to do
+    // For YC sources, check both luma and chroma caches
     // The LRU cache handles access tracking automatically
-    if (corrected_fields_.contains(field_id)) {
-        return;
+    
+    if (source_->has_separate_channels()) {
+        // YC source - check dual caches
+        if (corrected_luma_fields_.contains(field_id) && corrected_chroma_fields_.contains(field_id)) {
+            return;  // Both channels already processed
+        }
+    } else {
+        // Composite source - check single cache
+        if (corrected_fields_.contains(field_id)) {
+            return;  // Already processed
+        }
     }
     
     ORC_LOG_DEBUG("CorrectedVideoFieldRepresentation: processing field {} (NOT in cache)", field_id.value());
@@ -140,6 +152,104 @@ std::vector<uint16_t> CorrectedVideoFieldRepresentation::get_field(FieldID id) c
     // Assemble field from individual lines (corrected where applicable)
     for (size_t line = 0; line < desc_opt->height; ++line) {
         const uint16_t* line_data = get_line(id, line);
+        field_data.insert(field_data.end(), line_data, line_data + desc_opt->width);
+    }
+    
+    return field_data;
+}
+
+// ========================================================================
+// DUAL-CHANNEL ACCESS - For YC sources
+// ========================================================================
+
+const uint16_t* CorrectedVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
+    // If source doesn't have separate channels, use default behavior
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_line_luma(id, line);
+    }
+    
+    // Ensure this field has been corrected (lazy processing)
+    ensure_field_corrected(id);
+    
+    // Check if we have a corrected version of this field in luma cache
+    const auto* cached_field = corrected_luma_fields_.get_ptr(id);
+    if (cached_field && !cached_field->empty()) {
+        // Return pointer to line within the cached corrected luma field data
+        auto descriptor = source_->get_descriptor(id);
+        if (descriptor && line < descriptor->height) {
+            return &(*cached_field)[line * descriptor->width];
+        }
+    }
+    
+    // Return original luma line (no corrections for this field, or cache miss)
+    return source_->get_line_luma(id, line);
+}
+
+const uint16_t* CorrectedVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
+    // If source doesn't have separate channels, use default behavior
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_line_chroma(id, line);
+    }
+    
+    // Ensure this field has been corrected (lazy processing)
+    ensure_field_corrected(id);
+    
+    // Check if we have a corrected version of this field in chroma cache
+    const auto* cached_field = corrected_chroma_fields_.get_ptr(id);
+    if (cached_field && !cached_field->empty()) {
+        // Return pointer to line within the cached corrected chroma field data
+        auto descriptor = source_->get_descriptor(id);
+        if (descriptor && line < descriptor->height) {
+            return &(*cached_field)[line * descriptor->width];
+        }
+    }
+    
+    // Return original chroma line (no corrections for this field, or cache miss)
+    return source_->get_line_chroma(id, line);
+}
+
+std::vector<uint16_t> CorrectedVideoFieldRepresentation::get_field_luma(FieldID id) const {
+    // If source doesn't have separate channels, use default behavior
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_field_luma(id);
+    }
+    
+    // Get descriptor to know field dimensions
+    auto desc_opt = source_->get_descriptor(id);
+    if (!desc_opt) {
+        return {};
+    }
+    
+    std::vector<uint16_t> field_data;
+    field_data.reserve(desc_opt->width * desc_opt->height);
+    
+    // Assemble field from individual lines (corrected where applicable)
+    for (size_t line = 0; line < desc_opt->height; ++line) {
+        const uint16_t* line_data = get_line_luma(id, line);
+        field_data.insert(field_data.end(), line_data, line_data + desc_opt->width);
+    }
+    
+    return field_data;
+}
+
+std::vector<uint16_t> CorrectedVideoFieldRepresentation::get_field_chroma(FieldID id) const {
+    // If source doesn't have separate channels, use default behavior
+    if (!source_ || !source_->has_separate_channels()) {
+        return VideoFieldRepresentationWrapper::get_field_chroma(id);
+    }
+    
+    // Get descriptor to know field dimensions
+    auto desc_opt = source_->get_descriptor(id);
+    if (!desc_opt) {
+        return {};
+    }
+    
+    std::vector<uint16_t> field_data;
+    field_data.reserve(desc_opt->width * desc_opt->height);
+    
+    // Assemble field from individual lines (corrected where applicable)
+    for (size_t line = 0; line < desc_opt->height; ++line) {
+        const uint16_t* line_data = get_line_chroma(id, line);
         field_data.insert(field_data.end(), line_data, line_data + desc_opt->width);
     }
     
@@ -273,7 +383,8 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
     FieldID field_id,
     uint32_t line,
     const DropoutRegion& dropout,
-    bool intrafield) const
+    bool intrafield,
+    Channel channel) const
 {
     ReplacementLine best;
     best.found = false;
@@ -286,38 +397,55 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
     }
     const auto& descriptor = *descriptor_opt;
     
+    // Helper lambda to get line data based on channel type
+    auto get_line_for_channel = [&source, channel](FieldID fid, size_t line_num) -> const uint16_t* {
+        switch (channel) {
+            case Channel::LUMA:
+                return source.get_line_luma(fid, line_num);
+            case Channel::CHROMA:
+                return source.get_line_chroma(fid, line_num);
+            case Channel::COMPOSITE:
+            default:
+                return source.get_line(fid, line_num);
+        }
+    };
+    
     if (intrafield) {
         // Search nearby lines in the same field
         for (uint32_t dist = 1; dist <= config_.max_replacement_distance; ++dist) {
             // Try line above
             if (line >= dist) {
                 uint32_t candidate_line = line - dist;
-                const uint16_t* candidate_data = source.get_line(field_id, candidate_line);
-                double quality = calculate_line_quality(candidate_data, descriptor.width, dropout);
-                
-                if (quality > best.quality) {
-                    best.found = true;
-                    best.source_field = field_id;
-                    best.source_line = candidate_line;
-                    best.quality = quality;
-                    best.distance = dist;
-                    best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
+                const uint16_t* candidate_data = get_line_for_channel(field_id, candidate_line);
+                if (candidate_data) {  // Check for null (important for YC sources)
+                    double quality = calculate_line_quality(candidate_data, descriptor.width, dropout);
+                    
+                    if (quality > best.quality) {
+                        best.found = true;
+                        best.source_field = field_id;
+                        best.source_line = candidate_line;
+                        best.quality = quality;
+                        best.distance = dist;
+                        best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
+                    }
                 }
             }
             
             // Try line below
             if (line + dist < descriptor.height) {
                 uint32_t candidate_line = line + dist;
-                const uint16_t* candidate_data = source.get_line(field_id, candidate_line);
-                double quality = calculate_line_quality(candidate_data, descriptor.width, dropout);
-                
-                if (quality > best.quality) {
-                    best.found = true;
-                    best.source_field = field_id;
-                    best.source_line = candidate_line;
-                    best.quality = quality;
-                    best.distance = dist;
-                    best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
+                const uint16_t* candidate_data = get_line_for_channel(field_id, candidate_line);
+                if (candidate_data) {  // Check for null (important for YC sources)
+                    double quality = calculate_line_quality(candidate_data, descriptor.width, dropout);
+                    
+                    if (quality > best.quality) {
+                        best.found = true;
+                        best.source_field = field_id;
+                        best.source_line = candidate_line;
+                        best.quality = quality;
+                        best.distance = dist;
+                        best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
+                    }
                 }
             }
         }
@@ -328,15 +456,17 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
         
         auto other_descriptor_opt = source.get_descriptor(other_field);
         if (other_descriptor_opt && line < other_descriptor_opt->height) {
-            const uint16_t* candidate_data = source.get_line(other_field, line);
-            double quality = calculate_line_quality(candidate_data, descriptor.width, dropout);
-            
-            best.found = true;
-            best.source_field = other_field;
-            best.source_line = line;
-            best.quality = quality;
-            best.distance = 1;  // One field away
-            best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
+            const uint16_t* candidate_data = get_line_for_channel(other_field, line);
+            if (candidate_data) {  // Check for null (important for YC sources)
+                double quality = calculate_line_quality(candidate_data, descriptor.width, dropout);
+                
+                best.found = true;
+                best.source_field = other_field;
+                best.source_line = line;
+                best.quality = quality;
+                best.distance = 1;  // One field away
+                best.cached_data = candidate_data;  // OPTIMIZATION: Cache the data pointer
+            }
         }
     }
     
@@ -426,10 +556,132 @@ void DropoutCorrectStage::correct_single_field(
     if (dropouts.empty()) {
         ORC_LOG_DEBUG("DropoutCorrectStage: field {} has no dropouts - storing empty marker", field_id.value());
         // Store a marker (empty vector) to indicate this field was processed but has no corrections
-        corrected->corrected_fields_.put(field_id, std::vector<uint16_t>());
+        if (source->has_separate_channels()) {
+            corrected->corrected_luma_fields_.put(field_id, std::vector<uint16_t>());
+            corrected->corrected_chroma_fields_.put(field_id, std::vector<uint16_t>());
+        } else {
+            corrected->corrected_fields_.put(field_id, std::vector<uint16_t>());
+        }
         return;
     }
     
+    // Check if source has separate channels (YC source)
+    if (source->has_separate_channels()) {
+        // YC SOURCE PATH - process Y and C independently
+        ORC_LOG_DEBUG("DropoutCorrectStage: YC source detected - processing Y and C independently");
+        
+        // Initialize luma field data
+        std::vector<uint16_t> luma_field_data;
+        luma_field_data.reserve(descriptor.width * descriptor.height);
+        for (uint32_t line = 0; line < descriptor.height; ++line) {
+            const uint16_t* line_data = source->get_line_luma(field_id, line);
+            if (line_data) {
+                luma_field_data.insert(luma_field_data.end(), line_data, line_data + descriptor.width);
+            } else {
+                // Fallback: insert black line if no data
+                luma_field_data.insert(luma_field_data.end(), descriptor.width, 0);
+            }
+        }
+        
+        // Initialize chroma field data
+        std::vector<uint16_t> chroma_field_data;
+        chroma_field_data.reserve(descriptor.width * descriptor.height);
+        for (uint32_t line = 0; line < descriptor.height; ++line) {
+            const uint16_t* line_data = source->get_line_chroma(field_id, line);
+            if (line_data) {
+                chroma_field_data.insert(chroma_field_data.end(), line_data, line_data + descriptor.width);
+            } else {
+                // Fallback: insert black line if no data
+                chroma_field_data.insert(chroma_field_data.end(), descriptor.width, 0);
+            }
+        }
+        
+        // Apply overcorrection if configured
+        std::vector<DropoutRegion> processed_dropouts = dropouts;
+        if (config_.overcorrect_extension > 0) {
+            for (auto& dropout : processed_dropouts) {
+                if (dropout.start_sample > config_.overcorrect_extension) {
+                    dropout.start_sample -= config_.overcorrect_extension;
+                } else {
+                    dropout.start_sample = 0;
+                }
+                
+                if (dropout.end_sample + config_.overcorrect_extension < descriptor.width) {
+                    dropout.end_sample += config_.overcorrect_extension;
+                } else {
+                    dropout.end_sample = static_cast<uint32_t>(descriptor.width);
+                }
+            }
+        }
+        
+        // Split dropouts by location
+        auto split_dropouts = split_dropout_regions(processed_dropouts, descriptor);
+        ORC_LOG_DEBUG("DropoutCorrectStage: split into {} dropout regions", split_dropouts.size());
+        
+        // Process each dropout on both Y and C channels
+        size_t luma_corrections = 0;
+        size_t chroma_corrections = 0;
+        
+        for (const auto& dropout : split_dropouts) {
+            // Correct luma channel
+            uint16_t* luma_line_data = &luma_field_data[dropout.line * descriptor.width];
+            bool use_intrafield = config_.intrafield_only;
+            
+            // Find replacement using luma channel
+            auto luma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield, Channel::LUMA);
+            if (!luma_replacement.found && !config_.intrafield_only) {
+                luma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false, Channel::LUMA);
+            }
+            
+            if (luma_replacement.found) {
+                // Get replacement luma line data
+                const uint16_t* replacement_luma = source->get_line_luma(luma_replacement.source_field, luma_replacement.source_line);
+                
+                for (uint32_t sample = dropout.start_sample; sample <= dropout.end_sample && sample < descriptor.width; ++sample) {
+                    if (corrected->highlight_corrections_) {
+                        luma_line_data[sample] = 65535;
+                    } else {
+                        luma_line_data[sample] = replacement_luma[sample];
+                    }
+                }
+                luma_corrections++;
+            }
+            
+            // Correct chroma channel (same dropout map, independent replacement search)
+            uint16_t* chroma_line_data = &chroma_field_data[dropout.line * descriptor.width];
+            
+            // Find replacement using chroma channel
+            auto chroma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield, Channel::CHROMA);
+            if (!chroma_replacement.found && !config_.intrafield_only) {
+                chroma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false, Channel::CHROMA);
+            }
+            
+            if (chroma_replacement.found) {
+                // Get replacement chroma line data
+                const uint16_t* replacement_chroma = source->get_line_chroma(chroma_replacement.source_field, chroma_replacement.source_line);
+                
+                for (uint32_t sample = dropout.start_sample; sample <= dropout.end_sample && sample < descriptor.width; ++sample) {
+                    if (corrected->highlight_corrections_) {
+                        chroma_line_data[sample] = 65535;
+                    } else {
+                        chroma_line_data[sample] = replacement_chroma[sample];
+                    }
+                }
+                chroma_corrections++;
+            }
+        }
+        
+        // Store corrected Y and C fields in dual caches
+        corrected->corrected_luma_fields_.put(field_id, std::move(luma_field_data));
+        corrected->corrected_chroma_fields_.put(field_id, std::move(chroma_field_data));
+        
+        ORC_LOG_DEBUG("DropoutCorrectStage: YC field {} complete - Y: {}/{} corrections, C: {}/{} corrections",
+                      field_id.value(), luma_corrections, split_dropouts.size(), 
+                      chroma_corrections, split_dropouts.size());
+        return;
+    }
+    
+    // COMPOSITE SOURCE PATH (existing code)
     // OPTIMIZATION: Only copy field data when corrections are actually needed
     // Initialize field data - copy ALL source lines (needed for corrections)
     std::vector<uint16_t> field_data;

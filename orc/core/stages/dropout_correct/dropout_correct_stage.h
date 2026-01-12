@@ -71,6 +71,12 @@ public:
     const uint16_t* get_line(FieldID id, size_t line) const override;
     std::vector<uint16_t> get_field(FieldID id) const override;
     
+    // Dual-channel access methods for YC sources
+    const uint16_t* get_line_luma(FieldID id, size_t line) const override;
+    const uint16_t* get_line_chroma(FieldID id, size_t line) const override;
+    std::vector<uint16_t> get_field_luma(FieldID id) const override;
+    std::vector<uint16_t> get_field_chroma(FieldID id) const override;
+    
     // Override dropout hints - after correction, there are no dropouts
     // (the output of this stage has corrected data, so hints describe the output)
     std::vector<DropoutRegion> get_dropout_hints(FieldID /*id*/) const override {
@@ -92,10 +98,18 @@ private:
     bool highlight_corrections_;
     
     // Corrected field data - LRU cache of whole fields for fast access
-    // Cache size: 300 fields × ~1.4MB/field = ~420MB max
+    // For composite sources: single cache
+    // For YC sources: dual caches (luma and chroma)
+    // Cache size: 300 fields × ~1.4MB/field = ~420MB max (composite)
+    //           or 300 fields × 2 × ~1.4MB/field = ~840MB max (YC sources)
     // For 200,000 field videos, this caches ~0.15% of total, focused on preview navigation area
     // Cache also serves as the "processed" indicator - if field is in cache, it's been processed
     mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_fields_;
+    
+    // Dual caches for YC sources (separate Y and C corrections)
+    mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_luma_fields_;
+    mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_chroma_fields_;
+    
     static constexpr size_t MAX_CACHED_FIELDS = 300;
     
     // Ensure field is corrected (lazy)
@@ -185,6 +199,13 @@ private:
         UNKNOWN
     };
     
+    /// Channel type for YC source replacement line search
+    enum class Channel {
+        COMPOSITE,  // For composite sources (use get_line)
+        LUMA,       // For YC sources, luma channel (use get_line_luma)
+        CHROMA      // For YC sources, chroma channel (use get_line_chroma)
+    };
+    
     /// Classify a dropout region by location
     DropoutLocation classify_dropout(const DropoutRegion& dropout, const FieldDescriptor& descriptor) const;
     
@@ -211,7 +232,8 @@ private:
         FieldID field_id,
         uint32_t line,
         const DropoutRegion& dropout,
-        bool intrafield) const;
+        bool intrafield,
+        Channel channel = Channel::COMPOSITE) const;
     
     /// Apply a single dropout correction
     void apply_correction(

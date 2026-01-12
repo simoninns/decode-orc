@@ -694,7 +694,15 @@ void DropoutEditorDialog::loadField(uint64_t field_id)
 
     // Get field data from source
     orc::FieldID fid(field_id);
-    auto field_samples = source_repr_->get_field(fid);
+    
+    // For YC sources, use the luma channel for dropout editing
+    // (dropouts apply to both Y and C channels, so we edit using Y only)
+    std::vector<uint16_t> field_samples;
+    if (source_repr_->has_separate_channels()) {
+        field_samples = source_repr_->get_field_luma(fid);
+    } else {
+        field_samples = source_repr_->get_field(fid);
+    }
     
     // Convert to 8-bit grayscale for display
     // Assuming samples are in range [0, 65535] for 16-bit

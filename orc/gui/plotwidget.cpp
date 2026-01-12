@@ -62,6 +62,9 @@ void PlotWidget::setupView()
     m_mainLayout->setContentsMargins(0, 0, 0, 0);
     
     m_scene = new QGraphicsScene(this);
+    // Disable BSP indexing for dynamic plot scenes to prevent crashes
+    m_scene->setItemIndexMethod(QGraphicsScene::NoIndex);
+    
     m_view = new QGraphicsView(m_scene, this);
     
     m_view->setRenderHint(QPainter::Antialiasing, true);

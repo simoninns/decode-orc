@@ -189,7 +189,7 @@ public:
     static size_t max_input_count() { return 16; }
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 

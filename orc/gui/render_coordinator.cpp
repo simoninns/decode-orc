@@ -580,14 +580,79 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
             throw std::runtime_error("Line number out of bounds");
         }
         
-        // Get the line data
-        const uint16_t* line_data = repr->get_line(field_id, req.line_number);
-        if (!line_data) {
-            throw std::runtime_error("Line data not available");
-        }
+        // Check if this is a YC source
+        bool is_yc_source = repr->has_separate_channels();
         
-        // Copy the line samples
-        std::vector<uint16_t> samples(line_data, line_data + descriptor->width);
+        std::vector<uint16_t> samples;
+        std::vector<uint16_t> y_samples;
+        std::vector<uint16_t> c_samples;
+        
+        if (is_yc_source) {
+            // YC source - get Y and C separately
+            ORC_LOG_DEBUG("Requesting Y line for field {} line {}", field_id.value(), req.line_number);
+            const uint16_t* y_line_data = repr->get_line_luma(field_id, req.line_number);
+            ORC_LOG_DEBUG("Y pointer: {}, first 5 values: {} {} {} {} {}", 
+                          static_cast<const void*>(y_line_data),
+                          y_line_data ? y_line_data[0] : 0,
+                          y_line_data ? y_line_data[1] : 0,
+                          y_line_data ? y_line_data[2] : 0,
+                          y_line_data ? y_line_data[3] : 0,
+                          y_line_data ? y_line_data[4] : 0);
+            
+            ORC_LOG_DEBUG("Requesting C line for field {} line {}", field_id.value(), req.line_number);
+            const uint16_t* c_line_data = repr->get_line_chroma(field_id, req.line_number);
+            ORC_LOG_DEBUG("C pointer: {}, first 5 values: {} {} {} {} {}", 
+                          static_cast<const void*>(c_line_data),
+                          c_line_data ? c_line_data[0] : 0,
+                          c_line_data ? c_line_data[1] : 0,
+                          c_line_data ? c_line_data[2] : 0,
+                          c_line_data ? c_line_data[3] : 0,
+                          c_line_data ? c_line_data[4] : 0);
+            
+            if (!y_line_data || !c_line_data) {
+                throw std::runtime_error("Y or C line data not available");
+            }
+            
+            // Copy the line samples
+            y_samples.assign(y_line_data, y_line_data + descriptor->width);
+            c_samples.assign(c_line_data, c_line_data + descriptor->width);
+            
+            // For composite view, also get composite if available
+            const uint16_t* composite_line_data = repr->get_line(field_id, req.line_number);
+            if (composite_line_data) {
+                samples.assign(composite_line_data, composite_line_data + descriptor->width);
+            }
+            
+            // Debug: Check if Y and C data are actually different
+            bool are_different = false;
+            if (y_samples.size() == c_samples.size() && !y_samples.empty()) {
+                for (size_t i = 0; i < std::min(size_t(10), y_samples.size()); ++i) {
+                    if (y_samples[i] != c_samples[i]) {
+                        are_different = true;
+                        break;
+                    }
+                }
+                if (!are_different) {
+                    ORC_LOG_WARN("RenderCoordinator: Y and C samples appear identical! First 10 Y: {} {} {} {} {}, C: {} {} {} {} {}",
+                                 y_samples[0], y_samples[1], y_samples[2], y_samples[3], y_samples[4],
+                                 c_samples[0], c_samples[1], c_samples[2], c_samples[3], c_samples[4]);
+                }
+            }
+            
+            ORC_LOG_DEBUG("RenderCoordinator: Retrieved {} Y samples and {} C samples from YC source (different: {})",
+                          y_samples.size(), c_samples.size(), are_different);
+        } else {
+            // Composite source - get standard line
+            const uint16_t* line_data = repr->get_line(field_id, req.line_number);
+            if (!line_data) {
+                throw std::runtime_error("Line data not available");
+            }
+            
+            // Copy the line samples
+            samples.assign(line_data, line_data + descriptor->width);
+            
+            ORC_LOG_DEBUG("RenderCoordinator: Retrieved {} composite samples", samples.size());
+        }
         
         // Get video parameters for markers
         auto video_params = repr->get_video_parameters();
@@ -608,11 +673,12 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
             actual_sample_x = static_cast<int>(descriptor->width) - 1;
         }
         
-        ORC_LOG_DEBUG("RenderCoordinator: Retrieved {} samples from line {}, sample_x {} (preview width {}, field width {}, mapped to {})", 
-                      samples.size(), req.line_number, req.sample_x, req.preview_image_width, descriptor->width, actual_sample_x);
+        ORC_LOG_DEBUG("RenderCoordinator: sample_x {} (preview width {}, field width {}, mapped to {})", 
+                      req.sample_x, req.preview_image_width, descriptor->width, actual_sample_x);
         
-        // Emit result on GUI thread
-        emit lineSamplesReady(req.request_id, req.output_index, req.line_number, actual_sample_x, std::move(samples), video_params);
+        // Emit result on GUI thread with Y and C samples
+        emit lineSamplesReady(req.request_id, req.output_index, req.line_number, actual_sample_x, 
+                            std::move(samples), video_params, std::move(y_samples), std::move(c_samples));
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());

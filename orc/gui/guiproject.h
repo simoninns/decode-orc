@@ -58,7 +58,7 @@ public:
      * @param error Optional error message output
      * @return true if successful, false otherwise
      */
-    bool newEmptyProject(const QString& project_name, orc::VideoSystem video_format = orc::VideoSystem::Unknown, QString* error = nullptr);
+    bool newEmptyProject(const QString& project_name, orc::VideoSystem video_format = orc::VideoSystem::Unknown, orc::SourceType source_format = orc::SourceType::Unknown, QString* error = nullptr);
     
     /**
      * @brief Save project to file

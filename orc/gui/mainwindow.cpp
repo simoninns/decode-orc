@@ -48,6 +48,7 @@
 #include <QDir>
 #include <QMenuBar>
 #include <QToolBar>
+#include <QInputDialog>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -338,15 +339,10 @@ void MainWindow::setupMenus()
 {
     auto* file_menu = menuBar()->addMenu("&File");
     
-    // New Project submenu with NTSC and PAL options
-    auto* new_project_menu = file_menu->addMenu("&New Project");
-    
-    auto* new_ntsc_project_action = new_project_menu->addAction("New &NTSC Project...");
-    new_ntsc_project_action->setShortcut(QKeySequence::New);
-    connect(new_ntsc_project_action, &QAction::triggered, this, &MainWindow::onNewNTSCProject);
-    
-    auto* new_pal_project_action = new_project_menu->addAction("New &PAL Project...");
-    connect(new_pal_project_action, &QAction::triggered, this, &MainWindow::onNewPALProject);
+    // New Project action - opens dialog for all four project types
+    auto* new_project_action = file_menu->addAction("&New Project...");
+    new_project_action->setShortcut(QKeySequence::New);
+    connect(new_project_action, &QAction::triggered, this, &MainWindow::onNewProject);
     
     auto* open_project_action = file_menu->addAction("&Open Project...");
     open_project_action->setShortcut(QKeySequence::Open);
@@ -424,18 +420,8 @@ void MainWindow::setupToolbar()
 
 void MainWindow::onNewProject()
 {
-    // Default to NTSC for backward compatibility
-    newProject(orc::VideoSystem::NTSC);
-}
-
-void MainWindow::onNewNTSCProject()
-{
-    newProject(orc::VideoSystem::NTSC);
-}
-
-void MainWindow::onNewPALProject()
-{
-    newProject(orc::VideoSystem::PAL);
+    // Show selection dialog for all four project types
+    newProject();
 }
 
 void MainWindow::onOpenProject()
@@ -595,11 +581,41 @@ void MainWindow::closeAllDialogs()
     burst_level_progress_dialogs_.clear();
 }
 
-void MainWindow::newProject(orc::VideoSystem video_format)
+void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType source_format)
 {
     // Check for unsaved changes before creating new project
     if (!checkUnsavedChanges()) {
         return;
+    }
+    
+    // Show dialog to choose project type if not specified
+    if (video_format == orc::VideoSystem::Unknown || source_format == orc::SourceType::Unknown) {
+        bool ok;
+        
+        // Create dialog with project type options
+        QStringList items;
+        items << "NTSC Composite" << "NTSC YC" << "PAL Composite" << "PAL YC";
+        
+        QString item = QInputDialog::getItem(this, tr("New Project"),
+                                            tr("Select project type:"), items, 0, false, &ok);
+        if (!ok || item.isEmpty()) {
+            return;  // User cancelled
+        }
+        
+        // Parse selection
+        if (item == "NTSC Composite") {
+            video_format = orc::VideoSystem::NTSC;
+            source_format = orc::SourceType::Composite;
+        } else if (item == "NTSC YC") {
+            video_format = orc::VideoSystem::NTSC;
+            source_format = orc::SourceType::YC;
+        } else if (item == "PAL Composite") {
+            video_format = orc::VideoSystem::PAL;
+            source_format = orc::SourceType::Composite;
+        } else if (item == "PAL YC") {
+            video_format = orc::VideoSystem::PAL;
+            source_format = orc::SourceType::YC;
+        }
     }
     
     // Construct a default filename for the new project dialog
@@ -641,7 +657,7 @@ void MainWindow::newProject(orc::VideoSystem video_format)
     QString project_name = QFileInfo(filename).completeBaseName();
     
     QString error;
-    if (!project_.newEmptyProject(project_name, video_format, &error)) {
+    if (!project_.newEmptyProject(project_name, video_format, source_format, &error)) {
         ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
@@ -1174,8 +1190,10 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
         return;
     }
     
-    // Get parameter descriptors with project video format context
-    auto param_descriptors = param_stage->get_parameter_descriptors(project_.coreProject().get_video_format());
+    // Get parameter descriptors with project video format and source type context
+    auto param_descriptors = param_stage->get_parameter_descriptors(
+        project_.coreProject().get_video_format(),
+        project_.coreProject().get_source_type());
     
     if (param_descriptors.empty()) {
         QMessageBox::information(this, "Edit Parameters",
@@ -2996,11 +3014,13 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
 }
 
 void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                                    std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params)
+                                    std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                                    std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples)
 {
     Q_UNUSED(request_id);
     
-    ORC_LOG_DEBUG("Line samples ready: {} samples for field {}, line {}, sample_x={}", samples.size(), field_index, line_number, sample_x);
+    ORC_LOG_DEBUG("Line samples ready: {} samples for field {}, line {}, sample_x={} (YC: Y={}, C={})", 
+                  samples.size(), field_index, line_number, sample_x, y_samples.size(), c_samples.size());
     
     if (!preview_dialog_) {
         return;
@@ -3013,6 +3033,12 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     // Store context for sample marker updates
     last_line_scope_preview_width_ = preview_image_width;
     last_line_scope_samples_count_ = samples.size();
+    if (!samples.empty()) {
+        // Use composite samples if available
+    } else if (!y_samples.empty()) {
+        // Use Y samples for size if no composite
+        last_line_scope_samples_count_ = y_samples.size();
+    }
     
     // Calculate image_y from field_index and line_number based on current output type
     int image_y = 0;
@@ -3060,7 +3086,8 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     // Show the line scope dialog with the samples, including the current node_id
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
-    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params, 
+                                   preview_image_width, original_sample_x, y_samples, c_samples);
 }
 
 void MainWindow::onSampleMarkerMoved(int sample_x)

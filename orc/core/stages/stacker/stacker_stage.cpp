@@ -1263,9 +1263,10 @@ std::vector<uint16_t> StackerStage::diff_dod(
     return result;
 }
 
-std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - stacker works with all formats
+    (void)source_type;     // Unused - stacker works with all source types
     std::vector<ParameterDescriptor> descriptors;
     
     // Stacking mode

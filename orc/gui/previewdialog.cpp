@@ -285,12 +285,18 @@ bool PreviewDialog::isLineScopeVisible() const
 void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                   const std::vector<uint16_t>& samples,
                                   const std::optional<orc::VideoParameters>& video_params,
-                                  int preview_image_width, int original_sample_x)
+                                  int preview_image_width, int original_sample_x,
+                                  const std::vector<uint16_t>& y_samples,
+                                  const std::vector<uint16_t>& c_samples)
 {
     if (line_scope_dialog_) {
         // Store line scope context for cross-hair updates
         current_line_scope_preview_width_ = preview_image_width;
         current_line_scope_samples_count_ = samples.size();
+        if (current_line_scope_samples_count_ == 0 && !y_samples.empty()) {
+            // Use Y samples size if no composite
+            current_line_scope_samples_count_ = y_samples.size();
+        }
         // Note: We don't know the image_y here directly, but MainWindow will update cross-hairs
         
         // Connect navigation signal if not already connected
@@ -303,13 +309,14 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
         
         // Only enable cross-hairs if there's actual data to display
         // For stages like FFmpeg video sync that don't have line data, hide cross-hairs
-        if (samples.empty()) {
+        if (samples.empty() && y_samples.empty() && c_samples.empty()) {
             preview_widget_->setCrosshairsEnabled(false);
         } else {
             preview_widget_->setCrosshairsEnabled(true);
         }
         
-        line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+        line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, 
+                                          preview_image_width, original_sample_x, y_samples, c_samples);
         
         // Just show the dialog - Qt will remember its position
         line_scope_dialog_->show();

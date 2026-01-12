@@ -95,20 +95,37 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
     return {};  // No outputs
 }
 
-std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
-    // Determine available decoder types based on project video format
+    // Determine available decoder types based on project video format AND source type
     std::vector<std::string> decoder_options;
     
     if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
         // PAL-specific decoders
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+        if (source_type == SourceType::YC) {
+            // For YC sources, only pal2d and mono make sense (no comb filtering needed)
+            decoder_options = {"auto", "pal2d", "mono"};
+        } else {
+            // For composite sources, offer all PAL decoders
+            decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+        }
     } else if (project_format == VideoSystem::NTSC) {
         // NTSC-specific decoders
-        decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        if (source_type == SourceType::YC) {
+            // For YC sources, only ntsc2d and mono make sense
+            decoder_options = {"auto", "ntsc2d", "mono"};
+        } else {
+            // For composite sources, offer all NTSC decoders
+            decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        }
     } else {
         // Unknown system - show all (for backwards compatibility or if not set)
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        // But still filter based on source type if known
+        if (source_type == SourceType::YC) {
+            decoder_options = {"auto", "pal2d", "ntsc2d", "mono"};
+        } else {
+            decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        }
     }
     
     std::vector<ParameterDescriptor> params = {
@@ -1739,14 +1756,45 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     }
     
     // Populate vectorscope payload (subsample to keep UI responsive)
-    // Extract from both fields in the interlaced frame
-    result.vectorscope_data = VectorscopeAnalysisTool::extractFromInterlacedRGB(
-        rgb16_data.data(),
-        static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height),
-        field_a_index,
-        2  // sample every other pixel for speed
-    );
+    // For YC sources, pull U/V directly from decoder output to avoid RGB round-trip
+    const uint32_t vectorscope_subsample = 2;  // sample every other pixel for speed
+    if (is_yc_source) {
+        VectorscopeData data;
+        data.width = static_cast<uint32_t>(width);
+        data.height = static_cast<uint32_t>(height);
+        data.field_number = field_a_index;
+        // Rough reserve to reduce reallocations
+        data.samples.reserve((width / static_cast<int32_t>(vectorscope_subsample)) * (height / static_cast<int32_t>(vectorscope_subsample)));
+
+        const double safeIreRange = (ireRange != 0.0) ? ireRange : 1.0;
+        const double uvScale = 32768.0 / safeIreRange;  // Map decoded U/V to vectorscope range
+
+        for (uint8_t field_id = 0; field_id < 2; ++field_id) {
+            for (int32_t y = field_id; y < height; y += static_cast<int32_t>(vectorscope_subsample) * 2) {
+                const double* uLine = frame.u(y);
+                const double* vLine = frame.v(y);
+                if (!uLine || !vLine) {
+                    continue;
+                }
+
+                for (int32_t x = 0; x < width; x += static_cast<int32_t>(vectorscope_subsample)) {
+                    double u_val = uLine[x] * uvScale;
+                    double v_val = vLine[x] * uvScale;
+                    data.samples.push_back({u_val, v_val, field_id});
+                }
+            }
+        }
+        result.vectorscope_data = std::move(data);
+    } else {
+        // Extract from both fields in the interlaced RGB frame (composite sources)
+        result.vectorscope_data = VectorscopeAnalysisTool::extractFromInterlacedRGB(
+            rgb16_data.data(),
+            static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height),
+            field_a_index,
+            vectorscope_subsample
+        );
+    }
     // Attach video parameters needed for graticule targets
     if (result.vectorscope_data.has_value() && cached_input_) {
         auto vparams = cached_input_->get_video_parameters();

@@ -147,7 +147,7 @@ TBCYCVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
     }
     
     // Check if we have the full field cached
-    auto cached_field = y_field_data_cache_.get(id);
+    const auto* cached_field = y_field_data_cache_.get_ptr(id);
     if (cached_field) {
         // Return pointer to the line within the cached field
         size_t width = static_cast<size_t>(video_params_.field_width);
@@ -164,7 +164,7 @@ TBCYCVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
     }
     
     // Cache it for future access
-    y_field_data_cache_.put(id, field_data);
+    y_field_data_cache_.put(id, std::move(field_data));
     
     // Return pointer to the requested line
     size_t width = static_cast<size_t>(video_params_.field_width);
@@ -173,7 +173,7 @@ TBCYCVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
     }
     
     // Get from cache (we just put it there)
-    cached_field = y_field_data_cache_.get(id);
+    cached_field = y_field_data_cache_.get_ptr(id);
     if (!cached_field) {
         return nullptr;
     }
@@ -188,7 +188,7 @@ TBCYCVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
     }
     
     // Check if we have the full field cached
-    auto cached_field = c_field_data_cache_.get(id);
+    const auto* cached_field = c_field_data_cache_.get_ptr(id);
     if (cached_field) {
         // Return pointer to the line within the cached field
         size_t width = static_cast<size_t>(video_params_.field_width);
@@ -205,7 +205,7 @@ TBCYCVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
     }
     
     // Cache it for future access
-    c_field_data_cache_.put(id, field_data);
+    c_field_data_cache_.put(id, std::move(field_data));
     
     // Return pointer to the requested line
     size_t width = static_cast<size_t>(video_params_.field_width);
@@ -214,7 +214,7 @@ TBCYCVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
     }
     
     // Get from cache (we just put it there)
-    cached_field = c_field_data_cache_.get(id);
+    cached_field = c_field_data_cache_.get_ptr(id);
     if (!cached_field) {
         return nullptr;
     }
@@ -235,12 +235,17 @@ TBCYCVideoFieldRepresentation::get_field_luma(FieldID id) const {
     }
     
     // Read from Y file
+    ORC_LOG_DEBUG("TBCYCVideoFieldRepresentation: Reading luma field {} from Y reader", id.value());
     auto field_data = y_reader_->read_field(id);
     
     if (field_data.empty()) {
         ORC_LOG_ERROR("Failed to read luma field {} from Y file", id.value());
         return {};
     }
+    
+    // Debug: Log first few samples
+    ORC_LOG_DEBUG("Luma field {} first samples: {} {} {} {} {}", 
+                  id.value(), field_data[0], field_data[1], field_data[2], field_data[3], field_data[4]);
     
     // Cache and return
     y_field_data_cache_.put(id, field_data);
@@ -260,12 +265,17 @@ TBCYCVideoFieldRepresentation::get_field_chroma(FieldID id) const {
     }
     
     // Read from C file
+    ORC_LOG_DEBUG("TBCYCVideoFieldRepresentation: Reading chroma field {} from C reader", id.value());
     auto field_data = c_reader_->read_field(id);
     
     if (field_data.empty()) {
         ORC_LOG_ERROR("Failed to read chroma field {} from C file", id.value());
         return {};
     }
+    
+    // Debug: Log first few samples
+    ORC_LOG_DEBUG("Chroma field {} first samples: {} {} {} {} {}", 
+                  id.value(), field_data[0], field_data[1], field_data[2], field_data[3], field_data[4]);
     
     // Cache and return
     c_field_data_cache_.put(id, field_data);
@@ -336,16 +346,20 @@ std::shared_ptr<TBCYCVideoFieldRepresentation> create_tbc_yc_representation(
     size_t field_length = params.field_width * params.field_height;
     
     // Open Y (luma) file
+    ORC_LOG_DEBUG("Opening Y (luma) file: {}", y_filename);
     if (!y_reader->open(y_filename, field_length, params.field_width)) {
         ORC_LOG_ERROR("Failed to open Y (luma) TBC file: {}", y_filename);
         return nullptr;
     }
+    ORC_LOG_DEBUG("Y file opened successfully, {} fields detected", y_reader->get_field_count());
     
     // Open C (chroma) file
+    ORC_LOG_DEBUG("Opening C (chroma) file: {}", c_filename);
     if (!c_reader->open(c_filename, field_length, params.field_width)) {
         ORC_LOG_ERROR("Failed to open C (chroma) TBC file: {}", c_filename);
         return nullptr;
     }
+    ORC_LOG_DEBUG("C file opened successfully, {} fields detected", c_reader->get_field_count());
     
     // Validate Y and C files have matching field counts
     size_t y_field_count = y_reader->get_field_count();

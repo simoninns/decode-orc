@@ -850,7 +850,7 @@ void PlotLegend::updateLegend(const QList<PlotSeries*> &series, const QRectF &pl
     QFontMetrics fm(font);
     
     int maxWidth = 0;
-    int totalHeight = 0;
+    int totalHeight = 10; // Top padding
     
     for (PlotSeries *s : series) {
         if (!s->title().isEmpty()) {
@@ -859,6 +859,9 @@ void PlotLegend::updateLegend(const QList<PlotSeries*> &series, const QRectF &pl
             totalHeight += fm.height() + 2;
         }
     }
+    
+    totalHeight += 5; // Bottom padding
+    maxWidth += 10; // Left and right padding (5 on each side)
     
     // Position legend in top-right corner
     m_boundingRect = QRectF(plotRect.right() - maxWidth - 10, 

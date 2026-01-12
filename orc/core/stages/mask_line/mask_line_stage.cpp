@@ -405,9 +405,10 @@ std::shared_ptr<const VideoFieldRepresentation> MaskLineStage::process(
         source, line_spec_, mask_ire_);
 }
 
-std::vector<ParameterDescriptor> MaskLineStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> MaskLineStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - mask line works with all formats
+    (void)source_type;     // Unused - mask line works with all source types
     
     return {
         ParameterDescriptor{

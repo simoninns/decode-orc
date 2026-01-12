@@ -116,9 +116,10 @@ std::optional<VideoParameters> VideoParamsStage::build_video_parameters(
     return params;
 }
 
-std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - video params works with all formats
+    (void)source_type;     // Unused - video params works with all source types
     
     return {
         ParameterDescriptor{

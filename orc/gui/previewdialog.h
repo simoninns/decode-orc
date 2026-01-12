@@ -84,11 +84,15 @@ public:
      * @param sample_x Sample X position that was clicked
      * @param samples Vector of 16-bit samples for the line
      * @param video_params Optional video parameters for region markers
+     * @param y_samples Optional Y channel samples for YC sources
+     * @param c_samples Optional C channel samples for YC sources
      */
     void showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::VideoParameters>& video_params,
-                       int preview_image_width, int original_sample_x);
+                       int preview_image_width, int original_sample_x,
+                       const std::vector<uint16_t>& y_samples = {},
+                       const std::vector<uint16_t>& c_samples = {});
     
     /**
      * @brief Close all child dialogs (e.g., line scope)

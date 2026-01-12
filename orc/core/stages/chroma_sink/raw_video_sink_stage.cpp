@@ -38,10 +38,10 @@ NodeTypeInfo RawVideoSinkStage::get_node_type_info() const
     };
 }
 
-std::vector<ParameterDescriptor> RawVideoSinkStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> RawVideoSinkStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     // Get base parameters from ChromaSinkStage
-    auto params = ChromaSinkStage::get_parameter_descriptors(project_format);
+    auto params = ChromaSinkStage::get_parameter_descriptors(project_format, source_type);
     
     // Filter out FFmpeg-specific parameters and modify output_format
     std::vector<ParameterDescriptor> filtered_params;

@@ -70,9 +70,10 @@ std::vector<ArtifactPtr> LDSinkStage::execute(
     return {};  // No outputs
 }
 
-std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> LDSinkStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
-    (void)project_format;  // Unused - LD sink works with all formats
+    (void)project_format;
+    (void)source_type;  // Unused - LD sink works with all formats
     return {
         ParameterDescriptor{
             "output_path",

@@ -494,9 +494,10 @@ std::vector<ArtifactPtr> FieldMapStage::execute(
     return {result};
 }
 
-std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - field map works with all formats
+    (void)source_type;     // Unused - field map works with all source types
     return {
         ParameterDescriptor{
             "ranges",

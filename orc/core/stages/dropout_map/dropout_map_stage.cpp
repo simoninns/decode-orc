@@ -121,7 +121,7 @@ std::vector<ArtifactPtr> DropoutMapStage::execute(
 // Parameter Interface Implementation
 // ============================================================================
 
-std::vector<ParameterDescriptor> DropoutMapStage::get_parameter_descriptors(VideoSystem /*project_format*/) const
+std::vector<ParameterDescriptor> DropoutMapStage::get_parameter_descriptors(VideoSystem /*project_format*/, SourceType /*source_type*/) const
 {
     std::vector<ParameterDescriptor> descriptors;
     

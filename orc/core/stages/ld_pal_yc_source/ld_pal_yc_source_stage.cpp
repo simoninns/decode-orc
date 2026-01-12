@@ -140,9 +140,10 @@ std::vector<ArtifactPtr> LDPALYCSourceStage::execute(
     }
 }
 
-std::vector<ParameterDescriptor> LDPALYCSourceStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> LDPALYCSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - source stages don't need project format
+    (void)source_type;     // Unused - source stages define the source type
     std::vector<ParameterDescriptor> descriptors;
     
     // y_path parameter

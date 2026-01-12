@@ -49,8 +49,9 @@ std::vector<ArtifactPtr> AudioSinkStage::execute(
     return {};
 }
 
-std::vector<ParameterDescriptor> AudioSinkStage::get_parameter_descriptors(VideoSystem project_format) const {
+std::vector<ParameterDescriptor> AudioSinkStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const {
     (void)project_format;
+    (void)source_type;
     std::vector<ParameterDescriptor> descriptors;
     
     // output_path parameter

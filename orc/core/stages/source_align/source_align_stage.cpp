@@ -514,9 +514,10 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
     return outputs;
 }
 
-std::vector<ParameterDescriptor> SourceAlignStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> SourceAlignStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - source align works with all formats
+    (void)source_type;     // Unused - source align works with all source types
     return {
         ParameterDescriptor{
             "alignmentMap",

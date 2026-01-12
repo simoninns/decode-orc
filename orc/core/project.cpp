@@ -60,6 +60,26 @@ bool Project::has_source() const
     return false;
 }
 
+SourceType Project::get_source_type() const
+{
+    // Check all source nodes to determine the type
+    for (const auto& node : nodes_) {
+        if (node.node_type == NodeType::SOURCE) {
+            // YC sources have "YC" in their stage name
+            if (node.stage_name.find("YC") != std::string::npos ||
+                node.stage_name.find("Yc") != std::string::npos ||
+                node.stage_name.find("yc") != std::string::npos) {
+                return SourceType::YC;
+            }
+            // Composite sources (LDPALSource, LDNTSCSource, etc.)
+            else if (node.stage_name.find("Source") != std::string::npos) {
+                return SourceType::Composite;
+            }
+        }
+    }
+    return SourceType::Unknown;
+}
+
 namespace project_io {
 
 namespace {
@@ -75,6 +95,23 @@ std::string node_type_to_string(NodeType type) {
         case NodeType::COMPLEX: return "COMPLEX";
         default: return "UNKNOWN";
     }
+}
+
+// Convert SourceType to string for serialization
+std::string source_type_to_string(SourceType type) {
+    switch (type) {
+        case SourceType::Composite: return "Composite";
+        case SourceType::YC: return "YC";
+        case SourceType::Unknown: return "Unknown";
+        default: return "Unknown";
+    }
+}
+
+// Convert string to SourceType for deserialization
+SourceType source_type_from_string(const std::string& str) {
+    if (str == "Composite") return SourceType::Composite;
+    if (str == "YC") return SourceType::YC;
+    return SourceType::Unknown;
 }
 
 // Convert string to NodeType for deserialization
@@ -125,6 +162,19 @@ Project load_project(const std::string& filename) {
     if (project.video_format_ == VideoSystem::Unknown && format_str != "Unknown") {
         throw std::runtime_error("Invalid project file '" + filename + "': invalid video_format '" + format_str + "'. "
                                "Valid values are: NTSC, PAL, PAL-M, or Unknown");
+    }
+    
+    // Load source format (required)
+    if (!root["project"]["source_format"]) {
+        throw std::runtime_error("Invalid project file '" + filename + "': missing required 'source_format' field. "
+                               "Please create a new project or manually add 'source_format: Composite' or 'source_format: YC' to the project section.");
+    }
+    
+    std::string source_format_str = root["project"]["source_format"].as<std::string>();
+    project.source_format_ = source_type_from_string(source_format_str);
+    if (project.source_format_ == SourceType::Unknown && source_format_str != "Unknown") {
+        throw std::runtime_error("Invalid project file '" + filename + "': invalid source_format '" + source_format_str + "'. "
+                               "Valid values are: Composite, YC, or Unknown");
     }
     
     // Load DAG nodes
@@ -264,6 +314,11 @@ void save_project(const Project& project, const std::string& filename) {
         out << YAML::Key << "video_format" << YAML::Value << video_system_to_string(project.video_format_);
     }
     
+    // Save source format if set
+    if (project.source_format_ != SourceType::Unknown) {
+        out << YAML::Key << "source_format" << YAML::Value << source_type_to_string(project.source_format_);
+    }
+    
     out << YAML::EndMap;
     
     // DAG
@@ -348,11 +403,12 @@ void save_project(const Project& project, const std::string& filename) {
     project.clear_modified_flag();
 }
 
-Project create_empty_project(const std::string& project_name, VideoSystem video_format) {
+Project create_empty_project(const std::string& project_name, VideoSystem video_format, SourceType source_format) {
     Project project;
     project.name_ = project_name;
     project.version_ = "1.0";
     project.video_format_ = video_format;
+    project.source_format_ = source_format;
     // Empty sources, nodes_, and edges
     return project;
 }
@@ -418,6 +474,39 @@ NodeID add_node(Project& project, const std::string& stage_name, double x_positi
     const NodeTypeInfo* type_info = get_node_type_info(stage_name);
     if (!type_info) {
         throw std::runtime_error("Invalid stage name: " + stage_name);
+    }
+    
+    // Validate source stage compatibility with project's video and source format
+    if (type_info->type == NodeType::SOURCE) {
+        // Check source_format if set
+        if (project.source_format_ != SourceType::Unknown) {
+            bool is_yc_stage = (stage_name.find("YC") != std::string::npos);
+            SourceType stage_type = is_yc_stage ? SourceType::YC : SourceType::Composite;
+            if (stage_type != project.source_format_) {
+                std::string expected_name = (project.source_format_ == SourceType::YC) ? "YC" : "Composite";
+                std::string stage_type_name = is_yc_stage ? "YC" : "Composite";
+                throw std::runtime_error(
+                    "Cannot add " + stage_type_name + " source stage '" + stage_name +
+                    "' to a project configured for " + expected_name + " sources."
+                );
+            }
+        }
+        
+        // Check video_format if set
+        if (project.video_format_ != VideoSystem::Unknown) {
+            bool is_ntsc_stage = (stage_name.find("NTSC") != std::string::npos);
+            bool is_pal_stage = (stage_name.find("PAL") != std::string::npos);
+            if (is_ntsc_stage && project.video_format_ != VideoSystem::NTSC) {
+                throw std::runtime_error(
+                    "Cannot add NTSC source stage '" + stage_name + "' to a PAL project."
+                );
+            }
+            if (is_pal_stage && !(project.video_format_ == VideoSystem::PAL || project.video_format_ == VideoSystem::PAL_M)) {
+                throw std::runtime_error(
+                    "Cannot add PAL source stage '" + stage_name + "' to an NTSC project."
+                );
+            }
+        }
     }
     
     // Generate unique node ID
@@ -557,6 +646,22 @@ void set_node_parameters(Project& project, NodeID node_id,
                                     " sources, cannot add " + node_it->stage_name + " TBC file."
                                 );
                             }
+                        }
+                    }
+                    
+                    // Validate against project's source_format if set
+                    if (project.source_format_ != SourceType::Unknown) {
+                        bool is_yc_source = (node_it->stage_name.find("YC") != std::string::npos);
+                        SourceType expected_type = is_yc_source ? SourceType::YC : SourceType::Composite;
+                        
+                        if (expected_type != project.source_format_) {
+                            std::string expected_name = (project.source_format_ == SourceType::YC) ? "YC" : "Composite";
+                            std::string actual_name = is_yc_source ? "YC" : "Composite";
+                            throw std::runtime_error(
+                                "Source type mismatch. Project is configured for " + expected_name + 
+                                " sources, but attempting to add " + actual_name + " source (" + 
+                                node_it->stage_name + ")."
+                            );
                         }
                     }
                 } catch (const std::exception& e) {
@@ -705,6 +810,11 @@ void set_project_description(Project& project, const std::string& description) {
 
 void set_video_format(Project& project, VideoSystem video_format) {
     project.video_format_ = video_format;
+    project.is_modified_ = true;
+}
+
+void set_source_format(Project& project, SourceType source_format) {
+    project.source_format_ = source_format;
     project.is_modified_ = true;
 }
 

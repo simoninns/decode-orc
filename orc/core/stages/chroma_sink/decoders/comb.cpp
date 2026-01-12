@@ -643,17 +643,12 @@ Comb::FrameBuffer::Candidate Comb::FrameBuffer::getCandidate(int32_t refLineNumb
 }
 
 namespace {
-    // Information about a line we're decoding.
-    struct BurstInfo {
-        double bsin, bcos;
-    };
-
     // Rotate the burst angle to get the correct values.
     // We do the 33 degree rotation here to avoid computing it for every pixel.
     constexpr double ROTATE_SIN = 0.5446390350150271;
     constexpr double ROTATE_COS = 0.838670567945424;
 
-    BurstInfo detectBurst(const uint16_t* lineData,
+    Comb::BurstInfo detectBurst(const uint16_t* lineData,
                           const ::orc::VideoParameters& videoParameters)
     {
         double bsin = 0, bcos = 0;
@@ -677,8 +672,57 @@ namespace {
         bsin /= burstNorm;
         bcos /= burstNorm;
 
-        const BurstInfo info{bsin, bcos};
+        const Comb::BurstInfo info{bsin, bcos};
         return info;
+    }
+}
+
+// Helper: Demodulate chroma with phase compensation (shared code between composite and YC)
+void Comb::FrameBuffer::demodulateChromaLocked(const uint16_t *chromaLine, int32_t lineNumber,
+                                              const Comb::BurstInfo &burstInfo, double *I, double *Q, int32_t xOffset)
+{
+    for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+        const double cval = static_cast<double>(chromaLine[h]);
+        
+        // Demodulate the sine and cosine components
+        const auto lsin = cval * sin4fsc(h) * 2;
+        const auto lcos = cval * cos4fsc(h) * 2;
+        // Rotate the demodulated vector by the burst phase
+        const auto ti = (lsin * burstInfo.bcos - lcos * burstInfo.bsin);
+        const auto tq = (lsin * burstInfo.bsin + lcos * burstInfo.bcos);
+
+        // Invert Q and rotate to get the correct I/Q vector
+        // TODO: Needed to shift the chroma 1 sample to the right to get it to line up
+        // may not get the first pixel in each line correct because of this
+        if (h + 1 < videoParameters.active_video_end) {
+            I[h + 1 - xOffset] = ti * ROTATE_COS - tq * -ROTATE_SIN;
+            Q[h + 1 - xOffset] = -(ti * -ROTATE_SIN + tq * ROTATE_COS);
+        }
+    }
+}
+
+// Helper: Demodulate chroma without phase compensation (shared code between composite and YC)
+void Comb::FrameBuffer::demodulateChroma(const uint16_t *chromaLine, int32_t lineNumber,
+                                        bool linePhase, double *I, double *Q, int32_t xOffset)
+{
+    double si = 0, sq = 0;
+    for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+        int32_t phase = h % 4;
+
+        double cavg = static_cast<double>(chromaLine[h]);
+
+        if (linePhase) cavg = -cavg;
+
+        switch (phase) {
+            case 0: sq = cavg; break;
+            case 1: si = -cavg; break;
+            case 2: sq = -cavg; break;
+            case 3: si = cavg; break;
+            default: break;
+        }
+
+        I[h - xOffset] = si;
+        Q[h - xOffset] = sq;
     }
 }
 
@@ -698,26 +742,17 @@ void Comb::FrameBuffer::splitIQlocked()
         double *I = componentFrame->u(lineNumber - lineOffset);
         double *Q = componentFrame->v(lineNumber - lineOffset);
 
+        // Build chroma line buffer from comb-filtered chroma
+        std::vector<uint16_t> chromaLine(videoParameters.field_width);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             const auto val = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
-
-            // Demodulate the sine and cosine components.
-            const auto lsin = val * sin4fsc(h) * 2;
-            const auto lcos = val * cos4fsc(h) * 2;
-            // Rotate the demodulated vector by the burst phase.
-            const auto ti = (lsin * info.bcos - lcos * info.bsin);
-            const auto tq = (lsin * info.bsin + lcos * info.bcos);
-
-            // Invert Q and rotate to get the correct I/Q vector.
-            // TODO: Needed to shift the chroma 1 sample to the right to get it to line up
-            // may not get the first pixel in each line correct because of this.
-            if (h + 1 < videoParameters.active_video_end) {
-                I[h + 1 - xOffset] = ti * ROTATE_COS - tq * -ROTATE_SIN;
-                Q[h + 1 - xOffset] = -(ti * -ROTATE_SIN + tq * ROTATE_COS);
-            }
-            // Subtract the split chroma part from the luma signal.
+            chromaLine[h] = static_cast<uint16_t>(val);
+            // Subtract the split chroma part from the luma signal
             Y[h - xOffset] = line[h] - val;
         }
+        
+        // Demodulate chroma to I/Q using shared helper
+        demodulateChromaLocked(chromaLine.data(), lineNumber, info, I, Q, xOffset);
     }
 }
 
@@ -737,26 +772,19 @@ void Comb::FrameBuffer::splitIQ()
 
         bool linePhase = getLinePhase(lineNumber);
 
-        double si = 0, sq = 0;
+        // Copy Y from composite (will be adjusted later in adjustY)
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            int32_t phase = h % 4;
-
-            double cavg = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
-
-            if (linePhase) cavg = -cavg;
-
-            switch (phase) {
-                case 0: sq = cavg; break;
-                case 1: si = -cavg; break;
-                case 2: sq = -cavg; break;
-                case 3: si = cavg; break;
-                default: break;
-            }
-
             Y[h - xOffset] = line[h];
-            I[h - xOffset] = si;
-            Q[h - xOffset] = sq;
         }
+        
+        // Build chroma line buffer from comb-filtered chroma
+        std::vector<uint16_t> chromaLine(videoParameters.field_width);
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+            chromaLine[h] = static_cast<uint16_t>(clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h]);
+        }
+        
+        // Demodulate chroma to I/Q using shared helper
+        demodulateChroma(chromaLine.data(), lineNumber, linePhase, I, Q, xOffset);
     }
 }
 
@@ -837,26 +865,13 @@ void Comb::FrameBuffer::splitIQlocked_YC()
         double *I = componentFrame->u(lineNumber - lineOffset);
         double *Q = componentFrame->v(lineNumber - lineOffset);
 
+        // Y is clean - direct copy from luma_buffer
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            // Y is clean - direct copy from luma_buffer
             Y[h - xOffset] = yLine[h];
-            
-            // Demodulate C to get I/Q
-            const double cval = static_cast<double>(cLine[h]);
-            
-            // Demodulate the sine and cosine components.
-            const auto lsin = cval * sin4fsc(h) * 2;
-            const auto lcos = cval * cos4fsc(h) * 2;
-            // Rotate the demodulated vector by the burst phase.
-            const auto ti = (lsin * info.bcos - lcos * info.bsin);
-            const auto tq = (lsin * info.bsin + lcos * info.bcos);
-
-            // Invert Q and rotate to get the correct I/Q vector.
-            if (h + 1 < videoParameters.active_video_end) {
-                I[h + 1 - xOffset] = ti * ROTATE_COS - tq * -ROTATE_SIN;
-                Q[h + 1 - xOffset] = -(ti * -ROTATE_SIN + tq * ROTATE_COS);
-            }
         }
+        
+        // Demodulate chroma to I/Q using shared helper
+        demodulateChromaLocked(cLine, lineNumber, info, I, Q, xOffset);
     }
 }
 
@@ -878,28 +893,13 @@ void Comb::FrameBuffer::splitIQ_YC()
 
         bool linePhase = getLinePhase(lineNumber);
 
-        double si = 0, sq = 0;
+        // Y is clean - direct copy from luma_buffer
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            int32_t phase = h % 4;
-
-            // Get chroma value from C channel
-            double cavg = static_cast<double>(cLine[h]);
-
-            if (linePhase) cavg = -cavg;
-
-            switch (phase) {
-                case 0: sq = cavg; break;
-                case 1: si = -cavg; break;
-                case 2: sq = -cavg; break;
-                case 3: si = cavg; break;
-                default: break;
-            }
-
-            // Y is clean - direct copy from luma_buffer
             Y[h - xOffset] = yLine[h];
-            I[h - xOffset] = si;
-            Q[h - xOffset] = sq;
         }
+        
+        // Demodulate chroma to I/Q using shared helper
+        demodulateChroma(cLine, lineNumber, linePhase, I, Q, xOffset);
     }
 }
 

@@ -1,14 +1,14 @@
 /*
- * File:        ld_pal_yc_source_stage.cpp
+ * File:        ntsc_yc_source_stage.cpp
  * Module:      orc-core
- * Purpose:     LaserDisc PAL YC source loading stage
+ * Purpose:     NTSC YC source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 
-#include "ld_pal_yc_source_stage.h"
+#include "ntsc_yc_source_stage.h"
 #include "logging.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
@@ -19,25 +19,25 @@
 namespace orc {
 
 // Register this stage with the registry
-ORC_REGISTER_STAGE(LDPALYCSourceStage)
+ORC_REGISTER_STAGE(NTSCYCSourceStage)
 
 // Force linker to include this object file
-void force_link_LDPALYCSourceStage() {}
+void force_link_NTSCYCSourceStage() {}
 
-std::vector<ArtifactPtr> LDPALYCSourceStage::execute(
+std::vector<ArtifactPtr> NTSCYCSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters
 ) {
     // Source stage should have no inputs
     if (!inputs.empty()) {
-        throw std::runtime_error("LDPALYCSource stage should have no inputs");
+        throw std::runtime_error("NTSC_YC_Source stage should have no inputs");
     }
 
     // Get y_path parameter
     auto y_path_it = parameters.find("y_path");
     if (y_path_it == parameters.end() || std::get<std::string>(y_path_it->second).empty()) {
         // No file path configured - return empty artifact (0 fields)
-        ORC_LOG_DEBUG("LDPALYCSource: No y_path configured, returning empty output");
+        ORC_LOG_DEBUG("NTSC_YC_Source: No y_path configured, returning empty output");
         return {};
     }
     std::string y_path = std::get<std::string>(y_path_it->second);
@@ -46,7 +46,7 @@ std::vector<ArtifactPtr> LDPALYCSourceStage::execute(
     auto c_path_it = parameters.find("c_path");
     if (c_path_it == parameters.end() || std::get<std::string>(c_path_it->second).empty()) {
         // No C path configured
-        ORC_LOG_DEBUG("LDPALYCSource: No c_path configured, returning empty output");
+        ORC_LOG_DEBUG("NTSC_YC_Source: No c_path configured, returning empty output");
         return {};
     }
     std::string c_path = std::get<std::string>(c_path_it->second);
@@ -77,12 +77,12 @@ std::vector<ArtifactPtr> LDPALYCSourceStage::execute(
 
     // Check cache
     if (cached_representation_ && cached_y_path_ == y_path && cached_c_path_ == c_path) {
-        ORC_LOG_DEBUG("LDPALYCSource: Using cached representation for {} + {}", y_path, c_path);
+        ORC_LOG_DEBUG("NTSC_YC_Source: Using cached representation for {} + {}", y_path, c_path);
         return {cached_representation_};
     }
 
     // Load the YC files
-    ORC_LOG_INFO("LDPALYCSource: Loading YC files");
+    ORC_LOG_INFO("NTSC_YC_Source: Loading YC files");
     ORC_LOG_DEBUG("  Y file: {}", y_path);
     ORC_LOG_DEBUG("  C file: {}", c_path);
     ORC_LOG_DEBUG("  Database: {}", db_path);
@@ -120,10 +120,9 @@ std::vector<ArtifactPtr> LDPALYCSourceStage::execute(
                     video_params->field_height);
         
         // Check system
-        if (video_params->system != VideoSystem::PAL && 
-            video_params->system != VideoSystem::PAL_M) {
+        if (video_params->system != VideoSystem::NTSC) {
             throw std::runtime_error(
-                "YC files are not PAL format. Use 'Add LD NTSC YC Source' for NTSC files."
+                "YC files are not NTSC format. Use 'Add PAL YC Source' for PAL files."
             );
         }
         
@@ -135,12 +134,12 @@ std::vector<ArtifactPtr> LDPALYCSourceStage::execute(
         return {cached_representation_};
     } catch (const std::exception& e) {
         throw std::runtime_error(
-            std::string("Failed to load PAL YC files '") + y_path + "' + '" + c_path + "': " + e.what()
+            std::string("Failed to load NTSC YC files '") + y_path + "' + '" + c_path + "': " + e.what()
         );
     }
 }
 
-std::vector<ParameterDescriptor> LDPALYCSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
+std::vector<ParameterDescriptor> NTSCYCSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - source stages don't need project format
     (void)source_type;     // Unused - source stages define the source type
@@ -151,7 +150,7 @@ std::vector<ParameterDescriptor> LDPALYCSourceStage::get_parameter_descriptors(V
         ParameterDescriptor desc;
         desc.name = "y_path";
         desc.display_name = "Y (Luma) File Path";
-        desc.description = "Path to the PAL .tbcy (luma) file";
+        desc.description = "Path to the NTSC .tbcy (luma) file";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
         desc.constraints.default_value = std::string("");
@@ -164,7 +163,7 @@ std::vector<ParameterDescriptor> LDPALYCSourceStage::get_parameter_descriptors(V
         ParameterDescriptor desc;
         desc.name = "c_path";
         desc.display_name = "C (Chroma) File Path";
-        desc.description = "Path to the PAL .tbcc (chroma) file";
+        desc.description = "Path to the NTSC .tbcc (chroma) file";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional
         desc.constraints.default_value = std::string("");
@@ -214,7 +213,7 @@ std::vector<ParameterDescriptor> LDPALYCSourceStage::get_parameter_descriptors(V
     return descriptors;
 }
 
-std::map<std::string, ParameterValue> LDPALYCSourceStage::get_parameters() const
+std::map<std::string, ParameterValue> NTSCYCSourceStage::get_parameters() const
 {
     std::map<std::string, ParameterValue> params;
     params["y_path"] = y_path_;
@@ -225,7 +224,7 @@ std::map<std::string, ParameterValue> LDPALYCSourceStage::get_parameters() const
     return params;
 }
 
-bool LDPALYCSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
+bool NTSCYCSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
     // Extract and validate parameters
     auto y_path_it = params.find("y_path");
@@ -271,9 +270,9 @@ bool LDPALYCSourceStage::set_parameters(const std::map<std::string, ParameterVal
     return true;
 }
 
-std::optional<StageReport> LDPALYCSourceStage::generate_report() const {
+std::optional<StageReport> NTSCYCSourceStage::generate_report() const {
     StageReport report;
-    report.summary = "PAL YC Source Status";
+    report.summary = "NTSC YC Source Status";
     
     if (y_path_.empty() || c_path_.empty()) {
         report.items.push_back({"Source Files", "Not configured"});
@@ -316,8 +315,7 @@ std::optional<StageReport> LDPALYCSourceStage::generate_report() const {
                 
                 std::string system_str;
                 switch (video_params->system) {
-                    case VideoSystem::PAL: system_str = "PAL"; break;
-                    case VideoSystem::PAL_M: system_str = "PAL-M"; break;
+                    case VideoSystem::NTSC: system_str = "NTSC"; break;
                     default: system_str = "Unknown"; break;
                 }
                 report.items.push_back({"Video System", system_str});
@@ -347,13 +345,13 @@ std::optional<StageReport> LDPALYCSourceStage::generate_report() const {
     return report;
 }
 
-bool LDPALYCSourceStage::supports_preview() const
+bool NTSCYCSourceStage::supports_preview() const
 {
     // Preview is available if we have a loaded YC representation
     return cached_representation_ != nullptr;
 }
 
-std::vector<PreviewOption> LDPALYCSourceStage::get_preview_options() const
+std::vector<PreviewOption> NTSCYCSourceStage::get_preview_options() const
 {
     // YC sources return standard preview options.
     // The GUI will detect has_separate_channels() and provide a separate Signal dropdown (Y/C/Y+C).
@@ -361,7 +359,7 @@ std::vector<PreviewOption> LDPALYCSourceStage::get_preview_options() const
     return PreviewHelpers::get_standard_preview_options(cached_representation_);
 }
 
-PreviewImage LDPALYCSourceStage::render_preview(
+PreviewImage NTSCYCSourceStage::render_preview(
     const std::string& option_id, 
     uint64_t index,
     PreviewNavigationHint hint

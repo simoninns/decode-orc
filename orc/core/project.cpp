@@ -71,7 +71,7 @@ SourceType Project::get_source_type() const
                 node.stage_name.find("yc") != std::string::npos) {
                 return SourceType::YC;
             }
-            // Composite sources (LDPALSource, LDNTSCSource, etc.)
+            // Composite sources (PAL_Comp_Source, NTSC_Comp_Source, etc.)
             else if (node.stage_name.find("Source") != std::string::npos) {
                 return SourceType::Composite;
             }
@@ -622,14 +622,14 @@ void set_node_parameters(Project& project, NodeID node_id,
                     }
                     
                     // Validate system matches the node's stage type
-                    if (node_it->stage_name == "LDPALSource") {
+                    if (node_it->stage_name == "PAL_Comp_Source") {
                         if (video_params->system != VideoSystem::PAL && 
                             video_params->system != VideoSystem::PAL_M) {
                             throw std::runtime_error(
                                 "Selected TBC file is not PAL format. This is a PAL source node - use an NTSC source node for NTSC files."
                             );
                         }
-                    } else if (node_it->stage_name == "LDNTSCSource") {
+                    } else if (node_it->stage_name == "NTSC_Comp_Source") {
                         if (video_params->system != VideoSystem::NTSC) {
                             throw std::runtime_error(
                                 "Selected TBC file is not NTSC format. This is an NTSC source node - use a PAL source node for PAL files."

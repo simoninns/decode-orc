@@ -160,9 +160,10 @@ ChromaSinkStage
    - Return TBCYCVideoFieldRepresentation
 
 3. **Source stages** (`stages/ld_pal_yc_source/`, `stages/ld_ntsc_yc_source/`)
-   - `LDPALYCSourceStage` / `LDNTSCYCSourceStage`
+   - `LDPALYCSourceStage` / `LDNTSCYCSourceStage` (class names unchanged)
+   - Stage IDs: `PAL_YC_Source`, `NTSC_YC_Source`
    - Parameters: `y_path`, `c_path`, `db_path`, `pcm_path`, `efm_path`
-   - Display names: "PAL YC", "NTSC YC"
+   - Display names: "PAL YC Source", "NTSC YC Source"
    - Call `create_tbc_yc_representation()` in execute()
 
 4. **Registration** (`stage_init.cpp`)
@@ -621,13 +622,13 @@ const uint16_t* get_line_chroma(FieldID id, size_t line) const override {
 
 ### Project Files
 
-**Existing projects** with composite sources (`LDPALSource`, `LDNTSCSource`):
-- Continue to work unchanged
-- No migration needed
+**Existing projects** with composite sources (old names `LDPALSource`, `LDNTSCSource`):
+- Need to be updated to new names: `PAL_Comp_Source`, `NTSC_Comp_Source`
+- YC sources use: `PAL_YC_Source`, `NTSC_YC_Source`
 
 **Stage registry**:
-- Consider aliasing old names to new "Composite" names
-- Or keep old names as-is for backward compat
+- Stage names have been updated to new naming convention
+- Old project files need migration
 
 ### API
 

@@ -1,18 +1,18 @@
 /*
- * File:        ld_ntsc_yc_source_stage.h
+ * File:        pal_comp_source_stage.h
  * Module:      orc-core
- * Purpose:     LaserDisc NTSC YC source loading stage
+ * Purpose:     PAL composite source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 
-#ifndef LD_NTSC_YC_SOURCE_STAGE_H
-#define LD_NTSC_YC_SOURCE_STAGE_H
+#ifndef PAL_COMP_SOURCE_STAGE_H
+#define PAL_COMP_SOURCE_STAGE_H
 
 #include <dag_executor.h>
-#include <tbc_yc_video_field_representation.h>
+#include <tbc_video_field_representation.h>
 #include <stage_parameter.h>
 #include <previewable_stage.h>
 #include <string>
@@ -20,30 +20,21 @@
 namespace orc {
 
 /**
- * @brief LaserDisc NTSC YC Source Stage - Loads NTSC YC (separate Y and C) files
+ * @brief PAL Composite Source Stage - Loads PAL TBC files from ld-decode
  * 
- * This stage loads separate Y (luma) and C (chroma) TBC files for NTSC video,
- * creating a VideoFieldRepresentation for NTSC YC video processing.
- * 
- * YC sources are typically from color-under formats like VHS or Betamax,
- * where Y and C are recorded separately. This provides better quality
- * than composite sources:
- * - Clean luma (no comb filter artifacts)
- * - Simpler chroma decoding (no Y/C separation needed)
+ * This stage loads a PAL TBC file and its associated database from ld-decode,
+ * creating a VideoFieldRepresentation for PAL video processing.
  * 
  * Parameters:
- * - y_path: Path to the .tbcy (luma) file
- * - c_path: Path to the .tbcc (chroma) file
- * - db_path: Path to the .tbc.db database file
- * - pcm_path: Optional path to .pcm audio file
- * - efm_path: Optional path to .efm EFM data file
+ * - input_path: Path to the .tbc file
+ * - db_path: Path to the .tbc.db database file (optional, defaults to input_path + ".db")
  * 
  * This is a source stage with no inputs.
  */
-class LDNTSCYCSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
+class PALCompSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
-    LDNTSCYCSourceStage() = default;
-    ~LDNTSCYCSourceStage() override = default;
+    PALCompSourceStage() = default;
+    ~PALCompSourceStage() override = default;
 
     // DAGStage interface
     std::string version() const override { return "1.0.0"; }
@@ -51,12 +42,12 @@ public:
     NodeTypeInfo get_node_type_info() const override {
         return NodeTypeInfo{
             NodeType::SOURCE,
-            "LDNTSCYCSource",
-            "LD NTSC YC Source",
-            "LaserDisc NTSC YC input source - loads separate Y and C TBC files (color-under formats like VHS)",
+            "PAL_Comp_Source",
+            "PAL Composite Source",
+            "PAL composite input source - loads PAL TBC files from ld-decode",
             0, 0,  // No inputs
             1, UINT32_MAX,  // Many outputs
-            VideoFormatCompatibility::NTSC_ONLY
+            VideoFormatCompatibility::PAL_ONLY
         };
     }
     
@@ -84,18 +75,13 @@ public:
 
 private:
     // Cache the loaded representation to avoid reloading
-    mutable std::string cached_y_path_;
-    mutable std::string cached_c_path_;
+    mutable std::string cached_input_path_;
     mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
     
-    // Current parameters
-    std::string y_path_;
-    std::string c_path_;
-    std::string db_path_;
-    std::string pcm_path_;
-    std::string efm_path_;
+    // Store parameters for inspection
+    std::map<std::string, ParameterValue> parameters_;
 };
 
 } // namespace orc
 
-#endif // LD_NTSC_YC_SOURCE_STAGE_H
+#endif // PAL_COMP_SOURCE_STAGE_H

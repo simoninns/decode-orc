@@ -1,14 +1,14 @@
 /*
- * File:        ld_ntsc_source_stage.cpp
+ * File:        pal_comp_source_stage.cpp
  * Module:      orc-core
- * Purpose:     LaserDisc NTSC source loading stage
+ * Purpose:     PAL composite source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 
-#include "ld_ntsc_source_stage.h"
+#include "pal_comp_source_stage.h"
 #include "logging.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
@@ -19,18 +19,18 @@
 namespace orc {
 
 // Register this stage with the registry
-ORC_REGISTER_STAGE(LDNTSCSourceStage)
+ORC_REGISTER_STAGE(PALCompSourceStage)
 
 // Force linker to include this object file
-void force_link_LDNTSCSourceStage() {}
+void force_link_PALCompSourceStage() {}
 
-std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
+std::vector<ArtifactPtr> PALCompSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters
 ) {
     // Source stage should have no inputs
     if (!inputs.empty()) {
-        throw std::runtime_error("LDNTSCSource stage should have no inputs");
+        throw std::runtime_error("PAL_Comp_Source stage should have no inputs");
     }
 
     // Get input_path parameter
@@ -38,7 +38,7 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
     if (input_path_it == parameters.end() || std::get<std::string>(input_path_it->second).empty()) {
         // No file path configured - return empty artifact (0 fields)
         // This allows the node to exist in the DAG without a file, acting as a placeholder
-        ORC_LOG_DEBUG("LDNTSCSource: No input_path configured, returning empty output");
+        ORC_LOG_DEBUG("PAL_Comp_Source: No input_path configured, returning empty output");
         return {};
     }
     std::string input_path = std::get<std::string>(input_path_it->second);
@@ -69,12 +69,12 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
 
     // Check cache
     if (cached_representation_ && cached_input_path_ == input_path) {
-        ORC_LOG_DEBUG("LDNTSCSource: Using cached representation for {}", input_path);
+        ORC_LOG_DEBUG("PAL_Comp_Source: Using cached representation for {}", input_path);
         return {cached_representation_};
     }
 
     // Load the TBC file
-    ORC_LOG_INFO("LDNTSCSource: Loading TBC file: {}", input_path);
+    ORC_LOG_INFO("PAL_Comp_Source: Loading TBC file: {}", input_path);
     ORC_LOG_DEBUG("  Database: {}", db_path);
     if (!pcm_path.empty()) {
         ORC_LOG_DEBUG("  PCM Audio: {}", pcm_path);
@@ -118,9 +118,10 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
         }
         
         // Check system
-        if (video_params->system != VideoSystem::NTSC) {
+        if (video_params->system != VideoSystem::PAL && 
+            video_params->system != VideoSystem::PAL_M) {
             throw std::runtime_error(
-                "TBC file is not NTSC format. Use 'Add LD PAL Source' for PAL files."
+                "TBC file is not PAL format. Use 'Add NTSC Composite Source' for NTSC files."
             );
         }
         
@@ -131,12 +132,12 @@ std::vector<ArtifactPtr> LDNTSCSourceStage::execute(
         return {cached_representation_};
     } catch (const std::exception& e) {
         throw std::runtime_error(
-            std::string("Failed to load NTSC TBC file '") + input_path + "': " + e.what()
+            std::string("Failed to load PAL TBC file '") + input_path + "': " + e.what()
         );
     }
 }
 
-std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
+std::vector<ParameterDescriptor> PALCompSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - source stages don't need project format
     (void)source_type;     // Unused - source stages define the source type
@@ -147,7 +148,7 @@ std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors(Vi
         ParameterDescriptor desc;
         desc.name = "input_path";
         desc.display_name = "TBC File Path";
-        desc.description = "Path to the NTSC .tbc file from ld-decode (database file is automatically located)";
+        desc.description = "Path to the PAL .tbc file from ld-decode (database file is automatically located)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
         desc.constraints.default_value = std::string("");
@@ -184,12 +185,12 @@ std::vector<ParameterDescriptor> LDNTSCSourceStage::get_parameter_descriptors(Vi
     return descriptors;
 }
 
-std::map<std::string, ParameterValue> LDNTSCSourceStage::get_parameters() const
+std::map<std::string, ParameterValue> PALCompSourceStage::get_parameters() const
 {
     return parameters_;
 }
 
-bool LDNTSCSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
+bool PALCompSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
     // Validate that input_path has correct type if present
     auto input_path_it = params.find("input_path");
@@ -201,9 +202,9 @@ bool LDNTSCSourceStage::set_parameters(const std::map<std::string, ParameterValu
     return true;
 }
 
-std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
+std::optional<StageReport> PALCompSourceStage::generate_report() const {
     StageReport report;
-    report.summary = "NTSC Source Status";
+    report.summary = "PAL Source Status";
     
     // Get input_path from parameters
     std::string input_path;
@@ -267,7 +268,15 @@ std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
             
             if (video_params) {
                 report.items.push_back({"Decoder", video_params->decoder});
-                report.items.push_back({"Video System", "NTSC"});
+                
+                std::string system_str;
+                switch (video_params->system) {
+                    case VideoSystem::PAL: system_str = "PAL"; break;
+                    case VideoSystem::PAL_M: system_str = "PAL-M"; break;
+                    default: system_str = "Unknown"; break;
+                }
+                report.items.push_back({"Video System", system_str});
+                
                 report.items.push_back({"Field Dimensions", 
                     std::to_string(video_params->field_width) + " x " + 
                     std::to_string(video_params->field_height)});
@@ -325,12 +334,121 @@ std::optional<StageReport> LDNTSCSourceStage::generate_report() const {
     return report;
 }
 
-std::vector<PreviewOption> LDNTSCSourceStage::get_preview_options() const
+bool PALCompSourceStage::supports_preview() const
 {
-    return PreviewHelpers::get_standard_preview_options(cached_representation_);
+    // Preview is available if we have a loaded TBC
+    return cached_representation_ != nullptr;
 }
 
-PreviewImage LDNTSCSourceStage::render_preview(const std::string& option_id, uint64_t index,
+std::vector<PreviewOption> PALCompSourceStage::get_preview_options() const
+{
+    std::vector<PreviewOption> options;
+    
+    if (!cached_representation_) {
+        return options;  // No TBC loaded, no preview
+    }
+    
+    // Get video parameters
+    auto video_params = cached_representation_->get_video_parameters();
+    if (!video_params) {
+        return options;
+    }
+    
+    uint64_t field_count = cached_representation_->field_count();
+    if (field_count == 0) {
+        return options;
+    }
+    
+    uint32_t width = video_params->field_width;
+    uint32_t height = video_params->field_height;
+    
+    // Calculate DAR correction based on active video region (same as PreviewHelpers)
+    double dar_correction = 0.7;  // Default fallback
+    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start &&
+        video_params->first_active_frame_line >= 0 && video_params->last_active_frame_line > video_params->first_active_frame_line) {
+        uint32_t active_width = video_params->active_video_end - video_params->active_video_start;
+        uint32_t active_height = video_params->last_active_frame_line - video_params->first_active_frame_line;
+        double active_ratio = static_cast<double>(active_width) / static_cast<double>(active_height);
+        double target_ratio = 4.0 / 3.0;
+        dar_correction = target_ratio / active_ratio;
+    }
+    
+    // Option 1: Individual fields (Y component with IRE scaling)
+    options.push_back(PreviewOption{
+        "field",                // id
+        "Field (Y)",            // display_name
+        false,                  // is_rgb (this is luma/YUV data)
+        width,                  // width
+        height,                 // height
+        field_count,            // count
+        dar_correction          // dar_aspect_correction
+    });
+    
+    // Option 2: Individual fields (raw 16-bit samples, no IRE scaling)
+    options.push_back(PreviewOption{
+        "field_raw",            // id
+        "Field (Raw)",          // display_name
+        false,                  // is_rgb
+        width,                  // width
+        height,                 // height
+        field_count,            // count
+        dar_correction          // dar_aspect_correction
+    });
+    
+    // Option 3: Split fields (both fields stacked vertically, with IRE scaling)
+    if (field_count >= 2) {
+        uint64_t pair_count = field_count / 2;
+        
+        options.push_back(PreviewOption{
+            "split",            // id
+            "Split (Y)",        // display_name
+            false,              // is_rgb
+            width,              // width
+            height * 2,         // height (two fields stacked)
+            pair_count,         // count (number of field pairs)
+            dar_correction      // dar_aspect_correction
+        });
+        
+        options.push_back(PreviewOption{
+            "split_raw",        // id
+            "Split (Raw)",      // display_name
+            false,              // is_rgb
+            width,              // width
+            height * 2,         // height (two fields stacked)
+            pair_count,         // count (number of field pairs)
+            dar_correction      // dar_aspect_correction
+        });
+    }
+    
+    // Option 4: Frames (if we have at least 2 fields)
+    if (field_count >= 2) {
+        uint64_t frame_count = field_count / 2;
+        
+        options.push_back(PreviewOption{
+            "frame",            // id
+            "Frame (Y)",        // display_name
+            false,              // is_rgb
+            width,              // width
+            height * 2,         // height (two fields woven)
+            frame_count,        // count
+            dar_correction      // dar_aspect_correction
+        });
+        
+        options.push_back(PreviewOption{
+            "frame_raw",        // id
+            "Frame (Raw)",      // display_name
+            false,              // is_rgb
+            width,              // width
+            height * 2,         // height (two fields woven)
+            frame_count,        // count
+            dar_correction      // dar_aspect_correction
+        });
+    }
+    
+    return options;
+}
+
+PreviewImage PALCompSourceStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint) const
 {
     (void)hint;  // Unused for now

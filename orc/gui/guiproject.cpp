@@ -28,11 +28,11 @@ QString GUIProject::projectName() const
     return QFileInfo(project_path_).completeBaseName();
 }
 
-bool GUIProject::newEmptyProject(const QString& project_name, orc::VideoSystem video_format, QString* error)
+bool GUIProject::newEmptyProject(const QString& project_name, orc::VideoSystem video_format, orc::SourceType source_format, QString* error)
 {
     try {
-        // Use core function to create empty project with video format
-        core_project_ = orc::project_io::create_empty_project(project_name.toStdString(), video_format);
+        // Use core function to create empty project with video and source format
+        core_project_ = orc::project_io::create_empty_project(project_name.toStdString(), video_format, source_format);
         return true;
     } catch (const std::exception& e) {
         if (error) {

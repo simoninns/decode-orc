@@ -11,8 +11,10 @@
 namespace orc {
 
 // Forward declarations of force-link functions from each stage
-void force_link_LDPALSourceStage();
-void force_link_LDNTSCSourceStage();
+void force_link_PALCompSourceStage();
+void force_link_NTSCCompSourceStage();
+void force_link_PALYCSourceStage();
+void force_link_NTSCYCSourceStage();
 void force_link_DropoutCorrectStage();
 void force_link_DropoutMapStage();
 void force_link_FieldInvertStage();
@@ -45,8 +47,10 @@ void force_link_VideoParamsStage();
 void force_stage_linking() {
     // Call dummy functions to force linker to include stage object files
     // This ensures the ORC_REGISTER_STAGE static initializers execute
-    force_link_LDPALSourceStage();
-    force_link_LDNTSCSourceStage();
+    force_link_PALCompSourceStage();
+    force_link_NTSCCompSourceStage();
+    force_link_PALYCSourceStage();
+    force_link_NTSCYCSourceStage();
     force_link_DropoutCorrectStage();
     force_link_DropoutMapStage();
     force_link_FieldInvertStage();

@@ -34,6 +34,16 @@ public:
     
     // Override get_field to return masked field data
     std::vector<sample_type> get_field(FieldID id) const override;
+    
+    // Dual-channel support for YC sources
+    bool has_separate_channels() const override {
+        return source_ ? source_->has_separate_channels() : false;
+    }
+    
+    const sample_type* get_line_luma(FieldID id, size_t line) const override;
+    const sample_type* get_line_chroma(FieldID id, size_t line) const override;
+    std::vector<sample_type> get_field_luma(FieldID id) const override;
+    std::vector<sample_type> get_field_chroma(FieldID id) const override;
 
 private:
     struct LineRange {
@@ -51,6 +61,10 @@ private:
     
     // Cache for masked lines (mutable to allow caching in const methods)
     mutable std::unordered_map<FieldID, std::unordered_map<size_t, std::vector<uint16_t>>> masked_line_cache_;
+    
+    // Separate caches for YC sources
+    mutable std::unordered_map<FieldID, std::unordered_map<size_t, std::vector<uint16_t>>> masked_luma_cache_;
+    mutable std::unordered_map<FieldID, std::unordered_map<size_t, std::vector<uint16_t>>> masked_chroma_cache_;
 };
 
 /**
@@ -105,7 +119,7 @@ public:
         std::shared_ptr<const VideoFieldRepresentation> source) const;
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     

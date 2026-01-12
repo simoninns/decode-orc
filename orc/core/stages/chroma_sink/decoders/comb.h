@@ -28,6 +28,11 @@ class Comb
 public:
     Comb();
 
+    // Information about burst phase on a line (used by both composite and YC paths)
+    struct BurstInfo {
+        double bsin, bcos;
+    };
+
     // Comb filter configuration parameters
     struct Configuration {
         double chromaGain = 1.0;
@@ -57,6 +62,13 @@ public:
     static constexpr int32_t MAX_HEIGHT = 525;
 
 protected:
+    // YC decode path - for sources with separate Y and C channels
+    void decodeFramesYC(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                        std::vector<ComponentFrame> &componentFrames);
+    
+    // Composite decode path - full comb filter for Y/C separation
+    void decodeFramesComposite(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
+                               std::vector<ComponentFrame> &componentFrames);
 
 private:
     // Comb-filter configuration parameters
@@ -70,6 +82,9 @@ private:
         FrameBuffer(const ::orc::VideoParameters &videoParameters_, const Configuration &configuration_);
 
         void loadFields(const SourceField &firstField, const SourceField &secondField);
+        
+        // YC-specific loading - for sources with separate Y and C channels
+        void loadFieldsYC(const SourceField &firstField, const SourceField &secondField);
 
         void split1D();
         void split2D();
@@ -81,6 +96,11 @@ private:
 
         void splitIQ();
         void splitIQlocked();
+        
+        // YC-specific chroma demodulation - skip Y/C separation, only demodulate C
+        void splitIQ_YC();
+        void splitIQlocked_YC();
+        
         void filterIQ();
         void filterIQFull();
         void adjustY();
@@ -102,6 +122,11 @@ private:
 
         // Baseband samples (interlaced to form a complete frame)
         std::vector<uint16_t> rawbuffer;
+        
+        // YC-specific: separate Y and C buffers for YC sources
+        std::vector<uint16_t> luma_buffer;   // Clean Y channel (no comb filtering needed)
+        std::vector<uint16_t> chroma_buffer; // Modulated C channel (needs demodulation only)
+        bool is_yc = false;  // True if loaded from YC source
 
         // Chroma phase of the frame's two fields
         int32_t firstFieldPhaseID;
@@ -129,6 +154,14 @@ private:
         Candidate getCandidate(int32_t refLineNumber, int32_t refH,
                                const FrameBuffer &frameBuffer, int32_t lineNumber, int32_t h,
                                double adjustPenalty) const;
+        
+        // Helper to demodulate chroma with phase compensation (shared between composite and YC)
+        void demodulateChromaLocked(const double *chromaLine, int32_t lineNumber, 
+                                   const Comb::BurstInfo &burstInfo, double *I, double *Q, int32_t xOffset);
+        
+        // Helper to demodulate chroma without phase compensation (shared between composite and YC)
+        void demodulateChroma(const double *chromaLine, int32_t lineNumber,
+                             bool linePhase, double *I, double *Q, int32_t xOffset);
     };
 };
 

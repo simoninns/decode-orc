@@ -63,7 +63,7 @@ public:
 
     /**
      * @brief Check if this tool is applicable to the given stage type
-     * @param stage_name Name of the stage type (e.g., "field_map", "LDPALSource")
+     * @param stage_name Name of the stage type (e.g., "field_map", "PAL_Comp_Source")
      * @return true if this tool can be used with this stage type
      */
     virtual bool isApplicableToStage(const std::string& stage_name) const = 0;

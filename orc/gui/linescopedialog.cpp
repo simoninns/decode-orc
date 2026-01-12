@@ -8,6 +8,7 @@
  */
 
 #include "linescopedialog.h"
+#include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -16,12 +17,15 @@
 LineScopeDialog::LineScopeDialog(QWidget *parent)
     : QDialog(parent)
     , line_series_(nullptr)
+    , y_series_(nullptr)
+    , c_series_(nullptr)
     , current_field_index_(0)
     , current_line_number_(0)
     , current_sample_x_(0)
     , original_sample_x_(0)
     , preview_image_width_(0)
     , sample_marker_(nullptr)
+    , is_yc_source_(false)
 {
     setupUI();
     setWindowTitle("Line Scope");
@@ -49,22 +53,39 @@ void LineScopeDialog::setupUI()
     plot_widget_->setAxisRange(Qt::Vertical, -200, 1000);  // Approximate mV range
     plot_widget_->setYAxisIntegerLabels(false);
     plot_widget_->setGridEnabled(true);
-    plot_widget_->setLegendEnabled(false);
+    plot_widget_->setLegendEnabled(true);  // Enable legend for YC mode
     plot_widget_->setZoomEnabled(true);
     plot_widget_->setPanEnabled(true);
     
     mainLayout->addWidget(plot_widget_, 1);
     
-    // Add navigation controls in a vertical column
-    auto* controlLayout = new QVBoxLayout();
+    // Add navigation controls and channel selector in a horizontal row
+    auto* controlRow = new QHBoxLayout();
     
+    // Left section: Channel selector for YC sources
+    channel_selector_label_ = new QLabel("Channel:");
+    channel_selector_ = new QComboBox(this);
+    channel_selector_->addItem("Luma (Y)", 0);
+    channel_selector_->addItem("Chroma (C)", 1);
+    channel_selector_->addItem("Both (Y+C)", 2);
+    channel_selector_->setCurrentIndex(2);  // Default to Both
+    channel_selector_->setVisible(false);  // Hidden by default, shown for YC sources
+    connect(channel_selector_, QOverload<int>::of(&QComboBox::currentIndexChanged), 
+            this, &LineScopeDialog::onChannelSelectionChanged);
+    controlRow->addWidget(channel_selector_label_);
+    controlRow->addWidget(channel_selector_);
+    channel_selector_label_->setVisible(false);
+    
+    controlRow->addStretch();
+    
+    // Center section: Navigation buttons
     line_up_button_ = new QPushButton("↑ Up", this);
     line_up_button_->setToolTip("Move to previous line");
     line_up_button_->setAutoRepeat(true);
     line_up_button_->setAutoRepeatDelay(500);  // 500ms initial delay
     line_up_button_->setAutoRepeatInterval(100);  // 100ms repeat interval
     connect(line_up_button_, &QPushButton::clicked, this, &LineScopeDialog::onLineUp);
-    controlLayout->addWidget(line_up_button_);
+    controlRow->addWidget(line_up_button_);
     
     line_down_button_ = new QPushButton("↓ Down", this);
     line_down_button_->setToolTip("Move to next line");
@@ -72,27 +93,24 @@ void LineScopeDialog::setupUI()
     line_down_button_->setAutoRepeatDelay(500);  // 500ms initial delay
     line_down_button_->setAutoRepeatInterval(100);  // 100ms repeat interval
     connect(line_down_button_, &QPushButton::clicked, this, &LineScopeDialog::onLineDown);
-    controlLayout->addWidget(line_down_button_);
+    controlRow->addWidget(line_down_button_);
     
-    // Sample info display
+    controlRow->addSpacing(20);
+    
+    // Right section: Sample info display
     sample_info_label_ = new QLabel(this);
     sample_info_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     QFont monoFont("Monospace");
     monoFont.setStyleHint(QFont::TypeWriter);
     sample_info_label_->setFont(monoFont);
+    controlRow->addWidget(sample_info_label_);
     
-    // Center the button column and add sample info to the right
-    auto* buttonContainer = new QHBoxLayout();
-    buttonContainer->addStretch();
-    buttonContainer->addLayout(controlLayout);
-    buttonContainer->addSpacing(20);
-    buttonContainer->addWidget(sample_info_label_);
-    buttonContainer->addStretch();
+    controlRow->addStretch();
     
-    mainLayout->addLayout(buttonContainer);
+    mainLayout->addLayout(controlRow);
     
     // Add series for line data
-    line_series_ = plot_widget_->addSeries("Line Samples");
+    line_series_ = plot_widget_->addSeries("Composite");
     
     // Connect plot click to update marker
     connect(plot_widget_, &PlotWidget::plotClicked, this, &LineScopeDialog::onPlotClicked);
@@ -104,8 +122,13 @@ void LineScopeDialog::setupUI()
 void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                       const std::vector<uint16_t>& samples,
                                       const std::optional<orc::VideoParameters>& video_params,
-                                      int preview_image_width, int original_sample_x)
+                                      int preview_image_width, int original_sample_x,
+                                      const std::vector<uint16_t>& y_samples,
+                                      const std::vector<uint16_t>& c_samples)
 {
+    // Block signals during setup to prevent premature updatePlotData() calls
+    const QSignalBlocker blocker(channel_selector_);
+    
     // Store current line info for navigation
     current_node_id_ = node_id;
     current_field_index_ = field_index;
@@ -114,21 +137,42 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     original_sample_x_ = original_sample_x;  // Original preview-space coordinate
     preview_image_width_ = preview_image_width;
     current_samples_ = samples;  // Store samples for later updates
+    current_y_samples_ = y_samples;
+    current_c_samples_ = c_samples;
     current_video_params_ = video_params;  // Store video params for IRE calculations
     
+    // Determine if this is a YC source
+    is_yc_source_ = !y_samples.empty() && !c_samples.empty();
+    
+    // Show/hide channel selector based on source type
+    channel_selector_->setVisible(is_yc_source_);
+    channel_selector_label_->setVisible(is_yc_source_);
+    
+    // For YC sources, default to "Both (Y+C)" mode on first display only
+    static bool first_yc_display = true;
+    if (is_yc_source_ && first_yc_display) {
+        channel_selector_->setCurrentIndex(2);  // Both (Y+C) at index 2
+        first_yc_display = false;
+    }
+    // Otherwise keep the user's current selection
+    
     // Update window title to show stage (node_id), field, and line
-    setWindowTitle(QString("Line Scope - Stage: %1 - Field %2, Line %3")
+    QString title_suffix = is_yc_source_ ? " (YC Source)" : "";
+    setWindowTitle(QString("Line Scope - Stage: %1 - Field %2, Line %3%4")
                    .arg(node_id)
                    .arg(field_index)
-                   .arg(line_number));
+                   .arg(line_number)
+                   .arg(title_suffix));
     
     // Handle empty samples gracefully
-    if (samples.empty()) {
+    if (samples.empty() && !is_yc_source_) {
         // Clear everything and show "No data available" message
         plot_widget_->showNoDataMessage("No data available for this line");
         
         // The series was deleted by showNoDataMessage, null it out
         line_series_ = nullptr;
+        y_series_ = nullptr;
+        c_series_ = nullptr;
         
         // Clear sample marker reference
         sample_marker_ = nullptr;
@@ -147,53 +191,215 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     line_up_button_->setEnabled(true);
     line_down_button_->setEnabled(true);
     
-    // Recreate series if it was deleted (e.g., by showNoDataMessage)
-    if (!line_series_) {
-        line_series_ = plot_widget_->addSeries("Line Samples");
-    }
-    
     // Clear any "no data" message that might be showing
     plot_widget_->clearNoDataMessage();
     
-    // Convert samples to plot points in millivolts
-    QVector<QPointF> points;
-    points.reserve(samples.size());
+    // Update plot data based on current channel selection
+    updatePlotData();
     
-    // Determine mV conversion factor based on video system
+    // Add click position marker (green)
+    updateSampleMarker(sample_x);
+    
+    plot_widget_->replot();
+}
+
+void LineScopeDialog::updatePlotData()
+{
+    // Guard against being called before data is set
+    if (!is_yc_source_) {
+        if (current_samples_.empty()) {
+            return;  // No data to plot yet
+        }
+    } else {
+        // For YC sources, need at least one of Y or C samples
+        if (current_y_samples_.empty() && current_c_samples_.empty()) {
+            return;  // No YC data to plot yet
+        }
+    }
+    
+    // Determine which samples to display based on channel selection
+    // New indices: 0=Y, 1=C, 2=Both
+    int channel_mode = is_yc_source_ ? channel_selector_->currentIndex() : -1;
+    
+    // Get the samples to display
+    const std::vector<uint16_t>* display_samples = nullptr;
+    if (is_yc_source_) {
+        if (channel_mode == 0 && !current_y_samples_.empty()) {  // Luma (Y) only
+            display_samples = &current_y_samples_;
+        } else if (channel_mode == 1 && !current_c_samples_.empty()) {  // Chroma (C) only
+            display_samples = &current_c_samples_;
+        } else if (channel_mode == 2) {  // Both (Y+C)
+            // Will handle separately below - don't set display_samples
+        }
+        // If none of the above conditions are met, display_samples stays nullptr
+    } else {
+        if (!current_samples_.empty()) {
+            display_samples = &current_samples_;
+        }
+    }
+    
+    // Convert samples to plot points in millivolts
+    auto convertSamplesToPoints = [this](const std::vector<uint16_t>& samples) -> QVector<QPointF> {
+        if (samples.empty()) {
+            return QVector<QPointF>();  // Return empty if no samples
+        }
+        
+        QVector<QPointF> points;
+        points.reserve(samples.size());
+        
+        // Determine mV conversion factor based on video system
+        double ire_to_mv = 7.0;  // Default to PAL
+        if (current_video_params_.has_value()) {
+            const auto& vp = current_video_params_.value();
+            if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
+                ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
+            }
+        }
+        
+        for (size_t i = 0; i < samples.size(); ++i) {
+            double mv_value = static_cast<double>(samples[i]);
+            
+            // Convert to mV via IRE if we have video parameters
+            if (current_video_params_.has_value()) {
+                const auto& vp = current_video_params_.value();
+                if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    // First convert 16-bit value to IRE
+                    double ire = (mv_value - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                    // Then convert IRE to mV
+                    mv_value = ire * ire_to_mv;
+                }
+            }
+            
+            points.append(QPointF(static_cast<double>(i), mv_value));
+        }
+        
+        return points;
+    };
+    
+    // Recreate series if needed
+    if (is_yc_source_ && channel_mode == 2 && !current_y_samples_.empty() && !current_c_samples_.empty()) {
+        // Both Y and C - need two series (this is the only case that needs a legend)
+        plot_widget_->setLegendEnabled(true);
+        
+        if (!y_series_) {
+            y_series_ = plot_widget_->addSeries("Luma (Y)");
+        }
+        if (!c_series_) {
+            c_series_ = plot_widget_->addSeries("Chroma (C)");
+        }
+        // Remove composite series if it exists
+        if (line_series_) {
+            plot_widget_->removeSeries(line_series_);
+            line_series_ = nullptr;
+        }
+        
+        // Convert and set data
+        QVector<QPointF> y_points = convertSamplesToPoints(current_y_samples_);
+        QVector<QPointF> c_points = convertSamplesToPoints(current_c_samples_);
+        
+        // Set appropriate colors
+        QColor y_color, c_color;
+        if (PlotWidget::isDarkTheme()) {
+            y_color = QColor(255, 255, 100);  // Bright yellow for Y
+            c_color = QColor(100, 150, 255);  // Bright blue for C
+        } else {
+            y_color = QColor(200, 180, 0);  // Dark yellow for Y
+            c_color = QColor(0, 80, 200);  // Dark blue for C
+        }
+        
+        y_series_->setPen(QPen(y_color, 1));
+        c_series_->setPen(QPen(c_color, 1));
+        
+        y_series_->setData(y_points);
+        c_series_->setData(c_points);
+        
+    } else if (display_samples && !display_samples->empty()) {
+        // Single channel mode - use line_series_ (no legend needed for single dataset)
+        plot_widget_->setLegendEnabled(false);
+        
+        QString label = "Composite";
+        if (is_yc_source_) {
+            if (channel_mode == 0) {
+                label = "Luma (Y)";
+            } else if (channel_mode == 1) {
+                label = "Chroma (C)";
+            }
+        }
+        
+        if (!line_series_) {
+            line_series_ = plot_widget_->addSeries(label);
+        } else {
+            // Update legend label when switching channels
+            line_series_->setTitle(label);
+        }
+        
+        // Remove Y/C series if they exist
+        if (y_series_) {
+            plot_widget_->removeSeries(y_series_);
+            y_series_ = nullptr;
+        }
+        if (c_series_) {
+            plot_widget_->removeSeries(c_series_);
+            c_series_ = nullptr;
+        }
+        
+        QVector<QPointF> points = convertSamplesToPoints(*display_samples);
+        
+        // Set appropriate color based on theme and channel
+        QColor line_color;
+        if (PlotWidget::isDarkTheme()) {
+            if (is_yc_source_ && channel_mode == 0) {
+                line_color = QColor(255, 255, 100);  // Bright yellow for Y
+            } else if (is_yc_source_ && channel_mode == 1) {
+                line_color = QColor(100, 150, 255);  // Bright blue for C
+            } else {
+                line_color = QColor(100, 200, 255);  // Light blue for composite
+            }
+        } else {
+            if (is_yc_source_ && channel_mode == 0) {
+                line_color = QColor(200, 180, 0);  // Dark yellow for Y
+            } else if (is_yc_source_ && channel_mode == 1) {
+                line_color = QColor(0, 80, 200);  // Dark blue for C
+            } else {
+                line_color = QColor(0, 100, 200);  // Dark blue for composite
+            }
+        }
+        line_series_->setPen(QPen(line_color, 1));
+        line_series_->setData(points);
+    } else {
+        // No valid data to plot - clear everything and return
+        if (line_series_) {
+            plot_widget_->removeSeries(line_series_);
+            line_series_ = nullptr;
+        }
+        if (y_series_) {
+            plot_widget_->removeSeries(y_series_);
+            y_series_ = nullptr;
+        }
+        if (c_series_) {
+            plot_widget_->removeSeries(c_series_);
+            c_series_ = nullptr;
+        }
+        return;  // Nothing to plot
+    }
+    
+    // Determine tick intervals and ranges
+    double mv_tick_step = 100.0;  // 100 mV intervals
+    double ire_tick_step = 20.0;  // 20 IRE intervals
     double ire_to_mv = 7.0;  // Default to PAL
-    if (video_params.has_value()) {
-        const auto& vp = video_params.value();
+    
+    if (current_video_params_.has_value()) {
+        const auto& vp = current_video_params_.value();
         if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
             ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
         }
     }
     
-    for (size_t i = 0; i < samples.size(); ++i) {
-        double mv_value = static_cast<double>(samples[i]);
-        
-        // Convert to mV via IRE if we have video parameters
-        if (video_params.has_value()) {
-            const auto& vp = video_params.value();
-            if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
-                // First convert 16-bit value to IRE
-                double ire = (mv_value - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
-                // Then convert IRE to mV
-                mv_value = ire * ire_to_mv;
-            }
-        }
-        
-        points.append(QPointF(static_cast<double>(i), mv_value));
-    }
-    
-    // Determine tick intervals
-    double mv_tick_step = 100.0;  // 100 mV intervals
-    double ire_tick_step = 20.0;  // 20 IRE intervals
-    
-    // Calculate Y-axis range to align with tick steps
+    // Calculate Y-axis range
     double min_mv, max_mv, min_ire, max_ire;
     
-    if (video_params.has_value()) {
-        const auto& vp = video_params.value();
+    if (current_video_params_.has_value()) {
+        const auto& vp = current_video_params_.value();
         if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
             // Convert 16-bit extremes (0 and 65535) to mV via IRE
             double raw_min_ire = (0.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
@@ -233,20 +439,18 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
         max_ire = 142.9;
     }
     
-    // Set appropriate color based on theme
-    QColor line_color;
-    if (PlotWidget::isDarkTheme()) {
-        // Use bright color for dark theme
-        line_color = QColor(100, 200, 255);  // Light blue
-    } else {
-        // Use darker color for light theme
-        line_color = QColor(0, 100, 200);  // Dark blue
+    // Determine sample count for X-axis range
+    size_t sample_count = 0;
+    if (display_samples) {
+        sample_count = display_samples->size();
     }
-    line_series_->setPen(QPen(line_color, 1));
+    if (is_yc_source_ && channel_mode == 2) {
+        // Use Y samples size for both mode
+        sample_count = current_y_samples_.size();
+    }
     
-    // Update the plot with calculated ranges based on 16-bit sample range
-    line_series_->setData(points);
-    plot_widget_->setAxisRange(Qt::Horizontal, 0, static_cast<double>(samples.size() - 1));
+    // Update the plot with calculated ranges
+    plot_widget_->setAxisRange(Qt::Horizontal, 0, static_cast<double>(sample_count - 1));
     plot_widget_->setAxisRange(Qt::Vertical, min_mv, max_mv);
     plot_widget_->setAxisAutoScale(Qt::Horizontal, false);
     plot_widget_->setAxisAutoScale(Qt::Vertical, false);
@@ -255,8 +459,8 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     plot_widget_->setAxisTickStep(Qt::Vertical, mv_tick_step, 0.0);
     
     // Configure secondary Y-axis to show IRE values
-    if (video_params.has_value()) {
-        const auto& vp = video_params.value();
+    if (current_video_params_.has_value()) {
+        const auto& vp = current_video_params_.value();
         if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
             plot_widget_->setSecondaryYAxisEnabled(true);
             plot_widget_->setSecondaryYAxisTitle("IRE");
@@ -273,8 +477,8 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     plot_widget_->clearMarkers();
     
     // Add region markers if we have video parameters
-    if (video_params.has_value()) {
-        const auto& vp = video_params.value();
+    if (current_video_params_.has_value()) {
+        const auto& vp = current_video_params_.value();
         
         // Color burst region (cyan)
         if (vp.colour_burst_start >= 0 && vp.colour_burst_end >= 0) {
@@ -317,16 +521,38 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
             ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
         }
     }
+}
+
+void LineScopeDialog::onChannelSelectionChanged(int /*index*/)
+{
+    // Guard against being called before data is set
+    if (!is_yc_source_) {
+        return;  // Channel selector is only used for YC sources
+    }
     
-    // Add click position marker (green)
-    updateSampleMarker(sample_x);
-    
+    // Redraw plot with new channel selection
+    updatePlotData();
+    updateSampleMarker(current_sample_x_);
     plot_widget_->replot();
 }
 
 void LineScopeDialog::updateSampleMarker(int sample_x)
 {
-    if (current_samples_.empty()) {
+    // Determine which samples to use for getting values
+    const std::vector<uint16_t>* samples_for_marker = &current_samples_;
+    if (is_yc_source_) {
+        int channel_mode = channel_selector_->currentIndex();
+        if (channel_mode == 0) {
+            samples_for_marker = &current_y_samples_;
+        } else if (channel_mode == 1) {
+            samples_for_marker = &current_c_samples_;
+        } else if (channel_mode == 2) {
+            // For "Both" mode, use Y samples
+            samples_for_marker = &current_y_samples_;
+        }
+    }
+    
+    if (samples_for_marker->empty()) {
         return;
     }
     
@@ -337,7 +563,7 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
     }
     
     // Add new click position marker (green)
-    if (sample_x >= 0 && sample_x < static_cast<int>(current_samples_.size())) {
+    if (sample_x >= 0 && sample_x < static_cast<int>(samples_for_marker->size())) {
         current_sample_x_ = sample_x;
         
         sample_marker_ = plot_widget_->addMarker();
@@ -346,7 +572,7 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         sample_marker_->setPen(QPen(Qt::green, 2));
         
         // Update sample info display
-        uint16_t sample_value = current_samples_[sample_x];
+        uint16_t sample_value = (*samples_for_marker)[sample_x];
         
         // Determine mV conversion factor based on video system
         double ire_to_mv = 7.0;  // Default to PAL
@@ -359,18 +585,44 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         
         QString info_text = QString("Sample: %1").arg(sample_x);
         
-        // Add mV and IRE if we have video parameters
-        if (current_video_params_.has_value()) {
-            const auto& vp = current_video_params_.value();
-            if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
-                double ire = (static_cast<double>(sample_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
-                double mv = ire * ire_to_mv;
-                info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
-                info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
+        // Add channel info for YC sources in "Both" mode
+        if (is_yc_source_ && channel_selector_->currentIndex() == 3) {
+            // Show both Y and C values
+            if (sample_x < static_cast<int>(current_y_samples_.size()) && 
+                sample_x < static_cast<int>(current_c_samples_.size())) {
+                uint16_t y_value = current_y_samples_[sample_x];
+                uint16_t c_value = current_c_samples_[sample_x];
+                
+                if (current_video_params_.has_value()) {
+                    const auto& vp = current_video_params_.value();
+                    if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                        double y_ire = (static_cast<double>(y_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                        double c_ire = (static_cast<double>(c_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                        double y_mv = y_ire * ire_to_mv;
+                        double c_mv = c_ire * ire_to_mv;
+                        
+                        info_text += QString("\nY: %1 mV (%2 IRE)").arg(y_mv, 0, 'f', 1).arg(y_ire, 0, 'f', 1);
+                        info_text += QString("\nC: %1 mV (%2 IRE)").arg(c_mv, 0, 'f', 1).arg(c_ire, 0, 'f', 1);
+                    }
+                } else {
+                    info_text += QString("\nY: %1").arg(y_value);
+                    info_text += QString("\nC: %1").arg(c_value);
+                }
             }
         } else {
-            // If no video parameters, show raw 16-bit value
-            info_text += QString("\n16-bit: %1").arg(sample_value);
+            // Single channel mode - show mV and IRE if we have video parameters
+            if (current_video_params_.has_value()) {
+                const auto& vp = current_video_params_.value();
+                if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    double ire = (static_cast<double>(sample_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                    double mv = ire * ire_to_mv;
+                    info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
+                    info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
+                }
+            } else {
+                // If no video parameters, show raw 16-bit value
+                info_text += QString("\n16-bit: %1").arg(sample_value);
+            }
         }
         
         sample_info_label_->setText(info_text);
@@ -386,8 +638,25 @@ void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
     // Round X coordinate to nearest integer sample position
     int new_sample_x = qRound(dataPoint.x());
     
+    // Determine which samples to use for validation
+    const std::vector<uint16_t>* samples_to_check = &current_samples_;
+    if (is_yc_source_) {
+        int channel_mode = channel_selector_->currentIndex();
+        if (channel_mode == 0) {
+            samples_to_check = &current_y_samples_;
+        } else if (channel_mode == 1) {
+            samples_to_check = &current_c_samples_;
+        } else if (channel_mode == 2) {
+            samples_to_check = &current_y_samples_;
+        }
+    }
+    
+    if (samples_to_check->empty()) {
+        return;
+    }
+    
     // Clamp to valid range
-    new_sample_x = qBound(0, new_sample_x, static_cast<int>(current_samples_.size()) - 1);
+    new_sample_x = qBound(0, new_sample_x, static_cast<int>(samples_to_check->size()) - 1);
     
     // Update marker and info
     updateSampleMarker(new_sample_x);

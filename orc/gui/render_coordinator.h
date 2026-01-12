@@ -561,7 +561,8 @@ signals:
      * @brief Emitted when line samples are ready
      */
     void lineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                          std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params);
+                          std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                          std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     
     /**
      * @brief Emitted during trigger progress

@@ -63,7 +63,7 @@ public:
     NodeTypeInfo get_node_type_info() const override;
     
     // Override parameter descriptors to exclude raw format parameters
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
     
     // Override get_parameters to include only FFmpeg-relevant parameters
     std::map<std::string, ParameterValue> get_parameters() const override;

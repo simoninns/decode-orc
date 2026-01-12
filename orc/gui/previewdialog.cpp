@@ -41,6 +41,12 @@ PreviewDialog::PreviewDialog(QWidget *parent)
     resize(800, 700);
 }
 
+void PreviewDialog::setSignalControlsVisible(bool visible)
+{
+    signal_label_->setVisible(visible);
+    signal_combo_->setVisible(visible);
+}
+
 PreviewDialog::~PreviewDialog() = default;
 
 void PreviewDialog::setupUI()
@@ -132,6 +138,16 @@ void PreviewDialog::setupUI()
     preview_mode_combo_ = new QComboBox();
     controlLayout->addWidget(preview_mode_combo_);
     
+    signal_label_ = new QLabel("Signal:");
+    signal_label_->setVisible(false);  // Hidden by default, shown for YC sources
+    controlLayout->addWidget(signal_label_);
+    signal_combo_ = new QComboBox();
+    signal_combo_->addItem("Y+C");
+    signal_combo_->addItem("Y");
+    signal_combo_->addItem("C");
+    signal_combo_->setVisible(false);  // Hidden by default, shown for YC sources
+    controlLayout->addWidget(signal_combo_);
+    
     controlLayout->addWidget(new QLabel("Aspect Ratio:"));
     aspect_ratio_combo_ = new QComboBox();
     controlLayout->addWidget(aspect_ratio_combo_);
@@ -160,6 +176,8 @@ void PreviewDialog::setupUI()
     connect(preview_slider_, &QSlider::valueChanged, this, &PreviewDialog::previewIndexChanged);
     connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::previewModeChanged);
+    connect(signal_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &PreviewDialog::signalChanged);
     connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::aspectRatioModeChanged);
     
@@ -267,12 +285,18 @@ bool PreviewDialog::isLineScopeVisible() const
 void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                   const std::vector<uint16_t>& samples,
                                   const std::optional<orc::VideoParameters>& video_params,
-                                  int preview_image_width, int original_sample_x)
+                                  int preview_image_width, int original_sample_x,
+                                  const std::vector<uint16_t>& y_samples,
+                                  const std::vector<uint16_t>& c_samples)
 {
     if (line_scope_dialog_) {
         // Store line scope context for cross-hair updates
         current_line_scope_preview_width_ = preview_image_width;
         current_line_scope_samples_count_ = samples.size();
+        if (current_line_scope_samples_count_ == 0 && !y_samples.empty()) {
+            // Use Y samples size if no composite
+            current_line_scope_samples_count_ = y_samples.size();
+        }
         // Note: We don't know the image_y here directly, but MainWindow will update cross-hairs
         
         // Connect navigation signal if not already connected
@@ -285,13 +309,14 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
         
         // Only enable cross-hairs if there's actual data to display
         // For stages like FFmpeg video sync that don't have line data, hide cross-hairs
-        if (samples.empty()) {
+        if (samples.empty() && y_samples.empty() && c_samples.empty()) {
             preview_widget_->setCrosshairsEnabled(false);
         } else {
             preview_widget_->setCrosshairsEnabled(true);
         }
         
-        line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, preview_image_width, original_sample_x);
+        line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, 
+                                          preview_image_width, original_sample_x, y_samples, c_samples);
         
         // Just show the dialog - Qt will remember its position
         line_scope_dialog_->show();

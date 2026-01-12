@@ -19,6 +19,13 @@
 
 namespace orc {
 
+/// Source type for parameter filtering
+enum class SourceType {
+    Unknown,     // Source type not determined yet
+    Composite,   // Composite source (Y+C modulated together, e.g., .tbc files)
+    YC           // YC source (separate Y and C channels, e.g., .tbcy/.tbcc files)
+};
+
 /// Parameter value types supported by stages
 using ParameterValue = std::variant<
     int32_t,      // Integer values
@@ -78,7 +85,10 @@ public:
     
     /// Get list of parameters this stage supports
     /// @param project_format Optional video format from project context for filtering options
-    virtual std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const = 0;
+    /// @param source_type Optional source type (Composite/YC) from project context for filtering options
+    virtual std::vector<ParameterDescriptor> get_parameter_descriptors(
+        VideoSystem project_format = VideoSystem::Unknown,
+        SourceType source_type = SourceType::Unknown) const = 0;
     
     /// Get current parameter values
     virtual std::map<std::string, ParameterValue> get_parameters() const = 0;

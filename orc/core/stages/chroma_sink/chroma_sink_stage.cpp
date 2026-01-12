@@ -95,20 +95,37 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
     return {};  // No outputs
 }
 
-std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
-    // Determine available decoder types based on project video format
+    // Determine available decoder types based on project video format AND source type
     std::vector<std::string> decoder_options;
     
     if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
         // PAL-specific decoders
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+        if (source_type == SourceType::YC) {
+            // For YC sources, only pal2d and mono make sense (no comb filtering needed)
+            decoder_options = {"auto", "pal2d", "mono"};
+        } else {
+            // For composite sources, offer all PAL decoders
+            decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+        }
     } else if (project_format == VideoSystem::NTSC) {
         // NTSC-specific decoders
-        decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        if (source_type == SourceType::YC) {
+            // For YC sources, only ntsc2d and mono make sense
+            decoder_options = {"auto", "ntsc2d", "mono"};
+        } else {
+            // For composite sources, offer all NTSC decoders
+            decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        }
     } else {
         // Unknown system - show all (for backwards compatibility or if not set)
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        // But still filter based on source type if known
+        if (source_type == SourceType::YC) {
+            decoder_options = {"auto", "pal2d", "ntsc2d", "mono"};
+        } else {
+            decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        }
     }
     
     std::vector<ParameterDescriptor> params = {
@@ -564,6 +581,19 @@ bool ChromaSinkStage::trigger(
         ORC_LOG_DEBUG("ChromaSink: Using decoder: mono");
     }
     else if (usePalDecoder) {
+        // Check if we're trying to use Transform PAL filters with YC sources
+        bool is_yc_source = vfr->has_separate_channels();
+        bool isTransformFilter = (decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
+        
+        if (is_yc_source && isTransformFilter) {
+            ORC_LOG_ERROR("ChromaSink: Transform PAL filters (transform2d/transform3d) are not compatible with YC sources.");
+            ORC_LOG_ERROR("ChromaSink: YC sources have already-separated Y and C channels and do not need frequency-domain filtering.");
+            ORC_LOG_ERROR("ChromaSink: Please use 'pal2d', 'auto', or 'mono' decoder instead.");
+            ORC_LOG_ERROR("ChromaSink: Falling back to 'pal2d' decoder for YC source.");
+            // Override to pal2d for YC sources
+            decoder_type_ = "pal2d";
+        }
+        
         PalColour::Configuration config;
         config.chromaGain = chroma_gain_;
         config.chromaPhase = chroma_phase_;
@@ -944,7 +974,14 @@ bool ChromaSinkStage::trigger(
                     // Create blank field with metadata but black data
                     sf = convertToSourceField(vfr.get(), fieldInfo.field_id);
                     uint16_t black = videoParams.black_16b_ire;
-                    sf.data.assign(sf.data.size(), black);
+                    
+                    // Handle both composite and YC sources
+                    if (sf.is_yc) {
+                        sf.luma_data.assign(sf.luma_data.size(), black);
+                        sf.chroma_data.assign(sf.chroma_data.size(), black);
+                    } else {
+                        sf.data.assign(sf.data.size(), black);
+                    }
                 } else {
                     // Load field data from TBC (this is where the actual I/O happens, on-demand)
                     sf = convertToSourceField(vfr.get(), fieldInfo.field_id);
@@ -973,7 +1010,14 @@ bool ChromaSinkStage::trigger(
                     if (!frameFields.empty()) {
                         blackField = frameFields[0];  // Copy structure
                         uint16_t black = videoParams.black_16b_ire;
-                        blackField.data.assign(blackField.data.size(), black);
+                        
+                        // Handle both composite and YC sources
+                        if (blackField.is_yc) {
+                            blackField.luma_data.assign(blackField.luma_data.size(), black);
+                            blackField.chroma_data.assign(blackField.chroma_data.size(), black);
+                        } else {
+                            blackField.data.assign(blackField.data.size(), black);
+                        }
                     }
                     paddedFrameFields.push_back(blackField);
                 }
@@ -1136,46 +1180,111 @@ SourceField ChromaSinkStage::convertToSourceField(
                   (desc.parity == FieldParity::Top ? "Top" : "Bottom"),
                   sf.field.is_first_field.value_or(false));
     
-    // Get field data
-    std::vector<uint16_t> field_data = vfr->get_field(field_id);
-    
-    // Copy field data to SourceField
-    sf.data = field_data;
-    
-    // Apply PAL subcarrier-locked field shift (matches standalone decoder behavior)
-    // With 4fSC PAL sampling, the two fields are misaligned by 2 samples
-    // The second field needs to be shifted left by 2 samples
-    auto videoParamsOpt = vfr->get_video_parameters();
-    if (videoParamsOpt.has_value()) {
-        const auto& videoParams = videoParamsOpt.value();
-        bool isPal = (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M);
-        bool isSecondField = (desc.parity == FieldParity::Bottom);
+    // Check if this is a YC source (separate Y and C channels)
+    if (vfr->has_separate_channels()) {
+        // YC SOURCE PATH - get Y and C independently
+        sf.is_yc = true;
         
-        if (isPal && videoParams.is_subcarrier_locked && isSecondField) {
-            // Shift second field left by 2 samples (remove first 2, add 2 black samples at end)
-            sf.data.erase(sf.data.begin(), sf.data.begin() + 2);
-            uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
-            sf.data.push_back(black);
-            sf.data.push_back(black);
-            ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to field {}", field_id.value());
+        // Get luma (Y) data
+        std::vector<uint16_t> y_field_data = vfr->get_field_luma(field_id);
+        sf.luma_data = y_field_data;
+        
+        // Get chroma (C) data
+        std::vector<uint16_t> c_field_data = vfr->get_field_chroma(field_id);
+        sf.chroma_data = c_field_data;
+        
+        ORC_LOG_TRACE("ChromaSink: YC source - Field {} Y.size()={} C.size()={}",
+                     field_id.value(), sf.luma_data.size(), sf.chroma_data.size());
+        
+        // Apply PAL subcarrier-locked field shift to both Y and C
+        auto videoParamsOpt = vfr->get_video_parameters();
+        if (videoParamsOpt.has_value()) {
+            const auto& videoParams = videoParamsOpt.value();
+            bool isPal = (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M);
+            bool isSecondField = (desc.parity == FieldParity::Bottom);
+            
+            if (isPal && videoParams.is_subcarrier_locked && isSecondField) {
+                // Shift second field left by 2 samples (remove first 2, add 2 black samples at end)
+                uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
+                
+                // Shift Y channel
+                sf.luma_data.erase(sf.luma_data.begin(), sf.luma_data.begin() + 2);
+                sf.luma_data.push_back(black);
+                sf.luma_data.push_back(black);
+                
+                // Shift C channel
+                sf.chroma_data.erase(sf.chroma_data.begin(), sf.chroma_data.begin() + 2);
+                sf.chroma_data.push_back(black);
+                sf.chroma_data.push_back(black);
+                
+                ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to YC field {}", field_id.value());
+            }
+        }
+        
+        // Log first few fields
+        if (field_id.value() < 6) {
+            ORC_LOG_DEBUG("ChromaSink: YC Field {} FULL metadata:", field_id.value());
+            ORC_LOG_DEBUG("  seq_no={} is_first_field={} field_phase_id={}", 
+                          sf.field.seq_no, 
+                          sf.field.is_first_field.value_or(false), 
+                          sf.field.field_phase_id.value_or(-1));
+            ORC_LOG_DEBUG("  is_yc=true luma.size()={} chroma.size()={}",
+                          sf.luma_data.size(), sf.chroma_data.size());
+            ORC_LOG_DEBUG("  Y first4=[{},{},{},{}] C first4=[{},{},{},{}]",
+                          sf.luma_data.size() > 0 ? sf.luma_data[0] : 0,
+                          sf.luma_data.size() > 1 ? sf.luma_data[1] : 0,
+                          sf.luma_data.size() > 2 ? sf.luma_data[2] : 0,
+                          sf.luma_data.size() > 3 ? sf.luma_data[3] : 0,
+                          sf.chroma_data.size() > 0 ? sf.chroma_data[0] : 0,
+                          sf.chroma_data.size() > 1 ? sf.chroma_data[1] : 0,
+                          sf.chroma_data.size() > 2 ? sf.chroma_data[2] : 0,
+                          sf.chroma_data.size() > 3 ? sf.chroma_data[3] : 0);
+        }
+        
+    } else {
+        // COMPOSITE SOURCE PATH - Y+C modulated together (existing behavior)
+        sf.is_yc = false;
+        
+        // Get field data
+        std::vector<uint16_t> field_data = vfr->get_field(field_id);
+        
+        // Copy field data to SourceField
+        sf.data = field_data;
+        
+        // Apply PAL subcarrier-locked field shift (matches standalone decoder behavior)
+        // With 4fSC PAL sampling, the two fields are misaligned by 2 samples
+        // The second field needs to be shifted left by 2 samples
+        auto videoParamsOpt = vfr->get_video_parameters();
+        if (videoParamsOpt.has_value()) {
+            const auto& videoParams = videoParamsOpt.value();
+            bool isPal = (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M);
+            bool isSecondField = (desc.parity == FieldParity::Bottom);
+            
+            if (isPal && videoParams.is_subcarrier_locked && isSecondField) {
+                // Shift second field left by 2 samples (remove first 2, add 2 black samples at end)
+                sf.data.erase(sf.data.begin(), sf.data.begin() + 2);
+                uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
+                sf.data.push_back(black);
+                sf.data.push_back(black);
+                ORC_LOG_TRACE("ChromaSink: Applied PAL subcarrier-locked shift to composite field {}", field_id.value());
+            }
+        }
+        
+        // Log complete Field structure for debugging (first 6 fields only)
+        if (field_id.value() < 6) {
+            ORC_LOG_DEBUG("ChromaSink: Composite Field {} FULL metadata:", field_id.value());
+            ORC_LOG_DEBUG("  seq_no={} is_first_field={} field_phase_id={}", 
+                          sf.field.seq_no, 
+                          sf.field.is_first_field.value_or(false), 
+                          sf.field.field_phase_id.value_or(-1));
+            ORC_LOG_DEBUG("  is_yc=false data.size()={} first4=[{},{},{},{}]",
+                          sf.data.size(),
+                          sf.data.size() > 0 ? sf.data[0] : 0,
+                          sf.data.size() > 1 ? sf.data[1] : 0,
+                          sf.data.size() > 2 ? sf.data[2] : 0,
+                          sf.data.size() > 3 ? sf.data[3] : 0);
         }
     }
-    
-    // Log complete Field structure for debugging (first 6 fields only)
-    if (field_id.value() < 6) {
-        ORC_LOG_DEBUG("ChromaSink: Field {} FULL metadata:", field_id.value());
-        ORC_LOG_DEBUG("  seq_no={} is_first_field={} field_phase_id={}", 
-                      sf.field.seq_no, 
-                      sf.field.is_first_field.value_or(false), 
-                      sf.field.field_phase_id.value_or(-1));
-        ORC_LOG_DEBUG("  data.size()={} first4=[{},{},{},{}]",
-                      sf.data.size(),
-                      sf.data.size() > 0 ? sf.data[0] : 0,
-                      sf.data.size() > 1 ? sf.data[1] : 0,
-                      sf.data.size() > 2 ? sf.data[2] : 0,
-                      sf.data.size() > 3 ? sf.data[3] : 0);
-    }
-    
 
     return sf;
 }
@@ -1418,10 +1527,15 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         return result;  // Can't get field descriptor
     }
     
+    // Determine if source is YC or composite from the VFR
+    bool is_yc_source = local_input->has_separate_channels();
+    
     for (int64_t f = start_field; f <= end_field; ++f) {
         if (f >= 0 && local_input->has_field(FieldID(f))) {
             SourceField sf = convertToSourceField(local_input.get(), FieldID(f));
-            if (!sf.data.empty()) {
+            // Check if field has data (composite or YC)
+            bool has_data = sf.is_yc ? (!sf.luma_data.empty() && !sf.chroma_data.empty()) : !sf.data.empty();
+            if (has_data) {
                 inputFields.push_back(sf);
             }
         } else {
@@ -1429,7 +1543,16 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             SourceField blank_field;
             blank_field.field.seq_no = static_cast<int32_t>(f) + 1;
             blank_field.field.is_first_field = (f % 2 == 0);  // Even indices are first field
-            blank_field.data.resize(video_desc->width * video_desc->height, 0);  // Black fill
+            
+            // Create blank data for composite or YC as appropriate
+            if (is_yc_source) {
+                blank_field.is_yc = true;
+                blank_field.luma_data.resize(video_desc->width * video_desc->height, 0);
+                blank_field.chroma_data.resize(video_desc->width * video_desc->height, 0);
+            } else {
+                blank_field.is_yc = false;
+                blank_field.data.resize(video_desc->width * video_desc->height, 0);
+            }
             inputFields.push_back(blank_field);
         }
     }
@@ -1633,14 +1756,45 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     }
     
     // Populate vectorscope payload (subsample to keep UI responsive)
-    // Extract from both fields in the interlaced frame
-    result.vectorscope_data = VectorscopeAnalysisTool::extractFromInterlacedRGB(
-        rgb16_data.data(),
-        static_cast<uint32_t>(width),
-        static_cast<uint32_t>(height),
-        field_a_index,
-        2  // sample every other pixel for speed
-    );
+    // For YC sources, pull U/V directly from decoder output to avoid RGB round-trip
+    const uint32_t vectorscope_subsample = 2;  // sample every other pixel for speed
+    if (is_yc_source) {
+        VectorscopeData data;
+        data.width = static_cast<uint32_t>(width);
+        data.height = static_cast<uint32_t>(height);
+        data.field_number = field_a_index;
+        // Rough reserve to reduce reallocations
+        data.samples.reserve((width / static_cast<int32_t>(vectorscope_subsample)) * (height / static_cast<int32_t>(vectorscope_subsample)));
+
+        const double safeIreRange = (ireRange != 0.0) ? ireRange : 1.0;
+        const double uvScale = 32768.0 / safeIreRange;  // Map decoded U/V to vectorscope range
+
+        for (uint8_t field_id = 0; field_id < 2; ++field_id) {
+            for (int32_t y = field_id; y < height; y += static_cast<int32_t>(vectorscope_subsample) * 2) {
+                const double* uLine = frame.u(y);
+                const double* vLine = frame.v(y);
+                if (!uLine || !vLine) {
+                    continue;
+                }
+
+                for (int32_t x = 0; x < width; x += static_cast<int32_t>(vectorscope_subsample)) {
+                    double u_val = uLine[x] * uvScale;
+                    double v_val = vLine[x] * uvScale;
+                    data.samples.push_back({u_val, v_val, field_id});
+                }
+            }
+        }
+        result.vectorscope_data = std::move(data);
+    } else {
+        // Extract from both fields in the interlaced RGB frame (composite sources)
+        result.vectorscope_data = VectorscopeAnalysisTool::extractFromInterlacedRGB(
+            rgb16_data.data(),
+            static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height),
+            field_a_index,
+            vectorscope_subsample
+        );
+    }
     // Attach video parameters needed for graticule targets
     if (result.vectorscope_data.has_value() && cached_input_) {
         auto vparams = cached_input_->get_video_parameters();

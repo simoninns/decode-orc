@@ -49,12 +49,31 @@ public:
         , field_mapping_(std::move(field_mapping))
     {
         // Initialize black line buffer for padding
-        // Get video parameters from source to determine line width
+        // Get field width from source descriptor (use first valid field)
         if (source_) {
-            auto params = source_->get_video_parameters();
-            if (params) {
+            auto range = source_->field_range();
+            size_t line_width = 0;
+            
+            // Try to get width from first valid field descriptor
+            for (FieldID fid = range.start; fid < range.end; fid = FieldID(fid.value() + 1)) {
+                auto desc = source_->get_descriptor(fid);
+                if (desc) {
+                    line_width = desc->width;
+                    break;
+                }
+            }
+            
+            // Fallback to video parameters if no descriptor found
+            if (line_width == 0) {
+                auto params = source_->get_video_parameters();
+                if (params && params->field_width > 0) {
+                    line_width = static_cast<size_t>(params->field_width);
+                }
+            }
+            
+            if (line_width > 0) {
                 // Create black line (all zeros)
-                black_line_.resize(params->field_width, 0);
+                black_line_.resize(line_width, 0);
             }
         }
     }
@@ -165,6 +184,104 @@ public:
             return {};
         }
         return source_->get_field(source_id);
+    }
+    
+    // ========================================================================
+    // DUAL-CHANNEL ACCESS - For YC sources
+    // ========================================================================
+    
+    const sample_type* get_line_luma(FieldID id, size_t line) const override {
+        // If source doesn't have separate channels, use default behavior
+        if (!source_ || !source_->has_separate_channels()) {
+            return VideoFieldRepresentationWrapper::get_line_luma(id, line);
+        }
+        
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return nullptr;
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Return black line for padding fields
+        if (!source_id.is_valid()) {
+            (void)line;  // All lines same for black field
+            return black_line_.empty() ? nullptr : black_line_.data();
+        }
+        
+        // Apply field mapping to luma channel
+        return source_->get_line_luma(source_id, line);
+    }
+    
+    const sample_type* get_line_chroma(FieldID id, size_t line) const override {
+        // If source doesn't have separate channels, use default behavior
+        if (!source_ || !source_->has_separate_channels()) {
+            return VideoFieldRepresentationWrapper::get_line_chroma(id, line);
+        }
+        
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return nullptr;
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Return black line for padding fields
+        if (!source_id.is_valid()) {
+            (void)line;  // All lines same for black field
+            return black_line_.empty() ? nullptr : black_line_.data();
+        }
+        
+        // Apply field mapping to chroma channel (same mapping as luma)
+        return source_->get_line_chroma(source_id, line);
+    }
+    
+    std::vector<sample_type> get_field_luma(FieldID id) const override {
+        // If source doesn't have separate channels, use default behavior
+        if (!source_ || !source_->has_separate_channels()) {
+            return VideoFieldRepresentationWrapper::get_field_luma(id);
+        }
+        
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return {};
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Return black field for padding
+        if (!source_id.is_valid()) {
+            auto desc = get_descriptor(id);
+            if (desc) {
+                return std::vector<sample_type>(desc->width * desc->height, 0);
+            }
+            return {};
+        }
+        
+        // Apply field mapping to luma field
+        return source_->get_field_luma(source_id);
+    }
+    
+    std::vector<sample_type> get_field_chroma(FieldID id) const override {
+        // If source doesn't have separate channels, use default behavior
+        if (!source_ || !source_->has_separate_channels()) {
+            return VideoFieldRepresentationWrapper::get_field_chroma(id);
+        }
+        
+        size_t index = id.value();
+        if (index >= field_mapping_.size()) {
+            return {};
+        }
+        FieldID source_id = field_mapping_[index];
+        
+        // Return black field for padding
+        if (!source_id.is_valid()) {
+            auto desc = get_descriptor(id);
+            if (desc) {
+                return std::vector<sample_type>(desc->width * desc->height, 0);
+            }
+            return {};
+        }
+        
+        // Apply field mapping to chroma field (same mapping as luma)
+        return source_->get_field_chroma(source_id);
     }
     
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override {
@@ -377,9 +494,10 @@ std::vector<ArtifactPtr> FieldMapStage::execute(
     return {result};
 }
 
-std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> FieldMapStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
     (void)project_format;  // Unused - field map works with all formats
+    (void)source_type;     // Unused - field map works with all source types
     return {
         ParameterDescriptor{
             "ranges",

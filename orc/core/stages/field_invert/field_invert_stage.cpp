@@ -61,9 +61,10 @@ std::shared_ptr<const VideoFieldRepresentation> FieldInvertStage::process(
     return std::make_shared<InvertedFieldRepresentation>(source);
 }
 
-std::vector<ParameterDescriptor> FieldInvertStage::get_parameter_descriptors(VideoSystem project_format) const
+std::vector<ParameterDescriptor> FieldInvertStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
 {
-    (void)project_format;  // Unused - field invert works with all formats
+    (void)project_format;
+    (void)source_type;  // Unused - field invert works with all formats
     // No parameters for this stage
     return {};
 }

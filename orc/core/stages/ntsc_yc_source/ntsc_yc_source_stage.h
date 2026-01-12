@@ -1,18 +1,18 @@
 /*
- * File:        ld_pal_source_stage.h
+ * File:        ntsc_yc_source_stage.h
  * Module:      orc-core
- * Purpose:     LaserDisc PAL source loading stage
+ * Purpose:     NTSC YC source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 
-#ifndef LD_PAL_SOURCE_STAGE_H
-#define LD_PAL_SOURCE_STAGE_H
+#ifndef NTSC_YC_SOURCE_STAGE_H
+#define NTSC_YC_SOURCE_STAGE_H
 
 #include <dag_executor.h>
-#include <tbc_video_field_representation.h>
+#include <tbc_yc_video_field_representation.h>
 #include <stage_parameter.h>
 #include <previewable_stage.h>
 #include <string>
@@ -20,21 +20,30 @@
 namespace orc {
 
 /**
- * @brief LaserDisc PAL Source Stage - Loads PAL TBC files from ld-decode
+ * @brief NTSC YC Source Stage - Loads NTSC YC (separate Y and C) files
  * 
- * This stage loads a PAL TBC file and its associated database from ld-decode,
- * creating a VideoFieldRepresentation for PAL video processing.
+ * This stage loads separate Y (luma) and C (chroma) TBC files for NTSC video,
+ * creating a VideoFieldRepresentation for NTSC YC video processing.
+ * 
+ * YC sources are typically from color-under formats like VHS or Betamax,
+ * where Y and C are recorded separately. This provides better quality
+ * than composite sources:
+ * - Clean luma (no comb filter artifacts)
+ * - Simpler chroma decoding (no Y/C separation needed)
  * 
  * Parameters:
- * - input_path: Path to the .tbc file
- * - db_path: Path to the .tbc.db database file (optional, defaults to input_path + ".db")
+ * - y_path: Path to the .tbcy (luma) file
+ * - c_path: Path to the .tbcc (chroma) file
+ * - db_path: Path to the .tbc.db database file
+ * - pcm_path: Optional path to .pcm audio file
+ * - efm_path: Optional path to .efm EFM data file
  * 
  * This is a source stage with no inputs.
  */
-class LDPALSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
+class NTSCYCSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
-    LDPALSourceStage() = default;
-    ~LDPALSourceStage() override = default;
+    NTSCYCSourceStage() = default;
+    ~NTSCYCSourceStage() override = default;
 
     // DAGStage interface
     std::string version() const override { return "1.0.0"; }
@@ -42,12 +51,12 @@ public:
     NodeTypeInfo get_node_type_info() const override {
         return NodeTypeInfo{
             NodeType::SOURCE,
-            "LDPALSource",
-            "LD PAL Source",
-            "LaserDisc PAL input source - loads PAL TBC files from ld-decode",
+            "NTSC_YC_Source",
+            "NTSC YC Source",
+            "NTSC YC input source - loads separate Y and C TBC files (color-under formats like VHS)",
             0, 0,  // No inputs
             1, UINT32_MAX,  // Many outputs
-            VideoFormatCompatibility::PAL_ONLY
+            VideoFormatCompatibility::NTSC_ONLY
         };
     }
     
@@ -60,7 +69,7 @@ public:
     size_t output_count() const override { return 1; }
 
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     
@@ -75,13 +84,18 @@ public:
 
 private:
     // Cache the loaded representation to avoid reloading
-    mutable std::string cached_input_path_;
+    mutable std::string cached_y_path_;
+    mutable std::string cached_c_path_;
     mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
     
-    // Store parameters for inspection
-    std::map<std::string, ParameterValue> parameters_;
+    // Current parameters
+    std::string y_path_;
+    std::string c_path_;
+    std::string db_path_;
+    std::string pcm_path_;
+    std::string efm_path_;
 };
 
 } // namespace orc
 
-#endif // LD_PAL_SOURCE_STAGE_H
+#endif // NTSC_YC_SOURCE_STAGE_H

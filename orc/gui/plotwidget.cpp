@@ -62,6 +62,9 @@ void PlotWidget::setupView()
     m_mainLayout->setContentsMargins(0, 0, 0, 0);
     
     m_scene = new QGraphicsScene(this);
+    // Disable BSP indexing for dynamic plot scenes to prevent crashes
+    m_scene->setItemIndexMethod(QGraphicsScene::NoIndex);
+    
     m_view = new QGraphicsView(m_scene, this);
     
     m_view->setRenderHint(QPainter::Antialiasing, true);
@@ -847,7 +850,7 @@ void PlotLegend::updateLegend(const QList<PlotSeries*> &series, const QRectF &pl
     QFontMetrics fm(font);
     
     int maxWidth = 0;
-    int totalHeight = 0;
+    int totalHeight = 10; // Top padding
     
     for (PlotSeries *s : series) {
         if (!s->title().isEmpty()) {
@@ -856,6 +859,9 @@ void PlotLegend::updateLegend(const QList<PlotSeries*> &series, const QRectF &pl
             totalHeight += fm.height() + 2;
         }
     }
+    
+    totalHeight += 5; // Bottom padding
+    maxWidth += 10; // Left and right padding (5 on each side)
     
     // Position legend in top-right corner
     m_boundingRect = QRectF(plotRect.right() - maxWidth - 10, 

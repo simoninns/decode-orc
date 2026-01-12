@@ -95,6 +95,68 @@ public:
     virtual std::vector<sample_type> get_field(FieldID id) const = 0;
     
     // ========================================================================
+    // DUAL-CHANNEL ACCESS - For YC sources (separate Y and C files)
+    // ========================================================================
+    // YC sources provide luma (Y) and chroma (C) in separate files, as opposed
+    // to composite sources where Y+C are modulated together. This allows cleaner
+    // luma (no comb filter artifacts) and simpler chroma decoding.
+    //
+    // For composite sources, these methods return false/nullptr/{}.
+    // For YC sources, has_separate_channels() returns true and the line/field
+    // methods provide access to Y and C independently.
+    
+    /**
+     * @brief Check if this representation has separate Y and C channels
+     * 
+     * @return True for YC sources, false for composite sources
+     */
+    virtual bool has_separate_channels() const {
+        return false;  // Default: composite (Y+C modulated together)
+    }
+    
+    /**
+     * @brief Get luma (Y) line data for YC sources
+     * 
+     * @param id Field ID
+     * @param line Line number
+     * @return Pointer to Y samples, or nullptr if not available or composite source
+     */
+    virtual const sample_type* get_line_luma(FieldID /*id*/, size_t /*line*/) const {
+        return nullptr;  // Default: not a YC source
+    }
+    
+    /**
+     * @brief Get chroma (C) line data for YC sources
+     * 
+     * @param id Field ID
+     * @param line Line number
+     * @return Pointer to C samples, or nullptr if not available or composite source
+     */
+    virtual const sample_type* get_line_chroma(FieldID /*id*/, size_t /*line*/) const {
+        return nullptr;  // Default: not a YC source
+    }
+    
+    /**
+     * @brief Get luma (Y) field data for YC sources
+     * 
+     * @param id Field ID
+     * @return Vector of Y samples (empty if not available or composite source)
+     */
+    virtual std::vector<sample_type> get_field_luma(FieldID /*id*/) const {
+        return {};  // Default: not a YC source
+    }
+    
+    /**
+     * @brief Get chroma (C) field data for YC sources
+     * 
+     * @param id Field ID
+     * @return Vector of C samples (empty if not available or composite source)
+     */
+    virtual std::vector<sample_type> get_field_chroma(FieldID /*id*/) const {
+        return {};  // Default: not a YC source
+    }
+    
+    // ========================================================================
     // HINTS - Information from upstream processors (e.g., ld-decode)
     // ========================================================================
     // Hints are metadata provided by external tools that analyzed the video.
@@ -343,6 +405,27 @@ public:
     
     bool has_efm() const override {
         return source_ ? source_->has_efm() : false;
+    }
+    
+    // Automatically propagate dual-channel access through the chain
+    bool has_separate_channels() const override {
+        return source_ ? source_->has_separate_channels() : false;
+    }
+    
+    const sample_type* get_line_luma(FieldID id, size_t line) const override {
+        return source_ ? source_->get_line_luma(id, line) : nullptr;
+    }
+    
+    const sample_type* get_line_chroma(FieldID id, size_t line) const override {
+        return source_ ? source_->get_line_chroma(id, line) : nullptr;
+    }
+    
+    std::vector<sample_type> get_field_luma(FieldID id) const override {
+        return source_ ? source_->get_field_luma(id) : std::vector<sample_type>{};
+    }
+    
+    std::vector<sample_type> get_field_chroma(FieldID id) const override {
+        return source_ ? source_->get_field_chroma(id) : std::vector<sample_type>{};
     }
     
     // Access to wrapped source

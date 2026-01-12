@@ -158,7 +158,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             true,
             0.7,
             "",
-            false  // No dropouts for placeholder
+            false,  // No dropouts for placeholder
+            false   // No separate channels for placeholder
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -167,7 +168,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             true,
             0.7,
             "",
-            false  // No dropouts for placeholder
+            false,  // No dropouts for placeholder
+            false   // No separate channels for placeholder
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -176,7 +178,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             true,
             0.7,
             "",
-            false  // No dropouts for placeholder
+            false,  // No dropouts for placeholder
+            false   // No separate channels for placeholder
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -185,7 +188,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             true,
             0.7,
             "",
-            false  // No dropouts for placeholder
+            false,  // No dropouts for placeholder
+            false   // No separate channels for placeholder
         });
         return outputs;
     }
@@ -230,7 +234,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for unavailable content
+            false,  // No dropouts for unavailable content
+            false   // No separate channels
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -239,7 +244,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for unavailable content
+            false,  // No dropouts for unavailable content
+            false   // No separate channels
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -248,7 +254,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for unavailable content
+            false,  // No dropouts for unavailable content
+            false   // No separate channels
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -257,7 +264,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for unavailable content
+            false,  // No dropouts for unavailable content
+            false   // No separate channels
         });
         return outputs;
     }
@@ -274,7 +282,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for empty content
+            false,  // No dropouts for empty content
+            false   // No separate channels
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -283,7 +292,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for empty content
+            false,  // No dropouts for empty content
+            false   // No separate channels
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -292,7 +302,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for empty content
+            false,  // No dropouts for empty content
+            false   // No separate channels
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -301,7 +312,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             false,  // Not available - placeholder only
             0.7,
             "",
-            false  // No dropouts for empty content
+            false,  // No dropouts for empty content
+            false   // No separate channels
         });
         return outputs;
     }
@@ -314,7 +326,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         true,
         0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
         "",
-        true  // Dropouts available for field outputs
+        true,  // Dropouts available for field outputs
+        false  // No separate channels
     });
     
     // Frame outputs - available if we have at least 2 fields
@@ -342,7 +355,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 true,
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
-                true  // Dropouts available for frame outputs
+                true,  // Dropouts available for frame outputs
+                false  // No separate channels
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -352,7 +366,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 true,
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
-                true  // Dropouts available for reversed frame outputs
+                true,  // Dropouts available for reversed frame outputs
+                false  // No separate channels
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -362,7 +377,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 true,
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
-                true  // Dropouts available for split outputs
+                true,  // Dropouts available for split outputs
+                false  // No separate channels
             });
         }
     }
@@ -1439,6 +1455,23 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
         std::string stage_name = stage_node.stage->get_node_type_info().stage_name;
         bool is_chroma_decoder = (stage_name == "chroma_sink");
         
+        // Check if the stage has separate Y/C channels (for YC sources)
+        // We do this by rendering field 0 and checking has_separate_channels()
+        bool has_separate_channels = false;
+        if (auto* previewable_ptr = const_cast<PreviewableStage*>(&previewable)) {
+            try {
+                auto preview_img = previewable_ptr->render_preview(options[0].id, 0, PreviewNavigationHint::Random);
+                // Now render field 0 to get the representation
+                auto result = field_renderer_->render_field_at_node(stage_node_id, FieldID(0));
+                if (result.representation) {
+                    has_separate_channels = result.representation->has_separate_channels();
+                }
+            } catch (...) {
+                // Failed to check - assume false
+                has_separate_channels = false;
+            }
+        }
+        
         outputs.push_back(PreviewOutputInfo{
             type,
             option.display_name,
@@ -1446,7 +1479,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             true,  // If stage advertises it, it's available
             option.dar_aspect_correction,  // Use stage-provided DAR correction
             option.id,  // Store original option ID
-            !is_chroma_decoder  // Dropouts not available for chroma decoder (RGB output)
+            !is_chroma_decoder,  // Dropouts not available for chroma decoder (RGB output)
+            has_separate_channels  // YC sources have separate channels
         });
     }
     

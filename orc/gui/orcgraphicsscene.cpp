@@ -24,6 +24,12 @@ OrcGraphicsScene::OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent)
     : QtNodes::BasicGraphicsScene(graphModel, parent)
     , graph_model_(graphModel)
 {
+    // Disable BSP indexing for dynamic node graph to prevent BSP tree crashes
+    // See: https://doc.qt.io/qt-6/qgraphicsscene.html#ItemIndexMethod-enum
+    // Node graphs have frequent add/remove/update operations which can cause
+    // stale BSP tree entries and crashes during paint traversal
+    setItemIndexMethod(QGraphicsScene::NoIndex);
+    
     // Set custom node painter that distinguishes "one" vs "many" ports
     setNodePainter(std::make_unique<OrcNodePainter>());
     
@@ -66,6 +72,7 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
     } else {
         const auto& all_types = orc::get_all_node_types();
         orc::VideoSystem project_format = graph_model_.project().get_video_format();
+        orc::SourceType project_source_type = graph_model_.project().get_source_format();
         
         // Organize stages by type
         std::vector<const orc::NodeTypeInfo*> source_stages;
@@ -80,9 +87,20 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
             
             // Categorize by NodeType
             switch (type_info.type) {
-                case orc::NodeType::SOURCE:
+                case orc::NodeType::SOURCE: {
+                    // Filter source stages by source type if project has a specified source format
+                    if (project_source_type != orc::SourceType::Unknown) {
+                        bool is_yc_stage = (type_info.stage_name.find("YC") != std::string::npos);
+                        orc::SourceType stage_type = is_yc_stage ? orc::SourceType::YC : orc::SourceType::Composite;
+                        
+                        // Only include source stages that match project's source type
+                        if (stage_type != project_source_type) {
+                            continue;
+                        }
+                    }
                     source_stages.push_back(&type_info);
                     break;
+                }
                 case orc::NodeType::TRANSFORM:
                 case orc::NodeType::MERGER:
                 case orc::NodeType::COMPLEX:

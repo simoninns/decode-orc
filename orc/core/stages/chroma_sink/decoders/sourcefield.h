@@ -20,7 +20,14 @@
 // Data comes from VFR (VideoFieldRepresentation) in orc-core
 struct SourceField {
     orc::FieldMetadata field;
+    
+    // For composite sources (Y+C modulated together)
     std::vector<uint16_t> data;
+    
+    // For YC sources (separate Y and C files)
+    std::vector<uint16_t> luma_data;   // Y only (clean, no modulated chroma)
+    std::vector<uint16_t> chroma_data; // C only (modulated chroma)
+    bool is_yc = false;  // True if this is a YC source, false for composite
 
     // Return the vertical offset of this field within the interlaced frame
     // (i.e. 0 for the top field, 1 for the bottom field).

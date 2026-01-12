@@ -20,6 +20,7 @@ add_library(orc-core STATIC
     tbc_reader.cpp
     tbc_metadata.cpp
     tbc_video_field_representation.cpp
+    tbc_yc_video_field_representation.cpp
     
     # VBI utilities
     vbi_utilities.cpp
@@ -87,8 +88,10 @@ add_library(orc-core STATIC
     analysis/ffmpeg_preset/ffmpeg_preset_analysis.cpp
     
     # Stages (organized in subdirectories)
-    stages/ld_pal_source/ld_pal_source_stage.cpp
-    stages/ld_ntsc_source/ld_ntsc_source_stage.cpp
+    stages/pal_comp_source/pal_comp_source_stage.cpp
+    stages/ntsc_comp_source/ntsc_comp_source_stage.cpp
+    stages/pal_yc_source/pal_yc_source_stage.cpp
+    stages/ntsc_yc_source/ntsc_yc_source_stage.cpp
     stages/ld_sink/ld_sink_stage.cpp
     stages/ld_sink/tbc_metadata_writer.cpp
     stages/dropout_correct/dropout_correct_stage.cpp
@@ -139,8 +142,10 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/analysis
-    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_pal_source
-    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_ntsc_source
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/pal_comp_source
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ntsc_comp_source
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/pal_yc_source
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ntsc_yc_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_correct
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_map

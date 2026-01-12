@@ -19,6 +19,16 @@
 namespace orc {
 
 /**
+ * @brief Channel selection for YC source preview rendering
+ */
+enum class RenderChannel {
+    COMPOSITE,      // Standard composite (Y+C modulated) - default for composite sources
+    LUMA_ONLY,      // Luma channel only (for YC sources)
+    CHROMA_ONLY,    // Chroma channel only (for YC sources)
+    COMPOSITE_YC    // Y+C combined for visualization (for YC sources)
+};
+
+/**
  * @brief Helper functions for stages implementing PreviewableStage interface
  * 
  * These utilities provide standard preview rendering for VideoFieldRepresentation
@@ -94,6 +104,41 @@ PreviewImage render_standard_preview(
     const std::string& option_id,
     uint64_t index,
     PreviewNavigationHint hint = PreviewNavigationHint::Random);
+
+/**
+ * @brief Universal preview renderer with channel selection for YC sources
+ * 
+ * Handles all standard option types (field, field_raw, split, split_raw, frame, frame_raw)
+ * with explicit channel selection for YC sources.
+ * 
+ * @param representation The video field representation
+ * @param option_id The preview option identifier (without channel suffix)
+ * @param index The item index (field, pair, or frame depending on option)
+ * @param channel Which channel to render (for YC sources)
+ * @param hint Navigation hint for prefetching optimization
+ * @return Preview image (invalid if option unknown or rendering fails)
+ */
+PreviewImage render_standard_preview_with_channel(
+    const std::shared_ptr<const VideoFieldRepresentation>& representation,
+    const std::string& option_id,
+    uint64_t index,
+    RenderChannel channel,
+    PreviewNavigationHint hint = PreviewNavigationHint::Random);
+
+/**
+ * @brief Render a field as grayscale with channel selection (for YC sources)
+ * 
+ * @param representation The video field representation (raw pointer for convenience)
+ * @param field_id The field to render
+ * @param channel Which channel to render (LUMA_ONLY, CHROMA_ONLY, or COMPOSITE_YC)
+ * @param apply_ire_scaling If true, applies IRE scaling; if false, simple 16→8 bit
+ * @return Preview image (invalid if rendering fails)
+ */
+PreviewImage render_field_grayscale(
+    const VideoFieldRepresentation* representation,
+    FieldID field_id,
+    RenderChannel channel = RenderChannel::COMPOSITE,
+    bool apply_ire_scaling = true);
 
 } // namespace PreviewHelpers
 

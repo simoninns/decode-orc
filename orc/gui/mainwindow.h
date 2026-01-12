@@ -85,7 +85,7 @@ public:
     ~MainWindow();
     
     // Project operations
-    void newProject(orc::VideoSystem video_format = orc::VideoSystem::Unknown);
+    void newProject(orc::VideoSystem video_format = orc::VideoSystem::Unknown, orc::SourceType source_format = orc::SourceType::Unknown);
     void openProject(const QString& filename);
     void saveProject();
     void saveProjectAs();
@@ -96,9 +96,7 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 private slots:
-    void onNewProject();  // Shows a submenu or default
-    void onNewNTSCProject();
-    void onNewPALProject();
+    void onNewProject();  // Shows selection dialog for all four project types
     void onOpenProject();
     void onSaveProject();
     void onSaveProjectAs();
@@ -132,7 +130,8 @@ private slots:
     void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                            std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params);
+                            std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                            std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     void onDropoutProgress(size_t current, size_t total, QString message);
     void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);

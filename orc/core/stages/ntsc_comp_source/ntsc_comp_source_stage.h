@@ -1,15 +1,15 @@
 /*
- * File:        ld_ntsc_source_stage.h
+ * File:        ntsc_comp_source_stage.h
  * Module:      orc-core
- * Purpose:     LaserDisc NTSC source loading stage
+ * Purpose:     NTSC composite source loading stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 
-#ifndef LD_NTSC_SOURCE_STAGE_H
-#define LD_NTSC_SOURCE_STAGE_H
+#ifndef NTSC_COMP_SOURCE_STAGE_H
+#define NTSC_COMP_SOURCE_STAGE_H
 
 #include <dag_executor.h>
 #include <tbc_video_field_representation.h>
@@ -20,7 +20,7 @@
 namespace orc {
 
 /**
- * @brief LaserDisc NTSC Source Stage - Loads NTSC TBC files from ld-decode
+ * @brief NTSC Composite Source Stage - Loads NTSC TBC files from ld-decode
  * 
  * This stage loads an NTSC TBC file and its associated database from ld-decode,
  * creating a VideoFieldRepresentation for NTSC video processing.
@@ -31,10 +31,10 @@ namespace orc {
  * 
  * This is a source stage with no inputs.
  */
-class LDNTSCSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
+class NTSCCompSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
-    LDNTSCSourceStage() = default;
-    ~LDNTSCSourceStage() override = default;
+    NTSCCompSourceStage() = default;
+    ~NTSCCompSourceStage() override = default;
 
     // DAGStage interface
     std::string version() const override { return "1.0.0"; }
@@ -42,9 +42,9 @@ public:
     NodeTypeInfo get_node_type_info() const override {
         return NodeTypeInfo{
             NodeType::SOURCE,
-            "LDNTSCSource",
-            "LD NTSC Source",
-            "LaserDisc NTSC input source - loads NTSC TBC files from ld-decode",
+            "NTSC_Comp_Source",
+            "NTSC Composite Source",
+            "NTSC composite input source - loads NTSC TBC files from ld-decode",
             0, 0,  // No inputs
             1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::NTSC_ONLY
@@ -60,7 +60,7 @@ public:
     size_t output_count() const override { return 1; }
 
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     
@@ -84,4 +84,4 @@ private:
 
 } // namespace orc
 
-#endif // LD_NTSC_SOURCE_STAGE_H
+#endif // NTSC_COMP_SOURCE_STAGE_H

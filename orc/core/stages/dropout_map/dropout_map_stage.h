@@ -64,6 +64,27 @@ public:
         return source_ ? source_->get_field(id) : std::vector<sample_type>{};
     }
     
+    // YC source support - forward dual-channel interface
+    bool has_separate_channels() const override {
+        return source_ ? source_->has_separate_channels() : false;
+    }
+    
+    const sample_type* get_line_luma(FieldID id, size_t line) const override {
+        return source_ ? source_->get_line_luma(id, line) : nullptr;
+    }
+    
+    const sample_type* get_line_chroma(FieldID id, size_t line) const override {
+        return source_ ? source_->get_line_chroma(id, line) : nullptr;
+    }
+    
+    std::vector<sample_type> get_field_luma(FieldID id) const override {
+        return source_ ? source_->get_field_luma(id) : std::vector<sample_type>{};
+    }
+    
+    std::vector<sample_type> get_field_chroma(FieldID id) const override {
+        return source_ ? source_->get_field_chroma(id) : std::vector<sample_type>{};
+    }
+    
 private:
     std::map<uint64_t, FieldDropoutMap> dropout_map_;
 };
@@ -126,7 +147,7 @@ public:
                                PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
     
     // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown) const override;
+    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
     

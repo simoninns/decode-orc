@@ -83,10 +83,15 @@ private:
 
     void buildLookUpTables();
     void decodeField(const SourceField &inputField, const double *chromaData, ComponentFrame &componentFrame);
+    void decodeFieldYC(const SourceField &inputField, ComponentFrame &componentFrame);
     void detectBurst(LineInfo &line, const uint16_t *inputData);
     template <typename ChromaSample, bool PREFILTERED_CHROMA>
     void decodeLine(const SourceField &inputField, const ChromaSample *chromaData, const LineInfo &line,
                     ComponentFrame &componentFrame);
+    void apply2DChromaFilter(const uint16_t *chromaData, const LineInfo &line,
+                            const SourceField &inputField, int32_t fieldLine,
+                            int32_t firstLine, int32_t lastLine,
+                            double *outU, double *outV);
     void doYNR(double *Yline);
 
     // Configuration parameters

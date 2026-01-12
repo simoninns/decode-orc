@@ -56,10 +56,18 @@ public:
     QLabel* sliderMinLabel() { return slider_min_label_; }  ///< Get slider min label
     QLabel* sliderMaxLabel() { return slider_max_label_; }  ///< Get slider max label
     QComboBox* previewModeCombo() { return preview_mode_combo_; }  ///< Get preview mode selector
+    QComboBox* signalCombo() { return signal_combo_; }  ///< Get signal selector (Y/C/Y+C for YC sources)
+    QLabel* signalLabel() { return signal_label_; }  ///< Get signal label
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }  ///< Get aspect ratio selector
     QAction* pulldownAction() { return show_pulldown_action_; }  ///< Get pulldown menu action
     QPushButton* dropoutsButton() { return dropouts_button_; }  ///< Get dropouts button for state control
     /// @}
+    
+    /**
+     * @brief Set visibility of signal controls (label and combo box)
+     * @param visible True to show signal controls, false to hide them
+     */
+    void setSignalControlsVisible(bool visible);
     
     /**
      * @brief Set the currently previewed node
@@ -76,11 +84,15 @@ public:
      * @param sample_x Sample X position that was clicked
      * @param samples Vector of 16-bit samples for the line
      * @param video_params Optional video parameters for region markers
+     * @param y_samples Optional Y channel samples for YC sources
+     * @param c_samples Optional C channel samples for YC sources
      */
     void showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::VideoParameters>& video_params,
-                       int preview_image_width, int original_sample_x);
+                       int preview_image_width, int original_sample_x,
+                       const std::vector<uint16_t>& y_samples = {},
+                       const std::vector<uint16_t>& c_samples = {});
     
     /**
      * @brief Close all child dialogs (e.g., line scope)
@@ -101,6 +113,7 @@ Q_SIGNALS:
     void previewIndexChanged(int index);
     void sequentialPreviewRequested(int index);  // Emitted when next/prev button clicked
     void previewModeChanged(int index);
+    void signalChanged(int index);  // Emitted when signal selection changes (Y/C/Y+C)
     void aspectRatioModeChanged(int index);
     void exportPNGRequested();
     void showVBIDialogRequested();  // Emitted when VBI Decoder menu item selected
@@ -125,6 +138,8 @@ private:
     QLabel* slider_min_label_;
     QLabel* slider_max_label_;
     QComboBox* preview_mode_combo_;
+    QComboBox* signal_combo_;  // Signal selection for YC sources (Y/C/Y+C)
+    QLabel* signal_label_;  // Label for signal combo box
     QComboBox* aspect_ratio_combo_;
     QMenuBar* menu_bar_;
     QStatusBar* status_bar_;

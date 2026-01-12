@@ -48,6 +48,27 @@ public:
         return source_->get_field(id);
     }
     
+    // Dual-channel support for YC sources
+    bool has_separate_channels() const override {
+        return source_ ? source_->has_separate_channels() : false;
+    }
+    
+    const sample_type* get_line_luma(FieldID id, size_t line) const override {
+        return source_ ? source_->get_line_luma(id, line) : nullptr;
+    }
+    
+    const sample_type* get_line_chroma(FieldID id, size_t line) const override {
+        return source_ ? source_->get_line_chroma(id, line) : nullptr;
+    }
+    
+    std::vector<sample_type> get_field_luma(FieldID id) const override {
+        return source_ ? source_->get_field_luma(id) : std::vector<sample_type>{};
+    }
+    
+    std::vector<sample_type> get_field_chroma(FieldID id) const override {
+        return source_ ? source_->get_field_chroma(id) : std::vector<sample_type>{};
+    }
+    
     // Override get_observations to return our computed observations
     std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override;
     

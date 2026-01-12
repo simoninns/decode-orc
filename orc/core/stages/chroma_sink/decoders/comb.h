@@ -156,11 +156,11 @@ private:
                                double adjustPenalty) const;
         
         // Helper to demodulate chroma with phase compensation (shared between composite and YC)
-        void demodulateChromaLocked(const uint16_t *chromaLine, int32_t lineNumber, 
+        void demodulateChromaLocked(const double *chromaLine, int32_t lineNumber, 
                                    const Comb::BurstInfo &burstInfo, double *I, double *Q, int32_t xOffset);
         
         // Helper to demodulate chroma without phase compensation (shared between composite and YC)
-        void demodulateChroma(const uint16_t *chromaLine, int32_t lineNumber,
+        void demodulateChroma(const double *chromaLine, int32_t lineNumber,
                              bool linePhase, double *I, double *Q, int32_t xOffset);
     };
 };

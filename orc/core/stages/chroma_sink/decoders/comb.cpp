@@ -678,11 +678,11 @@ namespace {
 }
 
 // Helper: Demodulate chroma with phase compensation (shared code between composite and YC)
-void Comb::FrameBuffer::demodulateChromaLocked(const uint16_t *chromaLine, int32_t lineNumber,
+void Comb::FrameBuffer::demodulateChromaLocked(const double *chromaLine, int32_t lineNumber,
                                               const Comb::BurstInfo &burstInfo, double *I, double *Q, int32_t xOffset)
 {
     for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-        const double cval = static_cast<double>(chromaLine[h]);
+        const double cval = chromaLine[h];
         
         // Demodulate the sine and cosine components
         const auto lsin = cval * sin4fsc(h) * 2;
@@ -702,14 +702,14 @@ void Comb::FrameBuffer::demodulateChromaLocked(const uint16_t *chromaLine, int32
 }
 
 // Helper: Demodulate chroma without phase compensation (shared code between composite and YC)
-void Comb::FrameBuffer::demodulateChroma(const uint16_t *chromaLine, int32_t lineNumber,
+void Comb::FrameBuffer::demodulateChroma(const double *chromaLine, int32_t lineNumber,
                                         bool linePhase, double *I, double *Q, int32_t xOffset)
 {
     double si = 0, sq = 0;
     for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
         int32_t phase = h % 4;
 
-        double cavg = static_cast<double>(chromaLine[h]);
+        double cavg = chromaLine[h];
 
         if (linePhase) cavg = -cavg;
 
@@ -743,10 +743,10 @@ void Comb::FrameBuffer::splitIQlocked()
         double *Q = componentFrame->v(lineNumber - lineOffset);
 
         // Build chroma line buffer from comb-filtered chroma
-        std::vector<uint16_t> chromaLine(videoParameters.field_width);
+        std::vector<double> chromaLine(videoParameters.field_width);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             const auto val = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
-            chromaLine[h] = static_cast<uint16_t>(val);
+            chromaLine[h] = val;  // Store as double to preserve precision
             // Subtract the split chroma part from the luma signal
             Y[h - xOffset] = line[h] - val;
         }
@@ -778,9 +778,9 @@ void Comb::FrameBuffer::splitIQ()
         }
         
         // Build chroma line buffer from comb-filtered chroma
-        std::vector<uint16_t> chromaLine(videoParameters.field_width);
+        std::vector<double> chromaLine(videoParameters.field_width);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            chromaLine[h] = static_cast<uint16_t>(clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h]);
+            chromaLine[h] = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];  // Store as double to preserve precision
         }
         
         // Demodulate chroma to I/Q using shared helper
@@ -870,8 +870,14 @@ void Comb::FrameBuffer::splitIQlocked_YC()
             Y[h - xOffset] = yLine[h];
         }
         
+        // Build chroma line buffer from YC chroma data (convert to double)
+        std::vector<double> chromaLine(videoParameters.field_width);
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+            chromaLine[h] = static_cast<double>(cLine[h]);
+        }
+        
         // Demodulate chroma to I/Q using shared helper
-        demodulateChromaLocked(cLine, lineNumber, info, I, Q, xOffset);
+        demodulateChromaLocked(chromaLine.data(), lineNumber, info, I, Q, xOffset);
     }
 }
 
@@ -898,8 +904,14 @@ void Comb::FrameBuffer::splitIQ_YC()
             Y[h - xOffset] = yLine[h];
         }
         
+        // Build chroma line buffer from YC chroma data (convert to double)
+        std::vector<double> chromaLine(videoParameters.field_width);
+        for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
+            chromaLine[h] = static_cast<double>(cLine[h]);
+        }
+        
         // Demodulate chroma to I/Q using shared helper
-        demodulateChroma(cLine, lineNumber, linePhase, I, Q, xOffset);
+        demodulateChroma(chromaLine.data(), lineNumber, linePhase, I, Q, xOffset);
     }
 }
 

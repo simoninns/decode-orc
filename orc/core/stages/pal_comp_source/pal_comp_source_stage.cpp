@@ -110,9 +110,9 @@ std::vector<ArtifactPtr> PALCompSourceStage::execute(
                     video_params->field_height);
         
         // Check decoder
-        if (video_params->decoder != "ld-decode") {
+        if (video_params->decoder != "ld-decode" && video_params->decoder != "encode-orc") {
             throw std::runtime_error(
-                "TBC file was not created by ld-decode (decoder: " + 
+                "TBC file was not created by ld-decode or encode-orc (decoder: " + 
                 video_params->decoder + "). Use the appropriate source type."
             );
         }

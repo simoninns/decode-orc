@@ -134,6 +134,9 @@ private:
     bool m_yIntegerLabels;
     bool m_isDarkTheme;
     bool m_secondaryYAxisEnabled;
+    double m_xAxisTickStep;
+    double m_xAxisTickOrigin;
+    bool m_xAxisUseCustomTicks;
     double m_yAxisTickStep;
     double m_yAxisTickOrigin;
     double m_secondaryYAxisTickStep;
@@ -218,7 +221,10 @@ public:
     QRectF boundingRect() const override;
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget) override;
     
-    void updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool isDarkTheme = false);
+    void updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool isDarkTheme = false,
+                    double xMin = 0, double xMax = 100, double yMin = 0, double yMax = 100,
+                    bool xUseCustomTicks = false, double xTickStep = 0, double xTickOrigin = 0,
+                    bool yUseCustomTicks = false, double yTickStep = 0, double yTickOrigin = 0);
 
 private:
     QPen m_pen;
@@ -226,6 +232,9 @@ private:
     bool m_isDarkTheme;
     QRectF m_plotRect;
     QRectF m_dataRect;
+    double m_xMin, m_xMax, m_yMin, m_yMax;
+    bool m_xUseCustomTicks, m_yUseCustomTicks;
+    double m_xTickStep, m_xTickOrigin, m_yTickStep, m_yTickOrigin;
     PlotWidget *m_plotWidget;
 };
 
@@ -292,6 +301,7 @@ public:
                      bool yIntegerLabels = false, bool isDarkTheme = false,
                      bool secondaryYEnabled = false, const QString &secondaryYTitle = QString(),
                      double secondaryYMin = 0, double secondaryYMax = 100,
+                     bool xUseCustomTicks = false, double xTickStep = 0, double xTickOrigin = 0,
                      bool yUseCustomTicks = false, double yTickStep = 0, double yTickOrigin = 0,
                      bool secondaryYUseCustomTicks = false, double secondaryYTickStep = 0, double secondaryYTickOrigin = 0);
     
@@ -309,6 +319,9 @@ private:
     bool m_secondaryYEnabled;
     double m_xMin, m_xMax, m_yMin, m_yMax;
     double m_secondaryYMin, m_secondaryYMax;
+    bool m_xUseCustomTicks;
+    double m_xTickStep;
+    double m_xTickOrigin;
     bool m_yUseCustomTicks;
     double m_yTickStep;
     double m_yTickOrigin;

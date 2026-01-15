@@ -67,8 +67,9 @@ struct VideoParameters {
     int32_t last_active_frame_line = -1;
     
     // IRE levels (16-bit)
-    int32_t white_16b_ire = -1;
-    int32_t black_16b_ire = -1;
+    int32_t blanking_16b_ire = -1;  // 0 IRE (blanking/pedestal level)
+    int32_t black_16b_ire = -1;     // Black level (typically 7.5 IRE for NTSC, 0 IRE for PAL)
+    int32_t white_16b_ire = -1;     // White level (100 IRE)
     
     // Sample rate (Hz)
     double sample_rate = -1.0;

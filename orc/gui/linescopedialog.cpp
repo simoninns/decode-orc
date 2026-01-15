@@ -48,7 +48,7 @@ void LineScopeDialog::setupUI()
     
     // Plot widget
     plot_widget_ = new PlotWidget(this);
-    plot_widget_->setAxisTitle(Qt::Horizontal, "Sample Position");
+    plot_widget_->setAxisTitle(Qt::Horizontal, "Time (µs)");
     plot_widget_->setAxisTitle(Qt::Vertical, "mV (millivolts)");
     plot_widget_->setAxisRange(Qt::Vertical, -200, 1000);  // Approximate mV range
     plot_widget_->setYAxisIntegerLabels(false);
@@ -238,7 +238,7 @@ void LineScopeDialog::updatePlotData()
         }
     }
     
-    // Convert samples to plot points in millivolts
+    // Convert samples to plot points in millivolts with X-axis in microseconds
     auto convertSamplesToPoints = [this](const std::vector<uint16_t>& samples) -> QVector<QPointF> {
         if (samples.empty()) {
             return QVector<QPointF>();  // Return empty if no samples
@@ -256,21 +256,35 @@ void LineScopeDialog::updatePlotData()
             }
         }
         
+        // Calculate microseconds per sample (default to 1.0 if no sample rate available)
+        double us_per_sample = 1.0;
+        if (current_video_params_.has_value() && current_video_params_->sample_rate > 0) {
+            // sample_rate is in Hz (samples per second)
+            // Convert to microseconds per sample: (1 / sample_rate) * 1,000,000
+            us_per_sample = 1000000.0 / current_video_params_->sample_rate;
+        }
+        
         for (size_t i = 0; i < samples.size(); ++i) {
             double mv_value = static_cast<double>(samples[i]);
             
             // Convert to mV via IRE if we have video parameters
             if (current_video_params_.has_value()) {
                 const auto& vp = current_video_params_.value();
-                if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
-                    // First convert 16-bit value to IRE
-                    double ire = (mv_value - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    // Use blanking as reference for 0 IRE, white as 100 IRE
+                    double ire = (mv_value - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
                     // Then convert IRE to mV
+                    mv_value = ire * ire_to_mv;
+                } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    // Fallback to black level if blanking is not available
+                    double ire = (mv_value - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
                     mv_value = ire * ire_to_mv;
                 }
             }
             
-            points.append(QPointF(static_cast<double>(i), mv_value));
+            // X-axis: convert sample position to microseconds
+            double time_us = static_cast<double>(i) * us_per_sample;
+            points.append(QPointF(time_us, mv_value));
         }
         
         return points;
@@ -400,10 +414,11 @@ void LineScopeDialog::updatePlotData()
     
     if (current_video_params_.has_value()) {
         const auto& vp = current_video_params_.value();
-        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
             // Convert 16-bit extremes (0 and 65535) to mV via IRE
-            double raw_min_ire = (0.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
-            double raw_max_ire = (65535.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+            // Using blanking as reference for 0 IRE
+            double raw_min_ire = (0.0 - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+            double raw_max_ire = (65535.0 - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
             double raw_min_mv = raw_min_ire * ire_to_mv;
             double raw_max_mv = raw_max_ire * ire_to_mv;
             
@@ -423,6 +438,25 @@ void LineScopeDialog::updatePlotData()
             }
             
             // Calculate corresponding IRE range
+            min_ire = min_mv / ire_to_mv;
+            max_ire = max_mv / ire_to_mv;
+        } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+            // Fallback to black level if blanking not available
+            double raw_min_ire = (0.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+            double raw_max_ire = (65535.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+            double raw_min_mv = raw_min_ire * ire_to_mv;
+            double raw_max_mv = raw_max_ire * ire_to_mv;
+            
+            min_mv = std::floor(raw_min_mv / mv_tick_step) * mv_tick_step;
+            max_mv = std::ceil(raw_max_mv / mv_tick_step) * mv_tick_step;
+            
+            if (min_mv < raw_min_mv) {
+                min_mv = raw_min_mv;
+            }
+            if (max_mv > raw_max_mv) {
+                max_mv = raw_max_mv;
+            }
+            
             min_ire = min_mv / ire_to_mv;
             max_ire = max_mv / ire_to_mv;
         } else {
@@ -449,13 +483,21 @@ void LineScopeDialog::updatePlotData()
         sample_count = current_y_samples_.size();
     }
     
-    // Update the plot with calculated ranges
-    plot_widget_->setAxisRange(Qt::Horizontal, 0, static_cast<double>(sample_count - 1));
+    // Calculate time duration in microseconds for X-axis range
+    double us_per_sample = 1.0;
+    if (current_video_params_.has_value() && current_video_params_->sample_rate > 0) {
+        us_per_sample = 1000000.0 / current_video_params_->sample_rate;
+    }
+    double max_time_us = static_cast<double>(sample_count - 1) * us_per_sample;
+    
+    // Update the plot with calculated ranges (X-axis now in microseconds)
+    plot_widget_->setAxisRange(Qt::Horizontal, 0, max_time_us);
     plot_widget_->setAxisRange(Qt::Vertical, min_mv, max_mv);
     plot_widget_->setAxisAutoScale(Qt::Horizontal, false);
     plot_widget_->setAxisAutoScale(Qt::Vertical, false);
     
     // Set custom tick steps with origin at 0
+    plot_widget_->setAxisTickStep(Qt::Horizontal, 2.0, 0.0);  // 2 µs tick marks
     plot_widget_->setAxisTickStep(Qt::Vertical, mv_tick_step, 0.0);
     
     // Configure secondary Y-axis to show IRE values
@@ -507,17 +549,41 @@ void LineScopeDialog::updatePlotData()
         }
         
         // IRE level markers (horizontal lines) in mV
-        // 0 IRE (black level) - gray
-        // 100 IRE (white level) - white/light gray
-        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        // 0 IRE (blanking level) - dark gray
+        // Black level - light gray (if different from blanking)
+        // 100 IRE (white level) - light gray
+        if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+            // 0 IRE (blanking) = 0 mV by definition
             auto* ire0 = plot_widget_->addMarker();
             ire0->setStyle(PlotMarker::HLine);
             ire0->setPosition(QPointF(0, 0.0));  // 0 IRE = 0 mV
-            ire0->setPen(QPen(Qt::gray, 1, Qt::DashLine));
+            ire0->setPen(QPen(Qt::darkGray, 1, Qt::DashLine));
             
+            // Black level marker (if different from blanking)
+            if (vp.black_16b_ire >= 0 && vp.black_16b_ire != vp.blanking_16b_ire) {
+                double black_ire = (static_cast<double>(vp.black_16b_ire) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                double black_mv = black_ire * ire_to_mv;
+                auto* black_marker = plot_widget_->addMarker();
+                black_marker->setStyle(PlotMarker::HLine);
+                black_marker->setPosition(QPointF(0, black_mv));
+                black_marker->setPen(QPen(Qt::gray, 1, Qt::DashDotLine));
+            }
+            
+            // 100 IRE (white level)
             auto* ire100 = plot_widget_->addMarker();
             ire100->setStyle(PlotMarker::HLine);
             ire100->setPosition(QPointF(0, 100.0 * ire_to_mv));  // 100 IRE in mV
+            ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
+        } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+            // Fallback: use black level as reference if blanking not available
+            auto* ire0 = plot_widget_->addMarker();
+            ire0->setStyle(PlotMarker::HLine);
+            ire0->setPosition(QPointF(0, 0.0));  // Reference point
+            ire0->setPen(QPen(Qt::darkGray, 1, Qt::DashLine));
+            
+            auto* ire100 = plot_widget_->addMarker();
+            ire100->setStyle(PlotMarker::HLine);
+            ire100->setPosition(QPointF(0, 100.0 * ire_to_mv));
             ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
         }
     }
@@ -566,9 +632,16 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
     if (sample_x >= 0 && sample_x < static_cast<int>(samples_for_marker->size())) {
         current_sample_x_ = sample_x;
         
+        // Calculate time position in microseconds
+        double us_per_sample = 1.0;
+        if (current_video_params_.has_value() && current_video_params_->sample_rate > 0) {
+            us_per_sample = 1000000.0 / current_video_params_->sample_rate;
+        }
+        double time_us = static_cast<double>(sample_x) * us_per_sample;
+        
         sample_marker_ = plot_widget_->addMarker();
         sample_marker_->setStyle(PlotMarker::VLine);
-        sample_marker_->setPosition(QPointF(static_cast<double>(sample_x), 0));
+        sample_marker_->setPosition(QPointF(time_us, 0));
         sample_marker_->setPen(QPen(Qt::green, 2));
         
         // Update sample info display
@@ -583,7 +656,7 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
             }
         }
         
-        QString info_text = QString("Sample: %1").arg(sample_x);
+        QString info_text = QString("Time: %1 µs (Sample: %2)").arg(time_us, 0, 'f', 3).arg(sample_x);
         
         // Add channel info for YC sources in "Both" mode
         if (is_yc_source_ && channel_selector_->currentIndex() == 3) {
@@ -595,7 +668,16 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
                 
                 if (current_video_params_.has_value()) {
                     const auto& vp = current_video_params_.value();
-                    if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                        double y_ire = (static_cast<double>(y_value) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                        double c_ire = (static_cast<double>(c_value) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                        double y_mv = y_ire * ire_to_mv;
+                        double c_mv = c_ire * ire_to_mv;
+                        
+                        info_text += QString("\nY: %1 mV (%2 IRE)").arg(y_mv, 0, 'f', 1).arg(y_ire, 0, 'f', 1);
+                        info_text += QString("\nC: %1 mV (%2 IRE)").arg(c_mv, 0, 'f', 1).arg(c_ire, 0, 'f', 1);
+                    } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                        // Fallback if blanking not available
                         double y_ire = (static_cast<double>(y_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
                         double c_ire = (static_cast<double>(c_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
                         double y_mv = y_ire * ire_to_mv;
@@ -613,7 +695,13 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
             // Single channel mode - show mV and IRE if we have video parameters
             if (current_video_params_.has_value()) {
                 const auto& vp = current_video_params_.value();
-                if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    double ire = (static_cast<double>(sample_value) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                    double mv = ire * ire_to_mv;
+                    info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
+                    info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
+                } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    // Fallback if blanking not available
                     double ire = (static_cast<double>(sample_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
                     double mv = ire * ire_to_mv;
                     info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
@@ -635,8 +723,14 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
 
 void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
 {
-    // Round X coordinate to nearest integer sample position
-    int new_sample_x = qRound(dataPoint.x());
+    // Convert X coordinate from microseconds to sample position
+    double us_per_sample = 1.0;
+    if (current_video_params_.has_value() && current_video_params_->sample_rate > 0) {
+        us_per_sample = 1000000.0 / current_video_params_->sample_rate;
+    }
+    
+    // dataPoint.x() is in microseconds, convert to sample position
+    int new_sample_x = qRound(dataPoint.x() / us_per_sample);
     
     // Determine which samples to use for validation
     const std::vector<uint16_t>* samples_to_check = &current_samples_;

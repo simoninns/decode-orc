@@ -30,6 +30,9 @@ PlotWidget::PlotWidget(QWidget *parent)
     , m_secondaryYAxisEnabled(false)
     , m_secondaryYMin(0)
     , m_secondaryYMax(100)
+    , m_xAxisTickStep(0)
+    , m_xAxisTickOrigin(0)
+    , m_xAxisUseCustomTicks(false)
     , m_yAxisTickStep(0)
     , m_yAxisTickOrigin(0)
     , m_secondaryYAxisTickStep(0)
@@ -142,13 +145,17 @@ void PlotWidget::setYAxisIntegerLabels(bool integerOnly)
 
 void PlotWidget::setAxisTickStep(Qt::Orientation orientation, double step, double origin)
 {
-    if (orientation == Qt::Vertical) {
+    if (orientation == Qt::Horizontal) {
+        m_xAxisTickStep = step;
+        m_xAxisTickOrigin = origin;
+        m_xAxisUseCustomTicks = (step > 0);
+        replot();
+    } else if (orientation == Qt::Vertical) {
         m_yAxisTickStep = step;
         m_yAxisTickOrigin = origin;
         m_yAxisUseCustomTicks = (step > 0);
         replot();
     }
-    // Horizontal axis tick step not implemented yet
 }
 
 void PlotWidget::setSecondaryYAxisEnabled(bool enabled)
@@ -376,7 +383,10 @@ void PlotWidget::replot()
     
     // Update grid
     if (m_grid) {
-        m_grid->updateGrid(m_plotRect, m_dataRect, m_isDarkTheme);
+        m_grid->updateGrid(m_plotRect, m_dataRect, m_isDarkTheme,
+                          m_xMin, m_xMax, m_yMin, m_yMax,
+                          m_xAxisUseCustomTicks, m_xAxisTickStep, m_xAxisTickOrigin,
+                          m_yAxisUseCustomTicks, m_yAxisTickStep, m_yAxisTickOrigin);
     }
     
     // Update markers
@@ -395,6 +405,7 @@ void PlotWidget::replot()
                                   m_xMin, m_xMax, m_yMin, m_yMax, m_yIntegerLabels, m_isDarkTheme,
                                   m_secondaryYAxisEnabled, m_secondaryYAxisTitle,
                                   m_secondaryYMin, m_secondaryYMax,
+                                  m_xAxisUseCustomTicks, m_xAxisTickStep, m_xAxisTickOrigin,
                                   m_yAxisUseCustomTicks, m_yAxisTickStep, m_yAxisTickOrigin,
                                   m_secondaryYAxisUseCustomTicks, m_secondaryYAxisTickStep, m_secondaryYAxisTickOrigin);
     }
@@ -664,6 +675,9 @@ PlotGrid::PlotGrid(PlotWidget *parent)
     , m_pen(QPen(Qt::gray, 0.5))
     , m_enabled(true)
     , m_isDarkTheme(false)
+    , m_xMin(0), m_xMax(100), m_yMin(0), m_yMax(100)
+    , m_xUseCustomTicks(false), m_yUseCustomTicks(false)
+    , m_xTickStep(0), m_xTickOrigin(0), m_yTickStep(0), m_yTickOrigin(0)
     , m_plotWidget(parent)
 {
     setZValue(-1); // Draw behind curves
@@ -696,25 +710,62 @@ void PlotGrid::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, 
     painter->setPen(m_pen);
     
     // Draw vertical grid lines
-    int numVerticalLines = 10;
-    for (int i = 0; i <= numVerticalLines; ++i) {
-        double x = m_plotRect.left() + i * m_plotRect.width() / numVerticalLines;
-        painter->drawLine(QPointF(x, m_plotRect.top()), QPointF(x, m_plotRect.bottom()));
+    if (m_xUseCustomTicks && m_xTickStep > 0) {
+        // Use custom tick positions for vertical gridlines
+        double firstTick = std::ceil((m_xMin - m_xTickOrigin) / m_xTickStep) * m_xTickStep + m_xTickOrigin;
+        for (double dataX = firstTick; dataX <= m_xMax; dataX += m_xTickStep) {
+            if (dataX < m_xMin) continue;
+            double fraction = (dataX - m_xMin) / (m_xMax - m_xMin);
+            double x = m_plotRect.left() + m_plotRect.width() * fraction;
+            painter->drawLine(QPointF(x, m_plotRect.top()), QPointF(x, m_plotRect.bottom()));
+        }
+    } else {
+        // Default: 10 evenly spaced vertical lines
+        int numVerticalLines = 10;
+        for (int i = 0; i <= numVerticalLines; ++i) {
+            double x = m_plotRect.left() + i * m_plotRect.width() / numVerticalLines;
+            painter->drawLine(QPointF(x, m_plotRect.top()), QPointF(x, m_plotRect.bottom()));
+        }
     }
     
     // Draw horizontal grid lines
-    int numHorizontalLines = 8;
-    for (int i = 0; i <= numHorizontalLines; ++i) {
-        double y = m_plotRect.top() + i * m_plotRect.height() / numHorizontalLines;
-        painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+    if (m_yUseCustomTicks && m_yTickStep > 0) {
+        // Use custom tick positions for horizontal gridlines
+        double firstTick = std::ceil((m_yMin - m_yTickOrigin) / m_yTickStep) * m_yTickStep + m_yTickOrigin;
+        for (double dataY = firstTick; dataY <= m_yMax; dataY += m_yTickStep) {
+            if (dataY < m_yMin) continue;
+            double fraction = (dataY - m_yMin) / (m_yMax - m_yMin);
+            double y = m_plotRect.top() + m_plotRect.height() * fraction;
+            painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+        }
+    } else {
+        // Default: 8 evenly spaced horizontal lines
+        int numHorizontalLines = 8;
+        for (int i = 0; i <= numHorizontalLines; ++i) {
+            double y = m_plotRect.top() + i * m_plotRect.height() / numHorizontalLines;
+            painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+        }
     }
 }
 
-void PlotGrid::updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool isDarkTheme)
+void PlotGrid::updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool isDarkTheme,
+                          double xMin, double xMax, double yMin, double yMax,
+                          bool xUseCustomTicks, double xTickStep, double xTickOrigin,
+                          bool yUseCustomTicks, double yTickStep, double yTickOrigin)
 {
     m_plotRect = plotRect;
     m_dataRect = dataRect;
     m_isDarkTheme = isDarkTheme;
+    m_xMin = xMin;
+    m_xMax = xMax;
+    m_yMin = yMin;
+    m_yMax = yMax;
+    m_xUseCustomTicks = xUseCustomTicks;
+    m_xTickStep = xTickStep;
+    m_xTickOrigin = xTickOrigin;
+    m_yUseCustomTicks = yUseCustomTicks;
+    m_yTickStep = yTickStep;
+    m_yTickOrigin = yTickOrigin;
     update();
 }
 
@@ -927,6 +978,7 @@ void PlotAxisLabels::updateLabels(const QRectF &plotRect, const QRectF &dataRect
                                   bool yIntegerLabels, bool isDarkTheme,
                                   bool secondaryYEnabled, const QString &secondaryYTitle,
                                   double secondaryYMin, double secondaryYMax,
+                                  bool xUseCustomTicks, double xTickStep, double xTickOrigin,
                                   bool yUseCustomTicks, double yTickStep, double yTickOrigin,
                                   bool secondaryYUseCustomTicks, double secondaryYTickStep, double secondaryYTickOrigin)
 {
@@ -935,6 +987,9 @@ void PlotAxisLabels::updateLabels(const QRectF &plotRect, const QRectF &dataRect
     m_xTitle = xTitle;
     m_yTitle = yTitle;
     m_secondaryYTitle = secondaryYTitle;
+    m_xUseCustomTicks = xUseCustomTicks;
+    m_xTickStep = xTickStep;
+    m_xTickOrigin = xTickOrigin;
     m_xMin = xMin;
     m_xMax = xMax;
     m_yMin = yMin;
@@ -944,6 +999,9 @@ void PlotAxisLabels::updateLabels(const QRectF &plotRect, const QRectF &dataRect
     m_yIntegerLabels = yIntegerLabels;
     m_isDarkTheme = isDarkTheme;
     m_secondaryYEnabled = secondaryYEnabled;
+    m_xUseCustomTicks = xUseCustomTicks;
+    m_xTickStep = xTickStep;
+    m_xTickOrigin = xTickOrigin;
     m_yUseCustomTicks = yUseCustomTicks;
     m_yTickStep = yTickStep;
     m_yTickOrigin = yTickOrigin;
@@ -976,22 +1034,62 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
     QFontMetrics fm(font);
     
     // Draw X-axis labels
-    int numXTicks = 10;
-    for (int i = 0; i <= numXTicks; ++i) {
-        double dataX = m_xMin + (m_xMax - m_xMin) * i / numXTicks;
-        double sceneX = m_plotRect.left() + m_plotRect.width() * i / numXTicks;
-        
-        // Draw tick mark
-        painter->setPen(QPen(axisColor, 1));
-        painter->drawLine(QPointF(sceneX, m_plotRect.bottom()), 
-                         QPointF(sceneX, m_plotRect.bottom() + 5));
-        
-        // Draw label
-        QString label = QString::number(dataX, 'f', 0);
-        QRect textRect = fm.boundingRect(label);
-        QPointF textPos(sceneX - textRect.width() / 2, 
-                       m_plotRect.bottom() + 5 + textRect.height());
-        painter->drawText(textPos, label);
+    if (m_xUseCustomTicks && m_xTickStep > 0) {
+        // Use custom tick positions starting from origin
+        double firstTick = std::ceil((m_xMin - m_xTickOrigin) / m_xTickStep) * m_xTickStep + m_xTickOrigin;
+        for (double dataX = firstTick; dataX <= m_xMax; dataX += m_xTickStep) {
+            if (dataX < m_xMin) continue;
+            
+            double fraction = (dataX - m_xMin) / (m_xMax - m_xMin);
+            double sceneX = m_plotRect.left() + m_plotRect.width() * fraction;
+            
+            // Draw tick mark
+            painter->setPen(QPen(axisColor, 1));
+            painter->drawLine(QPointF(sceneX, m_plotRect.bottom()), 
+                             QPointF(sceneX, m_plotRect.bottom() + 5));
+            
+            // Draw label - format without .0 for whole numbers
+            QString label;
+            double intPart;
+            if (std::modf(dataX, &intPart) == 0.0) {
+                label = QString::number(static_cast<long long>(dataX));
+            } else {
+                label = QString::number(dataX, 'f', 1);
+            }
+            QRect textRect = fm.boundingRect(label);
+            painter->drawText(QRectF(sceneX - textRect.width() / 2.0, 
+                                     m_plotRect.bottom() + 5, 
+                                     textRect.width(), 
+                                     textRect.height()),
+                             Qt::AlignCenter, label);
+        }
+    } else {
+        // Default: use 10 ticks
+        int numXTicks = 10;
+        for (int i = 0; i <= numXTicks; ++i) {
+            double dataX = m_xMin + (m_xMax - m_xMin) * i / numXTicks;
+            double sceneX = m_plotRect.left() + m_plotRect.width() * i / numXTicks;
+            
+            // Draw tick mark
+            painter->setPen(QPen(axisColor, 1));
+            painter->drawLine(QPointF(sceneX, m_plotRect.bottom()), 
+                             QPointF(sceneX, m_plotRect.bottom() + 5));
+            
+            // Draw label - format without .0 for whole numbers
+            QString label;
+            double intPart;
+            if (std::modf(dataX, &intPart) == 0.0) {
+                label = QString::number(static_cast<long long>(dataX));
+            } else {
+                label = QString::number(dataX, 'f', 1);
+            }
+            QRect textRect = fm.boundingRect(label);
+            painter->drawText(QRectF(sceneX - textRect.width() / 2.0, 
+                                     m_plotRect.bottom() + 5, 
+                                     textRect.width(), 
+                                     textRect.height()),
+                             Qt::AlignCenter, label);
+        }
     }
     
     // Draw Y-axis labels
@@ -1009,8 +1107,18 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
             painter->drawLine(QPointF(m_plotRect.left() - 5, sceneY), 
                              QPointF(m_plotRect.left(), sceneY));
             
-            // Draw label
-            QString label = m_yIntegerLabels ? QString::number(qRound(dataY)) : QString::number(dataY, 'f', 1);
+            // Draw label - format without .0 for whole numbers
+            QString label;
+            if (m_yIntegerLabels) {
+                label = QString::number(qRound(dataY));
+            } else {
+                double intPart;
+                if (std::modf(dataY, &intPart) == 0.0) {
+                    label = QString::number(static_cast<long long>(dataY));
+                } else {
+                    label = QString::number(dataY, 'f', 1);
+                }
+            }
             QRect textRect = fm.boundingRect(label);
             QPointF textPos(m_plotRect.left() - 10 - textRect.width(), 
                            sceneY + textRect.height() / 4);
@@ -1028,8 +1136,18 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
             painter->drawLine(QPointF(m_plotRect.left() - 5, sceneY), 
                              QPointF(m_plotRect.left(), sceneY));
             
-            // Draw label
-            QString label = m_yIntegerLabels ? QString::number(qRound(dataY)) : QString::number(dataY, 'f', 1);
+            // Draw label - format without .0 for whole numbers
+            QString label;
+            if (m_yIntegerLabels) {
+                label = QString::number(qRound(dataY));
+            } else {
+                double intPart;
+                if (std::modf(dataY, &intPart) == 0.0) {
+                    label = QString::number(static_cast<long long>(dataY));
+                } else {
+                    label = QString::number(dataY, 'f', 1);
+                }
+            }
             QRect textRect = fm.boundingRect(label);
             QPointF textPos(m_plotRect.left() - 10 - textRect.width(), 
                            sceneY + textRect.height() / 4);

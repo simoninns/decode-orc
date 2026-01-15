@@ -614,14 +614,14 @@ void set_node_parameters(Project& project, NodeID node_id,
                     }
                     
                     // Validate decoder
-                    if (video_params->decoder != "ld-decode") {
-                        throw std::runtime_error(
-                            "TBC file was not created by ld-decode (decoder: " + 
-                            video_params->decoder + "). This source type requires ld-decode files."
-                        );
-                    }
-                    
-                    // Validate system matches the node's stage type
+                if (video_params->decoder != "ld-decode" && video_params->decoder != "encode-orc") {
+                    throw std::runtime_error(
+                        "TBC file was not created by ld-decode or encode-orc (decoder: " + 
+                        video_params->decoder + "). This source type requires ld-decode or encode-orc files."
+                    );
+                }
+                
+                // Validate system matches the node's stage type
                     if (node_it->stage_name == "PAL_Comp_Source") {
                         if (video_params->system != VideoSystem::PAL && 
                             video_params->system != VideoSystem::PAL_M) {

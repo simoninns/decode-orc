@@ -195,7 +195,7 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         "SELECT system, video_sample_rate, active_video_start, active_video_end, "
         "field_width, field_height, number_of_sequential_fields, "
         "colour_burst_start, colour_burst_end, is_mapped, is_subcarrier_locked, "
-        "is_widescreen, white_16b_ire, black_16b_ire, decoder, git_branch, git_commit "
+        "is_widescreen, blanking_16b_ire, black_16b_ire, white_16b_ire, decoder, git_branch, git_commit "
         "FROM capture WHERE capture_id = ?";
     
     sqlite3_stmt* stmt = nullptr;
@@ -221,11 +221,12 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         params.is_mapped = impl_->get_bool(stmt, 9);
         params.is_subcarrier_locked = impl_->get_bool(stmt, 10);
         params.is_widescreen = impl_->get_bool(stmt, 11);
-        params.white_16b_ire = impl_->get_int(stmt, 12);
+        params.blanking_16b_ire = impl_->get_int(stmt, 12);
         params.black_16b_ire = impl_->get_int(stmt, 13);
-        params.decoder = impl_->get_string(stmt, 14);
-        params.git_branch = impl_->get_string(stmt, 15);
-        params.git_commit = impl_->get_string(stmt, 16);
+        params.white_16b_ire = impl_->get_int(stmt, 14);
+        params.decoder = impl_->get_string(stmt, 15);
+        params.git_branch = impl_->get_string(stmt, 16);
+        params.git_commit = impl_->get_string(stmt, 17);
         
         // FSC is not stored in database - leave unset (-1.0)
         // Will be populated by source stage based on video system

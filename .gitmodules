@@ -1,3 +1,6 @@
 [submodule "docs-user"]
 	path = docs-user
 	url = https://github.com/simoninns/decode-orc-docs
+[submodule "testdata-ld"]
+	path = testdata-ld
+	url = https://github.com/simoninns/decode-orc-testdata-ld

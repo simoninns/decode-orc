@@ -733,6 +733,11 @@ void Comb::FrameBuffer::splitIQlocked()
     const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
     
     for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
+        // Bounds check to ensure lineNumber is valid for clpbuffer access
+        if (lineNumber >= MAX_HEIGHT) {
+            continue;  // Skip lines outside the maximum buffer size
+        }
+        
         // Get a pointer to the line's data
         const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.field_width);
         // Calculate burst phase
@@ -745,10 +750,13 @@ void Comb::FrameBuffer::splitIQlocked()
         // Build chroma line buffer from comb-filtered chroma
         std::vector<double> chromaLine(videoParameters.field_width);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            const auto val = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
-            chromaLine[h] = val;  // Store as double to preserve precision
-            // Subtract the split chroma part from the luma signal
-            Y[h - xOffset] = line[h] - val;
+            // Bounds check for both dimensions
+            if (h < videoParameters.field_width) {
+                const auto val = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];
+                chromaLine[h] = val;  // Store as double to preserve precision
+                // Subtract the split chroma part from the luma signal
+                Y[h - xOffset] = line[h] - val;
+            }
         }
         
         // Demodulate chroma to I/Q using shared helper
@@ -763,6 +771,11 @@ void Comb::FrameBuffer::splitIQ()
     const int32_t xOffset = videoParameters.active_area_cropping_applied ? videoParameters.active_video_start : 0;
     
     for (int32_t lineNumber = videoParameters.first_active_frame_line; lineNumber < videoParameters.last_active_frame_line; lineNumber++) {
+        // Bounds check to ensure lineNumber is valid for clpbuffer access
+        if (lineNumber >= MAX_HEIGHT) {
+            continue;  // Skip lines outside the maximum buffer size
+        }
+        
         // Get a pointer to the line's data
         const uint16_t *line = rawbuffer.data() + (lineNumber * videoParameters.field_width);
 
@@ -780,7 +793,10 @@ void Comb::FrameBuffer::splitIQ()
         // Build chroma line buffer from comb-filtered chroma
         std::vector<double> chromaLine(videoParameters.field_width);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            chromaLine[h] = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];  // Store as double to preserve precision
+            // Bounds check for both dimensions
+            if (h < videoParameters.field_width) {
+                chromaLine[h] = clpbuffer[configuration.dimensions - 1].pixel[lineNumber][h];  // Store as double to preserve precision
+            }
         }
         
         // Demodulate chroma to I/Q using shared helper

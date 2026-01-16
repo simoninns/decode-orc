@@ -97,6 +97,7 @@ protected:
 
 private slots:
     void onNewProject();  // Shows selection dialog for all four project types
+    void onQuickProject();  // Load a TBC/TBCC/TBCY file and create project automatically
     void onOpenProject();
     void onSaveProject();
     void onSaveProjectAs();

@@ -48,7 +48,7 @@ ChromaSinkStage::ChromaSinkStage()
     , threads_(0)  // 0 means auto-detect
     , luma_nr_(0.0)
     , chroma_nr_(0.0)
-    , ntsc_phase_comp_(false)
+    , ntsc_phase_comp_(true)
     , simple_pal_(false)
     , output_padding_(8)
     , embed_audio_(false)

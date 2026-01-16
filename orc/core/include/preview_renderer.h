@@ -129,6 +129,54 @@ struct PreviewRenderResult {
 };
 
 /**
+ * @brief Result of navigating to next/previous line in frame mode
+ * 
+ * When displaying a frame with two interlaced fields, moving up/down navigates
+ * between alternating fields. This structure tells you which field and line to
+ * fetch next.
+ */
+struct FrameLineNavigationResult {
+    bool is_valid;                  ///< True if navigation succeeded (within bounds)
+    uint64_t new_field_index;       ///< Field index to render next
+    int new_line_number;            ///< Line number to render next (within the field)
+};
+
+/**
+ * @brief Result of mapping image coordinates to field coordinates
+ * 
+ * Converts preview image coordinates (x, y) to field-space coordinates,
+ * accounting for output type (field/frame/split) and field ordering.
+ */
+struct ImageToFieldMappingResult {
+    bool is_valid;                  ///< True if mapping succeeded
+    uint64_t field_index;           ///< Field index for this position
+    int field_line;                 ///< Line number within the field
+};
+
+/**
+ * @brief Result of mapping field coordinates to image coordinates
+ * 
+ * Converts field-space coordinates back to preview image coordinates.
+ * Used for positioning UI elements like cross-hairs.
+ */
+struct FieldToImageMappingResult {
+    bool is_valid;                  ///< True if mapping succeeded
+    int image_y;                    ///< Y coordinate in the preview image
+};
+
+/**
+ * @brief Result of querying which fields make up a frame
+ * 
+ * Returns the two field indices that comprise a given frame,
+ * accounting for field ordering (parity hint).
+ */
+struct FrameFieldsResult {
+    bool is_valid;                  ///< True if query succeeded
+    uint64_t first_field;           ///< Index of first field in frame
+    uint64_t second_field;          ///< Index of second field in frame
+};
+
+/**
  * @brief Preview renderer for GUI
  * 
  * This class handles ALL rendering logic for the GUI:
@@ -324,6 +372,100 @@ public:
         PreviewOutputType type,
         uint64_t index,
         uint64_t total_count
+    ) const;
+    
+    /**
+     * @brief Navigate to next or previous line within a frame
+     * 
+     * In frame mode with interlaced fields, this handles the complex logic of
+     * toggling between fields and advancing lines. It accounts for the field
+     * order (whether field 0 or field 1 is the first field in the frame).
+     * 
+     * @param node_id The node being displayed
+     * @param output_type The current output type (must be Frame or Frame_Reversed)
+     * @param current_field The current field index being displayed
+     * @param current_line The current line within the field (0-based)
+     * @param direction +1 to go down, -1 to go up
+     * @param field_height The height of a single field in lines
+     * @return Navigation result with new field/line or is_valid=false if out of bounds
+     * 
+     * Example usage:
+     * - User clicks down arrow in line scope dialog
+     * - Call navigate_frame_line(..., direction=1)
+     * - If is_valid=true, fetch field at new_field_index, line new_line_number
+     * - If is_valid=false, stay at current position (at boundary)
+     */
+    FrameLineNavigationResult navigate_frame_line(
+        const NodeID& node_id,
+        PreviewOutputType output_type,
+        uint64_t current_field,
+        int current_line,
+        int direction,
+        int field_height
+    ) const;
+    
+    /**
+     * @brief Map preview image coordinates to field coordinates
+     * 
+     * Converts an (x, y) position in the rendered preview image to the actual
+     * field index and line number, accounting for:
+     * - Output type (field/frame/split)
+     * - Field ordering (parity hint)
+     * - Reversed frame mode
+     * 
+     * @param node_id The node being displayed
+     * @param output_type The output type (Field, Frame, Frame_Reversed, Split)
+     * @param output_index The current output index (field/frame number, 0-based)
+     * @param image_y The Y coordinate in the preview image
+     * @param image_height Total height of the preview image (for split mode)
+     * @return Mapping result with field_index and field_line, or is_valid=false
+     */
+    ImageToFieldMappingResult map_image_to_field(
+        const NodeID& node_id,
+        PreviewOutputType output_type,
+        uint64_t output_index,
+        int image_y,
+        int image_height = 0
+    ) const;
+    
+    /**
+     * @brief Map field coordinates back to preview image coordinates
+     * 
+     * Converts a (field_index, line_number) position back to the Y coordinate
+     * in the rendered preview image. This is the reverse of map_image_to_field.
+     * Used for positioning UI elements like cross-hairs.
+     * 
+     * @param node_id The node being displayed
+     * @param output_type The output type (Field, Frame, Frame_Reversed, Split)
+     * @param output_index The current output index (field/frame number, 0-based)
+     * @param field_index The field index to map
+     * @param field_line The line within the field
+     * @param image_height Total height of the image (for split mode)
+     * @return Mapping result with image_y, or is_valid=false
+     */
+    FieldToImageMappingResult map_field_to_image(
+        const NodeID& node_id,
+        PreviewOutputType output_type,
+        uint64_t output_index,
+        uint64_t field_index,
+        int field_line,
+        int image_height = 0
+    ) const;
+    
+    /**
+     * @brief Get the field indices that make up a frame
+     * 
+     * Returns which two fields comprise the given frame index,
+     * accounting for field ordering (parity hint). This is needed
+     * when the GUI wants to display metadata for both fields in a frame.
+     * 
+     * @param node_id The node being displayed
+     * @param frame_index The frame index (0-based)
+     * @return Result with first_field and second_field indices
+     */
+    FrameFieldsResult get_frame_fields(
+        const NodeID& node_id,
+        uint64_t frame_index
     ) const;
     
     /**

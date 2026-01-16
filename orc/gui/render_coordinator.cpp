@@ -159,6 +159,64 @@ uint64_t RenderCoordinator::requestSavePNG(const orc::NodeID& node_id,
     enqueueRequest(std::move(req));
     return id;
 }
+
+uint64_t RenderCoordinator::requestFrameLineNavigation(const orc::NodeID& node_id,
+                                                      orc::PreviewOutputType output_type,
+                                                      uint64_t current_field,
+                                                      int current_line,
+                                                      int direction,
+                                                      int field_height)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<NavigateFrameLineRequest>(id, node_id, output_type,
+                                                          current_field, current_line,
+                                                          direction, field_height);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+orc::ImageToFieldMappingResult RenderCoordinator::mapImageToField(const orc::NodeID& node_id,
+                                                                  orc::PreviewOutputType output_type,
+                                                                  uint64_t output_index,
+                                                                  int image_y,
+                                                                  int image_height)
+{
+    // This is a synchronous call - safe to call worker_preview_renderer_ directly
+    // since it's just a calculation with no state changes
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (!worker_preview_renderer_) {
+        return orc::ImageToFieldMappingResult{false, 0, 0};
+    }
+    return worker_preview_renderer_->map_image_to_field(node_id, output_type, output_index, image_y, image_height);
+}
+
+orc::FieldToImageMappingResult RenderCoordinator::mapFieldToImage(const orc::NodeID& node_id,
+                                                                  orc::PreviewOutputType output_type,
+                                                                  uint64_t output_index,
+                                                                  uint64_t field_index,
+                                                                  int field_line,
+                                                                  int image_height)
+{
+    // This is a synchronous call - safe to call worker_preview_renderer_ directly
+    // since it's just a calculation with no state changes
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (!worker_preview_renderer_) {
+        return orc::FieldToImageMappingResult{false, 0};
+    }
+    return worker_preview_renderer_->map_field_to_image(node_id, output_type, output_index, field_index, field_line, image_height);
+}
+
+orc::FrameFieldsResult RenderCoordinator::getFrameFields(const orc::NodeID& node_id, uint64_t frame_index)
+{
+    // This is a synchronous call - safe to call worker_preview_renderer_ directly
+    // since it's just a calculation with no state changes
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (!worker_preview_renderer_) {
+        return orc::FrameFieldsResult{false, 0, 0};
+    }
+    return worker_preview_renderer_->get_frame_fields(node_id, frame_index);
+}
+
 uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
 {
     uint64_t id = nextRequestId();
@@ -255,6 +313,10 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             
         case RenderRequestType::SavePNG:
             handleSavePNG(*static_cast<SavePNGRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::NavigateFrameLine:
+            handleNavigateFrameLine(*static_cast<NavigateFrameLineRequest*>(request.get()));
             break;
             
         case RenderRequestType::TriggerStage:
@@ -561,12 +623,13 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
         // Determine which field to get samples from
         orc::FieldID field_id;
         if (req.output_type == orc::PreviewOutputType::Field) {
+            // Field mode or post-mapping field index
+            // When Frame mode is used, GUI should first call mapImageToField() to get the field index,
+            // then send request with PreviewOutputType::Field.
+            // This ensures all field ordering logic is in orc-core.
             field_id = orc::FieldID(req.output_index);
-        } else if (req.output_type == orc::PreviewOutputType::Frame) {
-            // For frame mode, use the first field of the frame
-            field_id = orc::FieldID(req.output_index * 2);
         } else {
-            throw std::runtime_error("Unsupported output type for line scope");
+            throw std::runtime_error("Unsupported output type for line scope - must be Field");
         }
         
         // Get descriptor to know field dimensions
@@ -682,6 +745,37 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleNavigateFrameLine(const NavigateFrameLineRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Navigating frame line for node '{}', field {}, line {}, direction {} (request {})",
+                  req.node_id.to_string(), req.current_field, req.current_line, req.direction, req.request_id);
+    
+    if (!worker_preview_renderer_) {
+        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
+        emit error(req.request_id, "Preview renderer not initialized");
+        return;
+    }
+    
+    try {
+        // Use the preview renderer's method to navigate
+        auto result = worker_preview_renderer_->navigate_frame_line(
+            req.node_id,
+            req.output_type,
+            req.current_field,
+            req.current_line,
+            req.direction,
+            req.field_height
+        );
+        
+        // Emit result on GUI thread
+        emit frameLineNavigationReady(req.request_id, result);
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("RenderCoordinator: Frame line navigation failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }

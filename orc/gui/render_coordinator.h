@@ -61,6 +61,7 @@ enum class RenderRequestType {
     GetAvailableOutputs,    // Query available preview outputs
     GetLineSamples,         // Get 16-bit samples for a line
     SavePNG,                // Save preview as PNG file
+    NavigateFrameLine,      // Navigate to next/previous line in frame mode
     Shutdown                // Shutdown the worker thread
 };
 
@@ -224,6 +225,29 @@ struct GetLineSamplesRequest : public RenderRequest {
 };
 
 /**
+ * @brief Request to navigate to next/previous line in frame mode
+ */
+struct NavigateFrameLineRequest : public RenderRequest {
+    orc::NodeID node_id;
+    orc::PreviewOutputType output_type;
+    uint64_t current_field;
+    int current_line;
+    int direction;  // +1 for down, -1 for up
+    int field_height;  // Height of a single field in lines
+    
+    NavigateFrameLineRequest(uint64_t id, orc::NodeID node, 
+                            orc::PreviewOutputType type, uint64_t field,
+                            int line, int dir, int height)
+        : RenderRequest(RenderRequestType::NavigateFrameLine, id)
+        , node_id(std::move(node))
+        , output_type(type)
+        , current_field(field)
+        , current_line(line)
+        , direction(dir)
+        , field_height(height) {}
+};
+
+/**
  * @brief Base class for responses
  */
 struct RenderResponse {
@@ -328,6 +352,18 @@ struct TriggerCompleteResponse : public RenderResponse {
     TriggerCompleteResponse(uint64_t id, bool s, std::string status, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , status_message(std::move(status)) {}
+};
+
+/**
+ * @brief Response for frame line navigation
+ */
+struct FrameLineNavigationResponse : public RenderResponse {
+    orc::FrameLineNavigationResult result;
+    
+    FrameLineNavigationResponse(uint64_t id, bool s,
+                               orc::FrameLineNavigationResult nav_result, std::string err = "")
+        : RenderResponse(id, s, std::move(err))
+        , result(nav_result) {}
 };
 
 /**
@@ -468,11 +504,88 @@ public:
                                uint64_t output_index,
                                int line_number,
                                int sample_x,
-                               int preview_image_width);    uint64_t requestSavePNG(const orc::NodeID& node_id, 
+                               int preview_image_width);
+    
+    /**
+     * @brief Request frame line navigation (async)
+     * 
+     * Requests the core to calculate the next/previous line when navigating
+     * in frame mode with interlaced fields. Handles complex field ordering.
+     * 
+     * Result emitted via frameLineNavigationReady signal.
+     * 
+     * @param node_id The node being displayed
+     * @param output_type The current output type (Frame or Frame_Reversed)
+     * @param current_field The current field index
+     * @param current_line The current line within the field
+     * @param direction +1 to go down, -1 to go up
+     * @param field_height The height of a single field in lines
+     * @return Request ID for matching response
+     */
+    uint64_t requestFrameLineNavigation(const orc::NodeID& node_id,
+                                       orc::PreviewOutputType output_type,
+                                       uint64_t current_field,
+                                       int current_line,
+                                       int direction,
+                                       int field_height);
+    
+    /**
+     * @brief Map preview image coordinates to field coordinates (synchronous)
+     * 
+     * This is a synchronous call that returns immediately with the mapping.
+     * No async request needed since it's just a calculation.
+     * 
+     * @param node_id The node being displayed
+     * @param output_type The output type (Field, Frame, etc.)
+     * @param output_index The output index (0-based)
+     * @param image_y Y coordinate in the preview image
+     * @param image_height Total height of the image (for split mode)
+     * @return Mapping result (field_index, field_line)
+     */
+    orc::ImageToFieldMappingResult mapImageToField(const orc::NodeID& node_id,
+                                                   orc::PreviewOutputType output_type,
+                                                   uint64_t output_index,
+                                                   int image_y,
+                                                   int image_height);
+    
+    /**
+     * @brief Map field coordinates back to preview image coordinates (synchronous)
+     * 
+     * This is a synchronous call that returns immediately with the mapping.
+     * No async request needed since it's just a calculation.
+     * 
+     * @param node_id The node being displayed
+     * @param output_type The output type (Field, Frame, etc.)
+     * @param output_index The output index (0-based)
+     * @param field_index The field index
+     * @param field_line The line within the field
+     * @param image_height Total height of the image (for split mode)
+     * @return Mapping result (image_y)
+     */
+    orc::FieldToImageMappingResult mapFieldToImage(const orc::NodeID& node_id,
+                                                   orc::PreviewOutputType output_type,
+                                                   uint64_t output_index,
+                                                   uint64_t field_index,
+                                                   int field_line,
+                                                   int image_height);
+    
+    /**
+     * @brief Get the field indices that make up a frame (synchronous)
+     * 
+     * Returns which two fields comprise the given frame, accounting for field ordering.
+     * 
+     * @param node_id The node being displayed
+     * @param frame_index The frame index (0-based)
+     * @return Result with first_field and second_field indices
+     */
+    orc::FrameFieldsResult getFrameFields(const orc::NodeID& node_id, uint64_t frame_index);
+    
+    uint64_t requestSavePNG(const orc::NodeID& node_id, 
                            orc::PreviewOutputType output_type,
                            uint64_t output_index,
                            const std::string& filename,
-                           const std::string& option_id = "");    
+                           const std::string& option_id = "");
+
     /**
      * @brief Trigger a stage for batch processing (async)
      * 
@@ -575,6 +688,11 @@ signals:
     void triggerComplete(uint64_t request_id, bool success, QString status);
     
     /**
+     * @brief Emitted when frame line navigation result is ready
+     */
+    void frameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
+    
+    /**
      * @brief Emitted on any error
      */
     void error(uint64_t request_id, QString message);
@@ -633,6 +751,11 @@ private:
      * @brief Handle GetLineSamples request
      */
     void handleGetLineSamples(const GetLineSamplesRequest& req);
+    
+    /**
+     * @brief Handle NavigateFrameLine request
+     */
+    void handleNavigateFrameLine(const NavigateFrameLineRequest& req);
     
     void handleSavePNG(const SavePNGRequest& req);
     

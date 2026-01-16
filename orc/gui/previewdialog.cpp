@@ -285,7 +285,7 @@ bool PreviewDialog::isLineScopeVisible() const
 void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                   const std::vector<uint16_t>& samples,
                                   const std::optional<orc::VideoParameters>& video_params,
-                                  int preview_image_width, int original_sample_x,
+                                   int preview_image_width, int original_sample_x, int original_image_y,
                                   const std::vector<uint16_t>& y_samples,
                                   const std::vector<uint16_t>& c_samples)
 {
@@ -303,6 +303,10 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
         connect(line_scope_dialog_, &LineScopeDialog::lineNavigationRequested,
                 this, &PreviewDialog::lineNavigationRequested, Qt::UniqueConnection);
         
+        // Connect refresh signal if not already connected
+        connect(line_scope_dialog_, &LineScopeDialog::refreshRequested,
+                this, &PreviewDialog::lineScopeRequested, Qt::UniqueConnection);
+        
         // Connect sample marker moved signal to update cross-hairs
         connect(line_scope_dialog_, &LineScopeDialog::sampleMarkerMoved,
                 this, &PreviewDialog::onSampleMarkerMoved, Qt::UniqueConnection);
@@ -316,9 +320,13 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
         }
         
         line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, 
-                                          preview_image_width, original_sample_x, y_samples, c_samples);
+                                          preview_image_width, original_sample_x, original_image_y, y_samples, c_samples);
         
         // Just show the dialog - Qt will remember its position
         line_scope_dialog_->show();
     }
+}
+void PreviewDialog::notifyFrameChanged()
+{
+    emit previewFrameChanged();
 }

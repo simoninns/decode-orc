@@ -524,7 +524,9 @@ PreviewRenderResult PreviewRenderer::render_output(
                 );
             } else {
                 // Frame or Frame_Reversed: weave fields
-                bool first_field_first = (type == PreviewOutputType::Frame);
+                // Determine field order: if first_field_offset is 0, field 0 is the first field
+                // If first_field_offset is 1, field 1 is the first field
+                bool first_field_first = (first_field_offset == 0) ? (type == PreviewOutputType::Frame) : (type != PreviewOutputType::Frame);
                 result.image = render_frame(
                     result_a.representation,
                     field_a,
@@ -748,6 +750,8 @@ PreviewImage PreviewRenderer::render_frame(
         bool use_field_a = first_field_first ? (frame_y % 2 == 0) : (frame_y % 2 != 0);
         const auto& field_data = use_field_a ? field_a_data : field_b_data;
         
+        // Calculate which line within the field this corresponds to
+        // Each field line appears twice in the frame (at positions frame_y where frame_y % 2 matches the field)
         size_t field_y = frame_y / 2;
         size_t field_offset = field_y * image.width;
         size_t rgb_offset = frame_y * image.width * 3;
@@ -1289,6 +1293,284 @@ PreviewItemDisplayInfo PreviewRenderer::get_preview_item_display_info(
     }
     
     return info;
+}
+
+FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
+    const NodeID& node_id,
+    PreviewOutputType output_type,
+    uint64_t current_field,
+    int current_line,
+    int direction,
+    int field_height
+) const {
+    FrameLineNavigationResult result;
+    result.is_valid = false;
+    result.new_field_index = current_field;
+    result.new_line_number = current_line;
+    
+    // Only valid for frame modes
+    if (output_type != PreviewOutputType::Frame && output_type != PreviewOutputType::Frame_Reversed) {
+        ORC_LOG_DEBUG("navigate_frame_line: Invalid output type (must be Frame or Frame_Reversed)");
+        return result;
+    }
+    
+    // Use the SAME logic as render_output() to determine field order
+    uint64_t first_field_offset = 0;
+    auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
+    if (probe_result.is_valid && probe_result.representation) {
+        auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+        if (parity_hint.has_value() && !parity_hint->is_first_field) {
+            // Field 0 is second field, so frames start at field 1
+            first_field_offset = 1;
+        }
+    }
+    
+    // For a frame, field_a is the first field shown, field_b is the second
+    // In the interlaced display:
+    //   - Even image lines (0, 2, 4...) show field_a
+    //   - Odd image lines (1, 3, 5...) show field_b
+    // OR if Frame_Reversed, swap them
+    
+    bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
+    
+    // Determine which field corresponds to the current position
+    // The current_field we receive is already the actual field index
+    // Determine if it's the first or second field of its frame
+    bool current_is_first_field = (current_field % 2 == first_field_offset);
+    
+    if (is_reversed) {
+        current_is_first_field = !current_is_first_field;
+    }
+    
+    // Navigate within the interlaced frame display
+    uint64_t new_field = current_field;
+    int new_line = current_line;
+    
+    if (direction > 0) {
+        // Moving down through interlaced lines
+        if (current_is_first_field) {
+            // Currently showing first field line -> next shows second field, same line number
+            new_field = current_field + 1;
+            new_line = current_line;  // Same line within field
+        } else {
+            // Currently showing second field line -> next shows first field, next line number
+            // Go back to the first field (of same frame pair) with incremented line
+            new_field = current_field - 1;
+            new_line = current_line + 1;  // Next line within field
+        }
+    } else if (direction < 0) {
+        // Moving up through interlaced lines  
+        if (!current_is_first_field) {
+            // Currently showing second field line -> prev shows first field, same line number
+            new_field = current_field - 1;
+            new_line = current_line;  // Same line within field
+        } else {
+            // Currently showing first field line -> prev shows second field, prev line number
+            // Go forward to the second field (of same frame pair) with decremented line
+            new_field = current_field + 1;
+            new_line = current_line - 1;  // Previous line within field
+        }
+    }
+    
+    // Bounds check - validate line number
+    if (new_line < 0 || new_line >= field_height) {
+        ORC_LOG_DEBUG("navigate_frame_line: Out of bounds - line {} (field_height={})", new_line, field_height);
+        return result;
+    }
+    
+    // Bounds check - validate that the new field index actually exists
+    auto new_field_result = field_renderer_->render_field_at_node(node_id, FieldID(new_field));
+    if (!new_field_result.is_valid || !new_field_result.representation) {
+        ORC_LOG_DEBUG("navigate_frame_line: Field {} not available", new_field);
+        return result;
+    }
+    
+    // Also check that we're not beyond the total field count
+    size_t total_fields = new_field_result.representation->field_count();
+    if (new_field >= total_fields) {
+        ORC_LOG_DEBUG("navigate_frame_line: Field {} exceeds total field count {}", new_field, total_fields);
+        return result;
+    }
+    
+    result.is_valid = true;
+    result.new_field_index = new_field;
+    result.new_line_number = new_line;
+    
+    ORC_LOG_DEBUG("navigate_frame_line: field {}->{}  line {}->{}  direction={}", 
+        current_field, new_field, current_line, new_line, direction);
+    
+    return result;
+}
+
+ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
+    const NodeID& node_id,
+    PreviewOutputType output_type,
+    uint64_t output_index,
+    int image_y,
+    int image_height
+) const {
+    ImageToFieldMappingResult result;
+    result.is_valid = false;
+    result.field_index = 0;
+    result.field_line = 0;
+    
+    if (output_type == PreviewOutputType::Field) {
+        // Simple case: field mode, image_y is the line number
+        result.is_valid = true;
+        result.field_index = output_index;
+        result.field_line = image_y;
+        return result;
+    }
+    
+    if (output_type == PreviewOutputType::Frame || output_type == PreviewOutputType::Frame_Reversed) {
+        // Frame mode: use the SAME logic as render_frame() to determine field order
+        uint64_t first_field_offset = 0;
+        auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
+        if (probe_result.is_valid && probe_result.representation) {
+            auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+            if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                first_field_offset = 1;
+            }
+        }
+        
+        bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
+        
+        // Calculate which fields make up this frame
+        uint64_t frame_first_field = first_field_offset + (output_index * 2);
+        uint64_t frame_second_field = frame_first_field + 1;
+        
+        // Determine which field based on even/odd line (accounting for reversed mode)
+        if (image_y % 2 == 0) {
+            // Even line - first field (or second if reversed)
+            result.field_index = is_reversed ? frame_second_field : frame_first_field;
+        } else {
+            // Odd line - second field (or first if reversed)
+            result.field_index = is_reversed ? frame_first_field : frame_second_field;
+        }
+        result.field_line = image_y / 2;
+        result.is_valid = true;
+        return result;
+    }
+    
+    if (output_type == PreviewOutputType::Split) {
+        // Split mode: top half is first field, bottom half is second field
+        int split_point = image_height / 2;
+        
+        if (image_y < split_point) {
+            // Top half - first field
+            result.field_index = output_index * 2;
+            result.field_line = image_y;
+        } else {
+            // Bottom half - second field
+            result.field_index = output_index * 2 + 1;
+            result.field_line = image_y - split_point;
+        }
+        result.is_valid = true;
+        return result;
+    }
+    
+    // Unsupported output type
+    return result;
+}
+
+FieldToImageMappingResult PreviewRenderer::map_field_to_image(
+    const NodeID& node_id,
+    PreviewOutputType output_type,
+    uint64_t output_index,
+    uint64_t field_index,
+    int field_line,
+    int image_height
+) const {
+    FieldToImageMappingResult result;
+    result.is_valid = false;
+    result.image_y = 0;
+    
+    if (output_type == PreviewOutputType::Field) {
+        // Simple case: field mode, line number is the image_y
+        result.is_valid = true;
+        result.image_y = field_line;
+        return result;
+    }
+    
+    if (output_type == PreviewOutputType::Frame || output_type == PreviewOutputType::Frame_Reversed) {
+        // Frame mode: use the SAME logic as render_frame() to determine field order
+        uint64_t first_field_offset = 0;
+        auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
+        if (probe_result.is_valid && probe_result.representation) {
+            auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+            if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                first_field_offset = 1;
+            }
+        }
+        
+        bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
+        
+        // Calculate which fields make up this frame
+        uint64_t frame_first_field = first_field_offset + (output_index * 2);
+        uint64_t frame_second_field = frame_first_field + 1;
+        
+        // Determine if this is the first or second field
+        if (field_index == frame_first_field) {
+            // First field - even lines (or odd if reversed)
+            result.image_y = is_reversed ? (field_line * 2 + 1) : (field_line * 2);
+        } else if (field_index == frame_second_field) {
+            // Second field - odd lines (or even if reversed)
+            result.image_y = is_reversed ? (field_line * 2) : (field_line * 2 + 1);
+        } else {
+            // Field doesn't belong to this frame
+            return result;
+        }
+        result.is_valid = true;
+        return result;
+    }
+    
+    if (output_type == PreviewOutputType::Split) {
+        // Split mode: top half is first field, bottom half is second field
+        int split_point = image_height / 2;
+        
+        if (field_index == output_index * 2) {
+            // First field - top half
+            result.image_y = field_line;
+        } else if (field_index == output_index * 2 + 1) {
+            // Second field - bottom half
+            result.image_y = field_line + split_point;
+        } else {
+            // Field doesn't belong to this output
+            return result;
+        }
+        result.is_valid = true;
+        return result;
+    }
+    
+    // Unsupported output type
+    return result;
+}
+
+FrameFieldsResult PreviewRenderer::get_frame_fields(
+    const NodeID& node_id,
+    uint64_t frame_index
+) const {
+    FrameFieldsResult result;
+    result.is_valid = false;
+    result.first_field = 0;
+    result.second_field = 0;
+    
+    // Determine first_field_offset using the SAME logic as render_output()
+    uint64_t first_field_offset = 0;
+    auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
+    if (probe_result.is_valid && probe_result.representation) {
+        auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+        if (parity_hint.has_value() && !parity_hint->is_first_field) {
+            first_field_offset = 1;
+        }
+    }
+    
+    // Calculate field indices for this frame
+    result.first_field = first_field_offset + (frame_index * 2);
+    result.second_field = result.first_field + 1;
+    result.is_valid = true;
+    
+    return result;
 }
 
 SuggestedViewNode PreviewRenderer::get_suggested_view_node() const {

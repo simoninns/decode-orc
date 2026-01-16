@@ -123,6 +123,7 @@ private slots:
     void onShowPulldownDialog();
     void updatePulldownDialog();
     void onLineScopeRequested(int image_x, int image_y);
+    void onLineScopeRefreshAtFieldLine();  ///< Refresh line scope at stored field/line (for frame changes)
     void onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
     void onSampleMarkerMoved(int sample_x);
     void refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
@@ -134,6 +135,7 @@ private slots:
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
                             std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
                             std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
+    void onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     void onDropoutProgress(size_t current, size_t total, QString message);
     void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
@@ -231,8 +233,11 @@ private:
     std::string current_option_id_;  ///< Current option ID for PreviewableStage rendering
     orc::AspectRatioMode current_aspect_ratio_mode_;  ///< Current aspect ratio mode
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
+    // Line scope tracking - store the actual field/line being displayed
+    // All visual positions are derived from these via orc-core mapping functions
+    uint64_t last_line_scope_field_index_;  ///< Current field being displayed in line scope
+    int last_line_scope_line_number_;  ///< Current line being displayed in line scope
     int last_line_scope_image_x_;  ///< Store original preview-space X coordinate for line scope navigation
-    int last_line_scope_image_y_;  ///< Store original preview-space Y coordinate for line scope
     int last_line_scope_preview_width_;  ///< Store preview width for coordinate mapping
     int last_line_scope_samples_count_;  ///< Store samples count for coordinate mapping
     

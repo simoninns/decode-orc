@@ -90,7 +90,7 @@ public:
     void showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::VideoParameters>& video_params,
-                       int preview_image_width, int original_sample_x,
+                       int preview_image_width, int original_sample_x, int original_image_y,
                        const std::vector<uint16_t>& y_samples = {},
                        const std::vector<uint16_t>& c_samples = {});
     
@@ -103,6 +103,14 @@ public:
      * @brief Check if line scope dialog is currently visible
      */
     bool isLineScopeVisible() const;
+    
+    /**
+     * @brief Notify that the preview frame/mode has changed
+     * 
+     * Emits previewFrameChanged signal to notify line scope and other listeners
+     * that they should refresh their data for the new frame context.
+     */
+    void notifyFrameChanged();
     
     /**
      * @brief Get line scope dialog (for updating when stage changes)
@@ -124,6 +132,7 @@ Q_SIGNALS:
     void lineScopeRequested(int image_x, int image_y);  // Emitted when user clicks a line
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);  // Emitted when navigating lines
     void sampleMarkerMovedInLineScope(int sample_x);  // Emitted when sample marker moves in line scope
+    void previewFrameChanged();  // Emitted when preview frame/output type changes - tells line scope to refresh at current position
 
 private slots:
     void onSampleMarkerMoved(int sample_x);

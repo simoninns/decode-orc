@@ -51,13 +51,43 @@ public:
     void setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                         const std::vector<uint16_t>& samples,
                         const std::optional<orc::VideoParameters>& video_params,
-                        int preview_image_width, int original_sample_x,
+                        int preview_image_width, int original_sample_x, int original_image_y,
                         const std::vector<uint16_t>& y_samples = {},
                         const std::vector<uint16_t>& c_samples = {});
+    
+    /// @name State Accessors
+    /// @{
+    uint64_t currentFieldIndex() const { return current_field_index_; }
+    int currentLineNumber() const { return current_line_number_; }
+    int currentSampleX() const { return current_sample_x_; }
+    int previewImageWidth() const { return preview_image_width_; }
+    /// @}
+    
+    /**
+     * @brief Request refresh of current line samples
+     * 
+     * Emits a signal to re-request the current line data.
+     * Used when the frame changes but the line scope should stay at the same position.
+     */
+    void refreshSamples();
+    
+    /**
+     * @brief Refresh line samples at the current field/line that line scope is tracking
+     * 
+     * This is called when the preview frame changes. The line scope maintains its own
+     * field/line position and this method ensures we get fresh samples from orc-core
+     * for that position in the new frame context.
+     * 
+     * Emits lineNavigationRequested with current position to trigger sample fetch.
+     * The key insight: line scope OWNS the state (current_field_index_, current_line_number_),
+     * external events just trigger a refresh at that position.
+     */
+    void refreshSamplesAtCurrentPosition();
 
 Q_SIGNALS:
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
     void sampleMarkerMoved(int sample_x);  // Emitted when sample marker position changes (field-space)
+    void refreshRequested(int image_x, int image_y);  // Emitted when refresh is needed (for frame changes)
 
 private slots:
     void onLineUp();
@@ -85,7 +115,8 @@ private:
     uint64_t current_field_index_;
     int current_line_number_;
     int current_sample_x_;  // Mapped field-space coordinate for display
-    int original_sample_x_;  // Original preview-space coordinate for navigation
+    int original_sample_x_;  // Original preview-space X coordinate for navigation
+    int original_image_y_;   // Original preview-space Y coordinate for refresh
     int preview_image_width_;
     std::vector<uint16_t> current_samples_;  // Store samples for marker updates (composite)
     std::vector<uint16_t> current_y_samples_;  // Store Y samples for YC sources

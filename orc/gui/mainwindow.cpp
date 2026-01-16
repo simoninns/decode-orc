@@ -11,6 +11,7 @@
 #include "version.h"
 #include "fieldpreviewwidget.h"
 #include "previewdialog.h"
+#include "linescopedialog.h"
 #include "vbidialog.h"
 #include "hintsdialog.h"
 #include "pulldowndialog.h"
@@ -116,6 +117,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAvailableOutputsReady);
     connect(render_coordinator_.get(), &RenderCoordinator::lineSamplesReady,
             this, &MainWindow::onLineSamplesReady);
+    connect(render_coordinator_.get(), &RenderCoordinator::frameLineNavigationReady,
+            this, &MainWindow::onFrameLineNavigationReady);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
             this, &MainWindow::onDropoutDataReady);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress,
@@ -295,6 +298,14 @@ void MainWindow::setupUI()
             this, &MainWindow::onLineNavigation);
     connect(preview_dialog_, &PreviewDialog::sampleMarkerMovedInLineScope,
             this, &MainWindow::onSampleMarkerMoved);
+    
+    // Connect preview frame changed signal to line scope
+    // When frame changes, line scope should refresh samples at its current field/line
+    auto line_scope = preview_dialog_->lineScopeDialog();
+    if (line_scope) {
+        connect(preview_dialog_, &PreviewDialog::previewFrameChanged,
+                this, &MainWindow::onLineScopeRefreshAtFieldLine);
+    }
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
@@ -2948,9 +2959,24 @@ void MainWindow::updateQualityMetricsDialog()
                          current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
                          current_output_type_ == orc::PreviewOutputType::Split);
     
-    // Get field IDs based on preview mode
-    orc::FieldID field1_id = is_frame_mode ? orc::FieldID(current_index * 2) : orc::FieldID(current_index);
-    orc::FieldID field2_id = is_frame_mode ? orc::FieldID(current_index * 2 + 1) : orc::FieldID(0);
+    // Get field IDs from core library (handles field ordering correctly)
+    orc::FieldID field1_id;
+    orc::FieldID field2_id;
+    
+    if (is_frame_mode) {
+        // Use core library to determine which fields make up this frame
+        auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
+        if (!frame_fields.is_valid) {
+            quality_metrics_dialog_->clearMetrics();
+            return;
+        }
+        field1_id = orc::FieldID(frame_fields.first_field);
+        field2_id = orc::FieldID(frame_fields.second_field);
+    } else {
+        // Field mode - simple mapping
+        field1_id = orc::FieldID(current_index);
+        field2_id = orc::FieldID(0);
+    }
     
     // Get field representations from the current DAG/node
     // Note: This is a synchronous access - we'll create a temporary renderer
@@ -3005,10 +3031,25 @@ void MainWindow::updateAllPreviewComponents()
 {
     updatePreview();
     updatePreviewInfo();
+    // NOTE: Do NOT call updateLineScope() here. The line scope should maintain its current
+    // field/line across frame changes. Automatic refresh would cause the displayed line to
+    // jump because the mapping from image_y to field coordinates changes between frames.
+    // The line scope is only updated when:
+    // 1. User clicks on the preview to select a new line
+    // 2. User navigates up/down with line scope buttons
+    // 3. Line scope is initially opened
+    // 4. Frame changes - line scope updates via its own connection to previewFrameChanged signal
     updateVBIDialog();
     updateHintsDialog();
     updateQualityMetricsDialog();
     updatePulldownDialog();
+    
+    // Notify line scope dialog that preview frame has changed
+    // Line scope will refresh samples at its current field/line position via orc-core
+    if (preview_dialog_) {
+        ORC_LOG_DEBUG("updateAllPreviewComponents: calling notifyFrameChanged");
+        preview_dialog_->notifyFrameChanged();
+    }
     
     // For analysis dialogs, only update the frame marker position (not the full data)
     // Full data is only loaded when the dialog is first opened
@@ -3062,9 +3103,14 @@ void MainWindow::updateVBIDialog()
     
     // Request VBI data from coordinator
     if (is_frame_mode) {
-        // Frame mode - request both fields
-        orc::FieldID field1_id(current_index * 2);
-        orc::FieldID field2_id(current_index * 2 + 1);
+        // Frame mode - get field IDs from core library (handles field ordering)
+        auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
+        if (!frame_fields.is_valid) {
+            vbi_dialog_->clearVBIInfo();
+            return;
+        }
+        orc::FieldID field1_id(frame_fields.first_field);
+        orc::FieldID field2_id(frame_fields.second_field);
         // Request first field - VBI dialog will need enhancement to display both fields
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field1_id);
         // Second field support: Would require VBIDialog to handle dual-field display
@@ -3097,8 +3143,20 @@ void MainWindow::updateHintsDialog()
                          current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
                          current_output_type_ == orc::PreviewOutputType::Split);
     
-    // For hints, we'll show the first field's hints (or single field in field mode)
-    orc::FieldID field_id = is_frame_mode ? orc::FieldID(current_index * 2) : orc::FieldID(current_index);
+    // Get field ID from core library (handles field ordering correctly)
+    orc::FieldID field_id;
+    if (is_frame_mode) {
+        // Use core library to determine first field of frame
+        auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
+        if (!frame_fields.is_valid) {
+            hints_dialog_->clearHints();
+            return;
+        }
+        field_id = orc::FieldID(frame_fields.first_field);
+    } else {
+        // Field mode - simple mapping
+        field_id = orc::FieldID(current_index);
+    }
     
     // Get hints from the current DAG/node
     // Note: This is a synchronous access - we'll create a temporary renderer
@@ -3159,8 +3217,20 @@ void MainWindow::updatePulldownDialog()
                          current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
                          current_output_type_ == orc::PreviewOutputType::Split);
     
-    // For pulldown, we'll show the first field's observation (or single field in field mode)
-    orc::FieldID field_id = is_frame_mode ? orc::FieldID(current_index * 2) : orc::FieldID(current_index);
+    // Get field ID from core library (handles field ordering correctly)
+    orc::FieldID field_id;
+    if (is_frame_mode) {
+        // Use core library to determine first field of frame
+        auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
+        if (!frame_fields.is_valid) {
+            pulldown_dialog_->clearPulldownInfo();
+            return;
+        }
+        field_id = orc::FieldID(frame_fields.first_field);
+    } else {
+        // Field mode - simple mapping
+        field_id = orc::FieldID(current_index);
+    }
     
     // Get pulldown observation from the current DAG/node
     try {
@@ -3215,55 +3285,25 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
         return;
     }
     
-    // Store original image coordinates for later use
+    // Store original image x coordinate for later use (to avoid rounding errors)
     last_line_scope_image_x_ = image_x;
-    last_line_scope_image_y_ = image_y;
     
-    // Determine the actual field and line based on the output type
-    uint64_t field_index;
-    int field_line;
+    // Get the preview image height for split mode
+    int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
     
-    uint64_t current_index = preview_dialog_->previewSlider()->value();
+    // Use orc-core to map image coordinates to field coordinates
+    // This ensures the GUI doesn't duplicate field ordering logic
+    auto mapping = render_coordinator_->mapImageToField(
+        current_view_node_id_, current_output_type_, 
+        preview_dialog_->previewSlider()->value(), image_y, image_height);
     
-    if (current_output_type_ == orc::PreviewOutputType::Field) {
-        // Simple case: viewing a single field
-        field_index = current_index;
-        field_line = image_y;
-    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
-               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
-        // Frame mode: image has interlaced fields
-        // Even lines are from first field, odd lines are from second field
-        // Line number within field is image_y / 2
-        bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
-        
-        if (image_y % 2 == 0) {
-            // Even line - first field (or second if reversed)
-            field_index = current_index * 2 + (is_reversed ? 1 : 0);
-        } else {
-            // Odd line - second field (or first if reversed)
-            field_index = current_index * 2 + (is_reversed ? 0 : 1);
-        }
-        field_line = image_y / 2;
-    } else if (current_output_type_ == orc::PreviewOutputType::Split) {
-        // Split mode: image shows two fields stacked vertically
-        // Top half is first field, bottom half is second field
-        // Split point is at half the image height
-        int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
-        int split_point = image_height / 2;
-        
-        if (image_y < split_point) {
-            // Top half - first field
-            field_index = current_index * 2;
-            field_line = image_y;
-        } else {
-            // Bottom half - second field
-            field_index = current_index * 2 + 1;
-            field_line = image_y - split_point;
-        }
-    } else {
-        ORC_LOG_WARN("Unsupported output type for line scope: {}", static_cast<int>(current_output_type_));
+    if (!mapping.is_valid) {
+        ORC_LOG_WARN("Failed to map image coordinates to field");
         return;
     }
+    
+    uint64_t field_index = mapping.field_index;
+    int field_line = mapping.field_line;
     
     // Map image_x from preview image coordinates to field sample coordinates
     // The preview widget gives us coordinates in the rendered RGB image space,
@@ -3306,6 +3346,10 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
     int preview_image_height = preview_dialog_->previewWidget()->originalImageSize().height();
     
+    // Store the actual field/line being displayed - this is the ground truth
+    last_line_scope_field_index_ = field_index;
+    last_line_scope_line_number_ = line_number;
+    
     // Store context for sample marker updates
     last_line_scope_preview_width_ = preview_image_width;
     last_line_scope_samples_count_ = samples.size();
@@ -3316,43 +3360,22 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
         last_line_scope_samples_count_ = y_samples.size();
     }
     
-    // Calculate image_y from field_index and line_number based on current output type
-    int image_y = 0;
+    // Use orc-core to map the current field/line to image coordinates for display
+    // This ensures we always have the correct visual position for the current frame
     uint64_t current_index = preview_dialog_->previewSlider()->value();
+    auto mapping = render_coordinator_->mapFieldToImage(
+        current_view_node_id_, current_output_type_, current_index,
+        field_index, line_number, preview_image_height);
     
-    if (current_output_type_ == orc::PreviewOutputType::Field) {
-        // Simple case: image_y is just the line number
-        image_y = line_number;
-    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
-               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
-        // Frame mode: need to determine if this is even or odd field
-        bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
-        uint64_t first_field = current_index * 2 + (is_reversed ? 1 : 0);
-        
-        if (field_index == first_field) {
-            // First field - even lines
-            image_y = line_number * 2;
-        } else {
-            // Second field - odd lines
-            image_y = line_number * 2 + 1;
-        }
-    } else if (current_output_type_ == orc::PreviewOutputType::Split) {
-        // Split mode: top half is first field, bottom half is second field
-        int split_point = preview_image_height / 2;
-        
-        if (field_index == current_index * 2) {
-            // First field - top half
-            image_y = line_number;
-        } else {
-            // Second field - bottom half
-            image_y = line_number + split_point;
-        }
+    int image_y = 0;
+    if (mapping.is_valid) {
+        image_y = mapping.image_y;
+    } else {
+        ORC_LOG_WARN("Failed to map field coordinates to image");
+        image_y = line_number;  // Fallback
     }
     
-    // Update stored Y position
-    last_line_scope_image_y_ = image_y;
-    
-    // Update cross-hairs to new position
+    // Update cross-hairs using the correctly mapped position for this frame
     preview_dialog_->previewWidget()->updateCrosshairsPosition(last_line_scope_image_x_, image_y);
     
     // Use the stored original image_x to avoid rounding errors from reverse-mapping
@@ -3360,10 +3383,46 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     ORC_LOG_DEBUG("Using original_sample_x={} from last request", original_sample_x);
     
+    // Calculate image_y from field/line using orc-core
+    int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    auto image_coords = render_coordinator_->mapFieldToImage(
+        current_view_node_id_, current_output_type_,
+        preview_dialog_->previewSlider()->value(), field_index, line_number, image_height);
+    int calculated_image_y = image_coords.is_valid ? image_coords.image_y : 0;
+    
+    // Store field/line for later navigation
+    last_line_scope_field_index_ = field_index;
+    last_line_scope_line_number_ = line_number;
+    
     // Show the line scope dialog with the samples, including the current node_id
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
     preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params, 
-                                   preview_image_width, original_sample_x, y_samples, c_samples);
+                                   preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
+}
+
+void MainWindow::onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result)
+{
+    Q_UNUSED(request_id);
+    
+    ORC_LOG_DEBUG("Frame line navigation ready: valid={}, new_field={}, new_line={}", 
+                  result.is_valid, result.new_field_index, result.new_line_number);
+    
+    if (!result.is_valid) {
+        ORC_LOG_DEBUG("Frame line navigation out of bounds, staying at current position");
+        return;
+    }
+    
+    // Request line samples at the new position
+    ORC_LOG_DEBUG("Requesting samples at field {}, line {}", result.new_field_index, result.new_line_number);
+    
+    pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
+        current_view_node_id_,
+        orc::PreviewOutputType::Field,
+        result.new_field_index,
+        result.new_line_number,
+        last_line_scope_image_x_,
+        preview_dialog_->previewWidget()->originalImageSize().width()
+    );
 }
 
 void MainWindow::onSampleMarkerMoved(int sample_x)
@@ -3375,8 +3434,16 @@ void MainWindow::onSampleMarkerMoved(int sample_x)
     // Map sample_x from field-space back to preview-space
     int preview_x = (sample_x * last_line_scope_preview_width_) / last_line_scope_samples_count_;
     
-    // Update cross-hairs at the new X position, keeping the same Y
-    preview_dialog_->previewWidget()->updateCrosshairsPosition(preview_x, last_line_scope_image_y_);
+    // Calculate image_y from stored field/line using orc-core
+    int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    auto image_coords = render_coordinator_->mapFieldToImage(
+        current_view_node_id_, current_output_type_,
+        preview_dialog_->previewSlider()->value(), 
+        last_line_scope_field_index_, last_line_scope_line_number_, image_height);
+    int calculated_image_y = image_coords.is_valid ? image_coords.image_y : 0;
+    
+    // Update cross-hairs at the new X position with recalculated Y
+    preview_dialog_->previewWidget()->updateCrosshairsPosition(preview_x, calculated_image_y);
     
     // Update stored position so it's maintained when changing stages
     last_line_scope_image_x_ = preview_x;
@@ -3397,17 +3464,86 @@ void MainWindow::refreshLineScopeForCurrentStage()
         QString node_id_str = "(none)";
         preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
                                       std::vector<uint16_t>(),  // Empty samples
-                                      std::nullopt, 0, 0);
+                                      std::nullopt, 0, 0, 0);
         return;
     }
     
-    // Re-request line samples for the same position but new stage
-    // Use the stored image coordinates from the last line scope request
-    if (last_line_scope_image_x_ >= 0 && last_line_scope_image_y_ >= 0) {
-        ORC_LOG_DEBUG("Refreshing line scope for new stage at last position ({}, {})", 
-                     last_line_scope_image_x_, last_line_scope_image_y_);
-        onLineScopeRequested(last_line_scope_image_x_, last_line_scope_image_y_);
+    // Re-request line samples for the same field/line but new stage
+    // Calculate the image_y from stored field/line for the refresh
+    if (last_line_scope_image_x_ >= 0 && last_line_scope_field_index_ >= 0) {
+        int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+        auto image_coords = render_coordinator_->mapFieldToImage(
+            current_view_node_id_, current_output_type_,
+            preview_dialog_->previewSlider()->value(), 
+            last_line_scope_field_index_, last_line_scope_line_number_, image_height);
+        int calculated_image_y = image_coords.is_valid ? image_coords.image_y : 0;
+        
+        ORC_LOG_DEBUG("Refreshing line scope for new stage at field={}, line={}, image_y={}", 
+                     last_line_scope_field_index_, last_line_scope_line_number_, calculated_image_y);
+        onLineScopeRequested(last_line_scope_image_x_, calculated_image_y);
     }
+}
+
+void MainWindow::onLineScopeRefreshAtFieldLine()
+{
+    ORC_LOG_DEBUG("onLineScopeRefreshAtFieldLine called");
+    
+    if (!preview_dialog_ || !preview_dialog_->isLineScopeVisible()) {
+        ORC_LOG_DEBUG("Line scope not visible, skipping refresh");
+        return;
+    }
+    
+    if (!current_view_node_id_.is_valid() || last_line_scope_field_index_ < 0) {
+        ORC_LOG_DEBUG("No valid node or field index, skipping refresh");
+        return;
+    }
+    
+    ORC_LOG_DEBUG("Refreshing line scope: was at field={}, line={}", 
+                 last_line_scope_field_index_, last_line_scope_line_number_);
+    
+    uint64_t new_field_index = last_line_scope_field_index_;
+    
+    // If in Frame mode, get which fields are in the current frame and pick the one with same parity
+    if (current_output_type_ == orc::PreviewOutputType::Frame || 
+        current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+        uint64_t frame_index = preview_dialog_->previewSlider()->value();
+        auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, frame_index);
+        
+        if (frame_fields.is_valid) {
+            // Pick field with same parity (odd/even) as the one we were viewing
+            bool was_odd = (last_line_scope_field_index_ % 2) == 1;
+            bool first_is_odd = (frame_fields.first_field % 2) == 1;
+            
+            if (was_odd == first_is_odd) {
+                new_field_index = frame_fields.first_field;
+            } else {
+                new_field_index = frame_fields.second_field;
+            }
+            
+            ORC_LOG_DEBUG("Frame {} contains fields [{}, {}], using field {} (parity match)",
+                         frame_index, frame_fields.first_field, frame_fields.second_field, new_field_index);
+        } else {
+            ORC_LOG_WARN("Failed to get frame fields, keeping old field index");
+        }
+    }
+    // In Field or Split mode, just use the current field index from the slider
+    else if (current_output_type_ == orc::PreviewOutputType::Field) {
+        new_field_index = preview_dialog_->previewSlider()->value();
+        ORC_LOG_DEBUG("Field mode: using field {} from slider", new_field_index);
+    }
+    
+    // Request samples at the SAME line number in the new field
+    int sample_x = last_line_scope_image_x_;
+    int preview_width = preview_dialog_->previewWidget()->originalImageSize().width();
+    
+    ORC_LOG_DEBUG("Requesting samples at field={}, line={}, sample_x={}", 
+                 new_field_index, last_line_scope_line_number_, sample_x);
+    
+    pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
+        current_view_node_id_, 
+        orc::PreviewOutputType::Field,
+        new_field_index, last_line_scope_line_number_, 
+        sample_x, preview_width);
 }
 
 void MainWindow::onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width)
@@ -3418,82 +3554,78 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
         return;
     }
     
-    // Store original sample_x for when the response arrives
-    last_line_scope_image_x_ = sample_x;
+    // NOTE: Do NOT modify last_line_scope_image_x_ here!
+    // It was set in onLineScopeRequested() as the visual image coordinate where the user clicked.
+    // We need to preserve it so the cross-hairs stay in the same visual position when samples refresh.
+    // The sample_x parameter here is in field coordinates (0-909), not image coordinates.
     
-    // Calculate new field and line based on output type
-    uint64_t new_field_index = current_field;
-    int new_line_number = current_line + direction;
+    // Store the NEW field/line that the line scope is navigating to
+    // When samples arrive, onLineSamplesReady will use mapFieldToImage to calculate
+    // the correct visual position in the current frame
+    last_line_scope_field_index_ = current_field;
+    last_line_scope_line_number_ = current_line;
     
     // Get the image size to determine bounds
-    // In Field mode: image_height is the field height
-    // In Frame mode: image_height is 2x field height (interlaced)
-    // In Split mode: image_height is 2x field height (stacked)
     int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
-    int field_height = image_height;  // Will be adjusted based on mode
+    int field_height = image_height;
     
     if (current_output_type_ == orc::PreviewOutputType::Field) {
         // Simple field mode - just move within the same field
-        // field_height already equals image_height
+        int new_line_number = current_line + direction;
+        
+        // Bounds check
+        if (new_line_number < 0 || new_line_number >= field_height) {
+            ORC_LOG_DEBUG("Line navigation rejected: line {} is out of bounds (field_height={})", new_line_number, field_height);
+            return;
+        }
+        
+        // In field mode, stay in the same field
+        ORC_LOG_DEBUG("Navigating to field {}, line {}", current_field, new_line_number);
+        
+        pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
+            current_view_node_id_,
+            orc::PreviewOutputType::Field,
+            current_field,
+            new_line_number,
+            sample_x,
+            preview_image_width
+        );
     } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
                current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
-        // Frame mode - moving between interlaced fields
-        // Each frame line corresponds to half a field line
-        // Need to alternate between fields
-        
-        // In frame mode, image shows both fields interlaced, so field height is half
+        // Frame mode - delegate to core library via async request
+        // In frame mode, image height is 2x field height (interlaced)
         field_height = image_height / 2;
         
-        bool is_reversed = (current_output_type_ == orc::PreviewOutputType::Frame_Reversed);
-        
-        // Determine if current field is even or odd in the frame
-        bool current_is_first_field = (current_field % 2 == (is_reversed ? 1 : 0));
-        
-        if (direction > 0) {
-            // Moving down - toggle field
-            if (current_is_first_field) {
-                new_field_index = current_field + 1;
-            } else {
-                new_field_index = current_field - 1;
-                new_line_number = current_line + 1;
-            }
-        } else {
-            // Moving up - toggle field
-            if (current_is_first_field) {
-                new_field_index = current_field + 1;
-                new_line_number = current_line - 1;
-            } else {
-                new_field_index = current_field - 1;
-            }
-        }
+        // Request the core library to calculate navigation
+        pending_line_sample_request_id_ = render_coordinator_->requestFrameLineNavigation(
+            current_view_node_id_,
+            current_output_type_,
+            current_field,
+            current_line,
+            direction,
+            field_height
+        );
     } else if (current_output_type_ == orc::PreviewOutputType::Split) {
-        // Split mode - two fields stacked vertically
-        // Stay within the same field
-        // In split mode, image shows both fields stacked, so field height is half
+        // Split mode - two fields stacked vertically, stay within the same field
         field_height = image_height / 2;
+        int new_line_number = current_line + direction;
+        
+        // Bounds check
+        if (new_line_number < 0 || new_line_number >= field_height) {
+            ORC_LOG_DEBUG("Line navigation rejected: line {} is out of bounds in split mode (field_height={})", new_line_number, field_height);
+            return;
+        }
+        
+        ORC_LOG_DEBUG("Navigating to field {}, line {}", current_field, new_line_number);
+        
+        pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
+            current_view_node_id_,
+            orc::PreviewOutputType::Field,
+            current_field,
+            new_line_number,
+            sample_x,
+            preview_image_width
+        );
     }
-    
-    // Bounds check the line number to prevent out-of-bounds requests
-    // Use field_height since we're requesting individual field lines
-    if (new_line_number < 0) {
-        ORC_LOG_DEBUG("Line navigation rejected: line {} is below bounds", new_line_number);
-        return;
-    }
-    if (new_line_number >= field_height) {
-        ORC_LOG_DEBUG("Line navigation rejected: line {} is above bounds (field_height={})", new_line_number, field_height);
-        return;
-    }
-    
-    ORC_LOG_DEBUG("Navigating to field {}, line {}", new_field_index, new_line_number);
-    
-    // Request samples for the new line, preserving the sample_x position
-    pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
-        current_view_node_id_,
-        orc::PreviewOutputType::Field,
-        new_field_index,
-        new_line_number,
-        sample_x,
-        preview_image_width
-    );
 }
 

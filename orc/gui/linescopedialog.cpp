@@ -122,7 +122,7 @@ void LineScopeDialog::setupUI()
 void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                       const std::vector<uint16_t>& samples,
                                       const std::optional<orc::VideoParameters>& video_params,
-                                      int preview_image_width, int original_sample_x,
+                                      int preview_image_width, int original_sample_x, int original_image_y,
                                       const std::vector<uint16_t>& y_samples,
                                       const std::vector<uint16_t>& c_samples)
 {
@@ -134,7 +134,8 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     current_field_index_ = field_index;
     current_line_number_ = line_number;
     current_sample_x_ = sample_x;  // Mapped field-space coordinate
-    original_sample_x_ = original_sample_x;  // Original preview-space coordinate
+    original_sample_x_ = original_sample_x;  // Original preview-space X coordinate
+    original_image_y_ = original_image_y;    // Original preview-space Y coordinate
     preview_image_width_ = preview_image_width;
     current_samples_ = samples;  // Store samples for later updates
     current_y_samples_ = y_samples;
@@ -781,4 +782,23 @@ void LineScopeDialog::onLineDown()
     // Request next line (direction = +1)
     // Use the original preview-space coordinate to avoid rounding errors
     emit lineNavigationRequested(+1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
+}
+
+void LineScopeDialog::refreshSamples()
+{
+    // Request the current line data to be refreshed using original image coordinates
+    // This ensures the same visual position is maintained when frames change
+    emit refreshRequested(original_sample_x_, original_image_y_);
+}
+
+void LineScopeDialog::refreshSamplesAtCurrentPosition()
+{
+    // Refresh line samples at the current field/line that this dialog is tracking
+    // This is called when the preview frame changes. We need to go through the normal
+    // onLineScopeRequested path to properly recalculate image coordinates for the new frame.
+    // Using the stored original_sample_x_, original_image_y_ ensures the visual position
+    // on screen is maintained while getting fresh samples for the new frame context.
+    if (preview_image_width_ > 0) {
+        emit refreshRequested(original_sample_x_, original_image_y_);
+    }
 }

@@ -296,6 +296,90 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                     });
                 }
                 
+                // Special handling for YC source stages: auto-populate y_path/c_path and pcm_path/efm_path
+                if (param_name == "y_path" || param_name == "c_path") {
+                    connect(edit, &QLineEdit::textChanged, [this, edit, param_name, stage_name_copy]() {
+                        QString current_path = edit->text();
+                        if (current_path.isEmpty()) return;
+                        
+                        // Get base path (remove .tbcy or .tbcc extension if present)
+                        QString base_path = current_path;
+                        if (base_path.endsWith(".tbcy", Qt::CaseInsensitive)) {
+                            base_path = base_path.left(base_path.length() - 5);
+                        } else if (base_path.endsWith(".tbcc", Qt::CaseInsensitive)) {
+                            base_path = base_path.left(base_path.length() - 5);
+                        }
+                        
+                        // Auto-populate the complementary YC file if it exists
+                        if (param_name == "y_path") {
+                            // We're setting the Y (luma) file, try to populate C (chroma)
+                            auto c_it = parameter_widgets_.find("c_path");
+                            if (c_it != parameter_widgets_.end()) {
+                                QWidget* c_container = c_it->second.widget;
+                                QLineEdit* c_edit = c_container->findChild<QLineEdit*>("file_path_edit");
+                                if (c_edit && c_edit->text().isEmpty()) {
+                                    QString c_path = base_path + ".tbcc";
+                                    if (QFileInfo::exists(c_path)) {
+                                        c_edit->setText(c_path);
+                                    }
+                                }
+                            }
+                        } else if (param_name == "c_path") {
+                            // We're setting the C (chroma) file, try to populate Y (luma)
+                            auto y_it = parameter_widgets_.find("y_path");
+                            if (y_it != parameter_widgets_.end()) {
+                                QWidget* y_container = y_it->second.widget;
+                                QLineEdit* y_edit = y_container->findChild<QLineEdit*>("file_path_edit");
+                                if (y_edit && y_edit->text().isEmpty()) {
+                                    QString y_path = base_path + ".tbcy";
+                                    if (QFileInfo::exists(y_path)) {
+                                        y_edit->setText(y_path);
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Auto-populate pcm_path if not already set
+                        auto pcm_it = parameter_widgets_.find("pcm_path");
+                        if (pcm_it != parameter_widgets_.end()) {
+                            QWidget* pcm_container = pcm_it->second.widget;
+                            QLineEdit* pcm_edit = pcm_container->findChild<QLineEdit*>("file_path_edit");
+                            if (pcm_edit && pcm_edit->text().isEmpty()) {
+                                QString pcm_path = base_path + ".pcm";
+                                if (QFileInfo::exists(pcm_path)) {
+                                    pcm_edit->setText(pcm_path);
+                                }
+                            }
+                        }
+                        
+                        // Auto-populate efm_path if not already set
+                        auto efm_it = parameter_widgets_.find("efm_path");
+                        if (efm_it != parameter_widgets_.end()) {
+                            QWidget* efm_container = efm_it->second.widget;
+                            QLineEdit* efm_edit = efm_container->findChild<QLineEdit*>("file_path_edit");
+                            if (efm_edit && efm_edit->text().isEmpty()) {
+                                QString efm_path = base_path + ".efm";
+                                if (QFileInfo::exists(efm_path)) {
+                                    efm_edit->setText(efm_path);
+                                }
+                            }
+                        }
+                        
+                        // Auto-populate db_path if not already set
+                        auto db_it = parameter_widgets_.find("db_path");
+                        if (db_it != parameter_widgets_.end()) {
+                            QWidget* db_container = db_it->second.widget;
+                            QLineEdit* db_edit = db_container->findChild<QLineEdit*>("file_path_edit");
+                            if (db_edit && db_edit->text().isEmpty()) {
+                                QString db_path = base_path + ".tbc.db";
+                                if (QFileInfo::exists(db_path)) {
+                                    db_edit->setText(db_path);
+                                }
+                            }
+                        }
+                    });
+                }
+                
                 layout->addWidget(edit, 1);  // Line edit takes most space
                 layout->addWidget(browse_btn);
                 

@@ -389,10 +389,11 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::V
     active_width_ = params.active_video_end - params.active_video_start;
     active_height_ = params.last_active_frame_line - params.first_active_frame_line;
     
-    // Store video system and IRE levels for color space configuration
+    // Store video system, IRE levels, and full parameters for color space configuration
     video_system_ = params.system;
     black_ire_ = params.black_16b_ire;
     white_ire_ = params.white_16b_ire;
+    video_params_ = params;  // Store full params for offset handling in convertAndEncode
     
     // Set source and output dimensions to active area
     src_width_ = active_width_;
@@ -882,12 +883,14 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
     constexpr double Y_MAX   = 254.75 * 256.0;
     
     constexpr double C_ZERO  = 128.0  * 256.0;  // 32768
-    constexpr double C_SCALE = 224.0  * 256.0;  // 57344
+    constexpr double C_SCALE = 112.0  * 256.0;  // 28672
     constexpr double C_MIN   = 1.0    * 256.0;
     constexpr double C_MAX   = 254.75 * 256.0;
     
     // BT.601 coefficients (from outputwriter.cpp)
-    constexpr double kB = 0.87728321993817866838972487283129;
+    // kB = sqrt(209556997.0 / 96146491.0) / 3.0
+    // kR = sqrt(221990474.0 / 288439473.0)
+    constexpr double kB = 0.49211104112248356308804691718185;
     constexpr double kR = 0.87728321993817866838972487283129;
     constexpr double ONE_MINUS_Kb = 1.0 - 0.114;
     constexpr double ONE_MINUS_Kr = 1.0 - 0.299;
@@ -900,11 +903,20 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
     const double cbScale = (C_SCALE / (ONE_MINUS_Kb * kB)) / uvRange;
     const double crScale = (C_SCALE / (ONE_MINUS_Kr * kR)) / uvRange;
     
+    // Handle offset into ComponentFrame (matches OutputWriter logic)
+    // When cropping is applied, componentFrame is indexed from 0
+    // Otherwise, it's indexed from first_active_frame_line
+    const int32_t inputLineOffset = video_params_.active_area_cropping_applied ? 0 : 
+                                    video_params_.first_active_frame_line;
+    const int32_t xOffset = video_params_.active_area_cropping_applied ? 0 : 
+                           video_params_.active_video_start;
+    
     // Copy active video lines from ComponentFrame
     for (int y = 0; y < src_height_; y++) {
-        const double* src_y = component_frame.y(y);
-        const double* src_u = component_frame.u(y);
-        const double* src_v = component_frame.v(y);
+        const int32_t inputLine = inputLineOffset + y;
+        const double* src_y = component_frame.y(inputLine) + xOffset;
+        const double* src_u = component_frame.u(inputLine) + xOffset;
+        const double* src_v = component_frame.v(inputLine) + xOffset;
         
         uint16_t* dst_y = reinterpret_cast<uint16_t*>(src_frame_->data[0] + y * src_frame_->linesize[0]);
         uint16_t* dst_u = reinterpret_cast<uint16_t*>(src_frame_->data[1] + y * src_frame_->linesize[1]);

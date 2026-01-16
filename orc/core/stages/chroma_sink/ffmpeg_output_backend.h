@@ -91,6 +91,7 @@ private:
     VideoSystem video_system_ = VideoSystem::PAL;
     double black_ire_ = 0.0;
     double white_ire_ = 0.0;
+    orc::VideoParameters video_params_;
     
     // Crop parameters
     int crop_top_ = 0;

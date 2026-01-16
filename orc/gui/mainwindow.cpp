@@ -691,6 +691,11 @@ void MainWindow::openProject(const QString& filename)
     preview_dialog_->previewSlider()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
+    // Clear DAG model/scene to prevent ghost nodes
+    if (dag_model_) {
+        dag_model_->refresh();
+    }
+    
     QString error;
     if (!project_.loadFromFile(filename, &error)) {
         ORC_LOG_ERROR("Failed to load project: {}", error.toStdString());
@@ -717,6 +722,9 @@ void MainWindow::openProject(const QString& filename)
     
     // Load DAG into embedded viewer
     loadProjectDAG();
+    
+    // Automatically select the source stage with the lowest node ID
+    selectLowestSourceStage();
     
     statusBar()->showMessage(QString("Opened project: %1").arg(project_.projectName()));
 }
@@ -815,6 +823,11 @@ void MainWindow::quickProject(const QString& filename)
     preview_dialog_->previewSlider()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
+    // Clear DAG model/scene to prevent ghost nodes
+    if (dag_model_) {
+        dag_model_->refresh();
+    }
+    
     // Determine stage names based on format and source type
     std::string source_stage_name;
     if (video_format == orc::VideoSystem::NTSC) {
@@ -837,7 +850,10 @@ void MainWindow::quickProject(const QString& filename)
     ORC_LOG_INFO("Adding source stage: {}", source_stage_name);
     orc::NodeID source_node_id;
     try {
-        source_node_id = orc::project_io::add_node(project_.coreProject(), source_stage_name, 0, 0);
+        // Use same spacing as DAG alignment function
+        const double grid_offset_x = 50.0;
+        const double grid_offset_y = 50.0;
+        source_node_id = orc::project_io::add_node(project_.coreProject(), source_stage_name, grid_offset_x, grid_offset_y);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
             QString("Failed to add source stage: %1").arg(e.what()));
@@ -848,7 +864,11 @@ void MainWindow::quickProject(const QString& filename)
     ORC_LOG_INFO("Adding FFmpeg video sink stage");
     orc::NodeID sink_node_id;
     try {
-        sink_node_id = orc::project_io::add_node(project_.coreProject(), "ffmpeg_video_sink", 400, 0);
+        // Use same spacing as DAG alignment function
+        const double grid_spacing_x = 225.0;
+        const double grid_offset_x = 50.0;
+        const double grid_offset_y = 50.0;
+        sink_node_id = orc::project_io::add_node(project_.coreProject(), "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
             QString("Failed to add sink stage: %1").arg(e.what()));
@@ -931,6 +951,9 @@ void MainWindow::quickProject(const QString& filename)
     updateUIState();
     updatePreviewRenderer();
     loadProjectDAG();
+    
+    // Automatically select the source stage with the lowest node ID
+    selectLowestSourceStage();
     
     statusBar()->showMessage("Quick project created successfully", 5000);
 }
@@ -2032,6 +2055,30 @@ void MainWindow::onPreviewDialogExportPNG()
 }
 
 // Settings helpers
+
+void MainWindow::selectLowestSourceStage()
+{
+    // Find source stage with the lowest node ID
+    const auto& nodes = project_.coreProject().get_nodes();
+    orc::NodeID lowest_source_id;
+    bool found = false;
+    
+    for (const auto& node : nodes) {
+        if (node.node_type == orc::NodeType::SOURCE) {
+            if (!found || node.node_id < lowest_source_id) {
+                lowest_source_id = node.node_id;
+                found = true;
+            }
+        }
+    }
+    
+    if (found) {
+        ORC_LOG_DEBUG("Auto-selecting source stage: {}", lowest_source_id.to_string());
+        onNodeSelectedForView(lowest_source_id);
+    } else {
+        ORC_LOG_DEBUG("No source stages found to auto-select");
+    }
+}
 
 QString MainWindow::getLastProjectDirectory() const
 {

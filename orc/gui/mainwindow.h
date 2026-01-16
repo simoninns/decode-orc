@@ -164,6 +164,7 @@ private:
     void updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image);
     void loadProjectDAG();  // Load DAG into embedded viewer
     void positionViewToTopLeft();  // Position view to show top-left node
+    void selectLowestSourceStage();  // Auto-select source stage with lowest node ID
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
     void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);

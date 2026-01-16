@@ -205,6 +205,14 @@ int main(int argc, char *argv[])
     );
     parser.addOption(logFileOption);
     
+    // Add quick project option
+    QCommandLineOption quickProjectOption(
+        "quick",
+        "Create a quick project from a TBC/TBCC/TBCY file",
+        "filename"
+    );
+    parser.addOption(quickProjectOption);
+    
     // Add project file argument
     parser.addPositionalArgument("project", "Project file to open (optional)");
     
@@ -292,11 +300,18 @@ int main(int argc, char *argv[])
     window.show();
     ORC_LOG_DEBUG("Main window shown");
     
-    // Open project if provided (after window is shown so viewport has correct dimensions)
-    const QStringList args = parser.positionalArguments();
-    if (!args.isEmpty()) {
-        ORC_LOG_INFO("Opening project from command line: {}", args.first().toStdString());
-        window.openProject(args.first());
+    // Handle quick project if specified
+    if (parser.isSet(quickProjectOption)) {
+        QString quickFile = parser.value(quickProjectOption);
+        ORC_LOG_INFO("Loading quick project from command line: {}", quickFile.toStdString());
+        window.quickProject(quickFile);
+    } else {
+        // Open project if provided (after window is shown so viewport has correct dimensions)
+        const QStringList args = parser.positionalArguments();
+        if (!args.isEmpty()) {
+            ORC_LOG_INFO("Opening project from command line: {}", args.first().toStdString());
+            window.openProject(args.first());
+        }
     }
     
     // Create and show splash screen after main window to ensure proper z-order

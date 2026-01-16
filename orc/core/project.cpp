@@ -410,6 +410,8 @@ Project create_empty_project(const std::string& project_name, VideoSystem video_
     project.video_format_ = video_format;
     project.source_format_ = source_format;
     // Empty sources, nodes_, and edges
+    // Mark as modified since it's a newly created project
+    project.is_modified_ = true;
     return project;
 }
 

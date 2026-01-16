@@ -87,6 +87,7 @@ public:
     // Project operations
     void newProject(orc::VideoSystem video_format = orc::VideoSystem::Unknown, orc::SourceType source_format = orc::SourceType::Unknown);
     void openProject(const QString& filename);
+    void quickProject(const QString& filename);  ///< Create a quick project from a TBC/TBCC/TBCY file
     void saveProject();
     void saveProjectAs();
 
@@ -172,6 +173,8 @@ private:
     // Settings helpers
     QString getLastProjectDirectory() const;
     void setLastProjectDirectory(const QString& path);
+    QString getLastSourceDirectory() const;
+    void setLastSourceDirectory(const QString& path);
     QString getLastExportDirectory() const;
     void setLastExportDirectory(const QString& path);
     void saveSettings();

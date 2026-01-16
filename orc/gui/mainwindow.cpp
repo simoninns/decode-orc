@@ -503,16 +503,11 @@ void MainWindow::onEditProject()
 
 void MainWindow::onQuickProject()
 {
-    // Check for unsaved changes before showing file dialog
-    if (!checkUnsavedChanges()) {
-        return;
-    }
-    
     // Open file dialog to select TBC/TBCC/TBCY file
     QString filename = QFileDialog::getOpenFileName(
         this,
         "Quick Project - Select Video File",
-        getLastProjectDirectory(),
+        getLastSourceDirectory(),
         "Video Files (*.tbc *.tbcc *.tbcy);;TBC Files (*.tbc);;TBCC Files (*.tbcc);;TBCY Files (*.tbcy);;All Files (*)"
     );
     
@@ -521,248 +516,8 @@ void MainWindow::onQuickProject()
         return;
     }
     
-    // Remember this directory
-    setLastProjectDirectory(QFileInfo(filename).absolutePath());
-    
-    QFileInfo file_info(filename);
-    QString base_path = file_info.absolutePath() + "/" + file_info.completeBaseName();
-    QString ext = file_info.suffix().toLower();
-    
-    // Determine source type from file extension
-    orc::SourceType source_type = orc::SourceType::Unknown;
-    std::string primary_file = filename.toStdString();
-    std::string secondary_file;
-    
-    if (ext == "tbc") {
-        source_type = orc::SourceType::Composite;
-        primary_file = filename.toStdString();
-    } else if (ext == "tbcc") {
-        source_type = orc::SourceType::YC;
-        primary_file = filename.toStdString();
-        // Look for corresponding .tbcy file
-        QString tbcy_path = base_path + ".tbcy";
-        if (!QFileInfo::exists(tbcy_path)) {
-            QMessageBox::warning(this, "Missing File", 
-                QString("Could not find corresponding Y (luma) file: %1").arg(tbcy_path));
-            return;
-        }
-        secondary_file = tbcy_path.toStdString();
-    } else if (ext == "tbcy") {
-        source_type = orc::SourceType::YC;
-        primary_file = filename.toStdString();
-        // Look for corresponding .tbcc file
-        QString tbcc_path = base_path + ".tbcc";
-        if (!QFileInfo::exists(tbcc_path)) {
-            QMessageBox::warning(this, "Missing File", 
-                QString("Could not find corresponding C (chroma) file: %1").arg(tbcc_path));
-            return;
-        }
-        secondary_file = tbcc_path.toStdString();
-    } else {
-        QMessageBox::warning(this, "Invalid File", 
-            "Please select a .tbc, .tbcc, or .tbcy file");
-        return;
-    }
-    
-    // Determine metadata file
-    QString db_path = base_path + ".tbc.db";
-    if (!QFileInfo::exists(db_path)) {
-        QMessageBox::warning(this, "Missing Metadata File", 
-            QString("Could not find metadata file: %1").arg(db_path));
-        return;
-    }
-    
-    // Read metadata to determine video format (NTSC or PAL)
-    ORC_LOG_INFO("Reading metadata from: {}", db_path.toStdString());
-    
-    auto metadata_reader = std::make_shared<orc::TBCMetadataReader>();
-    if (!metadata_reader->open(db_path.toStdString())) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to open metadata file: %1").arg(db_path));
-        return;
-    }
-    
-    auto video_params_opt = metadata_reader->read_video_parameters();
-    if (!video_params_opt) {
-        QMessageBox::critical(this, "Error", 
-            "Failed to read video parameters from metadata file");
-        return;
-    }
-    
-    orc::VideoSystem video_format = video_params_opt->system;
-    
-    ORC_LOG_INFO("Detected format: {}, Source type: {}", 
-                 (video_format == orc::VideoSystem::NTSC ? "NTSC" : "PAL"),
-                 (source_type == orc::SourceType::Composite ? "Composite" : "YC"));
-    
-    // Check for unsaved changes before creating new project
-    if (!checkUnsavedChanges()) {
-        return;
-    }
-    
-    // Close all dialogs before clearing project
-    closeAllDialogs();
-    
-    // Clear existing project state
-    project_.clear();
-    preview_dialog_->previewWidget()->clearImage();
-    preview_dialog_->previewSlider()->setEnabled(false);
-    preview_dialog_->previewSlider()->setValue(0);
-    
-    // Determine stage names based on format and source type
-    std::string source_stage_name;
-    if (video_format == orc::VideoSystem::NTSC) {
-        source_stage_name = (source_type == orc::SourceType::Composite) ? "NTSC_Comp_Source" : "NTSC_YC_Source";
-    } else {
-        source_stage_name = (source_type == orc::SourceType::Composite) ? "PAL_Comp_Source" : "PAL_YC_Source";
-    }
-    
-    // Create empty project
-    QString project_name = file_info.completeBaseName();
-    QString error;
-    
-    if (!project_.newEmptyProject(project_name, video_format, source_type, &error)) {
-        ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
-        QMessageBox::critical(this, "Error", error);
-        return;
-    }
-    
-    // Add source stage
-    ORC_LOG_INFO("Adding source stage: {}", source_stage_name);
-    orc::NodeID source_node_id;
-    try {
-        source_node_id = orc::project_io::add_node(project_.coreProject(), source_stage_name, 0, 0);
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to add source stage: %1").arg(e.what()));
-        return;
-    }
-    
-    // Add FFmpeg video sink stage
-    ORC_LOG_INFO("Adding FFmpeg video sink stage");
-    orc::NodeID sink_node_id;
-    try {
-        sink_node_id = orc::project_io::add_node(project_.coreProject(), "ffmpeg_video_sink", 400, 0);
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to add sink stage: %1").arg(e.what()));
-        return;
-    }
-    
-    // Set parameters on source stage based on source type
-    std::map<std::string, orc::ParameterValue> source_params;
-    
-    if (source_type == orc::SourceType::Composite) {
-        // Composite source
-        source_params["input_path"] = primary_file;
-        source_params["db_path"] = db_path.toStdString();
-        
-        // Check for optional pcm and efm files
-        QString pcm_path = base_path + ".pcm";
-        if (QFileInfo::exists(pcm_path)) {
-            source_params["pcm_path"] = pcm_path.toStdString();
-        }
-        
-        QString efm_path = base_path + ".efm";
-        if (QFileInfo::exists(efm_path)) {
-            source_params["efm_path"] = efm_path.toStdString();
-        }
-    } else {
-        // YC source
-        if (ext == "tbcy") {
-            source_params["y_path"] = primary_file;
-            source_params["c_path"] = secondary_file;
-        } else {
-            source_params["y_path"] = secondary_file;
-            source_params["c_path"] = primary_file;
-        }
-        source_params["db_path"] = db_path.toStdString();
-        
-        // Check for optional pcm and efm files
-        QString pcm_path = base_path + ".pcm";
-        if (QFileInfo::exists(pcm_path)) {
-            source_params["pcm_path"] = pcm_path.toStdString();
-        }
-        
-        QString efm_path = base_path + ".efm";
-        if (QFileInfo::exists(efm_path)) {
-            source_params["efm_path"] = efm_path.toStdString();
-        }
-    }
-    
-    // Set parameters on the source stage using project_io
-    try {
-        orc::project_io::set_node_parameters(project_.coreProject(), source_node_id, source_params);
-        ORC_LOG_INFO("Source stage parameters set successfully");
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to set parameters on source stage: %1").arg(e.what()));
-        return;
-    }
-    
-    // Connect source to sink
-    ORC_LOG_INFO("Connecting source stage to sink stage");
-    try {
-        orc::project_io::add_edge(project_.coreProject(), source_node_id, sink_node_id);
-    } catch (const std::exception& e) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to connect stages: %1").arg(e.what()));
-        return;
-    }
-    
-    // Save project
-    QDir dir(getLastProjectDirectory());
-    QString default_project_path = dir.filePath(project_name + ".orcprj");
-    
-    QString project_path = QFileDialog::getSaveFileName(
-        this,
-        "Save Quick Project",
-        default_project_path,
-        "ORC Project Files (*.orcprj);;All Files (*)"
-    );
-    
-    if (project_path.isEmpty()) {
-        ORC_LOG_DEBUG("Quick project save cancelled");
-        return;
-    }
-    
-    // Ensure .orcprj extension
-    if (!project_path.endsWith(".orcprj", Qt::CaseInsensitive)) {
-        project_path += ".orcprj";
-    }
-    
-    // Remember this directory
-    setLastProjectDirectory(QFileInfo(project_path).absolutePath());
-    
-    if (!project_.saveToFile(project_path, &error)) {
-        ORC_LOG_ERROR("Failed to save project: {}", error.toStdString());
-        QMessageBox::critical(this, "Error", error);
-        return;
-    }
-    
-    ORC_LOG_INFO("Quick project saved successfully");
-    
-    // Now reload the project from file to ensure everything is properly initialized
-    // This matches the pattern used in openProject()
-    project_.clear();
-    preview_dialog_->previewWidget()->clearImage();
-    preview_dialog_->previewSlider()->setEnabled(false);
-    preview_dialog_->previewSlider()->setValue(0);
-    
-    if (!project_.loadFromFile(project_path, &error)) {
-        ORC_LOG_ERROR("Failed to load project after save: {}", error.toStdString());
-        QMessageBox::critical(this, "Error", error);
-        return;
-    }
-    
-    ORC_LOG_INFO("Quick project loaded from file successfully");
-    
-    // Update UI - preview renderer and DAG display
-    updateUIState();
-    updatePreviewRenderer();
-    loadProjectDAG();
-    
-    statusBar()->showMessage("Quick project loaded successfully", 5000);
+    // Delegate to quickProject() to do the actual work
+    quickProject(filename);
 }
 
 
@@ -887,31 +642,7 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
         }
     }
     
-    // Construct a default filename for the new project dialog
-    QDir dir(getLastProjectDirectory());
-    QString defaultPath = dir.filePath("Untitled.orcprj");
-    
-    QString filename = QFileDialog::getSaveFileName(
-        this,
-        "New Project",
-        defaultPath,  // Full path with default filename
-        "ORC Project Files (*.orcprj);;All Files (*)"
-    );
-    
-    if (filename.isEmpty()) {
-        ORC_LOG_DEBUG("New project creation cancelled");
-        return;
-    }
-    
-    // Ensure .orcprj extension
-    if (!filename.endsWith(".orcprj", Qt::CaseInsensitive)) {
-        filename += ".orcprj";
-    }
-    
-    // Remember this directory
-    setLastProjectDirectory(QFileInfo(filename).absolutePath());
-    
-    ORC_LOG_INFO("Creating new project: {}", filename.toStdString());
+    ORC_LOG_INFO("Creating new project");
     
     // Close all dialogs before clearing project
     closeAllDialogs();
@@ -922,8 +653,8 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
     preview_dialog_->previewSlider()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
-    // Derive project name from filename
-    QString project_name = QFileInfo(filename).completeBaseName();
+    // Create project with default "Untitled" name
+    QString project_name = "Untitled";
     
     QString error;
     if (!project_.newEmptyProject(project_name, video_format, source_format, &error)) {
@@ -932,12 +663,8 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
         return;
     }
     
-    // Save immediately to the specified location
-    if (!project_.saveToFile(filename, &error)) {
-        ORC_LOG_ERROR("Failed to save project: {}", error.toStdString());
-        QMessageBox::critical(this, "Error", error);
-        return;
-    }
+    // Don't set a project path - leave it empty so user must use "Save As"
+    // Project is marked as modified by create_empty_project()
     
     ORC_LOG_INFO("Project created successfully: {}", project_name.toStdString());
     updateUIState();
@@ -992,6 +719,220 @@ void MainWindow::openProject(const QString& filename)
     loadProjectDAG();
     
     statusBar()->showMessage(QString("Opened project: %1").arg(project_.projectName()));
+}
+
+void MainWindow::quickProject(const QString& filename)
+{
+    // Check for unsaved changes before creating new project
+    if (!checkUnsavedChanges()) {
+        return;
+    }
+    
+    // Validate file exists
+    if (!QFileInfo::exists(filename)) {
+        QMessageBox::critical(this, "Error", 
+            QString("File not found: %1").arg(filename));
+        return;
+    }
+    
+    QFileInfo file_info(filename);
+    QString base_path = file_info.absolutePath() + "/" + file_info.completeBaseName();
+    QString ext = file_info.suffix().toLower();
+    
+    // Determine source type from file extension
+    orc::SourceType source_type = orc::SourceType::Unknown;
+    std::string primary_file = filename.toStdString();
+    std::string secondary_file;
+    
+    if (ext == "tbc") {
+        source_type = orc::SourceType::Composite;
+        primary_file = filename.toStdString();
+    } else if (ext == "tbcc") {
+        source_type = orc::SourceType::YC;
+        primary_file = filename.toStdString();
+        // Look for corresponding .tbcy file
+        QString tbcy_path = base_path + ".tbcy";
+        if (!QFileInfo::exists(tbcy_path)) {
+            QMessageBox::warning(this, "Missing File", 
+                QString("Could not find corresponding Y (luma) file: %1").arg(tbcy_path));
+            return;
+        }
+        secondary_file = tbcy_path.toStdString();
+    } else if (ext == "tbcy") {
+        source_type = orc::SourceType::YC;
+        primary_file = filename.toStdString();
+        // Look for corresponding .tbcc file
+        QString tbcc_path = base_path + ".tbcc";
+        if (!QFileInfo::exists(tbcc_path)) {
+            QMessageBox::warning(this, "Missing File", 
+                QString("Could not find corresponding C (chroma) file: %1").arg(tbcc_path));
+            return;
+        }
+        secondary_file = tbcc_path.toStdString();
+    } else {
+        QMessageBox::warning(this, "Invalid File", 
+            QString("Please provide a .tbc, .tbcc, or .tbcy file. Got: %1").arg(ext));
+        return;
+    }
+    
+    // Determine metadata file
+    QString db_path = base_path + ".tbc.db";
+    if (!QFileInfo::exists(db_path)) {
+        QMessageBox::warning(this, "Missing Metadata File", 
+            QString("Could not find metadata file: %1").arg(db_path));
+        return;
+    }
+    
+    // Read metadata to determine video format (NTSC or PAL)
+    ORC_LOG_INFO("Reading metadata from: {}", db_path.toStdString());
+    
+    auto metadata_reader = std::make_shared<orc::TBCMetadataReader>();
+    if (!metadata_reader->open(db_path.toStdString())) {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to open metadata file: %1").arg(db_path));
+        return;
+    }
+    
+    auto video_params_opt = metadata_reader->read_video_parameters();
+    if (!video_params_opt) {
+        QMessageBox::critical(this, "Error", 
+            "Failed to read video parameters from metadata file");
+        return;
+    }
+    
+    orc::VideoSystem video_format = video_params_opt->system;
+    
+    ORC_LOG_INFO("Detected format: {}, Source type: {}", 
+                 (video_format == orc::VideoSystem::NTSC ? "NTSC" : "PAL"),
+                 (source_type == orc::SourceType::Composite ? "Composite" : "YC"));
+    
+    // Close all dialogs before clearing project
+    closeAllDialogs();
+    
+    // Clear existing project state
+    project_.clear();
+    preview_dialog_->previewWidget()->clearImage();
+    preview_dialog_->previewSlider()->setEnabled(false);
+    preview_dialog_->previewSlider()->setValue(0);
+    
+    // Determine stage names based on format and source type
+    std::string source_stage_name;
+    if (video_format == orc::VideoSystem::NTSC) {
+        source_stage_name = (source_type == orc::SourceType::Composite) ? "NTSC_Comp_Source" : "NTSC_YC_Source";
+    } else {
+        source_stage_name = (source_type == orc::SourceType::Composite) ? "PAL_Comp_Source" : "PAL_YC_Source";
+    }
+    
+    // Create empty project
+    QString project_name = file_info.completeBaseName();
+    QString error;
+    
+    if (!project_.newEmptyProject(project_name, video_format, source_type, &error)) {
+        ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
+        QMessageBox::critical(this, "Error", error);
+        return;
+    }
+    
+    // Add source stage
+    ORC_LOG_INFO("Adding source stage: {}", source_stage_name);
+    orc::NodeID source_node_id;
+    try {
+        source_node_id = orc::project_io::add_node(project_.coreProject(), source_stage_name, 0, 0);
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to add source stage: %1").arg(e.what()));
+        return;
+    }
+    
+    // Add FFmpeg video sink stage
+    ORC_LOG_INFO("Adding FFmpeg video sink stage");
+    orc::NodeID sink_node_id;
+    try {
+        sink_node_id = orc::project_io::add_node(project_.coreProject(), "ffmpeg_video_sink", 400, 0);
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to add sink stage: %1").arg(e.what()));
+        return;
+    }
+    
+    // Set parameters on source stage based on source type
+    std::map<std::string, orc::ParameterValue> source_params;
+    
+    if (source_type == orc::SourceType::Composite) {
+        // Composite source
+        source_params["input_path"] = primary_file;
+        source_params["db_path"] = db_path.toStdString();
+        
+        // Check for optional pcm and efm files
+        QString pcm_path = base_path + ".pcm";
+        if (QFileInfo::exists(pcm_path)) {
+            source_params["pcm_path"] = pcm_path.toStdString();
+        }
+        
+        QString efm_path = base_path + ".efm";
+        if (QFileInfo::exists(efm_path)) {
+            source_params["efm_path"] = efm_path.toStdString();
+        }
+    } else {
+        // YC source
+        if (ext == "tbcy") {
+            source_params["y_path"] = primary_file;
+            source_params["c_path"] = secondary_file;
+        } else {
+            source_params["y_path"] = secondary_file;
+            source_params["c_path"] = primary_file;
+        }
+        source_params["db_path"] = db_path.toStdString();
+        
+        // Check for optional pcm and efm files
+        QString pcm_path = base_path + ".pcm";
+        if (QFileInfo::exists(pcm_path)) {
+            source_params["pcm_path"] = pcm_path.toStdString();
+        }
+        
+        QString efm_path = base_path + ".efm";
+        if (QFileInfo::exists(efm_path)) {
+            source_params["efm_path"] = efm_path.toStdString();
+        }
+    }
+    
+    // Set parameters on the source stage using project_io
+    try {
+        orc::project_io::set_node_parameters(project_.coreProject(), source_node_id, source_params);
+        ORC_LOG_INFO("Source stage parameters set successfully");
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to set parameters on source stage: %1").arg(e.what()));
+        return;
+    }
+    
+    // Connect source to sink
+    ORC_LOG_INFO("Connecting source stage to sink stage");
+    try {
+        orc::project_io::add_edge(project_.coreProject(), source_node_id, sink_node_id);
+    } catch (const std::exception& e) {
+        QMessageBox::critical(this, "Error", 
+            QString("Failed to connect stages: %1").arg(e.what()));
+        return;
+    }
+    
+    // Rebuild DAG from the newly created project structure
+    project_.rebuildDAG();
+    
+    // Don't set a project path - leave it empty so user must use "Save As"
+    // Project is marked as modified by create_empty_project() and subsequent operations
+    
+    ORC_LOG_INFO("Quick project created successfully from: {}", filename.toStdString());
+    
+    // Remember this source directory
+    setLastSourceDirectory(QFileInfo(filename).absolutePath());
+    
+    // Update UI - preview renderer and DAG display
+    updateUIState();
+    updatePreviewRenderer();
+    loadProjectDAG();
+    
+    statusBar()->showMessage("Quick project created successfully", 5000);
 }
 
 void MainWindow::saveProject()
@@ -1078,10 +1019,13 @@ void MainWindow::updateUIState()
 {
     bool has_project = !project_.projectName().isEmpty();
     bool has_preview = current_view_node_id_.is_valid();
+    bool has_saved_path = !project_.projectPath().isEmpty();
     
     // Enable/disable actions based on project state
     if (save_project_action_) {
-        save_project_action_->setEnabled(has_project && project_.isModified());
+        // Save is only enabled if project is modified AND has a saved path
+        // (i.e., the first Save As must be done before using Save)
+        save_project_action_->setEnabled(has_project && project_.isModified() && has_saved_path);
     }
     if (save_project_as_action_) {
         save_project_as_action_->setEnabled(has_project);
@@ -2103,6 +2047,22 @@ void MainWindow::setLastProjectDirectory(const QString& path)
 {
     QSettings settings("orc-project", "orc-gui");
     settings.setValue("lastProjectDirectory", path);
+}
+
+QString MainWindow::getLastSourceDirectory() const
+{
+    QSettings settings("orc-project", "orc-gui");
+    QString dir = settings.value("lastSourceDirectory", QString()).toString();
+    if (dir.isEmpty() || !QFileInfo(dir).isDir()) {
+        return QDir::homePath();
+    }
+    return dir;
+}
+
+void MainWindow::setLastSourceDirectory(const QString& path)
+{
+    QSettings settings("orc-project", "orc-gui");
+    settings.setValue("lastSourceDirectory", path);
 }
 
 QString MainWindow::getLastExportDirectory() const

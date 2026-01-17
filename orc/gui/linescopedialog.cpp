@@ -523,29 +523,41 @@ void LineScopeDialog::updatePlotData()
     if (current_video_params_.has_value()) {
         const auto& vp = current_video_params_.value();
         
+        // Convert sample positions to microseconds for X-axis
+        double us_per_sample = 1.0;
+        if (vp.sample_rate > 0) {
+            us_per_sample = 1000000.0 / vp.sample_rate;
+        }
+        
         // Color burst region (cyan)
         if (vp.colour_burst_start >= 0 && vp.colour_burst_end >= 0) {
+            double cb_start_us = static_cast<double>(vp.colour_burst_start) * us_per_sample;
+            double cb_end_us = static_cast<double>(vp.colour_burst_end) * us_per_sample;
+            
             auto* cb_start = plot_widget_->addMarker();
             cb_start->setStyle(PlotMarker::VLine);
-            cb_start->setPosition(QPointF(static_cast<double>(vp.colour_burst_start), 0));
+            cb_start->setPosition(QPointF(cb_start_us, 0));
             cb_start->setPen(QPen(Qt::cyan, 1, Qt::DashLine));
             
             auto* cb_end = plot_widget_->addMarker();
             cb_end->setStyle(PlotMarker::VLine);
-            cb_end->setPosition(QPointF(static_cast<double>(vp.colour_burst_end), 0));
+            cb_end->setPosition(QPointF(cb_end_us, 0));
             cb_end->setPen(QPen(Qt::cyan, 1, Qt::DashLine));
         }
         
         // Active video region (yellow)
         if (vp.active_video_start >= 0 && vp.active_video_end >= 0) {
+            double av_start_us = static_cast<double>(vp.active_video_start) * us_per_sample;
+            double av_end_us = static_cast<double>(vp.active_video_end) * us_per_sample;
+            
             auto* av_start = plot_widget_->addMarker();
             av_start->setStyle(PlotMarker::VLine);
-            av_start->setPosition(QPointF(static_cast<double>(vp.active_video_start), 0));
+            av_start->setPosition(QPointF(av_start_us, 0));
             av_start->setPen(QPen(Qt::yellow, 1, Qt::DashLine));
             
             auto* av_end = plot_widget_->addMarker();
             av_end->setStyle(PlotMarker::VLine);
-            av_end->setPosition(QPointF(static_cast<double>(vp.active_video_end), 0));
+            av_end->setPosition(QPointF(av_end_us, 0));
             av_end->setPen(QPen(Qt::yellow, 1, Qt::DashLine));
         }
         
@@ -660,7 +672,7 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         QString info_text = QString("Time: %1 µs (Sample: %2)").arg(time_us, 0, 'f', 3).arg(sample_x);
         
         // Add channel info for YC sources in "Both" mode
-        if (is_yc_source_ && channel_selector_->currentIndex() == 3) {
+        if (is_yc_source_ && channel_selector_->currentIndex() == 2) {
             // Show both Y and C values
             if (sample_x < static_cast<int>(current_y_samples_.size()) && 
                 sample_x < static_cast<int>(current_c_samples_.size())) {
@@ -762,10 +774,10 @@ void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
 
 void LineScopeDialog::onLineUp()
 {
-    // Safety check: don't navigate if no samples available
-    if (current_samples_.empty()) {
-        return;
-    }
+    // Safety check: allow navigation if composite OR YC samples are available
+    bool has_any_samples = !current_samples_.empty() ||
+                           (!current_y_samples_.empty() || !current_c_samples_.empty());
+    if (!has_any_samples) return;
     
     // Request previous line (direction = -1)
     // Use the original preview-space coordinate to avoid rounding errors
@@ -774,10 +786,10 @@ void LineScopeDialog::onLineUp()
 
 void LineScopeDialog::onLineDown()
 {
-    // Safety check: don't navigate if no samples available
-    if (current_samples_.empty()) {
-        return;
-    }
+    // Safety check: allow navigation if composite OR YC samples are available
+    bool has_any_samples = !current_samples_.empty() ||
+                           (!current_y_samples_.empty() || !current_c_samples_.empty());
+    if (!has_any_samples) return;
     
     // Request next line (direction = +1)
     // Use the original preview-space coordinate to avoid rounding errors

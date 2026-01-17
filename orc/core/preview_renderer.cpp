@@ -1423,7 +1423,7 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
     }
     
     if (output_type == PreviewOutputType::Frame || output_type == PreviewOutputType::Frame_Reversed) {
-        // Frame mode: use the SAME logic as render_frame() to determine field order
+        // Frame mode: determine field order and top/bottom placement using parity hints
         uint64_t first_field_offset = 0;
         auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
         if (probe_result.is_valid && probe_result.representation) {
@@ -1432,21 +1432,29 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
                 first_field_offset = 1;
             }
         }
-        
         bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
-        
-        // Calculate which fields make up this frame
+
+        // Calculate fields composing this frame
         uint64_t frame_first_field = first_field_offset + (output_index * 2);
         uint64_t frame_second_field = frame_first_field + 1;
-        
-        // Determine which field based on even/odd line (accounting for reversed mode)
-        if (image_y % 2 == 0) {
-            // Even line - first field (or second if reversed)
-            result.field_index = is_reversed ? frame_second_field : frame_first_field;
-        } else {
-            // Odd line - second field (or first if reversed)
-            result.field_index = is_reversed ? frame_first_field : frame_second_field;
+
+        // Determine whether the first field is on even (top) or odd (bottom) image lines
+        bool first_is_top = true; // default assumption
+        {
+            auto first_result = field_renderer_->render_field_at_node(node_id, FieldID(frame_first_field));
+            if (first_result.is_valid && first_result.representation) {
+                auto first_parity = first_result.representation->get_field_parity_hint(FieldID(frame_first_field));
+                if (first_parity.has_value()) {
+                    first_is_top = first_parity->is_first_field;
+                }
+            }
         }
+        // Account for reversed weaving
+        if (is_reversed) first_is_top = !first_is_top;
+
+        bool is_even_line = (image_y % 2) == 0;
+        bool use_first = (is_even_line == first_is_top);
+        result.field_index = use_first ? frame_first_field : frame_second_field;
         result.field_line = image_y / 2;
         result.is_valid = true;
         return result;
@@ -1493,7 +1501,7 @@ FieldToImageMappingResult PreviewRenderer::map_field_to_image(
     }
     
     if (output_type == PreviewOutputType::Frame || output_type == PreviewOutputType::Frame_Reversed) {
-        // Frame mode: use the SAME logic as render_frame() to determine field order
+        // Frame mode: determine field order and placement using parity hints
         uint64_t first_field_offset = 0;
         auto probe_result = field_renderer_->render_field_at_node(node_id, FieldID(0));
         if (probe_result.is_valid && probe_result.representation) {
@@ -1502,20 +1510,29 @@ FieldToImageMappingResult PreviewRenderer::map_field_to_image(
                 first_field_offset = 1;
             }
         }
-        
         bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
-        
-        // Calculate which fields make up this frame
+
+        // Calculate fields composing this frame
         uint64_t frame_first_field = first_field_offset + (output_index * 2);
         uint64_t frame_second_field = frame_first_field + 1;
-        
-        // Determine if this is the first or second field
+
+        // Determine whether the first field is on even (top) or odd (bottom) lines
+        bool first_is_top = true; // default assumption
+        {
+            auto first_result = field_renderer_->render_field_at_node(node_id, FieldID(frame_first_field));
+            if (first_result.is_valid && first_result.representation) {
+                auto first_parity = first_result.representation->get_field_parity_hint(FieldID(frame_first_field));
+                if (first_parity.has_value()) {
+                    first_is_top = first_parity->is_first_field;
+                }
+            }
+        }
+        if (is_reversed) first_is_top = !first_is_top;
+
         if (field_index == frame_first_field) {
-            // First field - even lines (or odd if reversed)
-            result.image_y = is_reversed ? (field_line * 2 + 1) : (field_line * 2);
+            result.image_y = first_is_top ? (field_line * 2) : (field_line * 2 + 1);
         } else if (field_index == frame_second_field) {
-            // Second field - odd lines (or even if reversed)
-            result.image_y = is_reversed ? (field_line * 2) : (field_line * 2 + 1);
+            result.image_y = first_is_top ? (field_line * 2 + 1) : (field_line * 2);
         } else {
             // Field doesn't belong to this frame
             return result;

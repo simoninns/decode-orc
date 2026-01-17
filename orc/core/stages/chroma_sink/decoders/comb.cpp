@@ -681,6 +681,7 @@ namespace {
 void Comb::FrameBuffer::demodulateChromaLocked(const double *chromaLine, int32_t lineNumber,
                                               const Comb::BurstInfo &burstInfo, double *I, double *Q, int32_t xOffset)
 {
+    const int32_t outputWidth = videoParameters.field_width;
     for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
         const double cval = chromaLine[h];
         
@@ -694,9 +695,10 @@ void Comb::FrameBuffer::demodulateChromaLocked(const double *chromaLine, int32_t
         // Invert Q and rotate to get the correct I/Q vector
         // TODO: Needed to shift the chroma 1 sample to the right to get it to line up
         // may not get the first pixel in each line correct because of this
-        if (h + 1 < videoParameters.active_video_end) {
-            I[h + 1 - xOffset] = ti * ROTATE_COS - tq * -ROTATE_SIN;
-            Q[h + 1 - xOffset] = -(ti * -ROTATE_SIN + tq * ROTATE_COS);
+        const int32_t outIndex = h + 1 - xOffset;
+        if (h + 1 < videoParameters.active_video_end && outIndex >= 0 && outIndex < outputWidth) {
+            I[outIndex] = ti * ROTATE_COS - tq * -ROTATE_SIN;
+            Q[outIndex] = -(ti * -ROTATE_SIN + tq * ROTATE_COS);
         }
     }
 }
@@ -748,7 +750,7 @@ void Comb::FrameBuffer::splitIQlocked()
         double *Q = componentFrame->v(lineNumber - lineOffset);
 
         // Build chroma line buffer from comb-filtered chroma
-        std::vector<double> chromaLine(videoParameters.field_width);
+        std::vector<double> chromaLine(videoParameters.field_width, 0.0);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
             // Bounds check for both dimensions
             if (h < videoParameters.field_width) {
@@ -887,9 +889,12 @@ void Comb::FrameBuffer::splitIQlocked_YC()
         }
         
         // Build chroma line buffer from YC chroma data (convert to double)
-        std::vector<double> chromaLine(videoParameters.field_width);
+        // Size to field_width to ensure we can access all indices needed
+        std::vector<double> chromaLine(videoParameters.field_width, 0.0);
         for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-            chromaLine[h] = static_cast<double>(cLine[h]);
+            if (h < static_cast<int32_t>(chromaLine.size()) && h < videoParameters.field_width) {
+                chromaLine[h] = static_cast<double>(cLine[h]);
+            }
         }
         
         // Demodulate chroma to I/Q using shared helper

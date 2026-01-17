@@ -186,28 +186,55 @@ void TBCMetadataReader::close() {
 
 std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
     if (!is_open_) {
+        ORC_LOG_DEBUG("read_video_parameters: Metadata database is not open");
         return std::nullopt;
     }
     
     VideoParameters params;
     
-    const char* sql = 
+    // Try to read with all columns including blanking_16b_ire
+    const char* sql_with_blanking = 
         "SELECT system, video_sample_rate, active_video_start, active_video_end, "
         "field_width, field_height, number_of_sequential_fields, "
         "colour_burst_start, colour_burst_end, is_mapped, is_subcarrier_locked, "
         "is_widescreen, blanking_16b_ire, black_16b_ire, white_16b_ire, decoder, git_branch, git_commit "
         "FROM capture WHERE capture_id = ?";
     
+    // Fallback for older metadata that lacks blanking_16b_ire
+    const char* sql_without_blanking = 
+        "SELECT system, video_sample_rate, active_video_start, active_video_end, "
+        "field_width, field_height, number_of_sequential_fields, "
+        "colour_burst_start, colour_burst_end, is_mapped, is_subcarrier_locked, "
+        "is_widescreen, black_16b_ire, white_16b_ire, decoder, git_branch, git_commit "
+        "FROM capture WHERE capture_id = ?";
+    
     sqlite3_stmt* stmt = nullptr;
-    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    int rc = sqlite3_prepare_v2(impl_->db, sql_with_blanking, -1, &stmt, nullptr);
+    bool has_blanking_column = true;
     
     if (rc != SQLITE_OK) {
-        return std::nullopt;
+        // Check if this is due to missing blanking_16b_ire column
+        const char* err_msg = sqlite3_errmsg(impl_->db);
+        if (std::string(err_msg).find("blanking_16b_ire") != std::string::npos) {
+            ORC_LOG_WARN("read_video_parameters: blanking_16b_ire column not found in database, using fallback query");
+            has_blanking_column = false;
+            
+            // Try fallback query without blanking_16b_ire
+            rc = sqlite3_prepare_v2(impl_->db, sql_without_blanking, -1, &stmt, nullptr);
+            if (rc != SQLITE_OK) {
+                ORC_LOG_ERROR("read_video_parameters: Failed to prepare fallback SQL statement: {}", sqlite3_errmsg(impl_->db));
+                return std::nullopt;
+            }
+        } else {
+            ORC_LOG_ERROR("read_video_parameters: Failed to prepare SQL statement: {}", err_msg);
+            return std::nullopt;
+        }
     }
     
     sqlite3_bind_int(stmt, 1, impl_->capture_id);
     
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    int step_rc = sqlite3_step(stmt);
+    if (step_rc == SQLITE_ROW) {
         params.system = video_system_from_string(impl_->get_string(stmt, 0));
         params.sample_rate = impl_->get_double(stmt, 1);
         // active_video_start/end in database are HORIZONTAL sample positions (x-axis)
@@ -221,12 +248,26 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         params.is_mapped = impl_->get_bool(stmt, 9);
         params.is_subcarrier_locked = impl_->get_bool(stmt, 10);
         params.is_widescreen = impl_->get_bool(stmt, 11);
-        params.blanking_16b_ire = impl_->get_int(stmt, 12);
-        params.black_16b_ire = impl_->get_int(stmt, 13);
-        params.white_16b_ire = impl_->get_int(stmt, 14);
-        params.decoder = impl_->get_string(stmt, 15);
-        params.git_branch = impl_->get_string(stmt, 16);
-        params.git_commit = impl_->get_string(stmt, 17);
+        
+        int col_offset = 12;
+        if (has_blanking_column) {
+            params.blanking_16b_ire = impl_->get_int(stmt, col_offset);
+            col_offset++;
+            params.black_16b_ire = impl_->get_int(stmt, col_offset);
+            params.white_16b_ire = impl_->get_int(stmt, col_offset + 1);
+            params.decoder = impl_->get_string(stmt, col_offset + 2);
+            params.git_branch = impl_->get_string(stmt, col_offset + 3);
+            params.git_commit = impl_->get_string(stmt, col_offset + 4);
+        } else {
+            // Fallback: blanking_16b_ire not in database, set it to black_16b_ire value
+            params.black_16b_ire = impl_->get_int(stmt, col_offset);
+            params.blanking_16b_ire = params.black_16b_ire;
+            params.white_16b_ire = impl_->get_int(stmt, col_offset + 1);
+            params.decoder = impl_->get_string(stmt, col_offset + 2);
+            params.git_branch = impl_->get_string(stmt, col_offset + 3);
+            params.git_commit = impl_->get_string(stmt, col_offset + 4);
+            ORC_LOG_WARN("read_video_parameters: blanking_16b_ire not in database, defaulting to black_16b_ire value ({})", params.black_16b_ire);
+        }
         
         // FSC is not stored in database - leave unset (-1.0)
         // Will be populated by source stage based on video system
@@ -255,7 +296,12 @@ std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
         }
         
         sqlite3_finalize(stmt);
+        ORC_LOG_DEBUG("read_video_parameters: Successfully read video parameters from capture_id {}", impl_->capture_id);
         return params;
+    } else if (step_rc == SQLITE_DONE) {
+        ORC_LOG_ERROR("read_video_parameters: No capture record found for capture_id {}", impl_->capture_id);
+    } else {
+        ORC_LOG_ERROR("read_video_parameters: SQL execution error: {}", sqlite3_errmsg(impl_->db));
     }
     
     sqlite3_finalize(stmt);
@@ -529,6 +575,7 @@ bool TBCMetadataReader::validate_metadata(std::string* error_message) const {
         if (error_message) {
             *error_message = "Metadata database is not open";
         }
+        ORC_LOG_ERROR("validate_metadata: {}", error_message ? *error_message : "Unknown error");
         return false;
     }
     
@@ -538,6 +585,7 @@ bool TBCMetadataReader::validate_metadata(std::string* error_message) const {
         if (error_message) {
             *error_message = "Failed to read video parameters from metadata";
         }
+        ORC_LOG_ERROR("validate_metadata: {} - check debug logs for details", error_message ? *error_message : "Unknown error");
         return false;
     }
     
@@ -549,6 +597,7 @@ bool TBCMetadataReader::validate_metadata(std::string* error_message) const {
             *error_message = "Metadata does not specify valid number_of_sequential_fields (" + 
                            std::to_string(params.number_of_sequential_fields) + ")";
         }
+        ORC_LOG_ERROR("validate_metadata: {}", *error_message);
         return false;
     }
     
@@ -558,6 +607,7 @@ bool TBCMetadataReader::validate_metadata(std::string* error_message) const {
         if (error_message) {
             *error_message = "Failed to count field records in database";
         }
+        ORC_LOG_ERROR("validate_metadata: {}", *error_message);
         return false;
     }
     

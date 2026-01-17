@@ -92,7 +92,9 @@ private:
     // UI components - Video Parameters
     QLabel* active_video_range_label_;
     QLabel* colour_burst_range_label_;
-    QLabel* ire_levels_label_;
+    QLabel* white_level_label_;
+    QLabel* blanking_level_label_;
+    QLabel* black_level_label_;
     QLabel* sample_rate_label_;
 };
 

@@ -224,7 +224,9 @@ public:
     void updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool isDarkTheme = false,
                     double xMin = 0, double xMax = 100, double yMin = 0, double yMax = 100,
                     bool xUseCustomTicks = false, double xTickStep = 0, double xTickOrigin = 0,
-                    bool yUseCustomTicks = false, double yTickStep = 0, double yTickOrigin = 0);
+                    bool yUseCustomTicks = false, double yTickStep = 0, double yTickOrigin = 0,
+                    bool secondaryYEnabled = false, double secondaryYMin = 0, double secondaryYMax = 100,
+                    bool secondaryYUseCustomTicks = false, double secondaryYTickStep = 0, double secondaryYTickOrigin = 0);
 
 private:
     QPen m_pen;
@@ -235,6 +237,10 @@ private:
     double m_xMin, m_xMax, m_yMin, m_yMax;
     bool m_xUseCustomTicks, m_yUseCustomTicks;
     double m_xTickStep, m_xTickOrigin, m_yTickStep, m_yTickOrigin;
+    bool m_secondaryYEnabled;
+    double m_secondaryYMin, m_secondaryYMax;
+    bool m_secondaryYUseCustomTicks;
+    double m_secondaryYTickStep, m_secondaryYTickOrigin;
     PlotWidget *m_plotWidget;
 };
 

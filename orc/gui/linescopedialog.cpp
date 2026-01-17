@@ -157,13 +157,23 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     }
     // Otherwise keep the user's current selection
     
-    // Update window title to show stage (node_id), field, and line
-    QString title_suffix = is_yc_source_ ? " (YC Source)" : "";
-    setWindowTitle(QString("Line Scope - Stage: %1 - Field %2, Line %3%4")
+    // Update window title to show video system (NTSC/PAL), stage (node_id), field, and line
+    QString system_suffix;
+    if (video_params.has_value()) {
+        const auto& vp = video_params.value();
+        if (vp.system == orc::VideoSystem::NTSC) {
+            system_suffix = " (NTSC)";
+        } else if (vp.system == orc::VideoSystem::PAL || vp.system == orc::VideoSystem::PAL_M) {
+            system_suffix = " (PAL)";  // Treat PAL-M as PAL for title
+        }
+    }
+    QString yc_suffix = is_yc_source_ ? " (YC Source)" : "";
+    setWindowTitle(QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
+                   .arg(system_suffix)
                    .arg(node_id)
                    .arg(field_index)
                    .arg(line_number)
-                   .arg(title_suffix));
+                   .arg(yc_suffix));
     
     // Handle empty samples gracefully
     if (samples.empty() && !is_yc_source_) {

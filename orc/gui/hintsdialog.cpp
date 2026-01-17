@@ -102,13 +102,21 @@ void HintsDialog::setupUI()
     colour_burst_range_label_ = new QLabel("-");
     videoParamsLayout->addWidget(colour_burst_range_label_, 1, 1);
     
-    videoParamsLayout->addWidget(new QLabel("IRE Levels:"), 2, 0);
-    ire_levels_label_ = new QLabel("-");
-    videoParamsLayout->addWidget(ire_levels_label_, 2, 1);
+    videoParamsLayout->addWidget(new QLabel("Blanking Level (16-bit):"), 2, 0);
+    blanking_level_label_ = new QLabel("-");
+    videoParamsLayout->addWidget(blanking_level_label_, 2, 1);
+
+    videoParamsLayout->addWidget(new QLabel("Black Level (16-bit):"), 3, 0);
+    black_level_label_ = new QLabel("-");
+    videoParamsLayout->addWidget(black_level_label_, 3, 1);
+
+    videoParamsLayout->addWidget(new QLabel("White Level (16-bit):"), 4, 0);
+    white_level_label_ = new QLabel("-");
+    videoParamsLayout->addWidget(white_level_label_, 4, 1);
     
-    videoParamsLayout->addWidget(new QLabel("Sample Rate:"), 3, 0);
+    videoParamsLayout->addWidget(new QLabel("Sample Rate:"), 5, 0);
     sample_rate_label_ = new QLabel("-");
-    videoParamsLayout->addWidget(sample_rate_label_, 3, 1);
+    videoParamsLayout->addWidget(sample_rate_label_, 5, 1);
     
     mainLayout->addWidget(videoParamsGroup);
     
@@ -195,7 +203,9 @@ void HintsDialog::updateVideoParameters(const std::optional<orc::VideoParameters
     if (!params.has_value()) {
         active_video_range_label_->setText("-");
         colour_burst_range_label_->setText("-");
-        ire_levels_label_->setText("-");
+        white_level_label_->setText("-");
+        blanking_level_label_->setText("-");
+        black_level_label_->setText("-");
         sample_rate_label_->setText("-");
         return;
     }
@@ -216,12 +226,21 @@ void HintsDialog::updateVideoParameters(const std::optional<orc::VideoParameters
         colour_burst_range_label_->setText("-");
     }
     
-    // IRE levels
-    if (params->white_16b_ire >= 0 && params->black_16b_ire >= 0) {
-        ire_levels_label_->setText(
-            QString("White: %1, Black: %2 (16-bit)").arg(params->white_16b_ire).arg(params->black_16b_ire));
+    // IRE levels (16-bit A/D counts) shown as distinct labels
+    if (params->white_16b_ire >= 0) {
+        white_level_label_->setText(QString::number(params->white_16b_ire));
     } else {
-        ire_levels_label_->setText("-");
+        white_level_label_->setText("-");
+    }
+    if (params->blanking_16b_ire >= 0) {
+        blanking_level_label_->setText(QString::number(params->blanking_16b_ire));
+    } else {
+        blanking_level_label_->setText("-");
+    }
+    if (params->black_16b_ire >= 0) {
+        black_level_label_->setText(QString::number(params->black_16b_ire));
+    } else {
+        black_level_label_->setText("-");
     }
     
     // Sample rate
@@ -248,7 +267,9 @@ void HintsDialog::clearHints()
     
     active_video_range_label_->setText("-");
     colour_burst_range_label_->setText("-");
-    ire_levels_label_->setText("-");
+    white_level_label_->setText("-");
+    blanking_level_label_->setText("-");
+    black_level_label_->setText("-");
     sample_rate_label_->setText("-");
 }
 

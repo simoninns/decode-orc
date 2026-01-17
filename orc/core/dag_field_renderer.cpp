@@ -120,7 +120,7 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
     NodeID node_id,
     FieldID field_id)
 {
-    ORC_LOG_DEBUG("Node '{}': render_field_at_node, field {}", node_id.to_string(), field_id.value());
+    ORC_LOG_TRACE("Node '{}': render_field_at_node, field {}", node_id.to_string(), field_id.value());
     
     // Check node exists
     if (!has_node(node_id)) {
@@ -140,7 +140,7 @@ FieldRenderResult DAGFieldRenderer::render_field_at_node(
         auto cached_result = render_cache_.get(key);
         if (cached_result.has_value()) {
             // Return cached result
-            ORC_LOG_DEBUG("Node '{}': Returning cached result for field {}", node_id, field_id.value());
+            ORC_LOG_TRACE("Node '{}': Returning cached result for field {}", node_id, field_id.value());
             cached_result->from_cache = true;
             return *cached_result;
         }

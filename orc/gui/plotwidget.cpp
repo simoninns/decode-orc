@@ -386,7 +386,9 @@ void PlotWidget::replot()
         m_grid->updateGrid(m_plotRect, m_dataRect, m_isDarkTheme,
                           m_xMin, m_xMax, m_yMin, m_yMax,
                           m_xAxisUseCustomTicks, m_xAxisTickStep, m_xAxisTickOrigin,
-                          m_yAxisUseCustomTicks, m_yAxisTickStep, m_yAxisTickOrigin);
+                          m_yAxisUseCustomTicks, m_yAxisTickStep, m_yAxisTickOrigin,
+                          m_secondaryYAxisEnabled, m_secondaryYMin, m_secondaryYMax,
+                          m_secondaryYAxisUseCustomTicks, m_secondaryYAxisTickStep, m_secondaryYAxisTickOrigin);
     }
     
     // Update markers
@@ -678,6 +680,10 @@ PlotGrid::PlotGrid(PlotWidget *parent)
     , m_xMin(0), m_xMax(100), m_yMin(0), m_yMax(100)
     , m_xUseCustomTicks(false), m_yUseCustomTicks(false)
     , m_xTickStep(0), m_xTickOrigin(0), m_yTickStep(0), m_yTickOrigin(0)
+    , m_secondaryYEnabled(false)
+    , m_secondaryYMin(0), m_secondaryYMax(100)
+    , m_secondaryYUseCustomTicks(false)
+    , m_secondaryYTickStep(0), m_secondaryYTickOrigin(0)
     , m_plotWidget(parent)
 {
     setZValue(-1); // Draw behind curves
@@ -729,21 +735,40 @@ void PlotGrid::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, 
     }
     
     // Draw horizontal grid lines
-    if (m_yUseCustomTicks && m_yTickStep > 0) {
-        // Use custom tick positions for horizontal gridlines
-        double firstTick = std::ceil((m_yMin - m_yTickOrigin) / m_yTickStep) * m_yTickStep + m_yTickOrigin;
-        for (double dataY = firstTick; dataY <= m_yMax; dataY += m_yTickStep) {
-            if (dataY < m_yMin) continue;
-            double fraction = (dataY - m_yMin) / (m_yMax - m_yMin);
-            double y = m_plotRect.top() + m_plotRect.height() * fraction;
-            painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+    // If a secondary Y-axis (IRE) is enabled, align grid lines to its ticks
+    if (m_secondaryYEnabled) {
+        if (m_secondaryYUseCustomTicks && m_secondaryYTickStep > 0) {
+            double firstTick = std::ceil((m_secondaryYMin - m_secondaryYTickOrigin) / m_secondaryYTickStep) * m_secondaryYTickStep + m_secondaryYTickOrigin;
+            for (double dataY = firstTick; dataY <= m_secondaryYMax; dataY += m_secondaryYTickStep) {
+                if (dataY < m_secondaryYMin) continue;
+                double fraction = (dataY - m_secondaryYMin) / (m_secondaryYMax - m_secondaryYMin);
+                double y = m_plotRect.bottom() - m_plotRect.height() * fraction;
+                painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+            }
+        } else {
+            // Default: match secondary axis auto ticks (10 divisions)
+            int numHorizontalLines = 10;
+            for (int i = 0; i <= numHorizontalLines; ++i) {
+                double y = m_plotRect.bottom() - m_plotRect.height() * i / numHorizontalLines;
+                painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+            }
         }
     } else {
-        // Default: 8 evenly spaced horizontal lines
-        int numHorizontalLines = 8;
-        for (int i = 0; i <= numHorizontalLines; ++i) {
-            double y = m_plotRect.top() + i * m_plotRect.height() / numHorizontalLines;
-            painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+        // No secondary axis: use primary Y-axis ticks
+        if (m_yUseCustomTicks && m_yTickStep > 0) {
+            double firstTick = std::ceil((m_yMin - m_yTickOrigin) / m_yTickStep) * m_yTickStep + m_yTickOrigin;
+            for (double dataY = firstTick; dataY <= m_yMax; dataY += m_yTickStep) {
+                if (dataY < m_yMin) continue;
+                double fraction = (dataY - m_yMin) / (m_yMax - m_yMin);
+                double y = m_plotRect.bottom() - m_plotRect.height() * fraction;
+                painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+            }
+        } else {
+            int numHorizontalLines = 8;
+            for (int i = 0; i <= numHorizontalLines; ++i) {
+                double y = m_plotRect.top() + i * m_plotRect.height() / numHorizontalLines;
+                painter->drawLine(QPointF(m_plotRect.left(), y), QPointF(m_plotRect.right(), y));
+            }
         }
     }
 }
@@ -751,7 +776,9 @@ void PlotGrid::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, 
 void PlotGrid::updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool isDarkTheme,
                           double xMin, double xMax, double yMin, double yMax,
                           bool xUseCustomTicks, double xTickStep, double xTickOrigin,
-                          bool yUseCustomTicks, double yTickStep, double yTickOrigin)
+                          bool yUseCustomTicks, double yTickStep, double yTickOrigin,
+                          bool secondaryYEnabled, double secondaryYMin, double secondaryYMax,
+                          bool secondaryYUseCustomTicks, double secondaryYTickStep, double secondaryYTickOrigin)
 {
     m_plotRect = plotRect;
     m_dataRect = dataRect;
@@ -766,6 +793,12 @@ void PlotGrid::updateGrid(const QRectF &plotRect, const QRectF &dataRect, bool i
     m_yUseCustomTicks = yUseCustomTicks;
     m_yTickStep = yTickStep;
     m_yTickOrigin = yTickOrigin;
+    m_secondaryYEnabled = secondaryYEnabled;
+    m_secondaryYMin = secondaryYMin;
+    m_secondaryYMax = secondaryYMax;
+    m_secondaryYUseCustomTicks = secondaryYUseCustomTicks;
+    m_secondaryYTickStep = secondaryYTickStep;
+    m_secondaryYTickOrigin = secondaryYTickOrigin;
     update();
 }
 

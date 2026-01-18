@@ -98,14 +98,14 @@ void PreviewDialog::setupUI()
     next_button_ = new QPushButton(">");
     last_button_ = new QPushButton(">>");
     
-    // Set auto-repeat on prev/next buttons for faster navigation
-    // Reduced delay for more responsive feel
+    // Set auto-repeat on prev/next buttons for navigation
+    // Increased delay to reduce sensitivity for single-frame stepping
     prev_button_->setAutoRepeat(true);
-    prev_button_->setAutoRepeatDelay(100);
+    prev_button_->setAutoRepeatDelay(200);
     prev_button_->setAutoRepeatInterval(30);
     
     next_button_->setAutoRepeat(true);
-    next_button_->setAutoRepeatDelay(100);
+    next_button_->setAutoRepeatDelay(200);
     next_button_->setAutoRepeatInterval(30);
     
     // Set fixed width for navigation buttons

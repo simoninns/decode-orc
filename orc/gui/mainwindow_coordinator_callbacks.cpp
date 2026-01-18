@@ -45,6 +45,28 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
             5000
         );
     }
+    
+    // Get the index we just rendered
+    int rendered_index = preview_dialog_->previewSlider()->value();
+    
+    // Mark that the render is complete
+    preview_render_in_flight_ = false;
+    
+    // Check if the latest requested index differs from what we just rendered
+    // If so, send a new request for the latest cached index
+    if (latest_requested_preview_index_ >= 0 && latest_requested_preview_index_ != rendered_index) {
+        ORC_LOG_DEBUG("Render queue clear - processing latest cached request: {} (was rendering {})", 
+                      latest_requested_preview_index_, rendered_index);
+        
+        // Update slider to the latest requested position
+        preview_dialog_->previewSlider()->blockSignals(true);
+        preview_dialog_->previewSlider()->setValue(latest_requested_preview_index_);
+        preview_dialog_->previewSlider()->blockSignals(false);
+        
+        // Send request for the latest cached index
+        pending_preview_index_ = latest_requested_preview_index_;
+        updatePreview();  // Call updatePreview directly to ensure request is sent
+    }
 }
 
 void MainWindow::onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info)

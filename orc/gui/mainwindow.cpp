@@ -102,7 +102,6 @@ MainWindow::MainWindow(QWidget *parent)
     , preview_update_timer_(nullptr)
     , pending_preview_index_(-1)
     , preview_update_pending_(false)
-    , last_update_was_sequential_(false)
     , trigger_progress_dialog_(nullptr)
 {
     // Create and start render coordinator
@@ -149,7 +148,7 @@ MainWindow::MainWindow(QWidget *parent)
     // after the slider has been stationary for a short period
     preview_update_timer_ = new QTimer(this);
     preview_update_timer_->setSingleShot(true);  // Single-shot for debounce behavior
-    preview_update_timer_->setInterval(200);  // 200ms delay after last slider movement
+    preview_update_timer_->setInterval(100);  // 100ms delay for debounce (slider scrubbing)
     connect(preview_update_timer_, &QTimer::timeout, this, [this]() {
         if (preview_update_pending_) {
             updateAllPreviewComponents();
@@ -269,8 +268,26 @@ void MainWindow::setupUI()
     // Connect preview dialog signals
     connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
             this, &MainWindow::onPreviewIndexChanged);
+    // For sequential navigation (button clicks), implement intelligent throttling:
+    // Cache the latest requested index. If no render is in-flight, send immediately.
+    // If a render is in-flight, the cached index will be processed when it completes.
     connect(preview_dialog_, &PreviewDialog::sequentialPreviewRequested,
-            this, [this](int) { last_update_was_sequential_ = true; });
+            this, [this](int index) {
+                // Skip debounce timer for button clicks
+                preview_update_timer_->stop();
+                preview_update_pending_ = false;
+                
+                // Always update the latest requested index (cache the latest click)
+                latest_requested_preview_index_ = index;
+                
+                if (!preview_render_in_flight_) {
+                    // No render in progress - send request immediately
+                    pending_preview_index_ = index;
+                    updateAllPreviewComponents();
+                }
+                // If render is in-flight, onPreviewReady will check if latest_requested differs
+                // from what was just rendered and issue a new request if needed
+            });
     connect(preview_dialog_, &PreviewDialog::previewModeChanged,
             this, &MainWindow::onPreviewModeChanged);
     connect(preview_dialog_, &PreviewDialog::signalChanged,
@@ -1111,7 +1128,16 @@ void MainWindow::onNavigatePreview(int delta)
     int max_index = preview_dialog_->previewSlider()->maximum();
     
     if (new_index >= 0 && new_index <= max_index) {
+        // For keyboard navigation, update immediately without debouncing
+        preview_dialog_->previewSlider()->blockSignals(true);
         preview_dialog_->previewSlider()->setValue(new_index);
+        preview_dialog_->previewSlider()->blockSignals(false);
+        
+        // Skip debounce timer and update immediately
+        preview_update_timer_->stop();
+        pending_preview_index_ = new_index;
+        updateAllPreviewComponents();
+        preview_update_pending_ = false;
     }
 }
 
@@ -1801,8 +1827,11 @@ void MainWindow::updatePreview()
         effective_option_id
     );
     
-    // Reset the sequential flag after use
-    last_update_was_sequential_ = false;
+    // Mark that a render is now in-flight (will be cleared when onPreviewReady is called)
+    preview_render_in_flight_ = true;
+    
+    // Initialize the cache with the current index we're rendering
+    latest_requested_preview_index_ = current_index;
 }
 
 void MainWindow::updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image)

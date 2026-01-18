@@ -245,7 +245,8 @@ private:
     QTimer* preview_update_timer_;
     int pending_preview_index_;
     bool preview_update_pending_;
-    bool last_update_was_sequential_;  // Track if last update was from next/prev buttons
+    bool preview_render_in_flight_{false};  // Track if a render request is currently being processed
+    int latest_requested_preview_index_{-1};  // Cache the latest requested index (may differ from what's being rendered)
     
     // Trigger progress tracking (now via coordinator signals)
     QProgressDialog* trigger_progress_dialog_;

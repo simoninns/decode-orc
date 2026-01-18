@@ -173,6 +173,9 @@ private:
     QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
     void closeAllDialogs();  ///< Close all open dialogs when switching projects
     
+    // Line scope helpers
+    void requestLineSamplesForNavigation(uint64_t field_index, int line_number, int sample_x, int preview_image_width);
+    
     // Settings helpers
     QString getLastProjectDirectory() const;
     void setLastProjectDirectory(const QString& path);

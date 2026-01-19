@@ -23,6 +23,7 @@
 #include <QResizeEvent>
 #include <QMenu>
 #include <QSettings>
+#include <algorithm>
 
 PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
@@ -184,22 +185,40 @@ void PreviewDialog::setupUI()
     
     // Connect navigation buttons
     connect(first_button_, &QPushButton::clicked, [this]() {
-        int new_value = preview_slider_->minimum();
+        const int new_value = preview_slider_->minimum();
+        if (preview_slider_->value() == new_value) {
+            return;  // Already at first frame, avoid duplicate request
+        }
+
         preview_slider_->setValue(new_value);
         emit sequentialPreviewRequested(new_value);
     });
     connect(prev_button_, &QPushButton::clicked, [this]() {
-        int new_value = preview_slider_->value() - 1;
+        const int current_value = preview_slider_->value();
+        const int new_value = std::max(preview_slider_->minimum(), current_value - 1);
+        if (new_value == current_value) {
+            return;  // Already at boundary, do not re-request
+        }
+
         preview_slider_->setValue(new_value);
         emit sequentialPreviewRequested(new_value);
     });
     connect(next_button_, &QPushButton::clicked, [this]() {
-        int new_value = preview_slider_->value() + 1;
+        const int current_value = preview_slider_->value();
+        const int new_value = std::min(preview_slider_->maximum(), current_value + 1);
+        if (new_value == current_value) {
+            return;  // Already at boundary, do not re-request
+        }
+
         preview_slider_->setValue(new_value);
         emit sequentialPreviewRequested(new_value);
     });
     connect(last_button_, &QPushButton::clicked, [this]() {
-        int new_value = preview_slider_->maximum();
+        const int new_value = preview_slider_->maximum();
+        if (preview_slider_->value() == new_value) {
+            return;  // Already at last frame, avoid duplicate request
+        }
+
         preview_slider_->setValue(new_value);
         emit sequentialPreviewRequested(new_value);
     });

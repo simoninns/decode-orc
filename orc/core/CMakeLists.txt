@@ -94,6 +94,7 @@ add_library(orc-core STATIC
     stages/ntsc_yc_source/ntsc_yc_source_stage.cpp
     stages/ld_sink/ld_sink_stage.cpp
     stages/ld_sink/tbc_metadata_writer.cpp
+    stages/hackdac_sink/hackdac_sink_stage.cpp
     stages/dropout_correct/dropout_correct_stage.cpp
     stages/dropout_map/dropout_map_stage.cpp
     stages/field_invert/field_invert_stage.cpp
@@ -147,6 +148,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/pal_yc_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ntsc_yc_source
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/ld_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/hackdac_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_correct
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_map
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/field_invert

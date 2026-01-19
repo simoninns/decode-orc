@@ -87,6 +87,7 @@ public:
                stage_name != "AudioSink" && 
                stage_name != "EFMSink" && 
                stage_name != "ld_sink" &&
+               stage_name != "hackdac_sink" &&
                stage_name != "CCSink";
     }
 

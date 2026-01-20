@@ -37,7 +37,7 @@ public:
     ~PulldownDialog();
     
     /**
-     * @brief Update the displayed pulldown observation information (stub - observers removed)
+     * @brief Update the displayed pulldown observation information
      */
     void updatePulldownObservation();
     

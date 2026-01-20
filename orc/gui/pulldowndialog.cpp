@@ -8,6 +8,7 @@
  */
 
 #include "pulldowndialog.h"
+#include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -139,9 +140,10 @@ void PulldownDialog::setupUI()
 
 void PulldownDialog::updatePulldownObservation()
 {
-    // Stub: PulldownObservation removed as part of observer refactor
-    clearPulldownInfo();
-    return;
+    // Placeholder for pulldown observation display
+    // Would extract pulldown detection results and display in UI
+    ORC_LOG_DEBUG("PulldownDialog: Updating pulldown observation (placeholder)");
+    // TODO: Restore full pulldown observation display when observation API is ready
 }
 
 void PulldownDialog::clearPulldownInfo()

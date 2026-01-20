@@ -131,30 +131,10 @@ QualityMetricsDialog::FieldMetrics QualityMetricsDialog::extractFieldMetrics(
     }
     
     // Get observations for this field
-    // NOTE: Observers have been removed as part of the refactor
-    // Observation extraction is now stubbed
-    ORC_LOG_DEBUG("Quality metrics observation extraction stubbed (observer refactor)");
-    
-    /* Stub: observation extraction removed
-    auto observations = field_repr->get_observations(field_id);
-    
-    for (const auto& obs : observations) {
-        // Check for VITS quality observation (white SNR, black PSNR)
-        if (obs->observation_type() == "VITSQuality") {
-            // Stub
-        }
-        
-        // Check for burst level observation
-        if (obs->observation_type() == "BurstLevel") {
-            // Stub
-        }
-        
-        // Check for disc quality observation
-        if (obs->observation_type() == "DiscQuality") {
-            // Stub
-        }
-    }
-    */
+    // NOTE: Observation extraction being restored post-observer refactor
+    ORC_LOG_DEBUG("Quality metrics observation extraction (placeholder)");
+    // TODO: Restore observation extraction when observation API is ready
+    // This would extract VITS, BurstLevel, and DiscQuality observations
     
     
     // Also check dropout hints

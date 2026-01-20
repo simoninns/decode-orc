@@ -14,6 +14,7 @@
 #include "project.h"
 #include "ld_sink_stage.h"  // For TriggerableStage
 #include "observation_context.h"
+#include "../core/include/vbi_decoder.h"
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -432,17 +433,20 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
     ORC_LOG_DEBUG("RenderCoordinator: Getting VBI data for node '{}', field {} (request {})",
                   req.node_id.to_string(), req.field_id.value(), req.request_id);
     
-    if (!worker_vbi_decoder_) {
-        ORC_LOG_ERROR("RenderCoordinator: VBI decoder not initialized");
-        emit error(req.request_id, "VBI decoder not initialized");
-        return;
-    }
-    
     try {
-        // VBI decoder now provides static decode functionality
-        // Emit empty VBI info for now (VBI decoding moved to static methods)
-        ORC_LOG_DEBUG("RenderCoordinator: VBI decode (stubbed)");
-        emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
+        // Create observation context for decoding
+        orc::ObservationContext obs_context;
+        
+        // Decode VBI from observation context
+        auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
+        
+        if (vbi_info_opt.has_value()) {
+            ORC_LOG_DEBUG("RenderCoordinator: VBI decode complete");
+            emit vbiDataReady(req.request_id, vbi_info_opt.value());
+        } else {
+            ORC_LOG_WARN("RenderCoordinator: No VBI data available for field");
+            emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
+        }
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());

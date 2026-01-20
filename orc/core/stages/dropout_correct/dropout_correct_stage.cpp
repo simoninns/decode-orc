@@ -35,8 +35,10 @@ void force_link_DropoutCorrectStage() {}
 // DAGStage::execute() implementation
 std::vector<ArtifactPtr> DropoutCorrectStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     if (inputs.empty()) {
         throw DAGExecutionError("DropoutCorrectStage requires at least one input");
     }

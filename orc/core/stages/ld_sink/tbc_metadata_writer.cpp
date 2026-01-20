@@ -588,64 +588,9 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
 
 bool TBCMetadataWriter::write_observations(FieldID field_id, 
                                           const std::vector<std::shared_ptr<Observation>>& observations) {
-    if (!is_open_ || capture_id_ < 0) return false;
-    
-    for (const auto& obs : observations) {
-        if (obs->confidence == ConfidenceLevel::NONE) continue;
-        
-        std::string type = obs->observation_type();
-        
-        if (type == "Biphase" || type == "VBI") {
-            auto* vbi_obs = dynamic_cast<BiphaseObservation*>(obs.get());
-            if (vbi_obs) {
-                VbiData vbi;
-                vbi.in_use = true;
-                vbi.vbi_data = vbi_obs->vbi_data;
-                write_vbi(field_id, vbi);
-            }
-        }
-        else if (type == "VITC") {
-            auto* vitc_obs = dynamic_cast<VitcObservation*>(obs.get());
-            if (vitc_obs) {
-                VitcData vitc;
-                vitc.in_use = true;
-                for (size_t i = 0; i < 8; ++i) {
-                    vitc.vitc_data[i] = vitc_obs->vitc_data[i];
-                }
-                write_vitc(field_id, vitc);
-            }
-        }
-        else if (type == "ClosedCaption") {
-            auto* cc_obs = dynamic_cast<ClosedCaptionObservation*>(obs.get());
-            if (cc_obs) {
-                ClosedCaptionData cc;
-                cc.in_use = true;
-                cc.data0 = cc_obs->data0;
-                cc.data1 = cc_obs->data1;
-                write_closed_caption(field_id, cc);
-            }
-        }
-        else if (type == "VITSQuality") {
-            auto* vits_obs = dynamic_cast<VITSQualityObservation*>(obs.get());
-            if (vits_obs && vits_obs->white_snr.has_value() && vits_obs->black_psnr.has_value()) {
-                VitsMetrics metrics;
-                metrics.in_use = true;
-                metrics.white_snr = vits_obs->white_snr.value();
-                metrics.black_psnr = vits_obs->black_psnr.value();
-                write_vits_metrics(field_id, metrics);
-            }
-        }
-        else if (type == "BurstLevel") {
-            auto* burst_obs = dynamic_cast<BurstLevelObservation*>(obs.get());
-            if (burst_obs) {
-                update_field_median_burst_ire(field_id, burst_obs->median_burst_ire);
-            }
-        }
-        // Note: FieldParity observation removed - field parity comes from hints only
-        // Note: PALPhase observation removed - PAL phase comes from hints only
-    }
-    
-    return true;
+    (void)field_id;
+    (void)observations;
+    return is_open_ && capture_id_ >= 0;
 }
 
 bool TBCMetadataWriter::begin_transaction() {

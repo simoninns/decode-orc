@@ -9,10 +9,11 @@
 
 #include "field_mapping_analyzer.h"
 #include "../analysis_progress.h"
-#include "../../observers/observation_history.h"
-#include "../../observers/biphase_observer.h"
-#include "../../observers/pulldown_observer.h"
-#include "../../observers/lead_in_out_observer.h"
+// TODO: Observer system refactored - these old observers need to be replaced with ObservationContext API
+// #include "../../observers/observation_history.h"
+// #include "../../observers/biphase_observer.h"
+// #include "../../observers/pulldown_observer.h"
+// #include "../../observers/lead_in_out_observer.h"
 #include "../../include/logging.h"
 #include <algorithm>
 #include <sstream>
@@ -25,6 +26,16 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
     const Options& options,
     AnalysisProgress* progress) {
     
+    // TODO: Observer system refactored - field mapping analysis needs to be updated
+    // to use ObservationContext instead of old Observation objects
+    ORC_LOG_WARN("FieldMappingAnalyzer: Temporarily disabled pending observer refactor");
+    FieldMappingDecision decision;
+    decision.is_valid = false;
+    decision.error_message = "Field mapping analysis temporarily disabled during observer refactor";
+    return decision;
+    
+    // Original code follows (commented out temporarily):
+    #if 0
     current_options_ = options;
     stats_ = FieldMappingDecision::Stats{};
     
@@ -263,6 +274,7 @@ FieldMappingDecision FieldMappingAnalyzer::analyze(
                  stats_.padding_frames, stats_.gaps_padded);
     
     return decision;
+    #endif // Temporarily disabled
 }
 
 void FieldMappingAnalyzer::remove_lead_in_out(std::vector<FrameInfo>& frames) {

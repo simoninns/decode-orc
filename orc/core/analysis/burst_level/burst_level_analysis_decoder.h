@@ -10,10 +10,9 @@
 #ifndef ORC_CORE_BURST_LEVEL_ANALYSIS_DECODER_H
 #define ORC_CORE_BURST_LEVEL_ANALYSIS_DECODER_H
 
-#include "burst_level_observer.h"
 #include "field_id.h"
 #include "node_id.h"
-#include "lru_cache.h"
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,6 +24,7 @@ namespace orc {
 class DAG;
 class ObservationCache;
 class VideoFieldRepresentation;
+class BurstLevelObserver;
 
 /**
  * @brief Burst level statistics for a single field
@@ -121,36 +121,8 @@ public:
     void set_observation_cache(std::shared_ptr<ObservationCache> cache);
 
 private:
-    // Extract burst level stats from a field representation
-    std::optional<FieldBurstLevelStats> extract_burst_level_stats(
-        std::shared_ptr<const VideoFieldRepresentation> field_repr,
-        FieldID field_id);
-    
-    // Cache key for storing processed results
-    struct CacheKey {
-        NodeID node_id;
-        
-        bool operator==(const CacheKey& other) const {
-            return node_id == other.node_id;
-        }
-    };
-    
-    // Hash function for CacheKey
-    struct CacheKeyHash {
-        std::size_t operator()(const CacheKey& key) const {
-            return std::hash<NodeID>{}(key.node_id);
-        }
-    };
-    
     std::shared_ptr<const DAG> dag_;
     std::shared_ptr<ObservationCache> obs_cache_;
-    BurstLevelObserver observer_;
-    
-    // LRU cache for processed field stats (after observer extraction, max 100 entries)
-    mutable LRUCache<CacheKey, std::vector<FieldBurstLevelStats>, CacheKeyHash> field_cache_;
-    
-    // LRU cache for processed frame stats (max 100 entries)
-    mutable LRUCache<CacheKey, std::vector<FrameBurstLevelStats>, CacheKeyHash> frame_cache_;
 };
 
 } // namespace orc

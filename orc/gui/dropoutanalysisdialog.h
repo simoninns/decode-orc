@@ -16,7 +16,7 @@
 #include <QPointF>
 #include "analysisdialogbase.h"
 #include "plotwidget.h"
-#include "../core/observers/dropout_analysis_observer.h"
+#include "../core/analysis/dropout/dropout_analysis_decoder.h"
 
 /**
  * @brief Dialog for displaying dropout analysis graphs

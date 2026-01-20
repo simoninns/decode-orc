@@ -16,7 +16,7 @@
 #include <QPointF>
 #include "analysisdialogbase.h"
 #include "plotwidget.h"
-#include "../core/observers/snr_analysis_observer.h"
+#include "../core/analysis/snr/snr_analysis_decoder.h"
 
 /**
  * @brief Dialog for displaying SNR analysis graphs

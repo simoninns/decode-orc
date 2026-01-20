@@ -137,87 +137,11 @@ void PulldownDialog::setupUI()
     mainLayout->addStretch();
 }
 
-void PulldownDialog::updatePulldownObservation(const std::shared_ptr<orc::PulldownObservation>& observation)
+void PulldownDialog::updatePulldownObservation()
 {
-    if (!observation) {
-        clearPulldownInfo();
-        return;
-    }
-    
-    // Field information
-    field_id_label_->setText(QString::number(observation->field_id.value()));
-    
-    // Detection result
-    if (observation->is_pulldown) {
-        is_pulldown_label_->setText("Yes");
-        is_pulldown_label_->setStyleSheet("QLabel { color: green; }");
-    } else {
-        is_pulldown_label_->setText("No");
-        is_pulldown_label_->setStyleSheet("QLabel { color: red; }");
-    }
-    
-    confidence_label_->setText(formatConfidence(observation->confidence));
-    detection_basis_label_->setText(formatDetectionBasis(observation->detection_basis));
-    
-    // Pattern information
-    if (observation->pattern_position >= 0 && observation->pattern_position <= 4) {
-        pattern_position_label_->setText(QString::number(observation->pattern_position) + " / 4");
-        
-        // Highlight typical pulldown positions
-        if (observation->pattern_position == 1 || observation->pattern_position == 3) {
-            pattern_position_label_->setStyleSheet("QLabel { font-weight: bold; }");
-        } else {
-            pattern_position_label_->setStyleSheet("");
-        }
-    } else {
-        pattern_position_label_->setText("Unknown");
-        pattern_position_label_->setStyleSheet("");
-    }
-    
-    if (observation->pattern_break) {
-        pattern_break_label_->setText("YES");
-        pattern_break_label_->setStyleSheet("QLabel { color: orange; font-weight: bold; }");
-    } else {
-        pattern_break_label_->setText("No");
-        pattern_break_label_->setStyleSheet("");
-    }
-    
-    // Note: We don't have direct access to the intermediate analysis results
-    // (phase_suggests_pulldown, vbi_suggests_pulldown) in the observation,
-    // so we show general status based on the final result
-    
-    // Infer analysis results from confidence and result
-    if (observation->is_pulldown) {
-        if (observation->confidence == orc::ConfidenceLevel::HIGH) {
-            phase_analysis_label_->setText("Detected (High confidence - both methods agree)");
-            phase_analysis_label_->setStyleSheet("QLabel { color: green; }");
-            vbi_pattern_label_->setText("Detected (High confidence - both methods agree)");
-            vbi_pattern_label_->setStyleSheet("QLabel { color: green; }");
-        } else if (observation->confidence == orc::ConfidenceLevel::MEDIUM) {
-            // One or the other detected it
-            if (observation->pattern_break) {
-                phase_analysis_label_->setText("Conflicting evidence");
-                phase_analysis_label_->setStyleSheet("QLabel { color: orange; }");
-                vbi_pattern_label_->setText("Conflicting evidence");
-                vbi_pattern_label_->setStyleSheet("QLabel { color: orange; }");
-            } else {
-                phase_analysis_label_->setText("Detected (one method)");
-                phase_analysis_label_->setStyleSheet("QLabel { color: darkgreen; }");
-                vbi_pattern_label_->setText("Partial detection");
-                vbi_pattern_label_->setStyleSheet("QLabel { color: darkgreen; }");
-            }
-        } else {
-            phase_analysis_label_->setText("Low confidence detection");
-            phase_analysis_label_->setStyleSheet("QLabel { color: gray; }");
-            vbi_pattern_label_->setText("Low confidence detection");
-            vbi_pattern_label_->setStyleSheet("QLabel { color: gray; }");
-        }
-    } else {
-        phase_analysis_label_->setText("Not detected");
-        phase_analysis_label_->setStyleSheet("");
-        vbi_pattern_label_->setText("Not detected");
-        vbi_pattern_label_->setStyleSheet("");
-    }
+    // Stub: PulldownObservation removed as part of observer refactor
+    clearPulldownInfo();
+    return;
 }
 
 void PulldownDialog::clearPulldownInfo()
@@ -237,32 +161,3 @@ void PulldownDialog::clearPulldownInfo()
     vbi_pattern_label_->setStyleSheet("");
 }
 
-QString PulldownDialog::formatConfidence(orc::ConfidenceLevel level)
-{
-    switch (level) {
-        case orc::ConfidenceLevel::NONE:
-            return "None";
-        case orc::ConfidenceLevel::LOW:
-            return "Low";
-        case orc::ConfidenceLevel::MEDIUM:
-            return "Medium";
-        case orc::ConfidenceLevel::HIGH:
-            return "High";
-        default:
-            return "Unknown";
-    }
-}
-
-QString PulldownDialog::formatDetectionBasis(orc::DetectionBasis basis)
-{
-    switch (basis) {
-        case orc::DetectionBasis::HINT_DERIVED:
-            return "Hint-Derived";
-        case orc::DetectionBasis::SAMPLE_DERIVED:
-            return "Sample Analysis";
-        case orc::DetectionBasis::CORROBORATED:
-            return "Corroborated (Hints + Analysis)";
-        default:
-            return "Unknown";
-    }
-}

@@ -10,10 +10,9 @@
 #ifndef ORC_CORE_SNR_ANALYSIS_DECODER_H
 #define ORC_CORE_SNR_ANALYSIS_DECODER_H
 
-#include "../observers/snr_analysis_observer.h"
 #include "field_id.h"
 #include "node_id.h"
-#include "lru_cache.h"
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -25,6 +24,9 @@ namespace orc {
 class DAG;
 class ObservationCache;
 class VideoFieldRepresentation;
+
+// Temporary stub types until SNR analysis is ported to the new observation API
+enum class SNRAnalysisMode { WHITE, BLACK, BOTH };
 
 /**
  * @brief SNR statistics for a single field
@@ -133,39 +135,7 @@ public:
     void set_observation_cache(std::shared_ptr<ObservationCache> cache);
 
 private:
-    // Extract SNR stats from a field representation
-    std::optional<FieldSNRStats> extract_snr_stats(
-        std::shared_ptr<const VideoFieldRepresentation> field_repr,
-        FieldID field_id,
-        SNRAnalysisMode mode);
-    
-    // Cache key for storing processed results
-    struct CacheKey {
-        NodeID node_id;
-        SNRAnalysisMode mode;
-        
-        bool operator==(const CacheKey& other) const {
-            return node_id == other.node_id && mode == other.mode;
-        }
-    };
-    
-    // Hash function for CacheKey
-    struct CacheKeyHash {
-        std::size_t operator()(const CacheKey& key) const {
-            std::size_t h1 = std::hash<NodeID>{}(key.node_id);
-            std::size_t h2 = std::hash<int>{}(static_cast<int>(key.mode));
-            return h1 ^ (h2 << 1);
-        }
-    };
-    
     std::shared_ptr<ObservationCache> obs_cache_;
-    SNRAnalysisObserver observer_;
-    
-    // LRU cache for processed field stats (after observer extraction, max 100 entries)
-    mutable LRUCache<CacheKey, std::vector<FieldSNRStats>, CacheKeyHash> field_cache_;
-    
-    // LRU cache for processed frame stats (max 100 entries)
-    mutable LRUCache<CacheKey, std::vector<FrameSNRStats>, CacheKeyHash> frame_cache_;
 };
 
 } // namespace orc

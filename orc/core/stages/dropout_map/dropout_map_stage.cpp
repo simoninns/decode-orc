@@ -82,8 +82,10 @@ std::vector<DropoutRegion> DropoutMappedRepresentation::get_dropout_hints(FieldI
 
 std::vector<ArtifactPtr> DropoutMapStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     ORC_LOG_DEBUG("DropoutMapStage::execute - starting with {} inputs", inputs.size());
     
     if (inputs.size() != 1) {

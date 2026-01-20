@@ -94,7 +94,7 @@ MainWindow::MainWindow(QWidget *parent)
     , last_dropout_mode_(orc::DropoutAnalysisMode::FULL_FIELD)
     , last_dropout_output_type_(orc::PreviewOutputType::Frame)
     , last_snr_node_id_()
-    , last_snr_mode_(orc::SNRAnalysisMode::WHITE_SNR)
+    , last_snr_mode_(orc::SNRAnalysisMode::WHITE)
     , last_snr_output_type_(orc::PreviewOutputType::Frame)
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
@@ -3280,25 +3280,11 @@ void MainWindow::updatePulldownDialog()
             return;
         }
         
-        // Get observations from the field representation
-        auto observations = render_result.representation->get_observations(field_id);
-        
-        // Find pulldown observation
-        std::shared_ptr<orc::PulldownObservation> pulldown_obs = nullptr;
-        for (const auto& obs : observations) {
-            if (obs->observation_type() == "Pulldown") {
-                pulldown_obs = std::dynamic_pointer_cast<orc::PulldownObservation>(obs);
-                break;
-            }
-        }
-        
-        // Update the dialog
-        if (pulldown_obs) {
-            pulldown_dialog_->updatePulldownObservation(pulldown_obs);
-        } else {
-            // No pulldown observation found - might be PAL or CLV format
-            pulldown_dialog_->clearPulldownInfo();
-        }
+        // PulldownObservation has been removed as part of observer refactor
+        // Pulldown information is no longer available in this context
+        ORC_LOG_DEBUG("Pulldown observation information not available (observer refactor)");
+        pulldown_dialog_->updatePulldownObservation();
+        pulldown_dialog_->clearPulldownInfo();
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Failed to get pulldown observation: {}", e.what());

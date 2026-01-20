@@ -10,18 +10,7 @@
 
 #include "dag_field_renderer.h"
 #include "observation_wrapper_representation.h"
-#include "observers/biphase_observer.h"
-#include "observers/vitc_observer.h"
-#include "observers/closed_caption_observer.h"
-#include "observers/video_id_observer.h"
-#include "observers/fm_code_observer.h"
-#include "observers/white_flag_observer.h"
-#include "observers/vits_observer.h"
-#include "observers/burst_level_observer.h"
-#include "disc_quality_observer.h"
-#include "pulldown_observer.h"
-// Note: LeadInOutObserver merged into BiphaseObserver
-#include "observers/observation_history.h"
+// TODO: Observer system refactored - old observers removed
 #include "logging.h"
 #include <sstream>
 #include <algorithm>
@@ -225,40 +214,11 @@ std::shared_ptr<VideoFieldRepresentation> DAGFieldRenderer::attach_observations(
     std::shared_ptr<VideoFieldRepresentation> representation,
     FieldID field_id)
 {
-    // Create observers (these should ideally be cached/reused)
-    std::vector<std::unique_ptr<Observer>> observers;
-    observers.push_back(std::make_unique<BiphaseObserver>());
-    observers.push_back(std::make_unique<VitcObserver>());
-    observers.push_back(std::make_unique<ClosedCaptionObserver>());
-    observers.push_back(std::make_unique<VideoIdObserver>());
-    observers.push_back(std::make_unique<FmCodeObserver>());
-    observers.push_back(std::make_unique<WhiteFlagObserver>());
-    observers.push_back(std::make_unique<VITSQualityObserver>());
-    observers.push_back(std::make_unique<BurstLevelObserver>());
-    observers.push_back(std::make_unique<PulldownObserver>());
-    // Note: LeadInOutObserver merged into BiphaseObserver
-    
-    // History for this field
-    ObservationHistory history;
-    
-    // Run all observers on this field
-    std::vector<std::shared_ptr<Observation>> all_observations;
-    for (const auto& observer : observers) {
-        try {
-            auto obs = observer->process_field(*representation, field_id, history);
-            all_observations.insert(all_observations.end(), obs.begin(), obs.end());
-        } catch (const std::exception& e) {
-            ORC_LOG_WARN("Observer '{}' failed for field {}: {}", 
-                        observer->observer_name(), field_id.value(), e.what());
-        }
-    }
-    
-    ORC_LOG_DEBUG("Computed {} observations for field {}", 
-                 all_observations.size(), field_id.value());
-    
-    // Wrap the representation with the observations
+    // TODO: Observer system refactored - observers now run within stages via ObservationContext
+    // This function is deprecated and will be removed once migration is complete
+    // For now, return empty observation wrapper
     std::map<FieldID, std::vector<std::shared_ptr<Observation>>> obs_map;
-    obs_map[field_id] = std::move(all_observations);
+    obs_map[field_id] = {};
     
     return std::make_shared<ObservationWrapperRepresentation>(
         std::move(representation),

@@ -155,7 +155,7 @@ public:
     }    
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters) override;
+        const std::map<std::string, ParameterValue>& parameters, ObservationContext& observation_context) override;
     
     size_t required_input_count() const override { return 1; }  // At least 1 input (passthrough mode)
     

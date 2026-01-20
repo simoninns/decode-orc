@@ -34,8 +34,8 @@ SNRAnalysisDialog::SNRAnalysisDialog(QWidget *parent)
     
     // Create display mode combo box
     displayModeCombo_ = new QComboBox(this);
-    displayModeCombo_->addItem("White SNR", QVariant::fromValue(orc::SNRAnalysisMode::WHITE_SNR));
-    displayModeCombo_->addItem("Black PSNR", QVariant::fromValue(orc::SNRAnalysisMode::BLACK_PSNR));
+    displayModeCombo_->addItem("White", QVariant::fromValue(orc::SNRAnalysisMode::WHITE));
+    displayModeCombo_->addItem("Black", QVariant::fromValue(orc::SNRAnalysisMode::BLACK));
     displayModeCombo_->addItem("Both", QVariant::fromValue(orc::SNRAnalysisMode::BOTH));
     displayModeCombo_->setCurrentIndex(2); // Default to "Both"
     displayModeCombo_->setToolTip("Select which SNR metrics to display");
@@ -223,12 +223,12 @@ void SNRAnalysisDialog::updateSeriesVisibility()
     auto mode = getCurrentMode();
     
     switch (mode) {
-        case orc::SNRAnalysisMode::WHITE_SNR:
+        case orc::SNRAnalysisMode::WHITE:
             whiteSNRSeries_->setVisible(true);
             blackPSNRSeries_->setVisible(false);
             break;
             
-        case orc::SNRAnalysisMode::BLACK_PSNR:
+        case orc::SNRAnalysisMode::BLACK:
             whiteSNRSeries_->setVisible(false);
             blackPSNRSeries_->setVisible(true);
             break;

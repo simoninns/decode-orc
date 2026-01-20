@@ -39,7 +39,7 @@ PipelineValidator::validate_observation_dependencies(
             if (available_observations.find(obs_key) == available_observations.end()) {
                 // Required observation not available
                 std::ostringstream oss;
-                oss << "Stage '" << stage->get_node_type_info().name 
+                oss << "Stage '" << stage->get_node_type_info().stage_name 
                     << "' at position " << i
                     << " requires observation '" << obs_key.full_key()
                     << "' which is not provided by any earlier stage";
@@ -54,7 +54,7 @@ PipelineValidator::validate_observation_dependencies(
             // Check for duplicates (warn only)
             if (available_observations.find(obs_key) != available_observations.end()) {
                 std::ostringstream oss;
-                oss << "Stage '" << stage->get_node_type_info().name
+                oss << "Stage '" << stage->get_node_type_info().stage_name
                     << "' provides observation '" << obs_key.full_key()
                     << "' which is already provided by an earlier stage (will override)";
                 result.warnings.push_back(oss.str());

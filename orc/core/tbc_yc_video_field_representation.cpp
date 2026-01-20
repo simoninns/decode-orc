@@ -11,8 +11,7 @@
 #include "tbc_yc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
-#include "observers/biphase_observer.h"
-#include "observers/observation_history.h"
+// TODO: Observer system refactored - old observers removed
 #include <sstream>
 #include <chrono>
 

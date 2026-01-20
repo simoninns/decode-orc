@@ -60,8 +60,8 @@ std::map<std::string, ParameterValue> ObserverConfiguration::apply_defaults(
     
     for (const auto& desc : schema) {
         // If parameter not present and has default, add it
-        if (result.find(desc.name) == result.end() && desc.default_value.has_value()) {
-            result[desc.name] = desc.default_value.value();
+        if (result.find(desc.name) == result.end() && desc.constraints.default_value.has_value()) {
+            result[desc.name] = desc.constraints.default_value.value();
         }
     }
     
@@ -76,8 +76,8 @@ bool ObserverConfiguration::check_required_parameters(
     missing_params.clear();
     
     for (const auto& desc : schema) {
-        // Required if no default value
-        if (!desc.default_value.has_value()) {
+        // Required if constraints.required is true or no default value
+        if (desc.constraints.required || !desc.constraints.default_value.has_value()) {
             if (config.find(desc.name) == config.end()) {
                 missing_params.push_back(desc.name);
             }

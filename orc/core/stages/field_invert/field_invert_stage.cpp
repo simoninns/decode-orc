@@ -22,8 +22,10 @@ void force_link_FieldInvertStage() {}
 
 std::vector<ArtifactPtr> FieldInvertStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>&)
+    const std::map<std::string, ParameterValue>&,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     if (inputs.empty()) {
         throw DAGExecutionError("FieldInvertStage requires one input");
     }

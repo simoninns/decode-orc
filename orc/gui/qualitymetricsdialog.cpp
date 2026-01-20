@@ -9,10 +9,7 @@
 
 #include "qualitymetricsdialog.h"
 #include "../core/include/video_field_representation.h"
-#include "../core/observers/observer.h"
-#include "../core/observers/vits_observer.h"
-#include "../core/observers/burst_level_observer.h"
-#include "../core/observers/disc_quality_observer.h"
+#include "logging.h"
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QGroupBox>
@@ -134,44 +131,31 @@ QualityMetricsDialog::FieldMetrics QualityMetricsDialog::extractFieldMetrics(
     }
     
     // Get observations for this field
+    // NOTE: Observers have been removed as part of the refactor
+    // Observation extraction is now stubbed
+    ORC_LOG_DEBUG("Quality metrics observation extraction stubbed (observer refactor)");
+    
+    /* Stub: observation extraction removed
     auto observations = field_repr->get_observations(field_id);
     
     for (const auto& obs : observations) {
         // Check for VITS quality observation (white SNR, black PSNR)
         if (obs->observation_type() == "VITSQuality") {
-            auto vits_obs = std::dynamic_pointer_cast<orc::VITSQualityObservation>(obs);
-            if (vits_obs) {
-                if (vits_obs->white_snr.has_value()) {
-                    metrics.white_snr = vits_obs->white_snr.value();
-                    metrics.has_white_snr = true;
-                }
-                if (vits_obs->black_psnr.has_value()) {
-                    metrics.black_psnr = vits_obs->black_psnr.value();
-                    metrics.has_black_psnr = true;
-                }
-            }
+            // Stub
         }
         
         // Check for burst level observation
         if (obs->observation_type() == "BurstLevel") {
-            auto burst_obs = std::dynamic_pointer_cast<orc::BurstLevelObservation>(obs);
-            if (burst_obs) {
-                metrics.burst_level = burst_obs->median_burst_ire;
-                metrics.has_burst_level = true;
-            }
+            // Stub
         }
         
         // Check for disc quality observation
         if (obs->observation_type() == "DiscQuality") {
-            auto quality_obs = std::dynamic_pointer_cast<orc::DiscQualityObservation>(obs);
-            if (quality_obs) {
-                metrics.quality_score = quality_obs->quality_score;
-                metrics.dropout_count = quality_obs->dropout_count;
-                metrics.has_quality_score = true;
-                metrics.has_dropout_count = true;
-            }
+            // Stub
         }
     }
+    */
+    
     
     // Also check dropout hints
     auto dropout_hints = field_repr->get_dropout_hints(field_id);

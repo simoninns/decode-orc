@@ -21,16 +21,7 @@
 
 namespace orc {
 
-// Forward declarations for observer friends
-class BiphaseObserver;
-class VitcObserver;
-class ClosedCaptionObserver;
-class VideoIdObserver;
-class FmCodeObserver;
-class WhiteFlagObserver;
-class VITSQualityObserver;
-class BurstLevelObserver;
-class SNRAnalysisObserver;
+// TODO: Observer system refactored - old observer friend declarations removed
 
 /**
  * @brief Concrete implementation of VideoFieldRepresentation backed by a TBC file (SOURCE stage)
@@ -144,16 +135,7 @@ private:
     std::shared_ptr<TBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
     std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
     
-    // Allow observers to access TBC-specific data
-    friend class BiphaseObserver;
-    friend class VitcObserver;
-    friend class ClosedCaptionObserver;
-    friend class VideoIdObserver;
-    friend class FmCodeObserver;
-    friend class WhiteFlagObserver;
-    friend class VITSQualityObserver;
-    friend class BurstLevelObserver;
-    friend class SNRAnalysisObserver;
+    // TODO: Observer system refactored - observers now access data via public interface
     
     std::shared_ptr<TBCReader> tbc_reader_;
     std::shared_ptr<TBCMetadataReader> metadata_reader_;

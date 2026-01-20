@@ -26,8 +26,10 @@ void force_link_PALYCSourceStage() {}
 
 std::vector<ArtifactPtr> PALYCSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context
 ) {
+    (void)observation_context; // Unused for now
     // Source stage should have no inputs
     if (!inputs.empty()) {
         throw std::runtime_error("PAL_YC_Source stage should have no inputs");

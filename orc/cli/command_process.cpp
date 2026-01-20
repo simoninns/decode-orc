@@ -14,6 +14,7 @@
 #include "stage_registry.h"
 #include "ld_sink_stage.h"
 #include "logging.h"
+#include "observation_context.h"
 
 #include <iostream>
 #include <memory>
@@ -171,7 +172,8 @@ int process_command(const ProcessOptions& options) {
             
             trigger_stage->set_progress_callback(progress_callback);
             
-            bool success = trigger_stage->trigger(inputs, node_it->parameters);
+            ObservationContext observation_context;
+            bool success = trigger_stage->trigger(inputs, node_it->parameters, observation_context);
             
             if (success) {
                 std::string status = trigger_stage->get_trigger_status();

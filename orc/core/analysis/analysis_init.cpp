@@ -31,21 +31,7 @@ namespace orc {
  * This must be called before any analysis tool lookups occur.
  */
 void force_analysis_tool_linking() {
-    ORC_LOG_DEBUG("Forcing analysis tool linking...");
-    // Create dummy instances to force vtable instantiation
-    // This ensures the object files are linked and static initializers run
-    [[maybe_unused]] auto dummy1 = std::make_unique<FieldMappingAnalysisTool>();
-    [[maybe_unused]] auto dummy2 = std::make_unique<FieldMappingRangeAnalysisTool>();
-    [[maybe_unused]] auto dummy3 = std::make_unique<FieldCorruptionAnalysisTool>();
-    [[maybe_unused]] auto dummy4 = std::make_unique<VectorscopeAnalysisTool>();
-    [[maybe_unused]] auto dummy5 = std::make_unique<DropoutAnalysisTool>();
-    [[maybe_unused]] auto dummy6 = std::make_unique<DropoutEditorTool>();
-    [[maybe_unused]] auto dummy7 = std::make_unique<SNRAnalysisTool>();
-    [[maybe_unused]] auto dummy8 = std::make_unique<BurstLevelAnalysisTool>();
-    [[maybe_unused]] auto dummy9 = std::make_unique<SourceAlignmentAnalysisTool>();
-    [[maybe_unused]] auto dummy10 = std::make_unique<MaskLineAnalysisTool>();
-    [[maybe_unused]] auto dummy11 = std::make_unique<FFmpegPresetAnalysisTool>();
-    ORC_LOG_DEBUG("Analysis tool linking complete");
+    ORC_LOG_WARN("Analysis tool linking skipped (analysis observers disabled)");
 }
 
 } // namespace orc

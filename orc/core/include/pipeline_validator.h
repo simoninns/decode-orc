@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "stages/stage.h"
+#include "../stages/stage.h"
 #include "observation_schema.h"
 #include <vector>
 #include <string>

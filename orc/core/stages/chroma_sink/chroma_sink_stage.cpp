@@ -81,8 +81,10 @@ NodeTypeInfo ChromaSinkStage::get_node_type_info() const
 
 std::vector<ArtifactPtr> ChromaSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
+    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]],
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // TODO: Use for observations
     // Cache input for preview rendering (thread-safe)
     if (!inputs.empty()) {
         std::lock_guard<std::mutex> lock(cached_input_mutex_);
@@ -460,8 +462,9 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
 
 bool ChromaSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
-{
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context) {
+    (void)observation_context;
     ORC_LOG_DEBUG("ChromaSink: Trigger called - starting decode");
     
     // Mark trigger as in progress and reset cancel flag

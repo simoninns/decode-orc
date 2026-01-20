@@ -13,6 +13,7 @@
 #include "project_to_dag.h"
 #include "project.h"
 #include "ld_sink_stage.h"  // For TriggerableStage
+#include "observation_context.h"
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -377,7 +378,7 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         ORC_LOG_DEBUG("RenderCoordinator: Restored show_dropouts={}", show_dropouts);
         
         worker_field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(worker_dag_);
-        worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>(worker_dag_);
+        worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>();
         worker_dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(worker_dag_);
         worker_snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(worker_dag_);
         worker_burst_level_decoder_ = std::make_unique<orc::BurstLevelAnalysisDecoder>(worker_dag_);
@@ -438,16 +439,10 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
     }
     
     try {
-        auto vbi_info_opt = worker_vbi_decoder_->get_vbi_for_field(req.node_id, req.field_id);
-        
-        if (vbi_info_opt.has_value()) {
-            ORC_LOG_DEBUG("RenderCoordinator: VBI decode complete");
-            emit vbiDataReady(req.request_id, std::move(vbi_info_opt.value()));
-        } else {
-            ORC_LOG_WARN("RenderCoordinator: No VBI data available for field");
-            // Emit empty VBI info
-            emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
-        }
+        // VBI decoder now provides static decode functionality
+        // Emit empty VBI info for now (VBI decoding moved to static methods)
+        ORC_LOG_DEBUG("RenderCoordinator: VBI decode (stubbed)");
+        emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());
@@ -860,7 +855,8 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
         });
         
         // Execute trigger
-        bool success = trigger_stage->trigger(inputs, target_node->parameters);
+        orc::ObservationContext obs_context;
+        bool success = trigger_stage->trigger(inputs, target_node->parameters, obs_context);
         std::string status = trigger_stage->get_trigger_status();
         
         ORC_LOG_DEBUG("RenderCoordinator: Trigger complete, success={}, status={}", success, status);

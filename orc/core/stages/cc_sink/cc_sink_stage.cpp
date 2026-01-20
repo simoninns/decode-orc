@@ -43,12 +43,14 @@ NodeTypeInfo CCSinkStage::get_node_type_info() const {
 
 std::vector<ArtifactPtr> CCSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context
 ) {
     // Sink stages don't produce outputs in execute()
     // Actual work happens in trigger()
     (void)inputs;
     (void)parameters;
+    (void)observation_context;
     return {};
 }
 
@@ -96,8 +98,9 @@ bool CCSinkStage::set_parameters(const std::map<std::string, ParameterValue>& pa
 
 bool CCSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
-) {
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context) {
+    (void)observation_context; // Observations not yet used in trigger
     is_processing_.store(true);
     cancel_requested_.store(false);
     
@@ -227,212 +230,26 @@ bool CCSinkStage::is_printable_char(uint8_t byte) const {
     return (byte >= 0x20 && byte <= 0x7E);
 }
 
-// Export to Scenarist SCC V1.0 format
+// Export to Scenarist SCC V1.0 format (disabled)
 bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
                              const std::string& output_path,
                              VideoFormat format) {
-    // Open output file
-    std::ofstream file(output_path);
-    if (!file.is_open()) {
-        ORC_LOG_ERROR("Could not open output file: {}", output_path);
-        return false;
-    }
-    
-    // Write SCC V1.0 header
-    file << "Scenarist_SCC V1.0";
-    
-    // Create CC observer to extract data
-    auto cc_observer = std::make_shared<ClosedCaptionObserver>();
-    ObservationHistory history;
-    
-    // Get field range
-    auto field_range = vfr->field_range();
-    int32_t total_fields = (field_range.end.value() - field_range.start.value());
-    
-    ORC_LOG_DEBUG("SCC export: Processing {} fields from {} to {}", 
-                  total_fields, field_range.start.value(), field_range.end.value());
-    
-    // Process all fields
-    bool caption_in_progress = false;
-    std::string debug_caption;
-    int32_t processed_fields = 0;
-    
-    for (FieldID field_id = field_range.start; field_id < field_range.end; field_id = field_id + 1) {
-        if (cancel_requested_.load()) {
-            ORC_LOG_INFO("CC export cancelled by user");
-            file.close();
-            return false;
-        }
-        
-        // Report progress
-        if (progress_callback_ && processed_fields % 100 == 0) {
-            progress_callback_(processed_fields, total_fields, "Exporting closed captions...");
-        }
-        processed_fields++;
-        
-        // Run CC observer on this field
-        int32_t data0 = -1;
-        int32_t data1 = -1;
-        
-        auto observations = cc_observer->process_field(*vfr, field_id, history);
-        if (processed_fields <= 10) {
-            ORC_LOG_DEBUG("SCC Field {}: {} observations from observer", field_id.value(), observations.size());
-        }
-        
-        for (const auto& obs : observations) {
-            if (obs->observation_type() == "ClosedCaption") {
-                auto* cc_obs = dynamic_cast<ClosedCaptionObservation*>(obs.get());
-                if (cc_obs) {
-                    if (processed_fields <= 10) {
-                        ORC_LOG_DEBUG("SCC Field {}: CC obs - data0={:#04x}, data1={:#04x}, confidence={}", 
-                                      field_id.value(), cc_obs->data0, cc_obs->data1, 
-                                      static_cast<int>(cc_obs->confidence));
-                    }
-                    if (cc_obs->confidence != ConfidenceLevel::NONE) {
-                        data0 = sanity_check_data(cc_obs->data0);
-                        data1 = sanity_check_data(cc_obs->data1);
-                    }
-                }
-                break;
-            }
-        }
-        
-        // Sometimes random data is passed through; sanity check makes sure
-        // each new caption starts with data0 = 0x14
-        if (!caption_in_progress && data0 > 0) {
-            if (data0 != 0x14) {
-                data0 = 0;
-                data1 = 0;
-            }
-        }
-        
-        // Check if data is valid
-        if (data0 == -1 || data1 == -1) {
-            // Invalid - skip
-        } else {
-            // Valid
-            if (data0 > 0 || data1 > 0) {
-                if (!caption_in_progress) {
-                    // Start of new caption
-                    std::string timestamp = generate_timestamp(field_id.value(), format);
-                    file << "\n\n" << timestamp << "\t";
-                    
-                    debug_caption = "Caption at " + timestamp + " : [";
-                    caption_in_progress = true;
-                }
-                
-                // Output the 2 bytes as hex (e.g., 0x14 0x41 becomes "1441 ")
-                file << std::hex << std::setfill('0') << std::setw(2) << data0
-                     << std::setfill('0') << std::setw(2) << data1 << " ";
-                
-                // Add to debug output
-                if (is_control_code(static_cast<uint8_t>(data0))) {
-                    debug_caption += " ";  // Control code - show as space
-                } else {
-                    char chars[3] = {static_cast<char>(data0), static_cast<char>(data1), 0};
-                    debug_caption += std::string(chars);
-                }
-                
-            } else {
-                // No CC data for this frame
-                if (caption_in_progress) {
-                    debug_caption += "]";
-                    ORC_LOG_DEBUG("{}", debug_caption);
-                }
-                caption_in_progress = false;
-            }
-        }
-    }
-    
-    // Add trailing whitespace
-    file << "\n\n";
-    file.close();
-    
-    return true;
+    (void)vfr;
+    (void)output_path;
+    (void)format;
+    ORC_LOG_WARN("CCSink: SCC export disabled (legacy observers removed)");
+    return false;
 }
 
-// Export to plain text format using EIA608Decoder for proper caption parsing
+// Export to plain text format using EIA608Decoder for proper caption parsing (disabled)
 bool CCSinkStage::export_plain_text(const VideoFieldRepresentation* vfr,
                                    const std::string& output_path,
                                    VideoFormat format) {
-    // Open output file
-    std::ofstream file(output_path);
-    if (!file.is_open()) {
-        ORC_LOG_ERROR("Could not open output file: {}", output_path);
-        return false;
-    }
-    
-    // Create CC observer and EIA-608 decoder
-    auto cc_observer = std::make_shared<ClosedCaptionObserver>();
-    ObservationHistory history;
-    EIA608Decoder decoder;
-    
-    // Get field range
-    auto field_range = vfr->field_range();
-    int32_t total_fields = (field_range.end.value() - field_range.start.value());
-    
-    ORC_LOG_DEBUG("Plain text export: Processing {} fields from {} to {}", 
-                  total_fields, field_range.start.value(), field_range.end.value());
-    
-    // Process all fields and feed to EIA608Decoder
-    int32_t processed_fields = 0;
-    
-    // Calculate frame rate for timing
-    double frames_per_second = (format == VideoFormat::PAL) ? 25.0 : 29.97;
-    
-    for (FieldID field_id = field_range.start; field_id < field_range.end; field_id = field_id + 1) {
-        if (cancel_requested_.load()) {
-            ORC_LOG_INFO("CC export cancelled by user");
-            file.close();
-            return false;
-        }
-        
-        // Report progress
-        if (progress_callback_ && processed_fields % 100 == 0) {
-            progress_callback_(processed_fields, total_fields, "Exporting closed captions...");
-        }
-        processed_fields++;
-        
-        // Run CC observer on this field
-        auto observations = cc_observer->process_field(*vfr, field_id, history);
-        
-        // Feed CC data to EIA608Decoder
-        for (const auto& obs : observations) {
-            if (obs->observation_type() == "ClosedCaption") {
-                auto* cc_obs = dynamic_cast<ClosedCaptionObservation*>(obs.get());
-                if (cc_obs && cc_obs->confidence != ConfidenceLevel::NONE) {
-                    uint8_t byte1 = static_cast<uint8_t>(sanity_check_data(cc_obs->data0));
-                    uint8_t byte2 = static_cast<uint8_t>(sanity_check_data(cc_obs->data1));
-                    
-                    // Calculate timestamp for this field
-                    double timestamp = (field_id.value() / 2.0) / frames_per_second;
-                    
-                    // Feed to decoder
-                    decoder.process_bytes(timestamp, byte1, byte2);
-                }
-                break;
-            }
-        }
-    }
-    
-    // Get all caption cues from decoder
-    auto cues = decoder.get_cues();
-    
-    ORC_LOG_INFO("Extracted {} caption cues", cues.size());
-    
-    // Write cues to file with timestamps
-    for (const auto& cue : cues) {
-        // Convert seconds to timecode
-        int frame_number = static_cast<int>(cue.start_time * frames_per_second * 2.0);  // *2 for fields
-        std::string timestamp = generate_timestamp(frame_number, format);
-        
-        file << "\n[" << timestamp << "]\n";
-        file << cue.text << "\n";
-    }
-    
-    file.close();
-    
-    return true;
+    (void)vfr;
+    (void)output_path;
+    (void)format;
+    ORC_LOG_WARN("CCSink: Plain text CC export disabled (legacy observers removed)");
+    return false;
 }
 
 } // namespace orc

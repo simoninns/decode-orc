@@ -542,8 +542,10 @@ StackerStage::StackerStage()
 
 std::vector<ArtifactPtr> StackerStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     if (inputs.empty()) {
         throw DAGExecutionError("StackerStage requires at least 1 input");
     }

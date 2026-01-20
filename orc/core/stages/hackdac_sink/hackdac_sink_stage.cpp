@@ -43,7 +43,8 @@ NodeTypeInfo HackdacSinkStage::get_node_type_info() const {
 
 std::vector<ArtifactPtr> HackdacSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters) {
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context) {
     // Sink stages do not emit artifacts during execute(); trigger() performs the export.
     (void)inputs;
     (void)parameters;
@@ -183,7 +184,8 @@ bool HackdacSinkStage::write_report(const std::string& report_path,
 
 bool HackdacSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters) {
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context) {
 
     ORC_LOG_DEBUG("HackdacSink: Trigger started");
     is_processing_.store(true);

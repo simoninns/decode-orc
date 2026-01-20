@@ -437,8 +437,10 @@ private:
 
 std::vector<ArtifactPtr> FieldMapStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     if (inputs.empty()) {
         throw DAGExecutionError("FieldMapStage requires one input");
     }

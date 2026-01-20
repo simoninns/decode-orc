@@ -37,10 +37,9 @@ public:
     ~PulldownDialog();
     
     /**
-     * @brief Update the displayed pulldown observation information
-     * @param observation The pulldown observation to display
+     * @brief Update the displayed pulldown observation information (stub - observers removed)
      */
-    void updatePulldownObservation(const std::shared_ptr<orc::PulldownObservation>& observation);
+    void updatePulldownObservation();
     
     /**
      * @brief Clear the displayed pulldown information
@@ -49,8 +48,7 @@ public:
 
 private:
     void setupUI();
-    QString formatConfidence(orc::ConfidenceLevel level);
-    QString formatDetectionBasis(orc::DetectionBasis basis);
+    // formatConfidence and formatDetectionBasis removed - observer types no longer exist
     
     // UI components - Detection result
     QLabel* field_id_label_;

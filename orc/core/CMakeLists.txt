@@ -36,19 +36,20 @@ add_library(orc-core STATIC
     
     # Observers (organized in subdirectory)
     observers/observer.cpp
-    observers/observation_history.cpp
-    observers/biphase_observer.cpp
-    observers/vitc_observer.cpp
-    observers/closed_caption_observer.cpp
-    observers/video_id_observer.cpp
-    observers/fm_code_observer.cpp
-    observers/white_flag_observer.cpp
-    observers/vits_observer.cpp
-    observers/burst_level_observer.cpp
-    observers/pulldown_observer.cpp
-    observers/lead_in_out_observer.cpp
-    observers/dropout_analysis_observer.cpp
-    observers/snr_analysis_observer.cpp
+    # TODO: Old observers temporarily disabled during refactor
+    # observers/observation_history.cpp
+    # observers/biphase_observer.cpp
+    # observers/vitc_observer.cpp
+    # observers/closed_caption_observer.cpp
+    # observers/video_id_observer.cpp
+    # observers/fm_code_observer.cpp
+    # observers/white_flag_observer.cpp
+    # observers/vits_observer.cpp
+    # observers/burst_level_observer.cpp
+    # observers/pulldown_observer.cpp
+    # observers/lead_in_out_observer.cpp
+    # observers/dropout_analysis_observer.cpp
+    # observers/snr_analysis_observer.cpp
     
     # Analysis framework
     analysis/analysis_registry.cpp
@@ -59,32 +60,31 @@ add_library(orc-core STATIC
     analysis/vectorscope/vectorscope_analysis.cpp
     
     # Field mapping analysis
-    analysis/field_mapping/field_mapping_analyzer.cpp
-    analysis/field_mapping/field_mapping_analysis.cpp
-    analysis/field_mapping/field_mapping_lookup.cpp
-    analysis/field_mapping/field_mapping_range_analysis.cpp
+    # TODO: Temporarily disabled during observer refactor - uses old BiphaseObservation API
+    # analysis/field_mapping/field_mapping_analyzer.cpp
+    # analysis/field_mapping/field_mapping_analysis.cpp
+    # analysis/field_mapping/field_mapping_lookup.cpp
+    # analysis/field_mapping/field_mapping_range_analysis.cpp
     
     # Field corruption analysis (testing tool)
     analysis/field_corruption/field_corruption_analyzer.cpp
     analysis/field_corruption/field_corruption_analysis.cpp
     
     # Dropout analysis
-    analysis/dropout/dropout_analysis.cpp
     analysis/dropout/dropout_analysis_decoder.cpp
     
     # Dropout editor tool
     analysis/dropout_editor_tool.cpp
     
     # SNR analysis
-    analysis/snr/snr_analysis.cpp
     analysis/snr/snr_analysis_decoder.cpp
     
     # Burst level analysis
-    analysis/burst_level/burst_level_analysis.cpp
     analysis/burst_level/burst_level_analysis_decoder.cpp
     
     # Source alignment analysis
-    analysis/source_alignment/source_alignment_analysis.cpp
+    # TODO: Temporarily disabled during observer refactor - uses old observation API
+    # analysis/source_alignment/source_alignment_analysis.cpp
     
     # Mask line configuration
     analysis/mask_line/mask_line_analysis.cpp

@@ -12,15 +12,6 @@
 #include "preview_renderer.h"
 #include "preview_helpers.h"
 #include "tbc_metadata_writer.h"
-#include "observation_history.h"
-#include "biphase_observer.h"
-#include "vitc_observer.h"
-#include "closed_caption_observer.h"
-#include "video_id_observer.h"
-#include "fm_code_observer.h"
-#include "white_flag_observer.h"
-#include "vits_observer.h"
-#include "burst_level_observer.h"
 #include "buffered_file_io.h"
 #include "logging.h"
 #include <fstream>
@@ -57,8 +48,10 @@ NodeTypeInfo LDSinkStage::get_node_type_info() const
 
 std::vector<ArtifactPtr> LDSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
+    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]],
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // TODO: Use for observations
     // Cache input for preview rendering
     if (!inputs.empty()) {
         cached_input_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
@@ -111,7 +104,8 @@ bool LDSinkStage::set_parameters(const std::map<std::string, ParameterValue>& pa
 
 bool LDSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
     ORC_LOG_DEBUG("LDSink: Trigger started");
     trigger_status_ = "Starting export...";
@@ -224,17 +218,6 @@ bool LDSinkStage::write_tbc_and_metadata(
             return false;
         }
         
-        // Create all observers
-        std::vector<std::shared_ptr<Observer>> observers;
-        observers.push_back(std::make_shared<BiphaseObserver>());
-        observers.push_back(std::make_shared<VitcObserver>());
-        observers.push_back(std::make_shared<ClosedCaptionObserver>());
-        observers.push_back(std::make_shared<VideoIdObserver>());
-        observers.push_back(std::make_shared<FmCodeObserver>());
-        observers.push_back(std::make_shared<WhiteFlagObserver>());
-        observers.push_back(std::make_shared<VITSQualityObserver>());
-        observers.push_back(std::make_shared<BurstLevelObserver>());
-        
         // Build sorted list of field IDs
         std::vector<FieldID> field_ids;
         field_ids.reserve(field_count);
@@ -249,17 +232,6 @@ bool LDSinkStage::write_tbc_and_metadata(
         
         // Begin transaction for metadata writes
         metadata_writer.begin_transaction();
-        
-        // Observation history for observers that need previous field context
-        ObservationHistory history;
-        
-        // Pre-populate history from source representations
-        for (FieldID field_id : field_ids) {
-            auto source_observations = representation->get_observations(field_id);
-            if (!source_observations.empty()) {
-                history.add_observations(field_id, source_observations);
-            }
-        }
         
         size_t fields_processed = 0;
         
@@ -334,17 +306,8 @@ bool LDSinkStage::write_tbc_and_metadata(
                 metadata_writer.write_dropout(field_id, dropout);
             }
             
-            // Run all observers on this field
-            for (const auto& observer : observers) {
-                auto observations = observer->process_field(*representation, field_id, history);
-                metadata_writer.write_observations(field_id, observations);
-                
-                // Add observations to history for subsequent observers
-                auto current_field_obs = history.get_observations(field_id);
-                current_field_obs.insert(current_field_obs.end(), 
-                                        observations.begin(), observations.end());
-                history.add_observations(field_id, current_field_obs);
-            }
+            // TODO: Observations will be written once observer migration to ObservationContext is complete
+            // metadata_writer.write_observations(field_id, {});
             
             fields_processed++;
             

@@ -39,12 +39,14 @@ NodeTypeInfo EFMSinkStage::get_node_type_info() const {
 
 std::vector<ArtifactPtr> EFMSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context
 ) {
     // Sink stages don't produce outputs in execute()
     // Actual work happens in trigger()
     (void)inputs;
     (void)parameters;
+    (void)observation_context;
     return {};
 }
 
@@ -80,8 +82,9 @@ bool EFMSinkStage::set_parameters(const std::map<std::string, ParameterValue>& p
 
 bool EFMSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
-) {
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context) {
+    (void)observation_context;
     is_processing_.store(true);
     cancel_requested_.store(false);
     

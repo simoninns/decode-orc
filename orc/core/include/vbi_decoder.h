@@ -10,7 +10,7 @@
 #ifndef ORC_CORE_VBI_DECODER_H
 #define ORC_CORE_VBI_DECODER_H
 
-#include "biphase_observer.h"
+#include "vbi_types.h"
 #include "field_id.h"
 #include "node_id.h"
 #include "lru_cache.h"
@@ -22,7 +22,7 @@ namespace orc {
 
 // Forward declarations
 class DAG;
-class VideoFieldRepresentation;
+class ObservationContext;
 
 /**
  * @brief Complete VBI information for a field
@@ -59,80 +59,44 @@ struct VBIFieldInfo {
 };
 
 /**
- * @brief VBI decoder for extracting VBI information from DAG nodes
+ * @brief VBI decoder for extracting VBI information from observation context
  * 
- * This class provides the business logic for VBI decoding, allowing the GUI
- * to remain a thin display layer. It extracts BiphaseObservation data from
- * the DAG and formats it for display.
+ * This class provides utilities for VBI decoding, allowing the GUI
+ * to translate observations from ObservationContext into decoded VBI data
+ * for display.
  */
 class VBIDecoder {
 public:
-    /**
-     * @brief Construct a VBI decoder
-     * @param dag The DAG to extract VBI data from
-     */
-    explicit VBIDecoder(std::shared_ptr<const DAG> dag);
-    
+    VBIDecoder() = default;
     ~VBIDecoder() = default;
     
     /**
-     * @brief Get VBI information for a specific field at a node
+     * @brief Decode VBI information from observation context
      * 
-     * @param node_id The node to query
+     * @param observation_context The observation context to extract from
      * @param field_id The field to get VBI data for
      * @return VBI information, or empty optional if not available
      * 
-     * This method:
-     * 1. Renders the field at the specified node
-     * 2. Extracts BiphaseObservation from the field's observations
-     * 3. Formats the data into VBIFieldInfo for display
+     * This method extracts biphase-decoded VBI observations from the
+     * observation context and formats them into VBIFieldInfo for display.
      */
-    std::optional<VBIFieldInfo> get_vbi_for_field(
-        const NodeID& node_id,
+    static std::optional<VBIFieldInfo> decode_vbi(
+        const ObservationContext& observation_context,
         FieldID field_id);
-    
-    /**
-     * @brief Update the DAG reference
-     * @param dag New DAG to use for decoding
-     */
-    void update_dag(std::shared_ptr<const DAG> dag);
 
 private:
     /**
-     * @brief Extract VBI info from a VideoFieldRepresentation
-     * @param representation The field representation to extract from
-     * @param field_id The field ID
-     * @return VBI information, or empty optional if no BiphaseObservation found
+     * @brief Parse VBI data from raw observation values
+     * @param vbi_line_16 VBI data from line 16
+     * @param vbi_line_17 VBI data from line 17
+     * @param vbi_line_18 VBI data from line 18
+     * @return Parsed VBI information
      */
-    std::optional<VBIFieldInfo> extract_vbi_from_representation(
-        const VideoFieldRepresentation* representation,
-        FieldID field_id);
-    
-    // Cache key for VBI results: (node_id, field_id, dag_version)
-    struct VBICacheKey {
-        NodeID node_id;
-        uint64_t field_id_value;
-        uint64_t dag_version;
-        
-        bool operator==(const VBICacheKey& other) const {
-            return node_id == other.node_id && 
-                   field_id_value == other.field_id_value &&
-                   dag_version == other.dag_version;
-        }
-    };
-    
-    struct VBICacheKeyHash {
-        size_t operator()(const VBICacheKey& key) const {
-            return std::hash<NodeID>()(key.node_id) ^ 
-                   (std::hash<uint64_t>()(key.field_id_value) << 1) ^
-                   (std::hash<uint64_t>()(key.dag_version) << 2);
-        }
-    };
-    
-    std::shared_ptr<const DAG> dag_;
-    uint64_t dag_version_ = 0;
-    std::unique_ptr<class DAGFieldRenderer> renderer_;
-    LRUCache<VBICacheKey, VBIFieldInfo, VBICacheKeyHash> vbi_cache_{32};
+    static VBIFieldInfo parse_vbi_data(
+        FieldID field_id,
+        int32_t vbi_line_16,
+        int32_t vbi_line_17,
+        int32_t vbi_line_18);
 };
 
 } // namespace orc

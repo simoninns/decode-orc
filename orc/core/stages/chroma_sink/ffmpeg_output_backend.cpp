@@ -298,50 +298,9 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
         }
     }
     
-    if (embed_closed_captions_ && eia608_decoder_) {
-        ClosedCaptionObserver cc_observer;
-        ObservationHistory history;
-        
-        // Calculate frame rate for timestamp conversion
-        double fps = (video_system_ == VideoSystem::NTSC) ? 29.97 : 25.0;
-        
-        for (uint64_t field_idx = start_field_index_; field_idx < start_field_index_ + num_fields_; ++field_idx) {
-            FieldID field_id(field_idx);
-            
-            // Run observer to get CC data
-            auto observations = cc_observer.process_field(*vfr_, field_id, history);
-            
-            for (const auto& obs : observations) {
-                if (obs->observation_type() != "ClosedCaption") continue;
-                
-                auto cc_obs = std::dynamic_pointer_cast<ClosedCaptionObservation>(obs);
-                if (!cc_obs) continue;
-                
-                // Skip invalid data
-                if (cc_obs->confidence == ConfidenceLevel::NONE) continue;
-                if (!cc_obs->parity_valid[0] && !cc_obs->parity_valid[1]) continue;
-                
-                // Convert field index to timestamp (seconds)
-                double timestamp = static_cast<double>(field_idx - start_field_index_) / (2.0 * fps);
-                
-                // Extract bytes (remove parity bits)
-                uint8_t byte1 = static_cast<uint8_t>(cc_obs->data0 & 0x7F);
-                uint8_t byte2 = static_cast<uint8_t>(cc_obs->data1 & 0x7F);
-                
-                // Feed to decoder
-                eia608_decoder_->process_bytes(timestamp, byte1, byte2);
-            }
-        }
-        
-        // Finalize and get all cues
-        double total_duration = static_cast<double>(num_fields_) / (2.0 * fps);
-        pending_cues_ = eia608_decoder_->finalize(total_duration);
-        next_cue_index_ = 0;
-        
-        ORC_LOG_DEBUG("FFmpegOutputBackend: Decoded {} closed caption cues", pending_cues_.size());
-    } else if (embed_closed_captions_) {
-        ORC_LOG_WARN("FFmpegOutputBackend: Closed caption embedding requested but no VFR available");
-        embed_closed_captions_ = false;  // Disable captions
+    if (embed_closed_captions_) {
+        ORC_LOG_WARN("FFmpegOutputBackend: Closed caption embedding disabled (legacy observers removed)");
+        embed_closed_captions_ = false;
     }
     
     // Open output file

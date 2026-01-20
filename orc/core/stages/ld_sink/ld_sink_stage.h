@@ -16,6 +16,7 @@
 #include "video_field_representation.h"
 #include "tbc_metadata.h"
 #include "previewable_stage.h"
+#include "observation_context.h"
 #include <string>
 #include <memory>
 #include <functional>
@@ -53,7 +54,8 @@ public:
      */
     virtual bool trigger(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context
     ) = 0;
     
     /**
@@ -116,7 +118,8 @@ public:
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context
     ) override;
     
     size_t required_input_count() const override { return 1; }
@@ -130,7 +133,8 @@ public:
     // TriggerableStage interface
     bool trigger(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context
     ) override;
     
     std::string get_trigger_status() const override;

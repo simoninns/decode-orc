@@ -920,6 +920,21 @@ void RenderCoordinator::setShowDropouts(bool show)
     }
 }
 
+orc::DropoutAnalysisDecoder* RenderCoordinator::getDropoutAnalysisDecoder()
+{
+    return worker_dropout_decoder_ ? worker_dropout_decoder_.get() : nullptr;
+}
+
+orc::SNRAnalysisDecoder* RenderCoordinator::getSNRAnalysisDecoder()
+{
+    return worker_snr_decoder_ ? worker_snr_decoder_.get() : nullptr;
+}
+
+orc::BurstLevelAnalysisDecoder* RenderCoordinator::getBurstLevelAnalysisDecoder()
+{
+    return worker_burst_level_decoder_ ? worker_burst_level_decoder_.get() : nullptr;
+}
+
 void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Saving PNG for node '{}', type {}, index {} to '{}'",

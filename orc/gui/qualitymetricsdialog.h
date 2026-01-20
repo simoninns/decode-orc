@@ -17,10 +17,14 @@
 #include <QVBoxLayout>
 #include <memory>
 #include "../core/include/field_id.h"
+#include "../core/include/node_id.h"
 
 namespace orc {
     class VideoFieldRepresentation;
     class ObservationHistory;
+    class DropoutAnalysisDecoder;
+    class SNRAnalysisDecoder;
+    class BurstLevelAnalysisDecoder;
 }
 
 /**
@@ -69,6 +73,18 @@ public:
      * @brief Clear all metrics (when no preview is available)
      */
     void clearMetrics();
+    
+    /**
+     * @brief Set analysis decoders for metric extraction
+     * @param node_id Current node ID being displayed
+     * @param dropout_decoder Dropout analysis decoder
+     * @param snr_decoder SNR analysis decoder
+     * @param burst_level_decoder Burst level analysis decoder
+     */
+    void setAnalysisDecoders(orc::NodeID node_id,
+                            orc::DropoutAnalysisDecoder* dropout_decoder,
+                            orc::SNRAnalysisDecoder* snr_decoder,
+                            orc::BurstLevelAnalysisDecoder* burst_level_decoder);
 
 private:
     void setupUI();
@@ -122,6 +138,12 @@ private:
     QLabel* frame_dropout_count_label_;
     
     bool showing_frame_mode_;  // True if showing two fields, false if showing single field
+    
+    // Analysis decoders for real metric extraction
+    orc::NodeID current_node_id_;
+    orc::DropoutAnalysisDecoder* dropout_decoder_ = nullptr;
+    orc::SNRAnalysisDecoder* snr_decoder_ = nullptr;
+    orc::BurstLevelAnalysisDecoder* burst_level_decoder_ = nullptr;
 };
 
 #endif // QUALITYMETRICSDIALOG_H

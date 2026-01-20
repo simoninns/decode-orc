@@ -135,6 +135,7 @@ public:
     void set_observation_cache(std::shared_ptr<ObservationCache> cache);
 
 private:
+    std::shared_ptr<const DAG> dag_;
     std::shared_ptr<ObservationCache> obs_cache_;
 };
 

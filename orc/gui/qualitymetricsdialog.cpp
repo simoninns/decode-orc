@@ -9,6 +9,10 @@
 
 #include "qualitymetricsdialog.h"
 #include "../core/include/video_field_representation.h"
+#include "../core/include/node_id.h"
+#include "../core/analysis/dropout/dropout_analysis_decoder.h"
+#include "../core/analysis/snr/snr_analysis_decoder.h"
+#include "../core/analysis/burst_level/burst_level_analysis_decoder.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QGridLayout>
@@ -130,14 +134,67 @@ QualityMetricsDialog::FieldMetrics QualityMetricsDialog::extractFieldMetrics(
         return metrics;
     }
     
-    // Get observations for this field
-    // NOTE: Observation extraction being restored post-observer refactor
-    ORC_LOG_DEBUG("Quality metrics observation extraction (placeholder)");
-    // TODO: Restore observation extraction when observation API is ready
-    // This would extract VITS, BurstLevel, and DiscQuality observations
+    // Extract real metrics using analysis decoders if available
+    if (current_node_id_.is_valid() && snr_decoder_ && dropout_decoder_ && burst_level_decoder_) {
+        ORC_LOG_DEBUG("Quality metrics: Using analysis decoders for field {}", field_id.value());
+        
+        // Get SNR metrics
+        auto snr_stats = snr_decoder_->get_snr_for_field(current_node_id_, field_id, orc::SNRAnalysisMode::BOTH);
+        if (snr_stats) {
+            if (snr_stats->has_white_snr) {
+                metrics.white_snr = snr_stats->white_snr;
+                metrics.has_white_snr = true;
+            }
+            if (snr_stats->has_black_psnr) {
+                metrics.black_psnr = snr_stats->black_psnr;
+                metrics.has_black_psnr = true;
+            }
+        }
+        
+        // Get burst level metrics
+        auto burst_stats = burst_level_decoder_->get_burst_level_for_field(current_node_id_, field_id);
+        if (burst_stats && burst_stats->has_data) {
+            metrics.burst_level = burst_stats->median_burst_ire;
+            metrics.has_burst_level = true;
+        }
+        
+        // Get dropout metrics
+        auto dropout_stats = dropout_decoder_->get_dropout_for_field(
+            current_node_id_, field_id, orc::DropoutAnalysisMode::FULL_FIELD);
+        if (dropout_stats && dropout_stats->has_data) {
+            metrics.dropout_count = dropout_stats->total_dropout_length;
+            metrics.has_dropout_count = true;
+        }
+        
+        // Calculate quality score as a simple composite metric
+        if (metrics.has_white_snr || metrics.has_burst_level) {
+            // Score ranges from 0-1000 based on signal quality
+            double score = 500.0;  // Base score
+            
+            // SNR contributes (should be > 20dB for good video)
+            if (metrics.has_white_snr) {
+                score += std::min(200.0, metrics.white_snr * 10.0);
+            }
+            
+            // Burst level contributes (should be 20-50 IRE)
+            if (metrics.has_burst_level) {
+                double burst_err = std::abs(metrics.burst_level - 30.0);  // 30 IRE is ideal
+                score -= std::min(100.0, burst_err * 3.0);
+            }
+            
+            // Dropout count penalizes (more dropouts = lower score)
+            if (metrics.has_dropout_count && metrics.dropout_count > 0) {
+                score -= std::min(300.0, metrics.dropout_count / 100.0);
+            }
+            
+            metrics.quality_score = std::max(0.0, std::min(1000.0, score));
+            metrics.has_quality_score = true;
+        }
+    } else {
+        ORC_LOG_DEBUG("Quality metrics: Analysis decoders not available or node invalid");
+    }
     
-    
-    // Also check dropout hints
+    // Fallback: Extract dropout hints from field representation
     auto dropout_hints = field_repr->get_dropout_hints(field_id);
     if (!dropout_hints.empty() && !metrics.has_dropout_count) {
         // Count total dropout samples
@@ -325,4 +382,18 @@ void QualityMetricsDialog::clearMetrics()
     frame_burst_level_label_->setText("N/A");
     frame_quality_score_label_->setText("N/A");
     frame_dropout_count_label_->setText("N/A");
+}
+
+void QualityMetricsDialog::setAnalysisDecoders(
+    orc::NodeID node_id,
+    orc::DropoutAnalysisDecoder* dropout_decoder,
+    orc::SNRAnalysisDecoder* snr_decoder,
+    orc::BurstLevelAnalysisDecoder* burst_level_decoder)
+{
+    current_node_id_ = node_id;
+    dropout_decoder_ = dropout_decoder;
+    snr_decoder_ = snr_decoder;
+    burst_level_decoder_ = burst_level_decoder;
+    
+    ORC_LOG_DEBUG("QualityMetricsDialog: Analysis decoders updated for node '{}'", node_id.to_string());
 }

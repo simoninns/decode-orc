@@ -621,6 +621,24 @@ public:
      */
     void setShowDropouts(bool show);
     
+    /**
+     * @brief Get dropout analysis decoder (for quality metrics dialog)
+     * @return Raw pointer to dropout decoder
+     */
+    orc::DropoutAnalysisDecoder* getDropoutAnalysisDecoder();
+    
+    /**
+     * @brief Get SNR analysis decoder (for quality metrics dialog)
+     * @return Raw pointer to SNR decoder
+     */
+    orc::SNRAnalysisDecoder* getSNRAnalysisDecoder();
+    
+    /**
+     * @brief Get burst level analysis decoder (for quality metrics dialog)
+     * @return Raw pointer to burst level decoder
+     */
+    orc::BurstLevelAnalysisDecoder* getBurstLevelAnalysisDecoder();
+
 signals:
     /**
      * @brief Emitted when a preview render completes

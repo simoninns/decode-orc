@@ -2980,6 +2980,14 @@ void MainWindow::updateQualityMetricsDialog()
         return;
     }
     
+    // Set the analysis decoders for this node
+    quality_metrics_dialog_->setAnalysisDecoders(
+        current_view_node_id_,
+        render_coordinator_->getDropoutAnalysisDecoder(),
+        render_coordinator_->getSNRAnalysisDecoder(),
+        render_coordinator_->getBurstLevelAnalysisDecoder()
+    );
+    
     // Get the current index from the preview slider
     int current_index = preview_dialog_->previewSlider()->value();
     

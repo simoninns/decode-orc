@@ -17,6 +17,7 @@
 #include "tbc_metadata.h"
 #include "previewable_stage.h"
 #include "observation_context.h"
+#include "observation_schema.h"
 #include <string>
 #include <memory>
 #include <functional>
@@ -115,6 +116,12 @@ public:
     // DAGStage interface
     std::string version() const override { return "1.0"; }
     NodeTypeInfo get_node_type_info() const override;
+    std::vector<ObservationKey> get_provided_observations() const override {
+        return {
+            ObservationKey{"export", "seq_no", ObservationType::INT64, "1-based sequence number for field", false},
+            ObservationKey{"export", "is_first_field", ObservationType::BOOL, "Field parity: first field (true) or second (false)", true}
+        };
+    }
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
@@ -168,7 +175,8 @@ private:
     // Helper methods
     bool write_tbc_and_metadata(
         const VideoFieldRepresentation* representation,
-        const std::string& tbc_path
+        const std::string& tbc_path,
+        ObservationContext& observation_context
     );
 };
 

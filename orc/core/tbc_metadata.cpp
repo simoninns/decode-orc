@@ -430,9 +430,69 @@ std::optional<VbiData> TBCMetadataReader::read_vbi(FieldID field_id) {
     if (!is_open_ || !field_id.is_valid()) {
         return std::nullopt;
     }
-    
-    // VBI reading implementation would go here
-    // For now, return empty optional
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT * FROM vbi WHERE capture_id = ? AND field_id = ?";
+    int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        // Table may not exist in older databases
+        return std::nullopt;
+    }
+
+    sqlite3_bind_int(stmt, 1, impl_->capture_id);
+    sqlite3_bind_int(stmt, 2, field_id.value());
+
+    VbiData vbi;
+    vbi.in_use = false;
+    vbi.vbi_data = {0, 0, 0};
+
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
+        // Build a mapping from column name to index for flexible schema support
+        int col_count = sqlite3_column_count(stmt);
+        auto get_col = [&](const char* const names[]) -> std::optional<int> {
+            for (int c = 0; c < col_count; ++c) {
+                const char* cname = sqlite3_column_name(stmt, c);
+                if (!cname) continue;
+                for (int i = 0; names[i] != nullptr; ++i) {
+                    if (strcasecmp(cname, names[i]) == 0) {
+                        return c;
+                    }
+                }
+            }
+            return std::nullopt;
+        };
+
+        // Possible column name variants per line
+        const char* line16_cols[] = {"l16", "line16", "line_16", "vbi16", "vbi_16", nullptr};
+        const char* line17_cols[] = {"l17", "line17", "line_17", "vbi17", "vbi_17", nullptr};
+        const char* line18_cols[] = {"l18", "line18", "line_18", "vbi18", "vbi_18", nullptr};
+
+        auto c16 = get_col(line16_cols);
+        auto c17 = get_col(line17_cols);
+        auto c18 = get_col(line18_cols);
+
+        bool found_any = false;
+        if (c16.has_value() && sqlite3_column_type(stmt, *c16) != SQLITE_NULL) {
+            vbi.vbi_data[0] = sqlite3_column_int(stmt, *c16);
+            found_any = true;
+        }
+        if (c17.has_value() && sqlite3_column_type(stmt, *c17) != SQLITE_NULL) {
+            vbi.vbi_data[1] = sqlite3_column_int(stmt, *c17);
+            found_any = true;
+        }
+        if (c18.has_value() && sqlite3_column_type(stmt, *c18) != SQLITE_NULL) {
+            vbi.vbi_data[2] = sqlite3_column_int(stmt, *c18);
+            found_any = true;
+        }
+
+        vbi.in_use = found_any;
+    }
+
+    sqlite3_finalize(stmt);
+    if (vbi.in_use) {
+        return vbi;
+    }
     return std::nullopt;
 }
 

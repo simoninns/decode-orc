@@ -704,9 +704,290 @@ void QualityMetricsDialog::update_from_context(
 
 ---
 
-## Phase 4: Testing & Documentation
+## Phase 4: Complete Core Implementation
 
-### 4.1 Unit Tests
+### Status: ⏳ IN PROGRESS (as of Jan 20, 2026)
+
+This phase addresses missing functionality from Phases 1-3 that were structurally completed but functionally incomplete. Analysis decoders and VBI extraction were restored with proper method signatures but return no data. GUI components have placeholders. Critical data flow mechanisms are missing.
+
+### 4.1 ObservationContext Core Data Flow
+
+**Status**: ⏳ NOT STARTED
+
+**Objective**: Implement the actual mechanism for observations to populate the context during stage execution.
+
+**Deliverables**:
+1. **ObservationContext Population Interface**
+   - Methods for stages to write observation data
+   - Proper type safety with std::variant
+   - Support for namespaced key-value storage with type preservation
+   - Observation schema validation on write
+
+2. **Stage Execution Integration**
+   - Modify DAGExecutor to pass context to all stages
+   - Ensure observers populate context during execute()
+   - Add error handling for missing required observations
+   - Implement observation dependency validation before execution
+
+3. **Test Coverage**
+   - Unit tests for context set/get operations
+   - Test namespace isolation
+   - Test type safety and variant handling
+   - Test missing observation detection
+
+**Files to Modify/Create**:
+- `orc/core/include/observation_context.h` - Complete implementation with population API
+- `orc/core/observation_context.cpp` - Full implementation with type checking
+- `orc/core/include/dag_executor.h` - Update signature to pass context
+- `orc/core/dag_executor.cpp` - Update execution to populate context
+- `orc/core/tests/observation_context_test.cpp` - Add data flow tests
+
+### 4.2 Analysis Decoder Implementation
+
+**Status**: ⏳ NOT STARTED (Structural restore complete, functional implementation needed)
+
+**Objective**: Implement actual data extraction in DropoutAnalysisDecoder, SNRAnalysisDecoder, and BurstLevelAnalysisDecoder.
+
+**Deliverables**:
+1. **DropoutAnalysisDecoder**
+   - Extract actual dropout information from field data
+   - Populate `dropout.count`, `dropout.percentage` observations
+   - Handle edge cases (corrupt fields, missing data)
+   - Implement proper error logging
+
+2. **SNRAnalysisDecoder**
+   - Extract signal-to-noise ratio from biphase data
+   - Calculate SNR per field and overall
+   - Populate `snr.value`, `snr.per_field` observations
+   - Handle silent fields and noise floor detection
+
+3. **BurstLevelAnalysisDecoder**
+   - Extract color burst amplitude and measurements
+   - Populate `burst.level`, `burst.frequency` observations
+   - Validate burst measurements
+   - Handle missing or invalid bursts
+
+**Implementation Details**:
+```cpp
+// Example for DropoutAnalysisDecoder
+std::vector<std::string> DropoutAnalysisDecoder::get_analysis_keys() const {
+    return {
+        "dropout.count",
+        "dropout.percentage",
+        "dropout.lines_affected"
+    };
+}
+
+void DropoutAnalysisDecoder::analyze_field(
+    const std::shared_ptr<VideoFieldRepresentation>& field,
+    ObservationContext& context) {
+    
+    // Extract actual dropout data from field
+    uint32_t dropout_count = count_dropouts_in_field(field);
+    double percentage = calculate_dropout_percentage(field, dropout_count);
+    
+    context.set("dropout", "count", static_cast<uint64_t>(dropout_count));
+    context.set("dropout", "percentage", percentage);
+    
+    // More analysis...
+}
+```
+
+**Files to Modify**:
+- `orc/core/observers/dropout_analysis_decoder.h/cpp` - Implement analyze_field()
+- `orc/core/observers/snr_analysis_decoder.h/cpp` - Implement analyze_field()
+- `orc/core/observers/burst_level_analysis_decoder.h/cpp` - Implement analyze_field()
+- `orc/core/include/video_field_representation.h` - Add methods to access raw field data
+- Unit tests for each decoder
+
+### 4.3 VBI Data Extraction
+
+**Status**: ⏳ NOT STARTED (Structural restore complete, data extraction needed)
+
+**Objective**: Implement actual VBI observation extraction from VideoFieldRepresentation.
+
+**Deliverables**:
+1. **VBIDecoder::decode_vbi() Implementation**
+   - Extract actual VBI data from field representation
+   - Populate observations for:
+     - VITC (vertical interval timecode)
+     - Closed captions
+     - WSS (widescreen signaling)
+     - Other VBI lines
+   - Handle corrupted or missing VBI data
+
+2. **VBI Observation Schema**
+   - `vitc.timecode` - Timecode string (HH:MM:SS:FF)
+   - `vitc.frame_number` - Frame number from VITC
+   - `cc.data` - Closed caption data
+   - `wss.data` - Widescreen signaling data
+
+**Files to Modify**:
+- `orc/core/observers/vbi_decoder.h/cpp` - Implement decode_vbi() with real extraction
+- `orc/core/render_coordinator.cpp` - Verify context is properly passed and populated
+- Unit tests for VBI extraction
+
+### 4.4 GUI Observation Display Implementation
+
+**Status**: ⏳ NOT STARTED (Placeholder restore complete, actual display needed)
+
+**Objective**: Implement GUI dialogs to display extracted observation data.
+
+**Deliverables**:
+1. **PulldownDialog**
+   - Display pulldown observation data from context
+   - Show motion adaptive flags
+   - Real-time update during playback
+   - Replace placeholder logging with actual UI updates
+
+2. **QualityMetricsDialog**
+   - Display dropout, SNR, burst level observations
+   - Show analysis decoder results
+   - Visualize metrics over time (graphs)
+   - Replace placeholder comment with actual data extraction
+
+3. **RenderCoordinator Integration**
+   - Create properly populated ObservationContext before passing to decoders
+   - Verify observations are accessible from GUI components
+   - Test data flow from render pipeline to UI
+
+**Implementation Details**:
+```cpp
+// Example for PulldownDialog
+void PulldownDialog::updatePulldownObservation(
+    const ObservationContext& context) {
+    
+    // Extract actual pulldown data
+    auto pulldown_info = context.get("pulldown", "pattern");
+    auto motion_adaptive = context.get("pulldown", "motion_adaptive");
+    
+    if (pulldown_info.has_value()) {
+        // Update UI with real data instead of placeholder
+        std::string pattern = std::get<std::string>(*pulldown_info);
+        ui->pulldownLabel->setText(QString::fromStdString(pattern));
+    }
+    
+    if (motion_adaptive.has_value()) {
+        bool is_adaptive = std::get<bool>(*motion_adaptive);
+        ui->motionAdaptiveCheckbox->setChecked(is_adaptive);
+    }
+}
+```
+
+**Files to Modify**:
+- `orc/gui/dialogs/pulldowndialog.h/cpp` - Implement real updatePulldownObservation()
+- `orc/gui/dialogs/qualitymetricsdialog.h/cpp` - Implement real observation extraction
+- `orc/gui/render_coordinator.cpp` - Ensure ObservationContext properly populated
+- Integration tests for GUI observation display
+
+### 4.5 Closed Caption Processing Restoration
+
+**Status**: ⏳ NOT STARTED (Stubbed in ffmpeg_output_backend)
+
+**Objective**: Re-enable closed caption extraction and output.
+
+**Deliverables**:
+1. Implement `ffmpeg_output_backend.cpp` closed caption export functions
+2. Extract CC data from VBI observations
+3. Write CC data to output files in proper format
+4. Add configuration for CC output control
+
+**Files to Modify**:
+- `orc/core/observers/ffmpeg_output_backend.cpp` - Implement CC export
+
+### 4.6 Field Mapping Restoration
+
+**Status**: ⏳ NOT STARTED
+
+**Objective**: Restore field mapping functionality for field management.
+
+**Deliverables**:
+1. Restore field mapping implementation
+2. Integrate with observation system
+3. Test field association and tracking
+
+**Files to Modify**:
+- `orc/core/stages/field_mapping_stage.h/cpp` - Restore implementation
+- Update with ObservationContext integration
+
+### 4.7 Source Align VBI Frame Number Extraction
+
+**Status**: ⏳ NOT STARTED (get_frame_number_from_vbi() stubbed)
+
+**Objective**: Implement frame number extraction from VBI data for source alignment.
+
+**Deliverables**:
+1. Extract frame number from VITC VBI data
+2. Populate observation for frame alignment
+3. Handle missing or corrupted frame numbers
+4. Validate frame number continuity
+
+**Files to Modify**:
+- `orc/core/stages/source_align_stage.cpp` - Implement get_frame_number_from_vbi()
+- Integrate with VBI observation system
+
+### 4.8 TBC Metadata Writer Implementation
+
+**Status**: ⏳ NOT STARTED (Stubbed, always returns true without writing)
+
+**Objective**: Implement actual metadata writing to TBC format.
+
+**Deliverables**:
+1. Extract observation data from context
+2. Format according to TBC metadata specification
+3. Write to metadata file or embedded in video
+4. Handle multiple observation types
+
+**Files to Modify**:
+- `orc/core/observers/tbc_metadata_writer.cpp` - Implement write_observations()
+
+### 4.9 Analysis Tool Instantiation
+
+**Status**: ⏳ NOT STARTED (Still disabled in analysis_init.cpp)
+
+**Objective**: Re-enable and test analysis tool creation.
+
+**Deliverables**:
+1. Uncomment analysis decoder instantiation in analysis_init.cpp
+2. Verify all analysis tools properly initialized with ObservationContext
+3. Add configuration control for which analysis tools are active
+4. Test with full pipeline
+
+**Files to Modify**:
+- `orc/core/stages/analysis_init.cpp` - Re-enable analysis tool instantiation
+- Add analysis tool configuration options
+
+### 4.10 Observer Configuration Schema System
+
+**Status**: ⏳ NOT STARTED
+
+**Objective**: Implement complete observer configuration and schema validation.
+
+**Deliverables**:
+1. Observer registration system with configuration validation
+2. Schema definition for each observer type
+3. Configuration application at pipeline build time
+4. Error messages for invalid configurations
+
+### 4.11 Phase 4 Acceptance Criteria
+
+- ✅ All analysis decoders return real data, not empty vectors
+- ✅ VBI extraction populates observations properly
+- ✅ GUI dialogs display real observation data
+- ✅ Closed caption processing functional
+- ✅ Field mapping restored and tested
+- ✅ TBC metadata writer functional
+- ✅ Source align VBI frame extraction working
+- ✅ Analysis tools instantiating properly
+- ✅ No placeholder implementations or logging remaining
+- ✅ All unit tests pass
+- ✅ Integration tests show data flowing through entire pipeline
+
+---
+
+## Phase 5: Testing & Documentation
+
+### 5.1 Unit Tests
 
 **Test Files**: `orc/core/tests/observation_context_test.cpp` (new)
 
@@ -755,7 +1036,7 @@ TEST(ObservationContextTest, SetAndGet) {
 }
 ```
 
-### 4.2 Integration Tests
+### 5.2 Integration Tests
 
 **Test Files**: `orc/core/tests/pipeline_integration_test.cpp`
 
@@ -797,7 +1078,7 @@ TEST(ObservationContextTest, SetAndGet) {
    - Write to different namespaces
    - Read doesn't cross namespace boundaries
 
-### 4.3 Regression Tests
+### 5.3 Regression Tests
 
 **Test Coverage**:
 1. **Existing Pipelines**: Still work after refactor
@@ -817,7 +1098,7 @@ TEST(ObservationContextTest, SetAndGet) {
 
 **Test Data**: Use existing test TBC files from project-examples/
 
-### 4.4 Architecture Documentation
+### 5.4 Architecture Documentation
 
 **File**: `tech-notes/observation-context-implementation.md` (new)
 
@@ -844,7 +1125,7 @@ Examples:
   pulldown.phase
 ```
 
-### 4.5 API Documentation
+### 5.5 API Documentation
 
 **Files**: Doxygen comments in all new/modified headers
 
@@ -901,7 +1182,7 @@ Examples:
 - Before/after code examples
 - Common migration issues and solutions
 
-### 4.6 User Documentation
+### 5.6 User Documentation
 
 **File**: `docs-user/wiki-default/observations.md` (update)
 
@@ -979,14 +1260,25 @@ Examples:
 17. ✅ Phase 3.3: Update DAGFieldRenderer
 18. ✅ Phase 4.1: Unit tests for all observers
 
-### Milestone 4: Integration & Polish (Week 7-8)
+### Milestone 4: Complete Core Implementation (Week 7-10)
 19. ✅ Phase 3.4: Update GUI/CLI to use ObservationContext
-20. ✅ Phase 4.2: Full integration tests
-21. ✅ Phase 4.3: Regression tests (ensure output quality unchanged)
-22. ✅ Phase 4.4-4.6: Complete all documentation
-23. ✅ Final review and release
+20. ⏳ Phase 4.1-4.11: Complete all data extraction and GUI integration
+   - Analysis decoder implementations
+   - VBI data extraction
+   - GUI observation display
+   - Closed caption processing
+   - Field mapping restoration
+   - TBC metadata writer
+   - Source align VBI frame extraction
+   - Analysis tool instantiation
 
-**Total Time: 7-8 weeks** (reduced from 9 phases to 4 focused phases)
+### Milestone 5: Testing & Documentation (Week 11-12)
+21. ⏳ Phase 5.1: Full integration tests
+22. ⏳ Phase 5.2: Regression tests (ensure output quality unchanged)
+23. ⏳ Phase 5.3-5.6: Complete all documentation
+24. ⏳ Final review and release
+
+**Total Time: 10-12 weeks** (phased approach with all infrastructure verified before testing)
 
 ---
 

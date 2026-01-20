@@ -9,6 +9,7 @@
 
 
 #include "dag_executor.h"
+#include "include/pipeline_validator.h"
 #include "logging.h"
 #include <algorithm>
 #include <set>
@@ -139,6 +140,33 @@ std::vector<ArtifactPtr> DAGExecutor::execute(const DAG& dag) {
     
     // Topological sort
     auto execution_order = topological_sort(dag);
+
+    // Validate observation dependencies across stages in execution order
+    {
+        std::vector<DAGStagePtr> stages_in_order;
+        stages_in_order.reserve(execution_order.size());
+        auto node_index = dag.build_node_index();
+        for (const auto& node_id : execution_order) {
+            const auto& node = dag.nodes()[node_index[node_id]];
+            stages_in_order.push_back(node.stage);
+        }
+        auto validation = PipelineValidator::validate_observation_dependencies(stages_in_order);
+        if (!validation.valid) {
+            std::ostringstream oss;
+            oss << "Observation dependency validation failed:\n";
+            for (const auto& err : validation.errors) {
+                oss << "  - " << err << "\n";
+            }
+            throw DAGExecutionError(oss.str());
+        }
+        // Register provided observation schema into the context for type checking
+        observation_context_.clear_schema();
+        for (const auto& stage : stages_in_order) {
+            if (stage) {
+                observation_context_.register_schema(stage->get_provided_observations());
+            }
+        }
+    }
     
     // Execute nodes in order
     std::map<NodeID, std::vector<ArtifactPtr>> node_outputs;

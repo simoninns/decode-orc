@@ -144,7 +144,9 @@ bool LDSinkStage::trigger(
     
     // Write TBC and metadata
     ORC_LOG_INFO("LDSink: Writing to '{}'", output_path);
-    bool success = write_tbc_and_metadata(representation.get(), output_path);
+    // Clear previous observations to avoid mixing runs
+    observation_context.clear();
+    bool success = write_tbc_and_metadata(representation.get(), output_path, observation_context);
     
     if (success) {
         auto range = representation->field_range();
@@ -166,7 +168,8 @@ std::string LDSinkStage::get_trigger_status() const
 
 bool LDSinkStage::write_tbc_and_metadata(
     const VideoFieldRepresentation* representation,
-    const std::string& tbc_path)
+    const std::string& tbc_path,
+    ObservationContext& observation_context)
 {
     // Ensure the path has .tbc extension
     std::string final_tbc_path = tbc_path;
@@ -235,7 +238,7 @@ bool LDSinkStage::write_tbc_and_metadata(
         
         size_t fields_processed = 0;
         
-        // Single pass: write TBC data and process metadata for each field
+        // Single pass: write TBC data, populate observations, and process metadata for each field
         for (FieldID field_id : field_ids) {
             // Check for cancellation
             if (cancel_requested_.load()) {
@@ -294,6 +297,15 @@ bool LDSinkStage::write_tbc_and_metadata(
                 field_meta.field_phase_id = phase_hint->field_phase_id;
             }
             
+            // Populate observation context with exported field information
+            try {
+                observation_context.set(field_id, "export", "seq_no", static_cast<int64_t>(field_meta.seq_no));
+                // Parity may be absent; treat as optional observation
+                observation_context.set(field_id, "export", "is_first_field", static_cast<bool>(field_meta.is_first_field));
+            } catch (const std::exception& e) {
+                ORC_LOG_WARN("LDSink: Failed to write observations for field {}: {}", field_id.value(), e.what());
+            }
+
             metadata_writer.write_field_metadata(field_meta);
             
             // Write dropout hints

@@ -16,6 +16,7 @@
 #include <variant>
 #include <optional>
 #include <cstdint>
+#include "observation_schema.h"
 
 namespace orc {
 
@@ -135,9 +136,31 @@ public:
      */
     void clear_field(FieldID field_id);
 
+    /**
+     * @brief Register observation schema entries to enable type validation
+     * 
+     * Stages should declare provided observations; the executor may
+     * aggregate and register them prior to execution. When a schema
+     * is registered, subsequent set() calls will be validated against
+     * the expected types. Unknown keys are allowed (to permit exploratory
+     * data), but if a key exists in the schema and the type mismatches,
+     * set() will throw std::invalid_argument.
+     */
+    void register_schema(const std::vector<ObservationKey>& keys);
+
+    /**
+     * @brief Clear all registered schema entries
+     */
+    void clear_schema();
+
 private:
     // Storage: field_id -> namespace -> key -> value
     std::map<FieldID, std::map<std::string, std::map<std::string, ObservationValue>>> observations_;
+
+    // Schema: (namespace,name) -> expected ObservationType
+    std::map<std::pair<std::string, std::string>, ObservationType> schema_;
+
+    static bool value_matches_type(const ObservationValue& v, ObservationType t);
 };
 
 } // namespace orc

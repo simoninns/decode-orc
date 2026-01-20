@@ -126,6 +126,12 @@ public:
     bool set_efm_file(const std::string& efm_path);
     
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
+
+    // VBI hint access from metadata (for GUI/diagnostics)
+    std::optional<VbiData> get_vbi_hint(FieldID id) const {
+        if (!metadata_reader_) return std::nullopt;
+        return metadata_reader_->read_vbi(id);
+    }
     
 private:
     // TBC-specific accessors - private to enforce architectural boundaries

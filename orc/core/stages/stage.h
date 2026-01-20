@@ -12,6 +12,8 @@
 #include "../include/artifact.h"
 #include "../include/node_type.h"
 #include "../include/stage_parameter.h"
+#include "../include/observation_context.h"
+#include "../include/observation_schema.h"
 #include <memory>
 #include <vector>
 #include <map>
@@ -73,14 +75,17 @@ public:
      * 
      * @param inputs Input artifacts (must match required_input_count)
      * @param parameters Configuration parameters (validated against NodeTypeInfo)
+     * @param observation_context Shared observation context for pipeline
      * @return Output artifacts (count matches output_count)
      * 
      * This method should be pure - same inputs and parameters always
-     * produce the same outputs. No side effects except through returned artifacts.
+     * produce the same outputs. No side effects except through returned artifacts
+     * and observations written to the context.
      */
     virtual std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context
     ) = 0;
     
     /**
@@ -109,6 +114,30 @@ public:
      */
     virtual std::optional<StageReport> generate_report() const {
         return std::nullopt;  // Default: no reporting support
+    }
+    
+    /**
+     * @brief Declare observations required for this stage to operate
+     * 
+     * Pipeline validation will ensure these observations are available
+     * before execution begins. Most stages don't require observations.
+     * 
+     * @return List of required observation keys
+     */
+    virtual std::vector<ObservationKey> get_required_observations() const {
+        return {}; // Default: no required observations
+    }
+    
+    /**
+     * @brief Declare observations provided by this stage
+     * 
+     * Stages may own observers and populate the context. This allows
+     * pipeline validation to know what observations will be available.
+     * 
+     * @return List of provided observation keys
+     */
+    virtual std::vector<ObservationKey> get_provided_observations() const {
+        return {}; // Default: no provided observations
     }
 };
 

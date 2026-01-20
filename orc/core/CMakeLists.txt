@@ -10,6 +10,11 @@ add_library(orc-core STATIC
     preview_renderer.cpp
     preview_helpers.cpp
     
+    # Observation system
+    observation_context.cpp
+    observer_config.cpp
+    pipeline_validator.cpp
+    
     # Logging
     logging.cpp
     

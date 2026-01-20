@@ -13,6 +13,7 @@
 #include "artifact.h"
 #include "node_id.h"
 #include "lru_cache.h"
+#include "observation_context.h"
 #include "../stages/stage.h"
 #include <memory>
 #include <vector>
@@ -131,14 +132,21 @@ public:
     bool is_cache_enabled() const { return cache_enabled_; }
     
     void clear_cache();
-    size_t cache_size() const { return artifact_cache_.size(); }
+    size_t cache_size() const { return artifact_cache_.size();    }
+    
+    // Observation context access
+    ObservationContext& get_observation_context() { return observation_context_; }
+    const ObservationContext& get_observation_context() const { return observation_context_; }
     
     // Progress callback (optional)
     using ProgressCallback = std::function<void(NodeID node_id, size_t current, size_t total)>;
     void set_progress_callback(ProgressCallback callback) { progress_callback_ = callback; }
-    
+
 private:
     bool cache_enabled_ = true;
+    
+    /// Observation context for this pipeline execution
+    ObservationContext observation_context_;
     
     /// LRU cache for artifact results
     /// Limit cache size to prevent unbounded memory growth during batch processing

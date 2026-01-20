@@ -282,7 +282,7 @@ std::vector<ArtifactPtr> DAGExecutor::get_cached_or_execute(
     
     // Execute stage
     ORC_LOG_DEBUG("Node '{}': Executing stage '{}'", node.node_id.to_string(), node.stage->get_node_type_info().stage_name);
-    auto outputs = node.stage->execute(inputs, node.parameters);
+    auto outputs = node.stage->execute(inputs, node.parameters, observation_context_);
     
     // Sink stages are allowed to return empty outputs (they consume inputs without producing outputs)
     bool is_sink = (node.stage->get_node_type_info().type == NodeType::SINK);

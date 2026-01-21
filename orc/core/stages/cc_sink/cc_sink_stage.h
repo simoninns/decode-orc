@@ -103,11 +103,13 @@ private:
     // Export functions
     bool export_scc(const VideoFieldRepresentation* vfr, 
                     const std::string& output_path,
-                    VideoFormat format);
+                    VideoFormat format,
+                    const ObservationContext& observation_context);
     
     bool export_plain_text(const VideoFieldRepresentation* vfr,
                           const std::string& output_path,
-                          VideoFormat format);
+                          VideoFormat format,
+                          const ObservationContext& observation_context);
     
     // Helper functions
     std::string generate_timestamp(int32_t field_index, VideoFormat format) const;

@@ -12,7 +12,7 @@
 // TODO: Observer system refactored - old observers removed
 #include "logging.h"
 #include "biphase_observer.h"
-#include "disc_quality_observer.h"
+#include "field_quality_observer.h"
 #include "burst_level_observer.h"
 #include "white_snr_observer.h"
 #include "black_psnr_observer.h"
@@ -202,8 +202,8 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         BiphaseObserver biphase_observer;
         biphase_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
-        DiscQualityObserver disc_quality_observer;
-        disc_quality_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        FieldQualityObserver field_quality_observer;
+        field_quality_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         BurstLevelObserver burst_level_observer;
         burst_level_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());

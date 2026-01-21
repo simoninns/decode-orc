@@ -36,6 +36,7 @@ void BlackPSNRObserver::process_field(
     // VITS black level locations (from ld-process-vits)
     // PAL: Line 22, 12μs start, 50μs length
     // NTSC: Line 1, 10μs start, 20μs length
+    // (Same line numbers for both top and bottom fields - using field-local line numbering)
     
     size_t line;
     double start_us;

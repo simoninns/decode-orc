@@ -36,6 +36,7 @@ void WhiteSNRObserver::process_field(
     // VITS white flag locations (from ld-process-vits)
     // PAL: Line 19, 12μs start, 8μs length
     // NTSC: Line 20 (14μs, 12μs), Line 20 (52μs, 8μs), Line 13 (13μs, 15μs)
+    // (Same line numbers for both top and bottom fields - using field-local line numbering)
     
     struct WhiteConfig {
         size_t line;
@@ -45,12 +46,17 @@ void WhiteSNRObserver::process_field(
     
     std::vector<WhiteConfig> configs;
     if (format == VideoFormat::PAL) {
-        configs = {{19, 12.0, 8.0}};
-    } else {
+        // PAL configurations (from ld-process-vits)
         configs = {
-            {20, 14.0, 12.0},
-            {20, 52.0, 8.0},
-            {13, 13.0, 15.0}
+            {19, 12.0, 8.0}  // Line 19, start 12µs, length 8µs
+        };
+    } else {
+        // NTSC: try primary VITS locations, then one-line offset to cover field-parity half-line differences
+        // NTSC configurations (from ld-process-vits); same lines for both fields (field-local numbering)
+        configs = {
+            {20, 14.0, 12.0}, // Line 20, start 14µs, length 12µs
+            {20, 52.0, 8.0},  // Line 20, start 52µs, length 8µs
+            {13, 13.0, 15.0}  // Line 13, start 13µs, length 15µs
         };
     }
     
@@ -64,6 +70,7 @@ void WhiteSNRObserver::process_field(
                                               config.line, config.start_us, config.length_us);
         
         if (white_slice.empty()) {
+            ORC_LOG_TRACE("WhiteSNRObserver: Field {} line {} slice empty", field_id.value(), config.line);
             continue;
         }
         
@@ -79,10 +86,13 @@ void WhiteSNRObserver::process_field(
             ORC_LOG_DEBUG("WhiteSNRObserver: Field {} snr={:.2f} dB (mean={:.1f} IRE, std={:.3f})",
                          field_id.value(), snr_db, white_mean, noise_std);
             return;
+        } else {
+            ORC_LOG_DEBUG("WhiteSNRObserver: Field {} line {} mean outside range ({:.1f} IRE)",
+                         field_id.value(), config.line, white_mean);
         }
     }
     
-    ORC_LOG_TRACE("WhiteSNRObserver: No valid white flag found for field {}", field_id.value());
+    ORC_LOG_DEBUG("WhiteSNRObserver: No valid white flag found for field {}", field_id.value());
 }
 
 std::vector<double> WhiteSNRObserver::get_line_slice_ire(

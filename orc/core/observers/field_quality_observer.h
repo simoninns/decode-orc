@@ -1,7 +1,7 @@
 /*
- * File:        disc_quality_observer.h
+ * File:        field_quality_observer.h
  * Module:      orc-core
- * Purpose:     Disc quality observer for field quality metrics
+ * Purpose:     Field quality observer for field quality metrics
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -31,12 +31,12 @@ class FieldID;
  * Used by disc mapping policy to choose best duplicate when multiple
  * fields have the same VBI frame number.
  */
-class DiscQualityObserver : public Observer {
+class FieldQualityObserver : public Observer {
 public:
-    DiscQualityObserver() = default;
+    FieldQualityObserver() = default;
     
     std::string observer_name() const override {
-        return "DiscQualityObserver";
+        return "FieldQualityObserver";
     }
     
     std::string observer_version() const override {

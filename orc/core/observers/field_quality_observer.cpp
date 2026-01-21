@@ -1,13 +1,13 @@
 /*
- * File:        disc_quality_observer.cpp
+ * File:        field_quality_observer.cpp
  * Module:      orc-core
- * Purpose:     Disc quality observer implementation
+ * Purpose:     Field quality observer implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "disc_quality_observer.h"
+#include "field_quality_observer.h"
 #include "observation_context.h"
 #include "video_field_representation.h"
 #include "field_id.h"
@@ -17,7 +17,7 @@
 
 namespace orc {
 
-void DiscQualityObserver::process_field(
+void FieldQualityObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
     ObservationContext& context) {
@@ -42,11 +42,11 @@ void DiscQualityObserver::process_field(
     context.set(field_id, "disc_quality", "dropout_count", static_cast<int32_t>(dropout_hints.size()));
     context.set(field_id, "disc_quality", "phase_valid", true);
     
-    ORC_LOG_DEBUG("DiscQualityObserver: Field {} quality={:.3f} dropouts={}",
+    ORC_LOG_DEBUG("FieldQualityObserver: Field {} quality={:.3f} dropouts={}",
                   field_id.value(), quality_score, dropout_hints.size());
 }
 
-double DiscQualityObserver::calculate_quality_score(
+double FieldQualityObserver::calculate_quality_score(
     const VideoFieldRepresentation& representation,
     FieldID field_id) const {
     

@@ -51,7 +51,7 @@ add_library(orc-core STATIC
     # observers/lead_in_out_observer.cpp
     # observers/dropout_analysis_observer.cpp
     # observers/snr_analysis_observer.cpp
-    observers/disc_quality_observer.cpp
+    observers/field_quality_observer.cpp
     
     # Analysis framework
     analysis/analysis_registry.cpp

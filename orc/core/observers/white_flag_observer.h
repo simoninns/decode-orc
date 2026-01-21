@@ -1,9 +1,3 @@
-/* Temporarily disabled - needs migration to new Observer API
- * See observer-refactor-implementation-plan.md Phase 1.7
- */
-
-#pragma once
-
 /*
  * File:        white_flag_observer.h
  * Module:      orc-core
@@ -12,6 +6,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
+
+#pragma once
 
 #include "observer.h"
 
@@ -44,6 +40,3 @@ public:
 };
 
 } // namespace orc
-
-// This observer has been disabled during refactoring
-// It will be migrated to the new ObservationContext API in Phase 1.7

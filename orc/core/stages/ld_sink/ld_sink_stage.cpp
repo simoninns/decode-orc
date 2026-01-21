@@ -14,9 +14,17 @@
 #include "tbc_metadata_writer.h"
 #include "buffered_file_io.h"
 #include "logging.h"
+#include "biphase_observer.h"
+#include "closed_caption_observer.h"
+#include "fm_code_observer.h"
+#include "white_flag_observer.h"
+#include "white_snr_observer.h"
+#include "black_psnr_observer.h"
+#include "burst_level_observer.h"
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <memory>
 
 namespace orc {
 
@@ -233,6 +241,19 @@ bool LDSinkStage::write_tbc_and_metadata(
         
         ORC_LOG_DEBUG("Processing {} fields (TBC + metadata) in single pass", field_ids.size());
         
+        // Create vector of observers
+        // Note: VideoIdObserver and VitcObserver have been removed from the new architecture
+        std::vector<std::shared_ptr<Observer>> observers;
+        observers.push_back(std::make_shared<BiphaseObserver>());
+        observers.push_back(std::make_shared<ClosedCaptionObserver>());
+        observers.push_back(std::make_shared<FmCodeObserver>());
+        observers.push_back(std::make_shared<WhiteFlagObserver>());
+        observers.push_back(std::make_shared<WhiteSNRObserver>());
+        observers.push_back(std::make_shared<BlackPSNRObserver>());
+        observers.push_back(std::make_shared<BurstLevelObserver>());
+        
+        ORC_LOG_DEBUG("Instantiated {} observers for metadata extraction", observers.size());
+        
         // Begin transaction for metadata writes
         metadata_writer.begin_transaction();
         
@@ -308,6 +329,14 @@ bool LDSinkStage::write_tbc_and_metadata(
 
             metadata_writer.write_field_metadata(field_meta);
             
+            // ===== Run observers to populate observation context =====
+            for (const auto& observer : observers) {
+                observer->process_field(*representation, field_id, observation_context);
+            }
+            
+            // Write observations to metadata
+            metadata_writer.write_observations(field_id, observation_context);
+            
             // Write dropout hints
             auto dropout_hints = representation->get_dropout_hints(field_id);
             for (const auto& hint : dropout_hints) {
@@ -317,9 +346,6 @@ bool LDSinkStage::write_tbc_and_metadata(
                 dropout.end_sample = hint.end_sample;
                 metadata_writer.write_dropout(field_id, dropout);
             }
-            
-            // TODO: Observations will be written once observer migration to ObservationContext is complete
-            // metadata_writer.write_observations(field_id, {});
             
             fields_processed++;
             

@@ -15,7 +15,6 @@
 #include "ld_sink_stage.h"  // For TriggerableStage
 #include "observation_context.h"
 #include "../core/include/vbi_decoder.h"
-#include "../core/include/tbc_video_field_representation.h"
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -435,40 +434,36 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
                   req.node_id.to_string(), req.field_id.value(), req.request_id);
     
     try {
-        // Prefer VBI hints from source metadata if available
+        // Try to get VBI hints from field representation (available for TBC sources)
         if (!worker_obs_cache_) {
             ORC_LOG_WARN("RenderCoordinator: Observation cache not initialized; cannot access VBI hints");
         } else {
             auto field_opt = worker_obs_cache_->get_field(req.node_id, req.field_id);
             if (field_opt && *field_opt) {
                 auto vfr = *field_opt;
-                // Try dynamic cast to TBC source to access VBI metadata hint
-                auto tbc_vfr = std::dynamic_pointer_cast<const orc::TBCVideoFieldRepresentation>(vfr);
-                if (tbc_vfr) {
-                    auto vbi_hint = tbc_vfr->get_vbi_hint(req.field_id);
-                    if (vbi_hint && vbi_hint->in_use) {
-                        orc::VBIFieldInfo info;
-                        info.field_id = req.field_id;
-                        info.has_vbi_data = true;
-                        info.vbi_data = vbi_hint->vbi_data;
-                        ORC_LOG_DEBUG("RenderCoordinator: VBI hint delivered from metadata for field {}", req.field_id.value());
-                        emit vbiDataReady(req.request_id, info);
+                // Use the base interface to get VBI hint - works for any source that provides it
+                auto vbi_hint = vfr->get_vbi_hint(req.field_id);
+                if (vbi_hint && vbi_hint->in_use) {
+                    // Use VBI hint to populate context
+                    orc::ObservationContext obs_context;
+                    obs_context.set(req.field_id, "biphase", "vbi_line_16", static_cast<int32_t>(vbi_hint->vbi_data[0]));
+                    obs_context.set(req.field_id, "biphase", "vbi_line_17", static_cast<int32_t>(vbi_hint->vbi_data[1]));
+                    obs_context.set(req.field_id, "biphase", "vbi_line_18", static_cast<int32_t>(vbi_hint->vbi_data[2]));
+                    
+                    // Decode VBI from context
+                    auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
+                    if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
+                        ORC_LOG_DEBUG("RenderCoordinator: VBI decoded from metadata hint for field {}", req.field_id.value());
+                        emit vbiDataReady(req.request_id, vbi_info_opt.value());
                         return;
                     }
                 }
             }
         }
 
-        // Fallback: ObservationContext-based decoding (requires observers to populate)
-        orc::ObservationContext obs_context;
-        auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
-        if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
-            ORC_LOG_DEBUG("RenderCoordinator: VBI decode complete from ObservationContext");
-            emit vbiDataReady(req.request_id, vbi_info_opt.value());
-        } else {
-            ORC_LOG_DEBUG("VBIDecoder: No VBI data found for field {}", req.field_id.value());
-            emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
-        }
+        // Fallback: Return empty VBI data
+        ORC_LOG_DEBUG("RenderCoordinator: No VBI data available for field {}", req.field_id.value());
+        emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());

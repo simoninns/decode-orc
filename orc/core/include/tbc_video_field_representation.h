@@ -128,7 +128,7 @@ public:
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
 
     // VBI hint access from metadata (for GUI/diagnostics)
-    std::optional<VbiData> get_vbi_hint(FieldID id) const {
+    std::optional<VbiData> get_vbi_hint(FieldID id) const override {
         if (!metadata_reader_) return std::nullopt;
         return metadata_reader_->read_vbi(id);
     }

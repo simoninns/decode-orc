@@ -834,19 +834,13 @@ void DropoutAnalysisDecoder::analyze_field(
 **Objective**: Implement GUI dialogs to display extracted observation data.
 
 **Deliverables**:
-1. **PulldownDialog**
-   - Display pulldown observation data from context
-   - Show motion adaptive flags
-   - Real-time update during playback
-   - Replace placeholder logging with actual UI updates
-
-2. **QualityMetricsDialog**
+1. **QualityMetricsDialog**
    - Display dropout, SNR, burst level observations
    - Show analysis decoder results
    - Visualize metrics over time (graphs)
    - Replace placeholder comment with actual data extraction
 
-3. **RenderCoordinator Integration**
+2. **RenderCoordinator Integration**
    - Create properly populated ObservationContext before passing to decoders
    - Verify observations are accessible from GUI components
    - Test data flow from render pipeline to UI

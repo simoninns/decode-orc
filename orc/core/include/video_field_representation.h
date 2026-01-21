@@ -200,6 +200,19 @@ public:
         return std::nullopt;  // Default: no parameters
     }
     
+    /**
+     * @brief Get VBI hint data if available
+     * 
+     * Returns raw VBI (Vertical Blanking Interval) data extracted from metadata.
+     * Only available for TBC sources; returns empty optional for other sources.
+     * 
+     * @param id Field ID
+     * @return VBI data if available, std::nullopt otherwise
+     */
+    virtual std::optional<VbiData> get_vbi_hint(FieldID /*id*/) const {
+        return std::nullopt;  // Default: no VBI data
+    }
+    
     // ========================================================================
     // OBSERVATIONS - Analysis results from orc-core stages
     // ========================================================================
@@ -374,6 +387,10 @@ public:
     
     std::optional<VideoParameters> get_video_parameters() const override {
         return cached_video_params_;
+    }
+    
+    std::optional<VbiData> get_vbi_hint(FieldID id) const override {
+        return source_ ? source_->get_vbi_hint(id) : std::nullopt;
     }
     
     // Automatically propagate observations through the chain

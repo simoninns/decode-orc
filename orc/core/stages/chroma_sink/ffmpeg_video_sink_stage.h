@@ -70,6 +70,12 @@ public:
     
     // Override set_parameters to restrict output format to FFmpeg formats only
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+    
+    // Override trigger to support closed caption extraction from observations
+    bool trigger(
+        const std::vector<ArtifactPtr>& inputs,
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context) override;
 };
 
 } // namespace orc

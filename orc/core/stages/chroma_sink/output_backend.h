@@ -60,6 +60,7 @@ public:
         
         // Closed caption settings (MP4 only, converts EIA-608 to mov_text)
         bool embed_closed_captions = false;     ///< Embed closed captions as mov_text subtitle (MP4 only)
+        const class ObservationContext* observation_context = nullptr;  ///< Observation context with CC data (if embed_closed_captions=true)
     };
     
     /**

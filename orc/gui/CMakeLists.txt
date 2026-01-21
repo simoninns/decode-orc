@@ -74,9 +74,9 @@ add_executable(orc-gui WIN32
     hintsdialog.cpp
     hintsdialog.h
     
-    # Pulldown dialog
-    pulldowndialog.cpp
-    pulldowndialog.h
+    # NTSC observer dialog
+    ntscobserverdialog.cpp
+    ntscobserverdialog.h
     
     # Plot widget
     plotwidget.cpp

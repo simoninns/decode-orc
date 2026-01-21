@@ -12,10 +12,13 @@
 // TODO: Observer system refactored - old observers removed
 #include "logging.h"
 #include "biphase_observer.h"
+#include "fm_code_observer.h"
 #include "field_quality_observer.h"
 #include "burst_level_observer.h"
 #include "white_snr_observer.h"
 #include "black_psnr_observer.h"
+#include "closed_caption_observer.h"
+#include "white_flag_observer.h"
 #include <sstream>
 #include <algorithm>
 
@@ -202,6 +205,12 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         BiphaseObserver biphase_observer;
         biphase_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
+        FmCodeObserver fm_code_observer;
+        fm_code_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        WhiteFlagObserver white_flag_observer;
+        white_flag_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
         FieldQualityObserver field_quality_observer;
         field_quality_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
@@ -213,6 +222,9 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         
         BlackPSNRObserver black_psnr_observer;
         black_psnr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+
+        ClosedCaptionObserver closed_caption_observer;
+        closed_caption_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully with observations", 
                      node_id.to_string(), field_id.to_string());

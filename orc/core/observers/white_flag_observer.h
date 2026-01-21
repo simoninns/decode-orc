@@ -4,5 +4,46 @@
 
 #pragma once
 
+/*
+ * File:        white_flag_observer.h
+ * Module:      orc-core
+ * Purpose:     White flag observer (NTSC line 11)
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
+ */
+
+#include "observer.h"
+
+namespace orc {
+
+/**
+ * @brief Observer for LaserDisc white flag (NTSC line 11).
+ *
+ * Observations (namespace "white_flag"):
+ * - present (bool, optional): true when white flag detected on the field
+ */
+class WhiteFlagObserver : public Observer {
+public:
+	WhiteFlagObserver() = default;
+	~WhiteFlagObserver() override = default;
+    
+	std::string observer_name() const override { return "WhiteFlagObserver"; }
+	std::string observer_version() const override { return "1.0.0"; }
+    
+	void process_field(
+		const VideoFieldRepresentation& representation,
+		FieldID field_id,
+		ObservationContext& context) override;
+    
+	std::vector<ObservationKey> get_provided_observations() const override {
+		return {
+			{"white_flag", "present", ObservationType::BOOL, "White flag detected", true},
+		};
+	}
+};
+
+} // namespace orc
+
 // This observer has been disabled during refactoring
 // It will be migrated to the new ObservationContext API in Phase 1.7

@@ -59,7 +59,7 @@ public:
     QComboBox* signalCombo() { return signal_combo_; }  ///< Get signal selector (Y/C/Y+C for YC sources)
     QLabel* signalLabel() { return signal_label_; }  ///< Get signal label
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }  ///< Get aspect ratio selector
-    QAction* pulldownAction() { return show_pulldown_action_; }  ///< Get pulldown menu action
+    QAction* ntscObserverAction() { return show_ntsc_observer_action_; }  ///< Get NTSC observer menu action
     QPushButton* dropoutsButton() { return dropouts_button_; }  ///< Get dropouts button for state control
     /// @}
     
@@ -127,7 +127,7 @@ Q_SIGNALS:
     void showVBIDialogRequested();  // Emitted when VBI Decoder menu item selected
     void showHintsDialogRequested();  // Emitted when Hints menu item selected
     void showQualityMetricsDialogRequested();  // Emitted when Quality Metrics menu item selected
-    void showPulldownDialogRequested();  // Emitted when Pulldown Observer menu item selected
+    void showNtscObserverDialogRequested();  // Emitted when NTSC Observer menu item selected
     void showDropoutsChanged(bool show);  // Emitted when dropout visibility changes
     void lineScopeRequested(int image_x, int image_y);  // Emitted when user clicks a line
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);  // Emitted when navigating lines
@@ -156,7 +156,7 @@ private:
     QAction* show_vbi_action_;
     QAction* show_hints_action_;
     QAction* show_quality_metrics_action_;
-    QAction* show_pulldown_action_;
+    QAction* show_ntsc_observer_action_;
     LineScopeDialog* line_scope_dialog_;
     
     // Current line scope context for cross-hair updates

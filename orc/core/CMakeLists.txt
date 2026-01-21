@@ -38,19 +38,12 @@ add_library(orc-core STATIC
     # TODO: Old observers temporarily disabled during refactor
     # observers/observation_history.cpp
     observers/biphase_observer.cpp
-    # observers/vitc_observer.cpp
-    # observers/closed_caption_observer.cpp
-    # observers/video_id_observer.cpp
-    # observers/fm_code_observer.cpp
-    # observers/white_flag_observer.cpp
-    # observers/vits_observer.cpp
+    observers/closed_caption_observer.cpp
+    observers/fm_code_observer.cpp
+    observers/white_flag_observer.cpp
     observers/burst_level_observer.cpp
     observers/white_snr_observer.cpp
     observers/black_psnr_observer.cpp
-    # observers/pulldown_observer.cpp
-    # observers/lead_in_out_observer.cpp
-    # observers/dropout_analysis_observer.cpp
-    # observers/snr_analysis_observer.cpp
     observers/field_quality_observer.cpp
     
     # Analysis framework

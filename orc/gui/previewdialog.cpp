@@ -70,9 +70,9 @@ void PreviewDialog::setupUI()
     show_quality_metrics_action_->setShortcut(QKeySequence("Ctrl+Q"));
     connect(show_quality_metrics_action_, &QAction::triggered, this, &PreviewDialog::showQualityMetricsDialogRequested);
     
-    show_pulldown_action_ = observersMenu->addAction("&Pulldown Observer");
-    show_pulldown_action_->setShortcut(QKeySequence("Ctrl+P"));
-    connect(show_pulldown_action_, &QAction::triggered, this, &PreviewDialog::showPulldownDialogRequested);
+    show_ntsc_observer_action_ = observersMenu->addAction("&NTSC Observer");
+    show_ntsc_observer_action_->setShortcut(QKeySequence("Ctrl+N"));
+    connect(show_ntsc_observer_action_, &QAction::triggered, this, &PreviewDialog::showNtscObserverDialogRequested);
     
     auto* hintsMenu = menu_bar_->addMenu("&Hints");
     show_hints_action_ = hintsMenu->addAction("&Video Parameter Hints");

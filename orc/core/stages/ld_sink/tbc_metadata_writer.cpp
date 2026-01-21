@@ -8,7 +8,6 @@
  */
 
 #include "tbc_metadata_writer.h"
-#include "vitc_observer.h"
 #include "biphase_observer.h"
 #include "closed_caption_observer.h"
 #include "white_snr_observer.h"

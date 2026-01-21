@@ -31,7 +31,7 @@ class OrcGraphicsView;
 class PreviewDialog;
 class VBIDialog;
 class HintsDialog;
-class PulldownDialog;
+class NtscObserverDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
@@ -120,8 +120,8 @@ private slots:
     void updateHintsDialog();
     void onShowQualityMetricsDialog();
     void updateQualityMetricsDialog();
-    void onShowPulldownDialog();
-    void updatePulldownDialog();
+    void onShowNtscObserverDialog();
+    void updateNtscObserverDialog();
     void onLineScopeRequested(int image_x, int image_y);
     void onLineScopeRefreshAtFieldLine();  ///< Refresh line scope at stored field/line (for frame changes)
     void onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
@@ -217,7 +217,7 @@ private:
     QualityMetricsDialog* quality_metrics_dialog_;
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
-    PulldownDialog* pulldown_dialog_;
+    NtscObserverDialog* ntsc_observer_dialog_;
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
     std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;
     std::unordered_map<orc::NodeID, BurstLevelAnalysisDialog*> burst_level_analysis_dialogs_;

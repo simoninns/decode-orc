@@ -14,7 +14,7 @@
 #include "linescopedialog.h"
 #include "vbidialog.h"
 #include "hintsdialog.h"
-#include "pulldowndialog.h"
+#include "ntscobserverdialog.h"
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
@@ -79,7 +79,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_dialog_(nullptr)
     , vbi_dialog_(nullptr)
-    , pulldown_dialog_(nullptr)
+    , ntsc_observer_dialog_(nullptr)
     , dag_view_(nullptr)
     , dag_model_(nullptr)
     , dag_scene_(nullptr)
@@ -189,9 +189,9 @@ MainWindow::~MainWindow()
         delete vbi_dialog_;
         vbi_dialog_ = nullptr;
     }
-    if (pulldown_dialog_) {
-        delete pulldown_dialog_;
-        pulldown_dialog_ = nullptr;
+    if (ntsc_observer_dialog_) {
+        delete ntsc_observer_dialog_;
+        ntsc_observer_dialog_ = nullptr;
     }
     if (preview_dialog_) {
         delete preview_dialog_;
@@ -254,8 +254,8 @@ void MainWindow::setupUI()
     // Create hints dialog (initially hidden)
     hints_dialog_ = new HintsDialog(this);
     
-    // Create pulldown dialog (initially hidden)
-    pulldown_dialog_ = new PulldownDialog(this);
+    // Create NTSC observer dialog (initially hidden)
+    ntsc_observer_dialog_ = new NtscObserverDialog(this);
     
     // Note: Dropout, SNR, and Burst Level analysis dialogs are now created per-stage
     // in runAnalysisForNode() to allow each stage to have its own independent dialog
@@ -307,8 +307,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onShowHintsDialog);
     connect(preview_dialog_, &PreviewDialog::showQualityMetricsDialogRequested,
             this, &MainWindow::onShowQualityMetricsDialog);
-    connect(preview_dialog_, &PreviewDialog::showPulldownDialogRequested,
-            this, &MainWindow::onShowPulldownDialog);
+    connect(preview_dialog_, &PreviewDialog::showNtscObserverDialogRequested,
+            this, &MainWindow::onShowNtscObserverDialog);
     connect(preview_dialog_, &PreviewDialog::lineScopeRequested,
             this, &MainWindow::onLineScopeRequested);
     connect(preview_dialog_, &PreviewDialog::lineNavigationRequested,
@@ -564,8 +564,8 @@ void MainWindow::closeAllDialogs()
     if (hints_dialog_ && hints_dialog_->isVisible()) {
         hints_dialog_->hide();
     }
-    if (pulldown_dialog_ && pulldown_dialog_->isVisible()) {
-        pulldown_dialog_->hide();
+    if (ntsc_observer_dialog_ && ntsc_observer_dialog_->isVisible()) {
+        ntsc_observer_dialog_->hide();
     }
     if (quality_metrics_dialog_ && quality_metrics_dialog_->isVisible()) {
         quality_metrics_dialog_->hide();
@@ -1288,11 +1288,11 @@ void MainWindow::updatePreviewInfo()
         return;
     }
     
-    // Update pulldown observer menu item availability (only for NTSC)
-    // Pulldown is NTSC-specific (3:2 pulldown for film conversion)
+    // Update NTSC observer menu item availability (only for NTSC)
+    // NTSC observers (FM code, white flag) are NTSC-specific
     auto video_format = project_.coreProject().get_video_format();
     bool is_ntsc = (video_format == orc::VideoSystem::NTSC);
-    preview_dialog_->pulldownAction()->setEnabled(is_ntsc);
+    preview_dialog_->ntscObserverAction()->setEnabled(is_ntsc);
     
     // Get detailed display info from core
     int current_index = preview_dialog_->previewSlider()->value();
@@ -2952,19 +2952,19 @@ void MainWindow::onShowQualityMetricsDialog()
     updateQualityMetricsDialog();
 }
 
-void MainWindow::onShowPulldownDialog()
+void MainWindow::onShowNtscObserverDialog()
 {
-    if (!pulldown_dialog_) {
+    if (!ntsc_observer_dialog_) {
         return;
     }
     
     // Show the dialog first
-    pulldown_dialog_->show();
-    pulldown_dialog_->raise();
-    pulldown_dialog_->activateWindow();
+    ntsc_observer_dialog_->show();
+    ntsc_observer_dialog_->raise();
+    ntsc_observer_dialog_->activateWindow();
     
-    // Update pulldown information after showing
-    updatePulldownDialog();
+    // Update NTSC observer information after showing
+    updateNtscObserverDialog();
 }
 
 void MainWindow::updateQualityMetricsDialog()
@@ -3081,7 +3081,7 @@ void MainWindow::updateAllPreviewComponents()
     updateVBIDialog();
     updateHintsDialog();
     updateQualityMetricsDialog();
-    updatePulldownDialog();
+    updateNtscObserverDialog();
     
     // Notify line scope dialog that preview frame has changed
     // Line scope will refresh samples at its current field/line position via orc-core
@@ -3235,16 +3235,16 @@ void MainWindow::updateHintsDialog()
     }
 }
 
-void MainWindow::updatePulldownDialog()
+void MainWindow::updateNtscObserverDialog()
 {
-    // Only update if pulldown dialog is visible
-    if (!pulldown_dialog_ || !pulldown_dialog_->isVisible()) {
+    // Only update if NTSC observer dialog is visible
+    if (!ntsc_observer_dialog_ || !ntsc_observer_dialog_->isVisible()) {
         return;
     }
     
     // Get current field being displayed
     if (!current_view_node_id_.is_valid()) {
-        pulldown_dialog_->clearPulldownInfo();
+        ntsc_observer_dialog_->clearObservations();
         return;
     }
     
@@ -3256,49 +3256,66 @@ void MainWindow::updatePulldownDialog()
                          current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
                          current_output_type_ == orc::PreviewOutputType::Split);
     
-    // Get field ID from core library (handles field ordering correctly)
-    orc::FieldID field_id;
+    // Get field IDs from core library (handles field ordering correctly)
+    orc::FieldID field1_id;
+    orc::FieldID field2_id;
+    
     if (is_frame_mode) {
-        // Use core library to determine first field of frame
+        // Use core library to determine which fields make up this frame
         auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
         if (!frame_fields.is_valid) {
-            pulldown_dialog_->clearPulldownInfo();
+            ntsc_observer_dialog_->clearObservations();
             return;
         }
-        field_id = orc::FieldID(frame_fields.first_field);
+        field1_id = orc::FieldID(frame_fields.first_field);
+        field2_id = orc::FieldID(frame_fields.second_field);
     } else {
         // Field mode - simple mapping
-        field_id = orc::FieldID(current_index);
+        field1_id = orc::FieldID(current_index);
+        field2_id = orc::FieldID(0);
     }
     
-    // Get pulldown observation from the current DAG/node
+    // Get NTSC observations from the current DAG/node
     try {
         auto dag = project_.getDAG();
         if (!dag) {
-            pulldown_dialog_->clearPulldownInfo();
+            ntsc_observer_dialog_->clearObservations();
             return;
         }
         
-        // Create a temporary renderer to get the field representation
+        // Create a temporary renderer to get the observation context
         orc::DAGFieldRenderer renderer(dag);
         
-        // Render the field at the current node
-        auto render_result = renderer.render_field_at_node(current_view_node_id_, field_id);
-        
-        if (!render_result.is_valid || !render_result.representation) {
-            pulldown_dialog_->clearPulldownInfo();
-            return;
+        if (is_frame_mode) {
+            // Render both fields for frame mode
+            auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
+            
+            if (!render_result1.is_valid || !render_result2.is_valid) {
+                ntsc_observer_dialog_->clearObservations();
+                return;
+            }
+            
+            // Get observation context and update dialog with both fields
+            const auto& context = renderer.get_observation_context();
+            ntsc_observer_dialog_->updateObservationsForFrame(field1_id, field2_id, context);
+        } else {
+            // Render single field
+            auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            
+            if (!render_result.is_valid || !render_result.representation) {
+                ntsc_observer_dialog_->clearObservations();
+                return;
+            }
+            
+            // Get observation context and update dialog
+            const auto& context = renderer.get_observation_context();
+            ntsc_observer_dialog_->updateObservations(field1_id, context);
         }
         
-        // PulldownObservation has been removed as part of observer refactor
-        // Pulldown information is no longer available in this context
-        ORC_LOG_DEBUG("Pulldown observation information not available (observer refactor)");
-        pulldown_dialog_->updatePulldownObservation();
-        pulldown_dialog_->clearPulldownInfo();
-        
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Failed to get pulldown observation: {}", e.what());
-        pulldown_dialog_->clearPulldownInfo();
+        ORC_LOG_ERROR("Failed to get NTSC observations: {}", e.what());
+        ntsc_observer_dialog_->clearObservations();
     }
 }
 void MainWindow::onLineScopeRequested(int image_x, int image_y)

@@ -144,7 +144,7 @@ add_library(orc-core STATIC
     project_to_dag.cpp
 )
 
-target_include_directories(orc-core PUBLIC
+target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/analysis

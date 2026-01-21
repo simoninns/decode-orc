@@ -9,6 +9,7 @@ target_link_libraries(orc-cli PRIVATE orc-core)
 target_include_directories(orc-cli PRIVATE 
     ${CMAKE_SOURCE_DIR}/orc/core/include
     ${CMAKE_SOURCE_DIR}/orc/core
+    ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
     ${CMAKE_BINARY_DIR}/generated
 )
 

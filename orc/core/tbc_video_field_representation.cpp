@@ -403,13 +403,6 @@ std::optional<ActiveLineHint> TBCVideoFieldRepresentation::get_active_line_hint(
     return std::nullopt;
 }
 
-std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {
-    // TODO: Observer system refactored - observers now run within stages via ObservationContext
-    // This method is deprecated and will be removed once migration is complete
-    // For now, return empty observations
-    return {};
-}
-
 // ============================================================================
 // Cumulative offset computation
 // ============================================================================

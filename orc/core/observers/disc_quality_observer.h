@@ -15,27 +15,15 @@
 
 namespace orc {
 
-/**
- * @brief Observation for disc quality metrics
- */
-class DiscQualityObservation : public Observation {
-public:
-    double quality_score = 0.0;  // 0.0 (worst) to 1.0 (best)
-    
-    // Contributing factors (for diagnostics)
-    size_t dropout_count = 0;
-    double snr_estimate = 0.0;
-    bool has_valid_phase = true;
-    
-    std::string observation_type() const override {
-        return "DiscQuality";
-    }
-};
+// Forward declarations
+class ObservationContext;
+class VideoFieldRepresentation;
+class FieldID;
 
 /**
  * @brief Observer for field quality analysis
  * 
- * Calculates a quality score for each field based on:
+ * Calculates quality metrics for each field based on:
  * - Dropout count/density
  * - Phase correctness
  * - Signal-to-noise estimates (if available)
@@ -55,26 +43,33 @@ public:
         return "1.0.0";
     }
     
-    std::vector<std::shared_ptr<Observation>> process_field(
+    void process_field(
         const VideoFieldRepresentation& representation,
         FieldID field_id,
-        const ObservationHistory& history) override;
+        ObservationContext& context) override;
+    
+    std::vector<ObservationKey> get_provided_observations() const override {
+        return {
+            {"disc_quality", "quality_score", ObservationType::DOUBLE, "Field quality score 0.0-1.0"},
+            {"disc_quality", "dropout_count", ObservationType::INT32, "Number of dropouts detected"},
+            {"disc_quality", "phase_valid", ObservationType::BOOL, "Phase correctness indicator"},
+        };
+    }
 
 private:
     /**
-     * @brief Calculate quality score from observations and hints
+     * @brief Calculate quality score from field data
      * 
      * Combines multiple quality indicators:
-     * - Dropout density (from hints)
-     * - Phase correctness (from observations)
-     * - SNR metrics (from VITS if available)
+     * - Dropout density
+     * - Phase correctness
+     * - Signal metrics
      * 
      * @return Quality score 0.0-1.0
      */
     double calculate_quality_score(
         const VideoFieldRepresentation& representation,
-        FieldID field_id,
-        const ObservationHistory& history) const;
+        FieldID field_id) const;
 };
 
 } // namespace orc

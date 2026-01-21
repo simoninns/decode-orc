@@ -9,6 +9,7 @@
 
 #include "qualitymetricsdialog.h"
 #include "../core/include/video_field_representation.h"
+#include "../core/include/observation_context.h"
 #include "../core/include/node_id.h"
 #include "../core/analysis/dropout/dropout_analysis_decoder.h"
 #include "../core/analysis/snr/snr_analysis_decoder.h"
@@ -396,4 +397,97 @@ void QualityMetricsDialog::setAnalysisDecoders(
     burst_level_decoder_ = burst_level_decoder;
     
     ORC_LOG_DEBUG("QualityMetricsDialog: Analysis decoders updated for node '{}'", node_id.to_string());
+}
+
+void QualityMetricsDialog::updateMetricsFromContext(
+    orc::FieldID field_id,
+    const orc::ObservationContext& obs_context)
+{
+    showing_frame_mode_ = false;
+    field1_group_->show();
+    field2_group_->hide();
+    frame_group_->hide();
+    field1_group_->setTitle("Field");
+    
+    FieldMetrics metrics = extractMetricsFromContext(field_id, obs_context);
+    updateFieldLabels(metrics, true);
+}
+
+void QualityMetricsDialog::updateMetricsForFrameFromContext(
+    orc::FieldID field1_id,
+    orc::FieldID field2_id,
+    const orc::ObservationContext& obs_context)
+{
+    showing_frame_mode_ = true;
+    field1_group_->show();
+    field2_group_->show();
+    frame_group_->show();
+    field1_group_->setTitle("Field 1");
+    
+    FieldMetrics field1_metrics = extractMetricsFromContext(field1_id, obs_context);
+    FieldMetrics field2_metrics = extractMetricsFromContext(field2_id, obs_context);
+    
+    updateFieldLabels(field1_metrics, true);
+    updateFieldLabels(field2_metrics, false);
+    updateFrameAverageLabels(field1_metrics, field2_metrics);
+}
+
+QualityMetricsDialog::FieldMetrics QualityMetricsDialog::extractMetricsFromContext(
+    orc::FieldID field_id,
+    const orc::ObservationContext& obs_context)
+{
+    FieldMetrics metrics;
+    
+    ORC_LOG_DEBUG("QualityMetricsDialog: Extracting metrics from context for field {}", field_id.value());
+    
+    // Extract disc quality metrics from observation context
+    auto quality_score_opt = obs_context.get(field_id, "disc_quality", "quality_score");
+    if (quality_score_opt) {
+        metrics.quality_score = std::get<double>(*quality_score_opt);
+        metrics.has_quality_score = true;
+        ORC_LOG_DEBUG("QualityMetricsDialog: Found quality_score = {}", metrics.quality_score);
+    } else {
+        ORC_LOG_DEBUG("QualityMetricsDialog: No quality_score found in context");
+    }
+    
+    auto dropout_count_opt = obs_context.get(field_id, "disc_quality", "dropout_count");
+    if (dropout_count_opt) {
+        metrics.dropout_count = std::get<int32_t>(*dropout_count_opt);
+        metrics.has_dropout_count = true;
+        ORC_LOG_DEBUG("QualityMetricsDialog: Found dropout_count = {}", metrics.dropout_count);
+    } else {
+        ORC_LOG_DEBUG("QualityMetricsDialog: No dropout_count found in context");
+    }
+    
+    // Extract burst level from observation context
+    auto burst_level_opt = obs_context.get(field_id, "burst_level", "median_burst_ire");
+    if (burst_level_opt) {
+        metrics.burst_level = std::get<double>(*burst_level_opt);
+        metrics.has_burst_level = true;
+        ORC_LOG_DEBUG("QualityMetricsDialog: Found burst_level = {}", metrics.burst_level);
+    } else {
+        ORC_LOG_DEBUG("QualityMetricsDialog: No burst_level found in context");
+    }
+    
+    // Extract white SNR from observation context
+    auto white_snr_opt = obs_context.get(field_id, "white_snr", "snr_db");
+    if (white_snr_opt) {
+        metrics.white_snr = std::get<double>(*white_snr_opt);
+        metrics.has_white_snr = true;
+        ORC_LOG_DEBUG("QualityMetricsDialog: Found white_snr = {}", metrics.white_snr);
+    } else {
+        ORC_LOG_DEBUG("QualityMetricsDialog: No white_snr found in context");
+    }
+    
+    // Extract black PSNR from observation context
+    auto black_psnr_opt = obs_context.get(field_id, "black_psnr", "psnr_db");
+    if (black_psnr_opt) {
+        metrics.black_psnr = std::get<double>(*black_psnr_opt);
+        metrics.has_black_psnr = true;
+        ORC_LOG_DEBUG("QualityMetricsDialog: Found black_psnr = {}", metrics.black_psnr);
+    } else {
+        ORC_LOG_DEBUG("QualityMetricsDialog: No black_psnr found in context");
+    }
+    
+    return metrics;
 }

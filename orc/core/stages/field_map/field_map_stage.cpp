@@ -338,24 +338,6 @@ public:
         return source_->get_field_phase_hint(source_id);
     }
     
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
-        size_t index = id.value();
-        if (index >= field_mapping_.size()) {
-            return {};
-        }
-        FieldID source_id = field_mapping_[index];
-        
-        // Padding fields have no observations
-        if (!source_id.is_valid()) {
-            return {};
-        }
-        
-        if (!source_) {
-            return {};
-        }
-        return source_->get_observations(source_id);
-    }
-    
     // Audio methods - remap field IDs to follow field reordering
     uint32_t get_audio_sample_count(FieldID id) const override {
         size_t index = id.value();

@@ -17,7 +17,6 @@
 #include "tbc_video_field_representation.h"
 #include "field_id.h"
 #include "closed_caption_observer.h"
-#include "observation_history.h"
 #include "eia608_decoder.h"
 #include <algorithm>
 #include <cstring>

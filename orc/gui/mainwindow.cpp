@@ -3024,7 +3024,7 @@ void MainWindow::updateQualityMetricsDialog()
             return;
         }
         
-        // Create a temporary renderer to get the field representation(s)
+        // Create a temporary renderer to get the field representation(s) and observation context
         orc::DAGFieldRenderer renderer(dag);
         
         if (is_frame_mode) {
@@ -3032,28 +3032,30 @@ void MainWindow::updateQualityMetricsDialog()
             auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
             auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
             
-            if (!render_result1.is_valid || !render_result1.representation ||
-                !render_result2.is_valid || !render_result2.representation) {
+            if (!render_result1.is_valid || !render_result2.is_valid) {
                 quality_metrics_dialog_->clearMetrics();
                 return;
             }
             
-            // Update dialog with both fields
-            quality_metrics_dialog_->updateMetricsForFrame(
-                render_result1.representation, field1_id,
-                render_result2.representation, field2_id
+            // Update dialog with both fields using observation context
+            quality_metrics_dialog_->updateMetricsForFrameFromContext(
+                field1_id, field2_id,
+                renderer.get_observation_context()
             );
         } else {
             // Render single field
             auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
             
-            if (!render_result.is_valid || !render_result.representation) {
+            if (!render_result.is_valid) {
                 quality_metrics_dialog_->clearMetrics();
                 return;
             }
             
-            // Update dialog with single field
-            quality_metrics_dialog_->updateMetrics(render_result.representation, field1_id);
+            // Update dialog with single field using observation context
+            quality_metrics_dialog_->updateMetricsFromContext(
+                field1_id,
+                renderer.get_observation_context()
+            );
         }
         
     } catch (const std::exception& e) {

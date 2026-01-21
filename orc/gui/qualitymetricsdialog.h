@@ -21,7 +21,7 @@
 
 namespace orc {
     class VideoFieldRepresentation;
-    class ObservationHistory;
+    class ObservationContext;
     class DropoutAnalysisDecoder;
     class SNRAnalysisDecoder;
     class BurstLevelAnalysisDecoder;
@@ -49,6 +49,22 @@ public:
     explicit QualityMetricsDialog(QWidget *parent = nullptr);
     ~QualityMetricsDialog();
 
+    /**
+     * @brief Update the quality metrics display for a field using observation context
+     * @param field_id Field ID to extract metrics for
+     * @param obs_context Observation context with populated metrics
+     */
+    void updateMetricsFromContext(orc::FieldID field_id, const orc::ObservationContext& obs_context);
+    
+    /**
+     * @brief Update the quality metrics display for a frame using observation context
+     * @param field1_id First field ID
+     * @param field2_id Second field ID
+     * @param obs_context Observation context with populated metrics
+     */
+    void updateMetricsForFrameFromContext(orc::FieldID field1_id, orc::FieldID field2_id,
+                                          const orc::ObservationContext& obs_context);
+    
     /**
      * @brief Update the quality metrics display for a field
      * @param field_repr Field representation containing observations
@@ -107,6 +123,9 @@ private:
     
     FieldMetrics extractFieldMetrics(std::shared_ptr<const orc::VideoFieldRepresentation> field_repr,
                                      orc::FieldID field_id);
+    
+    FieldMetrics extractMetricsFromContext(orc::FieldID field_id,
+                                           const orc::ObservationContext& obs_context);
     
     void updateFieldLabels(const FieldMetrics& metrics, bool is_field1);
     void updateFrameAverageLabels(const FieldMetrics& field1, const FieldMetrics& field2);

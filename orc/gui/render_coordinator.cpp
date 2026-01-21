@@ -419,6 +419,24 @@ void RenderCoordinator::handleRenderPreview(const RenderPreviewRequest& req)
         
         ORC_LOG_DEBUG("RenderCoordinator: Preview render complete, success={}", result.success);
         
+        // Populate observation cache for the rendered field(s)
+        // For single fields, just cache that field
+        // For frames, cache both constituent fields
+        if (worker_obs_cache_) {
+            if (req.output_type == orc::PreviewOutputType::Field || 
+                req.output_type == orc::PreviewOutputType::Luma) {
+                // Single field
+                worker_obs_cache_->get_field(req.node_id, orc::FieldID(req.output_index));
+            } else if (req.output_type == orc::PreviewOutputType::Frame ||
+                       req.output_type == orc::PreviewOutputType::Frame_Reversed ||
+                       req.output_type == orc::PreviewOutputType::Split) {
+                // Frame with two fields - cache both for observation availability
+                uint64_t first_field = req.output_index * 2;
+                worker_obs_cache_->get_field(req.node_id, orc::FieldID(first_field));
+                worker_obs_cache_->get_field(req.node_id, orc::FieldID(first_field + 1));
+            }
+        }
+        
         // Emit result on GUI thread
         emit previewReady(req.request_id, std::move(result));
         
@@ -434,30 +452,27 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
                   req.node_id.to_string(), req.field_id.value(), req.request_id);
     
     try {
-        // Try to get VBI hints from field representation (available for TBC sources)
-        if (!worker_obs_cache_) {
-            ORC_LOG_WARN("RenderCoordinator: Observation cache not initialized; cannot access VBI hints");
-        } else {
+        // Use observation cache to render the field at the specified node
+        // This ensures we get data from the correct stage in the pipeline
+        if (worker_obs_cache_) {
+            // Render the field (populates observations in the cache's renderer)
             auto field_opt = worker_obs_cache_->get_field(req.node_id, req.field_id);
-            if (field_opt && *field_opt) {
-                auto vfr = *field_opt;
-                // Use the base interface to get VBI hint - works for any source that provides it
-                auto vbi_hint = vfr->get_vbi_hint(req.field_id);
-                if (vbi_hint && vbi_hint->in_use) {
-                    // Use VBI hint to populate context
-                    orc::ObservationContext obs_context;
-                    obs_context.set(req.field_id, "biphase", "vbi_line_16", static_cast<int32_t>(vbi_hint->vbi_data[0]));
-                    obs_context.set(req.field_id, "biphase", "vbi_line_17", static_cast<int32_t>(vbi_hint->vbi_data[1]));
-                    obs_context.set(req.field_id, "biphase", "vbi_line_18", static_cast<int32_t>(vbi_hint->vbi_data[2]));
-                    
-                    // Decode VBI from context
-                    auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
-                    if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
-                        ORC_LOG_DEBUG("RenderCoordinator: VBI decoded from metadata hint for field {}", req.field_id.value());
-                        emit vbiDataReady(req.request_id, vbi_info_opt.value());
-                        return;
-                    }
-                }
+            if (!field_opt) {
+                ORC_LOG_DEBUG("RenderCoordinator: Field could not be rendered for VBI extraction");
+                emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
+                return;
+            }
+            
+            // Get observations from the cache's renderer
+            // The cache's renderer executed up to req.node_id for req.field_id
+            const auto& obs_context = worker_obs_cache_->get_observation_context();
+            
+            // Try to decode VBI from the populated observation context
+            auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
+            if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
+                ORC_LOG_DEBUG("RenderCoordinator: VBI decoded from observation context for field {}", req.field_id.value());
+                emit vbiDataReady(req.request_id, vbi_info_opt.value());
+                return;
             }
         }
 

@@ -48,6 +48,7 @@ std::vector<ArtifactPtr> HackdacSinkStage::execute(
     // Sink stages do not emit artifacts during execute(); trigger() performs the export.
     (void)inputs;
     (void)parameters;
+    (void)observation_context;
     return {};
 }
 
@@ -186,6 +187,7 @@ bool HackdacSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context) {
+    (void)observation_context;
 
     ORC_LOG_DEBUG("HackdacSink: Trigger started");
     is_processing_.store(true);

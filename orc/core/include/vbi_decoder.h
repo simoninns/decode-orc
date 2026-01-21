@@ -87,16 +87,19 @@ public:
 private:
     /**
      * @brief Parse VBI data from raw observation values
+     * @param field_id The field ID
      * @param vbi_line_16 VBI data from line 16
      * @param vbi_line_17 VBI data from line 17
      * @param vbi_line_18 VBI data from line 18
+     * @param observation_context The observation context to extract interpreted fields from
      * @return Parsed VBI information
      */
     static VBIFieldInfo parse_vbi_data(
         FieldID field_id,
         int32_t vbi_line_16,
         int32_t vbi_line_17,
-        int32_t vbi_line_18);
+        int32_t vbi_line_18,
+        const ObservationContext& observation_context);
 };
 
 } // namespace orc

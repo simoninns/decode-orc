@@ -56,14 +56,6 @@ public:
     // Override dropout hints - after stacking, dropouts are the ones that remain
     std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
     
-    // Override observations - don't inherit from single source (we're a merger)
-    // Observations from individual sources don't apply to the stacked result
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID /*id*/) const override {
-        // Stacker merges multiple sources, so source observations aren't meaningful
-        // Observers should run fresh on the stacked output
-        return {};
-    }
-    
     // Get number of sources available for a specific frame
     size_t get_source_count(FieldID id) const;
     

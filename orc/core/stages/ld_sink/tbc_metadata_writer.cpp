@@ -11,7 +11,8 @@
 #include "vitc_observer.h"
 #include "biphase_observer.h"
 #include "closed_caption_observer.h"
-#include "vits_observer.h"
+#include "white_snr_observer.h"
+#include "black_psnr_observer.h"
 #include "burst_level_observer.h"
 #include "logging.h"
 #include <sqlite3.h>
@@ -584,13 +585,6 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
     sqlite3_finalize(stmt);
     
     return rc == SQLITE_DONE;
-}
-
-bool TBCMetadataWriter::write_observations(FieldID field_id, 
-                                          const std::vector<std::shared_ptr<Observation>>& observations) {
-    (void)field_id;
-    (void)observations;
-    return is_open_ && capture_id_ >= 0;
 }
 
 bool TBCMetadataWriter::begin_transaction() {

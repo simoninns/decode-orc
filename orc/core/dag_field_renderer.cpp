@@ -9,9 +9,13 @@
 
 
 #include "dag_field_renderer.h"
-#include "observation_wrapper_representation.h"
 // TODO: Observer system refactored - old observers removed
 #include "logging.h"
+#include "biphase_observer.h"
+#include "disc_quality_observer.h"
+#include "burst_level_observer.h"
+#include "white_snr_observer.h"
+#include "black_psnr_observer.h"
 #include <sstream>
 #include <algorithm>
 
@@ -193,8 +197,22 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         result.is_valid = true;
         result.representation = video_field_repr;
         
-        // Run observers on the field and attach observations
-        result.representation = attach_observations(video_field_repr, field_id);
+        // Run observers to populate observation context for this field
+        // These observers extract metadata that GUI features like VBI dialog and quality metrics need
+        BiphaseObserver biphase_observer;
+        biphase_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        DiscQualityObserver disc_quality_observer;
+        disc_quality_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        BurstLevelObserver burst_level_observer;
+        burst_level_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        WhiteSNRObserver white_snr_observer;
+        white_snr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        BlackPSNRObserver black_psnr_observer;
+        black_psnr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully with observations", 
                      node_id.to_string(), field_id.to_string());
@@ -210,20 +228,14 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
     }
 }
 
-std::shared_ptr<VideoFieldRepresentation> DAGFieldRenderer::attach_observations(
-    std::shared_ptr<VideoFieldRepresentation> representation,
-    FieldID field_id)
+const ObservationContext& DAGFieldRenderer::get_observation_context() const
 {
-    // TODO: Observer system refactored - observers now run within stages via ObservationContext
-    // This function is deprecated and will be removed once migration is complete
-    // For now, return empty observation wrapper
-    std::map<FieldID, std::vector<std::shared_ptr<Observation>>> obs_map;
-    obs_map[field_id] = {};
-    
-    return std::make_shared<ObservationWrapperRepresentation>(
-        std::move(representation),
-        std::move(obs_map)
-    );
+    if (!executor_) {
+        static ObservationContext empty_context;
+        return empty_context;
+    }
+    return executor_->get_observation_context();
 }
+
 
 } // namespace orc

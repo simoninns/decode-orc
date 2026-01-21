@@ -11,7 +11,6 @@
 #include "../analysis_registry.h"
 #include "../../stages/source_align/source_align_stage.h"
 #include "../../observers/biphase_observer.h"
-#include "../../observers/observation_history.h"
 #include "../../include/dag_executor.h"
 #include "../../include/project.h"
 #include "../../include/logging.h"

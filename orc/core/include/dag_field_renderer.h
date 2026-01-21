@@ -172,6 +172,16 @@ public:
      */
     uint64_t get_dag_version() const { return dag_version_; }
     
+    /**
+     * @brief Get the observation context from the last execution
+     * 
+     * This allows callers to access observations collected during field rendering.
+     * The context is populated during render_field_at_node() execution.
+     * 
+     * @return Const reference to the observation context
+     */
+    const ObservationContext& get_observation_context() const;
+    
     // ========================================================================
     // Cache Management
     // ========================================================================
@@ -256,12 +266,6 @@ private:
     /// Execute DAG up to a specific node for a specific field
     FieldRenderResult execute_to_node(
         NodeID node_id,
-        FieldID field_id
-    );
-    
-    /// Attach computed observations to a field representation
-    std::shared_ptr<VideoFieldRepresentation> attach_observations(
-        std::shared_ptr<VideoFieldRepresentation> representation,
         FieldID field_id
     );
 };

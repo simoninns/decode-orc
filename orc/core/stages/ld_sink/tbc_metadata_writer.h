@@ -56,10 +56,6 @@ public:
     bool write_vits_metrics(FieldID field_id, const VitsMetrics& metrics);
     bool write_dropout(FieldID field_id, const DropoutInfo& dropout);
     
-    // Bulk write observations from observers
-    bool write_observations(FieldID field_id, 
-                           const std::vector<std::shared_ptr<Observation>>& observations);
-    
     // Transaction support for bulk writes
     bool begin_transaction();
     bool commit_transaction();

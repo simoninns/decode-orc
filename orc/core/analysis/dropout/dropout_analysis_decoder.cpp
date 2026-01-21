@@ -79,8 +79,8 @@ std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
             if (mode == DropoutAnalysisMode::VISIBLE_AREA) {
                 // For visible area, only count dropouts in active video region
                 auto active_hint = field->get_active_line_hint();
-                if (active_hint && dropout.line >= active_hint->first_active_field_line && 
-                    dropout.line <= active_hint->last_active_field_line) {
+                if (active_hint && static_cast<int32_t>(dropout.line) >= active_hint->first_active_field_line && 
+                    static_cast<int32_t>(dropout.line) <= active_hint->last_active_field_line) {
                     stats.total_dropout_length += (dropout.end_sample - dropout.start_sample);
                 }
             } else {
@@ -90,7 +90,7 @@ std::optional<FieldDropoutStats> DropoutAnalysisDecoder::get_dropout_for_field(
         }
         
         // Extract frame number if available from VBI hints
-        auto parity_hint = field->get_field_parity_hint(field_id);
+        (void)field->get_field_parity_hint(field_id);  // Intentionally unused
         auto descriptor = field->get_descriptor(field_id);
         if (descriptor && descriptor->frame_number) {
             stats.frame_number = descriptor->frame_number.value();

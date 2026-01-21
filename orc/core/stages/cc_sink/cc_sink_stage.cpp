@@ -10,7 +10,6 @@
 #include "cc_sink_stage.h"
 #include "logging.h"
 #include "closed_caption_observer.h"
-#include "observation_history.h"
 #include "eia608_decoder.h"
 #include <stage_registry.h>
 #include <stdexcept>

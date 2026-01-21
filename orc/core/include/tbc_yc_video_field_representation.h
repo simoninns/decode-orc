@@ -127,8 +127,6 @@ public:
         return video_params_;
     }
     
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override;
-    
     // Audio interface
     uint32_t get_audio_sample_count(FieldID id) const override;
     std::vector<int16_t> get_audio_samples(FieldID id) const override;

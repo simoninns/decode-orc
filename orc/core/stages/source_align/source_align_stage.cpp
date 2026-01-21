@@ -177,14 +177,6 @@ public:
         FieldID source_id(id.value() + offset_.value());
         return source_->get_field_phase_hint(source_id);
     }
-    
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
-        if (!source_) {
-            return {};
-        }
-        FieldID source_id(id.value() + offset_.value());
-        return source_->get_observations(source_id);
-    }
 
 private:
     FieldID offset_;  // Number of fields to skip from the beginning

@@ -37,159 +37,87 @@ std::optional<VBIFieldInfo> VBIDecoder::decode_vbi(
     int32_t vbi_17 = std::get<int32_t>(*vbi_17_opt);
     int32_t vbi_18 = std::get<int32_t>(*vbi_18_opt);
     
-    return parse_vbi_data(field_id, vbi_16, vbi_17, vbi_18);
+    return parse_vbi_data(field_id, vbi_16, vbi_17, vbi_18, observation_context);
 }
 
 VBIFieldInfo VBIDecoder::parse_vbi_data(
     FieldID field_id,
     int32_t vbi_line_16,
     int32_t vbi_line_17,
-    int32_t vbi_line_18)
+    int32_t vbi_line_18,
+    const ObservationContext& observation_context)
 {
     VBIFieldInfo info;
     info.field_id = field_id;
     info.has_vbi_data = true;
     info.vbi_data = {vbi_line_16, vbi_line_17, vbi_line_18};
     
-    // VBI data is encoded in biphase format across lines 16-18
-    // Line 16 (0x00000F): Contains CAV picture number or CLV timecode info
-    // Line 17 (0x000F00): Contains chapter/control information
-    // Line 18 (0x0F0000): Contains programme status and other info
+    // The BiphaseObserver has already interpreted the VBI data according to IEC 60857.
+    // We read the interpreted values from the observation context here.
     
-    // Extract biphase data from each line (removing framing bits)
-    // Each 16-bit word contains 14 data bits with biphase encoding
-    
-    // Line 16: Picture number (CAV) or timecode (CLV)
-    if (vbi_line_16 != 0) {
-        // Extract the biphase-encoded data (bits 0-13)
-        uint16_t line16_data = static_cast<uint16_t>(vbi_line_16 & 0x3FFF);
-        
-        // Try to decode as CAV picture number first
-        // CAV mode: bits 0-13 contain picture number (14 bits = up to 16384)
-        int32_t picture_num = static_cast<int32_t>(line16_data & 0x3FFF);
-        if (picture_num > 0 && picture_num < 100000) {
-            info.picture_number = picture_num;
-            ORC_LOG_DEBUG("VBIDecoder: Extracted CAV picture number: {}", picture_num);
-        } else {
-            // Try CLV timecode decoding (VITC format)
-            // Line 16 contains frame and seconds information in BCD
-            // Bits 0-3: Frame tens
-            // Bits 4-7: Frame units
-            // Bits 8-11: Seconds tens
-            // Bits 12-15: Seconds units
-            
-            int frames = ((line16_data >> 0) & 0x0F) * 10 + ((line16_data >> 4) & 0x0F);
-            int seconds = ((line16_data >> 8) & 0x0F) * 10 + ((line16_data >> 12) & 0x0F);
-            
-            // Validate ranges
-            if (frames >= 0 && frames < 30 && seconds >= 0 && seconds < 60) {
-                CLVTimecode tc;
-                tc.picture_number = frames;
-                tc.seconds = seconds;
-                tc.minutes = -1;  // Need to get from other lines
-                tc.hours = -1;
-                
-                // Store tentative timecode - will be completed by other lines if available
-                info.clv_timecode = tc;
-                ORC_LOG_DEBUG("VBIDecoder: Extracted CLV timecode frame/sec: {}/{}", frames, seconds);
-            }
-        }
+    // Try to get picture number
+    auto pic_num_opt = observation_context.get(field_id, "vbi", "picture_number");
+    if (pic_num_opt) {
+        info.picture_number = std::get<int32_t>(*pic_num_opt);
     }
     
-    // Line 17: Chapter/control codes and timecode continuation
-    if (vbi_line_17 != 0) {
-        uint16_t line17_data = static_cast<uint16_t>(vbi_line_17 & 0x3FFF);
-        
-        // Extract minutes and hours for CLV timecode
-        // Bits 0-3: Minutes tens (in BCD)
-        // Bits 4-7: Minutes units (in BCD)
-        // Bits 8-11: Hours tens (in BCD)
-        // Bits 12-15: Hours units (in BCD) + control bits
-        
-        int minutes = ((line17_data >> 0) & 0x0F) * 10 + ((line17_data >> 4) & 0x0F);
-        int hours = ((line17_data >> 8) & 0x0F) * 10 + ((line17_data >> 12) & 0x0F);
-        
-        // Update CLV timecode if it exists
-        if (info.clv_timecode.has_value()) {
-            CLVTimecode tc = info.clv_timecode.value();
-            if (minutes >= 0 && minutes < 60) {
-                tc.minutes = minutes;
-            }
-            if (hours >= 0 && hours < 24) {
-                tc.hours = hours;
-            }
-            info.clv_timecode = tc;
-            ORC_LOG_DEBUG("VBIDecoder: Updated CLV timecode HH:MM: {:02d}:{:02d}", hours, minutes);
-        }
-        
-        // Extract chapter number (bits 0-5 contain chapter in some implementations)
-        int32_t chapter = (line17_data >> 8) & 0x3F;
-        if (chapter > 0 && chapter < 64) {
-            info.chapter_number = chapter;
-            ORC_LOG_DEBUG("VBIDecoder: Extracted chapter number: {}", chapter);
-        }
-        
-        // Extract control codes (high bits)
-        uint8_t control = (line17_data >> 10) & 0x3F;
-        
-        // Control code bit patterns (IEC 60857):
-        // Bit 13: Lead-in marker
-        // Bit 12: Lead-out marker  
-        // Bit 11: Picture stop code
-        if (control & 0x08) {  // Bit 13
-            info.lead_in = true;
-            ORC_LOG_DEBUG("VBIDecoder: Lead-in detected");
-        }
-        if (control & 0x04) {  // Bit 12
-            info.lead_out = true;
-            ORC_LOG_DEBUG("VBIDecoder: Lead-out detected");
-        }
-        if (control & 0x02) {  // Bit 11
-            info.stop_code_present = true;
-            ORC_LOG_DEBUG("VBIDecoder: Stop code detected");
-        }
+    // Try to get CLV timecode
+    auto hours_opt = observation_context.get(field_id, "vbi", "clv_timecode_hours");
+    auto minutes_opt = observation_context.get(field_id, "vbi", "clv_timecode_minutes");
+    auto seconds_opt = observation_context.get(field_id, "vbi", "clv_timecode_seconds");
+    auto picture_opt = observation_context.get(field_id, "vbi", "clv_timecode_picture");
+    
+    if (hours_opt && minutes_opt && seconds_opt && picture_opt) {
+        CLVTimecode tc;
+        tc.hours = std::get<int32_t>(*hours_opt);
+        tc.minutes = std::get<int32_t>(*minutes_opt);
+        tc.seconds = std::get<int32_t>(*seconds_opt);
+        tc.picture_number = std::get<int32_t>(*picture_opt);
+        info.clv_timecode = tc;
     }
     
-    // Line 18: Programme status and other metadata
-    if (vbi_line_18 != 0) {
-        uint16_t line18_data = static_cast<uint16_t>(vbi_line_18 & 0x3FFF);
-        
-        // Extract programme status bits
+    // Try to get chapter number
+    auto chapter_opt = observation_context.get(field_id, "vbi", "chapter_number");
+    if (chapter_opt) {
+        info.chapter_number = std::get<int32_t>(*chapter_opt);
+    }
+    
+    // Try to get control codes
+    auto lead_in_opt = observation_context.get(field_id, "vbi", "lead_in");
+    if (lead_in_opt) {
+        info.lead_in = std::get<int32_t>(*lead_in_opt) != 0;
+    }
+    
+    auto lead_out_opt = observation_context.get(field_id, "vbi", "lead_out");
+    if (lead_out_opt) {
+        info.lead_out = std::get<int32_t>(*lead_out_opt) != 0;
+    }
+    
+    auto stop_code_opt = observation_context.get(field_id, "vbi", "stop_code_present");
+    if (stop_code_opt) {
+        info.stop_code_present = std::get<int32_t>(*stop_code_opt) != 0;
+    }
+    
+    // Try to get programme status
+    auto cx_opt = observation_context.get(field_id, "vbi", "programme_status_cx_enabled");
+    auto size_opt = observation_context.get(field_id, "vbi", "programme_status_is_12_inch");
+    auto side_opt = observation_context.get(field_id, "vbi", "programme_status_is_side_1");
+    auto teletext_opt = observation_context.get(field_id, "vbi", "programme_status_has_teletext");
+    auto digital_opt = observation_context.get(field_id, "vbi", "programme_status_is_digital");
+    auto parity_opt = observation_context.get(field_id, "vbi", "programme_status_parity_valid");
+    
+    if (cx_opt || size_opt || side_opt || teletext_opt || digital_opt || parity_opt) {
         ProgrammeStatus prog_status;
-        
-        // Bit layout (typical IEC 60857):
-        // Bit 0: CX enabled
-        // Bit 1: Disc size (0=12", 1=8")
-        // Bit 2: Side (0=side1, 1=side2)
-        // Bit 3: Teletext present
-        // Bit 4: Digital video
-        // Bits 5-7: Sound mode
-        // Bit 8: FM multiplex
-        // Bit 9: Programme dump
-        
-        prog_status.cx_enabled = (line18_data & 0x0001) != 0;
-        prog_status.is_12_inch = (line18_data & 0x0002) == 0;
-        prog_status.is_side_1 = (line18_data & 0x0004) == 0;
-        prog_status.has_teletext = (line18_data & 0x0008) != 0;
-        prog_status.is_digital = (line18_data & 0x0010) != 0;
-        
-        // Extract sound mode (3 bits: bits 5-7)
-        uint8_t sound_mode = (line18_data >> 5) & 0x07;
-        if (sound_mode < 8) {
-            prog_status.sound_mode = static_cast<VbiSoundMode>(sound_mode);
-        }
-        
-        prog_status.is_fm_multiplex = (line18_data & 0x0100) != 0;
-        prog_status.is_programme_dump = (line18_data & 0x0200) != 0;
-        prog_status.parity_valid = (line18_data & 0x2000) != 0;
-        
+        if (cx_opt) prog_status.cx_enabled = std::get<int32_t>(*cx_opt) != 0;
+        if (size_opt) prog_status.is_12_inch = std::get<int32_t>(*size_opt) != 0;
+        if (side_opt) prog_status.is_side_1 = std::get<int32_t>(*side_opt) != 0;
+        if (teletext_opt) prog_status.has_teletext = std::get<int32_t>(*teletext_opt) != 0;
+        if (digital_opt) prog_status.is_digital = std::get<int32_t>(*digital_opt) != 0;
+        if (parity_opt) prog_status.parity_valid = std::get<int32_t>(*parity_opt) != 0;
         info.programme_status = prog_status;
-        ORC_LOG_DEBUG("VBIDecoder: Extracted programme status: CX={}, 12\"={}, Side1={}, Teletext={}, Digital={}",
-                     prog_status.cx_enabled, prog_status.is_12_inch, prog_status.is_side_1,
-                     prog_status.has_teletext, prog_status.is_digital);
     }
     
-    ORC_LOG_DEBUG("VBIDecoder: Parsed VBI for field {} - lines: {:#06x}, {:#06x}, {:#06x}",
+    ORC_LOG_DEBUG("VBIDecoder: Parsed VBI for field {} - lines: {:#08x}, {:#08x}, {:#08x}",
                   field_id.value(), vbi_line_16, vbi_line_17, vbi_line_18);
     
     return info;

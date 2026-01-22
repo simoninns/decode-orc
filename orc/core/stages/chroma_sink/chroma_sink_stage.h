@@ -13,7 +13,7 @@
 
 #include "dag_executor.h"
 #include "stage_parameter.h"
-#include "node_type.h"
+#include <node_type.h>
 #include "video_field_representation.h"
 #include "tbc_metadata.h"
 #include "previewable_stage.h"

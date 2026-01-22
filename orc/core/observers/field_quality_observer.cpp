@@ -10,7 +10,7 @@
 #include "field_quality_observer.h"
 #include "observation_context.h"
 #include "video_field_representation.h"
-#include "field_id.h"
+#include <field_id.h>
 #include "logging.h"
 #include <algorithm>
 #include <cmath>

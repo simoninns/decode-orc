@@ -11,8 +11,8 @@
 
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"
-#include "field_id.h"
-#include "node_id.h"
+#include <field_id.h>
+#include <node_id.h>
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
 #include "dropout_decision.h"  // For DropoutRegion
 #include "../analysis/vectorscope/vectorscope_data.h"

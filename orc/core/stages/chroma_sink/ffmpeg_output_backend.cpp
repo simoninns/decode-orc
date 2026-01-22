@@ -15,7 +15,7 @@
 #include "logging.h"
 #include "video_field_representation.h"
 #include "tbc_video_field_representation.h"
-#include "field_id.h"
+#include <field_id.h>
 #include "closed_caption_observer.h"
 #include "eia608_decoder.h"
 #include <algorithm>

@@ -11,7 +11,7 @@
 #pragma once
 
 #include "artifact.h"
-#include "node_id.h"
+#include <node_id.h>
 #include "lru_cache.h"
 #include "observation_context.h"
 #include "../stages/stage.h"

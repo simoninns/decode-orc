@@ -157,6 +157,9 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
 )
 
+# Link against common types
+target_link_libraries(orc-core PUBLIC orc-common)
+
 # Compiler-specific warning flags
 if(MSVC)
     target_compile_options(orc-core PRIVATE /W4)

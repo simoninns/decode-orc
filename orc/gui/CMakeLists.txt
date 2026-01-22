@@ -145,7 +145,7 @@ target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/stages/snr_analysis_sink
     ${CMAKE_SOURCE_DIR}/orc/core/stages/burst_level_analysis_sink
     ${CMAKE_SOURCE_DIR}/orc/public
-    ${CMAKE_SOURCE_DIR}/orc/presenters/include
+    ${CMAKE_SOURCE_DIR}/orc  # For presenters/ includes
     ${CMAKE_BINARY_DIR}/generated
 )
 

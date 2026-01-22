@@ -9,13 +9,15 @@ add_library(orc-presenters STATIC
     src/hints_presenter.cpp
     src/dropout_presenter.cpp
     src/metrics_presenter.cpp
+    src/vbi_presenter.cpp
 )
 
 # Presenters can see both public API and core internals
 # This is the bridge layer
 target_include_directories(orc-presenters
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include/orc/presenters>
     PRIVATE
         ${CMAKE_SOURCE_DIR}/orc/core/include
         ${CMAKE_SOURCE_DIR}/orc/public

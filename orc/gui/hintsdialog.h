@@ -14,11 +14,7 @@
 #include <QLabel>
 #include <QGroupBox>
 #include <optional>
-#include "../core/hints/field_parity_hint.h"
-#include "../core/hints/pal_phase_hint.h"
-#include "../core/hints/dropout_hint.h"
-#include "../core/hints/active_line_hint.h"
-#include "../core/include/tbc_metadata.h"
+#include "presenters/include/hints_view_models.h"
 
 /**
  * @brief Dialog for displaying video parameter hints
@@ -45,25 +41,25 @@ public:
      * @brief Update the displayed field parity hint
      * @param hint The field parity hint to display
      */
-    void updateFieldParityHint(const std::optional<orc::FieldParityHint>& hint);
+    void updateFieldParityHint(const std::optional<orc::presenters::FieldParityHintView>& hint);
     
     /**
      * @brief Update the displayed field phase hint
      * @param hint The field phase hint to display
      */
-    void updateFieldPhaseHint(const std::optional<orc::FieldPhaseHint>& hint);
+    void updateFieldPhaseHint(const std::optional<orc::presenters::FieldPhaseHintView>& hint);
     
     /**
      * @brief Update the displayed active line hint
      * @param hint The active line hint to display
      */
-    void updateActiveLineHint(const std::optional<orc::ActiveLineHint>& hint);
+    void updateActiveLineHint(const std::optional<orc::presenters::ActiveLineHintView>& hint);
     
     /**
      * @brief Update the displayed video parameters
      * @param params The video parameters to display
      */
-    void updateVideoParameters(const std::optional<orc::VideoParameters>& params);
+    void updateVideoParameters(const std::optional<orc::presenters::VideoParametersView>& params);
     
     /**
      * @brief Clear all displayed hint information
@@ -72,7 +68,7 @@ public:
 
 private:
     void setupUI();
-    QString formatHintSource(orc::HintSource source);
+    QString formatHintSource(orc::presenters::HintSourceView source);
     
     // UI components - Field Parity
     QLabel* field_parity_value_label_;

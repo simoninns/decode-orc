@@ -12,12 +12,17 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <optional>
+#include <functional>
+#include <unordered_map>
 #include <node_id.h>
 #include <field_id.h>
+#include "hints_view_models.h"
 
 // Forward declare core Project type
 namespace orc {
     class Project;
+    class DAG;
 }
 
 namespace orc::presenters {
@@ -83,6 +88,7 @@ struct Hint {
     int id;                     ///< Unique hint ID
     HintType type;              ///< Hint type
     std::string description;    ///< User description
+    bool enabled{true};         ///< Enabled state
     
     // Type-specific data (only one will be valid based on type)
     ActiveLineHint active_line;
@@ -107,9 +113,9 @@ class HintsPresenter {
 public:
     /**
      * @brief Construct presenter for a project
-     * @param project Project to manage hints for
+     * @param dag_provider Callback that returns the current DAG (may be null)
      */
-    explicit HintsPresenter(orc::Project* project);
+    explicit HintsPresenter(std::function<std::shared_ptr<const orc::DAG>()> dag_provider);
     
     /**
      * @brief Destructor
@@ -121,6 +127,18 @@ public:
     HintsPresenter& operator=(const HintsPresenter&) = delete;
     HintsPresenter(HintsPresenter&&) noexcept;
     HintsPresenter& operator=(HintsPresenter&&) noexcept;
+
+    struct FieldHintsView {
+        std::optional<FieldParityHintView> parity;
+        std::optional<FieldPhaseHintView> phase;
+        std::optional<ActiveLineHintView> active_line;
+        std::optional<VideoParametersView> video_params;
+    };
+
+    /**
+     * @brief Fetch all available hints for a node/field
+     */
+    FieldHintsView getHintsForField(NodeID node_id, FieldID field_id) const;
     
     // === Hint Management ===
     

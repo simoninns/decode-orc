@@ -19,6 +19,8 @@
 #include "burstlevelanalysisdialog.h"
 #include <algorithm>
 #include <limits>
+#include "presenters/include/vbi_view_models.h"
+#include "presenters/include/vbi_presenter.h"
 
 
 // Coordinator response slot implementations
@@ -81,27 +83,75 @@ void MainWindow::onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info)
         return;
     }
     
+    if (!vbi_presenter_) {
+        return;
+    }
+    
+    // Map core VBIFieldInfo to presenter view model via presenter helper
+    auto to_view = [](const orc::VBIFieldInfo& src) {
+        return orc::presenters::VBIFieldInfoView{
+            .field_id = src.field_id.value(),
+            .vbi_data = src.vbi_data,
+            .picture_number = src.picture_number,
+            .clv_timecode = src.clv_timecode ? std::optional<orc::presenters::CLVTimecodeView>{
+                orc::presenters::CLVTimecodeView{
+                    src.clv_timecode->hours,
+                    src.clv_timecode->minutes,
+                    src.clv_timecode->seconds,
+                    src.clv_timecode->picture_number
+                }} : std::nullopt,
+            .chapter_number = src.chapter_number,
+            .stop_code_present = src.stop_code_present,
+            .lead_in = src.lead_in,
+            .lead_out = src.lead_out,
+            .user_code = src.user_code,
+            .programme_status = src.programme_status ? std::optional<orc::presenters::ProgrammeStatusView>{
+                orc::presenters::ProgrammeStatusView{
+                    src.programme_status->cx_enabled,
+                    src.programme_status->is_12_inch,
+                    src.programme_status->is_side_1,
+                    src.programme_status->has_teletext,
+                    src.programme_status->is_digital,
+                    orc::presenters::VbiPresenter::mapSoundMode(src.programme_status->sound_mode),
+                    src.programme_status->is_fm_multiplex,
+                    src.programme_status->is_programme_dump,
+                    src.programme_status->parity_valid
+                }
+            } : std::nullopt,
+            .amendment2_status = src.amendment2_status ? std::optional<orc::presenters::Amendment2StatusView>{
+                orc::presenters::Amendment2StatusView{
+                    src.amendment2_status->copy_permitted,
+                    src.amendment2_status->is_video_standard,
+                    orc::presenters::VbiPresenter::mapSoundMode(src.amendment2_status->sound_mode)
+                }
+            } : std::nullopt,
+            .has_vbi_data = src.has_vbi_data,
+            .error_message = src.error_message
+        };
+    };
+    auto view = to_view(info);
+
     if (pending_vbi_is_frame_mode_) {
         // Frame mode - need both fields
         if (request_id == pending_vbi_request_id_) {
             // First field received - cache it
-            pending_vbi_field1_info_ = info;
+            pending_vbi_field1_info_ = view;
             
             // Check if we already received the second field
             if (pending_vbi_request_id_field2_ == 0) {
                 // Second field already processed, update now
-                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
+                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, view);
                 pending_vbi_is_frame_mode_ = false;
             }
         } else if (request_id == pending_vbi_request_id_field2_) {
             // Second field received
             if (pending_vbi_request_id_ == 0) {
                 // First field already processed - shouldn't happen in normal flow
-                vbi_dialog_->updateVBIInfo(info);
+                vbi_dialog_->updateVBIInfo(view);
                 pending_vbi_is_frame_mode_ = false;
             } else {
                 // Update dialog with both fields
-                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
+                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, view);
                 pending_vbi_is_frame_mode_ = false;
             }
             // Mark second request as complete
@@ -109,7 +159,7 @@ void MainWindow::onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info)
         }
     } else {
         // Field mode - single field display
-        vbi_dialog_->updateVBIInfo(info);
+        vbi_dialog_->updateVBIInfo(view);
     }
 }
 

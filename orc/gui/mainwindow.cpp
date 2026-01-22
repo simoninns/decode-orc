@@ -30,6 +30,9 @@
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
 #include "logging.h"
+#include "presenters/include/hints_view_models.h"
+#include "presenters/include/hints_presenter.h"
+#include "presenters/include/vbi_presenter.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/dag_field_renderer.h"
@@ -104,6 +107,18 @@ MainWindow::MainWindow(QWidget *parent)
 {
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
+
+    // Presenter for hint data (uses DAG provider to fetch hints via core renderer)
+    hints_presenter_ = std::make_unique<orc::presenters::HintsPresenter>([this]() {
+        auto dag = project_.getDAG();
+        return std::static_pointer_cast<const orc::DAG>(dag);
+    });
+
+    // Presenter for VBI observations
+    vbi_presenter_ = std::make_unique<orc::presenters::VbiPresenter>([this]() {
+        auto dag = project_.getDAG();
+        return std::static_pointer_cast<const orc::DAG>(dag);
+    });
     
     // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
     connect(render_coordinator_.get(), &RenderCoordinator::previewReady,
@@ -3293,40 +3308,16 @@ void MainWindow::updateHintsDialog()
     
     // Get hints from the current DAG/node
     // Note: This is a synchronous access - we'll create a temporary renderer
-    try {
-        auto dag = project_.getDAG();
-        if (!dag) {
-            hints_dialog_->clearHints();
-            return;
-        }
-        
-        // Create a temporary renderer to get the field representation
-        orc::DAGFieldRenderer renderer(dag);
-        
-        // Render the field at the current node
-        auto render_result = renderer.render_field_at_node(current_view_node_id_, field_id);
-        
-        if (!render_result.is_valid || !render_result.representation) {
-            hints_dialog_->clearHints();
-            return;
-        }
-        
-        // Get hints from the field representation
-        auto parity_hint = render_result.representation->get_field_parity_hint(field_id);
-        auto phase_hint = render_result.representation->get_field_phase_hint(field_id);
-        auto active_line_hint = render_result.representation->get_active_line_hint();
-        auto video_params = render_result.representation->get_video_parameters();
-        
-        // Update the dialog
-        hints_dialog_->updateFieldParityHint(parity_hint);
-        hints_dialog_->updateFieldPhaseHint(phase_hint);
-        hints_dialog_->updateActiveLineHint(active_line_hint);
-        hints_dialog_->updateVideoParameters(video_params);
-        
-    } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Failed to get hints: {}", e.what());
+    if (!hints_presenter_) {
         hints_dialog_->clearHints();
+        return;
     }
+
+    auto hints = hints_presenter_->getHintsForField(current_view_node_id_, field_id);
+    hints_dialog_->updateFieldParityHint(hints.parity);
+    hints_dialog_->updateFieldPhaseHint(hints.phase);
+    hints_dialog_->updateActiveLineHint(hints.active_line);
+    hints_dialog_->updateVideoParameters(hints.video_params);
 }
 
 void MainWindow::updateNtscObserverDialog()

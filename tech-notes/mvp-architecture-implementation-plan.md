@@ -386,29 +386,32 @@ make orc-public
    - `qualitymetricsdialog.h/cpp`
    - Replace core includes with `AnalysisPresenter`
 
-3. **Hint dialogs** (Day 4)
-   - `hintsdialog.h/cpp`
-   - `vbidialog.h/cpp`
-   - Replace core includes with `HintsPresenter`
+3. **Hint dialog (metadata hints)** (Day 4)
+    - `hintsdialog.h/cpp`
+    - Replace core includes with `HintsPresenter` (parity, phase, active-line, dropout/video parameter hints only)
 
-4. **Preview and inspection** (Day 5)
+4. **VBI observation dialog** (Day 4-5)
+    - `vbidialog.h/cpp`
+    - Keep VBI observer/decoder data path (not part of hints); refactor to use presenter/public API access to VBI observations from render/analysis pipeline, no direct core includes
+
+5. **Preview and inspection** (Day 5)
    - `previewdialog.h/cpp`
    - `inspection_dialog.h/cpp`
    - `ntscobserverdialog.h/cpp`
    - Replace core includes with `RenderPresenter`
 
-5. **Dropout editor** (Day 6)
+6. **Dropout editor** (Day 6)
    - `dropout_editor_dialog.h/cpp`
    - Use `AnalysisPresenter` and `RenderPresenter`
 
-6. **Graph components** (Day 7)
+7. **Graph components** (Day 7)
    - `orcgraphmodel.h/cpp`
    - `orcgraphicsscene.h/cpp`
    - `orcgraphview.h/cpp`
    - `node_type_helper.h/cpp`
    - Use `ProjectPresenter`
 
-7. **Main window and coordinator** (Day 8)
+8. **Main window and coordinator** (Day 8)
    - `render_coordinator.h/cpp`
    - `mainwindow.h/cpp`
    - Use all presenters

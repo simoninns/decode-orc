@@ -134,7 +134,7 @@ void HintsDialog::setupUI()
     mainLayout->addStretch();
 }
 
-void HintsDialog::updateFieldParityHint(const std::optional<orc::FieldParityHint>& hint)
+void HintsDialog::updateFieldParityHint(const std::optional<orc::presenters::FieldParityHintView>& hint)
 {
     if (!hint.has_value()) {
         field_parity_value_label_->setText("-");
@@ -153,7 +153,7 @@ void HintsDialog::updateFieldParityHint(const std::optional<orc::FieldParityHint
     field_parity_confidence_label_->setText(QString("%1%").arg(hint->confidence_pct));
 }
 
-void HintsDialog::updateFieldPhaseHint(const std::optional<orc::FieldPhaseHint>& hint)
+void HintsDialog::updateFieldPhaseHint(const std::optional<orc::presenters::FieldPhaseHintView>& hint)
 {
     if (!hint.has_value()) {
         field_phase_value_label_->setText("-");
@@ -176,7 +176,7 @@ void HintsDialog::updateFieldPhaseHint(const std::optional<orc::FieldPhaseHint>&
     field_phase_confidence_label_->setText(QString("%1%").arg(hint->confidence_pct));
 }
 
-void HintsDialog::updateActiveLineHint(const std::optional<orc::ActiveLineHint>& hint)
+void HintsDialog::updateActiveLineHint(const std::optional<orc::presenters::ActiveLineHintView>& hint)
 {
     if (!hint.has_value() || !hint->is_valid()) {
         active_line_value_label_->setText("-");
@@ -198,7 +198,7 @@ void HintsDialog::updateActiveLineHint(const std::optional<orc::ActiveLineHint>&
     active_line_confidence_label_->setText(QString("%1%").arg(hint->confidence_pct));
 }
 
-void HintsDialog::updateVideoParameters(const std::optional<orc::VideoParameters>& params)
+void HintsDialog::updateVideoParameters(const std::optional<orc::presenters::VideoParametersView>& params)
 {
     if (!params.has_value()) {
         active_video_range_label_->setText("-");
@@ -273,19 +273,21 @@ void HintsDialog::clearHints()
     sample_rate_label_->setText("-");
 }
 
-QString HintsDialog::formatHintSource(orc::HintSource source)
+QString HintsDialog::formatHintSource(orc::presenters::HintSourceView source)
 {
     switch (source) {
-        case orc::HintSource::METADATA:
+        case orc::presenters::HintSourceView::METADATA:
             return "Metadata";
-        case orc::HintSource::USER_OVERRIDE:
+        case orc::presenters::HintSourceView::USER_OVERRIDE:
             return "User Override";
-        case orc::HintSource::INHERITED:
+        case orc::presenters::HintSourceView::INHERITED:
             return "Inherited";
-        case orc::HintSource::SAMPLE_ANALYSIS:
+        case orc::presenters::HintSourceView::SAMPLE_ANALYSIS:
             return "Sample Analysis";
-        case orc::HintSource::CORROBORATED:
+        case orc::presenters::HintSourceView::CORROBORATED:
             return "Corroborated";
+        case orc::presenters::HintSourceView::UNKNOWN:
+            return "Unknown";
         default:
             return "Unknown";
     }

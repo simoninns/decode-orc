@@ -185,7 +185,7 @@ void VBIDialog::setupUI()
     mainLayout->addStretch();
 }
 
-void VBIDialog::updateVBIInfo(const orc::VBIFieldInfo& vbi_info)
+void VBIDialog::updateVBIInfo(const orc::presenters::VBIFieldInfoView& vbi_info)
 {
     if (!vbi_info.has_vbi_data) {
         // No valid VBI data - show N/A for field number too
@@ -195,7 +195,7 @@ void VBIDialog::updateVBIInfo(const orc::VBIFieldInfo& vbi_info)
     }
     
     // Field number (0-indexed)
-    field_number_label_->setText(QString::number(vbi_info.field_id.value()));
+    field_number_label_->setText(QString::number(vbi_info.field_id));
     
     // Raw VBI data
     line16_label_->setText(formatVBILine(vbi_info.vbi_data[0]));
@@ -313,51 +313,47 @@ QString VBIDialog::formatVBILine(int32_t vbi_value)
     }
 }
 
-QString VBIDialog::formatSoundMode(orc::VbiSoundMode mode)
+QString VBIDialog::formatSoundMode(orc::presenters::VbiSoundModeView mode)
 {
     switch (mode) {
-        case orc::VbiSoundMode::STEREO:
+        case orc::presenters::VbiSoundModeView::STEREO:
             return "Stereo";
-        case orc::VbiSoundMode::MONO:
+        case orc::presenters::VbiSoundModeView::MONO:
             return "Mono";
-        case orc::VbiSoundMode::AUDIO_SUBCARRIERS_OFF:
+        case orc::presenters::VbiSoundModeView::AUDIO_SUBCARRIERS_OFF:
             return "Audio Off";
-        case orc::VbiSoundMode::BILINGUAL:
+        case orc::presenters::VbiSoundModeView::BILINGUAL:
             return "Bilingual";
-        case orc::VbiSoundMode::STEREO_STEREO:
+        case orc::presenters::VbiSoundModeView::STEREO_STEREO:
             return "Stereo + Stereo";
-        case orc::VbiSoundMode::STEREO_BILINGUAL:
+        case orc::presenters::VbiSoundModeView::STEREO_BILINGUAL:
             return "Stereo + Bilingual";
-        case orc::VbiSoundMode::CROSS_CHANNEL_STEREO:
+        case orc::presenters::VbiSoundModeView::CROSS_CHANNEL_STEREO:
             return "Cross-Channel Stereo";
-        case orc::VbiSoundMode::BILINGUAL_BILINGUAL:
+        case orc::presenters::VbiSoundModeView::BILINGUAL_BILINGUAL:
             return "Bilingual + Bilingual";
-        case orc::VbiSoundMode::MONO_DUMP:
+        case orc::presenters::VbiSoundModeView::MONO_DUMP:
             return "Mono Dump";
-        case orc::VbiSoundMode::STEREO_DUMP:
+        case orc::presenters::VbiSoundModeView::STEREO_DUMP:
             return "Stereo Dump";
-        case orc::VbiSoundMode::BILINGUAL_DUMP:
+        case orc::presenters::VbiSoundModeView::BILINGUAL_DUMP:
             return "Bilingual Dump";
-        case orc::VbiSoundMode::FUTURE_USE:
+        case orc::presenters::VbiSoundModeView::FUTURE_USE:
             return "Future Use";
         default:
             return "Unknown";
     }
 }
 
-void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info, 
-                                    const orc::VBIFieldInfo& field2_info)
+void VBIDialog::updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& field1_info, 
+                                    const orc::presenters::VBIFieldInfoView& field2_info)
 {
-    // Merge VBI data from both fields for proper interpretation
-    // (CLV timecode and other data may be split across fields)
-    auto merged = orc::VBIDecoder::merge_frame_vbi(field1_info, field2_info);
-    
     // Display both field numbers (0-indexed)
     field_number_label_->setText(QString("%1 + %2")
-        .arg(field1_info.field_id.value())
-        .arg(field2_info.field_id.value()));
+        .arg(field1_info.field_id)
+        .arg(field2_info.field_id));
     
-    if (!merged.has_vbi_data) {
+    if (!field1_info.has_vbi_data && !field2_info.has_vbi_data) {
         clearVBIInfo();
         return;
     }
@@ -373,17 +369,21 @@ void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info,
         .arg(formatVBILine(field1_info.vbi_data[2]))
         .arg(formatVBILine(field2_info.vbi_data[2])));
     
-    // Use merged data for all interpreted fields
-    // Picture number
-    if (merged.picture_number.has_value()) {
-        picture_number_label_->setText(QString::number(merged.picture_number.value()));
+    // Prefer merged-like data by picking available values
+    const auto pick_optional = [](const auto& a, const auto& b) {
+        return a.has_value() ? a : b;
+    };
+
+    auto picture_number = pick_optional(field1_info.picture_number, field2_info.picture_number);
+    if (picture_number.has_value()) {
+        picture_number_label_->setText(QString::number(*picture_number));
     } else {
         picture_number_label_->setText("-");
     }
-    
-    // CLV timecode (merged from both fields if needed)
-    if (merged.clv_timecode.has_value()) {
-        const auto& tc = merged.clv_timecode.value();
+
+    auto clv_tc = pick_optional(field1_info.clv_timecode, field2_info.clv_timecode);
+    if (clv_tc.has_value()) {
+        const auto& tc = *clv_tc;
         clv_timecode_label_->setText(QString("%1:%2:%3.%4")
             .arg(tc.hours, 2, 10, QChar('0'))
             .arg(tc.minutes, 2, 10, QChar('0'))
@@ -392,29 +392,30 @@ void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info,
     } else {
         clv_timecode_label_->setText("-");
     }
-    
-    // Chapter number
-    if (merged.chapter_number.has_value()) {
-        chapter_number_label_->setText(QString::number(merged.chapter_number.value()));
+
+    auto chapter = pick_optional(field1_info.chapter_number, field2_info.chapter_number);
+    if (chapter.has_value()) {
+        chapter_number_label_->setText(QString::number(*chapter));
     } else {
         chapter_number_label_->setText("-");
     }
-    
-    // User code
-    if (merged.user_code.has_value()) {
-        user_code_label_->setText(QString::fromStdString(merged.user_code.value()));
+
+    auto user_code = pick_optional(field1_info.user_code, field2_info.user_code);
+    if (user_code.has_value()) {
+        user_code_label_->setText(QString::fromStdString(*user_code));
     } else {
         user_code_label_->setText("-");
     }
-    
-    // Control codes (merged from both fields)
-    stop_code_label_->setText(merged.stop_code_present ? "Yes" : "No");
-    lead_in_label_->setText(merged.lead_in ? "Yes" : "No");
-    lead_out_label_->setText(merged.lead_out ? "Yes" : "No");
-    
+
+    // Control codes (OR across both fields)
+    stop_code_label_->setText((field1_info.stop_code_present || field2_info.stop_code_present) ? "Yes" : "No");
+    lead_in_label_->setText((field1_info.lead_in || field2_info.lead_in) ? "Yes" : "No");
+    lead_out_label_->setText((field1_info.lead_out || field2_info.lead_out) ? "Yes" : "No");
+
     // Programme status
-    if (merged.programme_status.has_value()) {
-        const auto& ps = merged.programme_status.value();
+    auto programme = pick_optional(field1_info.programme_status, field2_info.programme_status);
+    if (programme.has_value()) {
+        const auto& ps = *programme;
         cx_enabled_label_->setText(ps.cx_enabled ? "On" : "Off");
         disc_size_label_->setText(ps.is_12_inch ? "12\"" : "8\"");
         disc_side_label_->setText(ps.is_side_1 ? "Side 1" : "Side 2");
@@ -437,13 +438,14 @@ void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info,
         parity_valid_label_->setText("-");
         original_spec_tab_->setEnabled(false);
     }
-    
+
     // Amendment 2 status
-    if (merged.amendment2_status.has_value()) {
-        const auto& am2 = merged.amendment2_status.value();
-        copy_permitted_label_->setText(am2.copy_permitted ? "Yes" : "No");
-        video_standard_label_->setText(am2.is_video_standard ? "Standard" : "Non-standard");
-        sound_mode_am2_label_->setText(formatSoundMode(am2.sound_mode));
+    auto am2 = pick_optional(field1_info.amendment2_status, field2_info.amendment2_status);
+    if (am2.has_value()) {
+        const auto& a = *am2;
+        copy_permitted_label_->setText(a.copy_permitted ? "Yes" : "No");
+        video_standard_label_->setText(a.is_video_standard ? "Standard" : "Non-standard");
+        sound_mode_am2_label_->setText(formatSoundMode(a.sound_mode));
         amendment2_tab_->setEnabled(true);
     } else {
         copy_permitted_label_->setText("-");

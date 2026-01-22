@@ -25,6 +25,9 @@
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
 #include "tbc_metadata.h"
+#include "presenters/include/hints_presenter.h"
+#include "presenters/include/vbi_view_models.h"
+#include "presenters/include/vbi_presenter.h"
 #include "../core/include/node_id.h"
 
 class OrcGraphicsView;
@@ -198,7 +201,7 @@ private:
     uint64_t pending_vbi_request_id_{0};
     uint64_t pending_vbi_request_id_field2_{0};  // Second field for frame mode
     bool pending_vbi_is_frame_mode_{false};
-    orc::VBIFieldInfo pending_vbi_field1_info_;  // Cached first field data
+    orc::presenters::VBIFieldInfoView pending_vbi_field1_info_;  // Cached first field data (view model)
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
     orc::NodeID pending_trigger_node_id_;  // Track which node is being triggered
@@ -222,6 +225,8 @@ private:
     QualityMetricsDialog* quality_metrics_dialog_;
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
+    std::unique_ptr<orc::presenters::HintsPresenter> hints_presenter_;
+    std::unique_ptr<orc::presenters::VbiPresenter> vbi_presenter_;
     NtscObserverDialog* ntsc_observer_dialog_;
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
     std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;

@@ -16,7 +16,6 @@
 #include <QPointF>
 #include "analysisdialogbase.h"
 #include "plotwidget.h"
-#include "../core/stages/dropout_analysis_sink/dropout_analysis_types.h"
 
 /**
  * @brief Dialog for displaying dropout analysis graphs

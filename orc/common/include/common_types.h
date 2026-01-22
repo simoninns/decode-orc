@@ -18,4 +18,13 @@ namespace orc {
 // These are defined in their respective headers
 // This file just provides a single include point for common types
 
+/**
+ * @brief Mode for SNR analysis
+ */
+enum class SNRAnalysisMode {
+    WHITE,  ///< Analyze white SNR only
+    BLACK,  ///< Analyze black PSNR only
+    BOTH    ///< Analyze both white SNR and black PSNR
+};
+
 } // namespace orc

@@ -125,6 +125,7 @@ add_executable(orc-gui WIN32
 target_link_libraries(orc-gui PRIVATE 
     orc-core 
     orc-public
+    orc-presenters
     Qt6::Core 
     Qt6::Widgets
     QtNodes
@@ -144,6 +145,7 @@ target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/stages/snr_analysis_sink
     ${CMAKE_SOURCE_DIR}/orc/core/stages/burst_level_analysis_sink
     ${CMAKE_SOURCE_DIR}/orc/public
+    ${CMAKE_SOURCE_DIR}/orc/presenters/include
     ${CMAKE_BINARY_DIR}/generated
 )
 

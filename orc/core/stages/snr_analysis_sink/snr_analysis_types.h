@@ -11,20 +11,14 @@
 #define ORC_CORE_SNR_ANALYSIS_TYPES_H
 
 #include <field_id.h>
+#include <common_types.h>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 
 namespace orc {
 
-/**
- * @brief Mode for SNR analysis
- */
-enum class SNRAnalysisMode {
-    WHITE,  ///< Analyze white SNR only
-    BLACK,  ///< Analyze black PSNR only
-    BOTH    ///< Analyze both white SNR and black PSNR
-};
+// Use SNRAnalysisMode from common_types.h
 
 /**
  * @brief SNR statistics for a single field

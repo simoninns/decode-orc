@@ -1,41 +1,42 @@
 /*
  * File:        white_flag_observer.h
  * Module:      orc-core
- * Purpose:     White flag observer
+ * Purpose:     White flag observer (NTSC line 11)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#ifndef ORC_CORE_WHITE_FLAG_OBSERVER_H
-#define ORC_CORE_WHITE_FLAG_OBSERVER_H
+#pragma once
 
 #include "observer.h"
 
 namespace orc {
 
-class WhiteFlagObservation : public Observation {
-public:
-    bool white_flag_present = false;
-    
-    std::string observation_type() const override {
-        return "WhiteFlag";
-    }
-};
-
+/**
+ * @brief Observer for LaserDisc white flag (NTSC line 11).
+ *
+ * Observations (namespace "white_flag"):
+ * - present (bool, optional): true when white flag detected on the field
+ */
 class WhiteFlagObserver : public Observer {
 public:
-    WhiteFlagObserver() = default;
+	WhiteFlagObserver() = default;
+	~WhiteFlagObserver() override = default;
     
-    std::string observer_name() const override { return "WhiteFlagObserver"; }
-    std::string observer_version() const override { return "1.0.0"; }
+	std::string observer_name() const override { return "WhiteFlagObserver"; }
+	std::string observer_version() const override { return "1.0.0"; }
     
-    std::vector<std::shared_ptr<Observation>> process_field(
-        const VideoFieldRepresentation& representation,
-        FieldID field_id,
-        const ObservationHistory& history) override;
+	void process_field(
+		const VideoFieldRepresentation& representation,
+		FieldID field_id,
+		ObservationContext& context) override;
+    
+	std::vector<ObservationKey> get_provided_observations() const override {
+		return {
+			{"white_flag", "present", ObservationType::BOOL, "White flag detected", true},
+		};
+	}
 };
 
 } // namespace orc
-
-#endif // ORC_CORE_WHITE_FLAG_OBSERVER_H

@@ -177,14 +177,6 @@ public:
         FieldID source_id(id.value() + offset_.value());
         return source_->get_field_phase_hint(source_id);
     }
-    
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
-        if (!source_) {
-            return {};
-        }
-        FieldID source_id(id.value() + offset_.value());
-        return source_->get_observations(source_id);
-    }
 
 private:
     FieldID offset_;  // Number of fields to skip from the beginning
@@ -274,42 +266,9 @@ int32_t SourceAlignStage::get_frame_number_from_vbi(
     const VideoFieldRepresentation& source,
     FieldID field_id) const
 {
-    // Get VBI observations for this field
-    auto observations = source.get_observations(field_id);
-    
-    for (const auto& obs : observations) {
-        auto biphase_obs = std::dynamic_pointer_cast<BiphaseObservation>(obs);
-        if (!biphase_obs) {
-            continue;
-        }
-        
-        // Check for CAV picture number (preferred)
-        if (biphase_obs->picture_number.has_value()) {
-            return biphase_obs->picture_number.value();
-        }
-        
-        // Check for CLV timecode
-        if (biphase_obs->clv_timecode.has_value()) {
-            // Convert CLV timecode to frame number
-            // CLV timecode format: HH:MM:SS:FF (hours, minutes, seconds, picture_number)
-            // Assume 30 fps for NTSC, 25 fps for PAL
-            const auto& tc = biphase_obs->clv_timecode.value();
-            
-            // Determine frame rate from video format
-            auto params = source.get_video_parameters();
-            bool is_pal = params && params->system == VideoSystem::PAL;
-            int32_t fps = is_pal ? 25 : 30;
-            
-            // Convert to total frame number
-            int32_t frame_num = tc.hours * 3600 * fps +
-                               tc.minutes * 60 * fps +
-                               tc.seconds * fps +
-                               tc.picture_number;
-            return frame_num;
-        }
-    }
-    
-    return -1;  // No VBI frame number found
+    (void)source;
+    (void)field_id;
+    return -1;  // Legacy VBI observations disabled
 }
 
 std::vector<FieldID> SourceAlignStage::find_alignment_offsets(
@@ -404,8 +363,10 @@ std::vector<FieldID> SourceAlignStage::find_alignment_offsets(
 
 std::vector<ArtifactPtr> SourceAlignStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     if (inputs.empty()) {
         throw DAGExecutionError("SourceAlignStage requires at least 1 input");
     }

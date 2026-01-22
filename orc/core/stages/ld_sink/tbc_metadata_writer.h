@@ -12,6 +12,7 @@
 #include "tbc_metadata.h"
 #include "field_id.h"
 #include "observer.h"
+#include "observation_context.h"
 #include <string>
 #include <memory>
 #include <vector>
@@ -56,9 +57,8 @@ public:
     bool write_vits_metrics(FieldID field_id, const VitsMetrics& metrics);
     bool write_dropout(FieldID field_id, const DropoutInfo& dropout);
     
-    // Bulk write observations from observers
-    bool write_observations(FieldID field_id, 
-                           const std::vector<std::shared_ptr<Observation>>& observations);
+    // Write all observations from an ObservationContext
+    bool write_observations(FieldID field_id, const ObservationContext& context);
     
     // Transaction support for bulk writes
     bool begin_transaction();

@@ -59,7 +59,7 @@ public:
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters) override;
+        const std::map<std::string, ParameterValue>& parameters, ObservationContext& observation_context) override;
     
     // PreviewableStage interface
     bool supports_preview() const override { return true; }

@@ -3,12 +3,16 @@ add_library(orc-core STATIC
     field_id.cpp
     node_id.cpp
     video_field_representation.cpp
-    observation_wrapper_representation.cpp
     artifact.cpp
     dag_executor.cpp
     dag_field_renderer.cpp
     preview_renderer.cpp
     preview_helpers.cpp
+    
+    # Observation system
+    observation_context.cpp
+    observer_config.cpp
+    pipeline_validator.cpp
     
     # Logging
     logging.cpp
@@ -31,19 +35,16 @@ add_library(orc-core STATIC
     
     # Observers (organized in subdirectory)
     observers/observer.cpp
-    observers/observation_history.cpp
+    # TODO: Old observers temporarily disabled during refactor
+    # observers/observation_history.cpp
     observers/biphase_observer.cpp
-    observers/vitc_observer.cpp
     observers/closed_caption_observer.cpp
-    observers/video_id_observer.cpp
     observers/fm_code_observer.cpp
     observers/white_flag_observer.cpp
-    observers/vits_observer.cpp
     observers/burst_level_observer.cpp
-    observers/pulldown_observer.cpp
-    observers/lead_in_out_observer.cpp
-    observers/dropout_analysis_observer.cpp
-    observers/snr_analysis_observer.cpp
+    observers/white_snr_observer.cpp
+    observers/black_psnr_observer.cpp
+    observers/field_quality_observer.cpp
     
     # Analysis framework
     analysis/analysis_registry.cpp
@@ -54,29 +55,17 @@ add_library(orc-core STATIC
     analysis/vectorscope/vectorscope_analysis.cpp
     
     # Field mapping analysis
-    analysis/field_mapping/field_mapping_analyzer.cpp
-    analysis/field_mapping/field_mapping_analysis.cpp
-    analysis/field_mapping/field_mapping_lookup.cpp
+    # Re-enable range-based field mapping tools (observer-independent)
+    analysis/disc_mapper/disc_mapper_analysis.cpp
+    analysis/disc_mapper/disc_mapper_analyzer.cpp
     analysis/field_mapping/field_mapping_range_analysis.cpp
     
     # Field corruption analysis (testing tool)
     analysis/field_corruption/field_corruption_analyzer.cpp
     analysis/field_corruption/field_corruption_analysis.cpp
     
-    # Dropout analysis
-    analysis/dropout/dropout_analysis.cpp
-    analysis/dropout/dropout_analysis_decoder.cpp
-    
     # Dropout editor tool
-    analysis/dropout_editor_tool.cpp
-    
-    # SNR analysis
-    analysis/snr/snr_analysis.cpp
-    analysis/snr/snr_analysis_decoder.cpp
-    
-    # Burst level analysis
-    analysis/burst_level/burst_level_analysis.cpp
-    analysis/burst_level/burst_level_analysis_decoder.cpp
+    analysis/dropout/dropout_editor_tool.cpp
     
     # Source alignment analysis
     analysis/source_alignment/source_alignment_analysis.cpp
@@ -112,6 +101,9 @@ add_library(orc-core STATIC
     stages/efm_sink/efm_sink_stage.cpp
     stages/cc_sink/cc_sink_stage.cpp
     stages/video_params/video_params_stage.cpp
+    stages/dropout_analysis_sink/dropout_analysis_sink_stage.cpp
+    stages/snr_analysis_sink/snr_analysis_sink_stage.cpp
+    stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.cpp
     
     # Dropout decision utilities
     dropout_decision.cpp
@@ -139,7 +131,7 @@ add_library(orc-core STATIC
     project_to_dag.cpp
 )
 
-target_include_directories(orc-core PUBLIC
+target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/analysis
@@ -160,6 +152,9 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/cc_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/video_params
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_analysis_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/snr_analysis_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
 )
 
 # Compiler-specific warning flags

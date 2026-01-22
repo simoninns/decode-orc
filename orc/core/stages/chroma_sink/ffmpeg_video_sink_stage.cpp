@@ -11,6 +11,8 @@
 #include "stage_registry.h"
 #include "logging.h"
 #include "output_backend.h"
+#include "closed_caption_observer.h"
+#include "observation_context.h"
 
 namespace orc {
 
@@ -152,6 +154,57 @@ bool FFmpegVideoSinkStage::set_parameters(const std::map<std::string, ParameterV
     
     // Call base class implementation (it handles all parameters)
     return ChromaSinkStage::set_parameters(params);
+}
+
+bool FFmpegVideoSinkStage::trigger(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
+{
+    // Check if closed caption embedding is enabled in parameters
+    bool embed_cc = false;
+    auto cc_param = parameters.find("embed_closed_captions");
+    if (cc_param != parameters.end()) {
+        if (std::holds_alternative<bool>(cc_param->second)) {
+            embed_cc = std::get<bool>(cc_param->second);
+        } else if (std::holds_alternative<std::string>(cc_param->second)) {
+            std::string val = std::get<std::string>(cc_param->second);
+            embed_cc = (val == "true" || val == "1" || val == "yes");
+        }
+    }
+    
+    // If closed caption embedding is enabled, instantiate ClosedCaptionObserver
+    // to populate observation context before calling parent trigger
+    if (embed_cc) {
+        ORC_LOG_DEBUG("FFmpegVideoSink: Closed caption embedding enabled, extracting CC observations");
+        
+        // Extract VideoFieldRepresentation from input
+        if (!inputs.empty()) {
+            auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
+            if (vfr) {
+                // Create and run ClosedCaptionObserver to populate observations
+                auto cc_observer = std::make_shared<ClosedCaptionObserver>();
+                
+                // Get field range from VFR
+                auto field_range = vfr->field_range();
+                
+                // Run observer on all fields to extract CC data
+                for (uint32_t field_num = field_range.start.value(); 
+                     field_num <= field_range.end.value(); ++field_num) {
+                    FieldID field_id(field_num);
+                    if (vfr->has_field(field_id)) {
+                        cc_observer->process_field(*vfr, field_id, observation_context);
+                    }
+                }
+                
+                ORC_LOG_DEBUG("FFmpegVideoSink: CC observations extracted for fields {}-{}", 
+                             field_range.start.value(), field_range.end.value());
+            }
+        }
+    }
+    
+    // Call parent trigger which will use the populated observation context
+    return ChromaSinkStage::trigger(inputs, parameters, observation_context);
 }
 
 } // namespace orc

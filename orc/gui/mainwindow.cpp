@@ -14,7 +14,7 @@
 #include "linescopedialog.h"
 #include "vbidialog.h"
 #include "hintsdialog.h"
-#include "pulldowndialog.h"
+#include "ntscobserverdialog.h"
 #include "dropoutanalysisdialog.h"
 #include "snranalysisdialog.h"
 #include "burstlevelanalysisdialog.h"
@@ -34,8 +34,6 @@
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/dag_field_renderer.h"
 #include "../core/include/tbc_metadata.h"
-#include "../core/analysis/dropout/dropout_analysis_decoder.h"
-#include "../core/analysis/snr/snr_analysis_decoder.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/node_type.h"
 #include "../core/include/dag_executor.h"
@@ -79,7 +77,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , preview_dialog_(nullptr)
     , vbi_dialog_(nullptr)
-    , pulldown_dialog_(nullptr)
+    , ntsc_observer_dialog_(nullptr)
     , dag_view_(nullptr)
     , dag_model_(nullptr)
     , dag_scene_(nullptr)
@@ -94,7 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
     , last_dropout_mode_(orc::DropoutAnalysisMode::FULL_FIELD)
     , last_dropout_output_type_(orc::PreviewOutputType::Frame)
     , last_snr_node_id_()
-    , last_snr_mode_(orc::SNRAnalysisMode::WHITE_SNR)
+    , last_snr_mode_(orc::SNRAnalysisMode::WHITE)
     , last_snr_output_type_(orc::PreviewOutputType::Frame)
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
@@ -107,35 +105,35 @@ MainWindow::MainWindow(QWidget *parent)
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
     
-    // Connect coordinator signals
+    // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
     connect(render_coordinator_.get(), &RenderCoordinator::previewReady,
-            this, &MainWindow::onPreviewReady);
+            this, &MainWindow::onPreviewReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::vbiDataReady,
-            this, &MainWindow::onVBIDataReady);
+            this, &MainWindow::onVBIDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::availableOutputsReady,
-            this, &MainWindow::onAvailableOutputsReady);
+            this, &MainWindow::onAvailableOutputsReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::lineSamplesReady,
-            this, &MainWindow::onLineSamplesReady);
-    connect(render_coordinator_.get(), &RenderCoordinator::frameLineNavigationReady,
-            this, &MainWindow::onFrameLineNavigationReady);
+            this, &MainWindow::onLineSamplesReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
-            this, &MainWindow::onDropoutDataReady);
+            this, &MainWindow::onDropoutDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress,
-            this, &MainWindow::onDropoutProgress);
+            this, &MainWindow::onDropoutProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::snrDataReady,
-            this, &MainWindow::onSNRDataReady);
+            this, &MainWindow::onSNRDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::snrProgress,
-            this, &MainWindow::onSNRProgress);
+            this, &MainWindow::onSNRProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::burstLevelDataReady,
-            this, &MainWindow::onBurstLevelDataReady);
+            this, &MainWindow::onBurstLevelDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::burstLevelProgress,
-            this, &MainWindow::onBurstLevelProgress);
+            this, &MainWindow::onBurstLevelProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerProgress,
-            this, &MainWindow::onTriggerProgress);
+            this, &MainWindow::onTriggerProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerComplete,
-            this, &MainWindow::onTriggerComplete);
+            this, &MainWindow::onTriggerComplete, Qt::QueuedConnection);
+    connect(render_coordinator_.get(), &RenderCoordinator::frameLineNavigationReady,
+            this, &MainWindow::onFrameLineNavigationReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::error,
-            this, &MainWindow::onCoordinatorError);
+            this, &MainWindow::onCoordinatorError, Qt::QueuedConnection);
     
     // Start the coordinator worker thread
     render_coordinator_->start();
@@ -189,9 +187,9 @@ MainWindow::~MainWindow()
         delete vbi_dialog_;
         vbi_dialog_ = nullptr;
     }
-    if (pulldown_dialog_) {
-        delete pulldown_dialog_;
-        pulldown_dialog_ = nullptr;
+    if (ntsc_observer_dialog_) {
+        delete ntsc_observer_dialog_;
+        ntsc_observer_dialog_ = nullptr;
     }
     if (preview_dialog_) {
         delete preview_dialog_;
@@ -254,8 +252,8 @@ void MainWindow::setupUI()
     // Create hints dialog (initially hidden)
     hints_dialog_ = new HintsDialog(this);
     
-    // Create pulldown dialog (initially hidden)
-    pulldown_dialog_ = new PulldownDialog(this);
+    // Create NTSC observer dialog (initially hidden)
+    ntsc_observer_dialog_ = new NtscObserverDialog(this);
     
     // Note: Dropout, SNR, and Burst Level analysis dialogs are now created per-stage
     // in runAnalysisForNode() to allow each stage to have its own independent dialog
@@ -307,8 +305,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onShowHintsDialog);
     connect(preview_dialog_, &PreviewDialog::showQualityMetricsDialogRequested,
             this, &MainWindow::onShowQualityMetricsDialog);
-    connect(preview_dialog_, &PreviewDialog::showPulldownDialogRequested,
-            this, &MainWindow::onShowPulldownDialog);
+    connect(preview_dialog_, &PreviewDialog::showNtscObserverDialogRequested,
+            this, &MainWindow::onShowNtscObserverDialog);
     connect(preview_dialog_, &PreviewDialog::lineScopeRequested,
             this, &MainWindow::onLineScopeRequested);
     connect(preview_dialog_, &PreviewDialog::lineNavigationRequested,
@@ -564,8 +562,8 @@ void MainWindow::closeAllDialogs()
     if (hints_dialog_ && hints_dialog_->isVisible()) {
         hints_dialog_->hide();
     }
-    if (pulldown_dialog_ && pulldown_dialog_->isVisible()) {
-        pulldown_dialog_->hide();
+    if (ntsc_observer_dialog_ && ntsc_observer_dialog_->isVisible()) {
+        ntsc_observer_dialog_->hide();
     }
     if (quality_metrics_dialog_ && quality_metrics_dialog_->isVisible()) {
         quality_metrics_dialog_->hide();
@@ -631,6 +629,130 @@ void MainWindow::closeAllDialogs()
         }
     }
     burst_level_progress_dialogs_.clear();
+}
+
+void MainWindow::createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name)
+{
+    // Get node label
+    QString node_label = QString::fromStdString(node_id.to_string());
+    const auto& nodes = project_.coreProject().get_nodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+    if (node_it != nodes.end()) {
+        if (!node_it->user_label.empty()) {
+            node_label = QString::fromStdString(node_it->user_label);
+        } else if (!node_it->display_name.empty()) {
+            node_label = QString::fromStdString(node_it->display_name);
+        }
+    }
+    
+    if (stage_name == "burst_level_analysis_sink") {
+        BurstLevelAnalysisDialog* dialog = nullptr;
+        auto it = burst_level_analysis_dialogs_.find(node_id);
+        if (it == burst_level_analysis_dialogs_.end()) {
+            dialog = new BurstLevelAnalysisDialog(this);
+            dialog->setWindowTitle(QString("Burst Level Analysis - %1").arg(node_label));
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                burst_level_analysis_dialogs_.erase(node_id);
+                burst_level_progress_dialogs_.erase(node_id);
+            });
+            burst_level_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
+        }
+        
+        auto& prog_dialog = burst_level_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+        
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    }
+    else if (stage_name == "dropout_analysis_sink") {
+        DropoutAnalysisDialog* dialog = nullptr;
+        auto it = dropout_analysis_dialogs_.find(node_id);
+        if (it == dropout_analysis_dialogs_.end()) {
+            dialog = new DropoutAnalysisDialog(this);
+            dialog->setWindowTitle(QString("Dropout Analysis - %1").arg(node_label));
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                dropout_analysis_dialogs_.erase(node_id);
+                dropout_progress_dialogs_.erase(node_id);
+            });
+            dropout_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
+        }
+        
+        auto& prog_dialog = dropout_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+        
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    }
+    else if (stage_name == "snr_analysis_sink") {
+        SNRAnalysisDialog* dialog = nullptr;
+        auto it = snr_analysis_dialogs_.find(node_id);
+        if (it == snr_analysis_dialogs_.end()) {
+            dialog = new SNRAnalysisDialog(this);
+            dialog->setWindowTitle(QString("SNR Analysis - %1").arg(node_label));
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(dialog, &SNRAnalysisDialog::modeChanged, [this, node_id](orc::SNRAnalysisMode mode) {
+                pending_snr_requests_.clear();
+                uint64_t request_id = render_coordinator_->requestSNRData(node_id, mode);
+                pending_snr_requests_[request_id] = node_id;
+            });
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                snr_analysis_dialogs_.erase(node_id);
+                snr_progress_dialogs_.erase(node_id);
+            });
+            snr_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
+        }
+        
+        auto& prog_dialog = snr_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+        
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    }
 }
 
 void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType source_format)
@@ -1288,11 +1410,11 @@ void MainWindow::updatePreviewInfo()
         return;
     }
     
-    // Update pulldown observer menu item availability (only for NTSC)
-    // Pulldown is NTSC-specific (3:2 pulldown for film conversion)
+    // Update NTSC observer menu item availability (only for NTSC)
+    // NTSC observers (FM code, white flag) are NTSC-specific
     auto video_format = project_.coreProject().get_video_format();
     bool is_ntsc = (video_format == orc::VideoSystem::NTSC);
-    preview_dialog_->pulldownAction()->setEnabled(is_ntsc);
+    preview_dialog_->ntscObserverAction()->setEnabled(is_ntsc);
     
     // Get detailed display info from core
     int current_index = preview_dialog_->previewSlider()->value();
@@ -1540,6 +1662,9 @@ void MainWindow::onTriggerStage(const orc::NodeID& node_id)
     ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id.to_string());
     
     try {
+        // Store the node being triggered so we can request data after completion
+        pending_trigger_node_id_ = node_id;
+        
         // Create progress dialog
         trigger_progress_dialog_ = new QProgressDialog("Starting trigger...", "Cancel", 0, 100, this);
         trigger_progress_dialog_->setWindowTitle("Processing");
@@ -2612,31 +2737,6 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             dialog->setWindowTitle(title);
             dialog->setAttribute(Qt::WA_DeleteOnClose, true);
             
-            // Connect mode changed to re-request data
-            connect(dialog, &DropoutAnalysisDialog::modeChanged,
-                    [this, node_id, dialog]() {
-                        if (dialog->isVisible()) {
-                            // Show progress dialog for this stage
-                            auto& prog_dialog = dropout_progress_dialogs_[node_id];
-                            if (prog_dialog) {
-                                delete prog_dialog;
-                            }
-                            prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
-                            prog_dialog->setWindowTitle(dialog->windowTitle());
-                            prog_dialog->setWindowModality(Qt::ApplicationModal);
-                            prog_dialog->setMinimumDuration(0);
-                            prog_dialog->setCancelButton(nullptr);
-                            prog_dialog->setValue(0);
-                            prog_dialog->show();
-                            prog_dialog->raise();
-                            prog_dialog->activateWindow();
-                            
-                            auto mode = dialog->getCurrentMode();
-                            uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
-                            pending_dropout_requests_[request_id] = node_id;
-                        }
-                    });
-            
             // Connect destroyed signal to clean up map entry
             connect(dialog, &QObject::destroyed, [this, node_id]() {
                 dropout_analysis_dialogs_.erase(node_id);
@@ -2669,12 +2769,12 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         dialog->activateWindow();
 
         // Request dropout data from coordinator (triggers batch processing)
-        auto mode = dialog->getCurrentMode();
-        uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
+        // Mode is controlled by the sink stage parameter, not the dialog
+        uint64_t request_id = render_coordinator_->requestDropoutData(node_id, orc::DropoutAnalysisMode::FULL_FIELD);
         pending_dropout_requests_[request_id] = node_id;
         
-        ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
-                      node_id.to_string(), static_cast<int>(mode), request_id);
+        ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', request_id={}",
+                      node_id.to_string(), request_id);
         return;
     }
     
@@ -2952,19 +3052,19 @@ void MainWindow::onShowQualityMetricsDialog()
     updateQualityMetricsDialog();
 }
 
-void MainWindow::onShowPulldownDialog()
+void MainWindow::onShowNtscObserverDialog()
 {
-    if (!pulldown_dialog_) {
+    if (!ntsc_observer_dialog_) {
         return;
     }
     
     // Show the dialog first
-    pulldown_dialog_->show();
-    pulldown_dialog_->raise();
-    pulldown_dialog_->activateWindow();
+    ntsc_observer_dialog_->show();
+    ntsc_observer_dialog_->raise();
+    ntsc_observer_dialog_->activateWindow();
     
-    // Update pulldown information after showing
-    updatePulldownDialog();
+    // Update NTSC observer information after showing
+    updateNtscObserverDialog();
 }
 
 void MainWindow::updateQualityMetricsDialog()
@@ -3016,7 +3116,7 @@ void MainWindow::updateQualityMetricsDialog()
             return;
         }
         
-        // Create a temporary renderer to get the field representation(s)
+        // Create a temporary renderer to get the field representation(s) and observation context
         orc::DAGFieldRenderer renderer(dag);
         
         if (is_frame_mode) {
@@ -3024,28 +3124,30 @@ void MainWindow::updateQualityMetricsDialog()
             auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
             auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
             
-            if (!render_result1.is_valid || !render_result1.representation ||
-                !render_result2.is_valid || !render_result2.representation) {
+            if (!render_result1.is_valid || !render_result2.is_valid) {
                 quality_metrics_dialog_->clearMetrics();
                 return;
             }
             
-            // Update dialog with both fields
-            quality_metrics_dialog_->updateMetricsForFrame(
-                render_result1.representation, field1_id,
-                render_result2.representation, field2_id
+            // Update dialog with both fields using observation context
+            quality_metrics_dialog_->updateMetricsForFrameFromContext(
+                field1_id, field2_id,
+                renderer.get_observation_context()
             );
         } else {
             // Render single field
             auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
             
-            if (!render_result.is_valid || !render_result.representation) {
+            if (!render_result.is_valid) {
                 quality_metrics_dialog_->clearMetrics();
                 return;
             }
             
-            // Update dialog with single field
-            quality_metrics_dialog_->updateMetrics(render_result.representation, field1_id);
+            // Update dialog with single field using observation context
+            quality_metrics_dialog_->updateMetricsFromContext(
+                field1_id,
+                renderer.get_observation_context()
+            );
         }
         
     } catch (const std::exception& e) {
@@ -3071,7 +3173,7 @@ void MainWindow::updateAllPreviewComponents()
     updateVBIDialog();
     updateHintsDialog();
     updateQualityMetricsDialog();
-    updatePulldownDialog();
+    updateNtscObserverDialog();
     
     // Notify line scope dialog that preview frame has changed
     // Line scope will refresh samples at its current field/line position via orc-core
@@ -3140,12 +3242,14 @@ void MainWindow::updateVBIDialog()
         }
         orc::FieldID field1_id(frame_fields.first_field);
         orc::FieldID field2_id(frame_fields.second_field);
-        // Request first field - VBI dialog will need enhancement to display both fields
+        // Request both fields - VBI interpretation requires data from both fields
+        // (e.g., CLV timecode may be split across fields)
+        pending_vbi_is_frame_mode_ = true;
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field1_id);
-        // Second field support: Would require VBIDialog to handle dual-field display
-        // For now, showing first field is sufficient for most use cases
+        pending_vbi_request_id_field2_ = render_coordinator_->requestVBIData(current_view_node_id_, field2_id);
     } else {
         // Field mode - request single field
+        pending_vbi_is_frame_mode_ = false;
         orc::FieldID field_id(current_index);
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field_id);
     }
@@ -3225,16 +3329,16 @@ void MainWindow::updateHintsDialog()
     }
 }
 
-void MainWindow::updatePulldownDialog()
+void MainWindow::updateNtscObserverDialog()
 {
-    // Only update if pulldown dialog is visible
-    if (!pulldown_dialog_ || !pulldown_dialog_->isVisible()) {
+    // Only update if NTSC observer dialog is visible
+    if (!ntsc_observer_dialog_ || !ntsc_observer_dialog_->isVisible()) {
         return;
     }
     
     // Get current field being displayed
     if (!current_view_node_id_.is_valid()) {
-        pulldown_dialog_->clearPulldownInfo();
+        ntsc_observer_dialog_->clearObservations();
         return;
     }
     
@@ -3246,63 +3350,66 @@ void MainWindow::updatePulldownDialog()
                          current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
                          current_output_type_ == orc::PreviewOutputType::Split);
     
-    // Get field ID from core library (handles field ordering correctly)
-    orc::FieldID field_id;
+    // Get field IDs from core library (handles field ordering correctly)
+    orc::FieldID field1_id;
+    orc::FieldID field2_id;
+    
     if (is_frame_mode) {
-        // Use core library to determine first field of frame
+        // Use core library to determine which fields make up this frame
         auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
         if (!frame_fields.is_valid) {
-            pulldown_dialog_->clearPulldownInfo();
+            ntsc_observer_dialog_->clearObservations();
             return;
         }
-        field_id = orc::FieldID(frame_fields.first_field);
+        field1_id = orc::FieldID(frame_fields.first_field);
+        field2_id = orc::FieldID(frame_fields.second_field);
     } else {
         // Field mode - simple mapping
-        field_id = orc::FieldID(current_index);
+        field1_id = orc::FieldID(current_index);
+        field2_id = orc::FieldID(0);
     }
     
-    // Get pulldown observation from the current DAG/node
+    // Get NTSC observations from the current DAG/node
     try {
         auto dag = project_.getDAG();
         if (!dag) {
-            pulldown_dialog_->clearPulldownInfo();
+            ntsc_observer_dialog_->clearObservations();
             return;
         }
         
-        // Create a temporary renderer to get the field representation
+        // Create a temporary renderer to get the observation context
         orc::DAGFieldRenderer renderer(dag);
         
-        // Render the field at the current node
-        auto render_result = renderer.render_field_at_node(current_view_node_id_, field_id);
-        
-        if (!render_result.is_valid || !render_result.representation) {
-            pulldown_dialog_->clearPulldownInfo();
-            return;
-        }
-        
-        // Get observations from the field representation
-        auto observations = render_result.representation->get_observations(field_id);
-        
-        // Find pulldown observation
-        std::shared_ptr<orc::PulldownObservation> pulldown_obs = nullptr;
-        for (const auto& obs : observations) {
-            if (obs->observation_type() == "Pulldown") {
-                pulldown_obs = std::dynamic_pointer_cast<orc::PulldownObservation>(obs);
-                break;
+        if (is_frame_mode) {
+            // Render both fields for frame mode
+            auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
+            
+            if (!render_result1.is_valid || !render_result2.is_valid) {
+                ntsc_observer_dialog_->clearObservations();
+                return;
             }
-        }
-        
-        // Update the dialog
-        if (pulldown_obs) {
-            pulldown_dialog_->updatePulldownObservation(pulldown_obs);
+            
+            // Get observation context and update dialog with both fields
+            const auto& context = renderer.get_observation_context();
+            ntsc_observer_dialog_->updateObservationsForFrame(field1_id, field2_id, context);
         } else {
-            // No pulldown observation found - might be PAL or CLV format
-            pulldown_dialog_->clearPulldownInfo();
+            // Render single field
+            auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            
+            if (!render_result.is_valid || !render_result.representation) {
+                ntsc_observer_dialog_->clearObservations();
+                return;
+            }
+            
+            // Get observation context and update dialog
+            const auto& context = renderer.get_observation_context();
+            ntsc_observer_dialog_->updateObservations(field1_id, context);
         }
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Failed to get pulldown observation: {}", e.what());
-        pulldown_dialog_->clearPulldownInfo();
+        ORC_LOG_ERROR("Failed to get NTSC observations: {}", e.what());
+        ntsc_observer_dialog_->clearObservations();
     }
 }
 void MainWindow::onLineScopeRequested(int image_x, int image_y)

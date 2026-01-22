@@ -1,7 +1,7 @@
 /*
  * File:        closed_caption_observer.cpp
  * Module:      orc-core
- * Purpose:     Closed caption observer
+ * Purpose:     Closed caption observer implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -10,31 +10,24 @@
 #include "closed_caption_observer.h"
 #include "logging.h"
 #include "tbc_video_field_representation.h"
-#include "video_field_representation.h"
 #include "vbi_utilities.h"
+#include "video_field_representation.h"
+#include "observation_context.h"
 
 namespace orc {
 
-std::vector<std::shared_ptr<Observation>> ClosedCaptionObserver::process_field(
+void ClosedCaptionObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    const ObservationHistory& history) {
-    (void)history;  // Unused for now
+    ObservationContext& context) {
     
     ORC_LOG_DEBUG("ClosedCaptionObserver::process_field called for field {}", field_id.value());
-    
-    std::vector<std::shared_ptr<Observation>> observations;
-    auto observation = std::make_shared<ClosedCaptionObservation>();
-    observation->field_id = field_id;
-    observation->detection_basis = DetectionBasis::SAMPLE_DERIVED;
-    observation->observer_version = observer_version();
     
     auto descriptor = representation.get_descriptor(field_id);
     if (!descriptor.has_value()) {
         ORC_LOG_DEBUG("Field {}: No descriptor available", field_id.value());
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
+        context.set(field_id, "closed_caption", "present", false);
+        return;
     }
     
     // Closed captions are only on the second field (field 2) in NTSC
@@ -45,9 +38,8 @@ std::vector<std::shared_ptr<Observation>> ClosedCaptionObserver::process_field(
         if (field_id.value() % 2 == 1) {
             // This is field 1 type, skip it
             ORC_LOG_DEBUG("Field {}: Skipping odd field (field 1 type)", field_id.value());
-            observation->confidence = ConfidenceLevel::NONE;
-            observations.push_back(observation);
-            return observations;
+            context.set(field_id, "closed_caption", "present", false);
+            return;
         }
         ORC_LOG_DEBUG("Field {}: Processing even field (field 2 type)", field_id.value());
     }
@@ -58,17 +50,15 @@ std::vector<std::shared_ptr<Observation>> ClosedCaptionObserver::process_field(
     
     if (line_num >= descriptor->height) {
         ORC_LOG_DEBUG("Field {}: Line {} >= height {}", field_id.value(), line_num, descriptor->height);
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
+        context.set(field_id, "closed_caption", "present", false);
+        return;
     }
     
     const uint16_t* line_data = representation.get_line(field_id, line_num);
     if (line_data == nullptr) {
         ORC_LOG_DEBUG("Field {}: get_line({}) returned nullptr", field_id.value(), line_num);
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
+        context.set(field_id, "closed_caption", "present", false);
+        return;
     }
     
     // Debug: check if line data has any non-zero values
@@ -104,12 +94,18 @@ std::vector<std::shared_ptr<Observation>> ClosedCaptionObserver::process_field(
     
     if (tbc_rep == nullptr) {
         ORC_LOG_DEBUG("Field {}: Failed to find TBCVideoFieldRepresentation in wrapper chain", field_id.value());
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
+        context.set(field_id, "closed_caption", "present", false);
+        return;
     }
     
-    const VideoParameters& video_params = tbc_rep->video_parameters();
+    auto video_params_opt = tbc_rep->get_video_parameters();
+    if (!video_params_opt.has_value()) {
+        ORC_LOG_DEBUG("Field {}: Failed to get video parameters", field_id.value());
+        context.set(field_id, "closed_caption", "present", false);
+        return;
+    }
+    
+    const VideoParameters& video_params = video_params_opt.value();
     
     // Calculate zero crossing from actual line data
     // VBI line amplitude may differ from active video, so use line's own min/max
@@ -131,30 +127,40 @@ std::vector<std::shared_ptr<Observation>> ClosedCaptionObserver::process_field(
     double samples_per_bit = static_cast<double>(descriptor->width) / 32.0;
     size_t colorburst_end = video_params.colour_burst_end;
     
+    DecodedCaption decoded;
     bool success = decode_line(line_data, descriptor->width,
                                zero_crossing, colorburst_end, samples_per_bit,
-                               *observation);
+                               decoded);
     
+    context.set(field_id, "closed_caption", "present", success);
     if (success) {
-        observation->confidence = (observation->parity_valid[0] && observation->parity_valid[1]) ?
-            ConfidenceLevel::HIGH : ConfidenceLevel::LOW;
-    } else {
-        observation->confidence = ConfidenceLevel::NONE;
+        context.set(field_id, "closed_caption", "data0", static_cast<int32_t>(decoded.data0));
+        context.set(field_id, "closed_caption", "data1", static_cast<int32_t>(decoded.data1));
+        context.set(field_id, "closed_caption", "parity0_valid", decoded.parity_valid0);
+        context.set(field_id, "closed_caption", "parity1_valid", decoded.parity_valid1);
+        
+        ORC_LOG_DEBUG("ClosedCaptionObserver: Field {} CC=[{:#04x}, {:#04x}] parity=({}, {})",
+                      field_id.value(), decoded.data0, decoded.data1,
+                      decoded.parity_valid0, decoded.parity_valid1);
     }
-    
-    ORC_LOG_DEBUG("ClosedCaptionObserver: Field {} CC=[{:#04x}, {:#04x}]",
-                  field_id.value(), observation->data0, observation->data1);
-    
-    observations.push_back(observation);
-    return observations;
+}
+
+std::vector<ObservationKey> ClosedCaptionObserver::get_provided_observations() const {
+    return {
+        {"closed_caption", "present", ObservationType::BOOL, "Closed caption data decoded", true},
+        {"closed_caption", "data0", ObservationType::INT32, "First EIA-608 byte (7-bit + parity)", true},
+        {"closed_caption", "data1", ObservationType::INT32, "Second EIA-608 byte (7-bit + parity)", true},
+        {"closed_caption", "parity0_valid", ObservationType::BOOL, "Parity validity for first byte", true},
+        {"closed_caption", "parity1_valid", ObservationType::BOOL, "Parity validity for second byte", true},
+    };
 }
 
 bool ClosedCaptionObserver::decode_line(const uint16_t* line_data,
-                                       size_t sample_count,
-                                       uint16_t zero_crossing,
-                                       size_t colorburst_end,
-                                       double samples_per_bit,
-                                       ClosedCaptionObservation& observation) {
+                                        size_t sample_count,
+                                        uint16_t zero_crossing,
+                                        size_t colorburst_end,
+                                        double samples_per_bit,
+                                        DecodedCaption& decoded) const {
     ORC_LOG_DEBUG("decode_line: sample_count={}, zero_crossing={}, colorburst_end={}, samples_per_bit={}",
                   sample_count, zero_crossing, colorburst_end, samples_per_bit);
     
@@ -214,13 +220,13 @@ bool ClosedCaptionObserver::decode_line(const uint16_t* line_data,
     }
     uint8_t parity1 = transition_map[static_cast<size_t>(x)] ? 1 : 0;
     
-    observation.data0 = byte0;
-    observation.data1 = byte1;
+    decoded.data0 = byte0;
+    decoded.data1 = byte1;
     
     // Check parity: legacy tool checks isEvenParity(byte) && parityBit != 1
     // If byte has even parity, the parity bit should be 1 to make odd parity overall
-    observation.parity_valid[0] = !(vbi_utils::is_even_parity(byte0) && parity0 != 1);
-    observation.parity_valid[1] = !(vbi_utils::is_even_parity(byte1) && parity1 != 1);
+    decoded.parity_valid0 = !(vbi_utils::is_even_parity(byte0) && parity0 != 1);
+    decoded.parity_valid1 = !(vbi_utils::is_even_parity(byte1) && parity1 != 1);
     
     return true;
 }

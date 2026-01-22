@@ -8,11 +8,12 @@
  */
 
 #include "tbc_metadata_writer.h"
-#include "vitc_observer.h"
 #include "biphase_observer.h"
 #include "closed_caption_observer.h"
-#include "vits_observer.h"
+#include "white_snr_observer.h"
+#include "black_psnr_observer.h"
 #include "burst_level_observer.h"
+#include "observation_context.h"
 #include "logging.h"
 #include <sqlite3.h>
 #include <stdexcept>
@@ -586,66 +587,94 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
     return rc == SQLITE_DONE;
 }
 
-bool TBCMetadataWriter::write_observations(FieldID field_id, 
-                                          const std::vector<std::shared_ptr<Observation>>& observations) {
+bool TBCMetadataWriter::write_observations(FieldID field_id, const ObservationContext& context) {
     if (!is_open_ || capture_id_ < 0) return false;
     
-    for (const auto& obs : observations) {
-        if (obs->confidence == ConfidenceLevel::NONE) continue;
-        
-        std::string type = obs->observation_type();
-        
-        if (type == "Biphase" || type == "VBI") {
-            auto* vbi_obs = dynamic_cast<BiphaseObservation*>(obs.get());
-            if (vbi_obs) {
-                VbiData vbi;
-                vbi.in_use = true;
-                vbi.vbi_data = vbi_obs->vbi_data;
-                write_vbi(field_id, vbi);
-            }
-        }
-        else if (type == "VITC") {
-            auto* vitc_obs = dynamic_cast<VitcObservation*>(obs.get());
-            if (vitc_obs) {
-                VitcData vitc;
-                vitc.in_use = true;
-                for (size_t i = 0; i < 8; ++i) {
-                    vitc.vitc_data[i] = vitc_obs->vitc_data[i];
-                }
-                write_vitc(field_id, vitc);
-            }
-        }
-        else if (type == "ClosedCaption") {
-            auto* cc_obs = dynamic_cast<ClosedCaptionObservation*>(obs.get());
-            if (cc_obs) {
-                ClosedCaptionData cc;
-                cc.in_use = true;
-                cc.data0 = cc_obs->data0;
-                cc.data1 = cc_obs->data1;
-                write_closed_caption(field_id, cc);
-            }
-        }
-        else if (type == "VITSQuality") {
-            auto* vits_obs = dynamic_cast<VITSQualityObservation*>(obs.get());
-            if (vits_obs && vits_obs->white_snr.has_value() && vits_obs->black_psnr.has_value()) {
-                VitsMetrics metrics;
-                metrics.in_use = true;
-                metrics.white_snr = vits_obs->white_snr.value();
-                metrics.black_psnr = vits_obs->black_psnr.value();
-                write_vits_metrics(field_id, metrics);
-            }
-        }
-        else if (type == "BurstLevel") {
-            auto* burst_obs = dynamic_cast<BurstLevelObservation*>(obs.get());
-            if (burst_obs) {
-                update_field_median_burst_ire(field_id, burst_obs->median_burst_ire);
-            }
-        }
-        // Note: FieldParity observation removed - field parity comes from hints only
-        // Note: PALPhase observation removed - PAL phase comes from hints only
+    bool any_written = false;
+    
+    // Extract and write VBI data (from BiphaseObserver)
+    // The biphase observer stores the raw VBI words in "biphase" namespace
+    auto vbi0_obs = context.get(field_id, "biphase", "vbi_line_16");
+    auto vbi1_obs = context.get(field_id, "biphase", "vbi_line_17");
+    auto vbi2_obs = context.get(field_id, "biphase", "vbi_line_18");
+    
+    if (vbi0_obs && vbi1_obs && vbi2_obs &&
+        std::holds_alternative<int32_t>(*vbi0_obs) &&
+        std::holds_alternative<int32_t>(*vbi1_obs) &&
+        std::holds_alternative<int32_t>(*vbi2_obs)) {
+        VbiData vbi;
+        vbi.in_use = true;
+        vbi.vbi_data[0] = std::get<int32_t>(*vbi0_obs);
+        vbi.vbi_data[1] = std::get<int32_t>(*vbi1_obs);
+        vbi.vbi_data[2] = std::get<int32_t>(*vbi2_obs);
+        any_written |= write_vbi(field_id, vbi);
     }
     
-    return true;
+    // Extract and write VITC data (from VitcObserver)
+    // Check if vitc data is present - the observer stores timecode components
+    auto vitc_present_obs = context.get(field_id, "vitc", "present");
+    if (vitc_present_obs && std::holds_alternative<bool>(*vitc_present_obs) && std::get<bool>(*vitc_present_obs)) {
+        // VITC stores the raw BCD bytes
+        auto v0_obs = context.get(field_id, "vitc", "vitc0");
+        auto v1_obs = context.get(field_id, "vitc", "vitc1");
+        auto v2_obs = context.get(field_id, "vitc", "vitc2");
+        auto v3_obs = context.get(field_id, "vitc", "vitc3");
+        auto v4_obs = context.get(field_id, "vitc", "vitc4");
+        auto v5_obs = context.get(field_id, "vitc", "vitc5");
+        auto v6_obs = context.get(field_id, "vitc", "vitc6");
+        auto v7_obs = context.get(field_id, "vitc", "vitc7");
+        
+        if (v0_obs && v1_obs && v2_obs && v3_obs && v4_obs && v5_obs && v6_obs && v7_obs &&
+            std::holds_alternative<int32_t>(*v0_obs) && std::holds_alternative<int32_t>(*v1_obs) &&
+            std::holds_alternative<int32_t>(*v2_obs) && std::holds_alternative<int32_t>(*v3_obs) &&
+            std::holds_alternative<int32_t>(*v4_obs) && std::holds_alternative<int32_t>(*v5_obs) &&
+            std::holds_alternative<int32_t>(*v6_obs) && std::holds_alternative<int32_t>(*v7_obs)) {
+            VitcData vitc;
+            vitc.in_use = true;
+            vitc.vitc_data[0] = std::get<int32_t>(*v0_obs);
+            vitc.vitc_data[1] = std::get<int32_t>(*v1_obs);
+            vitc.vitc_data[2] = std::get<int32_t>(*v2_obs);
+            vitc.vitc_data[3] = std::get<int32_t>(*v3_obs);
+            vitc.vitc_data[4] = std::get<int32_t>(*v4_obs);
+            vitc.vitc_data[5] = std::get<int32_t>(*v5_obs);
+            vitc.vitc_data[6] = std::get<int32_t>(*v6_obs);
+            vitc.vitc_data[7] = std::get<int32_t>(*v7_obs);
+            any_written |= write_vitc(field_id, vitc);
+        }
+    }
+    
+    // Extract and write closed caption data (from ClosedCaptionObserver)
+    auto cc_present_obs = context.get(field_id, "closed_caption", "present");
+    if (cc_present_obs && std::holds_alternative<bool>(*cc_present_obs) && std::get<bool>(*cc_present_obs)) {
+        auto data0_obs = context.get(field_id, "closed_caption", "data0");
+        auto data1_obs = context.get(field_id, "closed_caption", "data1");
+        
+        if (data0_obs && data1_obs &&
+            std::holds_alternative<int32_t>(*data0_obs) &&
+            std::holds_alternative<int32_t>(*data1_obs)) {
+            ClosedCaptionData cc;
+            cc.in_use = true;
+            cc.data0 = std::get<int32_t>(*data0_obs);
+            cc.data1 = std::get<int32_t>(*data1_obs);
+            any_written |= write_closed_caption(field_id, cc);
+        }
+    }
+    
+    // Extract and write VITS metrics (from WhiteSNRObserver and BlackPSNRObserver)
+    auto white_snr_obs = context.get(field_id, "white_snr", "snr_db");
+    auto black_psnr_obs = context.get(field_id, "black_psnr", "psnr_db");
+    
+    if (white_snr_obs || black_psnr_obs) {
+        VitsMetrics metrics;
+        metrics.in_use = true;
+        metrics.white_snr = (white_snr_obs && std::holds_alternative<double>(*white_snr_obs)) 
+                            ? std::get<double>(*white_snr_obs) : 0.0;
+        metrics.black_psnr = (black_psnr_obs && std::holds_alternative<double>(*black_psnr_obs)) 
+                             ? std::get<double>(*black_psnr_obs) : 0.0;
+        any_written |= write_vits_metrics(field_id, metrics);
+    }
+    
+    return any_written;
 }
 
 bool TBCMetadataWriter::begin_transaction() {

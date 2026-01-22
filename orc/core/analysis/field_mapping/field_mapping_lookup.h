@@ -11,7 +11,7 @@
 
 #include "../../include/video_field_representation.h"
 #include "../../include/field_id.h"
-#include "../../observers/biphase_observer.h"
+#include "../../include/vbi_types.h"
 #include <string>
 #include <vector>
 #include <map>

@@ -74,9 +74,9 @@ add_executable(orc-gui WIN32
     hintsdialog.cpp
     hintsdialog.h
     
-    # Pulldown dialog
-    pulldowndialog.cpp
-    pulldowndialog.h
+    # NTSC observer dialog
+    ntscobserverdialog.cpp
+    ntscobserverdialog.h
     
     # Plot widget
     plotwidget.cpp
@@ -137,7 +137,11 @@ target_compile_definitions(orc-gui PRIVATE
 
 target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/include
+    ${CMAKE_SOURCE_DIR}/orc/core/analysis
     ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
+    ${CMAKE_SOURCE_DIR}/orc/core/stages/dropout_analysis_sink
+    ${CMAKE_SOURCE_DIR}/orc/core/stages/snr_analysis_sink
+    ${CMAKE_SOURCE_DIR}/orc/core/stages/burst_level_analysis_sink
     ${CMAKE_BINARY_DIR}/generated
 )
 

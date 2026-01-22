@@ -8,64 +8,59 @@
  */
 
 #include "burst_level_observer.h"
-#include "logging.h"
+#include "../include/observation_context.h"
+#include "../include/video_field_representation.h"
+#include "../include/field_id.h"
+#include "../include/logging.h"
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 
 namespace orc {
 
-std::vector<std::shared_ptr<Observation>> BurstLevelObserver::process_field(
+void BurstLevelObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    const ObservationHistory& history) {
-    (void)history;  // Unused
-    
-    auto obs = std::make_shared<BurstLevelObservation>();
-    obs->field_id = field_id;
-    obs->detection_basis = DetectionBasis::SAMPLE_DERIVED;
-    obs->observer_version = observer_version();
-    obs->observer_parameters = parameters_;
-    obs->median_burst_ire = 0.0;
-    
+    ObservationContext& context)
+{
     // Get video parameters to find color burst location
     auto video_params_opt = representation.get_video_parameters();
     if (!video_params_opt.has_value()) {
-        obs->confidence = ConfidenceLevel::NONE;
-        return {obs};
+        ORC_LOG_TRACE("BurstLevelObserver: No video parameters for field {}", field_id.value());
+        return;
     }
     
     const auto& video_params = video_params_opt.value();
     
     // Check if we have valid color burst range
     if (video_params.colour_burst_start < 0 || video_params.colour_burst_end < 0) {
-        obs->confidence = ConfidenceLevel::NONE;
-        return {obs};
+        ORC_LOG_TRACE("BurstLevelObserver: Invalid burst range for field {}", field_id.value());
+        return;
     }
     
     if (video_params.colour_burst_start >= video_params.colour_burst_end) {
-        obs->confidence = ConfidenceLevel::NONE;
-        return {obs};
+        ORC_LOG_TRACE("BurstLevelObserver: Invalid burst range for field {}", field_id.value());
+        return;
     }
     
     // Get field descriptor
     auto descriptor_opt = representation.get_descriptor(field_id);
     if (!descriptor_opt.has_value()) {
-        obs->confidence = ConfidenceLevel::NONE;
-        return {obs};
+        ORC_LOG_TRACE("BurstLevelObserver: No descriptor for field {}", field_id.value());
+        return;
     }
     
     const auto& descriptor = descriptor_opt.value();
     
-    // Collect all burst samples from all active lines
+    // Collect all burst samples from sampled lines
     std::vector<double> burst_levels_raw;
     
-    // Sample from line 11 to end of active area (matching ld-decode's range 11-313)
+    // Sample from line 11 to end of active area
     size_t start_line = 11;
-    size_t end_line = std::min(descriptor.height - 10, static_cast<size_t>(video_params.last_active_field_line));
+    size_t end_line = std::min(descriptor.height - 10, 
+                               static_cast<size_t>(video_params.last_active_field_line));
     
     // Sample just 3 lines (top, middle, bottom) for performance
-    // Since we're tracking trends over many fields, this is sufficient
     std::vector<size_t> sample_lines = {
         start_line,                                    // Top of active area
         start_line + (end_line - start_line) / 2,     // Middle
@@ -73,7 +68,7 @@ std::vector<std::shared_ptr<Observation>> BurstLevelObserver::process_field(
     };
     
     for (size_t line : sample_lines) {
-        const auto* line_data = representation.get_line(field_id, line);
+        const uint16_t* line_data = representation.get_line(field_id, line);
         if (!line_data) {
             continue;
         }
@@ -102,7 +97,8 @@ std::vector<std::shared_ptr<Observation>> BurstLevelObserver::process_field(
         }
         
         // Calculate mean of burst samples
-        double mean = std::accumulate(line_burst_samples.begin(), line_burst_samples.end(), 0.0) / 
+        double mean = std::accumulate(line_burst_samples.begin(), 
+                                     line_burst_samples.end(), 0.0) / 
                      line_burst_samples.size();
         
         // Subtract mean (remove DC component)
@@ -122,7 +118,8 @@ std::vector<std::shared_ptr<Observation>> BurstLevelObserver::process_field(
         double peak_amplitude = rms * std::sqrt(2.0);
         
         // Skip if burst level is unreasonably high (> 30 IRE equivalent in raw units)
-        double ire_per_unit = 100.0 / static_cast<double>(video_params.white_16b_ire - video_params.black_16b_ire);
+        double ire_per_unit = 100.0 / static_cast<double>(
+            video_params.white_16b_ire - video_params.black_16b_ire);
         if (peak_amplitude * ire_per_unit > 30.0) {
             continue;  // Skip outliers
         }
@@ -132,21 +129,23 @@ std::vector<std::shared_ptr<Observation>> BurstLevelObserver::process_field(
     
     // Calculate median of all collected burst levels (in raw units)
     if (burst_levels_raw.empty()) {
-        obs->confidence = ConfidenceLevel::NONE;
-        return {obs};
+        ORC_LOG_TRACE("BurstLevelObserver: No valid burst samples for field {}", 
+                     field_id.value());
+        return;
     }
     
     double median_raw = calculate_median(burst_levels_raw);
     
     // Convert to IRE
-    double ire_per_unit = 100.0 / static_cast<double>(video_params.white_16b_ire - video_params.black_16b_ire);
-    obs->median_burst_ire = median_raw * ire_per_unit;
-    obs->confidence = ConfidenceLevel::HIGH;
+    double ire_per_unit = 100.0 / static_cast<double>(
+        video_params.white_16b_ire - video_params.black_16b_ire);
+    double median_burst_ire = median_raw * ire_per_unit;
+    
+    // Store in observation context
+    context.set(field_id, "burst_level", "median_burst_ire", median_burst_ire);
     
     ORC_LOG_DEBUG("BurstLevelObserver: Field {} median_burst_ire={:.2f}",
-                  field_id.value(), obs->median_burst_ire);
-    
-    return {obs};
+                  field_id.value(), median_burst_ire);
 }
 
 double BurstLevelObserver::calculate_median(std::vector<double> values) const {
@@ -167,16 +166,5 @@ double BurstLevelObserver::calculate_median(std::vector<double> values) const {
     }
 }
 
-double BurstLevelObserver::sample_to_ire(uint16_t sample, uint16_t black_level, uint16_t white_level) const {
-    if (white_level <= black_level) {
-        return 0.0;  // Invalid levels
-    }
-    
-    // Convert to IRE: black = 0 IRE, white = 100 IRE
-    double normalized = static_cast<double>(sample - black_level) / 
-                       static_cast<double>(white_level - black_level);
-    
-    return normalized * 100.0;
-}
-
 } // namespace orc
+

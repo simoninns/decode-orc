@@ -7,14 +7,11 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "field_mapping/field_mapping_analysis.h"
+#include "disc_mapper/disc_mapper_analysis.h"
 #include "field_mapping/field_mapping_range_analysis.h"
 #include "field_corruption/field_corruption_analysis.h"
 #include "vectorscope/vectorscope_analysis.h"
-#include "dropout/dropout_analysis.h"
-#include "dropout_editor_tool.h"
-#include "snr/snr_analysis.h"
-#include "burst_level/burst_level_analysis.h"
+#include "dropout/dropout_editor_tool.h"
 #include "source_alignment/source_alignment_analysis.h"
 #include "mask_line/mask_line_analysis.h"
 #include "ffmpeg_preset/ffmpeg_preset_analysis.h"
@@ -22,6 +19,15 @@
 #include <memory>
 
 namespace orc {
+
+// Forward declarations of force-link functions for analysis tools we want enabled
+void force_link_FFmpegPresetAnalysisTool();
+void force_link_FieldCorruptionAnalysisTool();
+void force_link_FieldMappingRangeAnalysisTool();
+void force_link_DiscMapperAnalysisTool();
+void force_link_SourceAlignmentAnalysisTool();
+void force_link_MaskLineAnalysisTool();
+void force_link_DropoutEditorTool();
 
 /**
  * @brief Force linking of all analysis tool object files
@@ -31,21 +37,16 @@ namespace orc {
  * This must be called before any analysis tool lookups occur.
  */
 void force_analysis_tool_linking() {
-    ORC_LOG_DEBUG("Forcing analysis tool linking...");
-    // Create dummy instances to force vtable instantiation
-    // This ensures the object files are linked and static initializers run
-    [[maybe_unused]] auto dummy1 = std::make_unique<FieldMappingAnalysisTool>();
-    [[maybe_unused]] auto dummy2 = std::make_unique<FieldMappingRangeAnalysisTool>();
-    [[maybe_unused]] auto dummy3 = std::make_unique<FieldCorruptionAnalysisTool>();
-    [[maybe_unused]] auto dummy4 = std::make_unique<VectorscopeAnalysisTool>();
-    [[maybe_unused]] auto dummy5 = std::make_unique<DropoutAnalysisTool>();
-    [[maybe_unused]] auto dummy6 = std::make_unique<DropoutEditorTool>();
-    [[maybe_unused]] auto dummy7 = std::make_unique<SNRAnalysisTool>();
-    [[maybe_unused]] auto dummy8 = std::make_unique<BurstLevelAnalysisTool>();
-    [[maybe_unused]] auto dummy9 = std::make_unique<SourceAlignmentAnalysisTool>();
-    [[maybe_unused]] auto dummy10 = std::make_unique<MaskLineAnalysisTool>();
-    [[maybe_unused]] auto dummy11 = std::make_unique<FFmpegPresetAnalysisTool>();
-    ORC_LOG_DEBUG("Analysis tool linking complete");
+    // Only enable the FFmpeg preset analysis tool for now.
+    // Additional tools can be added here as they are re-enabled/refactored.
+    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range, disc mapper, source alignment, mask line, dropout editor");
+    force_link_FFmpegPresetAnalysisTool();
+    force_link_FieldCorruptionAnalysisTool();
+    force_link_FieldMappingRangeAnalysisTool();
+    force_link_DiscMapperAnalysisTool();
+    force_link_SourceAlignmentAnalysisTool();
+    force_link_MaskLineAnalysisTool();
+    force_link_DropoutEditorTool();
 }
 
 } // namespace orc

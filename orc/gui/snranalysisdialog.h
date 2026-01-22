@@ -16,7 +16,7 @@
 #include <QPointF>
 #include "analysisdialogbase.h"
 #include "plotwidget.h"
-#include "../core/observers/snr_analysis_observer.h"
+#include "../core/stages/snr_analysis_sink/snr_analysis_types.h"
 
 /**
  * @brief Dialog for displaying SNR analysis graphs
@@ -27,9 +27,8 @@
  * - Black PSNR only
  * - Both white SNR and black PSNR
  * 
- * Data and business logic is handled by the SNRAnalysisObserver and 
- * SNRAnalysisDecoder in orc-core. This GUI component only handles rendering
- * the graphs.
+ * Data and business logic is handled by the WhiteSNRObserver and BlackPSNRObserver
+ * in orc-core. This GUI component only handles rendering the graphs.
  */
 class SNRAnalysisDialog : public AnalysisDialogBase
 {

@@ -311,23 +311,9 @@ void AnalysisDialog::onAnalysisComplete(const AnalysisResult& result) {
 }
 
 void AnalysisDialog::displayFinalStatistics(const AnalysisResult& result) {
-    QString stats = QString::fromStdString(result.summary) + "\n\nStatistics:\n";
-    for (const auto& [key, value] : result.statistics) {
-        QString valueStr;
-        if (std::holds_alternative<bool>(value)) {
-            valueStr = std::get<bool>(value) ? "true" : "false";
-        } else if (std::holds_alternative<int>(value)) {
-            valueStr = QString::number(std::get<int>(value));
-        } else if (std::holds_alternative<long long>(value)) {
-            valueStr = QString::number(std::get<long long>(value));
-        } else if (std::holds_alternative<double>(value)) {
-            valueStr = QString::number(std::get<double>(value));
-        } else if (std::holds_alternative<std::string>(value)) {
-            valueStr = QString::fromStdString(std::get<std::string>(value));
-        }
-        stats += QString::fromStdString(key) + ": " + valueStr + "\n";
-    }
-    statisticsText_->setPlainText(stats);
+    // Display only the summary without the statistics dictionary
+    // The summary already contains all relevant information from the detailed pipeline report
+    statisticsText_->setPlainText(QString::fromStdString(result.summary));
 }
 
 void AnalysisDialog::updateLiveStatistics() {

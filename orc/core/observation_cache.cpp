@@ -158,4 +158,13 @@ size_t ObservationCache::populate_node(NodeID node_id, size_t max_fields)
     return cached_count;
 }
 
+const ObservationContext& ObservationCache::get_observation_context() const
+{
+    if (!renderer_) {
+        static ObservationContext empty_context;
+        return empty_context;
+    }
+    return renderer_->get_observation_context();
+}
+
 } // namespace orc

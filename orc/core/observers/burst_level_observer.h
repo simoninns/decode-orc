@@ -10,26 +10,24 @@
 #pragma once
 
 #include "observer.h"
-#include "tbc_metadata.h"
-#include <optional>
 #include <vector>
 
 namespace orc {
 
-// Burst level observation
-class BurstLevelObservation : public Observation {
-public:
-    double median_burst_ire;    // Median IRE level of color burst
-    
-    std::string observation_type() const override {
-        return "BurstLevel";
-    }
-};
-
-// Color burst median IRE level observer
+/**
+ * @brief Observer for color burst IRE level analysis
+ * 
+ * Analyzes the color burst signal amplitude and reports it in IRE units.
+ * The burst level is useful for quality assessment and can indicate
+ * signal degradation or processing artifacts.
+ * 
+ * Stores observations in the "burst_level" namespace:
+ * - "median_burst_ire" (double): Median burst amplitude in IRE units
+ */
 class BurstLevelObserver : public Observer {
 public:
     BurstLevelObserver() = default;
+    ~BurstLevelObserver() override = default;
     
     std::string observer_name() const override {
         return "BurstLevelObserver";
@@ -39,17 +37,20 @@ public:
         return "1.0.0";
     }
     
-    std::vector<std::shared_ptr<Observation>> process_field(
+    void process_field(
         const VideoFieldRepresentation& representation,
         FieldID field_id,
-        const ObservationHistory& history) override;
+        ObservationContext& context) override;
+    
+    std::vector<ObservationKey> get_provided_observations() const override {
+        return {
+            {"burst_level", "median_burst_ire", ObservationType::DOUBLE, "Median color burst amplitude in IRE"},
+        };
+    }
     
 private:
     // Calculate median of samples
     double calculate_median(std::vector<double> values) const;
-    
-    // Convert 16-bit sample to IRE
-    double sample_to_ire(uint16_t sample, uint16_t black_level, uint16_t white_level) const;
 };
 
 } // namespace orc

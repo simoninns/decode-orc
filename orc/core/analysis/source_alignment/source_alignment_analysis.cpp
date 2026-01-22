@@ -11,10 +11,10 @@
 #include "../analysis_registry.h"
 #include "../../stages/source_align/source_align_stage.h"
 #include "../../observers/biphase_observer.h"
-#include "../../observers/observation_history.h"
 #include "../../include/dag_executor.h"
 #include "../../include/project.h"
 #include "../../include/logging.h"
+#include "../../include/observation_context.h"
 #include <algorithm>
 #include <set>
 #include <sstream>
@@ -59,42 +59,48 @@ bool SourceAlignmentAnalysisTool::isApplicableToStage(const std::string& stage_n
 /**
  * @brief Get VBI frame number or CLV timecode frame equivalent for a field
  * 
- * ARCHITECTURAL NOTE: This function gets observations from the source stage.
- * It does NOT run observers itself - that's the source stage's responsibility.
+ * ARCHITECTURAL NOTE: This function queries the ObservationContext for VBI data.
+ * Observations must be populated by running BiphaseObserver on the field first.
+ * 
+ * @param observation_context The observation context containing VBI data
+ * @param field_id The field to query
+ * @param is_pal Whether the source is PAL (used for CLV timecode conversion)
+ * @return Frame number if found, -1 otherwise
  */
 static int32_t get_frame_number_from_vbi(
-    const VideoFieldRepresentation& source,
-    FieldID field_id)
+    const ObservationContext& observation_context,
+    FieldID field_id,
+    bool is_pal)
 {
-    // Get VBI observations from the source (provided by source stage's observers)
-    auto observations = source.get_observations(field_id);
+    // Check for CAV picture number (preferred)
+    auto picture_num = observation_context.get(field_id, "vbi", "picture_number");
+    if (picture_num && std::holds_alternative<int32_t>(*picture_num)) {
+        return std::get<int32_t>(*picture_num);
+    }
     
-    for (const auto& obs : observations) {
-        auto biphase_obs = std::dynamic_pointer_cast<BiphaseObservation>(obs);
-        if (!biphase_obs) {
-            continue;
-        }
-        
-        // Check for CAV picture number (preferred)
-        if (biphase_obs->picture_number.has_value()) {
-            return biphase_obs->picture_number.value();
-        }
-        
-        // Check for CLV timecode
-        if (biphase_obs->clv_timecode.has_value()) {
+    // Check for CLV timecode (need to query all components)
+    auto hours_opt = observation_context.get(field_id, "vbi", "clv_hours");
+    auto minutes_opt = observation_context.get(field_id, "vbi", "clv_minutes");
+    auto seconds_opt = observation_context.get(field_id, "vbi", "clv_seconds");
+    auto picture_opt = observation_context.get(field_id, "vbi", "clv_picture_number");
+    
+    if (hours_opt && minutes_opt && seconds_opt && picture_opt) {
+        if (std::holds_alternative<int32_t>(*hours_opt) &&
+            std::holds_alternative<int32_t>(*minutes_opt) &&
+            std::holds_alternative<int32_t>(*seconds_opt) &&
+            std::holds_alternative<int32_t>(*picture_opt)) {
+            
+            int32_t hours = std::get<int32_t>(*hours_opt);
+            int32_t minutes = std::get<int32_t>(*minutes_opt);
+            int32_t seconds = std::get<int32_t>(*seconds_opt);
+            int32_t picture_number = std::get<int32_t>(*picture_opt);
+            
             // Convert CLV timecode to frame number
-            const auto& tc = biphase_obs->clv_timecode.value();
-            
-            // Determine frame rate from video format
-            auto params = source.get_video_parameters();
-            bool is_pal = params && params->system == VideoSystem::PAL;
             int32_t fps = is_pal ? 25 : 30;
-            
-            // Convert to total frame number
-            int32_t frame_num = tc.hours * 3600 * fps +
-                               tc.minutes * 60 * fps +
-                               tc.seconds * fps +
-                               tc.picture_number;
+            int32_t frame_num = hours * 3600 * fps +
+                               minutes * 60 * fps +
+                               seconds * fps +
+                               picture_number;
             return frame_num;
         }
     }
@@ -251,6 +257,10 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
         
         ORC_LOG_DEBUG("Phase 1: Quick scan for initial VBI frames (up to {} fields per source)", MAX_SCAN_FIELDS);
         
+        // Create observation context and biphase observer for VBI scanning
+        ObservationContext observation_context;
+        BiphaseObserver biphase_observer;
+        
         for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
             const auto& source = input_sources[src_idx];
             if (!source) {
@@ -259,6 +269,12 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
             
             auto& info = source_info[src_idx];
             info.range = source->field_range();
+            
+            // Determine if source is PAL
+            bool is_pal = false;
+            if (auto first_desc = source->get_descriptor(info.range.start)) {
+                is_pal = (first_desc->format == VideoFormat::PAL);
+            }
             
             ORC_LOG_DEBUG("  Source {}: quick scan (range {}-{})",
                          src_idx + 1, info.range.start.value(), info.range.end.value() - 1);
@@ -270,7 +286,12 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
                 }
                 
                 scanned++;
-                int32_t frame_num = get_frame_number_from_vbi(*source, field_id);
+                
+                // Process field to populate observations
+                biphase_observer.process_field(*source, field_id, observation_context);
+                
+                // Query the observation context for VBI frame number
+                int32_t frame_num = get_frame_number_from_vbi(observation_context, field_id, is_pal);
                 if (frame_num >= 0) {
                     info.vbi_frames.insert(frame_num);
                     info.frame_to_field[frame_num] = field_id;
@@ -358,6 +379,12 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
                 
                 auto& info = source_info[src_idx];
                 
+                // Determine if source is PAL
+                bool is_pal = false;
+                if (auto first_desc = source->get_descriptor(info.range.start)) {
+                    is_pal = (first_desc->format == VideoFormat::PAL);
+                }
+                
                 ORC_LOG_DEBUG("  Source {}: full scan of {} fields", src_idx + 1, source->field_count());
                 
                 for (FieldID field_id = info.range.start; field_id < info.range.end; ++field_id) {
@@ -365,7 +392,11 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
                         continue;
                     }
                     
-                    int32_t frame_num = get_frame_number_from_vbi(*source, field_id);
+                    // Process field to populate observations
+                    biphase_observer.process_field(*source, field_id, observation_context);
+                    
+                    // Query the observation context for VBI frame number
+                    int32_t frame_num = get_frame_number_from_vbi(observation_context, field_id, is_pal);
                     if (frame_num >= 0) {
                         if (info.vbi_frames.find(frame_num) == info.vbi_frames.end()) {
                             info.vbi_frames.insert(frame_num);

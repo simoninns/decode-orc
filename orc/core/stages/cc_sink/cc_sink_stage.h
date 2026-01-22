@@ -71,8 +71,8 @@ public:
     
     std::vector<ArtifactPtr> execute(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
-    ) override;
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context) override;
     
     size_t required_input_count() const override { return 1; }
     size_t output_count() const override { return 0; }  // Sink has no outputs
@@ -85,7 +85,8 @@ public:
     // TriggerableStage interface
     bool trigger(
         const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters
+        const std::map<std::string, ParameterValue>& parameters,
+        ObservationContext& observation_context
     ) override;
     
     std::string get_trigger_status() const override;
@@ -102,11 +103,13 @@ private:
     // Export functions
     bool export_scc(const VideoFieldRepresentation* vfr, 
                     const std::string& output_path,
-                    VideoFormat format);
+                    VideoFormat format,
+                    const ObservationContext& observation_context);
     
     bool export_plain_text(const VideoFieldRepresentation* vfr,
                           const std::string& output_path,
-                          VideoFormat format);
+                          VideoFormat format,
+                          const ObservationContext& observation_context);
     
     // Helper functions
     std::string generate_timestamp(int32_t field_index, VideoFormat format) const;

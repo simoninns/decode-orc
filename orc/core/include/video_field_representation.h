@@ -27,7 +27,6 @@
 namespace orc {
 
 // Forward declarations
-class Observation;
 
 /**
  * @brief Field parity (interlacing information)
@@ -200,19 +199,19 @@ public:
         return std::nullopt;  // Default: no parameters
     }
     
-    // ========================================================================
-    // OBSERVATIONS - Analysis results from orc-core stages
-    // ========================================================================
-    // Observations are computed by orc-core's own analysis (observers).
-    // They should only be used when hints are not available.
-    
-    // Observation access (metadata from source or computed by stages)
-    // Returns observations for a specific field (e.g., field parity, VBI data)
-    // This allows observation history to flow through the DAG, enabling
-    // stages that merge multiple sources to provide complete history
-    virtual std::vector<std::shared_ptr<Observation>> get_observations(FieldID /*id*/) const {
-        return {};  // Default: no observations
+    /**
+     * @brief Get VBI hint data if available
+     * 
+     * Returns raw VBI (Vertical Blanking Interval) data extracted from metadata.
+     * Only available for TBC sources; returns empty optional for other sources.
+     * 
+     * @param id Field ID
+     * @return VBI data if available, std::nullopt otherwise
+     */
+    virtual std::optional<VbiData> get_vbi_hint(FieldID /*id*/) const {
+        return std::nullopt;  // Default: no VBI data
     }
+    
     
     // ========================================================================
     // AUDIO - PCM audio data access
@@ -376,10 +375,10 @@ public:
         return cached_video_params_;
     }
     
-    // Automatically propagate observations through the chain
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override {
-        return source_ ? source_->get_observations(id) : std::vector<std::shared_ptr<Observation>>{};
+    std::optional<VbiData> get_vbi_hint(FieldID id) const override {
+        return source_ ? source_->get_vbi_hint(id) : std::nullopt;
     }
+    
     
     // Automatically propagate audio through the chain
     uint32_t get_audio_sample_count(FieldID id) const override {

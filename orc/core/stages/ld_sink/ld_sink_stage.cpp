@@ -12,20 +12,19 @@
 #include "preview_renderer.h"
 #include "preview_helpers.h"
 #include "tbc_metadata_writer.h"
-#include "observation_history.h"
-#include "biphase_observer.h"
-#include "vitc_observer.h"
-#include "closed_caption_observer.h"
-#include "video_id_observer.h"
-#include "fm_code_observer.h"
-#include "white_flag_observer.h"
-#include "vits_observer.h"
-#include "burst_level_observer.h"
 #include "buffered_file_io.h"
 #include "logging.h"
+#include "biphase_observer.h"
+#include "closed_caption_observer.h"
+#include "fm_code_observer.h"
+#include "white_flag_observer.h"
+#include "white_snr_observer.h"
+#include "black_psnr_observer.h"
+#include "burst_level_observer.h"
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <memory>
 
 namespace orc {
 
@@ -57,8 +56,10 @@ NodeTypeInfo LDSinkStage::get_node_type_info() const
 
 std::vector<ArtifactPtr> LDSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
+    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]],
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // TODO: Use for observations
     // Cache input for preview rendering
     if (!inputs.empty()) {
         cached_input_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
@@ -111,7 +112,8 @@ bool LDSinkStage::set_parameters(const std::map<std::string, ParameterValue>& pa
 
 bool LDSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
     ORC_LOG_DEBUG("LDSink: Trigger started");
     trigger_status_ = "Starting export...";
@@ -150,7 +152,9 @@ bool LDSinkStage::trigger(
     
     // Write TBC and metadata
     ORC_LOG_INFO("LDSink: Writing to '{}'", output_path);
-    bool success = write_tbc_and_metadata(representation.get(), output_path);
+    // Clear previous observations to avoid mixing runs
+    observation_context.clear();
+    bool success = write_tbc_and_metadata(representation.get(), output_path, observation_context);
     
     if (success) {
         auto range = representation->field_range();
@@ -172,7 +176,8 @@ std::string LDSinkStage::get_trigger_status() const
 
 bool LDSinkStage::write_tbc_and_metadata(
     const VideoFieldRepresentation* representation,
-    const std::string& tbc_path)
+    const std::string& tbc_path,
+    ObservationContext& observation_context)
 {
     // Ensure the path has .tbc extension
     std::string final_tbc_path = tbc_path;
@@ -224,17 +229,6 @@ bool LDSinkStage::write_tbc_and_metadata(
             return false;
         }
         
-        // Create all observers
-        std::vector<std::shared_ptr<Observer>> observers;
-        observers.push_back(std::make_shared<BiphaseObserver>());
-        observers.push_back(std::make_shared<VitcObserver>());
-        observers.push_back(std::make_shared<ClosedCaptionObserver>());
-        observers.push_back(std::make_shared<VideoIdObserver>());
-        observers.push_back(std::make_shared<FmCodeObserver>());
-        observers.push_back(std::make_shared<WhiteFlagObserver>());
-        observers.push_back(std::make_shared<VITSQualityObserver>());
-        observers.push_back(std::make_shared<BurstLevelObserver>());
-        
         // Build sorted list of field IDs
         std::vector<FieldID> field_ids;
         field_ids.reserve(field_count);
@@ -247,23 +241,25 @@ bool LDSinkStage::write_tbc_and_metadata(
         
         ORC_LOG_DEBUG("Processing {} fields (TBC + metadata) in single pass", field_ids.size());
         
+        // Create vector of observers
+        // Note: VideoIdObserver and VitcObserver have been removed from the new architecture
+        std::vector<std::shared_ptr<Observer>> observers;
+        observers.push_back(std::make_shared<BiphaseObserver>());
+        observers.push_back(std::make_shared<ClosedCaptionObserver>());
+        observers.push_back(std::make_shared<FmCodeObserver>());
+        observers.push_back(std::make_shared<WhiteFlagObserver>());
+        observers.push_back(std::make_shared<WhiteSNRObserver>());
+        observers.push_back(std::make_shared<BlackPSNRObserver>());
+        observers.push_back(std::make_shared<BurstLevelObserver>());
+        
+        ORC_LOG_DEBUG("Instantiated {} observers for metadata extraction", observers.size());
+        
         // Begin transaction for metadata writes
         metadata_writer.begin_transaction();
         
-        // Observation history for observers that need previous field context
-        ObservationHistory history;
-        
-        // Pre-populate history from source representations
-        for (FieldID field_id : field_ids) {
-            auto source_observations = representation->get_observations(field_id);
-            if (!source_observations.empty()) {
-                history.add_observations(field_id, source_observations);
-            }
-        }
-        
         size_t fields_processed = 0;
         
-        // Single pass: write TBC data and process metadata for each field
+        // Single pass: write TBC data, populate observations, and process metadata for each field
         for (FieldID field_id : field_ids) {
             // Check for cancellation
             if (cancel_requested_.load()) {
@@ -322,7 +318,24 @@ bool LDSinkStage::write_tbc_and_metadata(
                 field_meta.field_phase_id = phase_hint->field_phase_id;
             }
             
+            // Populate observation context with exported field information
+            try {
+                observation_context.set(field_id, "export", "seq_no", static_cast<int64_t>(field_meta.seq_no));
+                // Parity may be absent; treat as optional observation
+                observation_context.set(field_id, "export", "is_first_field", static_cast<bool>(field_meta.is_first_field));
+            } catch (const std::exception& e) {
+                ORC_LOG_WARN("LDSink: Failed to write observations for field {}: {}", field_id.value(), e.what());
+            }
+
             metadata_writer.write_field_metadata(field_meta);
+            
+            // ===== Run observers to populate observation context =====
+            for (const auto& observer : observers) {
+                observer->process_field(*representation, field_id, observation_context);
+            }
+            
+            // Write observations to metadata
+            metadata_writer.write_observations(field_id, observation_context);
             
             // Write dropout hints
             auto dropout_hints = representation->get_dropout_hints(field_id);
@@ -332,18 +345,6 @@ bool LDSinkStage::write_tbc_and_metadata(
                 dropout.start_sample = hint.start_sample;
                 dropout.end_sample = hint.end_sample;
                 metadata_writer.write_dropout(field_id, dropout);
-            }
-            
-            // Run all observers on this field
-            for (const auto& observer : observers) {
-                auto observations = observer->process_field(*representation, field_id, history);
-                metadata_writer.write_observations(field_id, observations);
-                
-                // Add observations to history for subsequent observers
-                auto current_field_obs = history.get_observations(field_id);
-                current_field_obs.insert(current_field_obs.end(), 
-                                        observations.begin(), observations.end());
-                history.add_observations(field_id, current_field_obs);
             }
             
             fields_processed++;

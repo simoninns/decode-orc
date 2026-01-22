@@ -11,8 +11,7 @@
 #include "tbc_yc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
-#include "observers/biphase_observer.h"
-#include "observers/observation_history.h"
+// TODO: Observer system refactored - old observers removed
 #include <sstream>
 #include <chrono>
 
@@ -536,21 +535,6 @@ std::optional<ActiveLineHint> TBCYCVideoFieldRepresentation::get_active_line_hin
     }
     
     return std::nullopt;
-}
-
-std::vector<std::shared_ptr<Observation>> TBCYCVideoFieldRepresentation::get_observations(FieldID id) const {
-    // For YC sources, observations are generated the same way as composite sources
-    // VBI data is encoded in the luma signal, so we can use the Y channel
-    std::vector<std::shared_ptr<Observation>> observations;
-    
-    if (!has_field(id)) {
-        return observations;
-    }
-    
-    // For now, return empty - observers will be implemented in Phase 5 (Preview and Visualization)
-    // When implemented, observers should be configured to use the Y channel for VBI decoding
-    
-    return observations;
 }
 
 // Audio interface - same as composite TBC sources

@@ -81,8 +81,11 @@ NodeTypeInfo ChromaSinkStage::get_node_type_info() const
 
 std::vector<ArtifactPtr> ChromaSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]])
+    const std::map<std::string, ParameterValue>& parameters [[maybe_unused]],
+    ObservationContext& observation_context [[maybe_unused]])
 {
+    // ChromaSinkStage is primarily a video output sink and does not extract observations.
+    // Observations are collected by the LD sink or dedicated analysis stages.
     // Cache input for preview rendering (thread-safe)
     if (!inputs.empty()) {
         std::lock_guard<std::mutex> lock(cached_input_mutex_);
@@ -460,8 +463,10 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
 
 bool ChromaSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
-{
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context [[maybe_unused]]) {
+    // ChromaSinkStage is a video output sink and does not require or populate observations.
+    // The LD sink and dedicated analysis stages handle observation extraction.
     ORC_LOG_DEBUG("ChromaSink: Trigger called - starting decode");
     
     // Mark trigger as in progress and reset cancel flag
@@ -814,15 +819,26 @@ bool ChromaSinkStage::trigger(
     backendConfig.encoder_bitrate = encoder_bitrate_;
     backendConfig.embed_audio = embed_audio_;
     backendConfig.embed_closed_captions = embed_closed_captions_;
-    if (embed_audio_ && vfr && vfr->has_audio()) {
-        backendConfig.vfr = vfr.get();
-        // Audio should use the VFR's field_range which is already adjusted by field_map stages
-        // Use the actual field count from the VFR (field_range.end is exclusive)
+    backendConfig.observation_context = &observation_context;
+    
+    // Set field range for audio and/or closed caption extraction
+    // Both features need to know which fields were processed
+    if ((embed_audio_ && vfr && vfr->has_audio()) || embed_closed_captions_) {
         backendConfig.start_field_index = field_range.start.value();
         backendConfig.num_fields = field_range.end.value() - field_range.start.value();
-        ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output (fields {} to {} = {} fields, {} frames)",
-                     field_range.start.value(), field_range.end.value(), 
-                     backendConfig.num_fields, numOutputFrames);
+        
+        if (embed_audio_ && vfr && vfr->has_audio()) {
+            backendConfig.vfr = vfr.get();
+            ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output (fields {} to {} = {} fields, {} frames)",
+                         field_range.start.value(), field_range.end.value(), 
+                         backendConfig.num_fields, numOutputFrames);
+        }
+        
+        if (embed_closed_captions_) {
+            ORC_LOG_DEBUG("ChromaSink: Closed caption embedding enabled for output (fields {} to {} = {} fields, {} frames)",
+                         field_range.start.value(), field_range.end.value(), 
+                         backendConfig.num_fields, numOutputFrames);
+        }
     }
     
     if (!backend->initialize(backendConfig)) {

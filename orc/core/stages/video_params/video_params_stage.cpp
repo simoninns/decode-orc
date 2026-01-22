@@ -22,8 +22,10 @@ void force_link_VideoParamsStage() {}
 
 std::vector<ArtifactPtr> VideoParamsStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters)
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context)
 {
+    (void)observation_context; // Unused for now
     if (inputs.empty()) {
         throw DAGExecutionError("VideoParamsStage requires one input");
     }

@@ -26,20 +26,18 @@
 #include "preview_renderer.h"
 #include "dag_field_renderer.h"
 #include "vbi_decoder.h"
-#include "../core/analysis/dropout/dropout_analysis_decoder.h"
-#include "../core/analysis/snr/snr_analysis_decoder.h"
-#include "../core/analysis/burst_level/burst_level_analysis_decoder.h"
 #include "observation_cache.h"
 #include "field_id.h"
 #include "../core/include/node_id.h"
+#include "../core/stages/dropout_analysis_sink/dropout_analysis_types.h"
+#include "../core/stages/snr_analysis_sink/snr_analysis_types.h"
+#include "../core/stages/burst_level_analysis_sink/burst_level_analysis_types.h"
 
 namespace orc {
     class DAG;
     class Project;
     class PreviewRenderer;
     class VBIDecoder;
-    class DropoutAnalysisDecoder;
-    class SNRAnalysisDecoder;
     class TriggerableStage;
 }
 
@@ -792,13 +790,10 @@ private:
     // ========================================================================
     
     std::shared_ptr<const orc::DAG> worker_dag_;
-    std::shared_ptr<orc::ObservationCache> worker_obs_cache_;  // Shared cache for all decoders
+    std::shared_ptr<orc::ObservationCache> worker_obs_cache_;
     std::unique_ptr<orc::PreviewRenderer> worker_preview_renderer_;
     std::unique_ptr<orc::DAGFieldRenderer> worker_field_renderer_;
     std::unique_ptr<orc::VBIDecoder> worker_vbi_decoder_;
-    std::unique_ptr<orc::DropoutAnalysisDecoder> worker_dropout_decoder_;
-    std::unique_ptr<orc::SNRAnalysisDecoder> worker_snr_decoder_;
-    std::unique_ptr<orc::BurstLevelAnalysisDecoder> worker_burst_level_decoder_;
     
     std::atomic<bool> trigger_cancel_requested_{false};
     orc::TriggerableStage* current_trigger_stage_{nullptr};  // Pointer to currently executing trigger (if any)

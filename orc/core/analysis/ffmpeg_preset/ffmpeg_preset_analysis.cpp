@@ -17,6 +17,9 @@
 
 namespace orc {
 
+// Force linker to include this object file (for static registration)
+void force_link_FFmpegPresetAnalysisTool() {}
+
 std::string FFmpegPresetAnalysisTool::id() const {
     return "ffmpeg_preset_config";
 }

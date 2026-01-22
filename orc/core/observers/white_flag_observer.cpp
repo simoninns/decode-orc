@@ -9,77 +9,63 @@
 
 #include "white_flag_observer.h"
 #include "logging.h"
-#include "tbc_video_field_representation.h"
 
 namespace orc {
 
-std::vector<std::shared_ptr<Observation>> WhiteFlagObserver::process_field(
-    const VideoFieldRepresentation& representation,
-    FieldID field_id,
-    const ObservationHistory& history) {
-    (void)history;  // Unused
+void WhiteFlagObserver::process_field(
+	const VideoFieldRepresentation& representation,
+	FieldID field_id,
+	ObservationContext& context)
+{
+	auto descriptor = representation.get_descriptor(field_id);
+	if (!descriptor.has_value()) {
+		return;
+	}
     
-    std::vector<std::shared_ptr<Observation>> observations;
-    auto observation = std::make_shared<WhiteFlagObservation>();
-    observation->field_id = field_id;
-    observation->detection_basis = DetectionBasis::SAMPLE_DERIVED;
-    observation->observer_version = observer_version();
-    observation->confidence = ConfidenceLevel::HIGH;  // Always detectable
+	// Only applicable to NTSC
+	if (descriptor->format != VideoFormat::NTSC) {
+		return;
+	}
     
-    auto descriptor = representation.get_descriptor(field_id);
-    if (!descriptor.has_value()) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
-    }
+	// Line 11 (0-based index 10)
+	constexpr size_t line_num = 10;
+	if (line_num >= descriptor->height) {
+		return;
+	}
     
-    // Only for NTSC
-    if (descriptor->format != VideoFormat::NTSC) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
-    }
+	const uint16_t* line_data = representation.get_line(field_id, line_num);
+	if (!line_data) {
+		return;
+	}
     
-    // Line 11 (0-based: 10)
-    size_t line_num = 10;
-    if (line_num >= descriptor->height) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
-    }
+	uint16_t zero_crossing = 0;
+	if (auto video_params_opt = representation.get_video_parameters()) {
+		const auto& vp = *video_params_opt;
+		zero_crossing = static_cast<uint16_t>(
+			((vp.white_16b_ire - vp.black_16b_ire) / 2) + vp.black_16b_ire);
+	} else {
+		zero_crossing = static_cast<uint16_t>((50000 + 15000) / 2);
+	}
     
-    const uint16_t* line_data = representation.get_line(field_id, line_num);
-    if (line_data == nullptr) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
-    }
+	size_t active_start = descriptor->width / 8;
+	size_t active_end = descriptor->width * 7 / 8;
+	if (active_end <= active_start) {
+		return;
+	}
     
-    uint16_t white_ire = 50000;
-    uint16_t black_ire = 15000;
-    uint16_t zero_crossing = (white_ire + black_ire) / 2;
+	size_t white_count = 0;
+	size_t total_count = active_end - active_start;
+	for (size_t i = active_start; i < active_end; ++i) {
+		if (line_data[i] > zero_crossing) {
+			white_count++;
+		}
+	}
     
-    // Count samples above zero-crossing in active video region
-    size_t active_start = descriptor->width / 8;
-    size_t active_end = descriptor->width * 7 / 8;
+	bool present = (white_count > total_count / 2);
+	context.set(field_id, "white_flag", "present", present);
     
-    size_t white_count = 0;
-    size_t total_count = active_end - active_start;
-    
-    for (size_t i = active_start; i < active_end; ++i) {
-        if (line_data[i] > zero_crossing) {
-            white_count++;
-        }
-    }
-    
-    // White flag if >50% above zero-crossing
-    observation->white_flag_present = (white_count > total_count / 2);
-    
-    ORC_LOG_DEBUG("WhiteFlagObserver: Field {} white_flag={}",
-                  field_id.value(), observation->white_flag_present);
-    
-    observations.push_back(observation);
-    return observations;
+	ORC_LOG_DEBUG("WhiteFlagObserver: Field {} white_flag={} (white {}/{} samples)",
+				  field_id.value(), present, white_count, total_count);
 }
 
 } // namespace orc

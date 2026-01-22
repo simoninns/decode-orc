@@ -1,113 +1,34 @@
 /*
  * File:        biphase_observer.cpp
  * Module:      orc-core
- * Purpose:     Biphase observer implementation
+ * Purpose:     Biphase VBI data extraction observer implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #include "biphase_observer.h"
-#include "logging.h"
-#include "tbc_video_field_representation.h"
-#include "vbi_utilities.h"
-#include <cmath>
+#include "../include/observation_context.h"
+#include "../include/video_field_representation.h"
+#include "../include/vbi_types.h"
+#include "../include/field_id.h"
+#include "../include/logging.h"
+#include "../include/vbi_utilities.h"
+#include <cstring>
 #include <cstdio>
 
 namespace orc {
 
-std::vector<std::shared_ptr<Observation>> BiphaseObserver::process_field(
-    const VideoFieldRepresentation& representation,
-    FieldID field_id,
-    const ObservationHistory& history) {
-    (void)history;  // Unused for now
-    
-    std::vector<std::shared_ptr<Observation>> observations;
-    auto observation = std::make_shared<BiphaseObservation>();
-    observation->field_id = field_id;
-    observation->detection_basis = DetectionBasis::SAMPLE_DERIVED;
-    observation->observer_version = observer_version();
-    observation->vbi_data = {0, 0, 0};
-    
-    // Get field descriptor
-    auto descriptor = representation.get_descriptor(field_id);
-    if (!descriptor.has_value()) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
+// Decode Manchester/biphase encoded VBI data from a video line
+static int32_t decode_manchester(const uint16_t* line_data,
+                                 size_t sample_count,
+                                 uint16_t zero_crossing,
+                                 size_t active_start,
+                                 double sample_rate) {
+    if (!line_data || sample_count == 0) {
+        return 0;
     }
     
-    // Get video parameters using the standard interface
-    auto video_params_opt = representation.get_video_parameters();
-    if (!video_params_opt.has_value()) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
-    }
-    
-    const auto& video_params = video_params_opt.value();
-    if (!video_params.is_valid()) {
-        observation->confidence = ConfidenceLevel::NONE;
-        observations.push_back(observation);
-        return observations;
-    }
-    
-    // Calculate IRE zero-crossing point
-    uint16_t zero_crossing = (video_params.white_16b_ire + video_params.black_16b_ire) / 2;
-    size_t active_start = video_params.active_video_start;
-    double sample_rate = video_params.sample_rate;
-    
-    // Decode lines 16, 17, 18 (1-based line numbers in specs, 0-based in code)
-    int lines_decoded = 0;
-    for (int line_offset = 0; line_offset < 3; ++line_offset) {
-        size_t line_num = 15 + line_offset;  // Lines 15, 16, 17 (0-based)
-        if (line_num >= descriptor->height) {
-            continue;
-        }
-        
-        const uint16_t* line_data = representation.get_line(field_id, line_num);
-        if (line_data == nullptr) {
-            observation->vbi_data[line_offset] = -1;
-            continue;
-        }
-        
-        observation->vbi_data[line_offset] = decode_manchester(
-            line_data, descriptor->width, zero_crossing,
-            active_start, sample_rate);
-        
-        if (observation->vbi_data[line_offset] != 0 && 
-            observation->vbi_data[line_offset] != -1) {
-            lines_decoded++;
-        }
-    }
-    
-    // Set confidence based on number of lines successfully decoded
-    if (lines_decoded == 3) {
-        observation->confidence = ConfidenceLevel::HIGH;
-    } else if (lines_decoded > 0) {
-        observation->confidence = ConfidenceLevel::MEDIUM;
-    } else {
-        observation->confidence = ConfidenceLevel::NONE;
-    }
-    
-    // Interpret the VBI data
-    if (lines_decoded > 0) {
-        interpret_vbi_data(observation->vbi_data, *observation);
-    }
-    
-    ORC_LOG_DEBUG("BiphaseObserver: Field {} VBI=[{:#08x}, {:#08x}, {:#08x}]",
-                  field_id.value(), observation->vbi_data[0], 
-                  observation->vbi_data[1], observation->vbi_data[2]);
-    
-    observations.push_back(observation);
-    return observations;
-}
-
-int32_t BiphaseObserver::decode_manchester(const uint16_t* line_data,
-                                           size_t sample_count,
-                                           uint16_t zero_crossing,
-                                           size_t active_start,
-                                           double sample_rate) {
     // Get transition map
     auto transition_map = vbi_utils::get_transition_map(
         line_data, sample_count, zero_crossing);
@@ -137,7 +58,7 @@ int32_t BiphaseObserver::decode_manchester(const uint16_t* line_data,
         }
         
         // Find next transition from current position
-        bool start_state = transition_map[x];
+        uint8_t start_state = transition_map[x];
         while (x < transition_map.size() && transition_map[x] == start_state) {
             x++;
         }
@@ -195,14 +116,11 @@ static bool check_even_parity(uint32_t x4, uint32_t x5) {
     return (count % 2) == 0;  // Even parity
 }
 
-void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
-                                        BiphaseObservation& observation) {
-    // VBI data indices: [0] = line 16, [1] = line 17, [2] = line 18
-    
-    int32_t vbi16 = vbi_data[0];
-    int32_t vbi17 = vbi_data[1];
-    int32_t vbi18 = vbi_data[2];
-    
+// Interpret the decoded VBI data according to IEC 60857 LaserDisc standard
+static void interpret_vbi_data(
+    int32_t vbi16, int32_t vbi17, int32_t vbi18,
+    FieldID field_id, ObservationContext& context)
+{
     // IEC 60857-1986 - 10.1.3 Picture numbers (CAV discs) ----------------------------
     // Check for CAV picture number on lines 17 and 18
     // Top bit can be used for stop code, so mask it: range 0-79999
@@ -210,7 +128,7 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     if ((vbi17 & 0xF00000) == 0xF00000) {
         int32_t pic_no;
         if (decode_bcd(vbi17 & 0x07FFFF, pic_no)) {
-            observation.picture_number = pic_no;
+            context.set(field_id, "vbi", "picture_number", pic_no);
             ORC_LOG_DEBUG("BiphaseObserver: CAV picture number {} from line 17", pic_no);
         }
     }
@@ -218,7 +136,7 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     if ((vbi18 & 0xF00000) == 0xF00000) {
         int32_t pic_no;
         if (decode_bcd(vbi18 & 0x07FFFF, pic_no)) {
-            observation.picture_number = pic_no;
+            context.set(field_id, "vbi", "picture_number", pic_no);
             ORC_LOG_DEBUG("BiphaseObserver: CAV picture number {} from line 18", pic_no);
         }
     }
@@ -229,7 +147,7 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     if ((vbi17 & 0xF00FFF) == 0x800DDD) {
         int32_t chapter;
         if (decode_bcd((vbi17 & 0x07F000) >> 12, chapter)) {
-            observation.chapter_number = chapter;
+            context.set(field_id, "vbi", "chapter_number", chapter);
             ORC_LOG_DEBUG("BiphaseObserver: Chapter number {} from line 17", chapter);
         }
     }
@@ -237,7 +155,7 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     if ((vbi18 & 0xF00FFF) == 0x800DDD) {
         int32_t chapter;
         if (decode_bcd((vbi18 & 0x07F000) >> 12, chapter)) {
-            observation.chapter_number = chapter;
+            context.set(field_id, "vbi", "chapter_number", chapter);
             ORC_LOG_DEBUG("BiphaseObserver: Chapter number {} from line 18", chapter);
         }
     }
@@ -338,7 +256,10 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     // This ensures we have a complete, usable timecode
     if (clv_tc.hours != -1 && clv_tc.minutes != -1 && 
         clv_tc.seconds != -1 && clv_tc.picture_number != -1) {
-        observation.clv_timecode = clv_tc;
+        context.set(field_id, "vbi", "clv_timecode_hours", clv_tc.hours);
+        context.set(field_id, "vbi", "clv_timecode_minutes", clv_tc.minutes);
+        context.set(field_id, "vbi", "clv_timecode_seconds", clv_tc.seconds);
+        context.set(field_id, "vbi", "clv_timecode_picture", clv_tc.picture_number);
         ORC_LOG_DEBUG("BiphaseObserver: Complete CLV timecode validated: {}:{}:{}.{}", 
                      clv_tc.hours, clv_tc.minutes, clv_tc.seconds, clv_tc.picture_number);
     } else if (clv_tc.hours != -1 || clv_tc.minutes != -1 || 
@@ -350,20 +271,20 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     
     // IEC 60857-1986 - 10.1.1 Lead-in ------------------------------------------------
     if (vbi17 == 0x88FFFF || vbi18 == 0x88FFFF) {
-        observation.lead_in = true;
+        context.set(field_id, "vbi", "lead_in", static_cast<int32_t>(1));
         ORC_LOG_DEBUG("BiphaseObserver: Lead-in detected");
     }
     
     // IEC 60857-1986 - 10.1.2 Lead-out -----------------------------------------------
     if (vbi17 == 0x80EEEE || vbi18 == 0x80EEEE) {
-        observation.lead_out = true;
+        context.set(field_id, "vbi", "lead_out", static_cast<int32_t>(1));
         ORC_LOG_DEBUG("BiphaseObserver: Lead-out detected");
     }
     
     // IEC 60857-1986 - 10.1.4 Picture stop code --------------------------------------
     // Check for picture stop code on lines 16 and 17
     if (vbi16 == 0x82CFFF || vbi17 == 0x82CFFF) {
-        observation.stop_code_present = true;
+        context.set(field_id, "vbi", "stop_code_present", static_cast<int32_t>(1));
         ORC_LOG_DEBUG("BiphaseObserver: Picture stop code detected");
     }
     
@@ -375,10 +296,9 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
     
     // IEC 60857-1986 - 10.1.8 Programme status code ----------------------------------
     if ((vbi16 & 0xFFF000) == 0x8DC000 || (vbi16 & 0xFFF000) == 0x8BA000) {
-        ProgrammeStatus prog_status;
-        
         // CX on or off?
-        prog_status.cx_enabled = ((vbi16 & 0x0FF000) == 0x0DC000);
+        bool cx_enabled = ((vbi16 & 0x0FF000) == 0x0DC000);
+        context.set(field_id, "vbi", "programme_status_cx_enabled", cx_enabled ? 1 : 0);
         
         // Extract x3, x4, x5 parameters
         uint32_t x3 = (vbi16 & 0x000F00) >> 8;
@@ -386,123 +306,27 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
         uint32_t x5 = (vbi16 & 0x00000F);
         
         // Check parity
-        prog_status.parity_valid = check_even_parity(x4, x5);
+        bool parity_valid = check_even_parity(x4, x5);
+        context.set(field_id, "vbi", "programme_status_parity_valid", parity_valid ? 1 : 0);
         
         // Disc size (x31): 1=8 inch, 0=12 inch
-        prog_status.is_12_inch = ((x3 & 0x08) == 0);
+        bool is_12_inch = ((x3 & 0x08) == 0);
+        context.set(field_id, "vbi", "programme_status_is_12_inch", is_12_inch ? 1 : 0);
         
         // Disc side (x32): 1=side 2, 0=side 1
-        prog_status.is_side_1 = ((x3 & 0x04) == 0);
+        bool is_side_1 = ((x3 & 0x04) == 0);
+        context.set(field_id, "vbi", "programme_status_is_side_1", is_side_1 ? 1 : 0);
         
         // Teletext (x33): 1=present, 0=not present
-        prog_status.has_teletext = ((x3 & 0x02) != 0);
+        bool has_teletext = ((x3 & 0x02) != 0);
+        context.set(field_id, "vbi", "programme_status_has_teletext", has_teletext ? 1 : 0);
         
         // Digital video (x42): 1=digital, 0=analogue
-        prog_status.is_digital = ((x4 & 0x04) != 0);
+        bool is_digital = ((x4 & 0x04) != 0);
+        context.set(field_id, "vbi", "programme_status_is_digital", is_digital ? 1 : 0);
         
-        // Audio status: combination of x41, x34, x43, x44
-        uint32_t audio_status = 0;
-        if ((x4 & 0x08) != 0) audio_status += 8;  // x41
-        if ((x3 & 0x01) != 0) audio_status += 4;  // x34
-        if ((x4 & 0x02) != 0) audio_status += 2;  // x43
-        if ((x4 & 0x01) != 0) audio_status += 1;  // x44
-        
-        // Decode audio status
-        switch (audio_status) {
-            case 0: prog_status.sound_mode = VbiSoundMode::STEREO; break;
-            case 1: prog_status.sound_mode = VbiSoundMode::MONO; break;
-            case 2: prog_status.sound_mode = VbiSoundMode::AUDIO_SUBCARRIERS_OFF; break;
-            case 3: prog_status.sound_mode = VbiSoundMode::BILINGUAL; break;
-            case 4: 
-                prog_status.is_fm_multiplex = true;
-                prog_status.sound_mode = VbiSoundMode::STEREO_STEREO;
-                break;
-            case 5:
-                prog_status.is_fm_multiplex = true;
-                prog_status.sound_mode = VbiSoundMode::STEREO_BILINGUAL;
-                break;
-            case 6:
-                prog_status.is_fm_multiplex = true;
-                prog_status.sound_mode = VbiSoundMode::CROSS_CHANNEL_STEREO;
-                break;
-            case 7:
-                prog_status.is_fm_multiplex = true;
-                prog_status.sound_mode = VbiSoundMode::BILINGUAL_BILINGUAL;
-                break;
-            case 8:
-            case 9:
-            case 11:
-                prog_status.is_programme_dump = true;
-                prog_status.sound_mode = VbiSoundMode::MONO_DUMP;
-                break;
-            case 10:
-                prog_status.is_programme_dump = true;
-                prog_status.sound_mode = VbiSoundMode::FUTURE_USE;
-                break;
-            case 12:
-            case 13:
-                prog_status.is_programme_dump = true;
-                prog_status.is_fm_multiplex = true;
-                prog_status.sound_mode = VbiSoundMode::STEREO_DUMP;
-                break;
-            case 14:
-            case 15:
-                prog_status.is_programme_dump = true;
-                prog_status.is_fm_multiplex = true;
-                prog_status.sound_mode = VbiSoundMode::BILINGUAL_DUMP;
-                break;
-        }
-        
-        observation.programme_status = prog_status;
-        ORC_LOG_DEBUG("BiphaseObserver: Programme status - CX={}, size={}\", side={}, audio_status={}",
-                     prog_status.cx_enabled, prog_status.is_12_inch ? 12 : 8, 
-                     prog_status.is_side_1 ? 1 : 2, audio_status);
-    }
-    
-    // IEC 60857-1986 - 10.1.8 Programme status (Amendment 2) -------------------------
-    if ((vbi16 & 0xFFF000) == 0x8DC000 || (vbi16 & 0xFFF000) == 0x8BA000) {
-        Amendment2Status am2_status;
-        
-        uint32_t x3 = (vbi16 & 0x000F00) >> 8;
-        uint32_t x4 = (vbi16 & 0x0000F0) >> 4;
-        
-        // Copy permission (x34): 1=copy OK, 0=no copy
-        am2_status.copy_permitted = ((x3 & 0x01) != 0);
-        
-        // Audio status for Am2: x41, x42, x43, x44
-        uint32_t audio_status_am2 = 0;
-        if ((x4 & 0x08) != 0) audio_status_am2 += 8;
-        if ((x4 & 0x04) != 0) audio_status_am2 += 4;
-        if ((x4 & 0x02) != 0) audio_status_am2 += 2;
-        if ((x4 & 0x01) != 0) audio_status_am2 += 1;
-        
-        // Decode Am2 audio status
-        switch (audio_status_am2) {
-            case 0:
-                am2_status.is_video_standard = true;
-                am2_status.sound_mode = VbiSoundMode::STEREO;
-                break;
-            case 1:
-                am2_status.is_video_standard = true;
-                am2_status.sound_mode = VbiSoundMode::MONO;
-                break;
-            case 3:
-                am2_status.is_video_standard = true;
-                am2_status.sound_mode = VbiSoundMode::BILINGUAL;
-                break;
-            case 8:
-                am2_status.is_video_standard = true;
-                am2_status.sound_mode = VbiSoundMode::MONO_DUMP;
-                break;
-            default:
-                am2_status.is_video_standard = false;
-                am2_status.sound_mode = VbiSoundMode::FUTURE_USE;
-                break;
-        }
-        
-        observation.amendment2_status = am2_status;
-        ORC_LOG_DEBUG("BiphaseObserver: Amendment 2 status - copy_permitted={}, video_standard={}",
-                     am2_status.copy_permitted, am2_status.is_video_standard);
+        ORC_LOG_DEBUG("BiphaseObserver: Programme status - CX={}, size={}, side={}, digital={}",
+                     cx_enabled, is_12_inch ? 12 : 8, is_side_1 ? 1 : 2, is_digital);
     }
     
     // IEC 60857-1986 - 10.1.9 Users code ----------------------------------------------
@@ -514,12 +338,84 @@ void BiphaseObserver::interpret_vbi_data(const std::array<int32_t, 3>& vbi_data,
             // Format as hex string
             char user_code_str[8];
             snprintf(user_code_str, sizeof(user_code_str), "%01X%03X", x1, x3x4x5);
-            observation.user_code = std::string(user_code_str);
-            ORC_LOG_DEBUG("BiphaseObserver: User code = {}", observation.user_code.value());
+            ORC_LOG_DEBUG("BiphaseObserver: User code = {}", user_code_str);
         } else {
             ORC_LOG_DEBUG("BiphaseObserver: Invalid user code (X1 > 7)");
         }
     }
 }
 
+void BiphaseObserver::process_field(
+    const VideoFieldRepresentation& representation,
+    FieldID field_id,
+    ObservationContext& context)
+{
+    // Observers work by analyzing the rendered video data,
+    // NOT by reading source metadata hints
+    
+    // Get the field descriptor to access video parameters
+    auto descriptor = representation.get_descriptor(field_id);
+    if (!descriptor) {
+        ORC_LOG_TRACE("BiphaseObserver: Could not get field descriptor for field {}", field_id.value());
+        return;
+    }
+    
+    // Get video parameters for decoding
+    auto video_params_opt = representation.get_video_parameters();
+    if (!video_params_opt) {
+        ORC_LOG_TRACE("BiphaseObserver: Could not get video parameters for field {}", field_id.value());
+        return;
+    }
+    
+    const auto& video_params = video_params_opt.value();
+    
+    // Calculate IRE zero-crossing point (midpoint between black and white)
+    uint16_t zero_crossing = (video_params.white_16b_ire + video_params.black_16b_ire) / 2;
+    size_t active_start = video_params.active_video_start;
+    double sample_rate = static_cast<double>(video_params.sample_rate);
+    
+    // Decode lines 16, 17, 18 (VBI lines use 1-based numbering in specs, 0-based in code)
+    // Lines 15, 16, 17 in 0-based indexing
+    std::array<int32_t, 3> vbi_data = {0, 0, 0};
+    int lines_decoded = 0;
+    
+    for (int line_offset = 0; line_offset < 3; ++line_offset) {
+        size_t line_num = 15 + line_offset;  // Lines 15, 16, 17 (0-based)
+        if (line_num >= descriptor->height) {
+            vbi_data[line_offset] = -1;
+            continue;
+        }
+        
+        const uint16_t* line_data = representation.get_line(field_id, line_num);
+        if (!line_data) {
+            vbi_data[line_offset] = -1;
+            continue;
+        }
+        
+        vbi_data[line_offset] = decode_manchester(
+            line_data, descriptor->width, zero_crossing,
+            active_start, sample_rate);
+        
+        if (vbi_data[line_offset] != 0 && vbi_data[line_offset] != -1) {
+            lines_decoded++;
+        }
+    }
+    
+    // Store the decoded VBI data in observation context
+    if (lines_decoded > 0) {
+        context.set(field_id, "biphase", "vbi_line_16", vbi_data[0]);
+        context.set(field_id, "biphase", "vbi_line_17", vbi_data[1]);
+        context.set(field_id, "biphase", "vbi_line_18", vbi_data[2]);
+        
+        ORC_LOG_DEBUG("BiphaseObserver: Decoded {} VBI lines for field {}: {:08x} {:08x} {:08x}",
+                     lines_decoded, field_id.value(), vbi_data[0], vbi_data[1], vbi_data[2]);
+        
+        // Interpret the VBI data according to IEC 60857 standard
+        interpret_vbi_data(vbi_data[0], vbi_data[1], vbi_data[2], field_id, context);
+    } else {
+        ORC_LOG_TRACE("BiphaseObserver: No biphase data decoded for field {}", field_id.value());
+    }
+}
+
 } // namespace orc
+

@@ -11,8 +11,7 @@
 #include "tbc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
-#include "observers/biphase_observer.h"
-#include "observers/observation_history.h"
+// TODO: Observer system refactored - old observers removed
 #include <sstream>
 #include <chrono>
 
@@ -402,29 +401,6 @@ std::optional<ActiveLineHint> TBCVideoFieldRepresentation::get_active_line_hint(
     }
     
     return std::nullopt;
-}
-
-std::vector<std::shared_ptr<Observation>> TBCVideoFieldRepresentation::get_observations(FieldID id) const {
-    // ARCHITECTURAL NOTE:
-    // This source stage runs observers on the actual video data and returns the results.
-    // TBC metadata is used INTERNALLY by this stage only - downstream stages must NEVER
-    // access TBC metadata directly. They get data via:
-    // - get_observations() for observer results (this method)
-    // - get_*_hint() methods for metadata-derived hints
-    
-    std::vector<std::shared_ptr<Observation>> observations;
-    
-    // Run observers on the video data (lazy execution)
-    // BiphaseObserver will decode VBI from video samples
-    ObservationHistory empty_history;  // No history needed for single-field observation
-    
-    auto biphase_obs = std::make_shared<BiphaseObserver>();
-    auto biphase_results = biphase_obs->process_field(*this, id, empty_history);
-    observations.insert(observations.end(), biphase_results.begin(), biphase_results.end());
-    
-    // Future: Add other observers as needed (VITC, closed captions, etc.)
-    
-    return observations;
 }
 
 // ============================================================================

@@ -9,20 +9,16 @@
 
 
 #include "dag_field_renderer.h"
-#include "observation_wrapper_representation.h"
-#include "observers/biphase_observer.h"
-#include "observers/vitc_observer.h"
-#include "observers/closed_caption_observer.h"
-#include "observers/video_id_observer.h"
-#include "observers/fm_code_observer.h"
-#include "observers/white_flag_observer.h"
-#include "observers/vits_observer.h"
-#include "observers/burst_level_observer.h"
-#include "disc_quality_observer.h"
-#include "pulldown_observer.h"
-// Note: LeadInOutObserver merged into BiphaseObserver
-#include "observers/observation_history.h"
+// TODO: Observer system refactored - old observers removed
 #include "logging.h"
+#include "biphase_observer.h"
+#include "fm_code_observer.h"
+#include "field_quality_observer.h"
+#include "burst_level_observer.h"
+#include "white_snr_observer.h"
+#include "black_psnr_observer.h"
+#include "closed_caption_observer.h"
+#include "white_flag_observer.h"
 #include <sstream>
 #include <algorithm>
 
@@ -204,8 +200,31 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         result.is_valid = true;
         result.representation = video_field_repr;
         
-        // Run observers on the field and attach observations
-        result.representation = attach_observations(video_field_repr, field_id);
+        // Run observers to populate observation context for this field
+        // These observers extract metadata that GUI features like VBI dialog and quality metrics need
+        BiphaseObserver biphase_observer;
+        biphase_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        FmCodeObserver fm_code_observer;
+        fm_code_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        WhiteFlagObserver white_flag_observer;
+        white_flag_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        FieldQualityObserver field_quality_observer;
+        field_quality_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        BurstLevelObserver burst_level_observer;
+        burst_level_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        WhiteSNRObserver white_snr_observer;
+        white_snr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+        
+        BlackPSNRObserver black_psnr_observer;
+        black_psnr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
+
+        ClosedCaptionObserver closed_caption_observer;
+        closed_caption_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully with observations", 
                      node_id.to_string(), field_id.to_string());
@@ -221,49 +240,14 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
     }
 }
 
-std::shared_ptr<VideoFieldRepresentation> DAGFieldRenderer::attach_observations(
-    std::shared_ptr<VideoFieldRepresentation> representation,
-    FieldID field_id)
+const ObservationContext& DAGFieldRenderer::get_observation_context() const
 {
-    // Create observers (these should ideally be cached/reused)
-    std::vector<std::unique_ptr<Observer>> observers;
-    observers.push_back(std::make_unique<BiphaseObserver>());
-    observers.push_back(std::make_unique<VitcObserver>());
-    observers.push_back(std::make_unique<ClosedCaptionObserver>());
-    observers.push_back(std::make_unique<VideoIdObserver>());
-    observers.push_back(std::make_unique<FmCodeObserver>());
-    observers.push_back(std::make_unique<WhiteFlagObserver>());
-    observers.push_back(std::make_unique<VITSQualityObserver>());
-    observers.push_back(std::make_unique<BurstLevelObserver>());
-    observers.push_back(std::make_unique<PulldownObserver>());
-    // Note: LeadInOutObserver merged into BiphaseObserver
-    
-    // History for this field
-    ObservationHistory history;
-    
-    // Run all observers on this field
-    std::vector<std::shared_ptr<Observation>> all_observations;
-    for (const auto& observer : observers) {
-        try {
-            auto obs = observer->process_field(*representation, field_id, history);
-            all_observations.insert(all_observations.end(), obs.begin(), obs.end());
-        } catch (const std::exception& e) {
-            ORC_LOG_WARN("Observer '{}' failed for field {}: {}", 
-                        observer->observer_name(), field_id.value(), e.what());
-        }
+    if (!executor_) {
+        static ObservationContext empty_context;
+        return empty_context;
     }
-    
-    ORC_LOG_DEBUG("Computed {} observations for field {}", 
-                 all_observations.size(), field_id.value());
-    
-    // Wrap the representation with the observations
-    std::map<FieldID, std::vector<std::shared_ptr<Observation>>> obs_map;
-    obs_map[field_id] = std::move(all_observations);
-    
-    return std::make_shared<ObservationWrapperRepresentation>(
-        std::move(representation),
-        std::move(obs_map)
-    );
+    return executor_->get_observation_context();
 }
+
 
 } // namespace orc

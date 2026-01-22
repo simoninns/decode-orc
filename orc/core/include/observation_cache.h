@@ -23,6 +23,7 @@ namespace orc {
 class DAG;
 class VideoFieldRepresentation;
 class DAGFieldRenderer;
+class ObservationContext;
 
 /**
  * @brief Universal cache for rendered fields across the entire video source
@@ -104,6 +105,16 @@ public:
      * @param node_id The node to clear
      */
     void clear_node(NodeID node_id);
+    
+    /**
+     * @brief Get the observation context from the renderer
+     * 
+     * Returns the observation context populated during the most recent
+     * field rendering by this cache's renderer.
+     * 
+     * @return Const reference to the observation context
+     */
+    const ObservationContext& get_observation_context() const;
 
 private:
     // Cache key for storing observations

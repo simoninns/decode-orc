@@ -13,6 +13,7 @@
 #include "project_to_dag.h"
 #include "stage_registry.h"
 #include "logging.h"
+#include "observation_context.h"
 #include <algorithm>
 #include <sstream>
 
@@ -114,7 +115,8 @@ void validate_source_nodes(const std::shared_ptr<DAG>& dag) {
             try {
                 // Execute the stage with empty inputs to validate
                 // This will trigger TBC loading and validation
-                auto outputs = node.stage->execute({}, node.parameters);
+                ObservationContext observation_context;
+                auto outputs = node.stage->execute({}, node.parameters, observation_context);
                 if (outputs.empty()) {
                     // Empty output is valid - source may have no file configured (placeholder node)
                     ORC_LOG_WARN("Source node '{}' produced no output (no file configured)", node.node_id);

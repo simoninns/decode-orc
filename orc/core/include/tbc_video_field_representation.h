@@ -21,16 +21,7 @@
 
 namespace orc {
 
-// Forward declarations for observer friends
-class BiphaseObserver;
-class VitcObserver;
-class ClosedCaptionObserver;
-class VideoIdObserver;
-class FmCodeObserver;
-class WhiteFlagObserver;
-class VITSQualityObserver;
-class BurstLevelObserver;
-class SNRAnalysisObserver;
+// TODO: Observer system refactored - old observer friend declarations removed
 
 /**
  * @brief Concrete implementation of VideoFieldRepresentation backed by a TBC file (SOURCE stage)
@@ -108,8 +99,6 @@ public:
         return video_params_;
     }
     
-    std::vector<std::shared_ptr<Observation>> get_observations(FieldID id) const override;
-    
     // Audio interface
     uint32_t get_audio_sample_count(FieldID id) const override;
     std::vector<int16_t> get_audio_samples(FieldID id) const override;
@@ -135,6 +124,12 @@ public:
     bool set_efm_file(const std::string& efm_path);
     
     std::string type_name() const override { return "TBCVideoFieldRepresentation"; }
+
+    // VBI hint access from metadata (for GUI/diagnostics)
+    std::optional<VbiData> get_vbi_hint(FieldID id) const override {
+        if (!metadata_reader_) return std::nullopt;
+        return metadata_reader_->read_vbi(id);
+    }
     
 private:
     // TBC-specific accessors - private to enforce architectural boundaries
@@ -144,16 +139,7 @@ private:
     std::shared_ptr<TBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
     std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
     
-    // Allow observers to access TBC-specific data
-    friend class BiphaseObserver;
-    friend class VitcObserver;
-    friend class ClosedCaptionObserver;
-    friend class VideoIdObserver;
-    friend class FmCodeObserver;
-    friend class WhiteFlagObserver;
-    friend class VITSQualityObserver;
-    friend class BurstLevelObserver;
-    friend class SNRAnalysisObserver;
+    // TODO: Observer system refactored - observers now access data via public interface
     
     std::shared_ptr<TBCReader> tbc_reader_;
     std::shared_ptr<TBCMetadataReader> metadata_reader_;

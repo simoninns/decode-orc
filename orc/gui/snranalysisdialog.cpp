@@ -13,6 +13,7 @@
 #include <QStackedLayout>
 #include <QtMath>
 #include <cmath>
+#include <limits>
 
 SNRAnalysisDialog::SNRAnalysisDialog(QWidget *parent)
     : AnalysisDialogBase(parent)
@@ -34,8 +35,8 @@ SNRAnalysisDialog::SNRAnalysisDialog(QWidget *parent)
     
     // Create display mode combo box
     displayModeCombo_ = new QComboBox(this);
-    displayModeCombo_->addItem("White SNR", QVariant::fromValue(orc::SNRAnalysisMode::WHITE_SNR));
-    displayModeCombo_->addItem("Black PSNR", QVariant::fromValue(orc::SNRAnalysisMode::BLACK_PSNR));
+    displayModeCombo_->addItem("White", QVariant::fromValue(orc::SNRAnalysisMode::WHITE));
+    displayModeCombo_->addItem("Black", QVariant::fromValue(orc::SNRAnalysisMode::BLACK));
     displayModeCombo_->addItem("Both", QVariant::fromValue(orc::SNRAnalysisMode::BOTH));
     displayModeCombo_->setCurrentIndex(2); // Default to "Both"
     displayModeCombo_->setToolTip("Select which SNR metrics to display");
@@ -138,7 +139,28 @@ void SNRAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
     // Set axis titles and ranges
     plot_->setAxisTitle(Qt::Horizontal, "Frame number");
     plot_->setAxisTitle(Qt::Vertical, "SNR (dB)");
-    plot_->setAxisRange(Qt::Horizontal, 0, numberOfFrames_);
+    
+    // Calculate X-axis range from actual data points
+    double xMin = 0;
+    double xMax = numberOfFrames_;
+    if (!whitePoints_.isEmpty() || !blackPoints_.isEmpty()) {
+        xMin = std::numeric_limits<double>::max();
+        xMax = std::numeric_limits<double>::lowest();
+        
+        for (const auto& pt : whitePoints_) {
+            xMin = std::min(xMin, pt.x());
+            xMax = std::max(xMax, pt.x());
+        }
+        for (const auto& pt : blackPoints_) {
+            xMin = std::min(xMin, pt.x());
+            xMax = std::max(xMax, pt.x());
+        }
+        
+        // Round to integers (frame numbers are always whole)
+        xMin = std::floor(xMin);
+        xMax = std::ceil(xMax);
+    }
+    plot_->setAxisRange(Qt::Horizontal, xMin, xMax);
     
     // Calculate appropriate Y-axis range
     // SNR values are typically in the range of 20-60 dB
@@ -223,12 +245,12 @@ void SNRAnalysisDialog::updateSeriesVisibility()
     auto mode = getCurrentMode();
     
     switch (mode) {
-        case orc::SNRAnalysisMode::WHITE_SNR:
+        case orc::SNRAnalysisMode::WHITE:
             whiteSNRSeries_->setVisible(true);
             blackPSNRSeries_->setVisible(false);
             break;
             
-        case orc::SNRAnalysisMode::BLACK_PSNR:
+        case orc::SNRAnalysisMode::BLACK:
             whiteSNRSeries_->setVisible(false);
             blackPSNRSeries_->setVisible(true);
             break;

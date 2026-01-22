@@ -40,12 +40,14 @@ NodeTypeInfo AudioSinkStage::get_node_type_info() const {
 
 std::vector<ArtifactPtr> AudioSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context
 ) {
     // Sink stages don't produce outputs in execute()
     // Actual work happens in trigger()
     (void)inputs;
     (void)parameters;
+    (void)observation_context;
     return {};
 }
 
@@ -114,8 +116,9 @@ bool AudioSinkStage::write_wav_header(std::ofstream& out, uint32_t num_samples,
 
 bool AudioSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
-    const std::map<std::string, ParameterValue>& parameters
-) {
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context) {
+    (void)observation_context;
     is_processing_.store(true);
     cancel_requested_.store(false);
     

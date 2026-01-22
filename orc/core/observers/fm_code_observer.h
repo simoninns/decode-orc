@@ -1,47 +1,59 @@
 /*
  * File:        fm_code_observer.h
  * Module:      orc-core
- * Purpose:     FM code observer
+ * Purpose:     FM code observer (NTSC line 10)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#ifndef ORC_CORE_FM_CODE_OBSERVER_H
-#define ORC_CORE_FM_CODE_OBSERVER_H
+#pragma once
 
 #include "observer.h"
 
 namespace orc {
 
-class FmCodeObservation : public Observation {
-public:
-    uint32_t data_value = 0;  // 20-bit decoded data
-    bool field_flag = false;  // Video field indicator bit
-    
-    std::string observation_type() const override {
-        return "FmCode";
-    }
-};
-
+/**
+ * @brief Observer for LD FM code (NTSC line 10).
+ *
+ * Observations (namespace "fm_code"):
+ * - present (bool, optional): true when valid FM code decoded
+ * - data_value (int32, optional): 20-bit FM code payload
+ * - field_flag (bool, optional): field indicator bit
+ */
 class FmCodeObserver : public Observer {
 public:
-    FmCodeObserver() = default;
+	FmCodeObserver() = default;
+	~FmCodeObserver() override = default;
     
-    std::string observer_name() const override { return "FmCodeObserver"; }
-    std::string observer_version() const override { return "1.0.0"; }
+	std::string observer_name() const override { return "FmCodeObserver"; }
+	std::string observer_version() const override { return "1.0.0"; }
     
-    std::vector<std::shared_ptr<Observation>> process_field(
-        const VideoFieldRepresentation& representation,
-        FieldID field_id,
-        const ObservationHistory& history) override;
+	void process_field(
+		const VideoFieldRepresentation& representation,
+		FieldID field_id,
+		ObservationContext& context) override;
+    
+	std::vector<ObservationKey> get_provided_observations() const override {
+		return {
+			{"fm_code", "present", ObservationType::BOOL, "True when FM code decoded", true},
+			{"fm_code", "data_value", ObservationType::INT32, "20-bit FM code payload", true},
+			{"fm_code", "field_flag", ObservationType::BOOL, "Field indicator bit", true},
+		};
+	}
 
 private:
-    bool decode_line(const uint16_t* line_data, size_t sample_count,
-                    uint16_t zero_crossing, size_t active_start,
-                    double jump_samples, FmCodeObservation& observation);
+	struct DecodedFmCode {
+		uint32_t data_value = 0;
+		bool field_flag = false;
+	};
+    
+	bool decode_line(const uint16_t* line_data,
+					 size_t sample_count,
+					 uint16_t zero_crossing,
+					 size_t active_start,
+					 double jump_samples,
+					 DecodedFmCode& out) const;
 };
 
 } // namespace orc
-
-#endif // ORC_CORE_FM_CODE_OBSERVER_H

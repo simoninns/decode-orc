@@ -51,8 +51,14 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Common types (shared across all layers)
 add_subdirectory(common)
 
-# Core library
+# Core library (internal implementation)
 add_subdirectory(core)
+
+# Public API (facade to core)
+add_subdirectory(public)
+
+# Presenter layer (MVP architecture - bridge between GUI/CLI and core)
+add_subdirectory(presenters)
 
 # CLI tools
 add_subdirectory(cli)

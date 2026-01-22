@@ -196,6 +196,9 @@ private:
     // Pending request tracking
     uint64_t pending_preview_request_id_{0};
     uint64_t pending_vbi_request_id_{0};
+    uint64_t pending_vbi_request_id_field2_{0};  // Second field for frame mode
+    bool pending_vbi_is_frame_mode_{false};
+    orc::VBIFieldInfo pending_vbi_field1_info_;  // Cached first field data
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
     orc::NodeID pending_trigger_node_id_;  // Track which node is being triggered

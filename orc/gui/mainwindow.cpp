@@ -3242,12 +3242,14 @@ void MainWindow::updateVBIDialog()
         }
         orc::FieldID field1_id(frame_fields.first_field);
         orc::FieldID field2_id(frame_fields.second_field);
-        // Request first field - VBI dialog will need enhancement to display both fields
+        // Request both fields - VBI interpretation requires data from both fields
+        // (e.g., CLV timecode may be split across fields)
+        pending_vbi_is_frame_mode_ = true;
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field1_id);
-        // Second field support: Would require VBIDialog to handle dual-field display
-        // For now, showing first field is sufficient for most use cases
+        pending_vbi_request_id_field2_ = render_coordinator_->requestVBIData(current_view_node_id_, field2_id);
     } else {
         // Field mode - request single field
+        pending_vbi_is_frame_mode_ = false;
         orc::FieldID field_id(current_index);
         pending_vbi_request_id_ = render_coordinator_->requestVBIData(current_view_node_id_, field_id);
     }

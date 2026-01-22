@@ -83,6 +83,29 @@ public:
     static std::optional<VBIFieldInfo> decode_vbi(
         const ObservationContext& observation_context,
         FieldID field_id);
+    
+    /**
+     * @brief Merge VBI information from both fields of a frame
+     * 
+     * @param field1_info VBI info from first field
+     * @param field2_info VBI info from second field
+     * @return Merged VBI information with data from both fields
+     * 
+     * LaserDisc VBI data is often split across both fields of a frame.
+     * For example, CLV timecode hours/minutes may be on one field while
+     * seconds/picture are on the other. This function combines data from
+     * both fields to provide complete VBI information.
+     * 
+     * The merge strategy:
+     * - Raw VBI lines: prefer first field, fall back to second
+     * - Picture number: use whichever field has it
+     * - CLV timecode: merge hours/minutes from one field with seconds/picture from the other
+     * - Chapter: use whichever field has it
+     * - Control codes: OR together from both fields
+     */
+    static VBIFieldInfo merge_frame_vbi(
+        const VBIFieldInfo& field1_info,
+        const VBIFieldInfo& field2_info);
 
 private:
     /**

@@ -348,31 +348,21 @@ QString VBIDialog::formatSoundMode(orc::VbiSoundMode mode)
 void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info, 
                                     const orc::VBIFieldInfo& field2_info)
 {
+    // Merge VBI data from both fields for proper interpretation
+    // (CLV timecode and other data may be split across fields)
+    auto merged = orc::VBIDecoder::merge_frame_vbi(field1_info, field2_info);
+    
     // Display both field numbers (0-indexed)
     field_number_label_->setText(QString("%1 + %2")
         .arg(field1_info.field_id.value())
         .arg(field2_info.field_id.value()));
     
-    // Prefer VBI data from the field that has it
-    const orc::VBIFieldInfo* primary = nullptr;
-    const orc::VBIFieldInfo* secondary = nullptr;
-    
-    if (field1_info.has_vbi_data && field2_info.has_vbi_data) {
-        // Both have data - use first as primary, second as secondary
-        primary = &field1_info;
-        secondary = &field2_info;
-    } else if (field1_info.has_vbi_data) {
-        primary = &field1_info;
-    } else if (field2_info.has_vbi_data) {
-        primary = &field2_info;
-    }
-    
-    if (!primary) {
+    if (!merged.has_vbi_data) {
         clearVBIInfo();
         return;
     }
     
-    // Raw VBI data - show both fields
+    // Raw VBI data - show both fields separated by /
     line16_label_->setText(QString("%1 / %2")
         .arg(formatVBILine(field1_info.vbi_data[0]))
         .arg(formatVBILine(field2_info.vbi_data[0])));
@@ -383,25 +373,17 @@ void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info,
         .arg(formatVBILine(field1_info.vbi_data[2]))
         .arg(formatVBILine(field2_info.vbi_data[2])));
     
-    // For decoded data, prefer picture number from either field
-    if (primary->picture_number.has_value()) {
-        picture_number_label_->setText(QString::number(primary->picture_number.value()));
-    } else if (secondary && secondary->picture_number.has_value()) {
-        picture_number_label_->setText(QString::number(secondary->picture_number.value()));
+    // Use merged data for all interpreted fields
+    // Picture number
+    if (merged.picture_number.has_value()) {
+        picture_number_label_->setText(QString::number(merged.picture_number.value()));
     } else {
         picture_number_label_->setText("-");
     }
     
-    // CLV timecode
-    if (primary->clv_timecode.has_value()) {
-        const auto& tc = primary->clv_timecode.value();
-        clv_timecode_label_->setText(QString("%1:%2:%3.%4")
-            .arg(tc.hours, 2, 10, QChar('0'))
-            .arg(tc.minutes, 2, 10, QChar('0'))
-            .arg(tc.seconds, 2, 10, QChar('0'))
-            .arg(tc.picture_number, 2, 10, QChar('0')));
-    } else if (secondary && secondary->clv_timecode.has_value()) {
-        const auto& tc = secondary->clv_timecode.value();
+    // CLV timecode (merged from both fields if needed)
+    if (merged.clv_timecode.has_value()) {
+        const auto& tc = merged.clv_timecode.value();
         clv_timecode_label_->setText(QString("%1:%2:%3.%4")
             .arg(tc.hours, 2, 10, QChar('0'))
             .arg(tc.minutes, 2, 10, QChar('0'))
@@ -412,38 +394,27 @@ void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info,
     }
     
     // Chapter number
-    if (primary->chapter_number.has_value()) {
-        chapter_number_label_->setText(QString::number(primary->chapter_number.value()));
-    } else if (secondary && secondary->chapter_number.has_value()) {
-        chapter_number_label_->setText(QString::number(secondary->chapter_number.value()));
+    if (merged.chapter_number.has_value()) {
+        chapter_number_label_->setText(QString::number(merged.chapter_number.value()));
     } else {
         chapter_number_label_->setText("-");
     }
     
     // User code
-    if (primary->user_code.has_value()) {
-        user_code_label_->setText(QString::fromStdString(primary->user_code.value()));
-    } else if (secondary && secondary->user_code.has_value()) {
-        user_code_label_->setText(QString::fromStdString(secondary->user_code.value()));
+    if (merged.user_code.has_value()) {
+        user_code_label_->setText(QString::fromStdString(merged.user_code.value()));
     } else {
         user_code_label_->setText("-");
     }
     
-    // Control codes - show if present in either field
-    bool has_stop = primary->stop_code_present || (secondary && secondary->stop_code_present);
-    bool has_lead_in = primary->lead_in || (secondary && secondary->lead_in);
-    bool has_lead_out = primary->lead_out || (secondary && secondary->lead_out);
+    // Control codes (merged from both fields)
+    stop_code_label_->setText(merged.stop_code_present ? "Yes" : "No");
+    lead_in_label_->setText(merged.lead_in ? "Yes" : "No");
+    lead_out_label_->setText(merged.lead_out ? "Yes" : "No");
     
-    stop_code_label_->setText(has_stop ? "Yes" : "No");
-    lead_in_label_->setText(has_lead_in ? "Yes" : "No");
-    lead_out_label_->setText(has_lead_out ? "Yes" : "No");
-    
-    // Programme status (prefer primary, fallback to secondary)
-    auto prog_status = primary->programme_status.has_value() ? primary->programme_status : 
-                      (secondary ? secondary->programme_status : std::nullopt);
-    
-    if (prog_status.has_value()) {
-        const auto& ps = prog_status.value();
+    // Programme status
+    if (merged.programme_status.has_value()) {
+        const auto& ps = merged.programme_status.value();
         cx_enabled_label_->setText(ps.cx_enabled ? "On" : "Off");
         disc_size_label_->setText(ps.is_12_inch ? "12\"" : "8\"");
         disc_side_label_->setText(ps.is_side_1 ? "Side 1" : "Side 2");
@@ -468,11 +439,8 @@ void VBIDialog::updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info,
     }
     
     // Amendment 2 status
-    auto am2_status = primary->amendment2_status.has_value() ? primary->amendment2_status :
-                     (secondary ? secondary->amendment2_status : std::nullopt);
-    
-    if (am2_status.has_value()) {
-        const auto& am2 = am2_status.value();
+    if (merged.amendment2_status.has_value()) {
+        const auto& am2 = merged.amendment2_status.value();
         copy_permitted_label_->setText(am2.copy_permitted ? "Yes" : "No");
         video_standard_label_->setText(am2.is_video_standard ? "Standard" : "Non-standard");
         sound_mode_am2_label_->setText(formatSoundMode(am2.sound_mode));

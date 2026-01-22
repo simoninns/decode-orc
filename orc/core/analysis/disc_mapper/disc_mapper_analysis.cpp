@@ -5,6 +5,7 @@
 #include "../../include/tbc_video_field_representation.h"
 #include "../../include/dag_executor.h"
 #include "../../include/project.h"
+#include "../../observers/biphase_observer.h"
 #include "logging.h"
 #include <iostream>
 #include <algorithm>
@@ -91,7 +92,6 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
     ORC_LOG_DEBUG("Node '{}': Field mapping analysis - getting input from node '{}'", ctx.node_id, input_node_id);
     
     // Execute DAG to get the VideoFieldRepresentation from the input node
-    // We need to get it as a stage output
     DAGExecutor executor;
     try {
         auto all_outputs = executor.execute_to_node(*ctx.dag, input_node_id);
@@ -125,6 +125,25 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         ORC_LOG_DEBUG("Got VideoFieldRepresentation with {} fields", source->field_range().size());
         
         if (progress) {
+            progress->setStatus("Extracting VBI data from fields...");
+            progress->setProgress(10);
+        }
+        
+        // Run BiphaseObserver on all fields to extract VBI data into ObservationContext
+        // This populates the "biphase" namespace with vbi_line_16, vbi_line_17, vbi_line_18
+        BiphaseObserver biphase_observer;
+        auto& obs_context = executor.get_observation_context();
+        auto field_range = source->field_range();
+        
+        ORC_LOG_DEBUG("Running BiphaseObserver on {} fields", field_range.size());
+        
+        for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
+            biphase_observer.process_field(*source, fid, obs_context);
+        }
+        
+        ORC_LOG_DEBUG("BiphaseObserver complete, ObservationContext populated");
+        
+        if (progress) {
             progress->setStatus("Running field analysis...");
             progress->setProgress(20);
         }
@@ -144,7 +163,7 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         }
         
         // Run field mapping analysis (20-90% progress range)
-        FieldMappingDecision decision = analyzer.analyze(*source, options, progress);
+        FieldMappingDecision decision = analyzer.analyze(*source, obs_context, options, progress);
 
         if (!decision.success) {
             result.status = AnalysisResult::Failed;
@@ -198,6 +217,11 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         std::string disc_type = decision.is_cav ? "CAV" : "CLV";
         std::string video_format = decision.is_pal ? "PAL" : "NTSC";
         
+        // Start with the detailed rationale report (as required by design doc section 16)
+        summary << "=== DISC MAPPING ANALYSIS REPORT ===\n\n";
+        summary << decision.rationale;  // Full stage-by-stage pipeline report
+        summary << "\n=== SUMMARY ===\n\n";
+        
         summary << "Source: " << video_format << " " << disc_type << " disc\n\n";
         
         summary << "Input:\n";
@@ -227,7 +251,9 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         
         // Add generated mapping spec to summary
         summary << "\n\nGenerated Field Mapping:\n";
-        if (decision.mapping_spec.length() <= 200) {
+        if (decision.mapping_spec.empty()) {
+            summary << "  (empty - no fields could be mapped)";
+        } else if (decision.mapping_spec.length() <= 200) {
             summary << "  " << decision.mapping_spec;
         } else {
             summary << "  " << decision.mapping_spec.substr(0, 200) << "...\n";
@@ -255,25 +281,11 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         result.graphData["mappingSpec"] = decision.mapping_spec;
         result.graphData["rationale"] = decision.rationale;
         
-        ORC_LOG_DEBUG("Field mapping analysis - adding mapping spec to result items ({} chars)", 
+        // Note: Rationale is already included in summary per design doc section 16
+        // "Each stage shall produce a clear description of the decision making process/pipeline"
+        
+        ORC_LOG_DEBUG("Field mapping analysis complete - mapping spec: {} chars", 
                      decision.mapping_spec.length());
-        
-        // Add detailed info items for display
-        AnalysisResult::ResultItem spec_item;
-        spec_item.type = "info";
-        spec_item.message = "Generated Field Mapping Specification:\n\n" + decision.mapping_spec;
-        result.items.push_back(spec_item);
-        
-        ORC_LOG_DEBUG("Field mapping analysis - adding rationale to result items ({} chars)", 
-                     decision.rationale.length());
-        
-        // Add rationale as separate item
-        AnalysisResult::ResultItem rationale_item;
-        rationale_item.type = "info";
-        rationale_item.message = "Analysis Rationale:\n\n" + decision.rationale;
-        result.items.push_back(rationale_item);
-        
-        ORC_LOG_DEBUG("Field mapping analysis complete - {} result items total", result.items.size());
         
         result.status = AnalysisResult::Success;
         return result;

@@ -123,4 +123,81 @@ VBIFieldInfo VBIDecoder::parse_vbi_data(
     return info;
 }
 
+VBIFieldInfo VBIDecoder::merge_frame_vbi(
+    const VBIFieldInfo& field1_info,
+    const VBIFieldInfo& field2_info)
+{
+    VBIFieldInfo merged;
+    
+    // Use first field ID as base
+    merged.field_id = field1_info.field_id;
+    
+    // Has VBI data if either field has it
+    merged.has_vbi_data = field1_info.has_vbi_data || field2_info.has_vbi_data;
+    
+    // Raw VBI data - prefer first field, use second as fallback
+    merged.vbi_data = field1_info.has_vbi_data ? field1_info.vbi_data : field2_info.vbi_data;
+    
+    // Picture number - use whichever field has it (prefer first)
+    if (field1_info.picture_number.has_value()) {
+        merged.picture_number = field1_info.picture_number;
+    } else if (field2_info.picture_number.has_value()) {
+        merged.picture_number = field2_info.picture_number;
+    }
+    
+    // CLV timecode - merge components from both fields
+    // Hours/minutes may be on one field, seconds/picture on another
+    bool has_hours = false, has_minutes = false, has_seconds = false, has_picture = false;
+    CLVTimecode merged_tc;
+    
+    if (field1_info.clv_timecode.has_value()) {
+        const auto& tc1 = field1_info.clv_timecode.value();
+        merged_tc = tc1;
+        has_hours = has_minutes = has_seconds = has_picture = true;
+    }
+    
+    if (field2_info.clv_timecode.has_value()) {
+        const auto& tc2 = field2_info.clv_timecode.value();
+        if (!has_hours) { merged_tc.hours = tc2.hours; has_hours = true; }
+        if (!has_minutes) { merged_tc.minutes = tc2.minutes; has_minutes = true; }
+        if (!has_seconds) { merged_tc.seconds = tc2.seconds; has_seconds = true; }
+        if (!has_picture) { merged_tc.picture_number = tc2.picture_number; has_picture = true; }
+    }
+    
+    if (has_hours && has_minutes && has_seconds && has_picture) {
+        merged.clv_timecode = merged_tc;
+    }
+    
+    // Chapter number - use whichever field has it (prefer first)
+    if (field1_info.chapter_number.has_value()) {
+        merged.chapter_number = field1_info.chapter_number;
+    } else if (field2_info.chapter_number.has_value()) {
+        merged.chapter_number = field2_info.chapter_number;
+    }
+    
+    // User code - prefer first field
+    if (field1_info.user_code.has_value()) {
+        merged.user_code = field1_info.user_code;
+    } else if (field2_info.user_code.has_value()) {
+        merged.user_code = field2_info.user_code;
+    }
+    
+    // Control codes - OR together from both fields
+    merged.lead_in = field1_info.lead_in || field2_info.lead_in;
+    merged.lead_out = field1_info.lead_out || field2_info.lead_out;
+    merged.stop_code_present = field1_info.stop_code_present || field2_info.stop_code_present;
+    
+    // Programme status - prefer first field
+    if (field1_info.programme_status.has_value()) {
+        merged.programme_status = field1_info.programme_status;
+    } else if (field2_info.programme_status.has_value()) {
+        merged.programme_status = field2_info.programme_status;
+    }
+    
+    ORC_LOG_DEBUG("VBIDecoder: Merged frame VBI from fields {} and {}", 
+                  field1_info.field_id.value(), field2_info.field_id.value());
+    
+    return merged;
+}
+
 } // namespace orc

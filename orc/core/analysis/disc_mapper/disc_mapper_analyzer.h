@@ -72,10 +72,17 @@ public:
     ~DiscMapperAnalyzer() = default;
     
     /**
-     * @brief Stubbed analyze implementation that reports disc mapping is disabled.
+     * @brief Analyze disc mapping using VBI data from the observation context.
+     * 
+     * @param source The video field representation
+     * @param observation_context Observation context containing VBI data from observers
+     * @param options Analysis options
+     * @param progress Optional progress callback
+     * @return Field mapping decision
      */
     FieldMappingDecision analyze(
         const VideoFieldRepresentation& source,
+        const class ObservationContext& observation_context,
         const Options& options = Options{},
         class AnalysisProgress* progress = nullptr);
 };

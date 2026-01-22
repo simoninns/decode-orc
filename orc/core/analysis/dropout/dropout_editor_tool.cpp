@@ -13,6 +13,9 @@
 
 namespace orc {
 
+// Force linker to include this object file (for static registration)
+void force_link_DropoutEditorTool() {}
+
 AnalysisResult DropoutEditorTool::analyze(const AnalysisContext& ctx,
                                          AnalysisProgress* progress) {
     (void)ctx;  // Context is used by the GUI

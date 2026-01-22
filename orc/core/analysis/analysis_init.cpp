@@ -11,7 +11,7 @@
 #include "field_mapping/field_mapping_range_analysis.h"
 #include "field_corruption/field_corruption_analysis.h"
 #include "vectorscope/vectorscope_analysis.h"
-#include "dropout_editor_tool.h"
+#include "dropout/dropout_editor_tool.h"
 #include "source_alignment/source_alignment_analysis.h"
 #include "mask_line/mask_line_analysis.h"
 #include "ffmpeg_preset/ffmpeg_preset_analysis.h"
@@ -27,6 +27,7 @@ void force_link_FieldMappingRangeAnalysisTool();
 void force_link_DiscMapperAnalysisTool();
 void force_link_SourceAlignmentAnalysisTool();
 void force_link_MaskLineAnalysisTool();
+void force_link_DropoutEditorTool();
 
 /**
  * @brief Force linking of all analysis tool object files
@@ -38,13 +39,14 @@ void force_link_MaskLineAnalysisTool();
 void force_analysis_tool_linking() {
     // Only enable the FFmpeg preset analysis tool for now.
     // Additional tools can be added here as they are re-enabled/refactored.
-    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range, disc mapper, source alignment, mask line");
+    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range, disc mapper, source alignment, mask line, dropout editor");
     force_link_FFmpegPresetAnalysisTool();
     force_link_FieldCorruptionAnalysisTool();
     force_link_FieldMappingRangeAnalysisTool();
     force_link_DiscMapperAnalysisTool();
     force_link_SourceAlignmentAnalysisTool();
     force_link_MaskLineAnalysisTool();
+    force_link_DropoutEditorTool();
 }
 
 } // namespace orc

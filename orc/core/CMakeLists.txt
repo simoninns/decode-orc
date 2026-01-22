@@ -65,7 +65,7 @@ add_library(orc-core STATIC
     analysis/field_corruption/field_corruption_analysis.cpp
     
     # Dropout editor tool
-    analysis/dropout_editor_tool.cpp
+    analysis/dropout/dropout_editor_tool.cpp
     
     # Source alignment analysis
     analysis/source_alignment/source_alignment_analysis.cpp

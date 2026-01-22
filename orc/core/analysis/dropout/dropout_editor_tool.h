@@ -13,7 +13,7 @@
 #include "analysis_tool.h"
 #include "analysis_context.h"
 #include "analysis_result.h"
-#include "../include/stage_parameter.h"
+#include "../../include/stage_parameter.h"
 #include <string>
 #include <vector>
 

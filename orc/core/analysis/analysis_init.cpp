@@ -20,6 +20,9 @@
 
 namespace orc {
 
+// Forward declarations of force-link functions for analysis tools we want enabled
+void force_link_FFmpegPresetAnalysisTool();
+
 /**
  * @brief Force linking of all analysis tool object files
  * 
@@ -28,7 +31,10 @@ namespace orc {
  * This must be called before any analysis tool lookups occur.
  */
 void force_analysis_tool_linking() {
-    ORC_LOG_WARN("Analysis tool linking skipped (analysis observers disabled)");
+    // Only enable the FFmpeg preset analysis tool for now.
+    // Additional tools can be added here as they are re-enabled/refactored.
+    ORC_LOG_DEBUG("Forcing link of FFmpeg preset analysis tool");
+    force_link_FFmpegPresetAnalysisTool();
 }
 
 } // namespace orc

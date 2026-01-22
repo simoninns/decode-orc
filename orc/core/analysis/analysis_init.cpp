@@ -25,6 +25,7 @@ void force_link_FFmpegPresetAnalysisTool();
 void force_link_FieldCorruptionAnalysisTool();
 void force_link_FieldMappingRangeAnalysisTool();
 void force_link_DiscMapperAnalysisTool();
+void force_link_SourceAlignmentAnalysisTool();
 
 /**
  * @brief Force linking of all analysis tool object files
@@ -36,11 +37,12 @@ void force_link_DiscMapperAnalysisTool();
 void force_analysis_tool_linking() {
     // Only enable the FFmpeg preset analysis tool for now.
     // Additional tools can be added here as they are re-enabled/refactored.
-    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range, disc mapper");
+    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range, disc mapper, source alignment");
     force_link_FFmpegPresetAnalysisTool();
     force_link_FieldCorruptionAnalysisTool();
     force_link_FieldMappingRangeAnalysisTool();
     force_link_DiscMapperAnalysisTool();
+    force_link_SourceAlignmentAnalysisTool();
 }
 
 } // namespace orc

@@ -68,8 +68,7 @@ add_library(orc-core STATIC
     analysis/dropout_editor_tool.cpp
     
     # Source alignment analysis
-    # TODO: Temporarily disabled during observer refactor - uses old observation API
-    # analysis/source_alignment/source_alignment_analysis.cpp
+    analysis/source_alignment/source_alignment_analysis.cpp
     
     # Mask line configuration
     analysis/mask_line/mask_line_analysis.cpp

@@ -16,6 +16,11 @@
 #include <mutex>
 #include <map>
 
+// Windows compatibility for strcasecmp
+#ifdef _WIN32
+#define strcasecmp _stricmp
+#endif
+
 namespace orc {
 
 // ============================================================================

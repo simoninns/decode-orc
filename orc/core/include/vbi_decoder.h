@@ -14,6 +14,7 @@
 #include "field_id.h"
 #include "node_id.h"
 #include "lru_cache.h"
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>

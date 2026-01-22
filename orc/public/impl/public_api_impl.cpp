@@ -4,6 +4,8 @@
 #include <orc_types.h>
 #include "type_bridge.h"
 #include "../../core/include/project.h"
+#include "../../core/include/logging.h"
+#include <string>
 
 // Implement all public API function stubs here, using type_bridge for handle conversion.
 // Example:
@@ -13,3 +15,23 @@
 // }
 
 // ...existing code...
+
+extern "C" {
+
+void orc_logging_init(const char* level,
+					  const char* pattern,
+					  const char* log_file)
+{
+	std::string lvl = level ? std::string(level) : std::string("info");
+	std::string pat = pattern ? std::string(pattern) : std::string("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+	std::string file = log_file ? std::string(log_file) : std::string("");
+	orc::init_logging(lvl, pat, file);
+}
+
+void orc_logging_set_level(const char* level)
+{
+	std::string lvl = level ? std::string(level) : std::string("info");
+	orc::set_log_level(lvl);
+}
+
+} // extern "C"

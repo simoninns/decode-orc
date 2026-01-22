@@ -488,10 +488,22 @@ private:
    - Check help output
    - Validate error handling
 
+5. **Unified Logging Options**
+    - Mirror GUI logging in CLI using public logging API
+    - Add `--log-level <level>` and `--log-file <path>` options
+    - Initialize core logging via `orc/public/orc_logging.h`
+    - Use a single shared log file for both CLI and core
+    - Example:
+      ```bash
+      orc-cli --log-level debug --log-file /tmp/orc.log
+      ```
+    - Help text: `--log-level`: trace|debug|info|warn|error|critical|off; `--log-file`: writes both CLI and core logs
+
 **Deliverables:**
 - ✅ CLI compiles with only public API
 - ✅ All commands functional
 - ✅ No core includes in CLI
+ - ✅ CLI `--log-level` and `--log-file` control unified logging
 
 ---
 

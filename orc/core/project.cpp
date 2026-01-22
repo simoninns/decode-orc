@@ -94,6 +94,7 @@ std::string node_type_to_string(NodeType type) {
         case NodeType::TRANSFORM: return "TRANSFORM";
         case NodeType::MERGER: return "MERGER";
         case NodeType::COMPLEX: return "COMPLEX";
+        case NodeType::ANALYSIS_SINK: return "ANALYSIS_SINK";
         default: return "UNKNOWN";
     }
 }
@@ -122,6 +123,7 @@ NodeType string_to_node_type(const std::string& str) {
     if (str == "TRANSFORM") return NodeType::TRANSFORM;
     if (str == "MERGER") return NodeType::MERGER;
     if (str == "COMPLEX") return NodeType::COMPLEX;
+    if (str == "ANALYSIS_SINK") return NodeType::ANALYSIS_SINK;
     // Default to TRANSFORM for unknown types (backward compatibility)
     return NodeType::TRANSFORM;
 }

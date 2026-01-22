@@ -22,9 +22,6 @@
 namespace orc {
     class VideoFieldRepresentation;
     class ObservationContext;
-    class DropoutAnalysisDecoder;
-    class SNRAnalysisDecoder;
-    class BurstLevelAnalysisDecoder;
 }
 
 /**
@@ -66,41 +63,9 @@ public:
                                           const orc::ObservationContext& obs_context);
     
     /**
-     * @brief Update the quality metrics display for a field
-     * @param field_repr Field representation containing observations
-     * @param field_id Field ID to extract metrics for
-     */
-    void updateMetrics(std::shared_ptr<const orc::VideoFieldRepresentation> field_repr, 
-                      orc::FieldID field_id);
-    
-    /**
-     * @brief Update the quality metrics display for a frame (two fields)
-     * @param field1_repr First field representation
-     * @param field1_id First field ID
-     * @param field2_repr Second field representation  
-     * @param field2_id Second field ID
-     */
-    void updateMetricsForFrame(std::shared_ptr<const orc::VideoFieldRepresentation> field1_repr,
-                              orc::FieldID field1_id,
-                              std::shared_ptr<const orc::VideoFieldRepresentation> field2_repr,
-                              orc::FieldID field2_id);
-    
-    /**
      * @brief Clear all metrics (when no preview is available)
      */
     void clearMetrics();
-    
-    /**
-     * @brief Set analysis decoders for metric extraction
-     * @param node_id Current node ID being displayed
-     * @param dropout_decoder Dropout analysis decoder
-     * @param snr_decoder SNR analysis decoder
-     * @param burst_level_decoder Burst level analysis decoder
-     */
-    void setAnalysisDecoders(orc::NodeID node_id,
-                            orc::DropoutAnalysisDecoder* dropout_decoder,
-                            orc::SNRAnalysisDecoder* snr_decoder,
-                            orc::BurstLevelAnalysisDecoder* burst_level_decoder);
 
 private:
     void setupUI();
@@ -120,9 +85,6 @@ private:
         bool has_quality_score = false;
         bool has_dropout_count = false;
     };
-    
-    FieldMetrics extractFieldMetrics(std::shared_ptr<const orc::VideoFieldRepresentation> field_repr,
-                                     orc::FieldID field_id);
     
     FieldMetrics extractMetricsFromContext(orc::FieldID field_id,
                                            const orc::ObservationContext& obs_context);
@@ -157,12 +119,6 @@ private:
     QLabel* frame_dropout_count_label_;
     
     bool showing_frame_mode_;  // True if showing two fields, false if showing single field
-    
-    // Analysis decoders for real metric extraction
-    orc::NodeID current_node_id_;
-    orc::DropoutAnalysisDecoder* dropout_decoder_ = nullptr;
-    orc::SNRAnalysisDecoder* snr_decoder_ = nullptr;
-    orc::BurstLevelAnalysisDecoder* burst_level_decoder_ = nullptr;
 };
 
 #endif // QUALITYMETRICSDIALOG_H

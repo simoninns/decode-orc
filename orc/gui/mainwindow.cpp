@@ -34,8 +34,6 @@
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/dag_field_renderer.h"
 #include "../core/include/tbc_metadata.h"
-#include "../core/analysis/dropout/dropout_analysis_decoder.h"
-#include "../core/analysis/snr/snr_analysis_decoder.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/node_type.h"
 #include "../core/include/dag_executor.h"
@@ -107,35 +105,35 @@ MainWindow::MainWindow(QWidget *parent)
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
     
-    // Connect coordinator signals
+    // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
     connect(render_coordinator_.get(), &RenderCoordinator::previewReady,
-            this, &MainWindow::onPreviewReady);
+            this, &MainWindow::onPreviewReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::vbiDataReady,
-            this, &MainWindow::onVBIDataReady);
+            this, &MainWindow::onVBIDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::availableOutputsReady,
-            this, &MainWindow::onAvailableOutputsReady);
+            this, &MainWindow::onAvailableOutputsReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::lineSamplesReady,
-            this, &MainWindow::onLineSamplesReady);
-    connect(render_coordinator_.get(), &RenderCoordinator::frameLineNavigationReady,
-            this, &MainWindow::onFrameLineNavigationReady);
+            this, &MainWindow::onLineSamplesReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
-            this, &MainWindow::onDropoutDataReady);
+            this, &MainWindow::onDropoutDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress,
-            this, &MainWindow::onDropoutProgress);
+            this, &MainWindow::onDropoutProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::snrDataReady,
-            this, &MainWindow::onSNRDataReady);
+            this, &MainWindow::onSNRDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::snrProgress,
-            this, &MainWindow::onSNRProgress);
+            this, &MainWindow::onSNRProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::burstLevelDataReady,
-            this, &MainWindow::onBurstLevelDataReady);
+            this, &MainWindow::onBurstLevelDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::burstLevelProgress,
-            this, &MainWindow::onBurstLevelProgress);
+            this, &MainWindow::onBurstLevelProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerProgress,
-            this, &MainWindow::onTriggerProgress);
+            this, &MainWindow::onTriggerProgress, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::triggerComplete,
-            this, &MainWindow::onTriggerComplete);
+            this, &MainWindow::onTriggerComplete, Qt::QueuedConnection);
+    connect(render_coordinator_.get(), &RenderCoordinator::frameLineNavigationReady,
+            this, &MainWindow::onFrameLineNavigationReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::error,
-            this, &MainWindow::onCoordinatorError);
+            this, &MainWindow::onCoordinatorError, Qt::QueuedConnection);
     
     // Start the coordinator worker thread
     render_coordinator_->start();
@@ -631,6 +629,130 @@ void MainWindow::closeAllDialogs()
         }
     }
     burst_level_progress_dialogs_.clear();
+}
+
+void MainWindow::createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name)
+{
+    // Get node label
+    QString node_label = QString::fromStdString(node_id.to_string());
+    const auto& nodes = project_.coreProject().get_nodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+    if (node_it != nodes.end()) {
+        if (!node_it->user_label.empty()) {
+            node_label = QString::fromStdString(node_it->user_label);
+        } else if (!node_it->display_name.empty()) {
+            node_label = QString::fromStdString(node_it->display_name);
+        }
+    }
+    
+    if (stage_name == "burst_level_analysis_sink") {
+        BurstLevelAnalysisDialog* dialog = nullptr;
+        auto it = burst_level_analysis_dialogs_.find(node_id);
+        if (it == burst_level_analysis_dialogs_.end()) {
+            dialog = new BurstLevelAnalysisDialog(this);
+            dialog->setWindowTitle(QString("Burst Level Analysis - %1").arg(node_label));
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                burst_level_analysis_dialogs_.erase(node_id);
+                burst_level_progress_dialogs_.erase(node_id);
+            });
+            burst_level_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
+        }
+        
+        auto& prog_dialog = burst_level_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+        
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    }
+    else if (stage_name == "dropout_analysis_sink") {
+        DropoutAnalysisDialog* dialog = nullptr;
+        auto it = dropout_analysis_dialogs_.find(node_id);
+        if (it == dropout_analysis_dialogs_.end()) {
+            dialog = new DropoutAnalysisDialog(this);
+            dialog->setWindowTitle(QString("Dropout Analysis - %1").arg(node_label));
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                dropout_analysis_dialogs_.erase(node_id);
+                dropout_progress_dialogs_.erase(node_id);
+            });
+            dropout_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
+        }
+        
+        auto& prog_dialog = dropout_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+        
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    }
+    else if (stage_name == "snr_analysis_sink") {
+        SNRAnalysisDialog* dialog = nullptr;
+        auto it = snr_analysis_dialogs_.find(node_id);
+        if (it == snr_analysis_dialogs_.end()) {
+            dialog = new SNRAnalysisDialog(this);
+            dialog->setWindowTitle(QString("SNR Analysis - %1").arg(node_label));
+            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+            connect(dialog, &SNRAnalysisDialog::modeChanged, [this, node_id](orc::SNRAnalysisMode mode) {
+                pending_snr_requests_.clear();
+                uint64_t request_id = render_coordinator_->requestSNRData(node_id, mode);
+                pending_snr_requests_[request_id] = node_id;
+            });
+            connect(dialog, &QObject::destroyed, [this, node_id]() {
+                snr_analysis_dialogs_.erase(node_id);
+                snr_progress_dialogs_.erase(node_id);
+            });
+            snr_analysis_dialogs_[node_id] = dialog;
+        } else {
+            dialog = it->second;
+        }
+        
+        auto& prog_dialog = snr_progress_dialogs_[node_id];
+        if (prog_dialog) {
+            delete prog_dialog;
+        }
+        prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
+        prog_dialog->setWindowTitle(dialog->windowTitle());
+        prog_dialog->setWindowModality(Qt::ApplicationModal);
+        prog_dialog->setMinimumDuration(0);
+        prog_dialog->setCancelButton(nullptr);
+        prog_dialog->setValue(0);
+        prog_dialog->show();
+        prog_dialog->raise();
+        prog_dialog->activateWindow();
+        
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+    }
 }
 
 void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType source_format)
@@ -1540,6 +1662,9 @@ void MainWindow::onTriggerStage(const orc::NodeID& node_id)
     ORC_LOG_DEBUG("Trigger stage requested for node: {}", node_id.to_string());
     
     try {
+        // Store the node being triggered so we can request data after completion
+        pending_trigger_node_id_ = node_id;
+        
         // Create progress dialog
         trigger_progress_dialog_ = new QProgressDialog("Starting trigger...", "Cancel", 0, 100, this);
         trigger_progress_dialog_->setWindowTitle("Processing");
@@ -2612,31 +2737,6 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             dialog->setWindowTitle(title);
             dialog->setAttribute(Qt::WA_DeleteOnClose, true);
             
-            // Connect mode changed to re-request data
-            connect(dialog, &DropoutAnalysisDialog::modeChanged,
-                    [this, node_id, dialog]() {
-                        if (dialog->isVisible()) {
-                            // Show progress dialog for this stage
-                            auto& prog_dialog = dropout_progress_dialogs_[node_id];
-                            if (prog_dialog) {
-                                delete prog_dialog;
-                            }
-                            prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
-                            prog_dialog->setWindowTitle(dialog->windowTitle());
-                            prog_dialog->setWindowModality(Qt::ApplicationModal);
-                            prog_dialog->setMinimumDuration(0);
-                            prog_dialog->setCancelButton(nullptr);
-                            prog_dialog->setValue(0);
-                            prog_dialog->show();
-                            prog_dialog->raise();
-                            prog_dialog->activateWindow();
-                            
-                            auto mode = dialog->getCurrentMode();
-                            uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
-                            pending_dropout_requests_[request_id] = node_id;
-                        }
-                    });
-            
             // Connect destroyed signal to clean up map entry
             connect(dialog, &QObject::destroyed, [this, node_id]() {
                 dropout_analysis_dialogs_.erase(node_id);
@@ -2669,12 +2769,12 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         dialog->activateWindow();
 
         // Request dropout data from coordinator (triggers batch processing)
-        auto mode = dialog->getCurrentMode();
-        uint64_t request_id = render_coordinator_->requestDropoutData(node_id, mode);
+        // Mode is controlled by the sink stage parameter, not the dialog
+        uint64_t request_id = render_coordinator_->requestDropoutData(node_id, orc::DropoutAnalysisMode::FULL_FIELD);
         pending_dropout_requests_[request_id] = node_id;
         
-        ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', mode {}, request_id={}",
-                      node_id.to_string(), static_cast<int>(mode), request_id);
+        ORC_LOG_DEBUG("Requested dropout analysis data for node '{}', request_id={}",
+                      node_id.to_string(), request_id);
         return;
     }
     
@@ -2979,14 +3079,6 @@ void MainWindow::updateQualityMetricsDialog()
         quality_metrics_dialog_->clearMetrics();
         return;
     }
-    
-    // Set the analysis decoders for this node
-    quality_metrics_dialog_->setAnalysisDecoders(
-        current_view_node_id_,
-        render_coordinator_->getDropoutAnalysisDecoder(),
-        render_coordinator_->getSNRAnalysisDecoder(),
-        render_coordinator_->getBurstLevelAnalysisDecoder()
-    );
     
     // Get the current index from the preview slider
     int current_index = preview_dialog_->previewSlider()->value();

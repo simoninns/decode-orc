@@ -65,17 +65,8 @@ add_library(orc-core STATIC
     analysis/field_corruption/field_corruption_analyzer.cpp
     analysis/field_corruption/field_corruption_analysis.cpp
     
-    # Dropout analysis
-    analysis/dropout/dropout_analysis_decoder.cpp
-    
     # Dropout editor tool
     analysis/dropout_editor_tool.cpp
-    
-    # SNR analysis
-    analysis/snr/snr_analysis_decoder.cpp
-    
-    # Burst level analysis
-    analysis/burst_level/burst_level_analysis_decoder.cpp
     
     # Source alignment analysis
     # TODO: Temporarily disabled during observer refactor - uses old observation API
@@ -112,6 +103,9 @@ add_library(orc-core STATIC
     stages/efm_sink/efm_sink_stage.cpp
     stages/cc_sink/cc_sink_stage.cpp
     stages/video_params/video_params_stage.cpp
+    stages/dropout_analysis_sink/dropout_analysis_sink_stage.cpp
+    stages/snr_analysis_sink/snr_analysis_sink_stage.cpp
+    stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.cpp
     
     # Dropout decision utilities
     dropout_decision.cpp
@@ -160,6 +154,9 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/cc_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/video_params
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_analysis_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/snr_analysis_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
 )
 
 # Compiler-specific warning flags

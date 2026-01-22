@@ -78,6 +78,7 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
         std::vector<const orc::NodeTypeInfo*> source_stages;
         std::vector<const orc::NodeTypeInfo*> transform_stages;
         std::vector<const orc::NodeTypeInfo*> sink_stages;
+        std::vector<const orc::NodeTypeInfo*> analysis_stages;
         
         for (const auto& type_info : all_types) {
             // Filter stages by video format compatibility
@@ -108,6 +109,9 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
                     break;
                 case orc::NodeType::SINK:
                     sink_stages.push_back(&type_info);
+                    break;
+                case orc::NodeType::ANALYSIS_SINK:
+                    analysis_stages.push_back(&type_info);
                     break;
             }
         }
@@ -145,6 +149,12 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
         if (!sink_stages.empty()) {
             QMenu* sink_menu = add_node_menu->addMenu("Sink");
             add_stages_to_menu(sink_menu, sink_stages);
+        }
+        
+        // Add Analysis Sink submenu
+        if (!analysis_stages.empty()) {
+            QMenu* analysis_menu = add_node_menu->addMenu("Analysis Sink");
+            add_stages_to_menu(analysis_menu, analysis_stages);
         }
     }
     

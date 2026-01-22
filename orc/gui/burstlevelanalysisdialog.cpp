@@ -13,6 +13,7 @@
 #include <QStackedLayout>
 #include <QtMath>
 #include <cmath>
+#include <limits>
 
 BurstLevelAnalysisDialog::BurstLevelAnalysisDialog(QWidget *parent)
     : AnalysisDialogBase(parent)
@@ -111,7 +112,24 @@ void BurstLevelAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
     // Set axis titles and ranges
     plot_->setAxisTitle(Qt::Horizontal, "Frame number");
     plot_->setAxisTitle(Qt::Vertical, "Burst Level (IRE)");
-    plot_->setAxisRange(Qt::Horizontal, 0, numberOfFrames_);
+    
+    // Calculate X-axis range from actual data points
+    double xMin = 0;
+    double xMax = numberOfFrames_;
+    if (!burstPoints_.isEmpty()) {
+        xMin = std::numeric_limits<double>::max();
+        xMax = std::numeric_limits<double>::lowest();
+        
+        for (const auto& pt : burstPoints_) {
+            xMin = std::min(xMin, pt.x());
+            xMax = std::max(xMax, pt.x());
+        }
+        
+        // Round to integers (frame numbers are always whole)
+        xMin = std::floor(xMin);
+        xMax = std::ceil(xMax);
+    }
+    plot_->setAxisRange(Qt::Horizontal, xMin, xMax);
     
     // Calculate appropriate Y-axis range
     // Burst levels are typically around 20 IRE for NTSC, 21.5 IRE for PAL

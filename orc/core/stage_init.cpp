@@ -30,6 +30,9 @@ void force_link_AudioSinkStage();
 void force_link_EFMSinkStage();
 void force_link_CCSinkStage();
 void force_link_VideoParamsStage();
+void force_link_DropoutAnalysisSinkStage();
+void force_link_SNRAnalysisSinkStage();
+void force_link_BurstLevelAnalysisSinkStage();
 
 /**
  * @brief Force linking of all stage object files
@@ -67,6 +70,9 @@ void force_stage_linking() {
     force_link_EFMSinkStage();
     force_link_CCSinkStage();
     force_link_VideoParamsStage();
+    force_link_DropoutAnalysisSinkStage();
+    force_link_SNRAnalysisSinkStage();
+    force_link_BurstLevelAnalysisSinkStage();
 }
 
 } // namespace orc

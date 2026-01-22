@@ -15,6 +15,9 @@
 #include "ld_sink_stage.h"  // For TriggerableStage
 #include "observation_context.h"
 #include "../core/include/vbi_decoder.h"
+#include "dropout_analysis_sink_stage.h"
+#include "snr_analysis_sink_stage.h"
+#include "burst_level_analysis_sink_stage.h"
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -349,9 +352,6 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         worker_preview_renderer_.reset();
         worker_field_renderer_.reset();
         worker_vbi_decoder_.reset();
-        worker_dropout_decoder_.reset();
-        worker_snr_decoder_.reset();
-        worker_burst_level_decoder_.reset();
         
         ORC_LOG_DEBUG("RenderCoordinator: Cleared all rendering state for empty project");
         return;
@@ -380,18 +380,8 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         
         worker_field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(worker_dag_);
         worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>();
-        worker_dropout_decoder_ = std::make_unique<orc::DropoutAnalysisDecoder>(worker_dag_);
-        worker_snr_decoder_ = std::make_unique<orc::SNRAnalysisDecoder>(worker_dag_);
-        worker_burst_level_decoder_ = std::make_unique<orc::BurstLevelAnalysisDecoder>(worker_dag_);
         
-        // Share the observation cache across analysis decoders
-        // This prevents re-rendering fields that were already rendered by other components
-        worker_dropout_decoder_->set_observation_cache(worker_obs_cache_);
-        worker_snr_decoder_->set_observation_cache(worker_obs_cache_);
-        worker_burst_level_decoder_->set_observation_cache(worker_obs_cache_);
-        worker_burst_level_decoder_->set_observation_cache(worker_obs_cache_);
-        
-        ORC_LOG_DEBUG("RenderCoordinator: DAG updated successfully with shared observation cache");
+        ORC_LOG_DEBUG("RenderCoordinator: DAG updated successfully");
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Failed to create renderers: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
@@ -490,37 +480,40 @@ void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting dropout analysis data for node '{}', mode {} (request {})",
                   req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
-    
-    if (!worker_dropout_decoder_) {
-        ORC_LOG_ERROR("RenderCoordinator: Dropout decoder not initialized");
-        emit error(req.request_id, "Dropout decoder not initialized");
-        return;
-    }
-    
+
     try {
-        // Get dropout stats for all frames
-        // Fields are cached in shared ObservationCache, so this is fast
-        auto frame_stats = worker_dropout_decoder_->get_dropout_by_frames(
-            req.node_id,
-            req.mode,
-            0,  // 0 = process all frames
-            [this](size_t current, size_t total, const std::string& message) {
-                emit dropoutProgress(current, total, QString::fromStdString(message));
-            }
-        );
-        
-        // Count total frames (max frame number in stats)
-        int32_t total_frames = 0;
-        for (const auto& stats : frame_stats) {
-            if (stats.frame_number > total_frames) {
-                total_frames = stats.frame_number;
+        const orc::DAGNode* target_node = nullptr;
+        if (worker_dag_) {
+            for (const auto& node : worker_dag_->nodes()) {
+                if (node.node_id == req.node_id) {
+                    target_node = &node;
+                    break;
+                }
             }
         }
-        
-        ORC_LOG_DEBUG("RenderCoordinator: Dropout analysis complete, {} frames processed", frame_stats.size());
-        
-        emit dropoutDataReady(req.request_id, std::move(frame_stats), total_frames);
-        
+
+        if (!target_node) {
+            emit error(req.request_id, "Node not found in DAG");
+            return;
+        }
+
+        auto* sink = dynamic_cast<orc::DropoutAnalysisSinkStage*>(target_node->stage.get());
+        if (!sink) {
+            emit error(req.request_id, "Node is not a DropoutAnalysisSinkStage");
+            return;
+        }
+
+        if (!sink->has_results()) {
+            emit error(req.request_id, "No dropout dataset available - trigger the sink first");
+            return;
+        }
+
+        auto data = sink->frame_stats();
+        int32_t total_frames = sink->total_frames();
+        ORC_LOG_DEBUG("RenderCoordinator: Served dropout dataset from sink ({} buckets, {} frames total)",
+                  data.size(), total_frames);
+        emit dropoutDataReady(req.request_id, data, total_frames);
+
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Dropout analysis failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
@@ -531,37 +524,39 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting SNR analysis data for node '{}', mode {} (request {})",
                   req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
-    
-    if (!worker_snr_decoder_) {
-        ORC_LOG_ERROR("RenderCoordinator: SNR decoder not initialized");
-        emit error(req.request_id, "SNR decoder not initialized");
-        return;
-    }
-    
+
     try {
-        // Get SNR stats for all frames  
-        // Fields are cached in shared ObservationCache, so this is fast
-        auto frame_stats = worker_snr_decoder_->get_snr_by_frames(
-            req.node_id,
-            req.mode,
-            0,  // 0 = process all frames
-            [this](size_t current, size_t total, const std::string& message) {
-                emit snrProgress(current, total, QString::fromStdString(message));
-            }
-        );
-        
-        // Count total frames (max frame number in stats)
-        int32_t total_frames = 0;
-        for (const auto& stats : frame_stats) {
-            if (stats.frame_number > total_frames) {
-                total_frames = stats.frame_number;
+        const orc::DAGNode* target_node = nullptr;
+        if (worker_dag_) {
+            for (const auto& node : worker_dag_->nodes()) {
+                if (node.node_id == req.node_id) {
+                    target_node = &node;
+                    break;
+                }
             }
         }
-        
-        ORC_LOG_DEBUG("RenderCoordinator: SNR analysis complete, {} frames processed", frame_stats.size());
-        
-        emit snrDataReady(req.request_id, std::move(frame_stats), total_frames);
-        
+
+        if (!target_node) {
+            emit error(req.request_id, "Node not found in DAG");
+            return;
+        }
+
+        auto* sink = dynamic_cast<orc::SNRAnalysisSinkStage*>(target_node->stage.get());
+        if (!sink) {
+            emit error(req.request_id, "Node is not a SNRAnalysisSinkStage");
+            return;
+        }
+
+        if (!sink->has_results()) {
+            emit error(req.request_id, "No SNR dataset available - trigger the sink first");
+            return;
+        }
+
+        auto data = sink->frame_stats();
+        int32_t total_frames = sink->total_frames();
+        ORC_LOG_DEBUG("RenderCoordinator: Served SNR dataset from sink ({} frames)", data.size());
+        emit snrDataReady(req.request_id, data, total_frames);
+
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: SNR analysis failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
@@ -572,36 +567,39 @@ void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& 
 {
     ORC_LOG_DEBUG("RenderCoordinator: Getting burst level analysis data for node '{}' (request {})",
                   req.node_id.to_string(), req.request_id);
-    
-    if (!worker_burst_level_decoder_) {
-        ORC_LOG_ERROR("RenderCoordinator: Burst level decoder not initialized");
-        emit error(req.request_id, "Burst level decoder not initialized");
-        return;
-    }
-    
+
     try {
-        // Get burst level stats for all frames  
-        // Fields are cached in shared ObservationCache, so this is fast
-        auto frame_stats = worker_burst_level_decoder_->get_burst_level_by_frames(
-            req.node_id,
-            0,  // 0 = process all frames
-            [this](size_t current, size_t total, const std::string& message) {
-                emit burstLevelProgress(current, total, QString::fromStdString(message));
-            }
-        );
-        
-        // Count total frames (max frame number in stats)
-        int32_t total_frames = 0;
-        for (const auto& stats : frame_stats) {
-            if (stats.frame_number > total_frames) {
-                total_frames = stats.frame_number;
+        const orc::DAGNode* target_node = nullptr;
+        if (worker_dag_) {
+            for (const auto& node : worker_dag_->nodes()) {
+                if (node.node_id == req.node_id) {
+                    target_node = &node;
+                    break;
+                }
             }
         }
-        
-        ORC_LOG_DEBUG("RenderCoordinator: Burst level analysis complete, {} frames processed", frame_stats.size());
-        
-        emit burstLevelDataReady(req.request_id, std::move(frame_stats), total_frames);
-        
+
+        if (!target_node) {
+            emit error(req.request_id, "Node not found in DAG");
+            return;
+        }
+
+        auto* sink = dynamic_cast<orc::BurstLevelAnalysisSinkStage*>(target_node->stage.get());
+        if (!sink) {
+            emit error(req.request_id, "Node is not a BurstLevelAnalysisSinkStage");
+            return;
+        }
+
+        if (!sink->has_results()) {
+            emit error(req.request_id, "No burst level dataset available - trigger the sink first");
+            return;
+        }
+
+        auto data = sink->frame_stats();
+        int32_t total_frames = sink->total_frames();
+        ORC_LOG_DEBUG("RenderCoordinator: Served burst dataset from sink ({} frames)", data.size());
+        emit burstLevelDataReady(req.request_id, data, total_frames);
+
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Burst level analysis failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
@@ -890,8 +888,8 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
             emit triggerProgress(current, total, QString::fromStdString(message));
         });
         
-        // Execute trigger
-        orc::ObservationContext obs_context;
+        // Execute trigger using the observation context populated during execute_to_node
+        orc::ObservationContext& obs_context = executor->get_observation_context();
         bool success = trigger_stage->trigger(inputs, target_node->parameters, obs_context);
         std::string status = trigger_stage->get_trigger_status();
         
@@ -928,21 +926,6 @@ void RenderCoordinator::setShowDropouts(bool show)
         worker_preview_renderer_->set_show_dropouts(show);
         ORC_LOG_DEBUG("RenderCoordinator: Show dropouts set to {}", show);
     }
-}
-
-orc::DropoutAnalysisDecoder* RenderCoordinator::getDropoutAnalysisDecoder()
-{
-    return worker_dropout_decoder_ ? worker_dropout_decoder_.get() : nullptr;
-}
-
-orc::SNRAnalysisDecoder* RenderCoordinator::getSNRAnalysisDecoder()
-{
-    return worker_snr_decoder_ ? worker_snr_decoder_.get() : nullptr;
-}
-
-orc::BurstLevelAnalysisDecoder* RenderCoordinator::getBurstLevelAnalysisDecoder()
-{
-    return worker_burst_level_decoder_ ? worker_burst_level_decoder_.get() : nullptr;
 }
 
 void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)

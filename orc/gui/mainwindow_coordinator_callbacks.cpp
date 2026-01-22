@@ -201,10 +201,27 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
 
 void MainWindow::onTriggerProgress(size_t current, size_t total, QString message)
 {
-    if (trigger_progress_dialog_ && total > 0) {
-        int percentage = static_cast<int>((current * 100) / total);
-        trigger_progress_dialog_->setValue(percentage);
-        trigger_progress_dialog_->setLabelText(message);
+    // Ignore progress updates if we're not waiting for a trigger
+    // This prevents race conditions where progress arrives after completion
+    if (pending_trigger_request_id_ == 0) {
+        return;
+    }
+    
+    // Store pointer locally and check validity before each use
+    // This protects against the dialog being deleted mid-function
+    QPointer<QProgressDialog> dialog = trigger_progress_dialog_;
+    if (!dialog || total == 0) {
+        return;
+    }
+    
+    int percentage = static_cast<int>((current * 100) / total);
+    
+    // Re-check before each call in case dialog was deleted
+    if (dialog) {
+        dialog->setValue(percentage);
+    }
+    if (dialog) {
+        dialog->setLabelText(message);
     }
 }
 
@@ -216,10 +233,50 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
     
     ORC_LOG_DEBUG("onTriggerComplete: success={}, status={}", success, status.toStdString());
     
-    // Close progress dialog
+    // CRITICAL: Clear pending request ID FIRST to stop any racing progress updates
+    // This ensures onTriggerProgress will ignore any queued signals
+    pending_trigger_request_id_ = 0;
+    
+    // Close and delete progress dialog immediately (not deleteLater)
+    // Using delete instead of deleteLater ensures the object is truly gone
+    // and QPointer will be nulled immediately
     if (trigger_progress_dialog_) {
-        delete trigger_progress_dialog_;
-        trigger_progress_dialog_ = nullptr;
+        trigger_progress_dialog_->hide();
+        delete trigger_progress_dialog_;  // Immediate deletion, not deferred
+        // QPointer automatically becomes null after delete
+    }
+    
+    // If trigger was successful, automatically create dialog and request analysis data for display
+    if (success && pending_trigger_node_id_.is_valid()) {
+        // Determine which type of analysis sink was triggered by checking stage_name
+        const auto& nodes = project_.coreProject().get_nodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [this](const orc::ProjectDAGNode& n) { return n.node_id == pending_trigger_node_id_; });
+        
+        if (node_it != nodes.end()) {
+            const std::string& stage_name = node_it->stage_name;
+            
+            // Create and show analysis dialog
+            createAndShowAnalysisDialog(pending_trigger_node_id_, stage_name);
+            
+            // Request the appropriate data based on sink type
+            uint64_t data_request_id;
+            if (stage_name == "burst_level_analysis_sink") {
+                data_request_id = render_coordinator_->requestBurstLevelData(pending_trigger_node_id_);
+                pending_burst_level_requests_[data_request_id] = pending_trigger_node_id_;
+                ORC_LOG_DEBUG("Auto-requesting burst level data after trigger complete");
+            }
+            else if (stage_name == "dropout_analysis_sink") {
+                data_request_id = render_coordinator_->requestDropoutData(pending_trigger_node_id_, orc::DropoutAnalysisMode::FULL_FIELD);
+                pending_dropout_requests_[data_request_id] = pending_trigger_node_id_;
+                ORC_LOG_DEBUG("Auto-requesting dropout analysis data after trigger complete");
+            }
+            else if (stage_name == "snr_analysis_sink") {
+                data_request_id = render_coordinator_->requestSNRData(pending_trigger_node_id_, orc::SNRAnalysisMode::BOTH);
+                pending_snr_requests_[data_request_id] = pending_trigger_node_id_;
+                ORC_LOG_DEBUG("Auto-requesting SNR analysis data after trigger complete");
+            }
+        }
     }
     
     // Show result
@@ -228,6 +285,9 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
     } else {
         QMessageBox::warning(this, "Trigger Failed", status);
     }
+    
+    // Clear trigger state
+    pending_trigger_node_id_ = orc::NodeID();
 }
 
 void MainWindow::onCoordinatorError(uint64_t request_id, QString message)

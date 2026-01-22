@@ -172,6 +172,7 @@ private:
     void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);
     QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
     void closeAllDialogs();  ///< Close all open dialogs when switching projects
+    void createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name);
     
     // Line scope helpers
     void requestLineSamplesForNavigation(uint64_t field_index, int line_number, int sample_x, int preview_image_width);
@@ -197,6 +198,7 @@ private:
     uint64_t pending_vbi_request_id_{0};
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
+    orc::NodeID pending_trigger_node_id_;  // Track which node is being triggered
     uint64_t pending_line_sample_request_id_{0};
     std::unordered_map<uint64_t, orc::NodeID> pending_dropout_requests_;  // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_snr_requests_;      // request_id -> node_id
@@ -252,7 +254,8 @@ private:
     int latest_requested_preview_index_{-1};  // Cache the latest requested index (may differ from what's being rendered)
     
     // Trigger progress tracking (now via coordinator signals)
-    QProgressDialog* trigger_progress_dialog_;
+    // Use QPointer to auto-null when dialog is deleted
+    QPointer<QProgressDialog> trigger_progress_dialog_;
     
     // Analysis progress dialogs per node (QPointer auto-nulls when deleted)
     std::unordered_map<orc::NodeID, QPointer<QProgressDialog>> dropout_progress_dialogs_;

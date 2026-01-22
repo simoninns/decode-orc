@@ -19,7 +19,6 @@ DropoutAnalysisDialog::DropoutAnalysisDialog(QWidget *parent)
     , plot_(nullptr)
     , series_(nullptr)
     , plotMarker_(nullptr)
-    , visibleAreaCheckBox_(nullptr)
     , maxY_(0.0)
     , numberOfFrames_(0)
 {
@@ -29,12 +28,6 @@ DropoutAnalysisDialog::DropoutAnalysisDialog(QWidget *parent)
     
     // Create main layout
     auto *mainLayout = new QVBoxLayout(this);
-    
-    // Create checkbox for visible area mode
-    visibleAreaCheckBox_ = new QCheckBox("Visible Area Only", this);
-    visibleAreaCheckBox_->setToolTip("When checked, only counts dropouts in the visible/active video area");
-    connect(visibleAreaCheckBox_, &QCheckBox::toggled, this, &DropoutAnalysisDialog::onVisibleAreaCheckBoxToggled);
-    mainLayout->addWidget(visibleAreaCheckBox_);
     
     // Create plot widget
     plot_ = new PlotWidget(this);
@@ -147,22 +140,6 @@ void DropoutAnalysisDialog::showNoDataMessage(const QString& reason)
     
     // Use base class implementation
     showNoDataMessageImpl(reason, plot_);
-}
-
-orc::DropoutAnalysisMode DropoutAnalysisDialog::getCurrentMode() const
-{
-    return visibleAreaCheckBox_->isChecked() ? 
-        orc::DropoutAnalysisMode::VISIBLE_AREA : 
-        orc::DropoutAnalysisMode::FULL_FIELD;
-}
-
-void DropoutAnalysisDialog::onVisibleAreaCheckBoxToggled(bool checked)
-{
-    orc::DropoutAnalysisMode mode = checked ? 
-        orc::DropoutAnalysisMode::VISIBLE_AREA : 
-        orc::DropoutAnalysisMode::FULL_FIELD;
-    
-    emit modeChanged(mode);
 }
 
 void DropoutAnalysisDialog::calculateMarkerPosition(int32_t frameNumber)

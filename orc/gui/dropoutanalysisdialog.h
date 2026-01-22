@@ -16,7 +16,7 @@
 #include <QPointF>
 #include "analysisdialogbase.h"
 #include "plotwidget.h"
-#include "../core/analysis/dropout/dropout_analysis_decoder.h"
+#include "../core/stages/dropout_analysis_sink/dropout_analysis_types.h"
 
 /**
  * @brief Dialog for displaying dropout analysis graphs
@@ -67,18 +67,6 @@ public:
      * @param reason Optional explanation for why no data is available
      */
     void showNoDataMessage(const QString& reason = QString());
-    
-    /**
-     * @brief Get the current analysis mode
-     */
-    orc::DropoutAnalysisMode getCurrentMode() const;
-
-signals:
-    /**
-     * @brief Emitted when the user changes the analysis mode
-     * @param mode New analysis mode
-     */
-    void modeChanged(orc::DropoutAnalysisMode mode);
 
 protected:
     /**
@@ -87,7 +75,6 @@ protected:
     void calculateMarkerPosition(int32_t frameNumber) override;
 
 private slots:
-    void onVisibleAreaCheckBoxToggled(bool checked);
     void onPlotAreaChanged();
 
 private:
@@ -96,7 +83,6 @@ private:
     PlotWidget *plot_;
     PlotSeries *series_;
     PlotMarker *plotMarker_;
-    QCheckBox *visibleAreaCheckBox_;
     
     double maxY_;
     int32_t numberOfFrames_;

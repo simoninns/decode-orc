@@ -47,7 +47,10 @@ enum class NodeType {
     MERGER,
     
     /// Complex node - multiple inputs, multiple outputs (advanced processing)
-    COMPLEX
+    COMPLEX,
+    
+    /// Analysis sink - consumes inputs, triggers batch analysis, produces no frame outputs
+    ANALYSIS_SINK
 };
 
 /**

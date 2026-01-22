@@ -7,7 +7,7 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "field_mapping/field_mapping_analysis.h"
+#include "disc_mapper/disc_mapper_analysis.h"
 #include "field_mapping/field_mapping_range_analysis.h"
 #include "field_corruption/field_corruption_analysis.h"
 #include "vectorscope/vectorscope_analysis.h"
@@ -24,6 +24,7 @@ namespace orc {
 void force_link_FFmpegPresetAnalysisTool();
 void force_link_FieldCorruptionAnalysisTool();
 void force_link_FieldMappingRangeAnalysisTool();
+void force_link_DiscMapperAnalysisTool();
 
 /**
  * @brief Force linking of all analysis tool object files
@@ -35,10 +36,11 @@ void force_link_FieldMappingRangeAnalysisTool();
 void force_analysis_tool_linking() {
     // Only enable the FFmpeg preset analysis tool for now.
     // Additional tools can be added here as they are re-enabled/refactored.
-    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range");
+    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range, disc mapper");
     force_link_FFmpegPresetAnalysisTool();
     force_link_FieldCorruptionAnalysisTool();
     force_link_FieldMappingRangeAnalysisTool();
+    force_link_DiscMapperAnalysisTool();
 }
 
 } // namespace orc

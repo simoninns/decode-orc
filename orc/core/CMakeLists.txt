@@ -56,6 +56,8 @@ add_library(orc-core STATIC
     
     # Field mapping analysis
     # Re-enable range-based field mapping tools (observer-independent)
+    analysis/disc_mapper/disc_mapper_analysis.cpp
+    analysis/disc_mapper/disc_mapper_analyzer.cpp
     analysis/field_mapping/field_mapping_range_analysis.cpp
     
     # Field corruption analysis (testing tool)

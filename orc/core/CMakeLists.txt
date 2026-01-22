@@ -55,11 +55,8 @@ add_library(orc-core STATIC
     analysis/vectorscope/vectorscope_analysis.cpp
     
     # Field mapping analysis
-    # TODO: Temporarily disabled during observer refactor - uses old BiphaseObservation API
-    # analysis/field_mapping/field_mapping_analyzer.cpp
-    # analysis/field_mapping/field_mapping_analysis.cpp
-    # analysis/field_mapping/field_mapping_lookup.cpp
-    # analysis/field_mapping/field_mapping_range_analysis.cpp
+    # Re-enable range-based field mapping tools (observer-independent)
+    analysis/field_mapping/field_mapping_range_analysis.cpp
     
     # Field corruption analysis (testing tool)
     analysis/field_corruption/field_corruption_analyzer.cpp

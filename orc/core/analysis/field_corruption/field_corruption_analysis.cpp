@@ -20,6 +20,9 @@
 
 namespace orc {
 
+// Force linker to include this object file (for static registration)
+void force_link_FieldCorruptionAnalysisTool() {}
+
 std::string FieldCorruptionAnalysisTool::id() const {
     return "field_corruption";
 }

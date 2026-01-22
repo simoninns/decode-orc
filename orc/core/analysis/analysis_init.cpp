@@ -22,6 +22,8 @@ namespace orc {
 
 // Forward declarations of force-link functions for analysis tools we want enabled
 void force_link_FFmpegPresetAnalysisTool();
+void force_link_FieldCorruptionAnalysisTool();
+void force_link_FieldMappingRangeAnalysisTool();
 
 /**
  * @brief Force linking of all analysis tool object files
@@ -33,8 +35,10 @@ void force_link_FFmpegPresetAnalysisTool();
 void force_analysis_tool_linking() {
     // Only enable the FFmpeg preset analysis tool for now.
     // Additional tools can be added here as they are re-enabled/refactored.
-    ORC_LOG_DEBUG("Forcing link of FFmpeg preset analysis tool");
+    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, field mapping range");
     force_link_FFmpegPresetAnalysisTool();
+    force_link_FieldCorruptionAnalysisTool();
+    force_link_FieldMappingRangeAnalysisTool();
 }
 
 } // namespace orc

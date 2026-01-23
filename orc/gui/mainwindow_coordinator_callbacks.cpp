@@ -25,7 +25,7 @@
 
 // Coordinator response slot implementations
 
-void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result)
+void MainWindow::onPreviewReady(uint64_t request_id, orc::public_api::PreviewRenderResult result)
 {
     // Ignore stale responses
     if (request_id != pending_preview_request_id_) {
@@ -36,8 +36,14 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     ORC_LOG_DEBUG("onPreviewReady: request_id={}, success={}", request_id, result.success);
     
     if (result.success) {
-        preview_dialog_->previewWidget()->setImage(result.image);
-        updateVectorscope(result.node_id, result.image);
+        // Convert public API image to core type for GUI widgets
+        orc::PreviewImage core_image;
+        core_image.width = result.image.width;
+        core_image.height = result.image.height;
+        core_image.rgb_data = result.image.rgb_data;  // Shares the vector
+        
+        preview_dialog_->previewWidget()->setImage(core_image);
+        updateVectorscope(result.node_id, core_image);
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(

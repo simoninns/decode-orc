@@ -132,7 +132,7 @@ private slots:
     void refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
     
     // Coordinator response slots
-    void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
+    void onPreviewReady(uint64_t request_id, orc::public_api::PreviewRenderResult result);
     void onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 

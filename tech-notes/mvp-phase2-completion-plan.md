@@ -304,18 +304,20 @@ CMakeLists.txt exposes core directories:
    - Convert core types to presenter types
    - Handle all threading/progress internally
 
-3. **Remove render_coordinator.cpp dependency on core**
+3. **Remove render_coordinator.cpp dependency on core rendering**
    
    Refactor `orc/gui/render_coordinator.cpp`:
    - Use RenderPresenter instead of direct core calls
    - Remove includes: `preview_renderer.h`, `dag_executor.h`, `project_to_dag.h`
    - Keep only: presenter includes, public API types
+   - **Note:** Analysis sink stage headers remain temporarily (removed in Phase 2.4)
 
 **Deliverables:**
 - ✅ RenderPresenter fully implemented
-- ✅ render_coordinator uses only presenter
-- ✅ No core includes in render_coordinator
+- ✅ render_coordinator uses only presenter for rendering operations
+- ✅ Removed preview_renderer.h, dag_executor.h, project_to_dag.h from render_coordinator
 - ✅ All rendering features working
+- ⏸️ Analysis sink stage headers remain (dropout_analysis_sink_stage.h, snr_analysis_sink_stage.h, burst_level_analysis_sink_stage.h, ld_sink_stage.h) - to be removed in Phase 2.4
 
 ---
 
@@ -374,7 +376,7 @@ CMakeLists.txt exposes core directories:
 
 ### Phase 2.4: Analysis Presenter Enhancement (3 days)
 
-**Goal:** Complete analysis interface
+**Goal:** Complete analysis interface and eliminate direct DAG access from render_coordinator
 
 **Tasks:**
 
@@ -440,10 +442,18 @@ CMakeLists.txt exposes core directories:
    - Remove `#include "analysis_registry.h"`
    - Use `AnalysisPresenter::getAvailableTools()` instead
 
+4. **Remove direct DAG access from render_coordinator.cpp**
+   - Implement `RenderPresenter::getAnalysisData()` methods to abstract sink stage access
+   - Remove includes: `dropout_analysis_sink_stage.h`, `snr_analysis_sink_stage.h`, `burst_level_analysis_sink_stage.h`, `ld_sink_stage.h`
+   - Replace direct DAG traversal with presenter method calls
+   - Move sink stage access logic into RenderPresenter implementation
+
 **Deliverables:**
 - ✅ AnalysisPresenter complete
 - ✅ orcgraphicsscene uses only presenter
 - ✅ No analysis_registry access from GUI
+- ✅ All sink stage headers removed from render_coordinator.cpp
+- ✅ render_coordinator has ZERO direct DAG access
 
 ---
 

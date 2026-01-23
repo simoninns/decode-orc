@@ -13,6 +13,7 @@
 #include <vector>
 #include <string>
 #include <optional>
+#include <map>
 #include <common_types.h>  // For PreviewOutputType, AspectRatioMode
 #include <node_id.h>
 #include <field_id.h>

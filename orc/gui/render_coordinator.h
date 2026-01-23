@@ -1,9 +1,9 @@
 /*
  * File:        render_coordinator.h
  * Module:      orc-gui
- * Purpose:     Thread-safe coordinator for core rendering operations
+ * Purpose:     Thread-safe coordinator for rendering operations using presenters
  *
- * This class implements an Actor Model pattern where all orc-core state
+ * This class implements an Actor Model pattern where rendering state
  * is owned by a single worker thread. The GUI thread sends requests via
  * a thread-safe queue and receives responses via Qt signals.
  *
@@ -26,17 +26,20 @@
 #include <field_id.h>
 #include <node_id.h>
 #include <common_types.h>
+#include <orc_rendering.h>  // Public API rendering types
 #include "vbi_view_models.h"
-#include "preview_renderer.h"  // For PreviewRenderResult and other result structs
+
+// Temporary includes for types used in signals - to be migrated to public API
+#include "preview_renderer.h"  // For PreviewOutputInfo, FrameLineNavigationResult
 
 namespace orc {
     class DAG;
-    class PreviewRenderer;
-    class DAGFieldRenderer;
-    class VBIDecoder;
-    class ObservationCache;
-    class TriggerableStage;
     class Project;
+    class TriggerableStage;
+}
+
+namespace orc::presenters {
+    class RenderPresenter;
 }
 
 // Forward declarations
@@ -262,10 +265,10 @@ protected:
  * @brief Response with preview render result
  */
 struct PreviewRenderResponse : public RenderResponse {
-    orc::PreviewRenderResult result;
+    orc::public_api::PreviewRenderResult result;
     
     PreviewRenderResponse(uint64_t id, bool s, 
-                         orc::PreviewRenderResult r, std::string err = "")
+                         orc::public_api::PreviewRenderResult r, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , result(std::move(r)) {}
 };
@@ -413,6 +416,15 @@ public:
      * @param dag New DAG to use
      */
     void updateDAG(std::shared_ptr<const orc::DAG> dag);
+    
+    /**
+     * @brief Set the project for rendering
+     * 
+     * Must be called before updateDAG to initialize the presenter.
+     * 
+     * @param project Project pointer (must outlive RenderCoordinator)
+     */
+    void setProject(orc::Project* project);
     
     /**
      * @brief Request a preview render (async)
@@ -624,7 +636,7 @@ signals:
      * @param request_id The request ID from requestPreview()
      * @param result The render result
      */
-    void previewReady(uint64_t request_id, orc::PreviewRenderResult result);
+    void previewReady(uint64_t request_id, orc::public_api::PreviewRenderResult result);
     
     /**
      * @brief Emitted when VBI data is ready
@@ -788,10 +800,8 @@ private:
     // ========================================================================
     
     std::shared_ptr<const orc::DAG> worker_dag_;
-    std::shared_ptr<orc::ObservationCache> worker_obs_cache_;
-    std::unique_ptr<orc::PreviewRenderer> worker_preview_renderer_;
-    std::unique_ptr<orc::DAGFieldRenderer> worker_field_renderer_;
-    std::unique_ptr<orc::VBIDecoder> worker_vbi_decoder_;
+    std::unique_ptr<orc::presenters::RenderPresenter> worker_render_presenter_;
+    orc::Project* worker_project_{nullptr};  // Non-owning pointer for presenter
     
     std::atomic<bool> trigger_cancel_requested_{false};
     orc::TriggerableStage* current_trigger_stage_{nullptr};  // Pointer to currently executing trigger (if any)

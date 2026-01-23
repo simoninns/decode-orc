@@ -11,8 +11,15 @@
 
 #include <QtNodes/AbstractGraphModel>
 #include <QJsonObject>
-#include "project.h"
-#include "../core/include/node_id.h"
+#include <node_id.h>
+
+// Forward declaration
+namespace orc::presenters {
+    class ProjectPresenter;
+}
+
+// Use orc::NodeID in this file
+using orc::NodeID;
 
 using QtNodes::ConnectionId;
 using QtNodes::NodeId;
@@ -38,10 +45,10 @@ class OrcGraphModel : public QtNodes::AbstractGraphModel
 public:
     /**
      * @brief Construct a graph model for a project
-     * @param project The ORC project to visualize/edit
+     * @param presenter The project presenter to use
      * @param parent Parent QObject
      */
-    explicit OrcGraphModel(orc::Project& project, QObject* parent = nullptr);
+    explicit OrcGraphModel(orc::presenters::ProjectPresenter& presenter, QObject* parent = nullptr);
     ~OrcGraphModel() override = default;
 
     /// @name QtNodes AbstractGraphModel Interface
@@ -90,32 +97,35 @@ public:
     /**
      * @brief Convert QtNodes NodeId to ORC NodeID
      * @param qtNodeId QtNodes node identifier
-     * @return Corresponding orc::NodeID
+     * @return Corresponding NodeID
      */
-    orc::NodeID getOrcNodeId(NodeId qtNodeId) const;
+    NodeID getOrcNodeId(NodeId qtNodeId) const;
     
-    /// @name Project Access
+    /// @name Presenter Access
     /// @{
-    orc::Project& project() { return project_; }  ///< Get mutable project reference
-    const orc::Project& project() const { return project_; }  ///< Get const project reference
+    orc::presenters::ProjectPresenter& presenter() { return presenter_; }  ///< Get presenter reference
+    const orc::presenters::ProjectPresenter& presenter() const { return presenter_; }  ///< Get const presenter reference
     /// @}
     
-    // Helper to find ORC node by ID (public for custom painters)
-    const orc::ProjectDAGNode* findOrcNode(const orc::NodeID& node_id) const;
+    /**
+     * @brief Get stage name for a node
+     * @param node_id Node identifier
+     * @return Stage name string
+     */
+    std::string getNodeStageName(const NodeID& node_id) const;
 
 private:
-    orc::Project& project_;
+    orc::presenters::ProjectPresenter& presenter_;
     
     // Map between QtNodes IDs and ORC node IDs
-    std::map<NodeId, orc::NodeID> qt_to_orc_nodes_;
-    std::map<orc::NodeID, NodeId> orc_to_qt_nodes_;
+    std::map<NodeId, NodeID> qt_to_orc_nodes_;
+    std::map<NodeID, NodeId> orc_to_qt_nodes_;
     
     // Store all connections
     std::unordered_set<ConnectionId> connectivity_;
     
     // Helper functions
-    NodeId getOrCreateQtNodeId(const orc::NodeID& orc_node_id);
-    // Removed non-const version - use project_io for modifications
+    NodeId getOrCreateQtNodeId(const NodeID& orc_node_id);
     
     void buildMappings();
 };

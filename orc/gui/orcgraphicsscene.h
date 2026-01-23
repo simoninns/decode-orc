@@ -11,14 +11,15 @@
 
 #include <QtNodes/BasicGraphicsScene>
 #include <QMenu>
+#include <node_id.h>
 #include "orcgraphmodel.h"
-#include "../core/include/node_id.h"
 
 namespace orc {
     class AnalysisTool;
 }
 
-using orc::NodeID;  // Make NodeID available for Qt signals/slots without namespace
+// Use orc::NodeID for Qt signals/slots
+using orc::NodeID;
 
 /**
  * @brief Custom QtNodes graphics scene with DAG-specific context menus

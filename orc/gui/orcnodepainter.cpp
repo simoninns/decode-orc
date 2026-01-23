@@ -155,9 +155,9 @@ void OrcNodePainter::drawConnectionPointsCustom(QPainter *painter, NodeGraphicsO
     if (orcModel) {
         orc::NodeID orcNodeId = orcModel->getOrcNodeId(nodeId);
         if (orcNodeId.is_valid()) {
-            const orc::ProjectDAGNode* orcNode = orcModel->findOrcNode(orcNodeId);
-            if (orcNode) {
-                visualInfo = NodeTypeHelper::getVisualInfo(orcNode->stage_name);
+            std::string stage_name = orcModel->getNodeStageName(orcNodeId);
+            if (!stage_name.empty()) {
+                visualInfo = NodeTypeHelper::getVisualInfo(stage_name);
             }
         }
     }
@@ -255,9 +255,9 @@ void OrcNodePainter::drawFilledConnectionPointsCustom(QPainter *painter, NodeGra
     if (orcModel) {
         orc::NodeID orcNodeId = orcModel->getOrcNodeId(nodeId);
         if (orcNodeId.is_valid()) {
-            const orc::ProjectDAGNode* orcNode = orcModel->findOrcNode(orcNodeId);
-            if (orcNode) {
-                visualInfo = NodeTypeHelper::getVisualInfo(orcNode->stage_name);
+            std::string stage_name = orcModel->getNodeStageName(orcNodeId);
+            if (!stage_name.empty()) {
+                visualInfo = NodeTypeHelper::getVisualInfo(stage_name);
             }
         }
     }

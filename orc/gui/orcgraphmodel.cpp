@@ -10,16 +10,19 @@
 #include "orcgraphmodel.h"
 #include "node_type_helper.h"
 #include "logging.h"
-#include "../core/include/project.h"
+#include "presenters/include/project_presenter.h"
 #include <QtNodes/ConnectionIdUtils>
 #include <QtNodes/StyleCollection>
 
 using QtNodes::getNodeId;
 using QtNodes::getPortIndex;
+using orc::NodeID;
+using orc::get_node_type_info;
+using orc::NodeTypeInfo;
 
-OrcGraphModel::OrcGraphModel(orc::Project& project, QObject* parent)
+OrcGraphModel::OrcGraphModel(orc::presenters::ProjectPresenter& presenter, QObject* parent)
     : QtNodes::AbstractGraphModel()
-    , project_(project)
+    , presenter_(presenter)
 {
     setParent(parent);
     buildMappings();
@@ -33,29 +36,30 @@ void OrcGraphModel::buildMappings()
     
     // Build node mappings
     NodeId qt_id = 0;
-    const auto& nodes = project_.get_nodes();
+    const auto nodes = presenter_.getNodes();
     ORC_LOG_DEBUG("OrcGraphModel::buildMappings - Project has {} nodes", nodes.size());
     
     for (const auto& node : nodes) {
         qt_to_orc_nodes_[qt_id] = node.node_id;
         orc_to_qt_nodes_[node.node_id] = qt_id;
-        ORC_LOG_DEBUG("  Mapped QtNode {} -> ORC node '{}'", qt_id, node.node_id);
+        ORC_LOG_DEBUG("  Mapped QtNode {} -> ORC node '{}'", qt_id, node.node_id.to_string());
         qt_id++;
     }
     
     // Build connection mappings
-    const auto& edges = project_.get_edges();
+    const auto edges = presenter_.getEdges();
     ORC_LOG_DEBUG("OrcGraphModel::buildMappings - Project has {} edges", edges.size());
     
     for (const auto& edge : edges) {
-        auto it_out = orc_to_qt_nodes_.find(edge.source_node_id);
-        auto it_in = orc_to_qt_nodes_.find(edge.target_node_id);
+        auto it_out = orc_to_qt_nodes_.find(edge.source_node);
+        auto it_in = orc_to_qt_nodes_.find(edge.target_node);
         
         if (it_out != orc_to_qt_nodes_.end() && it_in != orc_to_qt_nodes_.end()) {
             // All nodes have single ports (index 0)
             ConnectionId conn_id{it_out->second, 0, it_in->second, 0};
             connectivity_.insert(conn_id);
-            ORC_LOG_DEBUG("  Mapped connection: {} -> {}", edge.source_node_id, edge.target_node_id);
+            ORC_LOG_DEBUG("  Mapped connection: {} -> {}", 
+                edge.source_node.to_string(), edge.target_node.to_string());
         }
     }
 }
@@ -72,7 +76,7 @@ NodeId OrcGraphModel::newNodeId()
     return max_id;
 }
 
-NodeId OrcGraphModel::getOrCreateQtNodeId(const orc::NodeID& orc_node_id)
+NodeId OrcGraphModel::getOrCreateQtNodeId(const NodeID& orc_node_id)
 {
     auto it = orc_to_qt_nodes_.find(orc_node_id);
     if (it != orc_to_qt_nodes_.end()) {
@@ -85,18 +89,15 @@ NodeId OrcGraphModel::getOrCreateQtNodeId(const orc::NodeID& orc_node_id)
     return qt_id;
 }
 
-const orc::ProjectDAGNode* OrcGraphModel::findOrcNode(const orc::NodeID& node_id) const
+std::string OrcGraphModel::getNodeStageName(const NodeID& node_id) const
 {
-    for (const auto& node : project_.get_nodes()) {
-        if (node.node_id == node_id) {
-            return &node;
-        }
+    try {
+        auto node_info = presenter_.getNodeInfo(node_id);
+        return node_info.stage_name;
+    } catch (...) {
+        return "";
     }
-    return nullptr;
 }
-
-// Removed non-const version since we use project_io functions for all modifications
-// Original function tried to return mutable pointer from const get_nodes() - not possible
 
 void OrcGraphModel::refresh()
 {
@@ -154,11 +155,11 @@ bool OrcGraphModel::connectionExists(ConnectionId const connectionId) const
 
 NodeId OrcGraphModel::addNode(QString const nodeType)
 {
-    // Use core's add_node function which generates unique IDs properly
+    // Use presenter's add_node function which generates unique IDs properly
     std::string stage_name = nodeType.isEmpty() ? "TBCSource" : nodeType.toStdString();
     
     try {
-orc::NodeID node_id = orc::project_io::add_node(project_, stage_name, 0.0, 0.0);
+        NodeID node_id = presenter_.addNode(stage_name, 0.0, 0.0);
         
         NodeId qt_id = getOrCreateQtNodeId(node_id);
         
@@ -205,12 +206,12 @@ void OrcGraphModel::addConnection(ConnectionId const connectionId)
         return;
     }
     
-    const orc::NodeID& source_id = it_out->second;
-    const orc::NodeID& target_id = it_in->second;
+    const NodeID& source_id = it_out->second;
+    const NodeID& target_id = it_in->second;
     
-    // Use core's add_edge which handles validation and modification tracking
+    // Use presenter's add_edge which handles validation and modification tracking
     try {
-        orc::project_io::add_edge(project_, it_out->second, it_in->second);
+        presenter_.addEdge(source_id, target_id);
         
         // Add to local connectivity
         connectivity_.insert(connectionId);
@@ -234,51 +235,52 @@ QVariant OrcGraphModel::nodeData(NodeId nodeId, NodeRole role) const
         return QVariant();
     }
     
-    const orc::ProjectDAGNode* node = findOrcNode(it->second);
-    if (!node) {
+    try {
+        auto node_info = presenter_.getNodeInfo(it->second);
+        
+        switch (role) {
+            case NodeRole::Type:
+                return QString::fromStdString(node_info.stage_name);
+                
+            case NodeRole::Caption:
+                return QString::fromStdString(node_info.label);
+                
+            case NodeRole::Position:
+                return QPointF(node_info.x_position, node_info.y_position);
+                
+            case NodeRole::Size:
+                return QSize(120, 60);  // Default node size
+                
+            case NodeRole::CaptionVisible:
+                return true;
+                
+            case NodeRole::InPortCount: {
+                // Return 1 port if node has inputs, 0 if it's a source node
+                // The ConnectionPolicy determines if it accepts multiple connections
+                NodeTypeHelper::NodeVisualInfo info = NodeTypeHelper::getVisualInfo(node_info.stage_name);
+                return info.has_input ? 1u : 0u;
+            }
+                
+            case NodeRole::OutPortCount: {
+                // Return 1 port if node has outputs, 0 if it's a sink node
+                // The ConnectionPolicy determines if it allows multiple connections
+                NodeTypeHelper::NodeVisualInfo info = NodeTypeHelper::getVisualInfo(node_info.stage_name);
+                return info.has_output ? 1u : 0u;
+            }
+                
+            case NodeRole::Widget:
+                return QVariant();
+                
+            case NodeRole::Style: {
+                auto style = QtNodes::StyleCollection::nodeStyle();
+                return style.toJson().toVariantMap();
+            }
+                
+            default:
+                return QVariant();
+        }
+    } catch (...) {
         return QVariant();
-    }
-    
-    switch (role) {
-        case NodeRole::Type:
-            return QString::fromStdString(node->stage_name);
-            
-        case NodeRole::Caption:
-            return QString::fromStdString(node->user_label);
-            
-        case NodeRole::Position:
-            return QPointF(node->x_position, node->y_position);
-            
-        case NodeRole::Size:
-            return QSize(120, 60);  // Default node size
-            
-        case NodeRole::CaptionVisible:
-            return true;
-            
-        case NodeRole::InPortCount: {
-            // Return 1 port if node has inputs, 0 if it's a source node
-            // The ConnectionPolicy determines if it accepts multiple connections
-            NodeTypeHelper::NodeVisualInfo info = NodeTypeHelper::getVisualInfo(node->stage_name);
-            return info.has_input ? 1u : 0u;
-        }
-            
-        case NodeRole::OutPortCount: {
-            // Return 1 port if node has outputs, 0 if it's a sink node
-            // The ConnectionPolicy determines if it allows multiple connections
-            NodeTypeHelper::NodeVisualInfo info = NodeTypeHelper::getVisualInfo(node->stage_name);
-            return info.has_output ? 1u : 0u;
-        }
-            
-        case NodeRole::Widget:
-            return QVariant();
-            
-        case NodeRole::Style: {
-            auto style = QtNodes::StyleCollection::nodeStyle();
-            return style.toJson().toVariantMap();
-        }
-            
-        default:
-            return QVariant();
     }
 }
 
@@ -289,15 +291,10 @@ bool OrcGraphModel::setNodeData(NodeId nodeId, NodeRole role, QVariant value)
         return false;
     }
     
-    const orc::ProjectDAGNode* node = findOrcNode(it->second);
-    if (!node) {
-        return false;
-    }
-    
     switch (role) {
         case NodeRole::Caption:
             try {
-                orc::project_io::set_node_label(project_, it->second, value.toString().toStdString());
+                presenter_.setNodeLabel(it->second, value.toString().toStdString());
                 Q_EMIT nodeUpdated(nodeId);
                 return true;
             } catch (const std::exception&) {
@@ -307,7 +304,7 @@ bool OrcGraphModel::setNodeData(NodeId nodeId, NodeRole role, QVariant value)
         case NodeRole::Position: {
             QPointF pos = value.toPointF();
             try {
-                orc::project_io::set_node_position(project_, it->second, pos.x(), pos.y());
+                presenter_.setNodePosition(it->second, pos.x(), pos.y());
                 Q_EMIT nodePositionUpdated(nodeId);
                 return true;
             } catch (const std::exception&) {
@@ -330,48 +327,49 @@ QVariant OrcGraphModel::portData(NodeId nodeId,
         return QVariant();
     }
     
-    const orc::ProjectDAGNode* node = findOrcNode(it->second);
-    if (!node) {
-        return QVariant();
-    }
-    
-    // Get node type info for port capabilities
-    const orc::NodeTypeInfo* info = orc::get_node_type_info(node->stage_name);
-    
-    switch (role) {
-        case PortRole::Data:
-            return QVariant();
-            
-        case PortRole::DataType:
-            return QString("VideoField");
-            
-        case PortRole::ConnectionPolicyRole: {
-            // Return Many if the port can handle multiple connections
-            if (!info) {
-                return QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+    try {
+        auto node_info = presenter_.getNodeInfo(it->second);
+        
+        // Get node type info for port capabilities
+        const NodeTypeInfo* info = get_node_type_info(node_info.stage_name);
+        
+        switch (role) {
+            case PortRole::Data:
+                return QVariant();
+                
+            case PortRole::DataType:
+                return QString("VideoField");
+                
+            case PortRole::ConnectionPolicyRole: {
+                // Return Many if the port can handle multiple connections
+                if (!info) {
+                    return QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+                }
+                
+                if (portType == PortType::In) {
+                    // Input port: Many if max_inputs > 1
+                    return (info->max_inputs > 1) 
+                        ? QVariant::fromValue(QtNodes::ConnectionPolicy::Many)
+                        : QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+                } else {
+                    // Output port: Many if max_outputs > 1
+                    return (info->max_outputs > 1)
+                        ? QVariant::fromValue(QtNodes::ConnectionPolicy::Many)
+                        : QVariant::fromValue(QtNodes::ConnectionPolicy::One);
+                }
             }
-            
-            if (portType == PortType::In) {
-                // Input port: Many if max_inputs > 1
-                return (info->max_inputs > 1) 
-                    ? QVariant::fromValue(QtNodes::ConnectionPolicy::Many)
-                    : QVariant::fromValue(QtNodes::ConnectionPolicy::One);
-            } else {
-                // Output port: Many if max_outputs > 1
-                return (info->max_outputs > 1)
-                    ? QVariant::fromValue(QtNodes::ConnectionPolicy::Many)
-                    : QVariant::fromValue(QtNodes::ConnectionPolicy::One);
-            }
+                
+            case PortRole::CaptionVisible:
+                return false;
+                
+            case PortRole::Caption:
+                return QString();
+                
+            default:
+                return QVariant();
         }
-            
-        case PortRole::CaptionVisible:
-            return false;
-            
-        case PortRole::Caption:
-            return QString();
-            
-        default:
-            return QVariant();
+    } catch (...) {
+        return QVariant();
     }
 }
 
@@ -399,12 +397,12 @@ bool OrcGraphModel::deleteConnection(ConnectionId const connectionId)
         return false;
     }
     
-    const orc::NodeID& source_id = it_out->second;
-    const orc::NodeID& target_id = it_in->second;
+    const NodeID& source_id = it_out->second;
+    const NodeID& target_id = it_in->second;
     
-    // Use core's remove_edge which handles modification tracking
+    // Use presenter's remove_edge which handles modification tracking
     try {
-        orc::project_io::remove_edge(project_, source_id, target_id);
+        presenter_.removeEdge(source_id, target_id);
         
         // Remove from local connectivity
         connectivity_.erase(connectionId);
@@ -425,7 +423,7 @@ bool OrcGraphModel::deleteNode(NodeId const nodeId)
         return false;
     }
     
-    const orc::NodeID& orc_node_id = it->second;
+    const NodeID& orc_node_id = it->second;
     
     // Remove all connections involving this node from GUI state
     std::vector<ConnectionId> to_remove;
@@ -439,9 +437,12 @@ bool OrcGraphModel::deleteNode(NodeId const nodeId)
         Q_EMIT connectionDeleted(conn);
     }
     
-    // Use core's remove_node which handles removing edges and modification tracking
+    // Use presenter's remove_node which handles removing edges and modification tracking
     try {
-        orc::project_io::remove_node(project_, orc_node_id);
+        if (!presenter_.removeNode(orc_node_id)) {
+            ORC_LOG_WARN("Failed to delete node '{}'", orc_node_id.to_string());
+            return false;
+        }
         
         // Update mappings
         qt_to_orc_nodes_.erase(nodeId);
@@ -467,14 +468,15 @@ QJsonObject OrcGraphModel::saveNode(NodeId const nodeId) const
     // Also save ORC-specific data for completeness
     auto it = qt_to_orc_nodes_.find(nodeId);
     if (it != qt_to_orc_nodes_.end()) {
-        const orc::ProjectDAGNode* node = findOrcNode(it->second);
-        if (node) {
-            json["orc_node_id"] = QString::number(node->node_id.value());
-            json["stage_name"] = QString::fromStdString(node->stage_name);
-            json["display_name"] = QString::fromStdString(node->display_name);
-            json["user_label"] = QString::fromStdString(node->user_label);
-            json["x"] = node->x_position;
-            json["y"] = node->y_position;
+        try {
+            auto node_info = presenter_.getNodeInfo(it->second);
+            json["orc_node_id"] = QString::fromStdString(node_info.node_id.to_string());
+            json["stage_name"] = QString::fromStdString(node_info.stage_name);
+            json["user_label"] = QString::fromStdString(node_info.label);
+            json["x"] = node_info.x_position;
+            json["y"] = node_info.y_position;
+        } catch (...) {
+            // Node not found, return basic info only
         }
     }
     
@@ -483,15 +485,15 @@ QJsonObject OrcGraphModel::saveNode(NodeId const nodeId) const
 
 void OrcGraphModel::loadNode(QJsonObject const& nodeJson)
 {
-    // Project loading is handled by project_io, not by QtNodes
-    ORC_LOG_WARN("OrcGraphModel::loadNode not implemented - use project_io instead");
+    // Project loading is handled by presenter, not by QtNodes
+    ORC_LOG_WARN("OrcGraphModel::loadNode not implemented - use presenter instead");
 }
 
-orc::NodeID OrcGraphModel::getOrcNodeId(NodeId qtNodeId) const
+NodeID OrcGraphModel::getOrcNodeId(NodeId qtNodeId) const
 {
     auto it = qt_to_orc_nodes_.find(qtNodeId);
     if (it != qt_to_orc_nodes_.end()) {
         return it->second;
     }
-    return orc::NodeID();
+    return NodeID();
 }

@@ -304,7 +304,7 @@ bool PreviewDialog::isLineScopeVisible() const
 }
 void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                   const std::vector<uint16_t>& samples,
-                                  const std::optional<orc::VideoParameters>& video_params,
+                                  const std::optional<orc::presenters::VideoParametersView>& video_params,
                                    int preview_image_width, int original_sample_x, int original_image_y,
                                   const std::vector<uint16_t>& y_samples,
                                   const std::vector<uint16_t>& c_samples)

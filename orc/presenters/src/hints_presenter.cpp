@@ -291,16 +291,7 @@ HintsPresenter::FieldHintsView HintsPresenter::getHintsForField(NodeID node_id, 
         }
 
         if (auto params = result.representation->get_video_parameters()) {
-            VideoParametersView v{};
-            v.active_video_start = params->active_video_start;
-            v.active_video_end = params->active_video_end;
-            v.colour_burst_start = params->colour_burst_start;
-            v.colour_burst_end = params->colour_burst_end;
-            v.white_16b_ire = params->white_16b_ire;
-            v.blanking_16b_ire = params->blanking_16b_ire;
-            v.black_16b_ire = params->black_16b_ire;
-            v.sample_rate = params->sample_rate;
-            out.video_params = v;
+            out.video_params = toVideoParametersView(*params);
         }
     } catch (const std::exception&) {
         // Swallow and return empty hints; GUI will clear

@@ -9,14 +9,11 @@
 
 #include "ntscobserverdialog.h"
 #include "logging.h"
-#include "../core/include/observation_context.h"
-#include "../core/include/field_id.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
 #include <QFont>
 #include <QFontDatabase>
-#include <variant>
 
 NtscObserverDialog::NtscObserverDialog(QWidget *parent)
     : QDialog(parent)
@@ -109,7 +106,7 @@ void NtscObserverDialog::setupUI()
     showing_frame_mode_ = false;
 }
 
-void NtscObserverDialog::updateObservations(const orc::FieldID& field_id, const orc::ObservationContext& context)
+void NtscObserverDialog::updateObservations(const orc::FieldID& field_id, const orc::presenters::NtscFieldObservationsView& observations)
 {
     showing_frame_mode_ = false;
     field1_group_->show();
@@ -118,11 +115,13 @@ void NtscObserverDialog::updateObservations(const orc::FieldID& field_id, const 
     
     updateFieldObservations(field1_group_, "Field 1",
                            field1_fm_code_present_label_, field1_fm_code_data_label_, field1_fm_code_field_flag_label_,
-                           field1_white_flag_present_label_, field_id, context);
+                           field1_white_flag_present_label_, observations);
 }
 
-void NtscObserverDialog::updateObservationsForFrame(const orc::FieldID& field1_id, const orc::FieldID& field2_id,
-                                                   const orc::ObservationContext& context)
+void NtscObserverDialog::updateObservationsForFrame(const orc::FieldID& field1_id,
+                                                   const orc::presenters::NtscFieldObservationsView& field1_observations,
+                                                   const orc::FieldID& field2_id,
+                                                   const orc::presenters::NtscFieldObservationsView& field2_observations)
 {
     showing_frame_mode_ = true;
     field1_group_->show();
@@ -131,59 +130,43 @@ void NtscObserverDialog::updateObservationsForFrame(const orc::FieldID& field1_i
     
     updateFieldObservations(field1_group_, "Field 1",
                            field1_fm_code_present_label_, field1_fm_code_data_label_, field1_fm_code_field_flag_label_,
-                           field1_white_flag_present_label_, field1_id, context);
+                           field1_white_flag_present_label_, field1_observations);
     
     updateFieldObservations(field2_group_, "Field 2",
                            field2_fm_code_present_label_, field2_fm_code_data_label_, field2_fm_code_field_flag_label_,
-                           field2_white_flag_present_label_, field2_id, context);
+                           field2_white_flag_present_label_, field2_observations);
 }
 
 void NtscObserverDialog::updateFieldObservations(QGroupBox* field_group, const QString& field_label,
                                                 QLabel* fm_present, QLabel* fm_data, QLabel* fm_flag,
-                                                QLabel* white_flag, const orc::FieldID& field_id,
-                                                const orc::ObservationContext& context)
+                                                QLabel* white_flag,
+                                                const orc::presenters::NtscFieldObservationsView& observations)
 {
-    // Get FM code observations (namespace "fm_code")
-    auto fm_present_obs = context.get(field_id, "fm_code", "present");
-    auto fm_data_obs = context.get(field_id, "fm_code", "data_value");
-    auto fm_field_flag_obs = context.get(field_id, "fm_code", "field_flag");
-    
     // Display FM code present
-    if (fm_present_obs && std::holds_alternative<bool>(*fm_present_obs)) {
-        bool present = std::get<bool>(*fm_present_obs);
-        fm_present->setText(present ? "Yes" : "No");
-        fm_present->setStyleSheet(present ? "QLabel { color: #00AA00; font-weight: bold; }" : "");
+    if (observations.fm_code) {
+        const auto& fm_code = *observations.fm_code;
+        fm_present->setText(fm_code.present ? "Yes" : "No");
+        fm_present->setStyleSheet(fm_code.present ? "QLabel { color: #00AA00; font-weight: bold; }" : "");
+        
+        // Display FM code data value
+        fm_data->setText(QString("0x%1 (%2)")
+            .arg(fm_code.data_value, 5, 16, QChar('0'))
+            .arg(fm_code.data_value));
+        
+        // Display FM code field flag
+        fm_flag->setText(fm_code.field_flag ? "True" : "False");
     } else {
         fm_present->setText("No");
         fm_present->setStyleSheet("");
-    }
-    
-    // Display FM code data value
-    if (fm_data_obs && std::holds_alternative<int32_t>(*fm_data_obs)) {
-        int32_t data_value = std::get<int32_t>(*fm_data_obs);
-        fm_data->setText(QString("0x%1 (%2)")
-            .arg(data_value, 5, 16, QChar('0'))
-            .arg(data_value));
-    } else {
         fm_data->setText("-");
-    }
-    
-    // Display FM code field flag
-    if (fm_field_flag_obs && std::holds_alternative<bool>(*fm_field_flag_obs)) {
-        bool field_flag = std::get<bool>(*fm_field_flag_obs);
-        fm_flag->setText(field_flag ? "True" : "False");
-    } else {
         fm_flag->setText("-");
     }
     
-    // Get white flag observations (namespace "white_flag")
-    auto white_flag_present_obs = context.get(field_id, "white_flag", "present");
-    
     // Display white flag present
-    if (white_flag_present_obs && std::holds_alternative<bool>(*white_flag_present_obs)) {
-        bool present = std::get<bool>(*white_flag_present_obs);
-        white_flag->setText(present ? "Yes" : "No");
-        white_flag->setStyleSheet(present ? "QLabel { color: #00AA00; font-weight: bold; }" : "");
+    if (observations.white_flag) {
+        const auto& wf = *observations.white_flag;
+        white_flag->setText(wf.present ? "Yes" : "No");
+        white_flag->setStyleSheet(wf.present ? "QLabel { color: #00AA00; font-weight: bold; }" : "");
     } else {
         white_flag->setText("No");
         white_flag->setStyleSheet("");

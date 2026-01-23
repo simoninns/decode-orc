@@ -7,9 +7,11 @@ add_library(orc-presenters STATIC
     src/render_presenter.cpp
     src/analysis_presenter.cpp
     src/hints_presenter.cpp
+    src/hints_view_models.cpp
     src/dropout_presenter.cpp
     src/metrics_presenter.cpp
     src/vbi_presenter.cpp
+    src/ntsc_observation_presenter.cpp
 )
 
 # Presenters can see both public API and core internals

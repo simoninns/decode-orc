@@ -219,26 +219,26 @@ void HintsDialog::updateVideoParameters(const std::optional<orc::presenters::Vid
     }
     
     // Colour burst range
-    if (params->colour_burst_start >= 0 && params->colour_burst_end >= 0) {
+    if (params->color_burst_start >= 0 && params->color_burst_end >= 0) {
         colour_burst_range_label_->setText(
-            QString("Samples %1-%2").arg(params->colour_burst_start).arg(params->colour_burst_end));
+            QString("Samples %1-%2").arg(params->color_burst_start).arg(params->color_burst_end));
     } else {
         colour_burst_range_label_->setText("-");
     }
     
     // IRE levels (16-bit A/D counts) shown as distinct labels
-    if (params->white_16b_ire >= 0) {
-        white_level_label_->setText(QString::number(params->white_16b_ire));
+    if (params->white_ire >= 0) {
+        white_level_label_->setText(QString::number(params->white_ire));
     } else {
         white_level_label_->setText("-");
     }
-    if (params->blanking_16b_ire >= 0) {
-        blanking_level_label_->setText(QString::number(params->blanking_16b_ire));
+    if (params->blanking_ire >= 0) {
+        blanking_level_label_->setText(QString::number(params->blanking_ire));
     } else {
         blanking_level_label_->setText("-");
     }
-    if (params->black_16b_ire >= 0) {
-        black_level_label_->setText(QString::number(params->black_16b_ire));
+    if (params->black_ire >= 0) {
+        black_level_label_->setText(QString::number(params->black_ire));
     } else {
         black_level_label_->setText("-");
     }

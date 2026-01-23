@@ -11,6 +11,7 @@
 #include "../core/include/project.h"
 #include "../core/include/stage_registry.h"
 #include "../core/include/tbc_metadata.h"
+#include "../core/include/stage_parameter.h"
 #include <stdexcept>
 #include <algorithm>
 
@@ -423,6 +424,53 @@ std::vector<std::string> ProjectPresenter::getValidationErrors() const
     }
     
     return errors;
+}
+
+std::optional<StageInspectionView> ProjectPresenter::getNodeInspection(NodeID node_id) const
+{
+    if (!project_) {
+        return std::nullopt;
+    }
+    
+    // Find the node in the project
+    const auto& nodes = project_->get_nodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+    
+    if (node_it == nodes.end()) {
+        return std::nullopt;  // Node not found
+    }
+    
+    const std::string& stage_name = node_it->stage_name;
+    
+    // Create a stage instance from the registry
+    std::shared_ptr<orc::DAGStage> stage;
+    try {
+        auto& stage_registry = orc::StageRegistry::instance();
+        stage = stage_registry.create_stage(stage_name);
+        
+        // Apply the node's parameters to the stage if it's parameterized
+        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+        if (param_stage) {
+            param_stage->set_parameters(node_it->parameters);
+        }
+    } catch (const std::exception&) {
+        return std::nullopt;  // Failed to create stage
+    }
+    
+    // Generate report from the stage
+    auto core_report = stage->generate_report();
+    if (!core_report) {
+        return std::nullopt;  // Stage doesn't support inspection
+    }
+    
+    // Convert to view model
+    StageInspectionView view;
+    view.summary = core_report->summary;
+    view.items = core_report->items;
+    view.metrics = core_report->metrics;
+    
+    return view;
 }
 
 } // namespace orc::presenters

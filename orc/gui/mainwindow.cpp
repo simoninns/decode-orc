@@ -33,6 +33,8 @@
 #include "presenters/include/hints_view_models.h"
 #include "presenters/include/hints_presenter.h"
 #include "presenters/include/vbi_presenter.h"
+#include "presenters/include/ntsc_observation_presenter.h"
+#include "presenters/include/project_presenter.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/dag_field_renderer.h"
@@ -2405,8 +2407,14 @@ void MainWindow::onInspectStage(const NodeID& node_id)
             return;
         }
         
-        // Show inspection dialog
-        orc::InspectionDialog dialog(report.value(), this);
+        // Convert core StageReport to presenter StageInspectionView
+        orc::presenters::StageInspectionView view;
+        view.summary = report->summary;
+        view.items = report->items;
+        view.metrics = report->metrics;
+        
+        // Show inspection dialog with presenter view model
+        orc::InspectionDialog dialog(view, this);
         dialog.exec();
         
     } catch (const std::exception& e) {
@@ -3381,9 +3389,11 @@ void MainWindow::updateNtscObserverDialog()
                 return;
             }
             
-            // Get observation context and update dialog with both fields
+            // Get observation context and convert to presenter view models
             const auto& context = renderer.get_observation_context();
-            ntsc_observer_dialog_->updateObservationsForFrame(field1_id, field2_id, context);
+            auto field1_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field1_id, context);
+            auto field2_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field2_id, context);
+            ntsc_observer_dialog_->updateObservationsForFrame(field1_id, field1_obs, field2_id, field2_obs);
         } else {
             // Render single field
             auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
@@ -3393,9 +3403,10 @@ void MainWindow::updateNtscObserverDialog()
                 return;
             }
             
-            // Get observation context and update dialog
+            // Get observation context and convert to presenter view model
             const auto& context = renderer.get_observation_context();
-            ntsc_observer_dialog_->updateObservations(field1_id, context);
+            auto field_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field1_id, context);
+            ntsc_observer_dialog_->updateObservations(field1_id, field_obs);
         }
         
     } catch (const std::exception& e) {
@@ -3466,6 +3477,12 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
                   samples.size(), field_index, line_number, sample_x, y_samples.size(), c_samples.size(),
                   static_cast<int>(current_output_type_));
     
+    // Convert VideoParameters to VideoParametersView for presenter layer
+    std::optional<orc::presenters::VideoParametersView> video_params_view;
+    if (video_params) {
+        video_params_view = orc::presenters::toVideoParametersView(*video_params);
+    }
+    
     if (!preview_dialog_) {
         ORC_LOG_WARN("No preview dialog available!");
         return;
@@ -3526,7 +3543,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     // Show the line scope dialog with the samples, including the current node_id
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
-    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params, 
+    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params_view, 
                                    preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
 }
 

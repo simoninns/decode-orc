@@ -49,15 +49,60 @@ struct ActiveLineHintView {
     }
 };
 
+/**
+ * @brief Video system/format enumeration for presenter layer
+ */
+enum class VideoSystem {
+    PAL,    // 625-line PAL
+    NTSC,   // 525-line NTSC
+    PAL_M,  // 525-line PAL
+    Unknown
+};
+
+/**
+ * @brief Video parameters view model for presenter layer
+ * 
+ * Contains all video format and timing parameters needed by GUI.
+ * Mirrors core VideoParameters but in presenter layer.
+ */
 struct VideoParametersView {
+    // Format
+    VideoSystem system = VideoSystem::Unknown;
+    
+    // Field/frame dimensions
+    int field_width = -1;
+    int field_height = -1;
+    
+    // Sample ranges
+    int color_burst_start = -1;
+    int color_burst_end = -1;
     int active_video_start = -1;
     int active_video_end = -1;
-    int colour_burst_start = -1;
-    int colour_burst_end = -1;
-    int white_16b_ire = -1;
-    int blanking_16b_ire = -1;
-    int black_16b_ire = -1;
+    
+    // IRE levels (16-bit)
+    int white_ire = -1;      // White level (100 IRE)
+    int black_ire = -1;      // Black level
+    int blanking_ire = -1;   // Blanking/pedestal level (0 IRE)
+    
+    // Sample rate (Hz)
     double sample_rate = 0.0;
 };
+
+} // namespace orc::presenters
+
+// Forward declare core type (outside presenter namespace)
+namespace orc {
+    struct VideoParameters;
+}
+
+namespace orc::presenters {
+
+/**
+ * @brief Convert core VideoParameters to presenter VideoParametersView
+ * 
+ * This helper function encapsulates the conversion logic to avoid
+ * duplication across the codebase.
+ */
+VideoParametersView toVideoParametersView(const orc::VideoParameters& params);
 
 } // namespace orc::presenters

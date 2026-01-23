@@ -14,9 +14,11 @@
 #include <map>
 #include <memory>
 #include <functional>
+#include <optional>
 #include <node_id.h>
 #include <node_type.h>
 #include <field_id.h>
+#include "stage_inspection_view_models.h"
 
 // Forward declare core Project type
 namespace orc {
@@ -318,6 +320,15 @@ public:
      * @brief Get validation errors
      */
     std::vector<std::string> getValidationErrors() const;
+    
+    // === Stage Inspection ===
+    
+    /**
+     * @brief Get inspection report for a node
+     * @param node_id Node to inspect
+     * @return Inspection report, or nullopt if not available
+     */
+    std::optional<StageInspectionView> getNodeInspection(NodeID node_id) const;
     
     // === Internal Access (for other presenters) ===
     

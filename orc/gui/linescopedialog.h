@@ -20,7 +20,7 @@
 #include <cstdint>
 #include <optional>
 #include "plotwidget.h"
-#include "tbc_metadata.h"
+#include "presenters/include/hints_view_models.h"
 
 /**
  * @brief Dialog for displaying line scope - all samples in a selected line
@@ -50,7 +50,7 @@ public:
      */
     void setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                         const std::vector<uint16_t>& samples,
-                        const std::optional<orc::VideoParameters>& video_params,
+                        const std::optional<orc::presenters::VideoParametersView>& video_params,
                         int preview_image_width, int original_sample_x, int original_image_y,
                         const std::vector<uint16_t>& y_samples = {},
                         const std::vector<uint16_t>& c_samples = {});
@@ -121,7 +121,7 @@ private:
     std::vector<uint16_t> current_samples_;  // Store samples for marker updates (composite)
     std::vector<uint16_t> current_y_samples_;  // Store Y samples for YC sources
     std::vector<uint16_t> current_c_samples_;  // Store C samples for YC sources
-    std::optional<orc::VideoParameters> current_video_params_;  // Store video params for IRE calc
+    std::optional<orc::presenters::VideoParametersView> current_video_params_;  // Store video params for IRE calc
     PlotMarker* sample_marker_;  // Green marker showing current sample position
     
     bool is_yc_source_;  // True if displaying YC source

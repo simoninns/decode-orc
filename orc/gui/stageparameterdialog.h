@@ -23,7 +23,7 @@
 #include <map>
 #include <vector>
 #include <string>
-#include "stage_parameter.h"
+#include <parameter_types.h>
 
 /**
  * @brief Dialog for editing stage parameters

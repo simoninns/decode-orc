@@ -1,15 +1,14 @@
 # orc-common: Shared type definitions accessible to all layers
 #
-# This is an INTERFACE library containing header-only types that are
+# This library contains shared types and utility functions that are
 # used across core, public API, presenters, GUI, and CLI.
-#
-# INTERFACE libraries don't compile into a binary - they just provide
-# include paths and usage requirements to targets that link against them.
 
-add_library(orc-common INTERFACE)
+add_library(orc-common
+    parameter_util.cpp
+)
 
 # PUBLIC interface - these directories are visible to all consumers
-target_include_directories(orc-common INTERFACE
+target_include_directories(orc-common PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include/orc/common>
 )

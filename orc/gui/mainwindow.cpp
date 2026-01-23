@@ -122,6 +122,11 @@ MainWindow::MainWindow(QWidget *parent)
         return std::static_pointer_cast<const orc::DAG>(dag);
     });
     
+    // Presenter for dropout editing
+    dropout_presenter_ = std::make_unique<orc::presenters::DropoutPresenter>(
+        &project_.coreProject()
+    );
+    
     // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
     connect(render_coordinator_.get(), &RenderCoordinator::previewReady,
             this, &MainWindow::onPreviewReady, Qt::QueuedConnection);
@@ -2622,49 +2627,45 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             return;
         }
 
-        // Get source representation by executing the DAG up to the input node
-        std::shared_ptr<const orc::VideoFieldRepresentation> source_repr;
-        
-        // Get the DAG and execute it
-        auto dag = project_.getDAG();
-        if (!dag) {
-            QMessageBox::warning(this, "Error", "Failed to build project DAG");
+        // Execute DAG to get the VideoFieldRepresentation for the input node
+        // Find the input edge to this node
+        const auto& edges = project.get_edges();
+        orc::NodeID input_node_id;
+        bool found_input = false;
+        for (const auto& edge : edges) {
+            if (edge.target_node_id == node_id) {
+                input_node_id = edge.source_node_id;
+                found_input = true;
+                break;
+            }
+        }
+
+        if (!found_input) {
+            QMessageBox::warning(this, "Error",
+                "Could not find input node for dropout editor. "
+                "Ensure the dropout_map stage has a valid video source connected.");
             return;
         }
 
-        // Execute the DAG to get all artifacts
+        // Get DAG and execute to input node
+        auto dag = project_.getDAG();
+        if (!dag) {
+            QMessageBox::warning(this, "Error", "Could not build DAG.");
+            return;
+        }
+
+        orc::DAGExecutor executor;
+        std::shared_ptr<const orc::VideoFieldRepresentation> source_repr;
+        
         try {
-            // Find the input node for this dropout_map stage
-            const auto& edges = project.get_edges();
-            orc::NodeID input_node_id;
-            for (const auto& edge : edges) {
-                if (edge.target_node_id == node_id) {
-                    input_node_id = edge.source_node_id;
-                    break;
-                }
-            }
-            
-            if (!input_node_id.is_valid()) {
-                QMessageBox::warning(this, "Error",
-                    "Dropout map stage has no input connected. Please connect a source.");
-                return;
-            }
-            
-            // Execute the DAG up to the input node
-            orc::DAGExecutor executor;
             auto node_outputs = executor.execute_to_node(*dag, input_node_id);
-            
-            // Get the output artifacts from the input node
             auto it = node_outputs.find(input_node_id);
             if (it != node_outputs.end() && !it->second.empty()) {
-                // The first output is the VideoFieldRepresentation
-                source_repr = std::dynamic_pointer_cast<const orc::VideoFieldRepresentation>(
-                    it->second[0]);
+                source_repr = std::dynamic_pointer_cast<const orc::VideoFieldRepresentation>(it->second[0]);
             }
         } catch (const std::exception& e) {
-            ORC_LOG_ERROR("Failed to execute DAG: {}", e.what());
             QMessageBox::warning(this, "Error",
-                QString("Failed to execute project graph: %1").arg(e.what()));
+                QString("Failed to execute DAG: %1").arg(e.what()));
             return;
         }
 
@@ -2675,59 +2676,38 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             return;
         }
 
-        // Get current dropout map from node parameters
-        std::string dropout_map_str;
-        if (node_it->parameters.count("dropout_map")) {
-            dropout_map_str = std::get<std::string>(node_it->parameters.at("dropout_map"));
-        }
-
-        // Parse existing dropout map
-        auto existing_map = orc::DropoutMapStage::parse_dropout_map(dropout_map_str);
-
         // Open the editor dialog as a non-modal independent window
-        auto* dialog = new DropoutEditorDialog(source_repr, existing_map, this);
+        auto* dialog = new DropoutEditorDialog(node_id, dropout_presenter_.get(), source_repr, this);
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         
         // Connect to handle the accepted signal
-        connect(dialog, &QDialog::accepted, this, [this, dialog, node_id, &project, dropout_map_str]() {
+        connect(dialog, &QDialog::accepted, this, [this, node_id, dialog]() {
             // Get the edited dropout map
             auto edited_map = dialog->getDropoutMap();
             
             ORC_LOG_DEBUG("Dropout editor returned map with {} field entries", edited_map.size());
             
-            // Encode back to string
-            std::string new_dropout_map_str = orc::DropoutMapStage::encode_dropout_map(edited_map);
-            
-            ORC_LOG_DEBUG("Encoded dropout map: original='{}' new='{}'", dropout_map_str, new_dropout_map_str);
-            
-            // Only update if the dropout map actually changed
-            if (new_dropout_map_str == dropout_map_str) {
-                ORC_LOG_DEBUG("Dropout map unchanged for node '{}'", node_id.to_string());
-                return;
+            // Save the dropout map via presenter
+            if (dropout_presenter_->setDropoutMap(node_id, edited_map)) {
+                // Mark project as modified
+                project_.setModified(true);
+                
+                // Update UI to reflect modified state
+                updateUIState();
+                
+                // Rebuild DAG
+                project_.rebuildDAG();
+                
+                // Update the preview renderer with the new DAG (contains updated parameters)
+                updatePreviewRenderer();
+                
+                ORC_LOG_DEBUG("Dropout map updated for node '{}'", node_id.to_string());
+                
+                // Trigger preview update to show the changes
+                updatePreview();
+            } else {
+                QMessageBox::warning(this, "Error", "Failed to save dropout map");
             }
-            
-            // Update node parameters using project_io
-            std::map<std::string, orc::ParameterValue> new_params;
-            new_params["dropout_map"] = new_dropout_map_str;
-            
-            orc::project_io::set_node_parameters(project, node_id, new_params);
-            
-            // Mark project as modified
-            project_.setModified(true);
-            
-            // Update UI to reflect modified state
-            updateUIState();
-            
-            // Rebuild DAG
-            project_.rebuildDAG();
-            
-            // Update the preview renderer with the new DAG (contains updated parameters)
-            updatePreviewRenderer();
-            
-            ORC_LOG_DEBUG("Dropout map updated for node '{}'", node_id.to_string());
-            
-            // Trigger preview update to show the changes
-            updatePreview();
         });
         
         // Show as non-modal window

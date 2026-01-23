@@ -28,6 +28,7 @@
 #include "presenters/include/hints_presenter.h"
 #include "presenters/include/vbi_view_models.h"
 #include "presenters/include/vbi_presenter.h"
+#include "presenters/include/dropout_presenter.h"
 #include "../core/include/node_id.h"
 
 class OrcGraphicsView;
@@ -226,6 +227,7 @@ private:
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
     std::unique_ptr<orc::presenters::HintsPresenter> hints_presenter_;
+    std::unique_ptr<orc::presenters::DropoutPresenter> dropout_presenter_;
     std::unique_ptr<orc::presenters::VbiPresenter> vbi_presenter_;
     NtscObserverDialog* ntsc_observer_dialog_;
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;

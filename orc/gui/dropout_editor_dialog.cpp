@@ -8,7 +8,7 @@
  */
 
 #include "dropout_editor_dialog.h"
-#include "../core/include/logging.h"
+#include "logging.h"
 #include <QPainter>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -46,9 +46,9 @@ DropoutFieldView::DropoutFieldView(QWidget *parent)
 }
 
 void DropoutFieldView::setField(const std::vector<uint8_t>& field_data, int width, int height,
-                                 const std::vector<orc::DropoutRegion>& source_dropouts,
-                                 const std::vector<orc::DropoutRegion>& additions,
-                                 const std::vector<orc::DropoutRegion>& removals)
+                                 const std::vector<orc::presenters::DropoutRegion>& source_dropouts,
+                                 const std::vector<orc::presenters::DropoutRegion>& additions,
+                                 const std::vector<orc::presenters::DropoutRegion>& removals)
 {
     field_data_ = field_data;
     field_width_ = width;
@@ -414,11 +414,11 @@ void DropoutFieldView::mouseReleaseEvent(QMouseEvent *event)
 
     // Only create region if it has some size
     if (end_sample > start_sample) {
-        orc::DropoutRegion region;
+        orc::presenters::DropoutRegion region;
         region.line = static_cast<uint32_t>(line);
         region.start_sample = static_cast<uint32_t>(start_sample);
         region.end_sample = static_cast<uint32_t>(end_sample);
-        region.basis = orc::DropoutRegion::DetectionBasis::HINT_DERIVED;
+        region.basis = orc::presenters::DropoutRegion::DetectionBasis::HINT_DERIVED;
 
         additions_.push_back(region);
         int new_index = static_cast<int>(additions_.size()) - 1;
@@ -428,7 +428,7 @@ void DropoutFieldView::mouseReleaseEvent(QMouseEvent *event)
     }
 }
 
-bool DropoutFieldView::isPointInRegion(int x, int y, const orc::DropoutRegion& region) const
+bool DropoutFieldView::isPointInRegion(int x, int y, const orc::presenters::DropoutRegion& region) const
 {
     return static_cast<uint32_t>(y) == region.line &&
            static_cast<uint32_t>(x) >= region.start_sample &&
@@ -494,20 +494,29 @@ void DropoutFieldView::removeRegionAtPoint(int x, int y)
 // ============================================================================
 
 DropoutEditorDialog::DropoutEditorDialog(
-    std::shared_ptr<const orc::VideoFieldRepresentation> source_repr,
-    const std::map<uint64_t, orc::FieldDropoutMap>& existing_map,
+    orc::NodeID node_id,
+    orc::presenters::DropoutPresenter* presenter,
+    std::shared_ptr<const orc::VideoFieldRepresentation> field_repr,
     QWidget *parent)
     : QDialog(parent)
-    , source_repr_(source_repr)
+    , node_id_(node_id)
+    , presenter_(presenter)
+    , field_repr_(field_repr)
     , current_field_id_(0)
     , total_fields_(0)
-    , dropout_map_(existing_map)
     , edit_mode_(EditMode::Add)
     , selected_addition_index_(-1)
     , selected_removal_index_(-1)
 {
-    if (source_repr_) {
-        total_fields_ = source_repr_->field_count();
+    if (!presenter_) {
+        throw std::invalid_argument("Presenter cannot be null");
+    }
+    
+    // Get existing dropout map from presenter
+    dropout_map_ = presenter_->getDropoutMap(node_id_);
+    
+    if (field_repr_) {
+        total_fields_ = presenter_->getFieldCount(field_repr_);
     }
 
     setupUI();
@@ -681,7 +690,7 @@ void DropoutEditorDialog::setupUI()
 
 void DropoutEditorDialog::loadField(uint64_t field_id)
 {
-    if (!source_repr_ || field_id >= total_fields_) {
+    if (!field_repr_ || field_id >= total_fields_) {
         return;
     }
 
@@ -692,42 +701,23 @@ void DropoutEditorDialog::loadField(uint64_t field_id)
 
     current_field_id_ = field_id;
 
-    // Get field data from source
+    // Get field data from presenter
     orc::FieldID fid(field_id);
     
-    // For YC sources, use the luma channel for dropout editing
-    // (dropouts apply to both Y and C channels, so we edit using Y only)
-    std::vector<uint16_t> field_samples;
-    if (source_repr_->has_separate_channels()) {
-        field_samples = source_repr_->get_field_luma(fid);
-    } else {
-        field_samples = source_repr_->get_field(fid);
-    }
+    int width = 0, height = 0;
+    std::vector<uint8_t> field_data = presenter_->getFieldData(field_repr_, fid, width, height);
     
-    // Convert to 8-bit grayscale for display
-    // Assuming samples are in range [0, 65535] for 16-bit
-    std::vector<uint8_t> field_data;
-    field_data.reserve(field_samples.size());
-    for (auto sample : field_samples) {
-        field_data.push_back(static_cast<uint8_t>(sample >> 8));
-    }
-
-    // Get field dimensions from descriptor
-    auto descriptor = source_repr_->get_descriptor(fid);
-    int width = descriptor ? static_cast<int>(descriptor->width) : 0;
-    int height = descriptor ? static_cast<int>(descriptor->height) : 0;
-    
-    if (!descriptor || width == 0 || height == 0) {
-        ORC_LOG_ERROR("Failed to get field descriptor for field {}", field_id);
+    if (field_data.empty() || width == 0 || height == 0) {
+        ORC_LOG_ERROR("Failed to get field data for field {}", field_id);
         return;
     }
 
-    // Get existing source dropouts from the VideoFieldRepresentation
-    std::vector<orc::DropoutRegion> source_dropouts = source_repr_->get_dropout_hints(fid);
+    // Get existing source dropouts from presenter
+    std::vector<orc::presenters::DropoutRegion> source_dropouts = presenter_->getSourceDropouts(field_repr_, fid);
     
     // Load existing dropout map for this field
-    std::vector<orc::DropoutRegion> additions;
-    std::vector<orc::DropoutRegion> removals;
+    std::vector<orc::presenters::DropoutRegion> additions;
+    std::vector<orc::presenters::DropoutRegion> removals;
 
     auto it = dropout_map_.find(field_id);
     if (it != dropout_map_.end()) {
@@ -761,7 +751,7 @@ void DropoutEditorDialog::loadField(uint64_t field_id)
 
 void DropoutEditorDialog::saveCurrentField()
 {
-    if (!source_repr_ || current_field_id_ >= total_fields_) {
+    if (!field_repr_ || current_field_id_ >= total_fields_) {
         return;
     }
 
@@ -774,7 +764,7 @@ void DropoutEditorDialog::saveCurrentField()
         // Remove entry if no modifications
         dropout_map_.erase(current_field_id_);
     } else {
-        orc::FieldDropoutMap& field_map = dropout_map_[current_field_id_];
+        orc::presenters::FieldDropoutMap& field_map = dropout_map_[current_field_id_];
         field_map.field_id = orc::FieldID(current_field_id_);
         field_map.additions = additions;
         field_map.removals = removals;
@@ -862,7 +852,7 @@ void DropoutEditorDialog::onRemoveDropout()
     field_view_->mode_ = DropoutFieldView::InteractionMode::RemovingDropout;
 }
 
-std::map<uint64_t, orc::FieldDropoutMap> DropoutEditorDialog::getDropoutMap() const
+std::map<uint64_t, orc::presenters::FieldDropoutMap> DropoutEditorDialog::getDropoutMap() const
 {
     // Make a copy and ensure current field is saved
     auto map = dropout_map_;
@@ -874,7 +864,7 @@ std::map<uint64_t, orc::FieldDropoutMap> DropoutEditorDialog::getDropoutMap() co
     if (additions.empty() && removals.empty()) {
         map.erase(current_field_id_);
     } else {
-        orc::FieldDropoutMap& field_map = map[current_field_id_];
+        orc::presenters::FieldDropoutMap& field_map = map[current_field_id_];
         field_map.field_id = orc::FieldID(current_field_id_);
         field_map.additions = additions;
         field_map.removals = removals;

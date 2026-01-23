@@ -19,12 +19,48 @@
 // Forward declare core Project type
 namespace orc {
     class Project;
+    class VideoFieldRepresentation;
 }
 
 namespace orc::presenters {
 
 // Forward declarations
 class Project;
+
+/**
+ * @brief Dropout region view model - GUI-friendly representation
+ */
+struct DropoutRegion {
+    enum class DetectionBasis {
+        SAMPLE_DERIVED,   ///< Detected from signal analysis
+        HINT_DERIVED,     ///< From decoder hints
+        CORROBORATED      ///< Both sample and hint agree
+    };
+    
+    uint32_t line;
+    uint32_t start_sample;
+    uint32_t end_sample;
+    DetectionBasis basis;
+    
+    DropoutRegion() 
+        : line(0), start_sample(0), end_sample(0)
+        , basis(DetectionBasis::HINT_DERIVED) {}
+    
+    DropoutRegion(uint32_t ln, uint32_t start, uint32_t end, DetectionBasis b = DetectionBasis::HINT_DERIVED)
+        : line(ln), start_sample(start), end_sample(end), basis(b) {}
+};
+
+/**
+ * @brief Per-field dropout map view model
+ */
+struct FieldDropoutMap {
+    FieldID field_id;
+    std::vector<DropoutRegion> additions;    ///< Dropouts to add
+    std::vector<DropoutRegion> removals;     ///< Dropouts to remove
+    
+    FieldDropoutMap() : field_id(0) {}
+    explicit FieldDropoutMap(FieldID id) : field_id(id) {}
+};
 
 /**
  * @brief Dropout detection data
@@ -220,6 +256,50 @@ public:
      * @return true on success
      */
     bool importCorrections(NodeID node_id, const std::string& file_path);
+    
+    // === Field Access (for dropout editor) ===
+    
+    /**
+     * @brief Get field data for display from VideoFieldRepresentation
+     * @param field_repr Field representation from DAG execution
+     * @param field_id Field to retrieve
+     * @param width Output field width
+     * @param height Output field height
+     * @return Grayscale field data (8-bit), or empty if not available
+     */
+    std::vector<uint8_t> getFieldData(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr,
+                                      FieldID field_id, int& width, int& height);
+    
+    /**
+     * @brief Get source dropout regions from VideoFieldRepresentation
+     * @param field_repr Field representation from DAG execution
+     * @param field_id Field to retrieve dropouts for
+     * @return List of detected dropout regions
+     */
+    std::vector<DropoutRegion> getSourceDropouts(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr,
+                                                  FieldID field_id);
+    
+    /**
+     * @brief Get total number of fields from VideoFieldRepresentation
+     * @param field_repr Field representation from DAG execution
+     * @return Number of fields
+     */
+    size_t getFieldCount(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr);
+    
+    /**
+     * @brief Get dropout map for a node (if it's a dropout_map stage)
+     * @param node_id Dropout map stage node
+     * @return Map of field IDs to dropout modifications
+     */
+    std::map<uint64_t, FieldDropoutMap> getDropoutMap(NodeID node_id);
+    
+    /**
+     * @brief Set dropout map for a node (if it's a dropout_map stage)
+     * @param node_id Dropout map stage node
+     * @param dropout_map New dropout map
+     * @return true on success
+     */
+    bool setDropoutMap(NodeID node_id, const std::map<uint64_t, FieldDropoutMap>& dropout_map);
 
 private:
     class Impl;

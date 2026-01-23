@@ -108,6 +108,12 @@ public:
     ProjectPresenter();
     
     /**
+     * @brief Construct presenter wrapping an existing project
+     * @param project Reference to existing Project (not owned)
+     */
+    explicit ProjectPresenter(orc::Project& project);
+    
+    /**
      * @brief Construct presenter by loading existing project
      * @param project_path Path to .orcprj file
      */
@@ -290,6 +296,27 @@ public:
      */
     static std::vector<StageInfo> getAllStages();
     
+    /**
+     * @brief Check if a stage type exists in the registry
+     * @param stage_name Stage type name
+     * @return true if stage exists
+     */
+    static bool hasStage(const std::string& stage_name);
+    
+    /**
+     * @brief Get stage instance for inspection (from DAG if available, else fresh)
+     * @param node_id Node to get stage for
+     * @return Stage instance or nullptr if not found
+     */
+    std::shared_ptr<void> getStageForInspection(NodeID node_id) const;
+    
+    /**
+     * @brief Get stage instance for parameter editing
+     * @param stage_name Stage type name
+     * @return Fresh stage instance or nullptr if not found
+     */
+    static std::shared_ptr<void> createStageInstance(const std::string& stage_name);
+    
     // === Batch Operations ===
     
     /**
@@ -336,10 +363,17 @@ public:
      * @brief Get raw project pointer (for other presenters only)
      * @internal
      */
-    orc::Project* getProject() const { return project_.get(); }
+    orc::Project* getProject() const { return project_ref_; }
+    
+    /**
+     * @brief Get the current DAG for the project
+     * @return Shared pointer to DAG (as void* for encapsulation)
+     */
+    std::shared_ptr<void> getDAG() const;
 
 private:
-    std::unique_ptr<orc::Project> project_;
+    std::unique_ptr<orc::Project> project_;  ///< Owned project (if constructed without existing project)
+    orc::Project* project_ref_;               ///< Non-owning pointer to project (may be owned or external)
     std::string project_path_;
     bool is_modified_;
 };

@@ -49,3 +49,6 @@ target_link_libraries(orc_chroma_decoders PUBLIC ${FFTW3_LIBRARIES})
 # Link spdlog (required by logging.h)
 find_package(spdlog REQUIRED)
 target_link_libraries(orc_chroma_decoders PUBLIC spdlog::spdlog)
+
+# Link orc-common (for shared types)
+target_link_libraries(orc_chroma_decoders PUBLIC orc-common)

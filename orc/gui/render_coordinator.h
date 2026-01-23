@@ -23,22 +23,20 @@
 #include <queue>
 #include <atomic>
 #include <functional>
-#include "preview_renderer.h"
-#include "dag_field_renderer.h"
-#include "vbi_decoder.h"
-#include "observation_cache.h"
-#include "field_id.h"
-#include "../core/include/node_id.h"
-#include "../core/stages/dropout_analysis_sink/dropout_analysis_types.h"
-#include "../core/stages/snr_analysis_sink/snr_analysis_types.h"
-#include "../core/stages/burst_level_analysis_sink/burst_level_analysis_types.h"
+#include <field_id.h>
+#include <node_id.h>
+#include <common_types.h>
+#include "vbi_view_models.h"
+#include "preview_renderer.h"  // For PreviewRenderResult and other result structs
 
 namespace orc {
     class DAG;
-    class Project;
     class PreviewRenderer;
+    class DAGFieldRenderer;
     class VBIDecoder;
+    class ObservationCache;
     class TriggerableStage;
+    class Project;
 }
 
 // Forward declarations
@@ -276,10 +274,10 @@ struct PreviewRenderResponse : public RenderResponse {
  * @brief Response with VBI data
  */
 struct VBIDataResponse : public RenderResponse {
-    orc::VBIFieldInfo vbi_info;
+    orc::presenters::VBIFieldInfoView vbi_info;
     
     VBIDataResponse(uint64_t id, bool s, 
-                   orc::VBIFieldInfo info, std::string err = "")
+                   orc::presenters::VBIFieldInfoView info, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , vbi_info(std::move(info)) {}
 };
@@ -631,7 +629,7 @@ signals:
     /**
      * @brief Emitted when VBI data is ready
      */
-    void vbiDataReady(uint64_t request_id, orc::VBIFieldInfo info);
+    void vbiDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     
     /**
      * @brief Emitted when dropout analysis data is ready

@@ -9,12 +9,20 @@
 
 #include "render_coordinator.h"
 #include "logging.h"
+#include "vbi_presenter.h"
+
+// TODO(MVP): These core includes are temporary - render_coordinator internals
+// should be refactored to use presenters. For now, this file serves as the
+// implementation bridge between GUI and core.
 #include "dag_executor.h"
 #include "project_to_dag.h"
 #include "project.h"
 #include "ld_sink_stage.h"  // For TriggerableStage
 #include "observation_context.h"
-#include "../core/include/vbi_decoder.h"
+#include "preview_renderer.h"
+#include "dag_field_renderer.h"
+#include "vbi_decoder.h"
+#include "observation_cache.h"
 #include "dropout_analysis_sink_stage.h"
 #include "snr_analysis_sink_stage.h"
 #include "burst_level_analysis_sink_stage.h"
@@ -449,7 +457,7 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
             auto field_opt = worker_obs_cache_->get_field(req.node_id, req.field_id);
             if (!field_opt) {
                 ORC_LOG_DEBUG("RenderCoordinator: Field could not be rendered for VBI extraction");
-                emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
+                emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
                 return;
             }
             
@@ -457,8 +465,9 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
             // The cache's renderer executed up to req.node_id for req.field_id
             const auto& obs_context = worker_obs_cache_->get_observation_context();
             
-            // Try to decode VBI from the populated observation context
-            auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
+            // Try to decode VBI from the populated observation context using VbiPresenter
+            auto vbi_info_opt = orc::presenters::VbiPresenter::decodeVbiFromObservation(
+                &obs_context, req.field_id);
             if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
                 ORC_LOG_DEBUG("RenderCoordinator: VBI decoded from observation context for field {}", req.field_id.value());
                 emit vbiDataReady(req.request_id, vbi_info_opt.value());
@@ -468,7 +477,7 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
 
         // Fallback: Return empty VBI data
         ORC_LOG_DEBUG("RenderCoordinator: No VBI data available for field {}", req.field_id.value());
-        emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
+        emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());

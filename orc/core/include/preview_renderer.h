@@ -13,6 +13,7 @@
 #include "video_field_representation.h"
 #include <field_id.h>
 #include <node_id.h>
+#include <common_types.h>  // For PreviewOutputType, AspectRatioMode
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
 #include "dropout_decision.h"  // For DropoutRegion
 #include "../analysis/vectorscope/vectorscope_data.h"
@@ -24,26 +25,7 @@
 
 namespace orc {
 
-/**
- * @brief Output types available for preview
- */
-enum class PreviewOutputType {
-    Field,              ///< Single field (interlaced)
-    Frame,              ///< Frame with natural field order (using is_first_field)
-    Frame_Reversed,     ///< Frame with reversed field order
-    Split,              ///< Frame with fields stacked vertically (first field on top, second on bottom)
-    Luma,               ///< Luma component only
-    Chroma,             ///< Chroma component only (future)
-    Composite          ///< Composite video (future)
-};
-
-/**
- * @brief Aspect ratio display modes
- */
-enum class AspectRatioMode {
-    SAR_1_1,           ///< Sample Aspect Ratio 1:1 (square pixels, no correction)
-    DAR_4_3            ///< Display Aspect Ratio 4:3 (corrected for non-square pixels)
-};
+// PreviewOutputType and AspectRatioMode now defined in common_types.h
 
 /**
  * @brief Information about an aspect ratio mode option

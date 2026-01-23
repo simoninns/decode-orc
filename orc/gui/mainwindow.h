@@ -18,7 +18,7 @@
 #include <QTimer>
 #include <memory>
 #include <future>
-#include "../core/include/node_id.h"
+#include <node_id.h>
 #include "guiproject.h"
 #include "preview_renderer.h"  // For PreviewOutputType
 #include "orcgraphmodel.h"
@@ -29,7 +29,6 @@
 #include "presenters/include/vbi_view_models.h"
 #include "presenters/include/vbi_presenter.h"
 #include "presenters/include/dropout_presenter.h"
-#include "../core/include/node_id.h"
 
 class OrcGraphicsView;
 class PreviewDialog;
@@ -134,7 +133,7 @@ private slots:
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
-    void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
+    void onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
                             std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
@@ -229,6 +228,7 @@ private:
     std::unique_ptr<orc::presenters::HintsPresenter> hints_presenter_;
     std::unique_ptr<orc::presenters::DropoutPresenter> dropout_presenter_;
     std::unique_ptr<orc::presenters::VbiPresenter> vbi_presenter_;
+    std::unique_ptr<orc::presenters::ProjectPresenter> project_presenter_;
     NtscObserverDialog* ntsc_observer_dialog_;
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
     std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;

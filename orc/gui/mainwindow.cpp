@@ -35,17 +35,8 @@
 #include "presenters/include/vbi_presenter.h"
 #include "presenters/include/ntsc_observation_presenter.h"
 #include "presenters/include/project_presenter.h"
-#include "../core/include/preview_renderer.h"
-#include "../core/include/vbi_decoder.h"
-#include "../core/include/dag_field_renderer.h"
-#include "../core/include/tbc_metadata.h"
-#include "../core/include/stage_registry.h"
-#include "../core/include/node_type.h"
-#include "../core/include/dag_executor.h"
-#include "../core/include/project_to_dag.h"
-#include "../core/stages/chroma_sink/chroma_sink_stage.h"
-#include "../core/analysis/analysis_registry.h"
-#include "../core/analysis/analysis_context.h"
+#include <node_type.h>
+#include <common_types.h>
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -125,6 +116,11 @@ MainWindow::MainWindow(QWidget *parent)
     // Presenter for dropout editing
     dropout_presenter_ = std::make_unique<orc::presenters::DropoutPresenter>(
         &project_.coreProject()
+    );
+    
+    // Presenter for project operations (wraps core project)
+    project_presenter_ = std::make_unique<orc::presenters::ProjectPresenter>(
+        project_.coreProject()
     );
     
     // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
@@ -346,7 +342,7 @@ void MainWindow::setupUI()
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
-    dag_model_ = new OrcGraphModel(project_.coreProject(), dag_view_);
+    dag_model_ = new OrcGraphModel(*project_presenter_, dag_view_);
     dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
     
     dag_view_->setScene(dag_scene_);
@@ -1585,9 +1581,8 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     
     std::string stage_name = node_it->stage_name;
     
-    // Get the stage instance to access parameter descriptors
-    auto& registry = orc::StageRegistry::instance();
-    if (!registry.has_stage(stage_name)) {
+    // Check if stage exists in registry
+    if (!orc::presenters::ProjectPresenter::hasStage(stage_name)) {
         QMessageBox::warning(this, "Edit Parameters",
             QString("Unknown stage type '%1'").arg(QString::fromStdString(stage_name)));
         return;
@@ -1596,7 +1591,8 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     // Create a new temporary instance for getting parameter descriptors
     // DO NOT use DAG stage - that would cause data races with worker thread!
     // The worker thread has exclusive ownership of the DAG.
-    auto stage = registry.create_stage(stage_name);
+    auto stage_void = orc::presenters::ProjectPresenter::createStageInstance(stage_name);
+    orc::DAGStagePtr stage = std::reinterpret_pointer_cast<orc::DAGStagePtr::element_type>(stage_void);
     auto param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
     ORC_LOG_DEBUG("Using new stage instance for parameter descriptors (thread-safe)");
     
@@ -2378,15 +2374,15 @@ void MainWindow::onInspectStage(const NodeID& node_id)
     if (!stage) {
         ORC_LOG_DEBUG("Creating fresh stage instance (no execution state)");
         try {
-            auto& stage_registry = orc::StageRegistry::instance();
-            if (!stage_registry.has_stage(stage_name)) {
+            if (!orc::presenters::ProjectPresenter::hasStage(stage_name)) {
                 ORC_LOG_ERROR("Stage type '{}' not found in registry", stage_name);
                 QMessageBox::warning(this, "Inspection Failed",
                     QString("Stage type '%1' not found in registry.").arg(QString::fromStdString(stage_name)));
                 return;
             }
             
-            stage = stage_registry.create_stage(stage_name);
+            auto stage_void = orc::presenters::ProjectPresenter::createStageInstance(stage_name);
+            stage = std::reinterpret_pointer_cast<orc::DAGStagePtr::element_type>(stage_void);
             
             // Apply the node's parameters to the stage
             auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
@@ -2949,7 +2945,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     context.project = std::make_shared<orc::Project>(project_.coreProject());
     
     // Create DAG from project for analysis
-    context.dag = orc::project_to_dag(project_.coreProject());
+    context.dag = std::static_pointer_cast<orc::DAG>(project_presenter_->getDAG());
     
     // Default path: show analysis dialog which handles batch analysis and apply
     orc::gui::AnalysisDialog dialog(tool, context, this);

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <field_id.h>
+#include <common_types.h>  // For VideoSystem enum
 #include <string>
 #include <vector>
 #include <optional>
@@ -20,15 +21,7 @@
 
 namespace orc {
 
-/**
- * @brief Video format/system
- */
-enum class VideoSystem {
-    PAL,    // 625-line PAL
-    NTSC,   // 525-line NTSC
-    PAL_M,  // 525-line PAL
-    Unknown
-};
+// VideoSystem now defined in common_types.h
 
 std::string video_system_to_string(VideoSystem system);
 VideoSystem video_system_from_string(const std::string& name);

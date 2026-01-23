@@ -46,6 +46,12 @@ public:
     // Public helper for sound mode conversion (for use in callbacks)
     static VbiSoundModeView mapSoundMode(orc::VbiSoundMode mode);
 
+    // Static method for decoding VBI from observation context
+    // This allows render_coordinator to decode VBI without including core headers
+    static std::optional<VBIFieldInfoView> decodeVbiFromObservation(
+        const void* observation_context_ptr,  // orc::ObservationContext* but opaque
+        FieldID field_id);
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

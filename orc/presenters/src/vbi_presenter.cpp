@@ -125,4 +125,21 @@ VbiPresenter::FrameVbiResult VbiPresenter::getVbiForFrame(NodeID node_id, FieldI
     return out;
 }
 
+std::optional<VBIFieldInfoView> VbiPresenter::decodeVbiFromObservation(
+    const void* observation_context_ptr,
+    FieldID field_id)
+{
+    if (!observation_context_ptr) return std::nullopt;
+
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(observation_context_ptr);
+    
+    try {
+        auto vbi = VBIDecoder::decode_vbi(*obs_context, field_id);
+        if (!vbi.has_value()) return std::nullopt;
+        return toView(*vbi);
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 } // namespace orc::presenters

@@ -10,6 +10,7 @@
 #pragma once
 
 #include "tbc_metadata.h"  // For VideoSystem enum
+#include <common_types.h>  // For SourceType enum
 #include <string>
 #include <variant>
 #include <vector>
@@ -19,12 +20,7 @@
 
 namespace orc {
 
-/// Source type for parameter filtering
-enum class SourceType {
-    Unknown,     // Source type not determined yet
-    Composite,   // Composite source (Y+C modulated together, e.g., .tbc files)
-    YC           // YC source (separate Y and C channels, e.g., .tbcy/.tbcc files)
-};
+// SourceType now defined in common_types.h
 
 /// Parameter value types supported by stages
 using ParameterValue = std::variant<

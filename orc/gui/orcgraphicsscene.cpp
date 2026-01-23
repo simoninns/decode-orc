@@ -12,7 +12,8 @@
 #include "logging.h"
 #include <node_type.h>
 #include "presenters/include/project_presenter.h"
-#include "../core/analysis/analysis_registry.h"
+#include "presenters/include/analysis_presenter.h"
+#include "analysis_registry.h"  // TODO(MVP): Remove - use AnalysisPresenter instead
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 #include <QGraphicsView>
 #include <QMessageBox>

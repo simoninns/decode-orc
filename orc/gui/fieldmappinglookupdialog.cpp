@@ -8,7 +8,6 @@
  */
 
 #include "fieldmappinglookupdialog.h"
-#include "../core/analysis/field_mapping/field_mapping_lookup.h"
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>

@@ -21,6 +21,52 @@ generate_platform_icons(
     "${ICON_OUTPUT_DIR}"
 )
 
+# =============================================================================
+# Analysis Bridge Library - Internal Implementation Detail
+# =============================================================================
+# This library contains GUI analysis framework components that currently
+# interface directly with core types. This is a controlled violation of MVP
+# architecture that is documented and isolated.
+#
+# TODO(MVP Phase 3): Migrate these components to use presenter pattern
+# or refactor to eliminate direct core dependencies.
+#
+# These files are NOT part of the public GUI API and should only be used
+# internally by the GUI module.
+# =============================================================================
+add_library(orc-gui-analysis-bridge STATIC
+    analysis/analysis_progress_impl.cpp
+    analysis/analysis_progress_impl.h
+    analysis/analysis_runner.cpp
+    analysis/analysis_runner.h
+    analysis/analysis_dialog.cpp
+    analysis/analysis_dialog.h
+    analysis/vectorscope_dialog.cpp
+    analysis/vectorscope_dialog.h
+)
+
+# This bridge library is ALLOWED to see core (controlled exception)
+target_include_directories(orc-gui-analysis-bridge PRIVATE
+    ${CMAKE_SOURCE_DIR}/orc/core/include
+    ${CMAKE_SOURCE_DIR}/orc/core/analysis
+    ${CMAKE_SOURCE_DIR}/orc/core/stages/chroma_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(orc-gui-analysis-bridge PRIVATE
+    orc-core
+    Qt6::Core
+    Qt6::Widgets
+)
+
+target_compile_definitions(orc-gui-analysis-bridge PRIVATE
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
+)
+
+# =============================================================================
+# Main GUI Application
+# =============================================================================
+
 # GUI application sources
 add_executable(orc-gui WIN32
     main.cpp
@@ -52,15 +98,7 @@ add_executable(orc-gui WIN32
     node_type_helper.cpp
     node_type_helper.h
     
-    # Analysis framework GUI components
-    analysis/analysis_progress_impl.cpp
-    analysis/analysis_progress_impl.h
-    analysis/analysis_runner.cpp
-    analysis/analysis_runner.h
-    analysis/analysis_dialog.cpp
-    analysis/analysis_dialog.h
-        analysis/vectorscope_dialog.cpp
-        analysis/vectorscope_dialog.h
+    # Note: Analysis framework components moved to orc-gui-analysis-bridge library
     
     # Inspection dialog
     inspection_dialog.cpp
@@ -126,6 +164,7 @@ target_link_libraries(orc-gui PRIVATE
     orc-core 
     orc-public
     orc-presenters
+    orc-gui-analysis-bridge  # Internal analysis framework bridge
     Qt6::Core 
     Qt6::Widgets
     QtNodes
@@ -138,6 +177,15 @@ target_compile_definitions(orc-gui PRIVATE
 )
 
 target_include_directories(orc-gui PRIVATE
+    # NOTE: These core includes represent remaining MVP architecture debt
+    # Files still using core headers directly:
+    # - render_coordinator.{h,cpp}: preview_renderer.h, project_to_dag.h, stage headers
+    # - guiproject.{h,cpp}: project.h, project_to_dag.h
+    # - stageparameterdialog.h: stage_parameter.h
+    # - configdialogbase.h: stage_parameter.h
+    # - fieldpreviewwidget.h: preview_renderer.h
+    # - mainwindow.h: preview_renderer.h
+    # These need Phase 2/3 migration to presenters before removal is possible.
     ${CMAKE_SOURCE_DIR}/orc/core/include
     ${CMAKE_SOURCE_DIR}/orc/core/analysis
     ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink

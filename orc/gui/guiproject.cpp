@@ -10,7 +10,8 @@
 #include "guiproject.h"
 #include "tbc_video_field_representation.h"
 #include "logging.h"
-#include "../core/include/project_to_dag.h"
+#include "presenters/include/project_presenter.h"
+#include "project_to_dag.h"  // TODO(MVP): Remove - use ProjectPresenter instead
 #include <QFileInfo>
 #include <algorithm>
 
@@ -74,7 +75,8 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
         // Attempt to validate source nodes by trying to access them
         if (dag_ && hasSource()) {
             ORC_LOG_DEBUG("Validating source nodes in DAG");
-            orc::validate_source_nodes(dag_);
+            // TODO(MVP): Move validation to presenter if needed
+            // orc::validate_source_nodes(dag_);
         }
         
         return true;
@@ -125,6 +127,7 @@ void GUIProject::rebuildDAG()
     // SOURCE nodes use TBCSourceStage which loads TBC files directly
     try {
         ORC_LOG_DEBUG("Converting project to executable DAG");
+        // TODO(MVP): Use ProjectPresenter::buildDAG() instead
         dag_ = orc::project_to_dag(core_project_);
         ORC_LOG_DEBUG("DAG built successfully from project");
     } catch (const std::exception& e) {

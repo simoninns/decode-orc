@@ -8,7 +8,6 @@
  */
 
 #include "qualitymetricsdialog.h"
-#include "../core/include/observation_context.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QGridLayout>

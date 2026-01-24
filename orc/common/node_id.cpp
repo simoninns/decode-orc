@@ -1,6 +1,6 @@
 /*
  * File:        node_id.cpp
- * Module:      orc-core
+ * Module:      orc-common
  * Purpose:     NodeID implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

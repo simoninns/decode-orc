@@ -8,6 +8,7 @@
  */
 
 #include "render_presenter.h"
+#include "metrics_presenter.h"
 #include "../core/include/project.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/include/preview_renderer.h"
@@ -800,6 +801,78 @@ bool RenderPresenter::getBurstLevelAnalysisData(
     frame_stats.push_back(const_cast<void*>(static_cast<const void*>(&stats)));
     
     return true;
+}
+
+QualityMetrics RenderPresenter::getFieldQualityMetrics(NodeID node_id, FieldID field_id)
+{
+    if (!impl_->field_renderer_) {
+        return QualityMetrics{};  // Empty metrics
+    }
+    
+    // Render the field to populate observation context
+    auto render_result = impl_->field_renderer_->render_field_at_node(node_id, field_id);
+    
+    if (!render_result.is_valid) {
+        return QualityMetrics{};
+    }
+    
+    // Extract metrics from observation context
+    const auto& obs_context = impl_->field_renderer_->get_observation_context();
+    return MetricsPresenter::extractFieldMetrics(field_id, obs_context);
+}
+
+QualityMetrics RenderPresenter::getFrameQualityMetrics(NodeID node_id, FieldID field1_id, FieldID field2_id)
+{
+    if (!impl_->field_renderer_) {
+        return QualityMetrics{};
+    }
+    
+    // Render both fields to populate observation context
+    auto render_result1 = impl_->field_renderer_->render_field_at_node(node_id, field1_id);
+    auto render_result2 = impl_->field_renderer_->render_field_at_node(node_id, field2_id);
+    
+    if (!render_result1.is_valid || !render_result2.is_valid) {
+        return QualityMetrics{};
+    }
+    
+    // Extract and average metrics from observation context
+    const auto& obs_context = impl_->field_renderer_->get_observation_context();
+    return MetricsPresenter::extractFrameMetrics(field1_id, field2_id, obs_context);
+}
+
+std::shared_ptr<const void> RenderPresenter::executeToNode(NodeID node_id)
+{
+    if (!impl_->dag_) {
+        return nullptr;
+    }
+    
+    try {
+        orc::DAGExecutor executor;
+        auto node_outputs = executor.execute_to_node(*impl_->dag_, node_id);
+        
+        auto it = node_outputs.find(node_id);
+        if (it != node_outputs.end() && !it->second.empty()) {
+            // Return the first output (typically VideoFieldRepresentation)
+            return std::static_pointer_cast<const void>(it->second[0]);
+        }
+    } catch (const std::exception&) {
+        return nullptr;
+    }
+    
+    return nullptr;
+}
+
+const void* RenderPresenter::getObservationContext(NodeID node_id, FieldID field_id)
+{
+    if (!impl_->field_renderer_) {
+        return nullptr;
+    }
+    
+    // Render the field to populate observation context
+    impl_->field_renderer_->render_field_at_node(node_id, field_id);
+    
+    // Return pointer to observation context
+    return &impl_->field_renderer_->get_observation_context();
 }
 
 } // namespace orc::presenters

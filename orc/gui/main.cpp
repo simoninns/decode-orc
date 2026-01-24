@@ -363,6 +363,7 @@ int main(int argc, char *argv[])
     int result = app.exec();
     ORC_LOG_INFO("orc-gui exiting");
 
-    orc::cleanup_crash_handler();
+    // Crash handler cleanup removed - not currently in use
+    // orc::cleanup_crash_handler();
     return result;
 }

@@ -350,6 +350,29 @@ std::vector<NodeInfo> ProjectPresenter::getNodes() const
     return result;
 }
 
+NodeID ProjectPresenter::getFirstNode() const
+{
+    if (!project_.get()) return NodeID();
+    
+    const auto& nodes = project_.get()->get_nodes();
+    if (nodes.empty()) {
+        return NodeID();  // Invalid NodeID
+    }
+    
+    return nodes[0].node_id;
+}
+
+bool ProjectPresenter::hasNode(NodeID node_id) const
+{
+    if (!project_.get()) return false;
+    
+    const auto& nodes = project_.get()->get_nodes();
+    auto it = std::find_if(nodes.begin(), nodes.end(),
+        [node_id](const auto& node) { return node.node_id == node_id; });
+    
+    return it != nodes.end();
+}
+
 std::vector<EdgeInfo> ProjectPresenter::getEdges() const
 {
     std::vector<EdgeInfo> result;
@@ -644,10 +667,26 @@ bool ProjectPresenter::validateDAG()
 
 std::vector<ParameterDescriptor> ProjectPresenter::getStageParameters(const std::string& stage_name)
 {
-    // TODO(MVP): Implement when needed
-    // Need to cast DAGStage to ParameterizedStage to get parameter descriptors
-    (void)stage_name;
-    return {};
+    try {
+        // Create a temporary stage instance
+        auto& registry = orc::StageRegistry::instance();
+        auto stage = registry.create_stage(stage_name);
+        
+        // Cast to ParameterizedStage
+        auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+        if (!param_stage) {
+            return {};  // Stage doesn't have parameters
+        }
+        
+        // Get current project's video format and source type for context
+        auto video_format = project_ ? project_->get_video_format() : VideoSystem::Unknown;
+        auto source_type_core = project_ ? project_->get_source_type() : orc::SourceType::Unknown;
+        
+        // Get parameter descriptors with project context
+        return param_stage->get_parameter_descriptors(video_format, source_type_core);
+    } catch (const std::exception&) {
+        return {};
+    }
 }
 
 std::map<std::string, ParameterValue> ProjectPresenter::getNodeParameters(NodeID node_id)

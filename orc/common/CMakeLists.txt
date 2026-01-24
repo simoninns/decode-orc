@@ -5,6 +5,7 @@
 
 add_library(orc-common
     parameter_util.cpp
+    node_id.cpp
 )
 
 # PUBLIC interface - these directories are visible to all consumers

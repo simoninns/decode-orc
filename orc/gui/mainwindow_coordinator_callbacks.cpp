@@ -36,14 +36,9 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::public_api::PreviewRen
     ORC_LOG_DEBUG("onPreviewReady: request_id={}, success={}", request_id, result.success);
     
     if (result.success) {
-        // Convert public API image to core type for GUI widgets
-        orc::PreviewImage core_image;
-        core_image.width = result.image.width;
-        core_image.height = result.image.height;
-        core_image.rgb_data = result.image.rgb_data;  // Shares the vector
-        
-        preview_dialog_->previewWidget()->setImage(core_image);
-        updateVectorscope(result.node_id, core_image);
+        // Use public API image directly - no conversion needed
+        preview_dialog_->previewWidget()->setImage(result.image);
+        updateVectorscope(result.node_id, result.image);
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(

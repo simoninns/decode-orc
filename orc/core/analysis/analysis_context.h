@@ -2,7 +2,7 @@
 #define ORC_CORE_ANALYSIS_CONTEXT_H
 
 #include "../include/stage_parameter.h"
-#include "../include/node_id.h"
+#include <node_id.h>
 #include <string>
 #include <map>
 #include <memory>

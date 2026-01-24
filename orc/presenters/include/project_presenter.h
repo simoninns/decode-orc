@@ -219,8 +219,10 @@ public:
      * @brief Create an immutable snapshot copy of the project
      * @return Shared pointer to project copy (safe to cache)
      * 
+     * @internal Transitional API - exposes core Project type.
      * Used by analysis tools that need to work with a stable copy
      * of the project without worrying about concurrent modifications.
+     * Will be refactored to use public API types in Phase 3.5.
      */
     std::shared_ptr<const orc::Project> createSnapshot() const;
     
@@ -283,6 +285,19 @@ public:
      * @brief Get all nodes in the project
      */
     std::vector<NodeInfo> getNodes() const;
+    
+    /**
+     * @brief Get the first node in the DAG (if any)
+     * @return NodeID of first node, or invalid NodeID if no nodes
+     */
+    NodeID getFirstNode() const;
+    
+    /**
+     * @brief Check if a node exists in the project
+     * @param node_id Node to check
+     * @return true if node exists
+     */
+    bool hasNode(NodeID node_id) const;
     
     /**
      * @brief Get all edges in the project
@@ -366,6 +381,10 @@ public:
      * @brief Get inspection report for a node
      * @param node_id Node to inspect
      * @return Inspection report, or nullopt if not available
+     * 
+     * This creates a stage instance (from DAG if available, otherwise fresh),
+     * and generates an inspection report. The report contains human-readable
+     * information about the stage's current state and configuration.
      */
     std::optional<StageInspectionView> getNodeInspection(NodeID node_id) const;
     
@@ -431,6 +450,14 @@ public:
      * 
      * This is needed for components that require direct Project access (e.g., RenderPresenter).
      * The presenter retains ownership of the Project.
+     */
+    /**
+     * @brief Get pointer to underlying core project
+     * @return Pointer to core project
+     * 
+     * @internal This is a transitional API for components that haven't
+     * been fully migrated to use presenters. Will be removed in Phase 3.5.
+     * New code should NOT use this method.
      */
     orc::Project* getCoreProject() { return project_.get(); }
 

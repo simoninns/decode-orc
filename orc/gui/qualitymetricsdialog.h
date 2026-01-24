@@ -66,6 +66,22 @@ public:
                                           const orc::ObservationContext& obs_context);
     
     /**
+     * @brief Update the quality metrics display for a field using pre-extracted metrics
+     * @param field_id Field ID for display
+     * @param metrics Pre-extracted quality metrics
+     */
+    void updateMetrics(orc::FieldID field_id, const orc::presenters::QualityMetrics& metrics);
+    
+    /**
+     * @brief Update the quality metrics display for a frame using pre-extracted metrics
+     * @param field1_id First field ID for display
+     * @param field2_id Second field ID for display
+     * @param metrics Combined/averaged quality metrics for the frame
+     */
+    void updateMetricsForFrame(orc::FieldID field1_id, orc::FieldID field2_id,
+                                const orc::presenters::QualityMetrics& metrics);
+    
+    /**
      * @brief Clear all metrics (when no preview is available)
      */
     void clearMetrics();

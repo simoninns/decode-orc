@@ -1,7 +1,6 @@
 add_library(orc-core STATIC
     # Phase 1: Foundations
     field_id.cpp
-    node_id.cpp
     video_field_representation.cpp
     artifact.cpp
     dag_executor.cpp

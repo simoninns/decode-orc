@@ -124,7 +124,7 @@ struct QualityAnalysisData {
 /**
  * @brief Progress callback for analysis operations
  */
-using AnalysisProgressCallback = std::function<void(int current, int total, const std::string& status)>;
+using AnalysisProgressCallback = std::function<void(size_t current, size_t total, const std::string& status)>;
 
 /**
  * @brief AnalysisPresenter - Manages analysis data access and operations

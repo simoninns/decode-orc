@@ -269,6 +269,20 @@ void QualityMetricsDialog::updateMetricsFromContext(
     updateFieldLabels(metrics, true);
 }
 
+void QualityMetricsDialog::updateMetrics(
+    orc::FieldID field_id,
+    const orc::presenters::QualityMetrics& metrics)
+{
+    (void)field_id;  // Unused - just for API consistency
+    showing_frame_mode_ = false;
+    field1_group_->show();
+    field2_group_->hide();
+    frame_group_->hide();
+    field1_group_->setTitle("Field");
+    
+    updateFieldLabels(metrics, true);
+}
+
 void QualityMetricsDialog::updateMetricsForFrameFromContext(
     orc::FieldID field1_id,
     orc::FieldID field2_id,
@@ -286,4 +300,49 @@ void QualityMetricsDialog::updateMetricsForFrameFromContext(
     updateFieldLabels(field1_metrics, true);
     updateFieldLabels(field2_metrics, false);
     updateFrameAverageLabels(field1_metrics, field2_metrics);
+}
+
+void QualityMetricsDialog::updateMetricsForFrame(
+    orc::FieldID field1_id,
+    orc::FieldID field2_id,
+    const orc::presenters::QualityMetrics& metrics)
+{
+    (void)field1_id;   // Unused
+    (void)field2_id;   // Unused
+    showing_frame_mode_ = true;
+    field1_group_->show();
+    field2_group_->hide();  // Don't show individual fields, just averaged
+    frame_group_->show();
+    frame_group_->setTitle("Frame Metrics");
+    
+    // Use the combined metrics for the frame group
+    if (metrics.has_white_snr) {
+        frame_white_snr_label_->setText(QString("%1 dB").arg(metrics.white_snr, 0, 'f', 2));
+    } else {
+        frame_white_snr_label_->setText("N/A");
+    }
+    
+    if (metrics.has_black_psnr) {
+        frame_black_psnr_label_->setText(QString("%1 dB").arg(metrics.black_psnr, 0, 'f', 2));
+    } else {
+        frame_black_psnr_label_->setText("N/A");
+    }
+    
+    if (metrics.has_burst_level) {
+        frame_burst_level_label_->setText(QString("%1 IRE").arg(metrics.burst_level, 0, 'f', 2));
+    } else {
+        frame_burst_level_label_->setText("N/A");
+    }
+    
+    if (metrics.has_quality_score) {
+        frame_quality_score_label_->setText(QString("%1").arg(metrics.quality_score, 0, 'f', 3));
+    } else {
+        frame_quality_score_label_->setText("N/A");
+    }
+    
+    if (metrics.has_dropout_count) {
+        frame_dropout_count_label_->setText(QString("%1").arg(metrics.dropout_count));
+    } else {
+        frame_dropout_count_label_->setText("N/A");
+    }
 }

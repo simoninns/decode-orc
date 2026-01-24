@@ -19,7 +19,7 @@
 #include <QImage>
 #include <string>
 #include <optional>
-#include "../../core/include/node_id.h"
+#include <node_id.h>
 #include "../../core/analysis/vectorscope/vectorscope_data.h"
 
 /**

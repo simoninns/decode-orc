@@ -30,15 +30,8 @@ namespace orc::presenters {
 
 // Forward declarations
 class Project;
-
-/**
- * @brief Progress callback for batch rendering operations
- * 
- * @param current Current field being rendered
- * @param total Total fields to render
- * @param message Status message
- */
-using ProgressCallback = std::function<void(int current, int total, const std::string& message)>;
+struct QualityMetrics;  // From metrics_presenter.h
+using ProgressCallback = std::function<void(size_t, size_t, const std::string&)>;  // From project_presenter.h
 
 /**
  * @brief VBI data for a single field
@@ -138,6 +131,13 @@ public:
     /**
      * @brief Set the DAG directly (for coordination with external DAG management)
      * @param dag Shared pointer to DAG (can be nullptr for empty projects)
+     */
+    /**
+     * @brief Set the DAG for rendering
+     * @param dag Shared pointer to DAG
+     * 
+     * @internal Transitional API - takes core DAG type.
+     * Will be refactored to use presenter-based DAG updates in Phase 3.5.
      */
     void setDAG(std::shared_ptr<const orc::DAG> dag);
     
@@ -479,6 +479,61 @@ public:
      * @return Observation data as JSON
      */
     ObservationData getObservations(NodeID node_id, FieldID field_id);
+    
+    /**
+     * @brief Render field and get quality metrics
+     * 
+     * This renders the field at the specified node and extracts quality metrics
+     * from the observation context. This is the preferred method for GUI code
+     * that needs quality metrics without direct access to core types.
+     * 
+     * @param node_id Node to render at
+     * @param field_id Field to render
+     * @return Quality metrics (use MetricsPresenter types)
+     */
+    QualityMetrics getFieldQualityMetrics(NodeID node_id, FieldID field_id);
+    
+    /**
+     * @brief Render both fields of a frame and get combined quality metrics
+     * 
+     * This renders both fields and averages their quality metrics.
+     * 
+     * @param node_id Node to render at
+     * @param field1_id First field
+     * @param field2_id Second field
+     * @return Combined quality metrics
+     */
+    QualityMetrics getFrameQualityMetrics(NodeID node_id, FieldID field1_id, FieldID field2_id);
+    
+    /**
+     * @brief Execute DAG to a specific node and return field representation
+     * 
+     * This executes the DAG up to (not including) the specified node and returns
+     * the field representation output. This is used for analysis tools that need
+     * access to intermediate field data.
+     * 
+     * @param node_id Node to execute to
+     * @return Shared pointer to field representation (as void* for encapsulation)
+     * 
+     * @internal This is a transitional API that returns core VideoFieldRepresentation.
+     * Will be refactored to use public API types in Phase 3.5.
+     */
+    std::shared_ptr<const void> executeToNode(NodeID node_id);
+    
+    /**
+     * @brief Get observation context after rendering a field
+     * 
+     * This renders the field and returns the observation context which can be
+     * used by presenters to extract various metrics and observations.
+     * 
+     * @param node_id Node to render at
+     * @param field_id Field to render
+     * @return Pointer to observation context (as void* for encapsulation)
+     * 
+     * @internal This is a transitional API that returns core ObservationContext.
+     * Will be refactored in Phase 3.5.
+     */
+    const void* getObservationContext(NodeID node_id, FieldID field_id);
     
     // === Cache Management ===
     

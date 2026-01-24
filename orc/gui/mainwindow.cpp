@@ -35,6 +35,7 @@
 #include "presenters/include/vbi_presenter.h"
 #include "presenters/include/ntsc_observation_presenter.h"
 #include "presenters/include/project_presenter.h"
+#include "presenters/include/render_presenter.h"
 #include <node_type.h>
 #include <common_types.h>
 
@@ -68,6 +69,27 @@
 
 #include <queue>
 #include <map>
+
+// Helper functions to convert between common types and presenter types
+namespace {
+    orc::presenters::VideoFormat toPresenterVideoFormat(orc::VideoSystem system) {
+        switch (system) {
+            case orc::VideoSystem::NTSC: return orc::presenters::VideoFormat::NTSC;
+            case orc::VideoSystem::PAL: return orc::presenters::VideoFormat::PAL;
+            case orc::VideoSystem::Unknown: return orc::presenters::VideoFormat::Unknown;
+        }
+        return orc::presenters::VideoFormat::Unknown;
+    }
+    
+    orc::presenters::SourceType toPresenterSourceType(orc::SourceType type) {
+        switch (type) {
+            case orc::SourceType::Composite: return orc::presenters::SourceType::Composite;
+            case orc::SourceType::YC: return orc::presenters::SourceType::YC;
+            case orc::SourceType::Unknown: return orc::presenters::SourceType::Unknown;
+        }
+        return orc::presenters::SourceType::Unknown;
+    }
+}
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -823,7 +845,10 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
     QString project_name = "Untitled";
     
     QString error;
-    if (!project_.newEmptyProject(project_name, video_format, source_format, &error)) {
+    if (!project_.newEmptyProject(project_name, 
+                                  toPresenterVideoFormat(video_format), 
+                                  toPresenterSourceType(source_format), 
+                                  &error)) {
         ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
@@ -1060,7 +1085,10 @@ void MainWindow::quickProject(const QString& filename)
     QString project_name = file_info.completeBaseName();
     QString error;
     
-    if (!project_.newEmptyProject(project_name, video_format, source_type, &error)) {
+    if (!project_.newEmptyProject(project_name, 
+                                  toPresenterVideoFormat(video_format), 
+                                  toPresenterSourceType(source_type), 
+                                  &error)) {
         ORC_LOG_ERROR("Failed to create project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
@@ -1411,7 +1439,7 @@ void MainWindow::onAspectRatioModeChanged(int index)
     // Use hardcoded aspect ratio modes for simplicity
     // Note: Could request from coordinator if dynamic modes are needed in the future,
     // but these two modes (SAR 1:1 and DAR 4:3) cover all current use cases
-    static std::vector<orc::AspectRatioModeInfo> available_modes = {
+    static std::vector<orc::public_api::AspectRatioModeInfo> available_modes = {
         {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
     };
@@ -1526,7 +1554,7 @@ void MainWindow::updatePreviewInfo()
                   static_cast<int>(current_output_type_), current_index, total);
     
     // Build display info client-side
-    orc::PreviewItemDisplayInfo display_info;
+    orc::public_api::PreviewItemDisplayInfo display_info;
     // Get display name from available outputs
     display_info.type_name = "Item";  // Default fallback
     for (const auto& output : available_outputs_) {
@@ -1672,34 +1700,8 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
         return;
     }
     
-    // Create a new temporary instance for getting parameter descriptors
-    // DO NOT use DAG stage - that would cause data races with worker thread!
-    // The worker thread has exclusive ownership of the DAG.
-    auto stage_void = orc::presenters::ProjectPresenter::createStageInstance(stage_name);
-    orc::DAGStagePtr stage = std::reinterpret_pointer_cast<orc::DAGStagePtr::element_type>(stage_void);
-    auto param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-    ORC_LOG_DEBUG("Using new stage instance for parameter descriptors (thread-safe)");
-    
-    if (!param_stage) {
-        QMessageBox::information(this, "Edit Parameters",
-            QString("Stage '%1' does not have configurable parameters")
-                .arg(QString::fromStdString(stage_name)));
-        return;
-    }
-    
-    // Get parameter descriptors with project video format and source type context
-    auto video_format_presenter = project_.presenter()->getVideoFormat();
-    auto source_type_presenter = project_.presenter()->getSourceType();
-    
-    // Convert presenter enums to core enums
-    auto video_format = (video_format_presenter == orc::presenters::VideoFormat::NTSC) ? orc::VideoSystem::NTSC :
-                        (video_format_presenter == orc::presenters::VideoFormat::PAL) ? orc::VideoSystem::PAL :
-                        orc::VideoSystem::Unknown;
-    auto source_type = (source_type_presenter == orc::presenters::SourceType::Composite) ? orc::SourceType::Composite :
-                       (source_type_presenter == orc::presenters::SourceType::YC) ? orc::SourceType::YC :
-                       orc::SourceType::Unknown;
-    
-    auto param_descriptors = param_stage->get_parameter_descriptors(video_format, source_type);
+    // Get parameter descriptors using presenter (handles video format/source type context internally)
+    auto param_descriptors = project_.presenter()->getStageParameters(stage_name);
     
     if (param_descriptors.empty()) {
         QMessageBox::information(this, "Edit Parameters",
@@ -2070,23 +2072,16 @@ void MainWindow::updatePreview()
     latest_requested_preview_index_ = current_index;
 }
 
-void MainWindow::updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image)
+void MainWindow::updateVectorscope(const orc::NodeID& node_id, const orc::public_api::PreviewImage& image)
 {
     auto it = vectorscope_dialogs_.find(node_id);
     if (it == vectorscope_dialogs_.end()) return;
     auto* dialog = it->second;
     if (!dialog || !dialog->isVisible()) return;
-    if (!image.vectorscope_data.has_value()) return;
-
-    uint64_t field_number = 0;
-    if (current_output_type_ == orc::PreviewOutputType::Frame ||
-        current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
-        current_output_type_ == orc::PreviewOutputType::Split) {
-        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value()) * 2;
-    } else {
-        field_number = static_cast<uint64_t>(preview_dialog_->previewSlider()->value());
-    }
-    dialog->updateForField(field_number, &*image.vectorscope_data);
+    // Note: vectorscope_data is not in public API yet - handled in Phase 3.6
+    // For now, vectorscope updates are disabled until the type is migrated
+    (void)image;  // Suppress unused parameter warning
+    return;
 }
 
 void MainWindow::updatePreviewModeCombo()
@@ -2134,7 +2129,7 @@ void MainWindow::updatePreviewModeCombo()
 void MainWindow::updateAspectRatioCombo()
 {
     // Populate aspect ratio combo (client-side, no coordinator needed)
-    static std::vector<orc::AspectRatioModeInfo> available_modes = {
+    static std::vector<orc::public_api::AspectRatioModeInfo> available_modes = {
         {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
     };
@@ -2226,9 +2221,9 @@ void MainWindow::updatePreviewRenderer()
     
     // Debug: show what we're working with
     if (dag) {
-        const auto& dag_nodes = dag->nodes();
-        ORC_LOG_DEBUG("DAG contains {} nodes:", dag_nodes.size());
-        for (const auto& node : dag_nodes) {
+        auto nodes = project_.presenter()->getNodes();
+        ORC_LOG_DEBUG("DAG contains {} nodes:", nodes.size());
+        for (const auto& node : nodes) {
             ORC_LOG_DEBUG("  - {}", node.node_id);
         }
     } else {
@@ -2246,21 +2241,13 @@ void MainWindow::updatePreviewRenderer()
         // No node selected yet - use suggestion
         need_to_switch = true;
     } else {
-        // Check if current node still exists in DAG
-        bool current_exists = false;
-        if (dag) {
-            for (const auto& node : dag->nodes()) {
-                if (node.node_id == current_view_node_id_) {
-                    current_exists = true;
-                    break;
-                }
-            }
-        }
+        // Check if current node still exists using presenter
+        bool current_exists = project_.presenter()->hasNode(current_view_node_id_);
         
         // If current node was deleted or is placeholder when real nodes exist, switch
         if (!current_exists && current_view_node_id_ != NodeID(-999)) {
             need_to_switch = true;
-        } else if (current_view_node_id_ == NodeID(-999) && dag && !dag->nodes().empty()) {
+        } else if (current_view_node_id_ == NodeID(-999) && project_.presenter()->getFirstNode().is_valid()) {
             need_to_switch = true;
         }
     }
@@ -2273,10 +2260,13 @@ void MainWindow::updatePreviewRenderer()
         // suggestion (e.g., prefer sink nodes, or nodes with most connections).
         // Current approach: Simple fallback to first node is adequate for typical workflows.
         ORC_LOG_DEBUG("Node switching needed - using first node fallback");
-        if (current_view_node_id_.is_valid() == false && dag && !dag->nodes().empty()) {
+        if (current_view_node_id_.is_valid() == false) {
             // Pick first node as temporary fallback
-            current_view_node_id_ = dag->nodes()[0].node_id;
-            pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
+            NodeID first_node = project_.presenter()->getFirstNode();
+            if (first_node.is_valid()) {
+                current_view_node_id_ = first_node;
+                pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
+            }
         }
     } else {
         // Keep current node - request fresh outputs in case parameters changed
@@ -2455,65 +2445,19 @@ void MainWindow::onInspectStage(const NodeID& node_id)
     
     const std::string& stage_name = node_it->stage_name;
     
-    // Try to get the stage from the DAG if available (preserves execution state)
-    orc::DAGStagePtr stage;
-    auto dag = project_.getDAG();
-    if (dag) {
-        const auto& dag_nodes = dag->nodes();
-        auto dag_node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
-            [&node_id](const orc::DAGNode& n) { return n.node_id == node_id; });
-        if (dag_node_it != dag_nodes.end()) {
-            stage = dag_node_it->stage;
-            ORC_LOG_DEBUG("Using stage from DAG (preserves execution state)");
-        }
-    }
-    
-    // If not in DAG, create a fresh instance
-    if (!stage) {
-        ORC_LOG_DEBUG("Creating fresh stage instance (no execution state)");
-        try {
-            if (!orc::presenters::ProjectPresenter::hasStage(stage_name)) {
-                ORC_LOG_ERROR("Stage type '{}' not found in registry", stage_name);
-                QMessageBox::warning(this, "Inspection Failed",
-                    QString("Stage type '%1' not found in registry.").arg(QString::fromStdString(stage_name)));
-                return;
-            }
-            
-            auto stage_void = orc::presenters::ProjectPresenter::createStageInstance(stage_name);
-            stage = std::reinterpret_pointer_cast<orc::DAGStagePtr::element_type>(stage_void);
-            
-            // Apply the node's parameters to the stage
-            auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
-            if (param_stage) {
-                param_stage->set_parameters(project_.presenter()->getNodeParameters(node_id));
-            }
-        } catch (const std::exception& e) {
-            ORC_LOG_ERROR("Failed to create stage '{}': {}", stage_name, e.what());
-            QMessageBox::warning(this, "Inspection Failed",
-                QString("Failed to create stage: %1").arg(e.what()));
-            return;
-        }
-    }
-    
-    // Generate report from the stage
+    // Use presenter to get inspection report (handles DAG vs fresh stage internally)
     try {
-        auto report = stage->generate_report();
+        auto inspection_view = project_.presenter()->getNodeInspection(node_id);
         
-        if (!report.has_value()) {
+        if (!inspection_view.has_value()) {
             QMessageBox::information(this, "Stage Inspection",
                 QString("Stage '%1' does not support inspection reporting.")
                     .arg(QString::fromStdString(stage_name)));
             return;
         }
         
-        // Convert core StageReport to presenter StageInspectionView
-        orc::presenters::StageInspectionView view;
-        view.summary = report->summary;
-        view.items = report->items;
-        view.metrics = report->metrics;
-        
         // Show inspection dialog with presenter view model
-        orc::InspectionDialog dialog(view, this);
+        orc::InspectionDialog dialog(inspection_view.value(), this);
         dialog.exec();
         
     } catch (const std::exception& e) {
@@ -2742,19 +2686,21 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
 
         // Get DAG and execute to input node
         auto dag = project_.getDAG();
-        if (!dag) {
-            QMessageBox::warning(this, "Error", "Could not build DAG.");
+        // Create temporary RenderPresenter for execution
+        auto* core_project = project_.presenter()->getCoreProject();
+        if (!core_project) {
+            QMessageBox::warning(this, "Error", "Invalid project state.");
             return;
         }
-
-        orc::DAGExecutor executor;
-        std::shared_ptr<const orc::VideoFieldRepresentation> source_repr;
         
+        orc::presenters::RenderPresenter render_presenter(core_project);
+        render_presenter.setDAG(project_.getDAG());
+        
+        std::shared_ptr<const orc::VideoFieldRepresentation> source_repr;
         try {
-            auto node_outputs = executor.execute_to_node(*dag, input_node_id);
-            auto it = node_outputs.find(input_node_id);
-            if (it != node_outputs.end() && !it->second.empty()) {
-                source_repr = std::dynamic_pointer_cast<const orc::VideoFieldRepresentation>(it->second[0]);
+            auto output_void = render_presenter.executeToNode(input_node_id);
+            if (output_void) {
+                source_repr = std::static_pointer_cast<const orc::VideoFieldRepresentation>(output_void);
             }
         } catch (const std::exception& e) {
             QMessageBox::warning(this, "Error",
@@ -3160,47 +3106,26 @@ void MainWindow::updateQualityMetricsDialog()
         field2_id = orc::FieldID(0);
     }
     
-    // Get field representations from the current DAG/node
-    // Note: This is a synchronous access - we'll create a temporary renderer
+    // Get quality metrics using presenter (no direct DAGFieldRenderer access)
     try {
-        auto dag = project_.getDAG();
-        if (!dag) {
+        // Create temporary RenderPresenter for metrics extraction
+        auto* core_project = project_.presenter()->getCoreProject();
+        if (!core_project) {
             quality_metrics_dialog_->clearMetrics();
             return;
         }
         
-        // Create a temporary renderer to get the field representation(s) and observation context
-        orc::DAGFieldRenderer renderer(dag);
+        orc::presenters::RenderPresenter render_presenter(core_project);
+        render_presenter.setDAG(project_.getDAG());
         
         if (is_frame_mode) {
-            // Render both fields for frame mode
-            auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
-            auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
-            
-            if (!render_result1.is_valid || !render_result2.is_valid) {
-                quality_metrics_dialog_->clearMetrics();
-                return;
-            }
-            
-            // Update dialog with both fields using observation context
-            quality_metrics_dialog_->updateMetricsForFrameFromContext(
-                field1_id, field2_id,
-                renderer.get_observation_context()
-            );
+            // Get metrics for both fields
+            auto metrics = render_presenter.getFrameQualityMetrics(current_view_node_id_, field1_id, field2_id);
+            quality_metrics_dialog_->updateMetricsForFrame(field1_id, field2_id, metrics);
         } else {
-            // Render single field
-            auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
-            
-            if (!render_result.is_valid) {
-                quality_metrics_dialog_->clearMetrics();
-                return;
-            }
-            
-            // Update dialog with single field using observation context
-            quality_metrics_dialog_->updateMetricsFromContext(
-                field1_id,
-                renderer.get_observation_context()
-            );
+            // Get metrics for single field
+            auto metrics = render_presenter.getFieldQualityMetrics(current_view_node_id_, field1_id);
+            quality_metrics_dialog_->updateMetrics(field1_id, metrics);
         }
         
     } catch (const std::exception& e) {
@@ -3398,43 +3323,44 @@ void MainWindow::updateNtscObserverDialog()
         field2_id = orc::FieldID(0);
     }
     
-    // Get NTSC observations from the current DAG/node
+    // Get NTSC observations using presenter (no direct DAGFieldRenderer access)
     try {
-        auto dag = project_.getDAG();
-        if (!dag) {
+        // Create temporary RenderPresenter for observation extraction
+        auto* core_project = project_.presenter()->getCoreProject();
+        if (!core_project) {
             ntsc_observer_dialog_->clearObservations();
             return;
         }
         
-        // Create a temporary renderer to get the observation context
-        orc::DAGFieldRenderer renderer(dag);
+        orc::presenters::RenderPresenter render_presenter(core_project);
+        render_presenter.setDAG(project_.getDAG());
         
         if (is_frame_mode) {
-            // Render both fields for frame mode
-            auto render_result1 = renderer.render_field_at_node(current_view_node_id_, field1_id);
-            auto render_result2 = renderer.render_field_at_node(current_view_node_id_, field2_id);
+            // Get observation context for both fields
+            const auto* context1_void = render_presenter.getObservationContext(current_view_node_id_, field1_id);
+            const auto* context2_void = render_presenter.getObservationContext(current_view_node_id_, field2_id);
             
-            if (!render_result1.is_valid || !render_result2.is_valid) {
+            if (!context1_void || !context2_void) {
                 ntsc_observer_dialog_->clearObservations();
                 return;
             }
             
-            // Get observation context and convert to presenter view models
-            const auto& context = renderer.get_observation_context();
+            // Cast to ObservationContext and extract observations
+            const auto& context = *static_cast<const orc::ObservationContext*>(context1_void);
             auto field1_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field1_id, context);
             auto field2_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field2_id, context);
             ntsc_observer_dialog_->updateObservationsForFrame(field1_id, field1_obs, field2_id, field2_obs);
         } else {
-            // Render single field
-            auto render_result = renderer.render_field_at_node(current_view_node_id_, field1_id);
+            // Get observation context for single field
+            const auto* context_void = render_presenter.getObservationContext(current_view_node_id_, field1_id);
             
-            if (!render_result.is_valid || !render_result.representation) {
+            if (!context_void) {
                 ntsc_observer_dialog_->clearObservations();
                 return;
             }
             
-            // Get observation context and convert to presenter view model
-            const auto& context = renderer.get_observation_context();
+            // Cast to ObservationContext and extract observations
+            const auto& context = *static_cast<const orc::ObservationContext*>(context_void);
             auto field_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field1_id, context);
             ntsc_observer_dialog_->updateObservations(field1_id, field_obs);
         }

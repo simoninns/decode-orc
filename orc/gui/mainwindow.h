@@ -167,7 +167,7 @@ private:
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls();  // Update slider, combo, preview, and info for current node
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
-    void updateVectorscope(const orc::NodeID& node_id, const orc::public_api::PreviewImage& image);
+    void updateVectorscope(const orc::public_api::PreviewRenderResult& result);
     void loadProjectDAG();  // Load DAG into embedded viewer
     void positionViewToTopLeft();  // Position view to show top-left node
     void selectLowestSourceStage();  // Auto-select source stage with lowest node ID

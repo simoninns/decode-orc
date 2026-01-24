@@ -7,14 +7,28 @@ add_executable(orc-cli
 )
 
 # =============================================================================
-# MVP Architecture - CLI uses presenters (future work)
+# MVP Architecture - CLI Direct Core Access (Phase 3.6 Status)
 # =============================================================================
-# Note: CLI currently has direct core access as it's a low-level tool.
-# Future work could migrate CLI to use presenters for consistency.
-# For now, we set ORC_CLI_BUILD flag but still allow core access.
+# ARCHITECTURAL DECISION:
+# The CLI tool (orc-cli) is a low-level debugging and batch processing tool
+# that intentionally maintains direct core access. This is distinct from the
+# GUI application's strict MVP enforcement.
+#
+# RATIONALE:
+# - CLI is a developer/power-user tool for advanced operations
+# - Direct core access enables low-level debugging and experimentation
+# - No UI layer to protect from complexity - users are expected to understand
+# - Batch processing benefits from direct DAG manipulation
+#
+# FUTURE WORK (Optional):
+# CLI could be migrated to use presenters for consistency with GUI, but this
+# is not required for MVP architecture goals. The primary goal is protecting
+# the GUI layer from core complexity, which Phase 3.6 achieves.
+#
+# Phase 3.6 Status: INTENTIONAL - CLI is a low-level tool with core access
 # =============================================================================
 target_link_libraries(orc-cli PRIVATE 
-    orc-core
+    orc-core  # Intentional direct access for low-level CLI operations
 )
 
 target_include_directories(orc-cli PRIVATE 

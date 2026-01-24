@@ -17,6 +17,7 @@
 #include <common_types.h>  // For PreviewOutputType, AspectRatioMode
 #include <node_id.h>
 #include <field_id.h>
+#include "orc_vectorscope.h"  // For VectorscopeData
 
 namespace orc {
 namespace public_api {
@@ -71,6 +72,9 @@ struct PreviewRenderResult {
     NodeID node_id;
     PreviewOutputType output_type;
     uint64_t output_index;          ///< Which output was rendered (field N, frame N, etc.)
+    
+    // Vectorscope data (if rendering from a ChromaSinkStage)
+    std::optional<VectorscopeData> vectorscope_data;
     
     bool is_valid() const {
         return success && image.is_valid();

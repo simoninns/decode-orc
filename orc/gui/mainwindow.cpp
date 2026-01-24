@@ -2065,16 +2065,17 @@ void MainWindow::updatePreview()
     latest_requested_preview_index_ = current_index;
 }
 
-void MainWindow::updateVectorscope(const orc::NodeID& node_id, const orc::public_api::PreviewImage& image)
+void MainWindow::updateVectorscope(const orc::public_api::PreviewRenderResult& result)
 {
-    auto it = vectorscope_dialogs_.find(node_id);
+    auto it = vectorscope_dialogs_.find(result.node_id);
     if (it == vectorscope_dialogs_.end()) return;
     auto* dialog = it->second;
     if (!dialog || !dialog->isVisible()) return;
-    // Note: vectorscope_data is not in public API yet - handled in Phase 3.6
-    // For now, vectorscope updates are disabled until the type is migrated
-    (void)image;  // Suppress unused parameter warning
-    return;
+    
+    // Update vectorscope if data is available
+    if (result.vectorscope_data) {
+        dialog->updateVectorscope(*result.vectorscope_data);
+    }
 }
 
 void MainWindow::updatePreviewModeCombo()

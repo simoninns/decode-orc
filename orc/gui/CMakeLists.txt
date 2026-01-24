@@ -22,53 +22,9 @@ generate_platform_icons(
 )
 
 # =============================================================================
-# Analysis Bridge Library - Internal Implementation Detail
-# =============================================================================
-# This library contains GUI analysis framework components that currently
-# interface directly with core types. This is a controlled violation of MVP
-# architecture that is documented and isolated.
-# =============================================================================
-# Vectorscope Dialog (Internal Bridge Component)
-# =============================================================================
-#
-# The vectorscope dialog provides live chroma visualization and requires
-# direct access to core ChromaSinkStage for real-time data acquisition.
-# This is maintained as an isolated component with controlled core access.
-#
-# NOTE(MVP Phase 3.5): This is a documented architectural exception.
-# The component is isolated in a separate library without ORC_GUI_BUILD,
-# allowing core access. Future migration to presenter pattern could be
-# considered if real-time data can be efficiently abstracted.
-# =============================================================================
-add_library(orc-gui-vectorscope STATIC
-    analysis/vectorscope_dialog.cpp
-    analysis/vectorscope_dialog.h
-)
-
-# This component is ALLOWED to see core (controlled exception for visualization)
-target_include_directories(orc-gui-vectorscope PRIVATE
-    ${CMAKE_SOURCE_DIR}/orc/core/include
-    ${CMAKE_SOURCE_DIR}/orc/core/analysis
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/chroma_sink
-    ${CMAKE_SOURCE_DIR}/orc/public  # Access to public API types (MVP allows core -> public dependency)
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-target_link_libraries(orc-gui-vectorscope PRIVATE
-    orc-core
-    Qt6::Core
-    Qt6::Widgets
-)
-
-target_compile_definitions(orc-gui-vectorscope PRIVATE
-    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
-)
-
-# =============================================================================
-# Main GUI Application
+# GUI Application Sources
 # =============================================================================
 
-# GUI application sources
 add_executable(orc-gui WIN32
     main.cpp
     mainwindow.cpp
@@ -99,7 +55,9 @@ add_executable(orc-gui WIN32
     node_type_helper.cpp
     node_type_helper.h
     
-    # Note: Analysis framework components moved to orc-gui-analysis-bridge library
+    # Analysis dialogs
+    analysis/vectorscope_dialog.cpp
+    analysis/vectorscope_dialog.h
     
     # Inspection dialog
     inspection_dialog.cpp
@@ -161,50 +119,57 @@ add_executable(orc-gui WIN32
     orc_gui_resources.qrc
 )
 
+# =============================================================================
+# Link Libraries
+# =============================================================================
+# The GUI accesses core functionality exclusively through the presenter layer.
+# Direct linking to orc-core is intentionally avoided to enforce architectural
+# boundaries. The presenter layer handles all conversions between public API
+# types and internal core types.
+# =============================================================================
 target_link_libraries(orc-gui PRIVATE 
-    orc-public           # Public API only
-    orc-common           # Common types (VideoSystem, SourceType, etc.)
+    orc-public           # Public API types and interfaces
+    orc-common           # Common types shared across all layers
     orc-presenters       # Presenter layer (privately links orc-core)
-    orc-gui-vectorscope  # Vectorscope visualization (documented exception)
     Qt6::Core 
     Qt6::Widgets
     QtNodes
-    # NO DIRECT orc-core LINK - presenters provide the bridge
 )
 
-# Note: FFTW3 is already linked transitively through orc-core from orc_chroma_decoders
-
 # =============================================================================
-# MVP Architecture Enforcement - Compiler Build Flags
+# Compile Definitions
 # =============================================================================
-# ORC_GUI_BUILD flag enables compile-time guards in core headers to prevent
-# direct inclusion from GUI code. This enforces the MVP architecture at
-# compile time, ensuring GUI code can only access core functionality through
-# the presenter layer or public API.
+# ORC_GUI_BUILD: Enables compile-time guards in core headers that prevent
+#                direct inclusion from GUI code. If GUI code attempts to
+#                include a core header, compilation will fail with a message
+#                directing the developer to use the appropriate presenter or
+#                public API type instead.
 # =============================================================================
 target_compile_definitions(orc-gui PRIVATE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
-    ORC_GUI_BUILD  # Triggers compile error if core headers are included
+    ORC_GUI_BUILD
 )
 
 # =============================================================================
-# MVP Architecture - Public API and Presenters Only
+# Include Directories
 # =============================================================================
-# GUI code can ONLY access:
-# - orc/public/*.h (Public API types and interfaces)
-# - orc/presenters/include/*.h (Presenter layer interfaces)
-# - orc/common/include/*.h (Common types shared across layers)
-# 
-# Core headers are NOT exposed. Any attempt to include core headers will
-# result in a compile error due to ORC_GUI_BUILD guard.
+# The GUI has access to:
+# - Public API (orc/public): Stable interface types for rendering, analysis, etc.
+# - Presenters (orc/presenters/include): Application logic layer
+# - Common types (orc/common/include): Types shared across all layers
+# - Generated files: Build version information
+#
+# Core implementation headers (orc/core) are intentionally NOT in the include
+# path. This ensures GUI code cannot directly access internal implementation
+# details. If you need access to core functionality, add it to the appropriate
+# presenter or create a new public API type.
 # =============================================================================
 target_include_directories(orc-gui PRIVATE
-    ${CMAKE_SOURCE_DIR}/orc/public           # Public API only
-    ${CMAKE_SOURCE_DIR}/orc/presenters/include  # Presenter headers only
-    ${CMAKE_SOURCE_DIR}/orc/common/include   # Common types (VideoSystem, SourceType, etc.)
-    ${CMAKE_SOURCE_DIR}/orc  # For presenters/ includes
-    ${CMAKE_BINARY_DIR}/generated            # Generated files (version.h)
-    # NO CORE DIRECTORIES - Enforced by compiler guards
+    ${CMAKE_SOURCE_DIR}/orc/public
+    ${CMAKE_SOURCE_DIR}/orc/presenters/include
+    ${CMAKE_SOURCE_DIR}/orc/common/include
+    ${CMAKE_SOURCE_DIR}/orc
+    ${CMAKE_BINARY_DIR}/generated
 )
 
 # Platform-specific icon configuration

@@ -1,34 +1,23 @@
 /*
  * File:        vectorscope_dialog.cpp
- * Module:      orc-gui-vectorscope (isolated library)
+ * Module:      orc-gui
  * Purpose:     Vectorscope visualization dialog implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-// ============================================================================
-// MVP PHASE 3.5 - CONTROLLED EXCEPTION
-// ============================================================================
-// This file is part of orc-gui-vectorscope, a separate library that has
-// controlled access to core types for real-time chroma visualization.
-// Core includes are allowed here as this library does not define ORC_GUI_BUILD.
-// ============================================================================
-
 #include "vectorscope_dialog.h"
-#include "../../core/analysis/vectorscope/vectorscope_data.h"
-#include "../../core/stages/chroma_sink/chroma_sink_stage.h"
-#include "logging.h"
+#include "../logging.h"
 
 // ============================================================================
-// Private Implementation - Contains Core Types
+// Private Implementation - Simple state, no core access
 // ============================================================================
 class VectorscopeDialogPrivate {
 public:
     orc::NodeID node_id;
-    orc::ChromaSinkStage* stage = nullptr;  // Not owned
     uint64_t current_field_number = 0;
-    std::optional<orc::VectorscopeData> last_data;
+    std::optional<orc::public_api::VectorscopeData> last_data;
     
     void drawGraticule(QPainter& painter, VectorscopeDialog* dialog, 
                        orc::VideoSystem system, int32_t white_16b_ire, int32_t black_16b_ire);
@@ -215,21 +204,20 @@ void VectorscopeDialog::connectSignals() {
             this, [this](int){ onGraticuleChanged(); });
 }
 
-void VectorscopeDialog::updateForField(uint64_t field_number, const orc::VectorscopeData* data) {
-    d_->current_field_number = field_number;
-
-    if (!data || data->samples.empty()) {
-        info_label_->setText(QString("Field %1 - No vectorscope data").arg(field_number));
+void VectorscopeDialog::updateVectorscope(const orc::public_api::VectorscopeData& data) {
+    if (data.samples.empty()) {
+        info_label_->setText(QString("Field %1 - No vectorscope data").arg(data.field_number));
         clearDisplay();
         return;
     }
 
-    d_->last_data = *data;
-    renderVectorscope(*data);
-    ORC_LOG_DEBUG("Vectorscope update requested for field {} ({} samples)", field_number, data->samples.size());
+    d_->last_data = data;
+    d_->current_field_number = data.field_number;
+    renderVectorscope(data);
+    ORC_LOG_DEBUG("Vectorscope updated for field {} ({} samples)", data.field_number, data.samples.size());
 }
 
-void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
+void VectorscopeDialog::renderVectorscope(const orc::public_api::VectorscopeData& data) {
     if (data.samples.empty()) {
         clearDisplay();
         return;

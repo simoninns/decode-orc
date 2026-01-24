@@ -1,21 +1,11 @@
 /*
  * File:        vectorscope_dialog.h
- * Module:      orc-gui-vectorscope (isolated library)
+ * Module:      orc-gui
  * Purpose:     Vectorscope visualization dialog
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
-
-// ============================================================================
-// MVP PHASE 3.5 - CONTROLLED EXCEPTION
-// ============================================================================
-// This file is part of orc-gui-vectorscope, a separate library that has
-// controlled access to core types for real-time chroma visualization.
-// It does NOT define ORC_GUI_BUILD, allowing core includes.
-// This is a documented architectural exception for performance reasons.
-// See orc/gui/CMakeLists.txt for library definition.
-// ============================================================================
 
 #ifndef ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
 #define ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
@@ -29,12 +19,9 @@
 #include <QImage>
 #include <string>
 #include <optional>
+#include <memory>
 #include <node_id.h>
-
-// Forward declarations
-namespace orc {
-    struct VectorscopeData;
-}
+#include <orc_vectorscope.h>  // Public API types
 
 // Forward declaration for pimpl
 class VectorscopeDialogPrivate;
@@ -76,16 +63,16 @@ public:
     void setStage(orc::NodeID node_id);
     
     /**
-     * @brief Update vectorscope for a specific field
-     * @param field_number Field number to display
+     * @brief Update vectorscope with new data
+     * @param data Vectorscope data from renderer
      */
-    void updateForField(uint64_t field_number, const orc::VectorscopeData* data);
+    void updateVectorscope(const orc::public_api::VectorscopeData& data);
     
     /**
      * @brief Render vectorscope from extracted U/V data
      * @param data Vectorscope data containing U/V samples
      */
-    void renderVectorscope(const orc::VectorscopeData& data);
+    void renderVectorscope(const orc::public_api::VectorscopeData& data);
     
     /**
      * @brief Clear the vectorscope display

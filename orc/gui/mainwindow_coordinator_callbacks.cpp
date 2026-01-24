@@ -38,7 +38,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::public_api::PreviewRen
     if (result.success) {
         // Use public API image directly - no conversion needed
         preview_dialog_->previewWidget()->setImage(result.image);
-        updateVectorscope(result.node_id, result.image);
+        updateVectorscope(result);
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(

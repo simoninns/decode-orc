@@ -113,9 +113,9 @@ MainWindow::MainWindow(QWidget *parent)
         return std::static_pointer_cast<const orc::DAG>(dag);
     });
     
-    // Presenter for dropout editing (uses core project from GUIProject's presenter)
+    // Presenter for dropout editing (uses ProjectPresenter for delegation)
     dropout_presenter_ = std::make_unique<orc::presenters::DropoutPresenter>(
-        project_.presenter()->getProject()
+        *project_.presenter()
     );
     
     // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
@@ -147,6 +147,9 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onFrameLineNavigationReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::error,
             this, &MainWindow::onCoordinatorError, Qt::QueuedConnection);
+    
+    // Set the project for the render coordinator (required before updateDAG)
+    render_coordinator_->setProject(project_.presenter()->getCoreProject());
     
     // Start the coordinator worker thread
     render_coordinator_->start();
@@ -826,6 +829,38 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
         return;
     }
     
+    // Update render coordinator with new project pointer (presenter was recreated)
+    render_coordinator_->setProject(project_.presenter()->getCoreProject());
+    
+    // Recreate DAG model/scene since the presenter has changed
+    if (dag_model_) {
+        delete dag_scene_;
+        delete dag_model_;
+        dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
+        dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
+        dag_view_->setScene(dag_scene_);
+        
+        // Reconnect signals
+        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
+                this, &MainWindow::onDAGModified);
+        connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
+                this, &MainWindow::onQtNodeSelected);
+        connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
+                this, &MainWindow::onEditParameters);
+        connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
+                this, &MainWindow::onTriggerStage);
+        connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
+                this, &MainWindow::onInspectStage);
+        connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
+                this, &MainWindow::runAnalysisForNode);
+    }
+    
     // Don't set a project path - leave it empty so user must use "Save As"
     // Project is marked as modified by create_empty_project()
     
@@ -854,16 +889,43 @@ void MainWindow::openProject(const QString& filename)
     preview_dialog_->previewSlider()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
-    // Clear DAG model/scene to prevent ghost nodes
-    if (dag_model_) {
-        dag_model_->refresh();
-    }
-    
     QString error;
     if (!project_.loadFromFile(filename, &error)) {
         ORC_LOG_ERROR("Failed to load project: {}", error.toStdString());
         QMessageBox::critical(this, "Error", error);
         return;
+    }
+    
+    // Update render coordinator with new project pointer (presenter was recreated)
+    render_coordinator_->setProject(project_.presenter()->getCoreProject());
+    
+    // Recreate DAG model/scene since the presenter has changed
+    if (dag_model_) {
+        delete dag_scene_;
+        delete dag_model_;
+        dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
+        dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
+        dag_view_->setScene(dag_scene_);
+        
+        // Reconnect signals
+        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
+                this, &MainWindow::onDAGModified);
+        connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
+                this, &MainWindow::onQtNodeSelected);
+        connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
+                this, &MainWindow::onEditParameters);
+        connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
+                this, &MainWindow::onTriggerStage);
+        connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
+                this, &MainWindow::onInspectStage);
+        connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
+                this, &MainWindow::runAnalysisForNode);
     }
     
     ORC_LOG_DEBUG("Project loaded: {}", project_.projectName().toStdString());
@@ -986,11 +1048,6 @@ void MainWindow::quickProject(const QString& filename)
     preview_dialog_->previewSlider()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
-    // Clear DAG model/scene to prevent ghost nodes
-    if (dag_model_) {
-        dag_model_->refresh();
-    }
-    
     // Determine stage names based on format and source type
     std::string source_stage_name;
     if (video_format == orc::VideoSystem::NTSC) {
@@ -1008,6 +1065,9 @@ void MainWindow::quickProject(const QString& filename)
         QMessageBox::critical(this, "Error", error);
         return;
     }
+    
+    // Update render coordinator with new project pointer (presenter was recreated)
+    render_coordinator_->setProject(project_.presenter()->getCoreProject());
     
     // Add source stage
     ORC_LOG_INFO("Adding source stage: {}", source_stage_name);
@@ -1101,6 +1161,35 @@ void MainWindow::quickProject(const QString& filename)
     
     // Rebuild DAG from the newly created project structure
     project_.rebuildDAG();
+    
+    // Recreate DAG model/scene since the presenter has changed
+    if (dag_model_) {
+        delete dag_scene_;
+        delete dag_model_;
+        dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
+        dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
+        dag_view_->setScene(dag_scene_);
+        
+        // Reconnect signals
+        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
+                this, &MainWindow::onDAGModified);
+        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
+                this, &MainWindow::onDAGModified);
+        connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
+                this, &MainWindow::onQtNodeSelected);
+        connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
+                this, &MainWindow::onEditParameters);
+        connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
+                this, &MainWindow::onTriggerStage);
+        connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
+                this, &MainWindow::onInspectStage);
+        connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
+                this, &MainWindow::runAnalysisForNode);
+    }
     
     // Don't set a project path - leave it empty so user must use "Save As"
     // Project is marked as modified by create_empty_project() and subsequent operations
@@ -2948,7 +3037,8 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     if (video_format_presenter == orc::presenters::VideoFormat::Unknown) {
         context.source_type = orc::AnalysisSourceType::Other;
     }
-    context.project = std::make_shared<orc::Project>(*project_.presenter()->getProject());
+    // Analysis tools work on a copy - they don't modify the actual project
+    context.project = std::const_pointer_cast<orc::Project>(project_.presenter()->createSnapshot());
     
     // Create DAG from project for analysis
     context.dag = std::static_pointer_cast<orc::DAG>(project_.presenter()->getDAG());
@@ -2962,9 +3052,16 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         ORC_LOG_DEBUG("Applying analysis results to node '{}'", node_id.to_string());
         
         try {
-            bool success = tool->applyToGraph(result, *project_.presenter()->getProject(), node_id);
+            // Let tool determine what parameter changes to make (read-only access to project)
+            auto result_copy = result;  // Make mutable copy
+            auto project_snapshot = project_.presenter()->createSnapshot();
+            bool success = tool->applyToGraph(result_copy, *project_snapshot, node_id);
             
-            if (success) {
+            if (success && !result_copy.parameterChanges.empty()) {
+                // Apply the parameter changes through the presenter
+                ORC_LOG_DEBUG("Applying {} parameter changes to node", result_copy.parameterChanges.size());
+                project_.presenter()->setNodeParameters(node_id, result_copy.parameterChanges);
+                
                 // Rebuild DAG and update preview to reflect changes
                 project_.rebuildDAG();
                 updatePreviewRenderer();

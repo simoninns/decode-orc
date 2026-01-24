@@ -333,8 +333,8 @@ bool FieldCorruptionAnalysisTool::canApplyToGraph() const {
     return true;
 }
 
-bool FieldCorruptionAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                              Project& project,
+bool FieldCorruptionAnalysisTool::applyToGraph(AnalysisResult& result,
+                                              const Project& project,
                                               NodeID node_id) {
     // Find the ranges in graphData
     auto it_ranges = result.graphData.find("ranges");
@@ -368,23 +368,20 @@ bool FieldCorruptionAnalysisTool::applyToGraph(const AnalysisResult& result,
         return false;
     }
     
-    // Update the node's parameters with both ranges and seed
-    std::map<std::string, ParameterValue> params = node_it->parameters;
-    params["ranges"] = it_ranges->second;
-    
     // Parse seed string to int32
+    int32_t seed_value;
     try {
-        int32_t seed_value = std::stoi(it_seed->second);
-        params["seed"] = seed_value;
+        seed_value = std::stoi(it_seed->second);
     } catch (...) {
         ORC_LOG_ERROR("Failed to parse seed value: {}", it_seed->second);
         return false;
     }
     
-    // Apply updated parameters back to project using project_io
-    project_io::set_node_parameters(project, node_id, params);
+    // Populate parameterChanges instead of modifying project directly
+    result.parameterChanges["ranges"] = it_ranges->second;
+    result.parameterChanges["seed"] = seed_value;
     
-    ORC_LOG_DEBUG("Applied corruption pattern to node {}: ranges={}, seed={}", 
+    ORC_LOG_DEBUG("Prepared corruption pattern for node {}: ranges={}, seed={}", 
                  node_id, it_ranges->second, it_seed->second);
     
     return true;

@@ -93,14 +93,18 @@ public:
     virtual bool canApplyToGraph() const = 0;
 
     /**
-     * @brief Apply analysis results to a specific node in the project
-     * @param result Analysis result to apply
-     * @param project Project to modify
-     * @param node_id Target node ID to apply results to
-     * @return true if successfully applied
+     * @brief Determine parameter changes to apply to the graph
+     * @param result Analysis result (should populate result.parameterChanges)
+     * @param project Read-only project for querying node structure
+     * @param node_id Target node ID to prepare changes for
+     * @return true if changes were successfully determined
+     * 
+     * This method should populate result.parameterChanges with the parameters
+     * to modify. The caller (presenter) will apply these changes through
+     * proper channels. Tools should NOT modify the project directly.
      */
-    virtual bool applyToGraph(const AnalysisResult& result,
-                             Project& project,
+    virtual bool applyToGraph(AnalysisResult& result,
+                             const Project& project,
                              NodeID node_id) = 0;
 
     /**

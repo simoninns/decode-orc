@@ -8,8 +8,8 @@
  */
 
 #include "node_type_helper.h"
+#include "logging.h"
 #include <algorithm>
-#include <iostream>
 
 namespace NodeTypeHelper {
 
@@ -19,8 +19,7 @@ NodeVisualInfo getVisualInfo(const std::string& stage_name)
     
     if (!info) {
         // ERROR: Stage not registered - this should not happen!
-        std::cerr << "ERROR: getVisualInfo() called with unknown stage '" << stage_name << "'" << std::endl;
-        std::cerr << "  Falling back to default TRANSFORM (1 in, 1 out) - node will render incorrectly!" << std::endl;
+        ORC_LOG_ERROR("getVisualInfo() called with unknown stage '{}' - falling back to default TRANSFORM (1 in, 1 out)", stage_name);
         return NodeVisualInfo{true, true, false, false};
     }
     

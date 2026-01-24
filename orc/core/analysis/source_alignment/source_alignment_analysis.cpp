@@ -709,8 +709,8 @@ bool SourceAlignmentAnalysisTool::canApplyToGraph() const {
     return true;  // Can apply alignment map to source_align node
 }
 
-bool SourceAlignmentAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                               Project& project,
+bool SourceAlignmentAnalysisTool::applyToGraph(AnalysisResult& result,
+                                               const Project& project,
                                                NodeID node_id) {
     if (result.status != AnalysisResult::Success) {
         ORC_LOG_ERROR("Cannot apply failed analysis result");
@@ -726,15 +726,13 @@ bool SourceAlignmentAnalysisTool::applyToGraph(const AnalysisResult& result,
     
     const std::string& alignment_map = it->second;
     
-    // Update the node parameter
+    // Populate parameterChanges instead of modifying project directly
     try {
-        std::map<std::string, ParameterValue> params;
-        params["alignmentMap"] = alignment_map;
-        project_io::set_node_parameters(project, node_id, params);
-        ORC_LOG_DEBUG("Applied alignment map '{}' to node '{}'", alignment_map, node_id);
+        result.parameterChanges["alignmentMap"] = alignment_map;
+        ORC_LOG_DEBUG("Prepared alignment map '{}' for node '{}'", alignment_map, node_id);
         return true;
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("Failed to apply alignment map: {}", e.what());
+        ORC_LOG_ERROR("Failed to prepare alignment map: {}", e.what());
         return false;
     }
 }

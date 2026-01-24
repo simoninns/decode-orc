@@ -213,6 +213,17 @@ public:
      */
     void setSourceType(SourceType source);
     
+    // === Project Snapshots ===
+    
+    /**
+     * @brief Create an immutable snapshot copy of the project
+     * @return Shared pointer to project copy (safe to cache)
+     * 
+     * Used by analysis tools that need to work with a stable copy
+     * of the project without worrying about concurrent modifications.
+     */
+    std::shared_ptr<const orc::Project> createSnapshot() const;
+    
     // === DAG Management ===
     
     /**
@@ -358,13 +369,8 @@ public:
      */
     std::optional<StageInspectionView> getNodeInspection(NodeID node_id) const;
     
-    // === Internal Access (for other presenters) ===
+    // === Project Snapshots ===
     
-    /**
-     * @brief Get raw project pointer (for other presenters only)
-     * @internal
-     */
-    orc::Project* getProject() const { return project_ref_; }
     
     /**
      * @brief Get the current DAG for the project
@@ -419,9 +425,17 @@ public:
      */
     bool setNodeParameters(NodeID node_id, const std::map<std::string, ParameterValue>& params);
 
+    /**
+     * @brief Get raw project pointer for low-level access
+     * @return Non-owning pointer to core Project
+     * 
+     * This is needed for components that require direct Project access (e.g., RenderPresenter).
+     * The presenter retains ownership of the Project.
+     */
+    orc::Project* getCoreProject() { return project_.get(); }
+
 private:
     std::unique_ptr<orc::Project> project_;  ///< Owned project (if constructed without existing project)
-    orc::Project* project_ref_;               ///< Non-owning pointer to project (may be owned or external)
     std::string project_path_;
     bool is_modified_;
     mutable std::shared_ptr<void> dag_;      ///< Cached DAG instance

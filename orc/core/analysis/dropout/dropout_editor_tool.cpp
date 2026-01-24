@@ -39,8 +39,8 @@ AnalysisResult DropoutEditorTool::analyze(const AnalysisContext& ctx,
     return result;
 }
 
-bool DropoutEditorTool::applyToGraph(const AnalysisResult& result,
-                                    Project& project,
+bool DropoutEditorTool::applyToGraph(AnalysisResult& result,
+                                    const Project& project,
                                     NodeID node_id) {
     (void)result;
     (void)project;

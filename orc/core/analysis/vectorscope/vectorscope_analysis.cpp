@@ -74,8 +74,8 @@ bool VectorscopeAnalysisTool::canApplyToGraph() const {
     return false;
 }
 
-bool VectorscopeAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                          Project& project,
+bool VectorscopeAnalysisTool::applyToGraph(AnalysisResult& result,
+                                          const Project& project,
                                           NodeID node_id) {
     (void)result;
     (void)project;

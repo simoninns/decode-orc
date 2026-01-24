@@ -22,6 +22,11 @@ namespace orc {
     class VideoFieldRepresentation;
 }
 
+// Forward declare presenters
+namespace orc::presenters {
+    class ProjectPresenter;
+}
+
 namespace orc::presenters {
 
 // Forward declarations
@@ -123,9 +128,9 @@ class DropoutPresenter {
 public:
     /**
      * @brief Construct presenter for a project
-     * @param project Project to manage dropouts for
+     * @param project_presenter ProjectPresenter to delegate project operations to
      */
-    explicit DropoutPresenter(orc::Project* project);
+    explicit DropoutPresenter(orc::presenters::ProjectPresenter& project_presenter);
     
     /**
      * @brief Destructor

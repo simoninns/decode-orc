@@ -81,8 +81,8 @@ public:
         return true;
     }
 
-    bool applyToGraph(const AnalysisResult& result,
-                     Project& project,
+    bool applyToGraph(AnalysisResult& result,
+                     const Project& project,
                      NodeID node_id) override;
 };
 

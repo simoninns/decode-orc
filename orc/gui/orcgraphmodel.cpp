@@ -37,18 +37,15 @@ void OrcGraphModel::buildMappings()
     // Build node mappings
     NodeId qt_id = 0;
     const auto nodes = presenter_.getNodes();
-    ORC_LOG_DEBUG("OrcGraphModel::buildMappings - Project has {} nodes", nodes.size());
     
     for (const auto& node : nodes) {
         qt_to_orc_nodes_[qt_id] = node.node_id;
         orc_to_qt_nodes_[node.node_id] = qt_id;
-        ORC_LOG_DEBUG("  Mapped QtNode {} -> ORC node '{}'", qt_id, node.node_id.to_string());
         qt_id++;
     }
     
     // Build connection mappings
     const auto edges = presenter_.getEdges();
-    ORC_LOG_DEBUG("OrcGraphModel::buildMappings - Project has {} edges", edges.size());
     
     for (const auto& edge : edges) {
         auto it_out = orc_to_qt_nodes_.find(edge.source_node);

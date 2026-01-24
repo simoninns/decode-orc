@@ -8,6 +8,7 @@
  */
 
 #include "dropout_presenter.h"
+#include "project_presenter.h"  // Need full definition to call methods
 #include "../core/include/project.h"
 #include "../core/include/logging.h"
 #include "../core/include/video_field_representation.h"
@@ -63,19 +64,16 @@ static orc::DropoutRegion toCore(const DropoutRegion& presenter_region) {
 
 class DropoutPresenter::Impl {
 public:
-    explicit Impl(orc::Project* project)
-        : project_(project)
+    explicit Impl(orc::presenters::ProjectPresenter& project_presenter)
+        : project_presenter_(project_presenter)
     {
-        if (!project_) {
-            throw std::invalid_argument("Project cannot be null");
-        }
     }
     
-    orc::Project* project_;
+    orc::presenters::ProjectPresenter& project_presenter_;
 }; // DEBUG: Extra brace was needed here!
 
-DropoutPresenter::DropoutPresenter(orc::Project* project)
-    : impl_(std::make_unique<Impl>(project))
+DropoutPresenter::DropoutPresenter(orc::presenters::ProjectPresenter& project_presenter)
+    : impl_(std::make_unique<Impl>(project_presenter))
 {
 }
 
@@ -222,9 +220,9 @@ std::map<uint64_t, FieldDropoutMap> DropoutPresenter::getDropoutMap(NodeID node_
 {
     try {
         // Find the node in the project
-        const auto& nodes = impl_->project_->get_nodes();
+        const auto& nodes = impl_->project_presenter_.getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
-            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+            [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
         
         if (node_it == nodes.end()) {
             ORC_LOG_WARN("Node {} not found in project", node_id.to_string());
@@ -238,8 +236,9 @@ std::map<uint64_t, FieldDropoutMap> DropoutPresenter::getDropoutMap(NodeID node_
         }
         
         // Get parameters
-        auto it = node_it->parameters.find("dropout_map");
-        if (it == node_it->parameters.end()) {
+        auto params = impl_->project_presenter_.getNodeParameters(node_id);
+        auto it = params.find("dropout_map");
+        if (it == params.end()) {
             return {};
         }
         
@@ -293,11 +292,11 @@ bool DropoutPresenter::setDropoutMap(NodeID node_id, const std::map<uint64_t, Fi
         // Encode to string
         std::string map_str = orc::DropoutMapStage::encode_dropout_map(core_map);
         
-        // Set parameter using project_io
+        // Set parameter using ProjectPresenter
         std::map<std::string, orc::ParameterValue> params;
         params["dropout_map"] = map_str;
         
-        orc::project_io::set_node_parameters(*impl_->project_, node_id, params);
+        impl_->project_presenter_.setNodeParameters(node_id, params);
         
         return true;
     } catch (const std::exception& e) {

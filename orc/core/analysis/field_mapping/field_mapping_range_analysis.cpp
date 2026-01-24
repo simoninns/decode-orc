@@ -574,8 +574,8 @@ AnalysisResult FieldMappingRangeAnalysisTool::analyze(const AnalysisContext& ctx
     }
 }
 
-bool FieldMappingRangeAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                                Project& project,
+bool FieldMappingRangeAnalysisTool::applyToGraph(AnalysisResult& result,
+                                                const Project& project,
                                                 NodeID node_id) {
     // Expect graphData["ranges"] containing inclusive range spec for FieldMapStage
     auto ranges_it = result.graphData.find("ranges");
@@ -593,12 +593,10 @@ bool FieldMappingRangeAnalysisTool::applyToGraph(const AnalysisResult& result,
         return false;
     }
 
-    // Update parameters
-    auto updated_params = node_it->parameters;
-    updated_params["ranges"] = ranges_it->second;
-    project_io::set_node_parameters(project, node_id, updated_params);
+    // Populate parameterChanges instead of modifying project directly
+    result.parameterChanges["ranges"] = ranges_it->second;
 
-    ORC_LOG_INFO("Applied field mapping range '{}' to node {}", ranges_it->second, node_id);
+    ORC_LOG_INFO("Prepared field mapping range '{}' for node {}", ranges_it->second, node_id);
     return true;
 }
 

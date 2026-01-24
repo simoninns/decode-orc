@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <variant>
+#include <parameter_types.h>  // For ParameterValue
 
 namespace orc {
 
@@ -39,6 +40,7 @@ public:
     std::vector<ResultItem> items;          // Structured results
     std::map<std::string, StatisticValue> statistics;  // Statistics for display
     std::map<std::string, std::string> graphData;      // Data for graph application (opaque to GUI)
+    std::map<std::string, ParameterValue> parameterChanges;  // Parameter modifications to apply
 };
 
 } // namespace orc

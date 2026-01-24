@@ -8,11 +8,12 @@
  */
 
 #include "../include/hints_view_models.h"
-#include "../../core/include/tbc_metadata.h"  // For core VideoParameters
+#include <orc_video_metadata.h>  // For public API VideoParameters
+#include <common_types.h>  // For VideoSystem enum
 
 namespace orc::presenters {
 
-VideoParametersView toVideoParametersView(const orc::VideoParameters& params) {
+VideoParametersView toVideoParametersView(const orc::public_api::VideoParameters& params) {
     VideoParametersView v{};
     
     // Convert VideoSystem enum

@@ -17,13 +17,13 @@
 #include <node_id.h>
 #include <field_id.h>
 #include <orc_rendering.h>  // Public API rendering types
+#include <orc_video_metadata.h>  // Public API VideoParameters
 #include <common_types.h>   // PreviewOutputType
 
 // Forward declare core types
 namespace orc {
     class Project;
     class DAG;
-    struct VideoParameters;
 }
 
 namespace orc::presenters {
@@ -487,7 +487,7 @@ public:
      * @param node_id Node to get parameters from
      * @return Video parameters if available
      */
-    std::optional<orc::VideoParameters> getVideoParameters(NodeID node_id);
+    std::optional<orc::public_api::VideoParameters> getVideoParameters(NodeID node_id);
     
     // === Observations (for debugging) ===
     

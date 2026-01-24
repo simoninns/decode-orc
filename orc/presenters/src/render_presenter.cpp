@@ -628,7 +628,7 @@ std::vector<uint16_t> RenderPresenter::getLineSamples(
     }
 }
 
-std::optional<orc::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
+std::optional<orc::public_api::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
 {
     if (!impl_->preview_renderer_) {
         return std::nullopt;

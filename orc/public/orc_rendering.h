@@ -22,6 +22,29 @@ namespace orc {
 namespace public_api {
 
 /**
+ * @brief Represents a dropout region in a field
+ * 
+ * A dropout is a region where the video signal was lost or corrupted during
+ * capture. This structure identifies the location and extent of the dropout.
+ */
+struct DropoutRegion {
+    enum class DetectionBasis {
+        SAMPLE_DERIVED,   ///< Detected from signal analysis
+        HINT_DERIVED,     ///< From decoder hints
+        CORROBORATED      ///< Both sample and hint agree
+    };
+    
+    uint32_t line;              ///< Line number (0-based)
+    uint32_t start_sample;      ///< Start sample within line
+    uint32_t end_sample;        ///< End sample within line (exclusive)
+    DetectionBasis basis;       ///< How this dropout was detected
+    
+    DropoutRegion() 
+        : line(0), start_sample(0), end_sample(0)
+        , basis(DetectionBasis::HINT_DERIVED) {}
+};
+
+/**
  * @brief Rendered preview image data
  * 
  * Simple RGB888 image format for GUI display.
@@ -31,6 +54,7 @@ struct PreviewImage {
     uint32_t width;
     uint32_t height;
     std::vector<uint8_t> rgb_data;  ///< RGB888 format (width * height * 3 bytes)
+    std::vector<DropoutRegion> dropout_regions;  ///< Dropout regions to highlight
     
     bool is_valid() const {
         return !rgb_data.empty() && rgb_data.size() == width * height * 3;

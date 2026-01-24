@@ -16,11 +16,13 @@
 #include <memory>
 #include <cstdint>
 #include <vector>
+#include <orc_rendering.h>  // For public API types
 
 // Forward declarations
 namespace orc {
+namespace public_api {
     struct PreviewImage;
-    struct DropoutRegion;
+}
 }
 
 /**
@@ -44,7 +46,7 @@ public:
      * @brief Set the rendered image to display
      * @param image PreviewImage from orc::PreviewRenderer
      */
-    void setImage(const orc::PreviewImage& image);
+    void setImage(const orc::public_api::PreviewImage& image);
     
     /**
      * @brief Clear the display
@@ -109,7 +111,7 @@ protected:
 private:
     QImage current_image_;
     double aspect_correction_ = 0.7;  // Default for PAL/NTSC DAR 4:3
-    std::vector<orc::DropoutRegion> dropout_regions_;
+    std::vector<orc::public_api::DropoutRegion> dropout_regions_;
     bool show_dropouts_ = false;
     QPoint mouse_pos_;  // Current mouse position
     bool mouse_over_ = false;  // Whether mouse is over the widget

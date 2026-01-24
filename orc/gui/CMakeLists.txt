@@ -48,6 +48,7 @@ target_include_directories(orc-gui-vectorscope PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/include
     ${CMAKE_SOURCE_DIR}/orc/core/analysis
     ${CMAKE_SOURCE_DIR}/orc/core/stages/chroma_sink
+    ${CMAKE_SOURCE_DIR}/orc/public  # Access to public API types (MVP allows core -> public dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

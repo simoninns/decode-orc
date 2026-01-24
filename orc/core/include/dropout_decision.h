@@ -10,29 +10,15 @@
 #pragma once
 
 #include <field_id.h>
+#include <orc_rendering.h>  // For public_api::DropoutRegion
 #include <string>
 #include <vector>
 #include <cstdint>
 
 namespace orc {
 
-/// Represents a dropout region
-struct DropoutRegion {
-    enum class DetectionBasis {
-        SAMPLE_DERIVED,   ///< Detected from signal analysis
-        HINT_DERIVED,     ///< From decoder hints
-        CORROBORATED      ///< Both sample and hint agree
-    };
-    
-    uint32_t line;
-    uint32_t start_sample;
-    uint32_t end_sample;
-    DetectionBasis basis;
-    
-    DropoutRegion() 
-        : line(0), start_sample(0), end_sample(0)
-        , basis(DetectionBasis::HINT_DERIVED) {}
-};
+// Use the public API DropoutRegion type
+using DropoutRegion = orc::public_api::DropoutRegion;
 
 /// Represents a user decision to modify dropout detection
 /// 

@@ -90,10 +90,8 @@ struct VideoParametersView {
 
 } // namespace orc::presenters
 
-// Forward declare core type (outside presenter namespace)
-namespace orc {
-    struct VideoParameters;
-}
+// Include public API types that are used
+#include <orc_video_metadata.h>
 
 namespace orc::presenters {
 
@@ -103,6 +101,6 @@ namespace orc::presenters {
  * This helper function encapsulates the conversion logic to avoid
  * duplication across the codebase.
  */
-VideoParametersView toVideoParametersView(const orc::VideoParameters& params);
+VideoParametersView toVideoParametersView(const orc::public_api::VideoParameters& params);
 
 } // namespace orc::presenters

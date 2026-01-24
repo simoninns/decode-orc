@@ -9,9 +9,7 @@
 
 #include "fieldpreviewwidget.h"
 #include "logging.h"
-// TODO(Phase 3.2): These should be public API types
-#include "../../core/include/preview_renderer.h"  // For PreviewImage definition
-#include "../../core/include/dropout_decision.h"  // For DropoutRegion definition
+#include <orc_rendering.h>  // For public API PreviewImage and DropoutRegion
 
 #include <QPainter>
 #include <QPaintEvent>
@@ -39,7 +37,7 @@ FieldPreviewWidget::~FieldPreviewWidget()
 {
 }
 
-void FieldPreviewWidget::setImage(const orc::PreviewImage& image)
+void FieldPreviewWidget::setImage(const orc::public_api::PreviewImage& image)
 {
     // Convert RGB888 data from orc-core to QImage
     if (image.rgb_data.empty() || image.width == 0 || image.height == 0) {

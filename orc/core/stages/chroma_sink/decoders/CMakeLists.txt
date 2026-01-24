@@ -26,6 +26,8 @@ target_include_directories(orc_chroma_decoders
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/orc/core/include  # For ORC logging and tbc_metadata
+        ${CMAKE_SOURCE_DIR}/orc/public  # For public API types (MVP architecture allows core -> public dependency)
+        ${CMAKE_SOURCE_DIR}/orc/common/include  # For common types
 )
 
 # Set C++ standard

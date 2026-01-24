@@ -21,6 +21,7 @@ target_include_directories(orc-cli PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/include
     ${CMAKE_SOURCE_DIR}/orc/core
     ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
+    ${CMAKE_SOURCE_DIR}/orc/public  # Access to public API types (MVP allows core -> public dependency)
     ${CMAKE_BINARY_DIR}/generated
 )
 

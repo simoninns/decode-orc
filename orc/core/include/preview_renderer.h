@@ -20,8 +20,7 @@
 // or transitional includes.
 // 
 // TODO(MVP Phase 3): Complete type migration
-// - Move DropoutRegion to orc/common
-// - Add dropout_regions field to orc::public_api::PreviewImage  
+// - Move remaining types to public API as needed
 // - Update GUI code to use public API types exclusively
 // =============================================================================
 
@@ -30,8 +29,8 @@
 #include <field_id.h>
 #include <node_id.h>
 #include <common_types.h>  // For PreviewOutputType, AspectRatioMode
+#include <orc_rendering.h>  // For public API types (DropoutRegion, PreviewImage)
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
-#include "dropout_decision.h"  // For DropoutRegion
 #include "../analysis/vectorscope/vectorscope_data.h"
 #include <memory>
 #include <string>
@@ -42,6 +41,9 @@
 namespace orc {
 
 // PreviewOutputType and AspectRatioMode now defined in common_types.h
+
+// Use public API DropoutRegion in core (already aliased in dropout_decision.h, but include here for clarity)
+using DropoutRegion = orc::public_api::DropoutRegion;
 
 /**
  * @brief Information about an aspect ratio mode option
@@ -93,22 +95,15 @@ struct PreviewItemDisplayInfo {
 };
 
 /**
- * @brief Rendered preview image data
+ * @brief Rendered preview image data (core version with additional fields)
  * 
- * Simple RGB888 image format for GUI display.
- * All rendering logic (sample scaling, field weaving, etc.) is done in core.
+ * This extends the public API PreviewImage with core-internal fields like vectorscope data.
+ * The public API version is in orc_rendering.h and contains the essential fields (width, height, rgb_data, dropout_regions).
+ * This core version adds optional analytical data used by specialized GUI components.
  */
-struct PreviewImage {
-    uint32_t width;
-    uint32_t height;
-    std::vector<uint8_t> rgb_data;  ///< RGB888 format (width * height * 3 bytes)
+struct PreviewImage : public orc::public_api::PreviewImage {
     std::optional<VectorscopeData> vectorscope_data;  ///< Optional UV scatter for chroma preview
-    std::vector<DropoutRegion> dropout_regions;  ///< Dropout regions for visualization
     
-    bool is_valid() const {
-        return !rgb_data.empty() && rgb_data.size() == width * height * 3;
-    }
-
     bool has_vectorscope() const {
         return vectorscope_data.has_value() && !vectorscope_data->samples.empty();
     }

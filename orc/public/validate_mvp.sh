@@ -25,10 +25,12 @@ VIOLATIONS=0
 # =============================================================================
 echo "1. Checking GUI layer for relative core includes..."
 # Exclude orc-gui-vectorscope library (documented exception for real-time visualization)
+# Exclude test_mvp_enforcement.cpp (intentional violation test file)
 GUI_VIOLATIONS=$(grep -r '#include.*\.\./core\|#include.*core/' \
     --include='*.h' --include='*.cpp' \
+    --exclude='test_mvp_enforcement.cpp' \
     --exclude-dir='analysis' \
-    orc/gui/ 2>/dev/null || true)
+    orc/gui/ 2>/dev/null | grep -v '^[[:space:]]*//' | grep -v '^[[:space:]]*/\*' || true)
 
 if [ -n "$GUI_VIOLATIONS" ]; then
     echo "❌ FAIL: GUI includes core headers:"
@@ -238,6 +240,116 @@ if $FLAG_CHECK_PASSED; then
 else
     echo "❌ FAIL: Build flags not properly configured"
     VIOLATIONS=$((VIOLATIONS + 1))
+fi
+echo ""
+
+# =============================================================================
+# 9. Check for core namespace usage in GUI (except via public_api)
+# =============================================================================
+echo "9. Checking for direct core namespace usage in GUI..."
+# Look for core namespace usage in GUI
+# Allow: orc::public_api, orc::presenters, types from common (NodeID, FieldID, etc.)
+# Note: We're checking for actual violations, not every mention of "orc::"
+# Common types like NodeID, FieldID, ParameterValue are OK (they're from common/presenters)
+NAMESPACE_CHECK=true
+
+# Check for direct use of core types that shouldn't be in GUI
+CORE_TYPE_VIOLATIONS=$(grep -rE 'orc::(DAG|Project|PreviewRenderer|StageParameter|ProjectToDAG|AnalysisRegistry)' \
+    --include='*.h' --include='*.cpp' \
+    --exclude-dir='analysis' \
+    orc/gui/ 2>/dev/null | \
+    grep -v 'orc::public_api' | \
+    grep -v 'orc::presenters' | \
+    grep -v '//' | \
+    grep -v '/\*' || true)
+
+if [ -n "$CORE_TYPE_VIOLATIONS" ]; then
+    echo "⚠️  WARNING: GUI may use core types directly:"
+    echo "$CORE_TYPE_VIOLATIONS"
+    # This is a warning, not a hard failure - compiler guards will catch actual violations
+else
+    echo "✅ No direct core type usage detected in GUI"
+fi
+echo ""
+
+# =============================================================================
+# 10. Check for type duplication between layers
+# =============================================================================
+echo "10. Checking for type duplication across layers..."
+TYPE_DUPLICATES=""
+
+# Check VideoSystem duplication
+VIDEOSYSTEM_COMMON=$(grep -l 'enum class VideoSystem' orc/common/include/*.h 2>/dev/null || true)
+VIDEOSYSTEM_CORE=$(grep -l 'enum class VideoSystem' orc/core/include/*.h 2>/dev/null || true)
+if [ -n "$VIDEOSYSTEM_COMMON" ] && [ -n "$VIDEOSYSTEM_CORE" ]; then
+    TYPE_DUPLICATES="${TYPE_DUPLICATES}VideoSystem defined in both common and core\n"
+fi
+
+# Check SourceType duplication
+SOURCETYPE_COMMON=$(grep -l 'enum class SourceType' orc/common/include/*.h 2>/dev/null || true)
+SOURCETYPE_CORE=$(grep -l 'enum class SourceType' orc/core/include/*.h 2>/dev/null || true)
+if [ -n "$SOURCETYPE_COMMON" ] && [ -n "$SOURCETYPE_CORE" ]; then
+    TYPE_DUPLICATES="${TYPE_DUPLICATES}SourceType defined in both common and core\n"
+fi
+
+# Check NodeType duplication
+NODETYPE_COMMON=$(grep -l 'enum class NodeType' orc/common/include/*.h 2>/dev/null || true)
+NODETYPE_CORE=$(grep -l 'enum class NodeType' orc/core/include/*.h 2>/dev/null || true)
+if [ -n "$NODETYPE_COMMON" ] && [ -n "$NODETYPE_CORE" ]; then
+    TYPE_DUPLICATES="${TYPE_DUPLICATES}NodeType defined in both common and core\n"
+fi
+
+# Check PreviewImage duplication
+PREVIEWIMAGE_PUBLIC=$(grep -l 'struct PreviewImage' orc/public/*.h 2>/dev/null || true)
+PREVIEWIMAGE_CORE=$(grep -l 'struct PreviewImage' orc/core/include/*.h 2>/dev/null || true)
+if [ -n "$PREVIEWIMAGE_PUBLIC" ] && [ -n "$PREVIEWIMAGE_CORE" ]; then
+    # This is OK if core uses type alias OR inherits from public_api
+    if ! grep -qE 'using PreviewImage = orc::public_api::PreviewImage|struct PreviewImage.*:.*public_api::PreviewImage' orc/core/include/*.h 2>/dev/null; then
+        TYPE_DUPLICATES="${TYPE_DUPLICATES}PreviewImage defined in both public and core (without using alias or inheritance)\n"
+    fi
+fi
+
+if [ -n "$TYPE_DUPLICATES" ]; then
+    echo "❌ FAIL: Type duplication detected:"
+    echo -e "$TYPE_DUPLICATES"
+    VIOLATIONS=$((VIOLATIONS + 1))
+else
+    echo "✅ No type duplication detected"
+fi
+echo ""
+
+# =============================================================================
+# 11. Verify public API types have complete definitions
+# =============================================================================
+echo "11. Checking public API types are complete..."
+API_COMPLETENESS_OK=true
+
+# Check PreviewImage has dropout_regions field
+if [ -f "orc/public/orc_rendering.h" ]; then
+    if grep -q 'struct PreviewImage' orc/public/orc_rendering.h; then
+        if ! grep -A 10 'struct PreviewImage' orc/public/orc_rendering.h | grep -q 'dropout_regions'; then
+            echo "  ⚠️  PreviewImage may be missing dropout_regions field"
+            API_COMPLETENESS_OK=false
+        else
+            echo "  ✅ PreviewImage is complete"
+        fi
+    fi
+fi
+
+# Check DropoutRegion exists
+if [ -f "orc/public/orc_rendering.h" ]; then
+    if grep -q 'struct DropoutRegion' orc/public/orc_rendering.h; then
+        echo "  ✅ DropoutRegion defined in public API"
+    else
+        echo "  ⚠️  DropoutRegion not found in public API"
+        API_COMPLETENESS_OK=false
+    fi
+fi
+
+if $API_COMPLETENESS_OK; then
+    echo "✅ Public API types are complete"
+else
+    echo "⚠️  Some public API types may be incomplete (check warnings)"
 fi
 echo ""
 

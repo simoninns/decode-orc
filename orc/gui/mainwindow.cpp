@@ -39,6 +39,9 @@
 #include <node_type.h>
 #include <common_types.h>
 
+// Forward declare core observation context to avoid including core headers in GUI
+namespace orc { class ObservationContext; }
+
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QSettings>
@@ -3295,13 +3298,25 @@ void MainWindow::updateQualityMetricsDialog()
         render_presenter.setDAG(project_.getDAG());
         
         if (is_frame_mode) {
-            // Get metrics for both fields
-            auto metrics = render_presenter.getFrameQualityMetrics(current_view_node_id_, field1_id, field2_id);
-            quality_metrics_dialog_->updateMetricsForFrame(field1_id, field2_id, metrics);
+            // Render both fields to populate observation context, then update dialog with both fields and frame averages
+            (void)render_presenter.getObservationContext(current_view_node_id_, field1_id);
+            (void)render_presenter.getObservationContext(current_view_node_id_, field2_id);
+            const void* ctx_ptr = render_presenter.getObservationContext(current_view_node_id_, field1_id);
+            if (!ctx_ptr) {
+                quality_metrics_dialog_->clearMetrics();
+                return;
+            }
+            const orc::ObservationContext& obs_context = *static_cast<const orc::ObservationContext*>(ctx_ptr);
+            quality_metrics_dialog_->updateMetricsForFrameFromContext(field1_id, field2_id, obs_context);
         } else {
-            // Get metrics for single field
-            auto metrics = render_presenter.getFieldQualityMetrics(current_view_node_id_, field1_id);
-            quality_metrics_dialog_->updateMetrics(field1_id, metrics);
+            // Single field mode: render field to populate observation context, then update dialog
+            const void* ctx_ptr = render_presenter.getObservationContext(current_view_node_id_, field1_id);
+            if (!ctx_ptr) {
+                quality_metrics_dialog_->clearMetrics();
+                return;
+            }
+            const orc::ObservationContext& obs_context = *static_cast<const orc::ObservationContext*>(ctx_ptr);
+            quality_metrics_dialog_->updateMetricsFromContext(field1_id, obs_context);
         }
         
     } catch (const std::exception& e) {

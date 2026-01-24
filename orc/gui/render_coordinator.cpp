@@ -11,17 +11,15 @@
 #include "logging.h"
 #include "render_presenter.h"
 #include "preview_renderer.h"  // For mapping result types (ImageToFieldMappingResult, etc.)
-#include <common_types.h>  // For analysis result types and TriggerableStage
+#include <common_types.h>  // For analysis result types
 
 // Phase 2.4: Analysis sink stage headers removed - now using RenderPresenter abstraction
 // Removed: #include "dropout_analysis_sink_stage.h"
 // Removed: #include "snr_analysis_sink_stage.h"
 // Removed: #include "burst_level_analysis_sink_stage.h"
 
-// Still needed for TriggerableStage interface (until triggering is migrated to presenter)
-// NOTE: TriggerableStage is defined in ld_sink_stage.h but should be moved to common
-// or abstracted through RenderPresenter in a future phase
-#include "ld_sink_stage.h"
+// Phase 2.7: Trigger operations migrated to RenderPresenter
+// Removed: #include "ld_sink_stage.h"
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -245,7 +243,11 @@ uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
 
 void RenderCoordinator::cancelTrigger()
 {
-    trigger_cancel_requested_ = true;
+    // Call cancelTrigger on the presenter (thread-safe)
+    // The presenter's implementation sets a flag that the trigger operation will check
+    if (worker_render_presenter_) {
+        worker_render_presenter_->cancelTrigger();
+    }
     ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested");
 }
 
@@ -687,102 +689,30 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id.to_string(), req.request_id);
     
-    if (!worker_dag_) {
-        ORC_LOG_ERROR("RenderCoordinator: DAG not initialized");
-        emit error(req.request_id, "DAG not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
+        emit triggerComplete(req.request_id, false, "Render presenter not initialized");
         return;
     }
     
-    trigger_cancel_requested_ = false;
-    
     try {
-        // Find the target node in the DAG
-        const orc::DAGNode* target_node = nullptr;
-        for (const auto& node : worker_dag_->nodes()) {
-            if (node.node_id == req.node_id) {
-                target_node = &node;
-                break;
-            }
-        }
+        // Use RenderPresenter to handle triggering
+        // The presenter abstracts all DAG access and stage interaction
+        worker_render_presenter_->triggerStage(req.node_id, 
+            [this](int current, int total, const std::string& message) {
+                // Emit progress updates (Qt will queue to GUI thread)
+                emit triggerProgress(current, total, QString::fromStdString(message));
+            });
         
-        if (!target_node) {
-            emit error(req.request_id, QString::fromStdString("Node '" + req.node_id.to_string() + "' not found in DAG"));
-            emit triggerComplete(req.request_id, false, "Node not found");
-            return;
-        }
-        
-        auto trigger_stage = dynamic_cast<orc::TriggerableStage*>(target_node->stage.get());
-        if (!trigger_stage) {
-            emit error(req.request_id, QString::fromStdString("Stage '" + req.node_id.to_string() + "' is not triggerable"));
-            emit triggerComplete(req.request_id, false, "Stage not triggerable");
-            return;
-        }
-        
-        // Build executor to get inputs for this node
-        auto executor = std::make_shared<orc::DAGExecutor>();
-        
-        // Execute DAG up to (but not including) the target node to get its inputs
-        std::vector<orc::ArtifactPtr> inputs;
-        
-        if (!target_node->input_node_ids.empty()) {
-            // Execute predecessor nodes to get inputs
-            auto node_outputs = executor->execute_to_node(*worker_dag_, target_node->input_node_ids[0]);
-            
-            // Collect inputs from predecessor nodes
-            for (size_t i = 0; i < target_node->input_node_ids.size(); ++i) {
-                const auto& input_node_id = target_node->input_node_ids[i];
-                size_t input_index = (i < target_node->input_indices.size()) ? target_node->input_indices[i] : 0;
-                
-                auto it = node_outputs.find(input_node_id);
-                if (it != node_outputs.end() && input_index < it->second.size()) {
-                    inputs.push_back(it->second[input_index]);
-                } else {
-                    ORC_LOG_WARN("RenderCoordinator: Failed to get input {} from node '{}'",
-                                input_index, input_node_id.to_string());
-                }
-            }
-        }
-        
-        ORC_LOG_DEBUG("RenderCoordinator: Triggering with {} input(s)", inputs.size());
-        
-        // Store pointer to current trigger stage for cancellation
-        current_trigger_stage_ = trigger_stage;
-        
-        // Set up progress callback (called from THIS worker thread, safe to emit signals)
-        trigger_stage->set_progress_callback([this, trigger_stage, req_id = req.request_id](
-            size_t current, size_t total, const std::string& message) {
-            
-            // Check for cancellation and call cancel_trigger() on the stage
-            if (trigger_cancel_requested_) {
-                ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested, calling cancel_trigger()");
-                trigger_stage->cancel_trigger();
-            }
-            
-            // Emit progress (Qt will queue this to GUI thread)
-            emit triggerProgress(current, total, QString::fromStdString(message));
-        });
-        
-        // Execute trigger using the observation context populated during execute_to_node
-        orc::ObservationContext& obs_context = executor->get_observation_context();
-        bool success = trigger_stage->trigger(inputs, target_node->parameters, obs_context);
-        std::string status = trigger_stage->get_trigger_status();
-        
-        ORC_LOG_DEBUG("RenderCoordinator: Trigger complete, success={}, status={}", success, status);
-        
-        // Clear current trigger stage pointer
-        current_trigger_stage_ = nullptr;
-        
-        // Emit completion
-        emit triggerComplete(req.request_id, success, QString::fromStdString(status));
+        ORC_LOG_DEBUG("RenderCoordinator: Trigger complete successfully");
+        emit triggerComplete(req.request_id, true, "Trigger completed successfully");
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Trigger failed: {}", e.what());
-        current_trigger_stage_ = nullptr;  // Clear pointer on error too
         emit error(req.request_id, QString::fromStdString(e.what()));
-        emit triggerComplete(req.request_id, false, QString::fromStdString("Exception: " + std::string(e.what())));
+        emit triggerComplete(req.request_id, false, QString::fromStdString(e.what()));
     }
-    
-    trigger_cancel_requested_ = false;
 }
 
 void RenderCoordinator::setAspectRatioMode(orc::AspectRatioMode mode)

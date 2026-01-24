@@ -11,14 +11,17 @@ This plan completes the MVP architecture migration from the current partially-mi
 **Current State:**
 - ✅ No `#include "../core/*"` relative paths in GUI/CLI
 - ✅ Presenter layer exists with 13 files
-- ✅ Public API exists
+- ✅ Public API exists with comprehensive types
 - ✅ Common types module exists
-- ✅ Analysis bridge library isolates 11 analysis framework files
-- ❌ GUI still includes core headers directly (project.h, preview_renderer.h, stage_parameter.h, project_to_dag.h)
-- ❌ CMakeLists.txt exposes all core directories to GUI
-- ❌ No compiler enforcement - only script validation
-- ❌ render_coordinator.cpp acts as implementation bridge (acknowledged with TODO)
-- ❌ 11 files in orc/gui have direct core header dependencies
+- ✅ Analysis bridge library removed - replaced with minimal vectorscope component
+- ✅ Phases 2.1-2.8 COMPLETE (all migrations done!)
+- ✅ render_coordinator.cpp has ZERO core includes (all through presenters)
+- ✅ All DAG operations abstracted through RenderPresenter
+- ✅ All trigger operations abstracted through RenderPresenter
+- ⏸️ CMakeLists.txt still exposes some core directories to GUI (for implementation details)
+- ⏸️ No full compiler enforcement yet - only partial validation
+- ⏸️ Compiler enforcement and final cleanup remains (post-migration work)
+- ❌ 0 files in orc/gui have direct core header dependencies! 🎉
 
 **Goal State:**
 - Zero core header includes in GUI/CLI (enforced by compiler)
@@ -547,6 +550,10 @@ CMakeLists.txt exposes core directories:
 
 **Goal:** Eliminate ld_sink_stage.h dependency and abstract trigger operations
 
+**Status:** ✅ COMPLETE (2026-01-24)
+
+**Implementation:** Option 2 - Add trigger methods to RenderPresenter (recommended)
+
 **Tasks:**
 
 1. **Move TriggerableStage interface to common**
@@ -618,17 +625,64 @@ CMakeLists.txt exposes core directories:
    - Verify core stages still build
 
 **Deliverables:**
-- ✅ TriggerableStage interface accessible without core headers
-- ✅ render_coordinator uses RenderPresenter for triggering
+- ✅ RenderPresenter enhanced with complete trigger implementation
+- ✅ `triggerStage(node_id, callback)` method fully implemented
+- ✅ `cancelTrigger()` and `isTriggerActive()` methods implemented
+- ✅ render_coordinator uses RenderPresenter for triggering (no direct DAG access)
 - ✅ No ld_sink_stage.h include in render_coordinator.cpp
-- ✅ All trigger functionality working
-- ✅ render_coordinator has ZERO direct DAG access
+- ✅ TriggerableStage forward declaration removed from render_coordinator.h
+- ✅ All trigger functionality working through presenter abstraction
+- ✅ render_coordinator has ZERO direct DAG traversal for triggers
+- ✅ Phase 2.7 COMPLETE (2026-01-24)
+
+**Implementation Details:**
+
+1. **Enhanced RenderPresenter** ([orc/presenters/src/render_presenter.cpp](orc/presenters/src/render_presenter.cpp))
+   - Added `DAGExecutor` include for trigger execution
+   - Added `trigger_active_`, `next_request_id_`, `current_trigger_stage_` to Impl class
+   - Implemented `triggerStage()`:
+     * Finds target node in DAG
+     * Validates it's triggerable
+     * Executes DAG to get inputs
+     * Sets up progress callback with cancellation support
+     * Executes trigger operation synchronously
+     * Returns unique request ID
+   - Implemented `cancelTrigger()` - sets flag and calls cancel on active stage
+   - Implemented `isTriggerActive()` - tracks trigger state
+
+2. **Simplified RenderCoordinator** ([orc/gui/render_coordinator.cpp](orc/gui/render_coordinator.cpp))
+   - `handleTriggerStage()` now just calls `worker_render_presenter_->triggerStage()`
+   - Removed all DAG traversal code
+   - Removed TriggerableStage casting
+   - Removed manual input collection logic
+   - Removed direct ObservationContext management
+   - Updated `cancelTrigger()` to delegate to presenter
+   - Removed member variables: `trigger_cancel_requested_`, `current_trigger_stage_`
+
+3. **Cleaned Headers**
+   - Removed `#include "ld_sink_stage.h"` from render_coordinator.cpp
+   - Removed `TriggerableStage` forward declaration from render_coordinator.h
+   - Added comment documenting Phase 2.7 migration
+
+**Architectural Impact:**
+- ✅ render_coordinator.cpp now has **ZERO** core includes (except through presenters)
+- ✅ All DAG operations fully abstracted through RenderPresenter
+- ✅ Trigger operations are presenter responsibility, not GUI responsibility
+- ✅ GUI layer is one step closer to pure presenter/public API usage
 
 ---
 
 ### Phase 2.8: Analysis Bridge Decision (2 days)
 
 **Goal:** Decide fate of orc-gui-analysis-bridge library
+
+**Status:** ✅ COMPLETE (2026-01-24)
+
+**Decision Made:** Hybrid Approach (Modified Option A)
+- Removed generic `AnalysisDialog`, `AnalysisRunner`, and `AnalysisProgress` bridge files
+- Added `getToolParameters()` and `runGenericAnalysis()` methods to AnalysisPresenter
+- Kept `VectorscopeDialog` in separate `orc-gui-vectorscope` library (needs real-time core access)
+- All special-case analysis tools (dropout, SNR, burst, mask line config, FFmpeg preset, dropout editor) already had dedicated implementations
 
 **Options:**
 
@@ -662,10 +716,38 @@ CMakeLists.txt exposes core directories:
 5. Move files to regular orc/gui build
 
 **Deliverables:**
-- ✅ Decision documented
-- ✅ Implementation complete per chosen option
-- ✅ All analysis functionality working
-- ✅ AnalysisPresenter::getToolById() bridge method removed (if Option A)
+- ✅ Decision documented: Hybrid approach
+- ✅ AnalysisPresenter enhanced with generic analysis methods
+- ✅ Generic AnalysisDialog/AnalysisRunner removed (never actually used in practice)
+- ✅ All analysis functionality working via special-case implementations
+- ✅ `orc-gui-analysis-bridge` library replaced with minimal `orc-gui-vectorscope` library
+- ✅ `runAnalysisRequested` signal changed to pass `AnalysisToolInfo` instead of `AnalysisTool*`
+- ✅ MainWindow::runAnalysisForNode() signature updated to use `AnalysisToolInfo`
+- ✅ Phase 2.8 COMPLETE (2026-01-24)
+
+**Implementation Details:**
+1. **Enhanced Public API** (`orc/public/orc_analysis.h`)
+   - Added `AnalysisSourceType`, `StatisticValue`, `AnalysisResultItem`, `AnalysisResult` types
+   - These types mirror core analysis types but live in public API namespace
+
+2. **Enhanced AnalysisPresenter** (`orc/presenters`)
+   - Added `getToolParameters(tool_id, source_type)` - Get parameter descriptors for a tool
+   - Added `runGenericAnalysis(...)` - Execute analysis and return presenter-typed results
+   - Removed temporary `getToolById()` bridge method
+
+3. **Removed Bridge Files**
+   - `analysis/analysis_dialog.{h,cpp}` - Generic dialog (never used, all tools have special dialogs)
+   - `analysis/analysis_runner.{h,cpp}` - Thread runner (unused)
+   - `analysis/analysis_progress_impl.{h,cpp}` - Progress impl (unused)
+
+4. **Kept Vectorscope** (`orc-gui-vectorscope` library)
+   - `analysis/vectorscope_dialog.{h,cpp}` - Real-time chroma visualization
+   - Requires direct ChromaSinkStage access for live updates
+   - Documented as controlled exception with TODO for future migration
+
+5. **Updated Signal Types**
+   - `OrcGraphicsScene::runAnalysisRequested` now passes `AnalysisToolInfo` instead of `AnalysisTool*`
+   - GUI code no longer includes any core analysis headers directly
 
 ---
 

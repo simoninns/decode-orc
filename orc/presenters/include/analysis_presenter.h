@@ -292,17 +292,35 @@ public:
      */
     orc::public_api::AnalysisToolInfo getToolInfo(const std::string& tool_id) const;
     
+    // === Generic Analysis Execution (Phase 2.8) ===
+    
     /**
-     * @brief Get raw AnalysisTool pointer by ID (for GUI compatibility)
-     * 
-     * TODO(MVP): This is a temporary bridge method for GUI code that still
-     * uses core AnalysisTool directly. Should be removed once analysis_dialog
-     * is migrated to use presenter.
-     * 
+     * @brief Get parameter descriptors for a specific analysis tool
      * @param tool_id Unique tool identifier
-     * @return Tool pointer or nullptr if not found
+     * @param source_type Type of source being analyzed
+     * @return Vector of parameter descriptors for this tool
      */
-    orc::AnalysisTool* getToolById(const std::string& tool_id) const;
+    std::vector<orc::ParameterDescriptor> getToolParameters(
+        const std::string& tool_id,
+        orc::public_api::AnalysisSourceType source_type
+    ) const;
+    
+    /**
+     * @brief Run a generic analysis tool
+     * @param tool_id Unique tool identifier
+     * @param node_id Node to analyze
+     * @param source_type Type of source
+     * @param parameters User-configured parameter values
+     * @param progress_callback Callback for progress updates (optional)
+     * @return Analysis result
+     */
+    orc::public_api::AnalysisResult runGenericAnalysis(
+        const std::string& tool_id,
+        NodeID node_id,
+        orc::public_api::AnalysisSourceType source_type,
+        const std::map<std::string, orc::ParameterValue>& parameters,
+        std::function<void(int current, int total, const std::string& status, const std::string& sub_status)> progress_callback = nullptr
+    ) const;
 
 private:
     class Impl;

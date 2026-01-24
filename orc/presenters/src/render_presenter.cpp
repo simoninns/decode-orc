@@ -12,6 +12,7 @@
 #include "../core/include/project_to_dag.h"
 #include "../core/include/preview_renderer.h"
 #include "../core/include/dag_field_renderer.h"
+#include "../core/include/dag_executor.h"
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/observation_context.h"
 #include "../core/include/observation_cache.h"
@@ -30,6 +31,8 @@ public:
     explicit Impl(orc::Project* project)
         : project_(project)
         , trigger_cancel_requested_(false)
+        , trigger_active_(false)
+        , next_request_id_(1)
     {
         if (!project_) {
             throw std::invalid_argument("Project cannot be null");
@@ -43,6 +46,9 @@ public:
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
     std::shared_ptr<orc::ObservationCache> obs_cache_;
     bool trigger_cancel_requested_;
+    bool trigger_active_;
+    uint64_t next_request_id_;
+    orc::TriggerableStage* current_trigger_stage_ = nullptr;
     
     void rebuildRenderersFromDAG() {
         if (!dag_) {
@@ -382,21 +388,108 @@ bool RenderPresenter::requestBurstLevelData(
 
 uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback)
 {
-    // This is a placeholder - actual triggering would be async
-    // For now, return a dummy request ID
-    // TODO: Implement async triggering with progress callbacks
-    static uint64_t next_id = 1;
-    return next_id++;
+    if (!impl_->dag_) {
+        throw std::runtime_error("DAG not initialized");
+    }
+    
+    impl_->trigger_cancel_requested_ = false;
+    impl_->trigger_active_ = true;
+    uint64_t request_id = impl_->next_request_id_++;
+    
+    try {
+        // Find the target node in the DAG
+        const orc::DAGNode* target_node = nullptr;
+        for (const auto& node : impl_->dag_->nodes()) {
+            if (node.node_id == node_id) {
+                target_node = &node;
+                break;
+            }
+        }
+        
+        if (!target_node) {
+            impl_->trigger_active_ = false;
+            throw std::runtime_error("Node '" + node_id.to_string() + "' not found in DAG");
+        }
+        
+        auto trigger_stage = dynamic_cast<orc::TriggerableStage*>(target_node->stage.get());
+        if (!trigger_stage) {
+            impl_->trigger_active_ = false;
+            throw std::runtime_error("Stage '" + node_id.to_string() + "' is not triggerable");
+        }
+        
+        // Build executor to get inputs for this node
+        auto executor = std::make_shared<orc::DAGExecutor>();
+        
+        // Execute DAG up to (but not including) the target node to get its inputs
+        std::vector<orc::ArtifactPtr> inputs;
+        
+        if (!target_node->input_node_ids.empty()) {
+            // Execute predecessor nodes to get inputs
+            auto node_outputs = executor->execute_to_node(*impl_->dag_, target_node->input_node_ids[0]);
+            
+            // Collect inputs from predecessor nodes
+            for (size_t i = 0; i < target_node->input_node_ids.size(); ++i) {
+                const auto& input_node_id = target_node->input_node_ids[i];
+                size_t input_index = (i < target_node->input_indices.size()) ? target_node->input_indices[i] : 0;
+                
+                auto it = node_outputs.find(input_node_id);
+                if (it != node_outputs.end() && input_index < it->second.size()) {
+                    inputs.push_back(it->second[input_index]);
+                }
+            }
+        }
+        
+        // Store pointer to current trigger stage for cancellation
+        impl_->current_trigger_stage_ = trigger_stage;
+        
+        // Set up progress callback
+        trigger_stage->set_progress_callback([this, trigger_stage, callback](
+            size_t current, size_t total, const std::string& message) {
+            
+            // Check for cancellation
+            if (impl_->trigger_cancel_requested_) {
+                trigger_stage->cancel_trigger();
+            }
+            
+            // Call user callback
+            if (callback) {
+                callback(static_cast<int>(current), static_cast<int>(total), message);
+            }
+        });
+        
+        // Execute trigger using the observation context populated during execute_to_node
+        orc::ObservationContext& obs_context = executor->get_observation_context();
+        bool success = trigger_stage->trigger(inputs, target_node->parameters, obs_context);
+        
+        // Clear current trigger stage pointer
+        impl_->current_trigger_stage_ = nullptr;
+        impl_->trigger_active_ = false;
+        
+        if (!success) {
+            std::string status = trigger_stage->get_trigger_status();
+            throw std::runtime_error("Trigger failed: " + status);
+        }
+        
+    } catch (...) {
+        impl_->current_trigger_stage_ = nullptr;
+        impl_->trigger_active_ = false;
+        throw;
+    }
+    
+    return request_id;
 }
 
 void RenderPresenter::cancelTrigger()
 {
     impl_->trigger_cancel_requested_ = true;
+    if (impl_->current_trigger_stage_) {
+        impl_->current_trigger_stage_->cancel_trigger();
+    }
 }
 
 bool RenderPresenter::isTriggerActive() const
 {
-    return false;  // TODO: Track trigger state
+    return impl_->trigger_active_;
 }
 
 void RenderPresenter::setShowDropouts(bool show)

@@ -33,10 +33,10 @@
 namespace orc {
     class DAG;
     class Project;
-    class TriggerableStage;
     struct ImageToFieldMappingResult;
     struct FieldToImageMappingResult;
     struct FrameFieldsResult;
+    // Phase 2.7: TriggerableStage forward declaration removed - now handled by RenderPresenter
 }
 
 namespace orc::presenters {
@@ -804,8 +804,8 @@ private:
     std::unique_ptr<orc::presenters::RenderPresenter> worker_render_presenter_;
     orc::Project* worker_project_{nullptr};  // Non-owning pointer for presenter
     
-    std::atomic<bool> trigger_cancel_requested_{false};
-    orc::TriggerableStage* current_trigger_stage_{nullptr};  // Pointer to currently executing trigger (if any)
+    // Phase 2.7: Trigger state now managed by RenderPresenter
+    // Removed: trigger_cancel_requested_ and current_trigger_stage_
 };
 
 #endif // RENDER_COORDINATOR_H

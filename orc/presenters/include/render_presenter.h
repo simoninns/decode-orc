@@ -327,14 +327,21 @@ public:
     /**
      * @brief Trigger a triggerable stage (start batch processing)
      * 
+     * This method synchronously executes the trigger operation.
+     * It should be called from a worker thread to avoid blocking the UI.
+     * 
      * @param node_id Node to trigger
-     * @param callback Progress callback
+     * @param callback Progress callback (called from the same thread)
      * @return Request ID for tracking
+     * @throws std::runtime_error if triggering fails
      */
     uint64_t triggerStage(NodeID node_id, ProgressCallback callback);
     
     /**
      * @brief Cancel ongoing trigger operation
+     * 
+     * This sets a cancellation flag that the trigger operation will check.
+     * The operation may not stop immediately.
      */
     void cancelTrigger();
     

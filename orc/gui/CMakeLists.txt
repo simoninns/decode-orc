@@ -27,39 +27,37 @@ generate_platform_icons(
 # This library contains GUI analysis framework components that currently
 # interface directly with core types. This is a controlled violation of MVP
 # architecture that is documented and isolated.
-#
-# TODO(MVP Phase 3): Migrate these components to use presenter pattern
-# or refactor to eliminate direct core dependencies.
-#
-# These files are NOT part of the public GUI API and should only be used
-# internally by the GUI module.
 # =============================================================================
-add_library(orc-gui-analysis-bridge STATIC
-    analysis/analysis_progress_impl.cpp
-    analysis/analysis_progress_impl.h
-    analysis/analysis_runner.cpp
-    analysis/analysis_runner.h
-    analysis/analysis_dialog.cpp
-    analysis/analysis_dialog.h
+# Vectorscope Dialog (Internal Bridge Component)
+# =============================================================================
+#
+# The vectorscope dialog provides live chroma visualization and requires
+# direct access to core ChromaSinkStage for real-time data acquisition.
+# This is maintained as an isolated component with controlled core access.
+#
+# TODO(MVP Phase 3): Consider migrating to presenter pattern if real-time
+# data access can be efficiently abstracted.
+# =============================================================================
+add_library(orc-gui-vectorscope STATIC
     analysis/vectorscope_dialog.cpp
     analysis/vectorscope_dialog.h
 )
 
-# This bridge library is ALLOWED to see core (controlled exception)
-target_include_directories(orc-gui-analysis-bridge PRIVATE
+# This component is ALLOWED to see core (controlled exception for visualization)
+target_include_directories(orc-gui-vectorscope PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/core/include
     ${CMAKE_SOURCE_DIR}/orc/core/analysis
     ${CMAKE_SOURCE_DIR}/orc/core/stages/chroma_sink
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-target_link_libraries(orc-gui-analysis-bridge PRIVATE
+target_link_libraries(orc-gui-vectorscope PRIVATE
     orc-core
     Qt6::Core
     Qt6::Widgets
 )
 
-target_compile_definitions(orc-gui-analysis-bridge PRIVATE
+target_compile_definitions(orc-gui-vectorscope PRIVATE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
 )
 
@@ -164,7 +162,7 @@ target_link_libraries(orc-gui PRIVATE
     orc-core 
     orc-public
     orc-presenters
-    orc-gui-analysis-bridge  # Internal analysis framework bridge
+    orc-gui-vectorscope  # Vectorscope visualization (needs core access)
     Qt6::Core 
     Qt6::Widgets
     QtNodes

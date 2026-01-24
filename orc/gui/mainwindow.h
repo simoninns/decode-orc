@@ -21,6 +21,7 @@
 #include <node_id.h>
 #include "guiproject.h"
 #include <orc_rendering.h>  // Public API rendering types
+#include <orc_analysis.h>   // For AnalysisToolInfo
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
@@ -173,7 +174,7 @@ private:
     void selectLowestSourceStage();  // Auto-select source stage with lowest node ID
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
-    void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);
+    void runAnalysisForNode(const orc::public_api::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name);
     QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
     void closeAllDialogs();  ///< Close all open dialogs when switching projects
     void createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name);

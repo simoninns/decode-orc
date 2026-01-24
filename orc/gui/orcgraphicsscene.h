@@ -12,6 +12,7 @@
 #include <QtNodes/BasicGraphicsScene>
 #include <QMenu>
 #include <node_id.h>
+#include <orc_analysis.h>  // For AnalysisToolInfo
 #include "orcgraphmodel.h"
 
 namespace orc {
@@ -60,11 +61,11 @@ signals:
     
     /**
      * @brief Emitted when user requests to run an analysis tool on a node
-     * @param tool The analysis tool to run
+     * @param tool_info The analysis tool information
      * @param node_id Node to analyze
      * @param stage_name Stage type name
      */
-    void runAnalysisRequested(orc::AnalysisTool* tool, const NodeID& node_id, const std::string& stage_name);
+    void runAnalysisRequested(const orc::public_api::AnalysisToolInfo& tool_info, const NodeID& node_id, const std::string& stage_name);
 
 private slots:
     void onSelectionChanged();

@@ -12,6 +12,9 @@
 #include <string>
 #include <vector>
 #include <cstdint>
+#include <map>
+#include <variant>
+#include <parameter_types.h>
 
 namespace orc::public_api {
 
@@ -47,6 +50,49 @@ struct AnalysisProgress {
     std::string status_message; ///< Primary status message
     std::string sub_status;     ///< Secondary status message
     AnalysisStatus status;      ///< Current status
+};
+
+/**
+ * @brief Type of source being analyzed
+ */
+enum class AnalysisSourceType {
+    LaserDisc,
+    CVBSVideo,
+    Other
+};
+
+/**
+ * @brief Statistic value that can be displayed
+ */
+using StatisticValue = std::variant<bool, int, long long, double, std::string>;
+
+/**
+ * @brief Individual result item from analysis
+ */
+struct AnalysisResultItem {
+    std::string type;           ///< Type: "skip", "repeat", "gap", "warning", etc.
+    std::string message;        ///< Human-readable description
+    int startFrame = -1;        ///< Start frame (-1 if not applicable)
+    int endFrame = -1;          ///< End frame (-1 if not applicable)
+    std::map<std::string, StatisticValue> metadata;  ///< Tool-specific data
+};
+
+/**
+ * @brief Complete analysis result
+ */
+struct AnalysisResult {
+    enum class Status {
+        Success,
+        Failed,
+        Cancelled
+    };
+    
+    Status status = Status::Success;
+    std::string summary;                                    ///< Human-readable summary
+    std::vector<AnalysisResultItem> items;                  ///< Structured results
+    std::map<std::string, StatisticValue> statistics;       ///< Statistics for display
+    std::map<std::string, std::string> graphData;           ///< Data for graph application (opaque to GUI)
+    std::map<std::string, orc::ParameterValue> parameterChanges;  ///< Parameter modifications to apply
 };
 
 } // namespace orc::public_api

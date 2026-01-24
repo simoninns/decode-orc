@@ -25,7 +25,7 @@
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
 #include "dropout_editor_dialog.h"
-#include "analysis/analysis_dialog.h"
+// analysis/analysis_dialog.h removed - Phase 2.8 bridge migration
 #include "analysis/vectorscope_dialog.h"
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
@@ -2524,12 +2524,12 @@ void MainWindow::onInspectStage(const NodeID& node_id)
     }
 }
 
-void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name)
+void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name)
 {
-    ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool->name(), node_id.to_string());
+    ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool_info.name, node_id.to_string());
 
     // Special-case: Mask Line Configuration uses a custom rules-based config dialog
-    if (tool->id() == "mask_line_config") {
+    if (tool_info.id == "mask_line_config") {
         ORC_LOG_DEBUG("Opening mask line configuration dialog for node '{}'", node_id.to_string());
         
         // Get current parameters from the node
@@ -2594,7 +2594,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     }
 
     // Special-case: FFmpeg Preset Configuration uses a custom preset dialog
-    if (tool->id() == "ffmpeg_preset_config") {
+    if (tool_info.id == "ffmpeg_preset_config") {
         ORC_LOG_DEBUG("Opening FFmpeg preset configuration dialog for node '{}'", node_id.to_string());
         
         // Get current parameters from the node
@@ -2659,7 +2659,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     }
 
     // Special-case: Vectorscope is a live visualization dialog, not a batch analysis
-    if (tool->id() == "vectorscope") {
+    if (tool_info.id == "vectorscope") {
         // Note: Vectorscope data comes from preview images (thread-safe),
         // so we don't need to access the DAG or stage here.
         
@@ -2704,7 +2704,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     }
     
     // Special-case: Dropout Editor opens interactive editor dialog
-    if (tool->id() == "dropout_editor") {
+    if (tool_info.id == "dropout_editor") {
         // Get the project
         if (!dag_model_) {
             ORC_LOG_ERROR("No DAG model available for dropout editor");
@@ -2810,7 +2810,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     }
     
     // Special-case: Dropout Analysis triggers batch processing and shows dialog
-    if (tool->id() == "dropout_analysis") {
+    if (tool_info.id == "dropout_analysis") {
         // Get node info from project
         auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
@@ -2875,7 +2875,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     }
     
     // Special-case: SNR Analysis triggers batch processing and shows dialog
-    if (tool->id() == "snr_analysis") {
+    if (tool_info.id == "snr_analysis") {
         // Get node info from project
         auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
@@ -2965,7 +2965,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     }
     
     // Special-case: Burst Level Analysis triggers batch processing and shows dialog
-    if (tool->id() == "burst_level_analysis") {
+    if (tool_info.id == "burst_level_analysis") {
         // Get node info from project
         auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
@@ -3028,66 +3028,17 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         return;
     }
     
-    // Create analysis context
-    orc::AnalysisContext context;
-    context.node_id = node_id;
-    // Detect source type from project video format
-    // Default to LaserDisc for NTSC/PAL, as most TBC files come from LaserDisc sources
-    context.source_type = orc::AnalysisSourceType::LaserDisc;
-    auto video_format_presenter = project_.presenter()->getVideoFormat();
-    if (video_format_presenter == orc::presenters::VideoFormat::Unknown) {
-        context.source_type = orc::AnalysisSourceType::Other;
-    }
-    // Analysis tools work on a copy - they don't modify the actual project
-    context.project = std::const_pointer_cast<orc::Project>(project_.presenter()->createSnapshot());
+    // TODO(Phase 2.8): Generic analysis path removed during bridge migration
+    // All currently supported analysis tools have dedicated special-case implementations above.
+    // Future generic analysis tools can be added through AnalysisPresenter::runGenericAnalysis()
+    // with a new presenter-based dialog.
     
-    // Create DAG from project for analysis
-    context.dag = std::static_pointer_cast<orc::DAG>(project_.presenter()->getDAG());
-    
-    // Default path: show analysis dialog which handles batch analysis and apply
-    orc::gui::AnalysisDialog dialog(tool, context, this);
-    
-    // Connect apply signal to handle applying results to the node
-    connect(&dialog, &orc::gui::AnalysisDialog::applyToGraph, 
-            [this, tool, node_id](const orc::AnalysisResult& result) {
-        ORC_LOG_DEBUG("Applying analysis results to node '{}'", node_id.to_string());
-        
-        try {
-            // Let tool determine what parameter changes to make (read-only access to project)
-            auto result_copy = result;  // Make mutable copy
-            auto project_snapshot = project_.presenter()->createSnapshot();
-            bool success = tool->applyToGraph(result_copy, *project_snapshot, node_id);
-            
-            if (success && !result_copy.parameterChanges.empty()) {
-                // Apply the parameter changes through the presenter
-                ORC_LOG_DEBUG("Applying {} parameter changes to node", result_copy.parameterChanges.size());
-                project_.presenter()->setNodeParameters(node_id, result_copy.parameterChanges);
-                
-                // Rebuild DAG and update preview to reflect changes
-                project_.rebuildDAG();
-                updatePreviewRenderer();
-                dag_model_->refresh();
-                updatePreview();
-                
-                statusBar()->showMessage(
-                    QString("Applied analysis results to node '%1'")
-                        .arg(QString::fromStdString(node_id.to_string())),
-                    5000
-                );
-                QMessageBox::information(this, "Analysis Applied",
-                    "Analysis results successfully applied to node.");
-            } else {
-                QMessageBox::warning(this, "Apply Failed",
-                    "Failed to apply analysis results to node.");
-            }
-        } catch (const std::exception& e) {
-            ORC_LOG_ERROR("Failed to apply analysis results: {}", e.what());
-            QMessageBox::warning(this, "Apply Failed",
-                QString("Error applying results: %1").arg(e.what()));
-        }
-    });
-    
-    dialog.exec();
+    ORC_LOG_WARN("Analysis tool '{}' (id='{}') is not yet implemented",
+                 tool_info.name, tool_info.id);
+    QMessageBox::information(this, "Analysis Tool",
+        QString("The analysis tool '%1' requires a dedicated implementation.\n\n"
+                "This will be added in a future update.")
+            .arg(QString::fromStdString(tool_info.name)));
 }
 
 QProgressDialog* MainWindow::createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog)

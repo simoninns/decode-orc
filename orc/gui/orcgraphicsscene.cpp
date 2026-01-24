@@ -286,16 +286,9 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
                 auto* tool_action = analysis_menu->addAction(tool_name);
                 tool_action->setToolTip(tool_desc);
                 
-                // TODO(MVP): This uses temporary bridge method getToolById()
-                // Once analysis_dialog is migrated, we can pass tool_info instead
-                // Note: Cannot capture analysis_presenter by reference - it's a local variable
-                connect(tool_action, &QAction::triggered, [this, tool_id = tool_info.id, orc_node_id, stage_name = node_info.stage_name]() {
-                    // Recreate presenter in lambda to avoid dangling reference
-                    orc::presenters::AnalysisPresenter presenter(graph_model_.presenter().getCoreProject());
-                    orc::AnalysisTool* tool = presenter.getToolById(tool_id);
-                    if (tool) {
-                        Q_EMIT runAnalysisRequested(tool, orc_node_id, stage_name);
-                    }
+                // Pass tool_info to signal instead of raw pointer
+                connect(tool_action, &QAction::triggered, [this, tool_info, orc_node_id, stage_name = node_info.stage_name]() {
+                    Q_EMIT runAnalysisRequested(tool_info, orc_node_id, stage_name);
                 });
             }
         }

@@ -27,7 +27,15 @@ public:
         }
     }
     
+    // Helper method to get tool by ID
+    orc::AnalysisTool* getToolById(const std::string& tool_id) const {
+        auto& registry = orc::AnalysisRegistry::instance();
+        return registry.findById(tool_id);
+    }
+    
     orc::Project* project_;
+    std::shared_ptr<orc::Project> project;  // Shared pointer for context
+    std::shared_ptr<orc::DAG> dag;          // DAG for analysis context
     bool is_running_;
 };
 
@@ -192,10 +200,134 @@ orc::public_api::AnalysisToolInfo AnalysisPresenter::getToolInfo(const std::stri
     return info;
 }
 
-orc::AnalysisTool* AnalysisPresenter::getToolById(const std::string& tool_id) const
-{
-    auto& registry = orc::AnalysisRegistry::instance();
-    return registry.findById(tool_id);
+// === Generic Analysis Execution (Phase 2.8) ===
+
+std::vector<orc::ParameterDescriptor> AnalysisPresenter::getToolParameters(
+    const std::string& tool_id,
+    orc::public_api::AnalysisSourceType source_type
+) const {
+    auto* tool = impl_->getToolById(tool_id);
+    if (!tool) {
+        return {};
+    }
+    
+    // Create minimal context for parameter query
+    orc::AnalysisContext context;
+    context.source_type = static_cast<orc::AnalysisSourceType>(source_type);
+    context.project = impl_->project;
+    context.dag = impl_->dag;
+    
+    return tool->parametersForContext(context);
+}
+
+orc::public_api::AnalysisResult AnalysisPresenter::runGenericAnalysis(
+    const std::string& tool_id,
+    NodeID node_id,
+    orc::public_api::AnalysisSourceType source_type,
+    const std::map<std::string, orc::ParameterValue>& parameters,
+    std::function<void(int current, int total, const std::string& status, const std::string& sub_status)> progress_callback
+) const {
+    auto* tool = impl_->getToolById(tool_id);
+    if (!tool) {
+        orc::public_api::AnalysisResult result;
+        result.status = orc::public_api::AnalysisResult::Status::Failed;
+        result.summary = "Analysis tool not found: " + tool_id;
+        return result;
+    }
+    
+    // Create analysis context
+    orc::AnalysisContext context;
+    context.source_type = static_cast<orc::AnalysisSourceType>(source_type);
+    context.node_id = node_id;
+    context.parameters = parameters;
+    context.dag = impl_->dag;
+    context.project = impl_->project;
+    
+    // Create progress wrapper
+    class PresenterProgress : public orc::AnalysisProgress {
+    public:
+        PresenterProgress(std::function<void(int, int, const std::string&, const std::string&)> callback)
+            : callback_(callback), current_(0), total_(100) {}
+        
+        void setProgress(int percentage) override {
+            if (callback_) {
+                callback_(percentage, 100, status_, sub_status_);
+            }
+        }
+        
+        void setStatus(const std::string& status) override {
+            status_ = status;
+            if (callback_) {
+                callback_(current_, total_, status_, sub_status_);
+            }
+        }
+        
+        void setSubStatus(const std::string& sub_status) override {
+            sub_status_ = sub_status;
+            if (callback_) {
+                callback_(current_, total_, status_, sub_status_);
+            }
+        }
+        
+        bool isCancelled() const override {
+            return cancelled_;
+        }
+        
+        void reportPartialResult(const AnalysisResult::ResultItem& item) override {
+            // Optionally handle partial results in future
+            (void)item;
+        }
+        
+        void cancel() {
+            cancelled_ = true;
+        }
+        
+    private:
+        std::function<void(int, int, const std::string&, const std::string&)> callback_;
+        std::string status_;
+        std::string sub_status_;
+        int current_;
+        int total_;
+        bool cancelled_ = false;
+    };
+    
+    auto progress = std::make_shared<PresenterProgress>(progress_callback);
+    
+    // Run analysis
+    orc::AnalysisResult core_result = tool->analyze(context, progress.get());
+    
+    // Convert to public API result
+    orc::public_api::AnalysisResult result;
+    
+    switch (core_result.status) {
+        case orc::AnalysisResult::Success:
+            result.status = orc::public_api::AnalysisResult::Status::Success;
+            break;
+        case orc::AnalysisResult::Failed:
+            result.status = orc::public_api::AnalysisResult::Status::Failed;
+            break;
+        case orc::AnalysisResult::Cancelled:
+            result.status = orc::public_api::AnalysisResult::Status::Cancelled;
+            break;
+    }
+    
+    result.summary = core_result.summary;
+    result.statistics = core_result.statistics;
+    result.graphData = core_result.graphData;
+    result.parameterChanges = core_result.parameterChanges;
+    
+    // Convert result items
+    for (const auto& core_item : core_result.items) {
+        orc::public_api::AnalysisResultItem item;
+        item.type = core_item.type;
+        item.message = core_item.message;
+        item.startFrame = core_item.startFrame;
+        item.endFrame = core_item.endFrame;
+        item.metadata = core_item.metadata;
+        result.items.push_back(item);
+    }
+    
+    return result;
 }
 
 } // namespace orc::presenters

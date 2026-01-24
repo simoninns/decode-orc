@@ -1414,16 +1414,60 @@ void MainWindow::onPreviewModeChanged(int index)
         }
     }
     
-    // Simple conversion for index (just use same position)
+    // Convert position between field and frame indices
     uint64_t new_position = current_position;
     
-    // Use helper function to update all viewer controls (slider range, step, preview, info)
-    refreshViewerControls();
+    // Determine if previous and new types are field-based or frame-based
+    bool previous_is_field = (previous_type == orc::PreviewOutputType::Field || 
+                              previous_type == orc::PreviewOutputType::Luma);
+    bool new_is_field = (current_output_type_ == orc::PreviewOutputType::Field || 
+                         current_output_type_ == orc::PreviewOutputType::Luma);
+    
+    // Get first_field_offset - this is the same for all frame-based outputs (determined by field 0 parity)
+    // We can get it from any frame-based output
+    uint64_t first_field_offset = 0;
+    for (const auto& output : available_outputs_) {
+        if (output.type == orc::PreviewOutputType::Frame ||
+            output.type == orc::PreviewOutputType::Frame_Reversed ||
+            output.type == orc::PreviewOutputType::Split) {
+            first_field_offset = output.first_field_offset;
+            ORC_LOG_DEBUG("Found first_field_offset: {}", first_field_offset);
+            break;
+        }
+    }
+    
+    if (previous_is_field && !new_is_field) {
+        // Converting from field to frame: select frame containing current field
+        // Frame F contains fields: F*2 + offset and F*2 + offset + 1
+        // So field N is in frame: (N - offset) / 2
+        if (current_position >= first_field_offset) {
+            new_position = (current_position - first_field_offset) / 2;
+        } else {
+            new_position = 0;
+        }
+        ORC_LOG_DEBUG("Field->Frame conversion: field {} -> frame {} (offset: {})", 
+                     current_position, new_position, first_field_offset);
+    } else if (!previous_is_field && new_is_field) {
+        // Converting from frame to field: select first field of current frame
+        // Frame F maps to first field at: F*2 + offset
+        new_position = (current_position * 2) + first_field_offset;
+        ORC_LOG_DEBUG("Frame->Field conversion: frame {} -> field {} (offset: {})", 
+                     current_position, new_position, first_field_offset);
+    }
+    // Otherwise, both are same type (field->field or frame->frame), keep position as-is
+    
+    // Update viewer controls (slider range, step, labels) without triggering a render yet
+    bool old_signal_state = preview_dialog_->previewSlider()->blockSignals(true);
+    refreshViewerControls(true /* skip_preview */);
     
     // Set the calculated position (after refreshViewerControls updates the range)
     if (new_position >= 0 && new_position <= static_cast<uint64_t>(preview_dialog_->previewSlider()->maximum())) {
         preview_dialog_->previewSlider()->setValue(new_position);
     }
+    
+    // Restore signal state and trigger preview update at the correct position
+    preview_dialog_->previewSlider()->blockSignals(old_signal_state);
+    updateAllPreviewComponents();
 }
 
 void MainWindow::onAspectRatioModeChanged(int index)
@@ -2245,7 +2289,7 @@ void MainWindow::updateAspectRatioCombo()
     }
 }
 
-void MainWindow::refreshViewerControls()
+void MainWindow::refreshViewerControls(bool skip_preview)
 {
     // This helper updates all viewer controls based on current node's available outputs
     // Should be called after available_outputs_ is populated
@@ -2339,7 +2383,9 @@ void MainWindow::refreshViewerControls()
     }
     
     // Update all preview-related components (image, info, VBI dialog)
-    updateAllPreviewComponents();
+    if (!skip_preview) {
+        updateAllPreviewComponents();
+    }
 }
 
 void MainWindow::updatePreviewRenderer()

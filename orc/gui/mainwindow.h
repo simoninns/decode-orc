@@ -165,7 +165,7 @@ private:
     void updatePreviewRenderer();
     void updatePreviewModeCombo();
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
-    void refreshViewerControls();  // Update slider, combo, preview, and info for current node
+    void refreshViewerControls(bool skip_preview = false);  // Update slider, combo, preview, and info for current node
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
     void updateVectorscope(const orc::public_api::PreviewRenderResult& result);
     void loadProjectDAG();  // Load DAG into embedded viewer

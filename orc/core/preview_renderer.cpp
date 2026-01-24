@@ -159,7 +159,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -169,7 +170,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -179,7 +181,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -189,7 +192,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         return outputs;
     }
@@ -235,7 +239,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -245,7 +250,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -255,7 +261,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -265,7 +272,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         return outputs;
     }
@@ -283,7 +291,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -293,7 +302,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -303,7 +313,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -313,7 +324,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         return outputs;
     }
@@ -327,7 +339,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
         "",
         true,  // Dropouts available for field outputs
-        false  // No separate channels
+        false, // No separate channels
+        0      // first_field_offset (not applicable for field view)
     });
     
     // Frame outputs - available if we have at least 2 fields
@@ -356,7 +369,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
                 true,  // Dropouts available for frame outputs
-                false  // No separate channels
+                false, // No separate channels
+                first_frame_start  // Field offset for first frame
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -367,7 +381,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
                 true,  // Dropouts available for reversed frame outputs
-                false  // No separate channels
+                false, // No separate channels
+                first_frame_start  // Field offset for first frame
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -378,7 +393,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
                 true,  // Dropouts available for split outputs
-                false  // No separate channels
+                false, // No separate channels
+                first_frame_start  // Field offset for first frame
             });
         }
     }

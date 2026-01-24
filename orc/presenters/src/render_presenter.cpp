@@ -183,6 +183,7 @@ std::vector<orc::public_api::PreviewOutputInfo> RenderPresenter::getAvailableOut
         info.option_id = core_out.option_id;
         info.dropouts_available = core_out.dropouts_available;
         info.has_separate_channels = core_out.has_separate_channels;
+        info.first_field_offset = core_out.first_field_offset;
         result.push_back(std::move(info));
     }
     

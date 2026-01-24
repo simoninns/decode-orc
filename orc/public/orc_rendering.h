@@ -111,6 +111,7 @@ struct PreviewOutputInfo {
     std::string option_id;          ///< Original option ID from PreviewableStage (for direct rendering)
     bool dropouts_available;        ///< Whether dropout highlighting is available for this output type
     bool has_separate_channels;     ///< Whether source has separate Y/C channels (for signal dropdown)
+    uint64_t first_field_offset;    ///< Field offset for frame-based outputs (0 or 1, indicates first field of frame 0)
 };
 
 /**

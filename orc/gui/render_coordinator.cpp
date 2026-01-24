@@ -444,31 +444,19 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
     }
     
     try {
-        auto vbi_data = worker_render_presenter_->getVBIData(req.node_id, req.field_id);
+        auto vbi_info_opt = worker_render_presenter_->getVBIData(req.node_id, req.field_id);
         
-        // Convert presenter VBI data to view model
-        orc::presenters::VBIFieldInfoView view;
-        view.has_vbi_data = vbi_data.has_vbi;
-        view.field_id = static_cast<int>(req.field_id.value());
-        
-        if (vbi_data.has_vbi) {
-            if (!vbi_data.picture_number.empty()) {
-                view.picture_number = std::stoi(vbi_data.picture_number);
-            }
-            if (!vbi_data.chapter_number.empty()) {
-                view.chapter_number = std::stoi(vbi_data.chapter_number);
-            }
-            if (!vbi_data.user_code.empty()) {
-                view.user_code = vbi_data.user_code;
-            }
-            view.stop_code_present = !vbi_data.picture_stop_code.empty();
+        if (vbi_info_opt.has_value()) {
+            // Return the fully decoded VBI info directly
+            emit vbiDataReady(req.request_id, vbi_info_opt.value());
+        } else {
+            // No VBI data available
+            emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
         }
-        
-        emit vbiDataReady(req.request_id, view);
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());
-        emit error(req.request_id, QString::fromStdString(e.what()));
+        emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
     }
 }
 

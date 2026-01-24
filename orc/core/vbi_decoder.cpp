@@ -117,6 +117,24 @@ VBIFieldInfo VBIDecoder::parse_vbi_data(
         info.programme_status = prog_status;
     }
     
+    // Try to get Amendment 2 status
+    auto am2_copy_opt = observation_context.get(field_id, "vbi", "amendment2_status_copy_permitted");
+    auto am2_video_opt = observation_context.get(field_id, "vbi", "amendment2_status_is_video_standard");
+    auto am2_sound_opt = observation_context.get(field_id, "vbi", "amendment2_status_sound_mode");
+    
+    if (am2_copy_opt || am2_video_opt || am2_sound_opt) {
+        Amendment2Status am2_status;
+        if (am2_copy_opt) am2_status.copy_permitted = std::get<int32_t>(*am2_copy_opt) != 0;
+        if (am2_video_opt) am2_status.is_video_standard = std::get<int32_t>(*am2_video_opt) != 0;
+        if (am2_sound_opt) {
+            int32_t sound_val = std::get<int32_t>(*am2_sound_opt);
+            if (sound_val >= 0 && sound_val <= 11) {
+                am2_status.sound_mode = static_cast<VbiSoundMode>(sound_val);
+            }
+        }
+        info.amendment2_status = am2_status;
+    }
+    
     ORC_LOG_DEBUG("VBIDecoder: Parsed VBI for field {} - lines: {:#08x}, {:#08x}, {:#08x}",
                   field_id.value(), vbi_line_16, vbi_line_17, vbi_line_18);
     
@@ -192,6 +210,13 @@ VBIFieldInfo VBIDecoder::merge_frame_vbi(
         merged.programme_status = field1_info.programme_status;
     } else if (field2_info.programme_status.has_value()) {
         merged.programme_status = field2_info.programme_status;
+    }
+    
+    // Amendment 2 status - prefer first field
+    if (field1_info.amendment2_status.has_value()) {
+        merged.amendment2_status = field1_info.amendment2_status;
+    } else if (field2_info.amendment2_status.has_value()) {
+        merged.amendment2_status = field2_info.amendment2_status;
     }
     
     ORC_LOG_DEBUG("VBIDecoder: Merged frame VBI from fields {} and {}", 

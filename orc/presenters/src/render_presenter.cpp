@@ -9,6 +9,7 @@
 
 #include "render_presenter.h"
 #include "metrics_presenter.h"
+#include <cstdio>
 #include "../core/include/project.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/include/preview_renderer.h"
@@ -217,58 +218,32 @@ bool RenderPresenter::savePNG(
     }
 }
 
-VBIData RenderPresenter::getVBIData(NodeID node_id, FieldID field_id)
+std::optional<VBIFieldInfoView> RenderPresenter::getVBIData(NodeID node_id, FieldID field_id)
 {
-    VBIData result{false, false, "", "", "", "", "", {}};
-    
     if (!impl_->obs_cache_) {
-        return result;
+        return std::nullopt;
     }
     
     try {
         // Render the field to populate observations
         auto field_opt = impl_->obs_cache_->get_field(node_id, field_id);
         if (!field_opt) {
-            return result;
+            return std::nullopt;
         }
         
         // Get observations and decode VBI
         const auto& obs_context = impl_->obs_cache_->get_observation_context();
         auto vbi_info_opt = VbiPresenter::decodeVbiFromObservation(&obs_context, field_id);
         
-        if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
-            const auto& info = vbi_info_opt.value();
-            result.has_vbi = true;
-            result.is_clv = (info.clv_timecode.has_value());
-            
-            // Extract chapter number
-            if (info.chapter_number.has_value()) {
-                result.chapter_number = std::to_string(info.chapter_number.value());
-            }
-            
-            // Extract frame or picture number
-            if (info.picture_number.has_value()) {
-                result.picture_number = std::to_string(info.picture_number.value());
-                result.frame_number = result.picture_number;  // For compatibility
-            }
-            
-            // Extract stop code
-            if (info.stop_code_present) {
-                result.picture_stop_code = "present";
-            }
-            
-            // Extract user code
-            if (info.user_code.has_value()) {
-                result.user_code = info.user_code.value();
-            }
-            
-            // TODO: Extract raw VBI lines if available
+        if (!vbi_info_opt.has_value()) {
+            return std::nullopt;
         }
         
-        return result;
+        // Return the fully decoded VBI information
+        return vbi_info_opt.value();
         
     } catch (const std::exception&) {
-        return result;
+        return std::nullopt;
     }
 }
 

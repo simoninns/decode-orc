@@ -14,11 +14,13 @@
 #include <memory>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <node_id.h>
 #include <field_id.h>
 #include <orc_rendering.h>  // Public API rendering types
 #include <orc_video_metadata.h>  // Public API VideoParameters
 #include <common_types.h>   // PreviewOutputType
+#include "vbi_view_models.h"  // VBIFieldInfoView
 
 // Forward declare core types
 namespace orc {
@@ -203,13 +205,13 @@ public:
     // === VBI Data Extraction ===
     
     /**
-     * @brief Get VBI data for a specific field
+     * @brief Get VBI data for a specific field (fully decoded)
      * 
      * @param node_id Node to extract from
      * @param field_id Field to decode
-     * @return VBI data (has_vbi=false if no VBI found)
+     * @return Full VBI field info view with all decoded data, or empty optional if no VBI found
      */
-    VBIData getVBIData(NodeID node_id, FieldID field_id);
+    std::optional<VBIFieldInfoView> getVBIData(NodeID node_id, FieldID field_id);
     
     // === Analysis Data Access ===
     

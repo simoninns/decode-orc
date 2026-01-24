@@ -80,45 +80,34 @@ void MainWindow::onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldIn
     
     ORC_LOG_DEBUG("onVBIDataReady: request_id={}", request_id);
     
-    if (!vbi_dialog_ || !vbi_dialog_->isVisible()) {
+    if (!vbi_dialog_ || !vbi_presenter_) {
         return;
     }
     
-    if (!vbi_presenter_) {
-        return;
-    }
+    // Process VBI data whether or not the dialog is currently visible,
+    // so that when it is shown, it has the latest data
     
-    // info is already a view model, no conversion needed
-
     if (pending_vbi_is_frame_mode_) {
         // Frame mode - need both fields
         if (request_id == pending_vbi_request_id_) {
             // First field received - cache it
             pending_vbi_field1_info_ = info;
-            
-            // Check if we already received the second field
-            if (pending_vbi_request_id_field2_ == 0) {
-                // Second field already processed, update now
-                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
-                pending_vbi_is_frame_mode_ = false;
-            }
+            pending_vbi_request_id_ = 0;  // Mark first request as processed
         } else if (request_id == pending_vbi_request_id_field2_) {
-            // Second field received
-            if (pending_vbi_request_id_ == 0) {
-                // First field already processed - shouldn't happen in normal flow
-                vbi_dialog_->updateVBIInfo(info);
-                pending_vbi_is_frame_mode_ = false;
-            } else {
-                // Update dialog with both fields
+            // Second field received - update dialog with both fields
+            if (vbi_dialog_->isVisible()) {
                 vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
-                pending_vbi_is_frame_mode_ = false;
             }
-            // Mark second request as complete
+            pending_vbi_is_frame_mode_ = false;
             pending_vbi_request_id_field2_ = 0;
+            pending_vbi_request_id_ = 0;
         }
     } else {
         // Field mode - single field display
-        vbi_dialog_->updateVBIInfo(info);
+        if (vbi_dialog_->isVisible()) {
+            vbi_dialog_->updateVBIInfo(info);
+        }
+        pending_vbi_request_id_ = 0;
     }
 }
 

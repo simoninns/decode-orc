@@ -44,10 +44,18 @@ public:
     void updateFieldParityHint(const std::optional<orc::presenters::FieldParityHintView>& hint);
     
     /**
-     * @brief Update the displayed field phase hint
+     * @brief Update the displayed field phase hint for single field
      * @param hint The field phase hint to display
      */
     void updateFieldPhaseHint(const std::optional<orc::presenters::FieldPhaseHintView>& hint);
+    
+    /**
+     * @brief Update the displayed field phase hint for frame/split view
+     * @param first_field_hint The phase hint for the first field
+     * @param second_field_hint The phase hint for the second field
+     */
+    void updateFieldPhaseHintForFrame(const std::optional<orc::presenters::FieldPhaseHintView>& first_field_hint,
+                                      const std::optional<orc::presenters::FieldPhaseHintView>& second_field_hint);
     
     /**
      * @brief Update the displayed active line hint

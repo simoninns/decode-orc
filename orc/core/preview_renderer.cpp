@@ -558,10 +558,7 @@ PreviewRenderResult PreviewRenderer::render_output(
         render_dropouts(result.image);
     }
     
-    // Apply aspect ratio scaling to the rendered image
-    if (result.success && result.image.is_valid()) {
-        result.image = apply_aspect_ratio_scaling(result.image);
-    }
+    // Aspect ratio scaling removed from core; GUI handles display scaling
     
     return result;
 }
@@ -894,71 +891,9 @@ uint8_t PreviewRenderer::tbc_sample_to_8bit(uint16_t sample) {
 }
 
 namespace {
-/**
- * @brief Helper to copy all metadata fields from one PreviewImage to another
- * 
- * This ensures that when creating a new PreviewImage (e.g., during scaling),
- * all metadata fields are preserved. Only excludes width, height, and rgb_data
- * which are typically set explicitly by the caller.
- * 
- * @param from Source PreviewImage to copy metadata from
- * @param to Destination PreviewImage to copy metadata to
- */
-void copy_preview_metadata(const PreviewImage& from, PreviewImage& to) {
-    to.vectorscope_data = from.vectorscope_data;
-    // Note: dropout_regions often need transformation, so not copied here
-    // Caller should handle dropout_regions explicitly if needed
-}
 } // anonymous namespace
 
-PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& input) const {
-    // If SAR 1:1 mode or invalid image, return as-is
-    if (aspect_ratio_mode_ == AspectRatioMode::SAR_1_1 || !input.is_valid()) {
-        return input;
-    }
-    
-    // DAR 4:3 mode - apply aspect correction
-    // PAL/NTSC have rectangular pixels that need to be displayed wider
-    // The correction factor compresses width for display (client applies inverse for stretching)
-    const double aspect_correction = 0.7;
-    
-    PreviewImage output;
-    output.height = input.height;
-    output.width = static_cast<size_t>(input.width * aspect_correction + 0.5);
-    output.rgb_data.resize(output.width * output.height * 3);
-    
-    // Simple nearest-neighbor scaling
-    for (size_t y = 0; y < output.height; ++y) {
-        for (size_t x = 0; x < output.width; ++x) {
-            // Map output pixel to input pixel
-            size_t src_x = static_cast<size_t>(x / aspect_correction);
-            if (src_x >= input.width) src_x = input.width - 1;
-            
-            size_t src_offset = (y * input.width + src_x) * 3;
-            size_t dst_offset = (y * output.width + x) * 3;
-            
-            output.rgb_data[dst_offset + 0] = input.rgb_data[src_offset + 0];
-            output.rgb_data[dst_offset + 1] = input.rgb_data[src_offset + 1];
-            output.rgb_data[dst_offset + 2] = input.rgb_data[src_offset + 2];
-        }
-    }
-    
-    // Scale dropout regions to match the new image dimensions
-    output.dropout_regions.reserve(input.dropout_regions.size());
-    for (const auto& region : input.dropout_regions) {
-        DropoutRegion scaled_region = region;
-        // Scale the sample coordinates (x-axis)
-        scaled_region.start_sample = static_cast<uint32_t>(region.start_sample * aspect_correction + 0.5);
-        scaled_region.end_sample = static_cast<uint32_t>(region.end_sample * aspect_correction + 0.5);
-        // Line numbers (y-axis) remain unchanged
-        output.dropout_regions.push_back(scaled_region);
-    }
-    
-    // Copy all metadata fields (vectorscope_data, etc.)
-    copy_preview_metadata(input, output);
-    
-    return output;
-}
+
 
 bool PreviewRenderer::save_png(
     const NodeID& node_id,
@@ -1048,13 +983,7 @@ bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& fil
     return true;
 }
 
-void PreviewRenderer::set_aspect_ratio_mode(AspectRatioMode mode) {
-    aspect_ratio_mode_ = mode;
-}
 
-AspectRatioMode PreviewRenderer::get_aspect_ratio_mode() const {
-    return aspect_ratio_mode_;
-}
 
 void PreviewRenderer::set_show_dropouts(bool show) {
     show_dropouts_ = show;
@@ -1121,23 +1050,7 @@ void PreviewRenderer::render_dropouts(PreviewImage& image) const {
     }
 }
 
-std::vector<AspectRatioModeInfo> PreviewRenderer::get_available_aspect_ratio_modes() const {
-    return {
-        { AspectRatioMode::SAR_1_1, "SAR 1:1", 1.0 },
-        { AspectRatioMode::DAR_4_3, "DAR 4:3", 0.7 }
-    };
-}
 
-AspectRatioModeInfo PreviewRenderer::get_current_aspect_ratio_mode_info() const {
-    auto modes = get_available_aspect_ratio_modes();
-    for (const auto& mode_info : modes) {
-        if (mode_info.mode == aspect_ratio_mode_) {
-            return mode_info;
-        }
-    }
-    // Fallback (should never happen)
-    return modes[0];
-}
 
 uint64_t PreviewRenderer::get_equivalent_index(
     PreviewOutputType from_type,
@@ -1831,10 +1744,7 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
         render_dropouts(result.image);
     }
     
-    // Apply aspect ratio scaling to the rendered image
-    if (result.success && result.image.is_valid()) {
-        result.image = apply_aspect_ratio_scaling(result.image);
-    }
+    // Aspect ratio scaling removed from core; GUI handles display scaling
     
     return result;
 }

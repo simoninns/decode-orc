@@ -110,7 +110,7 @@ protected:
 
 private:
     QImage current_image_;
-    double aspect_correction_ = 0.7;  // Default for PAL/NTSC DAR 4:3
+    double aspect_correction_ = 1.0;  // Default to SAR 1:1 (GUI sets DAR)
     std::vector<orc::public_api::DropoutRegion> dropout_regions_;
     bool show_dropouts_ = false;
     QPoint mouse_pos_;  // Current mouse position

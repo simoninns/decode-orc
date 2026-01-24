@@ -176,8 +176,7 @@ MainWindow::MainWindow(QWidget *parent)
     // Start the coordinator worker thread
     render_coordinator_->start();
     
-    // Initialize aspect ratio mode to match default
-    render_coordinator_->setAspectRatioMode(current_aspect_ratio_mode_);
+    // Aspect ratio display is handled exclusively in GUI (no core scaling)
     
     // Create preview update debounce timer
     // This prevents excessive rendering during slider scrubbing by only updating
@@ -1429,9 +1428,7 @@ void MainWindow::onPreviewModeChanged(int index)
 
 void MainWindow::onAspectRatioModeChanged(int index)
 {
-    // Use hardcoded aspect ratio modes for simplicity
-    // Note: Could request from coordinator if dynamic modes are needed in the future,
-    // but these two modes (SAR 1:1 and DAR 4:3) cover all current use cases
+    // Handle aspect ratio entirely in GUI: set preview widget correction
     static std::vector<orc::public_api::AspectRatioModeInfo> available_modes = {
         {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
@@ -1439,14 +1436,61 @@ void MainWindow::onAspectRatioModeChanged(int index)
     if (index < 0 || index >= static_cast<int>(available_modes.size())) {
         return;
     }
-    
-    // Remember the selected mode
+
     current_aspect_ratio_mode_ = available_modes[index].mode;
-    
-    // Update core's aspect ratio mode - it will apply scaling in render_output
-    render_coordinator_->setAspectRatioMode(current_aspect_ratio_mode_);
-    
-    // Trigger a refresh of the current preview
+
+    // Determine correction factor: for 1:1 use 1.0; for 4:3 compute from active area
+    auto computeAspectCorrection = [this]() -> double {
+        double correction = 1.0;
+        // Fetch hints (active lines) and video parameters for current node
+        auto hints = hints_presenter_->getHintsForField(current_view_node_id_, orc::FieldID(0));
+        if (hints.video_params.has_value() && hints.active_line.has_value() && hints.active_line->is_valid()) {
+            const auto& vp = hints.video_params.value();
+            const auto& al = hints.active_line.value();
+            int active_width = vp.active_video_end - vp.active_video_start;
+            int active_frame_height = al.last_active_frame_line - al.first_active_frame_line + 1;
+            if (active_width > 0 && active_frame_height > 0) {
+                double target_ratio = 1.0;
+                switch (current_output_type_) {
+                    case orc::PreviewOutputType::Field:
+                    case orc::PreviewOutputType::Luma:
+                        // Single field desired ratio ~ 4:1.5
+                        target_ratio = 4.0 / 1.5;  // ~2.6667
+                        // Field shows half the frame height
+                        correction = (target_ratio * (active_frame_height / 2.0)) / static_cast<double>(active_width);
+                        break;
+                    case orc::PreviewOutputType::Frame:
+                    case orc::PreviewOutputType::Frame_Reversed:
+                    case orc::PreviewOutputType::Split:
+                        target_ratio = 4.0 / 3.0;  // ~1.3333
+                        correction = (target_ratio * static_cast<double>(active_frame_height)) / static_cast<double>(active_width);
+                        break;
+                    default:
+                        correction = 1.0;
+                        break;
+                }
+            }
+        } else {
+            // Fallback: use stage-provided DAR correction if available
+            for (const auto& output : available_outputs_) {
+                if (output.type == current_output_type_ && output.option_id == current_option_id_) {
+                    correction = output.dar_aspect_correction;
+                    break;
+                }
+            }
+        }
+        return correction;
+    };
+
+    double correction = (current_aspect_ratio_mode_ == orc::AspectRatioMode::DAR_4_3)
+        ? computeAspectCorrection()
+        : 1.0;
+
+    if (preview_dialog_ && preview_dialog_->previewWidget()) {
+        preview_dialog_->previewWidget()->setAspectCorrection(correction);
+    }
+
+    // No core-side scaling; re-render image to ensure redraw uses new scaling
     updatePreview();
 }
 
@@ -2153,6 +2197,52 @@ void MainWindow::updateAspectRatioCombo()
     
     // Restore signals
     preview_dialog_->aspectRatioCombo()->blockSignals(false);
+
+    // Apply correction immediately for current mode using active area
+    auto computeAspectCorrection = [this]() -> double {
+        double correction = 1.0;
+        auto hints = hints_presenter_->getHintsForField(current_view_node_id_, orc::FieldID(0));
+        if (hints.video_params.has_value() && hints.active_line.has_value() && hints.active_line->is_valid()) {
+            const auto& vp = hints.video_params.value();
+            const auto& al = hints.active_line.value();
+            int active_width = vp.active_video_end - vp.active_video_start;
+            int active_frame_height = al.last_active_frame_line - al.first_active_frame_line + 1;
+            if (active_width > 0 && active_frame_height > 0) {
+                double target_ratio = 1.0;
+                switch (current_output_type_) {
+                    case orc::PreviewOutputType::Field:
+                    case orc::PreviewOutputType::Luma:
+                        target_ratio = 4.0 / 1.5;
+                        correction = (target_ratio * (active_frame_height / 2.0)) / static_cast<double>(active_width);
+                        break;
+                    case orc::PreviewOutputType::Frame:
+                    case orc::PreviewOutputType::Frame_Reversed:
+                    case orc::PreviewOutputType::Split:
+                        target_ratio = 4.0 / 3.0;
+                        correction = (target_ratio * static_cast<double>(active_frame_height)) / static_cast<double>(active_width);
+                        break;
+                    default:
+                        correction = 1.0;
+                        break;
+                }
+            }
+        } else {
+            for (const auto& output : available_outputs_) {
+                if (output.type == current_output_type_ && output.option_id == current_option_id_) {
+                    correction = output.dar_aspect_correction;
+                    break;
+                }
+            }
+        }
+        return correction;
+    };
+
+    double correction = (current_aspect_ratio_mode_ == orc::AspectRatioMode::DAR_4_3)
+        ? computeAspectCorrection()
+        : 1.0;
+    if (preview_dialog_ && preview_dialog_->previewWidget()) {
+        preview_dialog_->previewWidget()->setAspectCorrection(correction);
+    }
 }
 
 void MainWindow::refreshViewerControls()
@@ -2170,6 +2260,52 @@ void MainWindow::refreshViewerControls()
     
     // Update the aspect ratio combo box
     updateAspectRatioCombo();
+
+    // Ensure current aspect correction is applied based on selected mode and active area
+    auto computeAspectCorrection = [this]() -> double {
+        double correction = 1.0;
+        auto hints = hints_presenter_->getHintsForField(current_view_node_id_, orc::FieldID(0));
+        if (hints.video_params.has_value() && hints.active_line.has_value() && hints.active_line->is_valid()) {
+            const auto& vp = hints.video_params.value();
+            const auto& al = hints.active_line.value();
+            int active_width = vp.active_video_end - vp.active_video_start;
+            int active_frame_height = al.last_active_frame_line - al.first_active_frame_line + 1;
+            if (active_width > 0 && active_frame_height > 0) {
+                double target_ratio = 1.0;
+                switch (current_output_type_) {
+                    case orc::PreviewOutputType::Field:
+                    case orc::PreviewOutputType::Luma:
+                        target_ratio = 4.0 / 1.5;
+                        correction = (target_ratio * (active_frame_height / 2.0)) / static_cast<double>(active_width);
+                        break;
+                    case orc::PreviewOutputType::Frame:
+                    case orc::PreviewOutputType::Frame_Reversed:
+                    case orc::PreviewOutputType::Split:
+                        target_ratio = 4.0 / 3.0;
+                        correction = (target_ratio * static_cast<double>(active_frame_height)) / static_cast<double>(active_width);
+                        break;
+                    default:
+                        correction = 1.0;
+                        break;
+                }
+            }
+        } else {
+            for (const auto& output : available_outputs_) {
+                if (output.type == current_output_type_ && output.option_id == current_option_id_) {
+                    correction = output.dar_aspect_correction;
+                    break;
+                }
+            }
+        }
+        return correction;
+    };
+
+    double correction = (current_aspect_ratio_mode_ == orc::AspectRatioMode::DAR_4_3)
+        ? computeAspectCorrection()
+        : 1.0;
+    if (preview_dialog_ && preview_dialog_->previewWidget()) {
+        preview_dialog_->previewWidget()->setAspectCorrection(correction);
+    }
     
     // Check if current output has separate channels (YC source) and show/hide signal selector
     bool has_separate_channels = false;
@@ -3250,6 +3386,7 @@ void MainWindow::updateHintsDialog()
     
     // Get field ID from core library (handles field ordering correctly)
     orc::FieldID field_id;
+    orc::FieldID second_field_id;
     if (is_frame_mode) {
         // Use core library to determine first field of frame
         auto frame_fields = render_coordinator_->getFrameFields(current_view_node_id_, current_index);
@@ -3258,6 +3395,7 @@ void MainWindow::updateHintsDialog()
             return;
         }
         field_id = orc::FieldID(frame_fields.first_field);
+        second_field_id = orc::FieldID(frame_fields.second_field);
     } else {
         // Field mode - simple mapping
         field_id = orc::FieldID(current_index);
@@ -3272,7 +3410,15 @@ void MainWindow::updateHintsDialog()
 
     auto hints = hints_presenter_->getHintsForField(current_view_node_id_, field_id);
     hints_dialog_->updateFieldParityHint(hints.parity);
-    hints_dialog_->updateFieldPhaseHint(hints.phase);
+    
+    // Update phase hint based on mode
+    if (is_frame_mode) {
+        auto second_hints = hints_presenter_->getHintsForField(current_view_node_id_, second_field_id);
+        hints_dialog_->updateFieldPhaseHintForFrame(hints.phase, second_hints.phase);
+    } else {
+        hints_dialog_->updateFieldPhaseHint(hints.phase);
+    }
+    
     hints_dialog_->updateActiveLineHint(hints.active_line);
     hints_dialog_->updateVideoParameters(hints.video_params);
 }

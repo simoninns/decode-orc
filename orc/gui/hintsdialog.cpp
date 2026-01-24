@@ -120,17 +120,6 @@ void HintsDialog::setupUI()
     
     mainLayout->addWidget(videoParamsGroup);
     
-    // Add info text
-    auto* infoLabel = new QLabel(
-        "Hints are video parameter information from upstream sources "
-        "(e.g., ld-decode metadata) or derived from analysis. "
-        "They guide processing stages in making decisions about field ordering, "
-        "color phase, and other video parameters."
-    );
-    infoLabel->setWordWrap(true);
-    infoLabel->setStyleSheet("QLabel { color: gray; font-size: 9pt; }");
-    mainLayout->addWidget(infoLabel);
-    
     mainLayout->addStretch();
 }
 
@@ -174,6 +163,55 @@ void HintsDialog::updateFieldPhaseHint(const std::optional<orc::presenters::Fiel
     
     // Format the confidence
     field_phase_confidence_label_->setText(QString("%1%").arg(hint->confidence_pct));
+}
+
+void HintsDialog::updateFieldPhaseHintForFrame(const std::optional<orc::presenters::FieldPhaseHintView>& first_field_hint,
+                                               const std::optional<orc::presenters::FieldPhaseHintView>& second_field_hint)
+{
+    // If both hints are missing, show nothing
+    if (!first_field_hint.has_value() && !second_field_hint.has_value()) {
+        field_phase_value_label_->setText("-");
+        field_phase_source_label_->setText("-");
+        field_phase_confidence_label_->setText("-");
+        return;
+    }
+    
+    // Build the phase string from both fields
+    QString phase_str;
+    int confidence = 0;
+    orc::presenters::HintSourceView source = orc::presenters::HintSourceView::UNKNOWN;
+    
+    // First field
+    if (first_field_hint.has_value()) {
+        if (first_field_hint->field_phase_id == -1) {
+            phase_str = "Unknown";
+        } else {
+            phase_str = QString::number(first_field_hint->field_phase_id);
+        }
+        source = first_field_hint->source;
+        confidence = first_field_hint->confidence_pct;
+    } else {
+        phase_str = "?";
+    }
+    
+    // Add second field if present
+    if (second_field_hint.has_value()) {
+        phase_str += "-";
+        if (second_field_hint->field_phase_id == -1) {
+            phase_str += "?";
+        } else {
+            phase_str += QString::number(second_field_hint->field_phase_id);
+        }
+        // Use second field's source/confidence if available and first wasn't
+        if (!first_field_hint.has_value()) {
+            source = second_field_hint->source;
+            confidence = second_field_hint->confidence_pct;
+        }
+    }
+    
+    field_phase_value_label_->setText(phase_str);
+    field_phase_source_label_->setText(formatHintSource(source));
+    field_phase_confidence_label_->setText(QString("%1%").arg(confidence));
 }
 
 void HintsDialog::updateActiveLineHint(const std::optional<orc::presenters::ActiveLineHintView>& hint)

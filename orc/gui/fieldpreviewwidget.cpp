@@ -141,13 +141,14 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     }
     
     // Scale image to fit widget
-    // Note: Aspect ratio correction is now applied by orc-core in render_output,
-    // so we just display the image as-is
+    // Apply GUI-side aspect ratio correction by scaling width
     QRect target = rect();
     QSize image_size = current_image_.size();
     
-    // Calculate proper display size
-    QSize scaled_size = image_size.scaled(target.size(), Qt::KeepAspectRatio);
+    // Calculate display size with width correction (aspect_correction_)
+    // aspect_correction_ = 1.0 for SAR 1:1; < 1.0 (e.g., ~0.7) for DAR 4:3
+    QSize corrected_size(static_cast<int>(image_size.width() * aspect_correction_), image_size.height());
+    QSize scaled_size = corrected_size.scaled(target.size(), Qt::KeepAspectRatio);
     
     QRect dest_rect(
         (target.width() - scaled_size.width()) / 2,

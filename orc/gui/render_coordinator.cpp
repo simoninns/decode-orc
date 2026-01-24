@@ -714,12 +714,6 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
     }
 }
 
-void RenderCoordinator::setAspectRatioMode(orc::AspectRatioMode mode)
-{
-    // TODO: Add aspect ratio mode support to RenderPresenter
-    ORC_LOG_DEBUG("RenderCoordinator: Aspect ratio mode set requested (not yet implemented in presenter)");
-}
-
 void RenderCoordinator::setShowDropouts(bool show)
 {
     if (worker_render_presenter_) {

@@ -51,15 +51,6 @@ namespace orc {
 using DropoutRegion = orc::public_api::DropoutRegion;
 
 /**
- * @brief Information about an aspect ratio mode option
- */
-struct AspectRatioModeInfo {
-    AspectRatioMode mode;
-    std::string display_name;       ///< Human-readable name for GUI
-    double correction_factor;       ///< Width scaling factor (1.0 for SAR, 0.7 for DAR)
-};
-
-/**
  * @brief Result of querying for suggested view node
  */
 struct SuggestedViewNode {
@@ -229,18 +220,6 @@ public:
     void update_dag(std::shared_ptr<const DAG> dag);
     
     /**
-     * @brief Set the aspect ratio display mode
-     * @param mode The aspect ratio mode to use (SAR 1:1 or DAR 4:3)
-     */
-    void set_aspect_ratio_mode(AspectRatioMode mode);
-    
-    /**
-     * @brief Get the current aspect ratio display mode
-     * @return The current aspect ratio mode
-     */
-    AspectRatioMode get_aspect_ratio_mode() const;
-    
-    /**
      * @brief Set whether to render dropout regions onto the image
      * @param show True to render dropouts, false to hide
      */
@@ -262,18 +241,6 @@ public:
      * @return Shared pointer to the field representation, or nullptr if not available
      */
     std::shared_ptr<const VideoFieldRepresentation> get_representation_at_node(const NodeID& node_id);
-    
-    /**
-     * @brief Get available aspect ratio modes
-     * @return Vector of available aspect ratio mode options
-     */
-    std::vector<AspectRatioModeInfo> get_available_aspect_ratio_modes() const;
-    
-    /**
-     * @brief Get current aspect ratio mode information
-     * @return Info about the currently selected aspect ratio mode
-     */
-    AspectRatioModeInfo get_current_aspect_ratio_mode_info() const;
     
     /**
      * @brief Convert an index from one output type to equivalent index in another type
@@ -484,9 +451,6 @@ private:
     /// DAG executor for on-demand execution
     mutable DAGExecutor dag_executor_;
     
-    /// Current aspect ratio display mode
-    AspectRatioMode aspect_ratio_mode_ = AspectRatioMode::DAR_4_3;
-    
     /// Whether to render dropout regions onto images
     bool show_dropouts_ = false;
     
@@ -529,14 +493,6 @@ private:
         FieldID field_a,
         FieldID field_b
     );
-    
-    /**
-     * @brief Apply aspect ratio scaling to an image
-     * 
-     * @param input The input image at native TBC resolution
-     * @return Scaled image if DAR 4:3 mode, otherwise returns input unchanged
-     */
-    PreviewImage apply_aspect_ratio_scaling(const PreviewImage& input) const;
     
     /**
      * @brief Render dropout regions onto an image

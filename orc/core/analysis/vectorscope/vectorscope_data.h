@@ -10,6 +10,10 @@
 #ifndef ORC_CORE_ANALYSIS_VECTORSCOPE_DATA_H
 #define ORC_CORE_ANALYSIS_VECTORSCOPE_DATA_H
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/analysis/vectorscope/vectorscope_data.h. Use VectorscopePresenter or public API instead."
+#endif
+
 #include <vector>
 #include <cstdint>
 #include "../../include/tbc_metadata.h"

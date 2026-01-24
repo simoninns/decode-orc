@@ -136,8 +136,8 @@ public:
      * @brief Set the DAG for rendering
      * @param dag Shared pointer to DAG
      * 
-     * @internal Transitional API - takes core DAG type.
-     * Will be refactored to use presenter-based DAG updates in Phase 3.5.
+     * @note Used for coordination with external DAG management.
+     * The DAG is typically obtained from ProjectPresenter.
      */
     void setDAG(std::shared_ptr<const orc::DAG> dag);
     
@@ -515,8 +515,8 @@ public:
      * @param node_id Node to execute to
      * @return Shared pointer to field representation (as void* for encapsulation)
      * 
-     * @internal This is a transitional API that returns core VideoFieldRepresentation.
-     * Will be refactored to use public API types in Phase 3.5.
+     * @note Returns core VideoFieldRepresentation. Analysis tools should
+     * eventually migrate to presenter-based data access.
      */
     std::shared_ptr<const void> executeToNode(NodeID node_id);
     
@@ -530,8 +530,8 @@ public:
      * @param field_id Field to render
      * @return Pointer to observation context (as void* for encapsulation)
      * 
-     * @internal This is a transitional API that returns core ObservationContext.
-     * Will be refactored in Phase 3.5.
+     * @note Returns core ObservationContext. Metric presenters use this
+     * to extract quality data without GUI having direct core access.
      */
     const void* getObservationContext(NodeID node_id, FieldID field_id);
     

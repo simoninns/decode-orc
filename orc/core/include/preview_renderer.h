@@ -9,19 +9,21 @@
 
 #pragma once
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
+#endif
+
 // =============================================================================
-// MVP Architecture Partial Enforcement
+// MVP Architecture Enforcement - Phase 3.5 Complete
 // =============================================================================
-// GUI HEADER FILES must NOT include this (enforced by build system).
-// Implementation files (.cpp) may temporarily include this during migration.
+// GUI code cannot include this file (enforced by ORC_GUI_BUILD compile guard).
+// This header is part of core and contains internal implementation types.
 //
-// The build system removes orc/core from GUI include paths, so headers
-// cannot find this file. Implementation files access it via relative paths
-// or transitional includes.
-// 
-// TODO(MVP Phase 3): Complete type migration
-// - Move remaining types to public API as needed
-// - Update GUI code to use public API types exclusively
+// GUI must use:
+// - orc/public/*.h for public API types (PreviewImage, etc.)
+// - orc/presenters/include/*.h for rendering operations (RenderPresenter)
+//
+// Presenters bridge between GUI and core, performing type conversions.
 // =============================================================================
 
 #include "dag_field_renderer.h"

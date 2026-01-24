@@ -1,6 +1,10 @@
 #ifndef ORC_CORE_ANALYSIS_TOOL_H
 #define ORC_CORE_ANALYSIS_TOOL_H
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/analysis/analysis_tool.h. Use AnalysisPresenter instead."
+#endif
+
 #include "analysis_context.h"
 #include "analysis_result.h"
 #include "analysis_progress.h"

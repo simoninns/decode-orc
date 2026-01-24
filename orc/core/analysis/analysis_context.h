@@ -1,6 +1,10 @@
 #ifndef ORC_CORE_ANALYSIS_CONTEXT_H
 #define ORC_CORE_ANALYSIS_CONTEXT_H
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/analysis/analysis_context.h. Use AnalysisPresenter instead."
+#endif
+
 #include "../include/stage_parameter.h"
 #include <node_id.h>
 #include <string>

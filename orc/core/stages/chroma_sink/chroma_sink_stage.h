@@ -11,6 +11,10 @@
 #ifndef ORC_CORE_CHROMA_SINK_STAGE_H
 #define ORC_CORE_CHROMA_SINK_STAGE_H
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/stages/chroma_sink/chroma_sink_stage.h. Use VectorscopePresenter or RenderPresenter instead."
+#endif
+
 #include "dag_executor.h"
 #include "stage_parameter.h"
 #include <node_type.h>

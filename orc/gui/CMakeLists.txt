@@ -35,8 +35,10 @@ generate_platform_icons(
 # direct access to core ChromaSinkStage for real-time data acquisition.
 # This is maintained as an isolated component with controlled core access.
 #
-# TODO(MVP Phase 3): Consider migrating to presenter pattern if real-time
-# data access can be efficiently abstracted.
+# NOTE(MVP Phase 3.5): This is a documented architectural exception.
+# The component is isolated in a separate library without ORC_GUI_BUILD,
+# allowing core access. Future migration to presenter pattern could be
+# considered if real-time data can be efficiently abstracted.
 # =============================================================================
 add_library(orc-gui-vectorscope STATIC
     analysis/vectorscope_dialog.cpp
@@ -200,7 +202,7 @@ target_include_directories(orc-gui PRIVATE
     ${CMAKE_SOURCE_DIR}/orc/public           # Public API only
     ${CMAKE_SOURCE_DIR}/orc/presenters/include  # Presenter headers only
     ${CMAKE_SOURCE_DIR}/orc/common/include   # Common types (VideoSystem, SourceType, etc.)
-    ${CMAKE_SOURCE_DIR}/orc  # For presenters/ includes (transitional)
+    ${CMAKE_SOURCE_DIR}/orc  # For presenters/ includes
     ${CMAKE_BINARY_DIR}/generated            # Generated files (version.h)
     # NO CORE DIRECTORIES - Enforced by compiler guards
 )

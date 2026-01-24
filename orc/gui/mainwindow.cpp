@@ -26,7 +26,7 @@
 #include "inspection_dialog.h"
 #include "dropout_editor_dialog.h"
 // analysis/analysis_dialog.h removed - Phase 2.8 bridge migration
-#include "analysis/vectorscope_dialog.h"
+#include "analysis/vectorscope_dialog.h"  // Safe now - uses pimpl to hide core types
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
 #include "logging.h"
@@ -1044,17 +1044,10 @@ void MainWindow::quickProject(const QString& filename)
     // Read metadata to determine video format (NTSC or PAL)
     ORC_LOG_INFO("Reading metadata from: {}", db_path.toStdString());
     
-    auto metadata_reader = std::make_shared<orc::TBCMetadataReader>();
-    if (!metadata_reader->open(db_path.toStdString())) {
-        QMessageBox::critical(this, "Error", 
-            QString("Failed to open metadata file: %1").arg(db_path));
-        return;
-    }
-    
-    auto video_params_opt = metadata_reader->read_video_parameters();
+    auto video_params_opt = orc::presenters::ProjectPresenter::readVideoParameters(db_path.toStdString());
     if (!video_params_opt) {
         QMessageBox::critical(this, "Error", 
-            "Failed to read video parameters from metadata file");
+            QString("Failed to read video parameters from metadata file: %1").arg(db_path));
         return;
     }
     

@@ -1,6 +1,14 @@
 #ifndef ORC_GUI_ANALYSIS_RUNNER_H
 #define ORC_GUI_ANALYSIS_RUNNER_H
 
+// ============================================================================
+// DEPRECATED - NOT PART OF BUILD
+// ============================================================================
+// This file is legacy code from the old analysis system and is not compiled
+// into orc-gui. The relative path includes below violate MVP architecture
+// and are preserved only for historical reference.
+// ============================================================================
+
 #include "../../core/analysis/analysis_tool.h"
 #include "../../core/analysis/analysis_context.h"
 #include "../../core/analysis/analysis_result.h"

@@ -19,6 +19,7 @@
 #include <node_type.h>
 #include <field_id.h>
 #include <parameter_types.h>
+#include <orc_video_metadata.h>  // For public_api::VideoParameters
 #include "stage_inspection_view_models.h"
 
 // Forward declare core Project type
@@ -131,6 +132,20 @@ public:
     ProjectPresenter(ProjectPresenter&&) noexcept;
     ProjectPresenter& operator=(ProjectPresenter&&) noexcept;
     
+    // === Utility Methods (Static) ===
+    
+    /**
+     * @brief Read video parameters from a TBC metadata file
+     * @param metadata_path Path to .tbc.db metadata file
+     * @return VideoParameters if successful, nullopt if file doesn't exist or can't be read
+     * 
+     * This is a utility method for reading metadata before creating a project,
+     * allowing the GUI to determine video format and other parameters from
+     * existing TBC files.
+     */
+    static std::optional<orc::public_api::VideoParameters> readVideoParameters(
+        const std::string& metadata_path);
+    
     // === Project Lifecycle ===
     
     /**
@@ -219,10 +234,9 @@ public:
      * @brief Create an immutable snapshot copy of the project
      * @return Shared pointer to project copy (safe to cache)
      * 
-     * @internal Transitional API - exposes core Project type.
-     * Used by analysis tools that need to work with a stable copy
-     * of the project without worrying about concurrent modifications.
-     * Will be refactored to use public API types in Phase 3.5.
+     * @note Exposes core Project type for analysis tools that need
+     * to work with a stable copy without concurrent modifications.
+     * Analysis tools should migrate to use presenter-based access patterns.
      */
     std::shared_ptr<const orc::Project> createSnapshot() const;
     
@@ -455,9 +469,9 @@ public:
      * @brief Get pointer to underlying core project
      * @return Pointer to core project
      * 
-     * @internal This is a transitional API for components that haven't
-     * been fully migrated to use presenters. Will be removed in Phase 3.5.
-     * New code should NOT use this method.
+     * @note This method provides direct Project access for components like
+     * RenderPresenter that manage DAG lifecycle. The presenter retains ownership.
+     * New GUI code should use presenter methods instead.
      */
     orc::Project* getCoreProject() { return project_.get(); }
 

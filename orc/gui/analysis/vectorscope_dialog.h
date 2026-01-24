@@ -1,11 +1,21 @@
 /*
  * File:        vectorscope_dialog.h
- * Module:      orc-gui
+ * Module:      orc-gui-vectorscope (isolated library)
  * Purpose:     Vectorscope visualization dialog
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
+
+// ============================================================================
+// MVP PHASE 3.5 - CONTROLLED EXCEPTION
+// ============================================================================
+// This file is part of orc-gui-vectorscope, a separate library that has
+// controlled access to core types for real-time chroma visualization.
+// It does NOT define ORC_GUI_BUILD, allowing core includes.
+// This is a documented architectural exception for performance reasons.
+// See orc/gui/CMakeLists.txt for library definition.
+// ============================================================================
 
 #ifndef ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
 #define ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
@@ -20,7 +30,14 @@
 #include <string>
 #include <optional>
 #include <node_id.h>
-#include "../../core/analysis/vectorscope/vectorscope_data.h"
+
+// Forward declarations
+namespace orc {
+    struct VectorscopeData;
+}
+
+// Forward declaration for pimpl
+class VectorscopeDialogPrivate;
 
 /**
  * @brief QLabel subclass that maintains aspect ratio of the displayed pixmap
@@ -41,11 +58,6 @@ private:
     
     QPixmap original_pixmap_;
 };
-
-namespace orc {
-    struct VectorscopeData;
-    class ChromaSinkStage;
-}
 
 /**
  * @brief Live vectorscope visualization for chroma decoder output
@@ -93,13 +105,14 @@ private slots:
     void onGraticuleChanged();
 
 private:
+    friend class VectorscopeDialogPrivate;
+    
     void setupUI();
     void connectSignals();
-    void drawGraticule(QPainter& painter, const orc::VectorscopeData& data);
+    int getGraticuleMode() const;
     
-    // Associated stage
-    orc::NodeID node_id_;
-    orc::ChromaSinkStage* stage_;  // Not owned
+    // Pimpl - hides core types from header
+    std::unique_ptr<VectorscopeDialogPrivate> d_;
     
     // UI components
     AspectRatioLabel* scope_label_;
@@ -120,10 +133,6 @@ private:
     QRadioButton* graticule_full_radio_;
     QRadioButton* graticule_75_radio_;
     QButtonGroup* graticule_group_;
-    
-    // Current field info
-    uint64_t current_field_number_;
-    std::optional<orc::VectorscopeData> last_data_;
 };
 
 #endif // ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H

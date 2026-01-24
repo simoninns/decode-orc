@@ -57,6 +57,27 @@ static SourceType fromSourceType(orc::SourceType type) {
     return SourceType::Unknown;
 }
 
+// === Static Utility Methods ===
+
+std::optional<orc::public_api::VideoParameters> ProjectPresenter::readVideoParameters(
+    const std::string& metadata_path)
+{
+    try {
+        orc::TBCMetadataReader reader;
+        if (!reader.open(metadata_path)) {
+            ORC_LOG_WARN("Failed to open metadata file: {}", metadata_path);
+            return std::nullopt;
+        }
+        
+        auto params = reader.read_video_parameters();
+        reader.close();
+        return params;
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Exception reading metadata from {}: {}", metadata_path, e.what());
+        return std::nullopt;
+    }
+}
+
 // === ProjectPresenter Implementation ===
 
 ProjectPresenter::ProjectPresenter()

@@ -490,6 +490,7 @@ CMakeLists.txt exposes core directories:
 **Deliverables:**
 - ✅ All dialogs use common types
 - ✅ No stage_parameter.h includes
+- ✅ Phase 2.5 COMPLETE (2026-01-24)
 
 ---
 
@@ -1050,9 +1051,10 @@ cmake --build build -j$(nproc)  # MUST succeed
 
 ### Week 2: Project & Analysis Presenters
 - **Day 1-2**: Phase 2.3 - Enhance ProjectPresenter
-- **Day 3**: Phase 2.4 - - Parameter Dialog Migration
+- **Day 3**: Phase 2.4 - Analysis Presenter Enhancement
+- **✅ Day 3**: Phase 2.5 - Parameter Dialog Migration (COMPLETE 2026-01-24)
 
-**Milestone:** All parameter dialogs use common types
+**Milestone:** All parameter dialogs use common types ✅
 
 ### Week 3: Cleanup & Enforcement
 - **Day 1**: Phase 2.6 - Preview Widget Migration (signal types to public API)

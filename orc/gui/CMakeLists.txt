@@ -181,10 +181,9 @@ target_include_directories(orc-gui PRIVATE
     # Files still using core headers directly:
     # - render_coordinator.{h,cpp}: preview_renderer.h, project_to_dag.h, stage headers
     # - guiproject.{h,cpp}: project.h, project_to_dag.h
-    # - stageparameterdialog.h: stage_parameter.h
-    # - configdialogbase.h: stage_parameter.h
     # - fieldpreviewwidget.h: preview_renderer.h
     # - mainwindow.h: preview_renderer.h
+    # ✅ Phase 2.5 Complete: stageparameterdialog.h and configdialogbase.h now use parameter_types.h
     # These need Phase 2/3 migration to presenters before removal is possible.
     ${CMAKE_SOURCE_DIR}/orc/core/include
     ${CMAKE_SOURCE_DIR}/orc/core/analysis

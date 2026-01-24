@@ -480,7 +480,7 @@ RenderPresenter::FrameLineNavigation RenderPresenter::navigateFrameLine(
     return {result.is_valid, result.new_field_index, result.new_line_number};
 }
 
-std::vector<int16_t> RenderPresenter::getLineSamples(
+std::vector<uint16_t> RenderPresenter::getLineSamples(
     NodeID node_id,
     orc::PreviewOutputType output_type,
     uint64_t output_index,
@@ -525,16 +525,32 @@ std::vector<int16_t> RenderPresenter::getLineSamples(
             return {};
         }
         
-        // Convert to int16_t and return
-        std::vector<int16_t> result(descriptor->width);
-        for (size_t i = 0; i < descriptor->width; ++i) {
-            result[i] = static_cast<int16_t>(line_data[i]);
-        }
+        // Return as uint16_t vector (no conversion needed)
+        std::vector<uint16_t> result(line_data, line_data + descriptor->width);
         
         return result;
         
     } catch (const std::exception&) {
         return {};
+    }
+}
+
+std::optional<orc::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
+{
+    if (!impl_->preview_renderer_) {
+        return std::nullopt;
+    }
+    
+    try {
+        auto repr = impl_->preview_renderer_->get_representation_at_node(node_id);
+        if (!repr) {
+            return std::nullopt;
+        }
+        
+        return repr->get_video_parameters();
+        
+    } catch (const std::exception&) {
+        return std::nullopt;
     }
 }
 

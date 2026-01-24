@@ -623,23 +623,22 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
     }
     
     try {
-        auto samples_16 = worker_render_presenter_->getLineSamples(
+        auto samples = worker_render_presenter_->getLineSamples(
             req.node_id, req.output_type, req.output_index,
             req.line_number, req.sample_x, req.preview_image_width
         );
         
-        if (samples_16.empty()) {
+        if (samples.empty()) {
             throw std::runtime_error("Line data not available");
         }
         
-        // Convert to uint16_t for GUI
-        std::vector<uint16_t> samples(samples_16.begin(), samples_16.end());
+        // Get video parameters from the representation
+        auto video_params = worker_render_presenter_->getVideoParameters(req.node_id);
         
         // For now, emit simple samples without Y/C separation
         // TODO: Extend RenderPresenter to provide Y/C samples separately
-        std::optional<orc::VideoParameters> empty_params;
         emit lineSamplesReady(req.request_id, req.output_index, req.line_number, req.sample_x,
-                            std::move(samples), empty_params, {}, {});
+                            std::move(samples), video_params, {}, {});
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());

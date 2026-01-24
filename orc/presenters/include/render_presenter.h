@@ -23,6 +23,7 @@
 namespace orc {
     class Project;
     class DAG;
+    struct VideoParameters;
 }
 
 namespace orc::presenters {
@@ -464,7 +465,7 @@ public:
      * @param preview_width Width of preview image (for coordinate mapping)
      * @return Vector of 16-bit sample values
      */
-    std::vector<int16_t> getLineSamples(
+    std::vector<uint16_t> getLineSamples(
         NodeID node_id,
         orc::PreviewOutputType output_type,
         uint64_t output_index,
@@ -472,6 +473,14 @@ public:
         int sample_x,
         int preview_width
     );
+    
+    /**
+     * @brief Get video parameters for a node
+     * 
+     * @param node_id Node to get parameters from
+     * @return Video parameters if available
+     */
+    std::optional<orc::VideoParameters> getVideoParameters(NodeID node_id);
     
     // === Observations (for debugging) ===
     

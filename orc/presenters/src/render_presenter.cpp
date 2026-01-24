@@ -576,4 +576,120 @@ std::string RenderPresenter::getCacheStats() const
     return "Cache: active";
 }
 
+// === Analysis Data Access (Phase 2.4) ===
+
+bool RenderPresenter::getDropoutAnalysisData(
+    NodeID node_id,
+    std::vector<void*>& frame_stats,
+    int32_t& total_frames)
+{
+    if (!impl_->dag_) {
+        return false;
+    }
+    
+    // Find the node in the DAG
+    const orc::DAGNode* target_node = nullptr;
+    for (const auto& node : impl_->dag_->nodes()) {
+        if (node.node_id == node_id) {
+            target_node = &node;
+            break;
+        }
+    }
+    
+    if (!target_node) {
+        return false;
+    }
+    
+    // Cast to DropoutAnalysisSinkStage
+    auto* sink = dynamic_cast<orc::DropoutAnalysisSinkStage*>(target_node->stage.get());
+    if (!sink || !sink->has_results()) {
+        return false;
+    }
+    
+    // Get the data (this is a hack - we're storing pointers as void* to avoid exposing the type)
+    // The caller (render_coordinator) knows the actual type
+    auto& stats = sink->frame_stats();
+    total_frames = sink->total_frames();
+    
+    // Store address of the vector - caller will cast back
+    frame_stats.clear();
+    frame_stats.push_back(const_cast<void*>(static_cast<const void*>(&stats)));
+    
+    return true;
+}
+
+bool RenderPresenter::getSNRAnalysisData(
+    NodeID node_id,
+    std::vector<void*>& frame_stats,
+    int32_t& total_frames)
+{
+    if (!impl_->dag_) {
+        return false;
+    }
+    
+    // Find the node in the DAG
+    const orc::DAGNode* target_node = nullptr;
+    for (const auto& node : impl_->dag_->nodes()) {
+        if (node.node_id == node_id) {
+            target_node = &node;
+            break;
+        }
+    }
+    
+    if (!target_node) {
+        return false;
+    }
+    
+    // Cast to SNRAnalysisSinkStage
+    auto* sink = dynamic_cast<orc::SNRAnalysisSinkStage*>(target_node->stage.get());
+    if (!sink || !sink->has_results()) {
+        return false;
+    }
+    
+    auto& stats = sink->frame_stats();
+    total_frames = sink->total_frames();
+    
+    frame_stats.clear();
+    frame_stats.push_back(const_cast<void*>(static_cast<const void*>(&stats)));
+    
+    return true;
+}
+
+bool RenderPresenter::getBurstLevelAnalysisData(
+    NodeID node_id,
+    std::vector<void*>& frame_stats,
+    int32_t& total_frames)
+{
+    if (!impl_->dag_) {
+        return false;
+    }
+    
+    // Find the node in the DAG
+    const orc::DAGNode* target_node = nullptr;
+    for (const auto& node : impl_->dag_->nodes()) {
+        if (node.node_id == node_id) {
+            target_node = &node;
+            break;
+        }
+    }
+    
+    if (!target_node) {
+        return false;
+    }
+    
+    // Cast to BurstLevelAnalysisSinkStage
+    auto* sink = dynamic_cast<orc::BurstLevelAnalysisSinkStage*>(target_node->stage.get());
+    if (!sink || !sink->has_results()) {
+        return false;
+    }
+    
+    auto& stats = sink->frame_stats();
+    total_frames = sink->total_frames();
+    
+    frame_stats.clear();
+    frame_stats.push_back(const_cast<void*>(static_cast<const void*>(&stats)));
+    
+    return true;
+}
+
 } // namespace orc::presenters

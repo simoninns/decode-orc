@@ -10,11 +10,16 @@
 #include "render_coordinator.h"
 #include "logging.h"
 #include "render_presenter.h"
+#include <common_types.h>  // For analysis result types and TriggerableStage
 
-// For accessing analysis sink stages (direct DAG access needed)
-#include "dropout_analysis_sink_stage.h"
-#include "snr_analysis_sink_stage.h"
-#include "burst_level_analysis_sink_stage.h"
+// Phase 2.4: Analysis sink stage headers removed - now using RenderPresenter abstraction
+// Removed: #include "dropout_analysis_sink_stage.h"
+// Removed: #include "snr_analysis_sink_stage.h"
+// Removed: #include "burst_level_analysis_sink_stage.h"
+
+// Still needed for TriggerableStage interface (until triggering is migrated to presenter)
+// NOTE: TriggerableStage is defined in ld_sink_stage.h but should be moved to common
+// or abstracted through RenderPresenter in a future phase
 #include "ld_sink_stage.h"
 
 // Temporary include for types used in signals - should be migrated to public API
@@ -474,34 +479,29 @@ void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
                   req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
 
     try {
-        const orc::DAGNode* target_node = nullptr;
-        if (worker_dag_) {
-            for (const auto& node : worker_dag_->nodes()) {
-                if (node.node_id == req.node_id) {
-                    target_node = &node;
-                    break;
-                }
-            }
-        }
-
-        if (!target_node) {
-            emit error(req.request_id, "Node not found in DAG");
+        if (!worker_render_presenter_) {
+            emit error(req.request_id, "Render presenter not initialized");
             return;
         }
 
-        auto* sink = dynamic_cast<orc::DropoutAnalysisSinkStage*>(target_node->stage.get());
-        if (!sink) {
-            emit error(req.request_id, "Node is not a DropoutAnalysisSinkStage");
+        // Phase 2.4: Use RenderPresenter abstraction instead of direct DAG access
+        std::vector<void*> data_ptr;
+        int32_t total_frames = 0;
+        
+        if (!worker_render_presenter_->getDropoutAnalysisData(req.node_id, data_ptr, total_frames)) {
+            emit error(req.request_id, "Failed to get dropout data - node may not be a DropoutAnalysisSinkStage or has no results");
             return;
         }
 
-        if (!sink->has_results()) {
-            emit error(req.request_id, "No dropout dataset available - trigger the sink first");
+        if (data_ptr.empty()) {
+            emit error(req.request_id, "No dropout dataset available");
             return;
         }
 
-        auto data = sink->frame_stats();
-        int32_t total_frames = sink->total_frames();
+        // Cast back to the actual type
+        auto* stats_vec = static_cast<const std::vector<orc::FrameDropoutStats>*>(data_ptr[0]);
+        auto data = *stats_vec;  // Copy the data
+
         ORC_LOG_DEBUG("RenderCoordinator: Served dropout dataset from sink ({} buckets, {} frames total)",
                   data.size(), total_frames);
         emit dropoutDataReady(req.request_id, data, total_frames);
@@ -518,34 +518,29 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
                   req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
 
     try {
-        const orc::DAGNode* target_node = nullptr;
-        if (worker_dag_) {
-            for (const auto& node : worker_dag_->nodes()) {
-                if (node.node_id == req.node_id) {
-                    target_node = &node;
-                    break;
-                }
-            }
-        }
-
-        if (!target_node) {
-            emit error(req.request_id, "Node not found in DAG");
+        if (!worker_render_presenter_) {
+            emit error(req.request_id, "Render presenter not initialized");
             return;
         }
 
-        auto* sink = dynamic_cast<orc::SNRAnalysisSinkStage*>(target_node->stage.get());
-        if (!sink) {
-            emit error(req.request_id, "Node is not a SNRAnalysisSinkStage");
+        // Phase 2.4: Use RenderPresenter abstraction instead of direct DAG access
+        std::vector<void*> data_ptr;
+        int32_t total_frames = 0;
+        
+        if (!worker_render_presenter_->getSNRAnalysisData(req.node_id, data_ptr, total_frames)) {
+            emit error(req.request_id, "Failed to get SNR data - node may not be a SNRAnalysisSinkStage or has no results");
             return;
         }
 
-        if (!sink->has_results()) {
-            emit error(req.request_id, "No SNR dataset available - trigger the sink first");
+        if (data_ptr.empty()) {
+            emit error(req.request_id, "No SNR dataset available");
             return;
         }
 
-        auto data = sink->frame_stats();
-        int32_t total_frames = sink->total_frames();
+        // Cast back to the actual type
+        auto* stats_vec = static_cast<const std::vector<orc::FrameSNRStats>*>(data_ptr[0]);
+        auto data = *stats_vec;  // Copy the data
+
         ORC_LOG_DEBUG("RenderCoordinator: Served SNR dataset from sink ({} frames)", data.size());
         emit snrDataReady(req.request_id, data, total_frames);
 
@@ -561,34 +556,29 @@ void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& 
                   req.node_id.to_string(), req.request_id);
 
     try {
-        const orc::DAGNode* target_node = nullptr;
-        if (worker_dag_) {
-            for (const auto& node : worker_dag_->nodes()) {
-                if (node.node_id == req.node_id) {
-                    target_node = &node;
-                    break;
-                }
-            }
-        }
-
-        if (!target_node) {
-            emit error(req.request_id, "Node not found in DAG");
+        if (!worker_render_presenter_) {
+            emit error(req.request_id, "Render presenter not initialized");
             return;
         }
 
-        auto* sink = dynamic_cast<orc::BurstLevelAnalysisSinkStage*>(target_node->stage.get());
-        if (!sink) {
-            emit error(req.request_id, "Node is not a BurstLevelAnalysisSinkStage");
+        // Phase 2.4: Use RenderPresenter abstraction instead of direct DAG access
+        std::vector<void*> data_ptr;
+        int32_t total_frames = 0;
+        
+        if (!worker_render_presenter_->getBurstLevelAnalysisData(req.node_id, data_ptr, total_frames)) {
+            emit error(req.request_id, "Failed to get burst data - node may not be a BurstLevelAnalysisSinkStage or has no results");
             return;
         }
 
-        if (!sink->has_results()) {
-            emit error(req.request_id, "No burst level dataset available - trigger the sink first");
+        if (data_ptr.empty()) {
+            emit error(req.request_id, "No burst level dataset available");
             return;
         }
 
-        auto data = sink->frame_stats();
-        int32_t total_frames = sink->total_frames();
+        // Cast back to the actual type
+        auto* stats_vec = static_cast<const std::vector<orc::FrameBurstLevelStats>*>(data_ptr[0]);
+        auto data = *stats_vec;  // Copy the data
+
         ORC_LOG_DEBUG("RenderCoordinator: Served burst dataset from sink ({} frames)", data.size());
         emit burstLevelDataReady(req.request_id, data, total_frames);
 

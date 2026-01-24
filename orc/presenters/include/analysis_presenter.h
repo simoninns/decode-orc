@@ -16,10 +16,12 @@
 #include <functional>
 #include <node_id.h>
 #include <field_id.h>
+#include <orc_analysis.h>  // Public API analysis types
 
 // Forward declare core Project type
 namespace orc {
     class Project;
+    class AnalysisTool;
 }
 
 namespace orc::presenters {
@@ -267,6 +269,40 @@ public:
      * @return true on success
      */
     bool exportToCSV(NodeID node_id, AnalysisType type, const std::string& output_path) const;
+    
+    // === Analysis Tool Registry (Phase 2.4) ===
+    
+    /**
+     * @brief Get all available analysis tools
+     * @return Vector of all registered analysis tools
+     */
+    std::vector<orc::public_api::AnalysisToolInfo> getAvailableTools() const;
+    
+    /**
+     * @brief Get analysis tools applicable to a specific stage type
+     * @param stage_name Name of the stage type (e.g., "field_map", "PAL_Comp_Source")
+     * @return Vector of applicable tools, sorted by priority
+     */
+    std::vector<orc::public_api::AnalysisToolInfo> getToolsForStage(const std::string& stage_name) const;
+    
+    /**
+     * @brief Get information about a specific tool
+     * @param tool_id Unique tool identifier
+     * @return Tool info (empty name if not found)
+     */
+    orc::public_api::AnalysisToolInfo getToolInfo(const std::string& tool_id) const;
+    
+    /**
+     * @brief Get raw AnalysisTool pointer by ID (for GUI compatibility)
+     * 
+     * TODO(MVP): This is a temporary bridge method for GUI code that still
+     * uses core AnalysisTool directly. Should be removed once analysis_dialog
+     * is migrated to use presenter.
+     * 
+     * @param tool_id Unique tool identifier
+     * @return Tool pointer or nullptr if not found
+     */
+    orc::AnalysisTool* getToolById(const std::string& tool_id) const;
 
 private:
     class Impl;

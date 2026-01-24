@@ -43,7 +43,7 @@ public:
      * @param parent Parent QObject
      */
     explicit OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent = nullptr);
-    ~OrcGraphicsScene() override = default;
+    ~OrcGraphicsScene() override;
 
     /**
      * @brief Create context menu for scene background

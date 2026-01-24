@@ -13,7 +13,7 @@
 #include <node_type.h>
 #include "presenters/include/project_presenter.h"
 #include "presenters/include/analysis_presenter.h"
-#include "analysis_registry.h"  // TODO(MVP): Remove - use AnalysisPresenter instead
+// Removed: #include "analysis_registry.h"  // Phase 2.4: Now using AnalysisPresenter
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 #include <QGraphicsView>
 #include <QMessageBox>
@@ -51,6 +51,13 @@ OrcGraphicsScene::OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent)
             this, &OrcGraphicsScene::onNodeContextMenu);
 }
 
+OrcGraphicsScene::~OrcGraphicsScene()
+{
+    // Disconnect all signals to prevent callbacks during destruction
+    // This prevents Qt from trying to call methods on partially-destructed objects
+    disconnect();
+}
+
 void OrcGraphicsScene::onSelectionChanged()
 {
     // Get selected items and emit nodeSelected for the first selected node
@@ -67,7 +74,7 @@ void OrcGraphicsScene::onSelectionChanged()
 
 QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
 {
-    QMenu* menu = new QMenu();
+    QMenu* menu = new QMenu(views().isEmpty() ? nullptr : views().first());
     
     // Check if project has a valid name (indicating it's been created/loaded)
     bool has_project = !graph_model_.presenter().getProjectName().empty();
@@ -209,8 +216,8 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
         qDebug() << "  Can inspect:" << node_info.can_inspect 
                  << (node_info.can_inspect ? "" : QString("- %1").arg(QString::fromStdString(node_info.inspect_reason)));
         
-        // Create context menu
-        QMenu* menu = new QMenu();
+        // Create context menu (with view as parent to ensure proper cleanup)
+        QMenu* menu = new QMenu(views().isEmpty() ? nullptr : views().first());
         menu->addSection(QString("%1 (%2)").arg(node_label).arg(QString::fromStdString(orc_node_id.to_string())));
         
         // Rename Stage action - always available
@@ -263,39 +270,32 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
         
         // Run Analysis submenu - populate with tools applicable to this stage
         QMenu* analysis_menu = menu->addMenu("Stage Tools");
-        auto& analysis_registry = orc::AnalysisRegistry::instance();
-        auto all_tools = analysis_registry.tools();
         
-        // Filter tools that are applicable to this stage type
-        std::vector<orc::AnalysisTool*> applicable_tools;
-        for (auto* tool : all_tools) {
-            if (tool->isApplicableToStage(node_info.stage_name)) {
-                applicable_tools.push_back(tool);
-            }
-        }
+        // Phase 2.4: Use AnalysisPresenter instead of direct registry access
+        orc::presenters::AnalysisPresenter analysis_presenter(graph_model_.presenter().getCoreProject());
+        auto tool_infos = analysis_presenter.getToolsForStage(node_info.stage_name);
         
-        // Sort tools: by priority (1=stage-specific, 2=common), then alphabetically
-        std::sort(applicable_tools.begin(), applicable_tools.end(), 
-            [](const orc::AnalysisTool* a, const orc::AnalysisTool* b) {
-                int priority_a = a->priority();
-                int priority_b = b->priority();
-                if (priority_a != priority_b) {
-                    return priority_a < priority_b;  // Lower priority first
-                }
-                return a->name() < b->name();  // Same priority: alphabetical
-            });
-        
-        if (applicable_tools.empty()) {
+        if (tool_infos.empty()) {
             analysis_menu->addAction("(No analysis tools available for this stage)")->setEnabled(false);
         } else {
-            for (auto* tool : applicable_tools) {
-                QString tool_name = QString::fromStdString(tool->name());
-                QString tool_desc = QString::fromStdString(tool->description());
+            // Tools are already sorted by priority in getToolsForStage()
+            for (const auto& tool_info : tool_infos) {
+                QString tool_name = QString::fromStdString(tool_info.name);
+                QString tool_desc = QString::fromStdString(tool_info.description);
                 
                 auto* tool_action = analysis_menu->addAction(tool_name);
                 tool_action->setToolTip(tool_desc);
-                connect(tool_action, &QAction::triggered, [this, tool, orc_node_id, stage_name = node_info.stage_name]() {
-                    Q_EMIT runAnalysisRequested(tool, orc_node_id, stage_name);
+                
+                // TODO(MVP): This uses temporary bridge method getToolById()
+                // Once analysis_dialog is migrated, we can pass tool_info instead
+                // Note: Cannot capture analysis_presenter by reference - it's a local variable
+                connect(tool_action, &QAction::triggered, [this, tool_id = tool_info.id, orc_node_id, stage_name = node_info.stage_name]() {
+                    // Recreate presenter in lambda to avoid dangling reference
+                    orc::presenters::AnalysisPresenter presenter(graph_model_.presenter().getCoreProject());
+                    orc::AnalysisTool* tool = presenter.getToolById(tool_id);
+                    if (tool) {
+                        Q_EMIT runAnalysisRequested(tool, orc_node_id, stage_name);
+                    }
                 });
             }
         }

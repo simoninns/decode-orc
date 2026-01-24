@@ -449,11 +449,22 @@ CMakeLists.txt exposes core directories:
    - Move sink stage access logic into RenderPresenter implementation
 
 **Deliverables:**
-- ✅ AnalysisPresenter complete
-- ✅ orcgraphicsscene uses only presenter
+- ✅ AnalysisPresenter complete with tool registry methods
+- ✅ orcgraphicsscene uses only presenter (analysis_registry.h removed)
 - ✅ No analysis_registry access from GUI
-- ✅ All sink stage headers removed from render_coordinator.cpp
-- ✅ render_coordinator has ZERO direct DAG access
+- ✅ Analysis sink stage headers removed from render_coordinator.cpp (dropout, SNR, burst)
+- ✅ Analysis data retrieval abstracted through RenderPresenter
+- ✅ Analysis result types use common_types.h instead of separate core headers
+- ⏸️ ld_sink_stage.h remains for TriggerableStage interface (trigger migration is future work)
+- ⏸️ handleTriggerStage() still uses direct DAG access (will be migrated in future phase)
+
+**Remaining Core Dependencies in render_coordinator.cpp:**
+- `ld_sink_stage.h` - for TriggerableStage interface (used in handleTriggerStage)
+- `preview_renderer.h` - for PreviewOutputInfo, FrameLineNavigationResult types in signals
+
+**Note:** These remaining dependencies are for functionality not yet migrated to presenters:
+- Trigger operations (handleTriggerStage) - requires RenderPresenter enhancement or new TriggerPresenter
+- Signal types - requires migrating these types to public API (covered in Phase 2.6)
 
 ---
 
@@ -488,26 +499,142 @@ CMakeLists.txt exposes core directories:
 
 **Tasks:**
 
-1. **Update fieldpreviewwidget.h**
-   - Change `#include "preview_renderer.h"` to `#include "orc_rendering.h"`
+1. **Move preview types to public API**
+   
+   Update `orc/public/orc_rendering.h` to include signal types:
+   ```cpp
+   namespace orc::public_api {
+   
+   struct PreviewOutputInfo {
+       orc::PreviewOutputType type;
+       std::string display_name;
+       uint64_t count;
+       bool is_available;
+       double dar_aspect_correction;
+       std::string option_id;
+       bool dropouts_available;
+       bool has_separate_channels;
+   };
+   
+   struct FrameLineNavigationResult {
+       bool is_valid;
+       uint64_t field_index;
+       int line_number;
+   };
+   
+   } // namespace orc::public_api
+   ```
+
+2. **Update fieldpreviewwidget.h**
+   - Change `#include "preview_renderer.h"` to `#include <orc_rendering.h>`
    - Use `PreviewRenderResult` from public API
 
-2. **Update mainwindow.h**
+3. **Update mainwindow.h**
    - Remove `#include "preview_renderer.h"`
    - Use public API rendering types
 
-3. **Test preview functionality**
+4. **Update render_coordinator signals**
+   - Change signal types to use `orc::public_api::PreviewOutputInfo`
+   - Change signal types to use `orc::public_api::FrameLineNavigationResult`
+   - Remove `#include "preview_renderer.h"` from render_coordinator.cpp
+
+5. **Test preview functionality**
    - Field preview widget
    - Preview dialog
    - All rendering modes
 
 **Deliverables:**
+- ✅ Preview types moved to public API
 - ✅ Preview widgets use public API types
-- ✅ No preview_renderer.h includes from GUI
+- ✅ render_coordinator.cpp has zero preview_renderer.h includes
+- ✅ All rendering features working
 
 ---
 
-### Phase 2.7: Analysis Bridge Decision (2 days)
+### Phase 2.7: Trigger Operation Migration (3 days)
+
+**Goal:** Eliminate ld_sink_stage.h dependency and abstract trigger operations
+
+**Tasks:**
+
+1. **Move TriggerableStage interface to common**
+   
+   Create `orc/common/include/triggerable_stage.h`:
+   ```cpp
+   #pragma once
+   #include <functional>
+   #include <string>
+   #include <cstddef>
+   
+   namespace orc {
+   
+   // Forward declarations to avoid core dependencies
+   class ObservationContext;
+   class Artifact;
+   using ArtifactPtr = std::shared_ptr<Artifact>;
+   
+   using TriggerProgressCallback = std::function<void(
+       size_t current, size_t total, const std::string& message
+   )>;
+   
+   class TriggerableStage {
+   public:
+       virtual ~TriggerableStage() = default;
+       
+       virtual bool trigger(
+           const std::vector<ArtifactPtr>& inputs,
+           const std::map<std::string, ParameterValue>& parameters,
+           ObservationContext& observation_context
+       ) = 0;
+       
+       virtual std::string get_trigger_status() const = 0;
+       virtual void set_progress_callback(TriggerProgressCallback callback) = 0;
+       virtual bool is_trigger_in_progress() const = 0;
+       virtual void cancel_trigger() = 0;
+   };
+   
+   } // namespace orc
+   ```
+   
+   **OR** (Recommended):
+
+2. **Add trigger methods to RenderPresenter**
+   
+   ```cpp
+   class RenderPresenter {
+   public:
+       // Trigger operations
+       uint64_t triggerStage(
+           NodeID node_id,
+           ProgressCallback callback
+       );
+       
+       void cancelTrigger();
+       bool isTriggerActive() const;
+       std::string getTriggerStatus() const;
+   };
+   ```
+
+3. **Refactor render_coordinator handleTriggerStage**
+   - Use `RenderPresenter::triggerStage()` instead of direct DAG access
+   - Remove DAG traversal code
+   - Remove TriggerableStage casting
+   - Remove `#include "ld_sink_stage.h"`
+
+4. **Update ld_sink_stage.h**
+   - Change to include `triggerable_stage.h` from common (if Option 1)
+   - Verify core stages still build
+
+**Deliverables:**
+- ✅ TriggerableStage interface accessible without core headers
+- ✅ render_coordinator uses RenderPresenter for triggering
+- ✅ No ld_sink_stage.h include in render_coordinator.cpp
+- ✅ All trigger functionality working
+- ✅ render_coordinator has ZERO direct DAG access
+
+---
+
+### Phase 2.8: Analysis Bridge Decision (2 days)
 
 **Goal:** Decide fate of orc-gui-analysis-bridge library
 
@@ -546,6 +673,7 @@ CMakeLists.txt exposes core directories:
 - ✅ Decision documented
 - ✅ Implementation complete per chosen option
 - ✅ All analysis functionality working
+- ✅ AnalysisPresenter::getToolById() bridge method removed (if Option A)
 
 ---
 
@@ -922,15 +1050,15 @@ cmake --build build -j$(nproc)  # MUST succeed
 
 ### Week 2: Project & Analysis Presenters
 - **Day 1-2**: Phase 2.3 - Enhance ProjectPresenter
-- **Day 3**: Phase 2.4 - Enhance AnalysisPresenter  
-- **Day 4-5**: Phase 2.5 & 2.6 - Parameter and Preview widgets
+- **Day 3**: Phase 2.4 - - Parameter Dialog Migration
 
-**Milestone:** guiproject.cpp has zero core includes
+**Milestone:** All parameter dialogs use common types
 
 ### Week 3: Cleanup & Enforcement
-- **Day 1-2**: Phase 2.7 - Analysis bridge decision & implementation
-- **Day 3**: Compiler enforcement setup
-- **Day 4**: Remove all bridge code and TODOs
+- **Day 1**: Phase 2.6 - Preview Widget Migration (signal types to public API)
+- **Day 2-3**: Phase 2.7 - Trigger Operation Migration (remove ld_sink_stage.h)
+- **Day 4**: Phase 2.8 - Analysis bridge decision & implementation
+- **Day 5**: Compiler enforcement setup and final validationODOs
 - **Day 5**: Final validation and testing
 
 **Milestone:** 100% MVP compliance, compiler enforced

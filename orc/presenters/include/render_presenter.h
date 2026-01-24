@@ -233,7 +233,52 @@ public:
     // === Analysis Data Access ===
     
     /**
-     * @brief Request dropout analysis data from a sink node
+     * @brief Get dropout analysis data from a sink stage
+     * 
+     * The node must be a DropoutAnalysisSinkStage that has been triggered.
+     * This method abstracts DAG traversal from the GUI layer.
+     * 
+     * @param node_id Node to get data from
+     * @param frame_stats Output vector of frame statistics
+     * @param total_frames Output total frames count
+     * @return true if data was retrieved successfully
+     */
+    bool getDropoutAnalysisData(
+        NodeID node_id,
+        std::vector<void*>& frame_stats,  // Actually vector<FrameDropoutStats>
+        int32_t& total_frames
+    );
+    
+    /**
+     * @brief Get SNR analysis data from a sink stage
+     * 
+     * @param node_id Node to get data from
+     * @param frame_stats Output vector of frame statistics
+     * @param total_frames Output total frames count
+     * @return true if data was retrieved successfully
+     */
+    bool getSNRAnalysisData(
+        NodeID node_id,
+        std::vector<void*>& frame_stats,  // Actually vector<FrameSNRStats>
+        int32_t& total_frames
+    );
+    
+    /**
+     * @brief Get burst level analysis data from a sink stage
+     * 
+     * @param node_id Node to get data from
+     * @param frame_stats Output vector of frame statistics
+     * @param total_frames Output total frames count
+     * @return true if data was retrieved successfully
+     */
+    bool getBurstLevelAnalysisData(
+        NodeID node_id,
+        std::vector<void*>& frame_stats,  // Actually vector<FrameBurstLevelStats>
+        int32_t& total_frames
+    );
+    
+    /**
+     * @brief Request dropout analysis data from a sink node (deprecated - use getDropoutAnalysisData)
      * 
      * The node must be a DropoutAnalysisSinkStage that has been triggered.
      * 
@@ -249,7 +294,7 @@ public:
     );
     
     /**
-     * @brief Request SNR analysis data from a sink node
+     * @brief Request SNR analysis data from a sink node (deprecated - use getSNRAnalysisData)
      * 
      * @param node_id Node to get data from
      * @param request_id Unique request ID
@@ -263,7 +308,7 @@ public:
     );
     
     /**
-     * @brief Request burst level analysis data from a sink node
+     * @brief Request burst level analysis data from a sink node (deprecated - use getBurstLevelAnalysisData)
      * 
      * @param node_id Node to get data from
      * @param request_id Unique request ID

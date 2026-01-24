@@ -11,6 +11,7 @@
 #include "orcnodepainter.h"
 #include "logging.h"
 #include <node_type.h>
+#include <common_types.h>  // For VideoSystem, SourceType
 #include "presenters/include/project_presenter.h"
 #include "presenters/include/analysis_presenter.h"
 // Removed: #include "analysis_registry.h"  // Phase 2.4: Now using AnalysisPresenter

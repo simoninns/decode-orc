@@ -3499,7 +3499,7 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
 }
 
 void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                                    std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                                    std::vector<uint16_t> samples, std::optional<orc::presenters::VideoParametersView> video_params,
                                     std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples)
 {
     Q_UNUSED(request_id);
@@ -3507,12 +3507,6 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     ORC_LOG_DEBUG("Line samples ready: {} samples for field {}, line {}, sample_x={} (YC: Y={}, C={}) mode={}", 
                   samples.size(), field_index, line_number, sample_x, y_samples.size(), c_samples.size(),
                   static_cast<int>(current_output_type_));
-    
-    // Convert VideoParameters to VideoParametersView for presenter layer
-    std::optional<orc::presenters::VideoParametersView> video_params_view;
-    if (video_params) {
-        video_params_view = orc::presenters::toVideoParametersView(*video_params);
-    }
     
     if (!preview_dialog_) {
         ORC_LOG_WARN("No preview dialog available!");
@@ -3574,7 +3568,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     
     // Show the line scope dialog with the samples, including the current node_id
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
-    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params_view, 
+    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, video_params, 
                                    preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
 }
 

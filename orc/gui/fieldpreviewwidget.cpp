@@ -9,8 +9,9 @@
 
 #include "fieldpreviewwidget.h"
 #include "logging.h"
-#include "preview_renderer.h"  // For PreviewImage definition
-#include "dropout_decision.h"  // For DropoutRegion definition
+// TODO(Phase 3.2): These should be public API types
+#include "../../core/include/preview_renderer.h"  // For PreviewImage definition
+#include "../../core/include/dropout_decision.h"  // For DropoutRegion definition
 
 #include <QPainter>
 #include <QPaintEvent>

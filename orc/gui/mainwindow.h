@@ -25,7 +25,7 @@
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
-#include "tbc_metadata.h"
+#include <common_types.h>  // For VideoSystem, SourceType
 #include "presenters/include/hints_presenter.h"
 #include "presenters/include/vbi_view_models.h"
 #include "presenters/include/vbi_presenter.h"
@@ -138,7 +138,7 @@ private slots:
     void onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::public_api::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                            std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                            std::vector<uint16_t> samples, std::optional<orc::presenters::VideoParametersView> video_params,
                             std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     void onFrameLineNavigationReady(uint64_t request_id, orc::public_api::FrameLineNavigationResult result);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);

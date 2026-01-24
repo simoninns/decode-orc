@@ -9,6 +9,8 @@
 
 #include "fieldpreviewwidget.h"
 #include "logging.h"
+#include "preview_renderer.h"  // For PreviewImage definition
+#include "dropout_decision.h"  // For DropoutRegion definition
 
 #include <QPainter>
 #include <QPaintEvent>

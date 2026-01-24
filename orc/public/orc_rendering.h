@@ -144,5 +144,18 @@ struct ObservationData {
     bool is_valid() const { return has_data; }
 };
 
+/**
+ * @brief Result of navigating to next/previous line in frame mode
+ * 
+ * When displaying a frame with two interlaced fields, moving up/down navigates
+ * between alternating fields. This structure tells you which field and line to
+ * fetch next.
+ */
+struct FrameLineNavigationResult {
+    bool is_valid;                  ///< True if navigation succeeded (within bounds)
+    uint64_t new_field_index;       ///< Field index to render next
+    int new_line_number;            ///< Line number to render next (within the field)
+};
+
 } // namespace public_api
 } // namespace orc

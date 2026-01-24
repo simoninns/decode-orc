@@ -9,6 +9,7 @@
 
 #include "mainwindow.h"
 #include "logging.h"
+#include "preview_renderer.h"  // For PreviewImage definition
 #include <QMessageBox>
 #include <QStatusBar>
 #include "vbidialog.h"
@@ -127,7 +128,7 @@ void MainWindow::onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldIn
     }
 }
 
-void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs)
+void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::public_api::PreviewOutputInfo> outputs)
 {
     if (request_id != pending_outputs_request_id_) {
         return;

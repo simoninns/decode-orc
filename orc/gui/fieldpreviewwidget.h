@@ -15,8 +15,13 @@
 #include <QTimer>
 #include <memory>
 #include <cstdint>
-#include "preview_renderer.h"
-#include "dropout_decision.h"
+#include <vector>
+
+// Forward declarations
+namespace orc {
+    struct PreviewImage;
+    struct DropoutRegion;
+}
 
 /**
  * Widget for displaying rendered previews from orc-core

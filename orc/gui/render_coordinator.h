@@ -28,14 +28,15 @@
 #include <common_types.h>
 #include <orc_rendering.h>  // Public API rendering types
 #include "vbi_view_models.h"
-
-// Temporary includes for types used in signals - to be migrated to public API
-#include "preview_renderer.h"  // For PreviewOutputInfo, FrameLineNavigationResult
+#include "tbc_metadata.h"  // For VideoParameters
 
 namespace orc {
     class DAG;
     class Project;
     class TriggerableStage;
+    struct ImageToFieldMappingResult;
+    struct FieldToImageMappingResult;
+    struct FrameFieldsResult;
 }
 
 namespace orc::presenters {
@@ -334,10 +335,10 @@ struct BurstLevelDataResponse : public RenderResponse {
  * @brief Response with available outputs
  */
 struct AvailableOutputsResponse : public RenderResponse {
-    std::vector<orc::PreviewOutputInfo> outputs;
+    std::vector<orc::public_api::PreviewOutputInfo> outputs;
     
     AvailableOutputsResponse(uint64_t id, bool s,
-                            std::vector<orc::PreviewOutputInfo> out, std::string err = "")
+                            std::vector<orc::public_api::PreviewOutputInfo> out, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , outputs(std::move(out)) {}
 };
@@ -357,10 +358,10 @@ struct TriggerCompleteResponse : public RenderResponse {
  * @brief Response for frame line navigation
  */
 struct FrameLineNavigationResponse : public RenderResponse {
-    orc::FrameLineNavigationResult result;
+    orc::public_api::FrameLineNavigationResult result;
     
     FrameLineNavigationResponse(uint64_t id, bool s,
-                               orc::FrameLineNavigationResult nav_result, std::string err = "")
+                               orc::public_api::FrameLineNavigationResult nav_result, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , result(nav_result) {}
 };
@@ -676,7 +677,7 @@ signals:
     /**
      * @brief Emitted when available outputs query completes
      */
-    void availableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
+    void availableOutputsReady(uint64_t request_id, std::vector<orc::public_api::PreviewOutputInfo> outputs);
     
     /**
      * @brief Emitted when line samples are ready
@@ -698,7 +699,7 @@ signals:
     /**
      * @brief Emitted when frame line navigation result is ready
      */
-    void frameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
+    void frameLineNavigationReady(uint64_t request_id, orc::public_api::FrameLineNavigationResult result);
     
     /**
      * @brief Emitted on any error

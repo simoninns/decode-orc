@@ -35,6 +35,7 @@
 #include "presenters/include/vbi_presenter.h"
 #include "presenters/include/ntsc_observation_presenter.h"
 #include "presenters/include/project_presenter.h"
+#include "preview_renderer.h"  // For PreviewImage (used in updateVectorscope)
 #include <node_type.h>
 #include <common_types.h>
 
@@ -3626,7 +3627,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
                                    preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
 }
 
-void MainWindow::onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result)
+void MainWindow::onFrameLineNavigationReady(uint64_t request_id, orc::public_api::FrameLineNavigationResult result)
 {
     Q_UNUSED(request_id);
     

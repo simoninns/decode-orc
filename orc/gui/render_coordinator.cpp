@@ -10,6 +10,7 @@
 #include "render_coordinator.h"
 #include "logging.h"
 #include "render_presenter.h"
+#include "preview_renderer.h"  // For mapping result types (ImageToFieldMappingResult, etc.)
 #include <common_types.h>  // For analysis result types and TriggerableStage
 
 // Phase 2.4: Analysis sink stage headers removed - now using RenderPresenter abstraction
@@ -21,9 +22,6 @@
 // NOTE: TriggerableStage is defined in ld_sink_stage.h but should be moved to common
 // or abstracted through RenderPresenter in a future phase
 #include "ld_sink_stage.h"
-
-// Temporary include for types used in signals - should be migrated to public API
-#include "preview_renderer.h"  // For PreviewOutputInfo, FrameLineNavigationResult
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -604,23 +602,8 @@ void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsReque
         
         ORC_LOG_DEBUG("RenderCoordinator: Found {} available outputs", outputs.size());
         
-        // Convert to core types for compatibility (temporary until all GUI uses public API)
-        std::vector<orc::PreviewOutputInfo> core_outputs;
-        for (const auto& out : outputs) {
-            orc::PreviewOutputInfo core_out;
-            core_out.type = out.type;
-            core_out.display_name = out.display_name;
-            core_out.count = out.count;
-            core_out.is_available = out.is_available;
-            core_out.dar_aspect_correction = out.dar_aspect_correction;
-            core_out.option_id = out.option_id;
-            core_out.dropouts_available = out.dropouts_available;
-            core_out.has_separate_channels = out.has_separate_channels;
-            core_outputs.push_back(std::move(core_out));
-        }
-        
-        // Emit result on GUI thread
-        emit availableOutputsReady(req.request_id, std::move(core_outputs));
+        // Emit result on GUI thread (using public_api types directly)
+        emit availableOutputsReady(req.request_id, std::move(outputs));
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Get available outputs failed: {}", e.what());
@@ -654,8 +637,9 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
         
         // For now, emit simple samples without Y/C separation
         // TODO: Extend RenderPresenter to provide Y/C samples separately
+        std::optional<orc::VideoParameters> empty_params;
         emit lineSamplesReady(req.request_id, req.output_index, req.line_number, req.sample_x,
-                            std::move(samples), std::nullopt, {}, {});
+                            std::move(samples), empty_params, {}, {});
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());
@@ -685,13 +669,13 @@ void RenderCoordinator::handleNavigateFrameLine(const NavigateFrameLineRequest& 
             req.field_height
         );
         
-        // Convert to core type for signal
-        orc::FrameLineNavigationResult result;
+        // Convert to public_api type for signal
+        orc::public_api::FrameLineNavigationResult result;
         result.is_valid = nav_result.is_valid;
         result.new_field_index = nav_result.new_field_index;
         result.new_line_number = nav_result.new_line_number;
         
-        // Emit result on GUI thread
+        // Emit result on GUI thread (using public_api types)
         emit frameLineNavigationReady(req.request_id, result);
         
     } catch (const std::exception& e) {

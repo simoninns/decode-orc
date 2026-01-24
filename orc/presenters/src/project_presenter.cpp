@@ -14,6 +14,7 @@
 #include "../core/include/tbc_metadata.h"
 #include "../core/include/stage_parameter.h"
 #include "../core/include/logging.h"
+#include "../core/stages/ld_sink/ld_sink_stage.h"  // For TriggerableStage definition
 #include <stdexcept>
 #include <algorithm>
 
@@ -550,6 +551,85 @@ bool ProjectPresenter::triggerNode(orc::NodeID node_id, ProgressCallback progres
     }
     
     return success;
+}
+
+bool ProjectPresenter::triggerAllSinks(ProgressCallback progress_callback)
+{
+    if (!project_) {
+        return false;
+    }
+    
+    // Find all triggerable sink nodes
+    std::vector<orc::NodeID> sink_nodes;
+    auto& registry = orc::StageRegistry::instance();
+    
+    for (const auto& node : project_->get_nodes()) {
+        if (!registry.has_stage(node.stage_name)) {
+            ORC_LOG_WARN("Unknown stage type: {}", node.stage_name);
+            continue;
+        }
+        
+        auto stage = registry.create_stage(node.stage_name);
+        if (!stage) {
+            ORC_LOG_WARN("Failed to create stage: {}", node.stage_name);
+            continue;
+        }
+        
+        // Check if stage is triggerable (sink node)
+        auto* trigger_stage = dynamic_cast<orc::TriggerableStage*>(stage.get());
+        if (trigger_stage) {
+            sink_nodes.push_back(node.node_id);
+            ORC_LOG_DEBUG("Found triggerable node: {} ({})", node.node_id, node.stage_name);
+        }
+    }
+    
+    if (sink_nodes.empty()) {
+        ORC_LOG_ERROR("No triggerable sink nodes found in project");
+        return false;
+    }
+    
+    ORC_LOG_INFO("Found {} triggerable sink nodes", sink_nodes.size());
+    
+    // Trigger each sink node
+    bool all_success = true;
+    size_t sink_index = 0;
+    
+    for (const auto& node_id : sink_nodes) {
+        ++sink_index;
+        ORC_LOG_INFO("========================================");
+        ORC_LOG_INFO("Processing sink {}/{}: {}", sink_index, sink_nodes.size(), node_id);
+        ORC_LOG_INFO("========================================");
+        
+        // Create wrapper callback that adds sink context
+        ProgressCallback sink_callback;
+        if (progress_callback) {
+            sink_callback = [&, node_id](size_t current, size_t total, const std::string& msg) {
+                std::string prefixed_msg = "[" + node_id.to_string() + "] " + msg;
+                progress_callback(current, total, prefixed_msg);
+            };
+        }
+        
+        bool success = triggerNode(node_id, sink_callback);
+        
+        if (!success) {
+            ORC_LOG_ERROR("Failed to trigger node: {}", node_id);
+            all_success = false;
+        } else {
+            ORC_LOG_INFO("Successfully triggered node: {}", node_id);
+        }
+    }
+    
+    if (all_success) {
+        ORC_LOG_INFO("========================================");
+        ORC_LOG_INFO("All {} sink nodes triggered successfully", sink_nodes.size());
+        ORC_LOG_INFO("========================================");
+    } else {
+        ORC_LOG_ERROR("========================================");
+        ORC_LOG_ERROR("One or more sink nodes failed");
+        ORC_LOG_ERROR("========================================");
+    }
+    
+    return all_success;
 }
 
 bool ProjectPresenter::validateProject() const

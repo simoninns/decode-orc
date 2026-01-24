@@ -376,6 +376,16 @@ public:
      */
     bool triggerNode(NodeID node_id, ProgressCallback progress_callback = nullptr);
     
+        /**
+         * @brief Trigger all sink nodes in the project
+         * @param progress_callback Optional progress callback
+         * @return true if all sinks succeeded
+         * 
+         * Finds all triggerable sink nodes in the project and executes them sequentially.
+         * Progress callback is invoked for each sink node being processed.
+         */
+        bool triggerAllSinks(ProgressCallback progress_callback = nullptr);
+    
     // === Validation ===
     
     /**

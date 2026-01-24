@@ -36,6 +36,7 @@ target_include_directories(orc-presenters
     PRIVATE
         # Core headers are private - only presenters can see them
         ${CMAKE_SOURCE_DIR}/orc/core/include
+        ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
         ${CMAKE_SOURCE_DIR}/orc/public
 )
 

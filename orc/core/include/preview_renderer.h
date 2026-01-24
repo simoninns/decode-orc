@@ -12,14 +12,17 @@
 #if defined(ORC_GUI_BUILD)
 #error "GUI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
 #endif
+#if defined(ORC_CLI_BUILD)
+#error "CLI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
+#endif
 
 // =============================================================================
 // MVP Architecture Enforcement - Phase 3.5 Complete
 // =============================================================================
-// GUI code cannot include this file (enforced by ORC_GUI_BUILD compile guard).
+// GUI/CLI code cannot include this file (enforced by compile guards).
 // This header is part of core and contains internal implementation types.
 //
-// GUI must use:
+// GUI/CLI must use:
 // - orc/public/*.h for public API types (PreviewImage, etc.)
 // - orc/presenters/include/*.h for rendering operations (RenderPresenter)
 //

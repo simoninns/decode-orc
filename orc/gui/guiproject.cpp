@@ -11,11 +11,32 @@
 #include "tbc_video_field_representation.h"
 #include "logging.h"
 #include "presenters/include/project_presenter.h"
-#include "project_to_dag.h"  // TODO(MVP): Remove - use ProjectPresenter instead
 #include <QFileInfo>
 #include <algorithm>
 
+// Note: DAG is forward-declared in header, actual type comes through presenter
+
+// Helper to convert between presenter and core enums
+namespace {
+    orc::presenters::VideoFormat toPresenterFormat(orc::VideoSystem sys) {
+        switch (sys) {
+            case orc::VideoSystem::NTSC: return orc::presenters::VideoFormat::NTSC;
+            case orc::VideoSystem::PAL: return orc::presenters::VideoFormat::PAL;
+            default: return orc::presenters::VideoFormat::Unknown;
+        }
+    }
+    
+    orc::presenters::SourceType toPresenterSource(orc::SourceType src) {
+        switch (src) {
+            case orc::SourceType::Composite: return orc::presenters::SourceType::Composite;
+            case orc::SourceType::YC: return orc::presenters::SourceType::YC;
+            default: return orc::presenters::SourceType::Unknown;
+        }
+    }
+}
+
 GUIProject::GUIProject()
+    : presenter_(std::make_unique<orc::presenters::ProjectPresenter>())
 {
 }
 
@@ -23,17 +44,37 @@ GUIProject::~GUIProject() = default;
 
 QString GUIProject::projectName() const
 {
+    if (!presenter_) return QString();
+    
     if (project_path_.isEmpty()) {
-        return QString::fromStdString(core_project_.get_name());
+        return QString::fromStdString(presenter_->getProjectName());
     }
     return QFileInfo(project_path_).completeBaseName();
+}
+
+bool GUIProject::isModified() const
+{
+    return presenter_ ? presenter_->isModified() : false;
+}
+
+void GUIProject::setModified(bool modified)
+{
+    // Can't directly set modified flag in presenter
+    // Modifications are tracked automatically
+    (void)modified;
 }
 
 bool GUIProject::newEmptyProject(const QString& project_name, orc::VideoSystem video_format, orc::SourceType source_format, QString* error)
 {
     try {
-        // Use core function to create empty project with video and source format
-        core_project_ = orc::project_io::create_empty_project(project_name.toStdString(), video_format, source_format);
+        // Create new presenter with empty project
+        presenter_ = std::make_unique<orc::presenters::ProjectPresenter>();
+        
+        // Set project metadata
+        presenter_->setProjectName(project_name.toStdString());
+        presenter_->setVideoFormat(toPresenterFormat(video_format));
+        presenter_->setSourceType(toPresenterSource(source_format));
+        
         return true;
     } catch (const std::exception& e) {
         if (error) {
@@ -46,7 +87,11 @@ bool GUIProject::newEmptyProject(const QString& project_name, orc::VideoSystem v
 bool GUIProject::saveToFile(const QString& path, QString* error)
 {
     try {
-        orc::project_io::save_project(core_project_, path.toStdString());
+        if (!presenter_) {
+            throw std::runtime_error("No project to save");
+        }
+        
+        presenter_->saveProject(path.toStdString());
         project_path_ = path;
         return true;
     } catch (const std::exception& e) {
@@ -61,22 +106,18 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
 {
     try {
         ORC_LOG_DEBUG("Loading project from: {}", path.toStdString());
-        core_project_ = orc::project_io::load_project(path.toStdString());
+        
+        // Create new presenter and load project
+        presenter_ = std::make_unique<orc::presenters::ProjectPresenter>(path.toStdString());
         project_path_ = path;
+        
         ORC_LOG_DEBUG("Building DAG from project");
-        rebuildDAG();  // Build DAG after loading project
+        auto dag_handle = presenter_->buildDAG();
         
         // Validate DAG was built successfully
-        if (hasSource() && !dag_) {
+        if (hasSource() && !dag_handle) {
             // Project has source nodes but DAG build failed - this is an error
             throw std::runtime_error("Failed to build DAG from project - check that all source files are valid");
-        }
-        
-        // Attempt to validate source nodes by trying to access them
-        if (dag_ && hasSource()) {
-            ORC_LOG_DEBUG("Validating source nodes in DAG");
-            // TODO(MVP): Move validation to presenter if needed
-            // orc::validate_source_nodes(dag_);
         }
         
         return true;
@@ -91,50 +132,79 @@ bool GUIProject::loadFromFile(const QString& path, QString* error)
 
 void GUIProject::clear()
 {
-    orc::project_io::clear_project(core_project_);
-    dag_.reset();
+    presenter_ = std::make_unique<orc::presenters::ProjectPresenter>();
+    dag_cache_.reset();
     project_path_.clear();
 }
 
 bool GUIProject::hasSource() const
 {
-    return core_project_.has_source();
+    if (!presenter_) return false;
+    
+    auto nodes = presenter_->getNodes();
+    auto all_stages = orc::presenters::ProjectPresenter::getAllStages();
+    
+    return std::any_of(nodes.begin(), nodes.end(), 
+        [&all_stages](const auto& node) {
+            auto stage_it = std::find_if(all_stages.begin(), all_stages.end(),
+                [&node](const orc::presenters::StageInfo& s) { return s.name == node.stage_name; });
+            return stage_it != all_stages.end() && stage_it->is_source;
+        });
 }
-
-
 
 QString GUIProject::getSourceName() const
 {
-    // Find first SOURCE node and get display name
-    for (const auto& node : core_project_.get_nodes()) {
-        if (node.node_type == orc::NodeType::SOURCE) {
-            return QString::fromStdString(node.display_name);
+    if (!presenter_) return QString();
+    
+    auto nodes = presenter_->getNodes();
+    auto all_stages = orc::presenters::ProjectPresenter::getAllStages();
+    
+    for (const auto& node : nodes) {
+        auto stage_it = std::find_if(all_stages.begin(), all_stages.end(),
+            [&node](const orc::presenters::StageInfo& s) { return s.name == node.stage_name; });
+        if (stage_it != all_stages.end() && stage_it->is_source) {
+            return QString::fromStdString(node.label.empty() ? node.stage_name : node.label);
         }
     }
     return QString();
 }
 
+std::shared_ptr<orc::DAG> GUIProject::getDAG() const
+{
+    if (!presenter_) return nullptr;
+    
+    // Get DAG from presenter and cache it
+    auto dag_handle = presenter_->getDAG();
+    if (dag_handle) {
+        dag_cache_ = std::static_pointer_cast<orc::DAG>(dag_handle);
+    }
+    return dag_cache_;
+}
+
 void GUIProject::rebuildDAG()
 {
-    dag_.reset();
+    if (!presenter_) return;
+    
+    dag_cache_.reset();
     
     if (!hasSource()) {
         ORC_LOG_DEBUG("No source in project, skipping DAG build");
         return;
     }
     
-    // Project-to-DAG conversion
-    // SOURCE nodes use TBCSourceStage which loads TBC files directly
     try {
-        ORC_LOG_DEBUG("Converting project to executable DAG");
-        // TODO(MVP): Use ProjectPresenter::buildDAG() instead
-        dag_ = orc::project_to_dag(core_project_);
-        ORC_LOG_DEBUG("DAG built successfully from project");
+        ORC_LOG_DEBUG("Building DAG via ProjectPresenter");
+        auto dag_handle = presenter_->buildDAG();
+        
+        if (dag_handle) {
+            dag_cache_ = std::static_pointer_cast<orc::DAG>(dag_handle);
+            ORC_LOG_DEBUG("DAG built successfully from project");
+        } else {
+            ORC_LOG_ERROR("Failed to build DAG from project");
+        }
     } catch (const std::exception& e) {
-        // Conversion failed - leave null
-        // GUI will handle the error
         ORC_LOG_ERROR("Failed to build DAG from project: {}", e.what());
-        dag_.reset();
+        dag_cache_.reset();
     }
 }
 

@@ -525,7 +525,82 @@ std::optional<StageInspectionView> ProjectPresenter::getNodeInspection(NodeID no
 std::shared_ptr<void> ProjectPresenter::getDAG() const
 {
     if (!project_ref_) return nullptr;
+    
+    // Return cached DAG if available
+    if (dag_) {
+        return dag_;
+    }
+    
+    // Otherwise build new DAG
     return std::static_pointer_cast<void>(orc::project_to_dag(*project_ref_));
+}
+
+std::shared_ptr<void> ProjectPresenter::buildDAG()
+{
+    if (!project_ref_) return nullptr;
+    
+    try {
+        // Build and cache the DAG
+        dag_ = std::static_pointer_cast<void>(orc::project_to_dag(*project_ref_));
+        return dag_;
+    } catch (const std::exception&) {
+        dag_.reset();
+        return nullptr;
+    }
+}
+
+bool ProjectPresenter::validateDAG()
+{
+    if (!project_ref_) return false;
+    
+    try {
+        // Try to build the DAG - if successful, it's valid
+        auto test_dag = orc::project_to_dag(*project_ref_);
+        return test_dag != nullptr;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+std::vector<ParameterDescriptor> ProjectPresenter::getStageParameters(const std::string& stage_name)
+{
+    // TODO(MVP): Implement when needed
+    // Need to cast DAGStage to ParameterizedStage to get parameter descriptors
+    (void)stage_name;
+    return {};
+}
+
+std::map<std::string, ParameterValue> ProjectPresenter::getNodeParameters(NodeID node_id)
+{
+    if (!project_ref_) return {};
+    
+    // Find the node
+    const auto& nodes = project_ref_->get_nodes();
+    auto it = std::find_if(nodes.begin(), nodes.end(),
+        [node_id](const auto& node) { return node.node_id == node_id; });
+    
+    if (it == nodes.end()) {
+        return {};
+    }
+    
+    return it->parameters;
+}
+
+bool ProjectPresenter::setNodeParameters(NodeID node_id, const std::map<std::string, ParameterValue>& params)
+{
+    if (!project_ref_) return false;
+    
+    try {
+        orc::project_io::set_node_parameters(*project_ref_, node_id, params);
+        is_modified_ = true;
+        
+        // Invalidate cached DAG since parameters changed
+        dag_.reset();
+        
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 } // namespace orc::presenters

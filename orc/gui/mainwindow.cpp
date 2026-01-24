@@ -113,14 +113,9 @@ MainWindow::MainWindow(QWidget *parent)
         return std::static_pointer_cast<const orc::DAG>(dag);
     });
     
-    // Presenter for dropout editing
+    // Presenter for dropout editing (uses core project from GUIProject's presenter)
     dropout_presenter_ = std::make_unique<orc::presenters::DropoutPresenter>(
-        &project_.coreProject()
-    );
-    
-    // Presenter for project operations (wraps core project)
-    project_presenter_ = std::make_unique<orc::presenters::ProjectPresenter>(
-        project_.coreProject()
+        project_.presenter()->getProject()
     );
     
     // Connect coordinator signals (emitted from worker thread; queue to GUI thread)
@@ -342,7 +337,7 @@ void MainWindow::setupUI()
     
     // Create QtNodes DAG editor
     dag_view_ = new OrcGraphicsView(this);
-    dag_model_ = new OrcGraphModel(*project_presenter_, dag_view_);
+    dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
     dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
     
     dag_view_->setScene(dag_scene_);
@@ -518,8 +513,8 @@ void MainWindow::onEditProject()
 {
     // Open dialog with current project properties
     ProjectPropertiesDialog dialog(this);
-    dialog.setProjectName(QString::fromStdString(project_.coreProject().get_name()));
-    dialog.setProjectDescription(QString::fromStdString(project_.coreProject().get_description()));
+    dialog.setProjectName(QString::fromStdString(project_.presenter()->getProjectName()));
+    dialog.setProjectDescription(QString::fromStdString(project_.presenter()->getProjectDescription()));
     
     if (dialog.exec() == QDialog::Accepted) {
         // Update project with new values
@@ -531,9 +526,9 @@ void MainWindow::onEditProject()
             return;
         }
         
-        // Update core project using project_io
-        orc::project_io::set_project_name(project_.coreProject(), new_name.toStdString());
-        orc::project_io::set_project_description(project_.coreProject(), new_description.toStdString());
+        // Update project using presenter
+        project_.presenter()->setProjectName(new_name.toStdString());
+        project_.presenter()->setProjectDescription(new_description.toStdString());
         
         ORC_LOG_INFO("Project properties updated: name='{}', description='{}'", 
                      new_name.toStdString(), new_description.toStdString());
@@ -653,14 +648,14 @@ void MainWindow::createAndShowAnalysisDialog(const orc::NodeID& node_id, const s
 {
     // Get node label
     QString node_label = QString::fromStdString(node_id.to_string());
-    const auto& nodes = project_.coreProject().get_nodes();
+    const auto nodes = project_.presenter()->getNodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
     if (node_it != nodes.end()) {
-        if (!node_it->user_label.empty()) {
-            node_label = QString::fromStdString(node_it->user_label);
-        } else if (!node_it->display_name.empty()) {
-            node_label = QString::fromStdString(node_it->display_name);
+        if (!node_it->label.empty()) {
+            node_label = QString::fromStdString(node_it->label);
+        } else if (!node_it->stage_name.empty()) {
+            node_label = QString::fromStdString(node_it->stage_name);
         }
     }
     
@@ -1021,7 +1016,7 @@ void MainWindow::quickProject(const QString& filename)
         // Use same spacing as DAG alignment function
         const double grid_offset_x = 50.0;
         const double grid_offset_y = 50.0;
-        source_node_id = orc::project_io::add_node(project_.coreProject(), source_stage_name, grid_offset_x, grid_offset_y);
+        source_node_id = project_.presenter()->addNode(source_stage_name, grid_offset_x, grid_offset_y);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
             QString("Failed to add source stage: %1").arg(e.what()));
@@ -1036,7 +1031,7 @@ void MainWindow::quickProject(const QString& filename)
         const double grid_spacing_x = 225.0;
         const double grid_offset_x = 50.0;
         const double grid_offset_y = 50.0;
-        sink_node_id = orc::project_io::add_node(project_.coreProject(), "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
+        sink_node_id = project_.presenter()->addNode("ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
             QString("Failed to add sink stage: %1").arg(e.what()));
@@ -1084,9 +1079,9 @@ void MainWindow::quickProject(const QString& filename)
         }
     }
     
-    // Set parameters on the source stage using project_io
+    // Set parameters on the source stage using presenter
     try {
-        orc::project_io::set_node_parameters(project_.coreProject(), source_node_id, source_params);
+        project_.presenter()->setNodeParameters(source_node_id, source_params);
         ORC_LOG_INFO("Source stage parameters set successfully");
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
@@ -1097,7 +1092,7 @@ void MainWindow::quickProject(const QString& filename)
     // Connect source to sink
     ORC_LOG_INFO("Connecting source stage to sink stage");
     try {
-        orc::project_io::add_edge(project_.coreProject(), source_node_id, sink_node_id);
+        project_.presenter()->addEdge(source_node_id, sink_node_id);
     } catch (const std::exception& e) {
         QMessageBox::critical(this, "Error", 
             QString("Failed to connect stages: %1").arg(e.what()));
@@ -1430,8 +1425,8 @@ void MainWindow::updatePreviewInfo()
     
     // Update NTSC observer menu item availability (only for NTSC)
     // NTSC observers (FM code, white flag) are NTSC-specific
-    auto video_format = project_.coreProject().get_video_format();
-    bool is_ntsc = (video_format == orc::VideoSystem::NTSC);
+    auto video_format_presenter = project_.presenter()->getVideoFormat();
+    bool is_ntsc = (video_format_presenter == orc::presenters::VideoFormat::NTSC);
     preview_dialog_->ntscObserverAction()->setEnabled(is_ntsc);
     
     // Get detailed display info from core
@@ -1538,7 +1533,7 @@ void MainWindow::positionViewToTopLeft()
         return;
     }
     
-    const auto& nodes = project_.coreProject().get_nodes();
+    const auto nodes = project_.presenter()->getNodes();
     if (nodes.empty()) {
         return;
     }
@@ -1569,9 +1564,9 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     ORC_LOG_DEBUG("Edit parameters requested for node: {}", node_id);
     
     // Find the node in the project
-    const auto& nodes = project_.coreProject().get_nodes();
+    const auto nodes = project_.presenter()->getNodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
     
     if (node_it == nodes.end()) {
         QMessageBox::warning(this, "Edit Parameters",
@@ -1604,9 +1599,18 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     }
     
     // Get parameter descriptors with project video format and source type context
-    auto param_descriptors = param_stage->get_parameter_descriptors(
-        project_.coreProject().get_video_format(),
-        project_.coreProject().get_source_type());
+    auto video_format_presenter = project_.presenter()->getVideoFormat();
+    auto source_type_presenter = project_.presenter()->getSourceType();
+    
+    // Convert presenter enums to core enums
+    auto video_format = (video_format_presenter == orc::presenters::VideoFormat::NTSC) ? orc::VideoSystem::NTSC :
+                        (video_format_presenter == orc::presenters::VideoFormat::PAL) ? orc::VideoSystem::PAL :
+                        orc::VideoSystem::Unknown;
+    auto source_type = (source_type_presenter == orc::presenters::SourceType::Composite) ? orc::SourceType::Composite :
+                       (source_type_presenter == orc::presenters::SourceType::YC) ? orc::SourceType::YC :
+                       orc::SourceType::Unknown;
+    
+    auto param_descriptors = param_stage->get_parameter_descriptors(video_format, source_type);
     
     if (param_descriptors.empty()) {
         QMessageBox::information(this, "Edit Parameters",
@@ -1616,7 +1620,7 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     }
     
     // Get current parameter values from the node
-    auto current_values = node_it->parameters;
+    auto current_values = project_.presenter()->getNodeParameters(node_id);
     
     // Get display name for the dialog title
     std::string display_name = stage_name;  // Fallback to stage_name
@@ -1632,7 +1636,7 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
         auto new_values = dialog.get_values();
         
         try {
-            orc::project_io::set_node_parameters(project_.coreProject(), node_id, new_values);
+            project_.presenter()->setNodeParameters(node_id, new_values);
             
             // Rebuild DAG to pick up the new parameter values
             project_.rebuildDAG();
@@ -1660,7 +1664,7 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
             // Reset parameters to empty map
             std::map<std::string, orc::ParameterValue> empty_params;
             try {
-                orc::project_io::set_node_parameters(project_.coreProject(), node_id, empty_params);
+                project_.presenter()->setNodeParameters(node_id, empty_params);
                 
                 // Rebuild DAG with empty parameters
                 project_.rebuildDAG();
@@ -1758,8 +1762,8 @@ void MainWindow::onArrangeDAGToGrid()
     }
     
     // Hierarchical layout - arrange nodes left to right based on topological order
-    const auto& nodes = project_.coreProject().get_nodes();
-    const auto& edges = project_.coreProject().get_edges();
+    const auto nodes = project_.presenter()->getNodes();
+    const auto edges = project_.presenter()->getEdges();
     
     if (nodes.empty()) {
         return;
@@ -1782,8 +1786,8 @@ void MainWindow::onArrangeDAGToGrid()
     
     // Count in-degrees and build forward edge list
     for (const auto& edge : edges) {
-        in_degree[edge.target_node_id]++;
-        forward_edges[edge.source_node_id].push_back(edge.target_node_id);
+        in_degree[edge.target_node]++;
+        forward_edges[edge.source_node].push_back(edge.target_node);
     }
     
     // Calculate depth level for each node (BFS from sources)
@@ -1827,7 +1831,7 @@ void MainWindow::onArrangeDAGToGrid()
     // Build reverse edges (target -> sources) for ordering
     std::map<orc::NodeID, std::vector<orc::NodeID>> reverse_edges;
     for (const auto& edge : edges) {
-        reverse_edges[edge.target_node_id].push_back(edge.source_node_id);
+        reverse_edges[edge.target_node].push_back(edge.source_node);
     }
     
     // Order nodes within each level to minimize edge crossings
@@ -1882,7 +1886,7 @@ void MainWindow::onArrangeDAGToGrid()
             const auto& node_id = nodes_with_order[i].second;
             double y = grid_offset_y + i * grid_spacing_y;
             node_y_position[node_id] = y;  // Remember position for next layer
-            orc::project_io::set_node_position(project_.coreProject(), node_id, x, y);
+            project_.presenter()->setNodePosition(node_id, x, y);
         }
     }
     
@@ -2242,12 +2246,17 @@ void MainWindow::onPreviewDialogExportPNG()
 void MainWindow::selectLowestSourceStage()
 {
     // Find source stage with the lowest node ID
-    const auto& nodes = project_.coreProject().get_nodes();
+    const auto nodes = project_.presenter()->getNodes();
+    const auto all_stages = orc::presenters::ProjectPresenter::getAllStages();
     orc::NodeID lowest_source_id;
     bool found = false;
     
     for (const auto& node : nodes) {
-        if (node.node_type == orc::NodeType::SOURCE) {
+        // Check if this stage is a source by looking up its info
+        auto stage_it = std::find_if(all_stages.begin(), all_stages.end(),
+            [&node](const orc::presenters::StageInfo& s) { return s.name == node.stage_name; });
+        
+        if (stage_it != all_stages.end() && stage_it->is_source) {
             if (!found || node.node_id < lowest_source_id) {
                 lowest_source_id = node.node_id;
                 found = true;
@@ -2344,9 +2353,9 @@ void MainWindow::onInspectStage(const NodeID& node_id)
     ORC_LOG_DEBUG("Inspect stage requested for node: {}", node_id);
     
     // Find the node in the project
-    const auto& nodes = project_.coreProject().get_nodes();
+    const auto nodes = project_.presenter()->getNodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
     
     if (node_it == nodes.end()) {
         ORC_LOG_ERROR("Stage '{}' not found in project", node_id);
@@ -2387,7 +2396,7 @@ void MainWindow::onInspectStage(const NodeID& node_id)
             // Apply the node's parameters to the stage
             auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
             if (param_stage) {
-                param_stage->set_parameters(node_it->parameters);
+                param_stage->set_parameters(project_.presenter()->getNodeParameters(node_id));
             }
         } catch (const std::exception& e) {
             ORC_LOG_ERROR("Failed to create stage '{}': {}", stage_name, e.what());
@@ -2434,11 +2443,11 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         ORC_LOG_DEBUG("Opening mask line configuration dialog for node '{}'", node_id.to_string());
         
         // Get current parameters from the node
-        auto& project = project_.coreProject();
-        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
-            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        auto nodes = project_.presenter()->getNodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
         
-        if (node_it == project.get_nodes().end()) {
+        if (node_it == nodes.end()) {
             QMessageBox::warning(this, "Error",
                 "Could not find node in project.");
             return;
@@ -2447,8 +2456,9 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         // Create and show the config dialog
         MaskLineConfigDialog dialog(this);
         
-        // Load current parameters
-        dialog.set_parameters(node_it->parameters);
+        // Load current parameters from presenter
+        auto current_params = project_.presenter()->getNodeParameters(node_id);
+        dialog.set_parameters(current_params);
         
         // Show dialog and apply if accepted
         if (dialog.exec() == QDialog::Accepted) {
@@ -2457,8 +2467,8 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             ORC_LOG_DEBUG("Mask line config accepted, applying parameters");
             
             try {
-                // Update node parameters using project_io
-                orc::project_io::set_node_parameters(project, node_id, new_params);
+                // Update node parameters using presenter
+                project_.presenter()->setNodeParameters(node_id, new_params);
                 
                 // Mark project as modified
                 project_.setModified(true);
@@ -2498,11 +2508,11 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         ORC_LOG_DEBUG("Opening FFmpeg preset configuration dialog for node '{}'", node_id.to_string());
         
         // Get current parameters from the node
-        auto& project = project_.coreProject();
-        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
-            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        auto nodes = project_.presenter()->getNodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
         
-        if (node_it == project.get_nodes().end()) {
+        if (node_it == nodes.end()) {
             QMessageBox::warning(this, "Error",
                 "Could not find node in project.");
             return;
@@ -2511,8 +2521,9 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         // Create and show the preset dialog
         FFmpegPresetDialog dialog(this);
         
-        // Load current parameters
-        dialog.set_parameters(node_it->parameters);
+        // Load current parameters from presenter
+        auto current_params = project_.presenter()->getNodeParameters(node_id);
+        dialog.set_parameters(current_params);
         
         // Show dialog and apply if accepted
         if (dialog.exec() == QDialog::Accepted) {
@@ -2521,8 +2532,8 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             ORC_LOG_DEBUG("FFmpeg preset config accepted, applying parameters");
             
             try {
-                // Update node parameters using project_io
-                orc::project_io::set_node_parameters(project, node_id, new_params);
+                // Update node parameters using presenter
+                project_.presenter()->setNodeParameters(node_id, new_params);
                 
                 // Mark project as modified
                 project_.setModified(true);
@@ -2610,11 +2621,8 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
             return;
         }
 
-        // Get the core project via the GUI project wrapper
-        orc::Project& project = project_.coreProject();
-        
-        // Get node parameters
-        const auto& nodes = project.get_nodes();
+        // Get node and edge information from presenter
+        const auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
             [&node_id](const auto& n) { return n.node_id == node_id; });
         
@@ -2625,12 +2633,12 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
 
         // Execute DAG to get the VideoFieldRepresentation for the input node
         // Find the input edge to this node
-        const auto& edges = project.get_edges();
+        const auto edges = project_.presenter()->getEdges();
         orc::NodeID input_node_id;
         bool found_input = false;
         for (const auto& edge : edges) {
-            if (edge.target_node_id == node_id) {
-                input_node_id = edge.source_node_id;
+            if (edge.target_node == node_id) {
+                input_node_id = edge.source_node;
                 found_input = true;
                 break;
             }
@@ -2714,14 +2722,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     // Special-case: Dropout Analysis triggers batch processing and shows dialog
     if (tool->id() == "dropout_analysis") {
         // Get node info from project
-        auto& project = project_.coreProject();
-        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
-            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        auto nodes = project_.presenter()->getNodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
         
         QString node_label = QString::fromStdString(stage_name);
-        if (node_it != project.get_nodes().end()) {
-            node_label = QString::fromStdString(
-                node_it->user_label.empty() ? node_it->display_name : node_it->user_label);
+        if (node_it != nodes.end()) {
+            node_label = QString::fromStdString(node_it->label.empty() ? node_it->stage_name : node_it->label);
         }
         QString title = QString("Dropout Analysis - %1 (%2)")
             .arg(node_label)
@@ -2780,14 +2787,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     // Special-case: SNR Analysis triggers batch processing and shows dialog
     if (tool->id() == "snr_analysis") {
         // Get node info from project
-        auto& project = project_.coreProject();
-        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
-            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        auto nodes = project_.presenter()->getNodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
         
         QString node_label = QString::fromStdString(stage_name);
-        if (node_it != project.get_nodes().end()) {
-            node_label = QString::fromStdString(
-                node_it->user_label.empty() ? node_it->display_name : node_it->user_label);
+        if (node_it != nodes.end()) {
+            node_label = QString::fromStdString(node_it->label.empty() ? node_it->stage_name : node_it->label);
         }
         QString title = QString("SNR Analysis - %1 (%2)")
             .arg(node_label)
@@ -2871,14 +2877,13 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     // Special-case: Burst Level Analysis triggers batch processing and shows dialog
     if (tool->id() == "burst_level_analysis") {
         // Get node info from project
-        auto& project = project_.coreProject();
-        auto node_it = std::find_if(project.get_nodes().begin(), project.get_nodes().end(),
-            [&node_id](const orc::ProjectDAGNode& n) { return n.node_id == node_id; });
+        auto nodes = project_.presenter()->getNodes();
+        auto node_it = std::find_if(nodes.begin(), nodes.end(),
+            [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
         
         QString node_label = QString::fromStdString(stage_name);
-        if (node_it != project.get_nodes().end()) {
-            node_label = QString::fromStdString(
-                node_it->user_label.empty() ? node_it->display_name : node_it->user_label);
+        if (node_it != nodes.end()) {
+            node_label = QString::fromStdString(node_it->label.empty() ? node_it->stage_name : node_it->label);
         }
         QString title = QString("Burst Level Analysis - %1 (%2)")
             .arg(node_label)
@@ -2939,13 +2944,14 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
     // Detect source type from project video format
     // Default to LaserDisc for NTSC/PAL, as most TBC files come from LaserDisc sources
     context.source_type = orc::AnalysisSourceType::LaserDisc;
-    if (project_.coreProject().get_video_format() == orc::VideoSystem::Unknown) {
+    auto video_format_presenter = project_.presenter()->getVideoFormat();
+    if (video_format_presenter == orc::presenters::VideoFormat::Unknown) {
         context.source_type = orc::AnalysisSourceType::Other;
     }
-    context.project = std::make_shared<orc::Project>(project_.coreProject());
+    context.project = std::make_shared<orc::Project>(*project_.presenter()->getProject());
     
     // Create DAG from project for analysis
-    context.dag = std::static_pointer_cast<orc::DAG>(project_presenter_->getDAG());
+    context.dag = std::static_pointer_cast<orc::DAG>(project_.presenter()->getDAG());
     
     // Default path: show analysis dialog which handles batch analysis and apply
     orc::gui::AnalysisDialog dialog(tool, context, this);
@@ -2956,7 +2962,7 @@ void MainWindow::runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& 
         ORC_LOG_DEBUG("Applying analysis results to node '{}'", node_id.to_string());
         
         try {
-            bool success = tool->applyToGraph(result, project_.coreProject(), node_id);
+            bool success = tool->applyToGraph(result, *project_.presenter()->getProject(), node_id);
             
             if (success) {
                 // Rebuild DAG and update preview to reflect changes

@@ -12,20 +12,22 @@
 
 #include <QString>
 #include <memory>
-#include "project.h"
 #include "video_field_representation.h"
+#include "presenters/include/project_presenter.h"
 
 namespace orc {
+    class Project;  // Forward declaration for legacy coreProject() method
     class DAG;
+    enum class VideoSystem;
+    enum class SourceType;
 }
 
 /**
- * @brief GUI wrapper around orc::Project
+ * @brief GUI wrapper around ProjectPresenter
  * 
  * Provides Qt-friendly interface for managing ORC projects in the GUI.
  * Handles project file I/O, DAG construction, and project state management.
- * All core data and caching is handled by orc::Project; this class just
- * provides Qt integration.
+ * All business logic is delegated to ProjectPresenter (MVP architecture).
  */
 class GUIProject {
 public:
@@ -37,15 +39,8 @@ public:
     void setProjectPath(const QString& path) { project_path_ = path; }  ///< Set project file path
     QString projectPath() const { return project_path_; }  ///< Get project file path
     QString projectName() const;  ///< Get project name
-    bool isModified() const { return core_project_.has_unsaved_changes(); }  ///< Check if project has unsaved changes
-    void setModified(bool modified) { 
-        if (modified) {
-            // We can't directly set is_modified - this is handled by project_io functions
-            // Just rely on the fact that modification operations will set it
-        } else {
-            core_project_.clear_modified_flag();
-        }
-    }
+    bool isModified() const;  ///< Check if project has unsaved changes
+    void setModified(bool modified);  ///< Set modified flag (for compatibility)
     /// @}
     
     /// @name Project Operations
@@ -85,14 +80,20 @@ public:
     QString getSourceName() const;  ///< Get name of the first video source
     /// @}
     
-    /// @name Core Project Access
+    /// @name Presenter Access
     /// @{
-    orc::Project& coreProject() { return core_project_; }  ///< Get mutable reference to core project
-    const orc::Project& coreProject() const { return core_project_; }  ///< Get const reference to core project
-    std::shared_ptr<orc::DAG> getDAG() const { return dag_; }  ///< Get the current DAG
+    orc::presenters::ProjectPresenter* presenter() { return presenter_.get(); }  ///< Get mutable presenter
+    const orc::presenters::ProjectPresenter* presenter() const { return presenter_.get(); }  ///< Get const presenter
+    
+    /**
+     * @brief Get the current DAG
+     * @deprecated Use presenter()->buildDAG() instead
+     */
+    std::shared_ptr<orc::DAG> getDAG() const;
     
     /**
      * @brief Rebuild DAG from current project structure
+     * @deprecated Use presenter()->buildDAG() instead
      * 
      * Call this whenever the DAG structure changes (nodes/edges added/removed)
      * to regenerate the executable DAG from the project.
@@ -101,10 +102,9 @@ public:
     /// @}
     
 private:
-    
-    QString project_path_;                                      // Path to .orcprj file
-    orc::Project core_project_;                                 // Core project structure
-    mutable std::shared_ptr<orc::DAG> dag_;                     // Built DAG (single instance)
+    QString project_path_;                                           // Path to .orcprj file
+    std::unique_ptr<orc::presenters::ProjectPresenter> presenter_;   // Presenter managing core project
+    mutable std::shared_ptr<orc::DAG> dag_cache_;                    // Cached DAG for getDAG()
 };
 
 #endif // ORC_GUI_PROJECT_H

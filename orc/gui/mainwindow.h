@@ -228,7 +228,7 @@ private:
     std::unique_ptr<orc::presenters::HintsPresenter> hints_presenter_;
     std::unique_ptr<orc::presenters::DropoutPresenter> dropout_presenter_;
     std::unique_ptr<orc::presenters::VbiPresenter> vbi_presenter_;
-    std::unique_ptr<orc::presenters::ProjectPresenter> project_presenter_;
+    // Note: project_presenter_ removed - use project_.presenter() instead
     NtscObserverDialog* ntsc_observer_dialog_;
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
     std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;

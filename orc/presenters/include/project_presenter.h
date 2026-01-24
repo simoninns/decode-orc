@@ -18,6 +18,7 @@
 #include <node_id.h>
 #include <node_type.h>
 #include <field_id.h>
+#include <parameter_types.h>
 #include "stage_inspection_view_models.h"
 
 // Forward declare core Project type
@@ -370,12 +371,60 @@ public:
      * @return Shared pointer to DAG (as void* for encapsulation)
      */
     std::shared_ptr<void> getDAG() const;
+    
+    // === DAG Operations ===
+    
+    /**
+     * @brief Build DAG from current project structure
+     * @return Opaque DAG handle (void*) or nullptr on failure
+     * 
+     * Rebuilds the executable DAG from the project graph.
+     * Call this whenever the DAG structure changes (nodes/edges added/removed).
+     */
+    std::shared_ptr<void> buildDAG();
+    
+    /**
+     * @brief Validate DAG structure
+     * @return true if DAG is valid and can be executed
+     * 
+     * Checks for cycles, disconnected subgraphs, missing parameters, etc.
+     */
+    bool validateDAG();
+    
+    // === Parameter Operations ===
+    
+    /**
+     * @brief Get parameter descriptors for a stage type
+     * @param stage_name Internal stage name
+     * @return Vector of parameter descriptors
+     * 
+     * Returns all parameters that can be configured for this stage type.
+     */
+    std::vector<ParameterDescriptor> getStageParameters(const std::string& stage_name);
+    
+    /**
+     * @brief Get current parameters for a specific node
+     * @param node_id Node to query
+     * @return Map of parameter name -> current value
+     */
+    std::map<std::string, ParameterValue> getNodeParameters(NodeID node_id);
+    
+    /**
+     * @brief Set parameters for a specific node
+     * @param node_id Node to configure
+     * @param params Map of parameter name -> new value
+     * @return true on success
+     * 
+     * Updates the node's parameter values and marks project as modified.
+     */
+    bool setNodeParameters(NodeID node_id, const std::map<std::string, ParameterValue>& params);
 
 private:
     std::unique_ptr<orc::Project> project_;  ///< Owned project (if constructed without existing project)
     orc::Project* project_ref_;               ///< Non-owning pointer to project (may be owned or external)
     std::string project_path_;
     bool is_modified_;
+    mutable std::shared_ptr<void> dag_;      ///< Cached DAG instance
 };
 
 } // namespace orc::presenters

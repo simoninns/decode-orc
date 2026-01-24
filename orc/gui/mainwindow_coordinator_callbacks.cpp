@@ -190,16 +190,16 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     }
     
     // Update preview dialog to show current node
-    // Get node label from project (prefer user_label, fallback to display_name)
-    const auto& nodes = project_.coreProject().get_nodes();
+    // Get node label from project (prefer label, fallback to stage_name)
+    const auto nodes = project_.presenter()->getNodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [this](const orc::ProjectDAGNode& n) { return n.node_id == current_view_node_id_; });
+        [this](const orc::presenters::NodeInfo& n) { return n.node_id == current_view_node_id_; });
     QString node_label;
     if (node_it != nodes.end()) {
-        if (!node_it->user_label.empty()) {
-            node_label = QString::fromStdString(node_it->user_label);
-        } else if (!node_it->display_name.empty()) {
-            node_label = QString::fromStdString(node_it->display_name);
+        if (!node_it->label.empty()) {
+            node_label = QString::fromStdString(node_it->label);
+        } else if (!node_it->stage_name.empty()) {
+            node_label = QString::fromStdString(node_it->stage_name);
         } else {
             node_label = QString::fromStdString(current_view_node_id_.to_string());
         }
@@ -294,9 +294,9 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
     // If trigger was successful, automatically create dialog and request analysis data for display
     if (success && pending_trigger_node_id_.is_valid()) {
         // Determine which type of analysis sink was triggered by checking stage_name
-        const auto& nodes = project_.coreProject().get_nodes();
+        const auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
-            [this](const orc::ProjectDAGNode& n) { return n.node_id == pending_trigger_node_id_; });
+            [this](const orc::presenters::NodeInfo& n) { return n.node_id == pending_trigger_node_id_; });
         
         if (node_it != nodes.end()) {
             const std::string& stage_name = node_it->stage_name;

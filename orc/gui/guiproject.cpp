@@ -8,32 +8,13 @@
  */
 
 #include "guiproject.h"
-#include "tbc_video_field_representation.h"
+#include <common_types.h>  // For VideoSystem, SourceType
 #include "logging.h"
 #include "presenters/include/project_presenter.h"
 #include <QFileInfo>
 #include <algorithm>
 
 // Note: DAG is forward-declared in header, actual type comes through presenter
-
-// Helper to convert between presenter and core enums
-namespace {
-    orc::presenters::VideoFormat toPresenterFormat(orc::VideoSystem sys) {
-        switch (sys) {
-            case orc::VideoSystem::NTSC: return orc::presenters::VideoFormat::NTSC;
-            case orc::VideoSystem::PAL: return orc::presenters::VideoFormat::PAL;
-            default: return orc::presenters::VideoFormat::Unknown;
-        }
-    }
-    
-    orc::presenters::SourceType toPresenterSource(orc::SourceType src) {
-        switch (src) {
-            case orc::SourceType::Composite: return orc::presenters::SourceType::Composite;
-            case orc::SourceType::YC: return orc::presenters::SourceType::YC;
-            default: return orc::presenters::SourceType::Unknown;
-        }
-    }
-}
 
 GUIProject::GUIProject()
     : presenter_(std::make_unique<orc::presenters::ProjectPresenter>())
@@ -64,7 +45,7 @@ void GUIProject::setModified(bool modified)
     (void)modified;
 }
 
-bool GUIProject::newEmptyProject(const QString& project_name, orc::VideoSystem video_format, orc::SourceType source_format, QString* error)
+bool GUIProject::newEmptyProject(const QString& project_name, orc::presenters::VideoFormat video_format, orc::presenters::SourceType source_format, QString* error)
 {
     try {
         // Create new presenter with empty project
@@ -72,8 +53,8 @@ bool GUIProject::newEmptyProject(const QString& project_name, orc::VideoSystem v
         
         // Set project metadata
         presenter_->setProjectName(project_name.toStdString());
-        presenter_->setVideoFormat(toPresenterFormat(video_format));
-        presenter_->setSourceType(toPresenterSource(source_format));
+        presenter_->setVideoFormat(video_format);
+        presenter_->setSourceType(source_format);
         
         return true;
     } catch (const std::exception& e) {

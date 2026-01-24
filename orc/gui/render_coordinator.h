@@ -26,17 +26,13 @@
 #include <field_id.h>
 #include <node_id.h>
 #include <common_types.h>
-#include <orc_rendering.h>  // Public API rendering types
+#include <orc_rendering.h>  // Public API rendering types (includes mapping result types)
+#include <orc_video_metadata.h>  // Public API VideoParameters
 #include "vbi_view_models.h"
-// tbc_metadata.h: VideoParameters forward declared below
 
 namespace orc {
     class DAG;
     class Project;
-    struct ImageToFieldMappingResult;
-    struct FieldToImageMappingResult;
-    struct FrameFieldsResult;
-    struct VideoParameters;  // Forward declaration
     // Phase 2.7: TriggerableStage forward declaration removed - now handled by RenderPresenter
 }
 
@@ -552,7 +548,7 @@ public:
      * @param image_height Total height of the image (for split mode)
      * @return Mapping result (field_index, field_line)
      */
-    orc::ImageToFieldMappingResult mapImageToField(const orc::NodeID& node_id,
+    orc::public_api::ImageToFieldMappingResult mapImageToField(const orc::NodeID& node_id,
                                                    orc::PreviewOutputType output_type,
                                                    uint64_t output_index,
                                                    int image_y,
@@ -572,7 +568,7 @@ public:
      * @param image_height Total height of the image (for split mode)
      * @return Mapping result (image_y)
      */
-    orc::FieldToImageMappingResult mapFieldToImage(const orc::NodeID& node_id,
+    orc::public_api::FieldToImageMappingResult mapFieldToImage(const orc::NodeID& node_id,
                                                    orc::PreviewOutputType output_type,
                                                    uint64_t output_index,
                                                    uint64_t field_index,
@@ -588,7 +584,7 @@ public:
      * @param frame_index The frame index (0-based)
      * @return Result with first_field and second_field indices
      */
-    orc::FrameFieldsResult getFrameFields(const orc::NodeID& node_id, uint64_t frame_index);
+    orc::public_api::FrameFieldsResult getFrameFields(const orc::NodeID& node_id, uint64_t frame_index);
     
     uint64_t requestSavePNG(const orc::NodeID& node_id, 
                            orc::PreviewOutputType output_type,
@@ -684,7 +680,7 @@ signals:
      * @brief Emitted when line samples are ready
      */
     void lineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                          std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                          std::vector<uint16_t> samples, std::optional<orc::public_api::VideoParameters> video_params,
                           std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     
     /**

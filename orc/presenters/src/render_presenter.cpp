@@ -143,6 +143,7 @@ orc::public_api::PreviewRenderResult RenderPresenter::renderPreview(
         result.image.width = core_result.image.width;
         result.image.height = core_result.image.height;
         result.image.rgb_data = std::move(core_result.image.rgb_data);
+        result.image.dropout_regions = std::move(core_result.image.dropout_regions);
         result.success = core_result.success;
         result.error_message = std::move(core_result.error_message);
         result.node_id = core_result.node_id;

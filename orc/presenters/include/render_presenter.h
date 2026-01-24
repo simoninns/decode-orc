@@ -63,17 +63,6 @@ struct ObservationData {
 };
 
 /**
- * @brief Simple RGB image representation for preview
- */
-struct PreviewImage {
-    std::vector<uint8_t> data;  ///< RGB data (width * height * 3)
-    int width;                   ///< Image width
-    int height;                  ///< Image height
-    
-    bool isValid() const { return !data.empty() && width > 0 && height > 0; }
-};
-
-/**
  * @brief Export format options
  */
 enum class ExportFormat {
@@ -95,17 +84,8 @@ struct ExportOptions {
     int quality;                     ///< Quality setting (0-100)
 };
 
-/**
- * @brief Render progress information
- */
-struct RenderProgress {
-    size_t current_field;            ///< Current field being rendered
-    size_t total_fields;             ///< Total fields to render
-    std::string status_message;      ///< Current status
-    bool is_complete;                ///< Whether rendering is complete
-    bool has_error;                  ///< Whether an error occurred
-    std::string error_message;       ///< Error message if any
-};
+// Use public API types
+using RenderProgress = orc::public_api::RenderProgress;
 
 /**
  * @brief RenderPresenter - Manages preview and export rendering

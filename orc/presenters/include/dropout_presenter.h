@@ -15,6 +15,7 @@
 #include <memory>
 #include <node_id.h>
 #include <field_id.h>
+#include <orc_rendering.h>  // For DropoutRegion
 
 // Forward declare core Project type
 namespace orc {
@@ -32,28 +33,8 @@ namespace orc::presenters {
 // Forward declarations
 class Project;
 
-/**
- * @brief Dropout region view model - GUI-friendly representation
- */
-struct DropoutRegion {
-    enum class DetectionBasis {
-        SAMPLE_DERIVED,   ///< Detected from signal analysis
-        HINT_DERIVED,     ///< From decoder hints
-        CORROBORATED      ///< Both sample and hint agree
-    };
-    
-    uint32_t line;
-    uint32_t start_sample;
-    uint32_t end_sample;
-    DetectionBasis basis;
-    
-    DropoutRegion() 
-        : line(0), start_sample(0), end_sample(0)
-        , basis(DetectionBasis::HINT_DERIVED) {}
-    
-    DropoutRegion(uint32_t ln, uint32_t start, uint32_t end, DetectionBasis b = DetectionBasis::HINT_DERIVED)
-        : line(ln), start_sample(start), end_sample(end), basis(b) {}
-};
+// Use public API DropoutRegion
+using DropoutRegion = orc::public_api::DropoutRegion;
 
 /**
  * @brief Per-field dropout map view model

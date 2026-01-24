@@ -9,7 +9,8 @@
 
 #include "mainwindow.h"
 #include "logging.h"
-#include "crash_handler.h"
+// TODO(MVP Phase 4): Move crash_handler to common or public
+// #include "crash_handler.h"
 #include "version.h"
 #include "../public/orc_logging.h"
 #include <QApplication>
@@ -276,7 +277,8 @@ int main(int argc, char *argv[])
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
     ORC_LOG_DEBUG("GNOME theme detected: {}", isDark ? "dark" : "light");
 
-    // Initialize crash handler
+    // TODO(MVP Phase 4): Re-enable crash handler after moving to common/public
+    /* // Initialize crash handler
     orc::CrashHandlerConfig crash_config;
     crash_config.application_name = "orc-gui";
     crash_config.version = ORC_VERSION;
@@ -308,6 +310,7 @@ int main(int argc, char *argv[])
         ORC_LOG_DEBUG("Crash handler initialized - bundles will be saved to: {}",
                       crash_config.output_directory);
     }
+    */
 
     MainWindow window;
     window.show();

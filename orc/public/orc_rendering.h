@@ -181,5 +181,40 @@ struct FrameLineNavigationResult {
     int new_line_number;            ///< Line number to render next (within the field)
 };
 
+/**
+ * @brief Result of mapping image coordinates to field coordinates
+ * 
+ * Converts preview image coordinates (x, y) to field-space coordinates,
+ * accounting for output type (field/frame/split) and field ordering.
+ */
+struct ImageToFieldMappingResult {
+    bool is_valid;                  ///< True if mapping succeeded
+    uint64_t field_index;           ///< Field index for this position
+    int field_line;                 ///< Line number within the field
+};
+
+/**
+ * @brief Result of mapping field coordinates to image coordinates
+ * 
+ * Converts field-space coordinates back to preview image coordinates.
+ * Used for positioning UI elements like cross-hairs.
+ */
+struct FieldToImageMappingResult {
+    bool is_valid;                  ///< True if mapping succeeded
+    int image_y;                    ///< Y coordinate in the preview image
+};
+
+/**
+ * @brief Result of querying which fields make up a frame
+ * 
+ * Returns the two field indices that comprise a given frame,
+ * accounting for field ordering (parity hint).
+ */
+struct FrameFieldsResult {
+    bool is_valid;                  ///< True if query succeeded
+    uint64_t first_field;           ///< Index of first field in frame
+    uint64_t second_field;          ///< Index of second field in frame
+};
+
 } // namespace public_api
 } // namespace orc

@@ -18,50 +18,6 @@
 
 namespace orc::presenters {
 
-// Helper function to convert core DropoutRegion to presenter DropoutRegion
-static DropoutRegion fromCore(const orc::DropoutRegion& core_region) {
-    DropoutRegion region;
-    region.line = core_region.line;
-    region.start_sample = core_region.start_sample;
-    region.end_sample = core_region.end_sample;
-    
-    switch (core_region.basis) {
-        case orc::DropoutRegion::DetectionBasis::SAMPLE_DERIVED:
-            region.basis = DropoutRegion::DetectionBasis::SAMPLE_DERIVED;
-            break;
-        case orc::DropoutRegion::DetectionBasis::HINT_DERIVED:
-            region.basis = DropoutRegion::DetectionBasis::HINT_DERIVED;
-            break;
-        case orc::DropoutRegion::DetectionBasis::CORROBORATED:
-            region.basis = DropoutRegion::DetectionBasis::CORROBORATED;
-            break;
-    }
-    
-    return region;
-}
-
-// Helper function to convert presenter DropoutRegion to core DropoutRegion
-static orc::DropoutRegion toCore(const DropoutRegion& presenter_region) {
-    orc::DropoutRegion region;
-    region.line = presenter_region.line;
-    region.start_sample = presenter_region.start_sample;
-    region.end_sample = presenter_region.end_sample;
-    
-    switch (presenter_region.basis) {
-        case DropoutRegion::DetectionBasis::SAMPLE_DERIVED:
-            region.basis = orc::DropoutRegion::DetectionBasis::SAMPLE_DERIVED;
-            break;
-        case DropoutRegion::DetectionBasis::HINT_DERIVED:
-            region.basis = orc::DropoutRegion::DetectionBasis::HINT_DERIVED;
-            break;
-        case DropoutRegion::DetectionBasis::CORROBORATED:
-            region.basis = orc::DropoutRegion::DetectionBasis::CORROBORATED;
-            break;
-    }
-    
-    return region;
-}
-
 class DropoutPresenter::Impl {
 public:
     explicit Impl(orc::presenters::ProjectPresenter& project_presenter)
@@ -202,14 +158,8 @@ std::vector<DropoutRegion> DropoutPresenter::getSourceDropouts(const std::shared
         // Get dropout hints from TBC
         std::vector<orc::DropoutRegion> core_dropouts = field_repr->get_dropout_hints(field_id);
         
-        // Convert to presenter types
-        std::vector<DropoutRegion> dropouts;
-        dropouts.reserve(core_dropouts.size());
-        for (const auto& core_region : core_dropouts) {
-            dropouts.push_back(fromCore(core_region));
-        }
-        
-        return dropouts;
+        // DropoutRegion is aliased to public_api::DropoutRegion, so just return directly
+        return core_dropouts;
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Error getting source dropouts: {}", e.what());
         return {};
@@ -247,19 +197,12 @@ std::map<uint64_t, FieldDropoutMap> DropoutPresenter::getDropoutMap(NodeID node_
         // Parse core dropout map
         std::map<uint64_t, orc::FieldDropoutMap> core_map = orc::DropoutMapStage::parse_dropout_map(map_str);
         
-        // Convert to presenter types
+        // Convert to presenter types (FieldDropoutMap structure, DropoutRegion is aliased so no conversion needed)
         std::map<uint64_t, FieldDropoutMap> presenter_map;
         for (const auto& [field_id, core_field_map] : core_map) {
             FieldDropoutMap presenter_field_map(core_field_map.field_id);
-            
-            for (const auto& core_region : core_field_map.additions) {
-                presenter_field_map.additions.push_back(fromCore(core_region));
-            }
-            
-            for (const auto& core_region : core_field_map.removals) {
-                presenter_field_map.removals.push_back(fromCore(core_region));
-            }
-            
+            presenter_field_map.additions = core_field_map.additions;
+            presenter_field_map.removals = core_field_map.removals;
             presenter_map[field_id] = presenter_field_map;
         }
         
@@ -273,19 +216,12 @@ std::map<uint64_t, FieldDropoutMap> DropoutPresenter::getDropoutMap(NodeID node_
 bool DropoutPresenter::setDropoutMap(NodeID node_id, const std::map<uint64_t, FieldDropoutMap>& dropout_map)
 {
     try {
-        // Convert presenter types to core types
+        // Convert presenter types to core types (FieldDropoutMap structure, DropoutRegion is aliased so no conversion needed)
         std::map<uint64_t, orc::FieldDropoutMap> core_map;
         for (const auto& [field_id, presenter_field_map] : dropout_map) {
             orc::FieldDropoutMap core_field_map(presenter_field_map.field_id);
-            
-            for (const auto& presenter_region : presenter_field_map.additions) {
-                core_field_map.additions.push_back(toCore(presenter_region));
-            }
-            
-            for (const auto& presenter_region : presenter_field_map.removals) {
-                core_field_map.removals.push_back(toCore(presenter_region));
-            }
-            
+            core_field_map.additions = presenter_field_map.additions;
+            core_field_map.removals = presenter_field_map.removals;
             core_map[field_id] = core_field_map;
         }
         

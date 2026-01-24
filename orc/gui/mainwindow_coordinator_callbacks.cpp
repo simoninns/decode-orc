@@ -9,7 +9,6 @@
 
 #include "mainwindow.h"
 #include "logging.h"
-#include "preview_renderer.h"  // For PreviewImage definition
 #include <QMessageBox>
 #include <QStatusBar>
 #include "vbidialog.h"

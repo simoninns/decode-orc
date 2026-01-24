@@ -12,14 +12,11 @@
 
 #include <QString>
 #include <memory>
-#include "video_field_representation.h"
 #include "presenters/include/project_presenter.h"
 
 namespace orc {
-    class Project;  // Forward declaration for legacy coreProject() method
-    class DAG;
-    enum class VideoSystem;
-    enum class SourceType;
+    class Project;  // Forward declaration for legacy methods
+    class DAG;      // Forward declaration for legacy methods
 }
 
 /**
@@ -53,7 +50,12 @@ public:
      * @param error Optional error message output
      * @return true if successful, false otherwise
      */
-    bool newEmptyProject(const QString& project_name, orc::VideoSystem video_format = orc::VideoSystem::Unknown, orc::SourceType source_format = orc::SourceType::Unknown, QString* error = nullptr);
+    bool newEmptyProject(
+        const QString& project_name, 
+        orc::presenters::VideoFormat video_format = orc::presenters::VideoFormat::Unknown, 
+        orc::presenters::SourceType source_format = orc::presenters::SourceType::Unknown, 
+        QString* error = nullptr
+    );
     
     /**
      * @brief Save project to file

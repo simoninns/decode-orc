@@ -14,23 +14,42 @@ add_library(orc-presenters STATIC
     src/ntsc_observation_presenter.cpp
 )
 
-# Presenters can see both public API and core internals
-# This is the bridge layer
+# =============================================================================
+# MVP Architecture - Presenter Layer
+# =============================================================================
+# Presenters form the bridge between GUI/CLI (high-level) and Core (low-level).
+# 
+# PUBLIC dependencies (exposed to GUI/CLI):
+#   - orc-common: Common types used across layers
+#
+# PRIVATE dependencies (hidden from GUI/CLI):
+#   - orc-core: Core implementation and business logic
+#
+# This ensures GUI/CLI code cannot directly access core headers, even if they
+# try to include them - the headers are simply not in their include path.
+# =============================================================================
 target_include_directories(orc-presenters
     PUBLIC
+        # Presenter headers are public - GUI/CLI can include them
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include/orc/presenters>
     PRIVATE
+        # Core headers are private - only presenters can see them
         ${CMAKE_SOURCE_DIR}/orc/core/include
         ${CMAKE_SOURCE_DIR}/orc/public
 )
 
-# Link against both public API and core
+# =============================================================================
+# Link Dependencies
+# =============================================================================
+# PUBLIC links expose symbols and headers to GUI/CLI
+# PRIVATE links hide implementation details
+# =============================================================================
 target_link_libraries(orc-presenters
     PUBLIC
-        orc-common  # Public types available to GUI
+        orc-common  # Common types exposed to GUI/CLI
     PRIVATE
-        orc-core    # Core implementation (private)
+        orc-core    # Core implementation hidden from GUI/CLI
 )
 
 # Ensure C++17 standard

@@ -9,6 +9,17 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI and CLI code must NOT include this header directly.
+// Use ProjectPresenter from orc/presenters instead.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/project.h. Use ProjectPresenter instead."
+#endif
+
 #include <string>
 #include <vector>
 #include <map>

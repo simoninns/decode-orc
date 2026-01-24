@@ -9,6 +9,22 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Partial Enforcement
+// =============================================================================
+// GUI HEADER FILES must NOT include this (enforced by build system).
+// Implementation files (.cpp) may temporarily include this during migration.
+//
+// The build system removes orc/core from GUI include paths, so headers
+// cannot find this file. Implementation files access it via relative paths
+// or transitional includes.
+// 
+// TODO(MVP Phase 3): Complete type migration
+// - Move DropoutRegion to orc/common
+// - Add dropout_regions field to orc::public_api::PreviewImage  
+// - Update GUI code to use public API types exclusively
+// =============================================================================
+
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"
 #include <field_id.h>

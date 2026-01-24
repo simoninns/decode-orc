@@ -157,6 +157,16 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
 )
 
+# =============================================================================
+# MVP Architecture - Core Headers are PRIVATE
+# =============================================================================
+# Core headers are marked PRIVATE to prevent transitive inclusion.
+# Only orc-presenters should directly access core headers.
+# GUI/CLI code accesses core functionality through presenters only.
+# =============================================================================
+# Note: All include directories above are PRIVATE by default
+# =============================================================================
+
 # Link against common types
 target_link_libraries(orc-core PUBLIC orc-common)
 

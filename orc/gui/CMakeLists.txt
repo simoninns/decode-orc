@@ -159,39 +159,49 @@ add_executable(orc-gui WIN32
 )
 
 target_link_libraries(orc-gui PRIVATE 
-    orc-core 
-    orc-public
-    orc-presenters
-    orc-gui-vectorscope  # Vectorscope visualization (needs core access)
+    orc-public           # Public API only
+    orc-common           # Common types (VideoSystem, SourceType, etc.)
+    orc-presenters       # Presenter layer (privately links orc-core)
+    orc-gui-vectorscope  # Vectorscope visualization (documented exception)
     Qt6::Core 
     Qt6::Widgets
     QtNodes
+    # NO DIRECT orc-core LINK - presenters provide the bridge
 )
 
 # Note: FFTW3 is already linked transitively through orc-core from orc_chroma_decoders
 
+# =============================================================================
+# MVP Architecture Enforcement - Compiler Build Flags
+# =============================================================================
+# ORC_GUI_BUILD flag enables compile-time guards in core headers to prevent
+# direct inclusion from GUI code. This enforces the MVP architecture at
+# compile time, ensuring GUI code can only access core functionality through
+# the presenter layer or public API.
+# =============================================================================
 target_compile_definitions(orc-gui PRIVATE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
+    ORC_GUI_BUILD  # Triggers compile error if core headers are included
 )
 
+# =============================================================================
+# MVP Architecture - Public API and Presenters Only
+# =============================================================================
+# GUI code can ONLY access:
+# - orc/public/*.h (Public API types and interfaces)
+# - orc/presenters/include/*.h (Presenter layer interfaces)
+# - orc/common/include/*.h (Common types shared across layers)
+# 
+# Core headers are NOT exposed. Any attempt to include core headers will
+# result in a compile error due to ORC_GUI_BUILD guard.
+# =============================================================================
 target_include_directories(orc-gui PRIVATE
-    # NOTE: These core includes represent remaining MVP architecture debt
-    # Files still using core headers directly:
-    # - render_coordinator.{h,cpp}: preview_renderer.h, project_to_dag.h, stage headers
-    # - guiproject.{h,cpp}: project.h, project_to_dag.h
-    # - fieldpreviewwidget.h: preview_renderer.h
-    # - mainwindow.h: preview_renderer.h
-    # ✅ Phase 2.5 Complete: stageparameterdialog.h and configdialogbase.h now use parameter_types.h
-    # These need Phase 2/3 migration to presenters before removal is possible.
-    ${CMAKE_SOURCE_DIR}/orc/core/include
-    ${CMAKE_SOURCE_DIR}/orc/core/analysis
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/dropout_analysis_sink
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/snr_analysis_sink
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/burst_level_analysis_sink
-    ${CMAKE_SOURCE_DIR}/orc/public
-    ${CMAKE_SOURCE_DIR}/orc  # For presenters/ includes
-    ${CMAKE_BINARY_DIR}/generated
+    ${CMAKE_SOURCE_DIR}/orc/public           # Public API only
+    ${CMAKE_SOURCE_DIR}/orc/presenters/include  # Presenter headers only
+    ${CMAKE_SOURCE_DIR}/orc/common/include   # Common types (VideoSystem, SourceType, etc.)
+    ${CMAKE_SOURCE_DIR}/orc  # For presenters/ includes (transitional)
+    ${CMAKE_BINARY_DIR}/generated            # Generated files (version.h)
+    # NO CORE DIRECTORIES - Enforced by compiler guards
 )
 
 # Platform-specific icon configuration

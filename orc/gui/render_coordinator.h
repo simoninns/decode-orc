@@ -28,7 +28,7 @@
 #include <common_types.h>
 #include <orc_rendering.h>  // Public API rendering types
 #include "vbi_view_models.h"
-#include "tbc_metadata.h"  // For VideoParameters
+// tbc_metadata.h: VideoParameters forward declared below
 
 namespace orc {
     class DAG;
@@ -36,6 +36,7 @@ namespace orc {
     struct ImageToFieldMappingResult;
     struct FieldToImageMappingResult;
     struct FrameFieldsResult;
+    struct VideoParameters;  // Forward declaration
     // Phase 2.7: TriggerableStage forward declaration removed - now handled by RenderPresenter
 }
 

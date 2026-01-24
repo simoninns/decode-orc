@@ -9,6 +9,16 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI code should use parameter_types.h from orc/common instead.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/stage_parameter.h. Use parameter_types.h from orc/common instead."
+#endif
+
 #include "tbc_metadata.h"  // For VideoSystem enum
 #include <common_types.h>  // For SourceType enum
 #include <parameter_types.h>  // For parameter type definitions

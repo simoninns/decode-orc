@@ -146,6 +146,9 @@ orc::public_api::PreviewRenderResult RenderPresenter::renderPreview(
         result.image.height = core_result.image.height;
         result.image.rgb_data = std::move(core_result.image.rgb_data);
         result.image.dropout_regions = std::move(core_result.image.dropout_regions);
+        // Propagate vectorscope data from core image to public API result
+        // This enables the GUI vectorscope to render UV samples and graticules
+        result.vectorscope_data = std::move(core_result.image.vectorscope_data);
         result.success = core_result.success;
         result.error_message = std::move(core_result.error_message);
         result.node_id = core_result.node_id;

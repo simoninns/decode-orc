@@ -1,6 +1,7 @@
 #include "generic_analysis_dialog.h"
 #include "presenters/include/analysis_presenter.h"
 #include "presenters/include/field_corruption_presenter.h"
+#include "presenters/include/disc_mapper_presenter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -18,12 +19,15 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     orc::Project* project,
     QWidget* parent)
     : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
-      presenter_(presenter), field_corruption_presenter_(nullptr),
+            presenter_(presenter), field_corruption_presenter_(nullptr),
+            disc_mapper_presenter_(nullptr),
       project_(project), node_id_(node_id) {
     
-    // Check if this is the Field Corruption tool - if so, create specialized presenter
-    if (tool_id_ == "field_corruption") {
+        // Create specialized presenters when needed
+        if (tool_id_ == "field_corruption") {
         field_corruption_presenter_ = new orc::presenters::FieldCorruptionPresenter(project_);
+        } else if (tool_id_ == "field_mapping" || tool_id_ == "disc_mapper") {
+                disc_mapper_presenter_ = new orc::presenters::DiscMapperPresenter(project_);
     }
     
     setupUI();
@@ -35,6 +39,7 @@ GenericAnalysisDialog::GenericAnalysisDialog(
 GenericAnalysisDialog::~GenericAnalysisDialog() {
     delete presenter_;
     delete field_corruption_presenter_;
+    delete disc_mapper_presenter_;
 }
 
 void GenericAnalysisDialog::setupUI() {
@@ -137,8 +142,11 @@ void GenericAnalysisDialog::populateParameters() {
                             this, &GenericAnalysisDialog::updateParameterDependencies);
                     break;
                 case orc::ParameterType::BOOL:
-                    connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
-                            this, &GenericAnalysisDialog::updateParameterDependencies);
+                    {
+                        auto* cb = static_cast<QCheckBox*>(widget);
+                        connect(cb, &QCheckBox::checkStateChanged,
+                                this, [this](Qt::CheckState){ updateParameterDependencies(); });
+                    }
                     break;
                 default:
                     break;
@@ -260,8 +268,9 @@ void GenericAnalysisDialog::runAnalysis() {
     // Run analysis using specialized presenter if available
     orc::public_api::AnalysisResult result;
     
-    if (field_corruption_presenter_) {
-        // Use specialized Field Corruption Presenter
+    if (disc_mapper_presenter_) {
+        result = disc_mapper_presenter_->runAnalysis(node_id_, parameters, progress_callback);
+    } else if (field_corruption_presenter_) {
         result = field_corruption_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else {
         // Use generic analysis presenter for other tools

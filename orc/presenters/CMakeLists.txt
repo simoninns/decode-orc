@@ -8,6 +8,7 @@ add_library(orc-presenters STATIC
     src/analysis_presenter.cpp
     src/analysis_tool_presenter.cpp
     src/field_corruption_presenter.cpp
+    src/disc_mapper_presenter.cpp
     src/hints_presenter.cpp
     src/hints_view_models.cpp
     src/dropout_presenter.cpp

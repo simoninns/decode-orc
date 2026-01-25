@@ -1700,6 +1700,18 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             }
         }
         
+        // Determine first field offset for frame-based outputs by probing field 0 parity
+        uint64_t first_field_offset = 0;
+        if (type == PreviewOutputType::Frame || type == PreviewOutputType::Frame_Reversed || type == PreviewOutputType::Split) {
+            auto probe_result = field_renderer_->render_field_at_node(stage_node_id, FieldID(0));
+            if (probe_result.is_valid && probe_result.representation) {
+                auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+                if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                    first_field_offset = 1;
+                }
+            }
+        }
+
         outputs.push_back(PreviewOutputInfo{
             type,
             option.display_name,
@@ -1708,7 +1720,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             option.dar_aspect_correction,  // Use stage-provided DAR correction
             option.id,  // Store original option ID
             !is_chroma_decoder,  // Dropouts not available for chroma decoder (RGB output)
-            has_separate_channels  // YC sources have separate channels
+            has_separate_channels,  // YC sources have separate channels
+            first_field_offset      // field offset for frame-based outputs
         });
     }
     

@@ -2265,37 +2265,11 @@ void MainWindow::updateAspectRatioCombo()
     // Apply correction immediately for current mode using active area
     auto computeAspectCorrection = [this]() -> double {
         double correction = 1.0;
-        auto hints = hints_presenter_->getHintsForField(current_view_node_id_, orc::FieldID(0));
-        if (hints.video_params.has_value() && hints.active_line.has_value() && hints.active_line->is_valid()) {
-            const auto& vp = hints.video_params.value();
-            const auto& al = hints.active_line.value();
-            int active_width = vp.active_video_end - vp.active_video_start;
-            int active_frame_height = al.last_active_frame_line - al.first_active_frame_line + 1;
-            if (active_width > 0 && active_frame_height > 0) {
-                double target_ratio = 1.0;
-                switch (current_output_type_) {
-                    case orc::PreviewOutputType::Field:
-                    case orc::PreviewOutputType::Luma:
-                        target_ratio = 4.0 / 1.5;
-                        correction = (target_ratio * (active_frame_height / 2.0)) / static_cast<double>(active_width);
-                        break;
-                    case orc::PreviewOutputType::Frame:
-                    case orc::PreviewOutputType::Frame_Reversed:
-                    case orc::PreviewOutputType::Split:
-                        target_ratio = 4.0 / 3.0;
-                        correction = (target_ratio * static_cast<double>(active_frame_height)) / static_cast<double>(active_width);
-                        break;
-                    default:
-                        correction = 1.0;
-                        break;
-                }
-            }
-        } else {
-            for (const auto& output : available_outputs_) {
-                if (output.type == current_output_type_ && output.option_id == current_option_id_) {
-                    correction = output.dar_aspect_correction;
-                    break;
-                }
+        // Always use the fallback method to avoid concurrent DAG access issues
+        for (const auto& output : available_outputs_) {
+            if (output.type == current_output_type_ && output.option_id == current_option_id_) {
+                correction = output.dar_aspect_correction;
+                break;
             }
         }
         return correction;
@@ -2325,48 +2299,17 @@ void MainWindow::refreshViewerControls(bool skip_preview)
     // Update the aspect ratio combo box
     updateAspectRatioCombo();
 
-    // Ensure current aspect correction is applied based on selected mode and active area
-    auto computeAspectCorrection = [this]() -> double {
-        double correction = 1.0;
-        auto hints = hints_presenter_->getHintsForField(current_view_node_id_, orc::FieldID(0));
-        if (hints.video_params.has_value() && hints.active_line.has_value() && hints.active_line->is_valid()) {
-            const auto& vp = hints.video_params.value();
-            const auto& al = hints.active_line.value();
-            int active_width = vp.active_video_end - vp.active_video_start;
-            int active_frame_height = al.last_active_frame_line - al.first_active_frame_line + 1;
-            if (active_width > 0 && active_frame_height > 0) {
-                double target_ratio = 1.0;
-                switch (current_output_type_) {
-                    case orc::PreviewOutputType::Field:
-                    case orc::PreviewOutputType::Luma:
-                        target_ratio = 4.0 / 1.5;
-                        correction = (target_ratio * (active_frame_height / 2.0)) / static_cast<double>(active_width);
-                        break;
-                    case orc::PreviewOutputType::Frame:
-                    case orc::PreviewOutputType::Frame_Reversed:
-                    case orc::PreviewOutputType::Split:
-                        target_ratio = 4.0 / 3.0;
-                        correction = (target_ratio * static_cast<double>(active_frame_height)) / static_cast<double>(active_width);
-                        break;
-                    default:
-                        correction = 1.0;
-                        break;
-                }
-            }
-        } else {
-            for (const auto& output : available_outputs_) {
-                if (output.type == current_output_type_ && output.option_id == current_option_id_) {
-                    correction = output.dar_aspect_correction;
-                    break;
-                }
+    // Apply aspect correction based on selected mode
+    // Use the fallback method to avoid concurrent DAG access from GUI and render threads
+    double correction = 1.0;
+    if (current_aspect_ratio_mode_ == orc::AspectRatioMode::DAR_4_3) {
+        for (const auto& output : available_outputs_) {
+            if (output.type == current_output_type_ && output.option_id == current_option_id_) {
+                correction = output.dar_aspect_correction;
+                break;
             }
         }
-        return correction;
-    };
-
-    double correction = (current_aspect_ratio_mode_ == orc::AspectRatioMode::DAR_4_3)
-        ? computeAspectCorrection()
-        : 1.0;
+    }
     if (preview_dialog_ && preview_dialog_->previewWidget()) {
         preview_dialog_->previewWidget()->setAspectCorrection(correction);
     }

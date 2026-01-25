@@ -8,12 +8,12 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 
 ## Summary
 
-- **Total items tracked:** 17 (down from 18)
+- **Total items tracked:** 16 (down from 17)
 - **Active implementation gaps:** 3 (items #8, #16, #17)
-- **Working code with TODOs:** 9 (items #2, #5, #9, #10, #11, #12, #13, #22, #23)
+- **Working code with TODOs:** 8 (items #2, #5, #10, #11, #12, #13, #22, #23)
 - **Known bugs/hacks:** 5 (items #18, #19, #20, #21, #23)
 - **Aspirational features:** 1 (item #14)
-- **Resolved and removed:** 7 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing, audio loading, EFM loading, custom range parsing - removed 25 Jan 2026)
+- **Resolved and removed:** 8 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing, audio loading, EFM loading, custom range parsing, dropout video parameters - removed 25 Jan 2026)
 
 **Key Findings:**
 - Most TODOs are legitimate and still active
@@ -36,10 +36,6 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 8. **Dropout Correction - Explicit Lists** - `orc/core/stages/dropout_correct/dropout_correct_stage.cpp:272`
    - TODO: Support explicit dropout list and decisions
    - Context: Dropout correction stage needs manual dropout specification
-
-9. **Dropout Correction - Video Parameters** - `orc/core/stages/dropout_correct/dropout_correct_stage.cpp:307`
-   - TODO: Get these from video parameters
-   - Context: Currently hardcoded values that should come from metadata
 
 10. **FFmpeg Deinterlace Parameter** - `orc/core/stages/chroma_sink/ffmpeg_output_backend.cpp:555`
     - TODO: Check for apply_deinterlace parameter
@@ -142,9 +138,7 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 - LD Sink observations (#11) - **Unused parameter**
 
 ### Aspirational (Future Features)
-- Chroma/Composite output types (#14 - partial) - **Chroma and Composite not implemented**
-  - Luma is implemented but not exposed
-
+- 
 ### Research Required (HACKs to Fix)
 - PAL-M vector swap (#18) - **Known issue with workaround**
 - Magic numbers in PAL decoder (#19, #20) - **Unclear origins**
@@ -162,7 +156,14 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 ### 25 January 2026
 - **Implemented:** Item #4 (Custom Range Parsing) - MaskLineConfigDialog now parses custom line ranges
   - Implemented full parsing logic in `parse_line_spec_to_ui()` to extract custom range specifications
-  - Parses line specs like "F:50-100", "S:30-45", or "A:15-25" and populates UI fields
+  - Parses line specs lik9 (Dropout Correction VideoParameters) - DropoutCorrectStage now uses actual timing from metadata
+  - Updated `classify_dropout()` and `split_dropout_regions()` to accept VideoParameters parameter
+  - Methods now use `colour_burst_end` and `active_video_end` from VideoParameters when available
+  - Maintains fallback to hardcoded PAL/NTSC estimates when VideoParameters unavailable
+  - Both composite and YC correction paths retrieve VideoParameters via `source->get_video_parameters()`
+  - Removes hardcoded assumptions about color burst and active video positions
+  - Improves accuracy of dropout classification across different video formats and sample rates
+- **Implemented:** Item #e "F:50-100", "S:30-45", or "A:15-25" and populates UI fields
   - Handles both range formats ("start-end") and single value formats ("line")
   - Automatically detects and skips known preset patterns (NTSC CC, NTSC VBI)
   - Properly sets field selection combo box (First/Second/Both), start line, and end line spinboxes

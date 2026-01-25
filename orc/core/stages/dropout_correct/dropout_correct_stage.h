@@ -207,12 +207,14 @@ private:
     };
     
     /// Classify a dropout region by location
-    DropoutLocation classify_dropout(const DropoutRegion& dropout, const FieldDescriptor& descriptor) const;
+    DropoutLocation classify_dropout(const DropoutRegion& dropout, const FieldDescriptor& descriptor,
+                                    const std::optional<VideoParameters>& video_params) const;
     
     /// Split dropout regions that span multiple areas
     std::vector<DropoutRegion> split_dropout_regions(
         const std::vector<DropoutRegion>& dropouts,
-        const FieldDescriptor& descriptor) const;
+        const FieldDescriptor& descriptor,
+        const std::optional<VideoParameters>& video_params) const;
     
     /// Find the best replacement line for a dropout
     /// 

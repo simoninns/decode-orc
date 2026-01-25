@@ -300,22 +300,30 @@ std::shared_ptr<CorrectedVideoFieldRepresentation> DropoutCorrectStage::correct_
 
 DropoutCorrectStage::DropoutLocation DropoutCorrectStage::classify_dropout(
     const DropoutRegion& dropout,
-    const FieldDescriptor& descriptor) const
+    const FieldDescriptor& descriptor,
+    const std::optional<VideoParameters>& video_params) const
 {
-    // We need video parameters to know color burst and active video regions
-    // For now, use typical PAL/NTSC values
-    // TODO: Get these from video parameters
-    
+    // Get color burst and active video positions from video parameters
     uint32_t color_burst_end = 0;
     uint32_t active_video_end = descriptor.width;
     
-    // Rough estimates based on format
-    if (descriptor.format == VideoFormat::PAL) {
-        color_burst_end = 100;  // ~100 samples for PAL color burst
-        active_video_end = descriptor.width - 20;
-    } else if (descriptor.format == VideoFormat::NTSC) {
-        color_burst_end = 80;   // ~80 samples for NTSC color burst  
-        active_video_end = descriptor.width - 20;
+    if (video_params.has_value()) {
+        // Use actual values from metadata
+        if (video_params->colour_burst_end >= 0) {
+            color_burst_end = static_cast<uint32_t>(video_params->colour_burst_end);
+        }
+        if (video_params->active_video_end >= 0) {
+            active_video_end = static_cast<uint32_t>(video_params->active_video_end);
+        }
+    } else {
+        // Fallback: use rough estimates based on format
+        if (descriptor.format == VideoFormat::PAL) {
+            color_burst_end = 100;  // ~100 samples for PAL color burst
+            active_video_end = descriptor.width - 20;
+        } else if (descriptor.format == VideoFormat::NTSC) {
+            color_burst_end = 80;   // ~80 samples for NTSC color burst  
+            active_video_end = descriptor.width - 20;
+        }
     }
     
     if (dropout.start_sample <= color_burst_end) {
@@ -329,24 +337,36 @@ DropoutCorrectStage::DropoutLocation DropoutCorrectStage::classify_dropout(
 
 std::vector<DropoutRegion> DropoutCorrectStage::split_dropout_regions(
     const std::vector<DropoutRegion>& dropouts,
-    const FieldDescriptor& descriptor) const
+    const FieldDescriptor& descriptor,
+    const std::optional<VideoParameters>& video_params) const
 {
     std::vector<DropoutRegion> result;
     
-    // Determine boundaries
+    // Determine boundaries from video parameters
     uint32_t color_burst_end = 0;
     uint32_t active_video_end = descriptor.width;
     
-    if (descriptor.format == VideoFormat::PAL) {
-        color_burst_end = 100;
-        active_video_end = descriptor.width - 20;
-    } else if (descriptor.format == VideoFormat::NTSC) {
-        color_burst_end = 80;
-        active_video_end = descriptor.width - 20;
+    if (video_params.has_value()) {
+        // Use actual values from metadata
+        if (video_params->colour_burst_end >= 0) {
+            color_burst_end = static_cast<uint32_t>(video_params->colour_burst_end);
+        }
+        if (video_params->active_video_end >= 0) {
+            active_video_end = static_cast<uint32_t>(video_params->active_video_end);
+        }
+    } else {
+        // Fallback: use rough estimates based on format
+        if (descriptor.format == VideoFormat::PAL) {
+            color_burst_end = 100;
+            active_video_end = descriptor.width - 20;
+        } else if (descriptor.format == VideoFormat::NTSC) {
+            color_burst_end = 80;
+            active_video_end = descriptor.width - 20;
+        }
     }
     
     for (const auto& dropout : dropouts) {
-        auto location = classify_dropout(dropout, descriptor);
+        auto location = classify_dropout(dropout, descriptor, video_params);
         
         if (location == DropoutLocation::COLOUR_BURST) {
             // Check if it extends beyond color burst
@@ -617,7 +637,8 @@ void DropoutCorrectStage::correct_single_field(
         }
         
         // Split dropouts by location
-        auto split_dropouts = split_dropout_regions(processed_dropouts, descriptor);
+        auto video_params = source->get_video_parameters();
+        auto split_dropouts = split_dropout_regions(processed_dropouts, descriptor, video_params);
         ORC_LOG_DEBUG("DropoutCorrectStage: split into {} dropout regions", split_dropouts.size());
         
         // Process each dropout on both Y and C channels
@@ -718,7 +739,8 @@ void DropoutCorrectStage::correct_single_field(
     }
     
     // Split dropouts by location
-    auto split_dropouts = split_dropout_regions(dropouts, descriptor);
+    auto video_params = source->get_video_parameters();
+    auto split_dropouts = split_dropout_regions(dropouts, descriptor, video_params);
     
     ORC_LOG_DEBUG("DropoutCorrectStage: split into {} dropout regions", split_dropouts.size());
     

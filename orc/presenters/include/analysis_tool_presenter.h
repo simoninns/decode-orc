@@ -67,6 +67,19 @@ public:
     /// Progress callback type: (percentage, status_message)
     using ProgressCallback = std::function<void(int, const std::string&)>;
 
+    /**
+     * @brief Apply analysis result to graph
+     * @param result Analysis result containing data to apply
+     * @param node_id Node to apply result to
+     * @return true if successfully applied, false otherwise
+     * 
+     * This delegates to the core tool's applyToGraph() method.
+     * Call this from GUI after successful analysis to update the stage parameters.
+     */
+    bool applyResultToGraph(
+        const orc::public_api::AnalysisResult& result,
+        orc::NodeID node_id);
+
 protected:
     /**
      * @brief Construct base presenter
@@ -164,18 +177,6 @@ protected:
      * @param status Status message
      */
     void reportProgress(int percentage, const std::string& status);
-
-    /**
-     * @brief Apply analysis result to graph
-     * @param result Analysis result containing data to apply
-     * @param node_id Node to apply result to
-     * @return true if successfully applied, false otherwise
-     * 
-     * This delegates to the core tool's applyToGraph() method.
-     */
-    bool applyResultToGraph(
-        const orc::public_api::AnalysisResult& result,
-        orc::NodeID node_id);
 
     /**
      * @brief Get the project pointer

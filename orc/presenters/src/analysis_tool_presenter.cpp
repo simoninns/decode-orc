@@ -208,6 +208,13 @@ bool AnalysisToolPresenter::applyResultToGraph(
     try {
         bool success = tool->applyToGraph(core_result, *project_, node_id);
         if (success) {
+            // Apply parameter changes to the project
+            if (!core_result.parameterChanges.empty()) {
+                orc::project_io::set_node_parameters(*project_, node_id, core_result.parameterChanges);
+                ORC_LOG_DEBUG("AnalysisToolPresenter: Applied {} parameter changes to node {}",
+                            core_result.parameterChanges.size(), node_id.value());
+            }
+            
             ORC_LOG_INFO("AnalysisToolPresenter: Successfully applied {} result to node {}",
                         toolName(), node_id.value());
             invalidateDAG();  // DAG structure may have changed

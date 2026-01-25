@@ -301,10 +301,22 @@ Repeat Phase 2 pattern for each tool:
 - Implement presenter following Field Corruption pattern
 - Refactor tool and GUI
 
-3.2. **Source Alignment Presenter** (1 day)  
-- Likely needs: input node execution, frame data access
-- Implement presenter
-- Integration test
+3.2. **Source Alignment Presenter** (1 day) ✅ **COMPLETED 2026-01-25**
+- ✅ Created `/orc/presenters/include/source_alignment_presenter.h`
+- ✅ Created `/orc/presenters/src/source_alignment_presenter.cpp`
+- ✅ Updated `/orc/presenters/CMakeLists.txt`
+- ✅ Updated `GenericAnalysisDialog` to use `SourceAlignmentPresenter`
+- ✅ Builds successfully - all targets compile
+- ✅ Fully integrated with GUI
+
+**Implementation Notes:**
+- Presenter provides DAG context to the core tool
+- Tool executes input nodes to get all source artifacts for VBI analysis
+- Progress adapter translates core AnalysisProgress to GUI callback
+- Result conversion handles Success/Failed/Cancelled status mapping
+- Note: ctx.project not set due to shared_ptr requirement; tool uses DAG only
+- GUI integration: Dialog instantiates SourceAlignmentPresenter when tool_id is "source_alignment"
+- Uses same pattern as FieldCorruptionPresenter and DiscMapperPresenter
 
 3.3. **Mask Line Presenter** (1 day)
 - Needs: video format, frame dimensions

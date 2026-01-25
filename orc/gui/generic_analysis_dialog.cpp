@@ -2,6 +2,7 @@
 #include "presenters/include/analysis_presenter.h"
 #include "presenters/include/field_corruption_presenter.h"
 #include "presenters/include/disc_mapper_presenter.h"
+#include "presenters/include/source_alignment_presenter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -20,7 +21,7 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     QWidget* parent)
     : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
             presenter_(presenter), field_corruption_presenter_(nullptr),
-            disc_mapper_presenter_(nullptr),
+            disc_mapper_presenter_(nullptr), source_alignment_presenter_(nullptr),
       project_(project), node_id_(node_id) {
     
         // Create specialized presenters when needed
@@ -28,6 +29,8 @@ GenericAnalysisDialog::GenericAnalysisDialog(
         field_corruption_presenter_ = new orc::presenters::FieldCorruptionPresenter(project_);
         } else if (tool_id_ == "field_mapping" || tool_id_ == "disc_mapper") {
                 disc_mapper_presenter_ = new orc::presenters::DiscMapperPresenter(project_);
+    } else if (tool_id_ == "source_alignment") {
+        source_alignment_presenter_ = new orc::presenters::SourceAlignmentPresenter(project_);
     }
     
     setupUI();
@@ -40,6 +43,7 @@ GenericAnalysisDialog::~GenericAnalysisDialog() {
     delete presenter_;
     delete field_corruption_presenter_;
     delete disc_mapper_presenter_;
+    delete source_alignment_presenter_;
 }
 
 void GenericAnalysisDialog::setupUI() {
@@ -272,6 +276,8 @@ void GenericAnalysisDialog::runAnalysis() {
         result = disc_mapper_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else if (field_corruption_presenter_) {
         result = field_corruption_presenter_->runAnalysis(node_id_, parameters, progress_callback);
+    } else if (source_alignment_presenter_) {
+        result = source_alignment_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else {
         // Use generic analysis presenter for other tools
         std::map<std::string, orc::ParameterValue> additional_context;
@@ -336,7 +342,31 @@ void GenericAnalysisDialog::applyResults() {
         return;
     }
     
-    // Emit signal with results so mainwindow can apply them
+    // Apply results using the specialized presenter if available
+    // This ensures the core tool's applyToGraph logic is executed
+    bool applied = false;
+    
+    if (field_corruption_presenter_) {
+        applied = field_corruption_presenter_->applyResultToGraph(last_result_, node_id_);
+    } else if (disc_mapper_presenter_) {
+        applied = disc_mapper_presenter_->applyResultToGraph(last_result_, node_id_);
+    } else if (source_alignment_presenter_) {
+        applied = source_alignment_presenter_->applyResultToGraph(last_result_, node_id_);
+    } else if (presenter_) {
+        // Fallback to generic presenter (though this shouldn't happen for modern tools)
+        // The mainwindow will handle this case
+        emit applyResultsRequested(last_result_);
+        accept();
+        return;
+    }
+    
+    if (!applied) {
+        QMessageBox::warning(this, "Apply Failed",
+            "Failed to apply analysis results to the stage. Check the log for details.");
+        return;
+    }
+    
+    // Emit signal so mainwindow can update UI (rebuild DAG, refresh preview, etc.)
     emit applyResultsRequested(last_result_);
     
     // Close dialog

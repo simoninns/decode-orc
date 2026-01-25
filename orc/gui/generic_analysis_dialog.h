@@ -26,6 +26,7 @@ namespace orc::presenters {
     class AnalysisPresenter;
     class FieldCorruptionPresenter;
     class DiscMapperPresenter;
+    class SourceAlignmentPresenter;
 }
 
 namespace orc {
@@ -75,6 +76,7 @@ private:
     orc::presenters::AnalysisPresenter* presenter_;  // Not owned
     orc::presenters::FieldCorruptionPresenter* field_corruption_presenter_;  // Owned (if used)
     orc::presenters::DiscMapperPresenter* disc_mapper_presenter_;  // Owned (if used)
+    orc::presenters::SourceAlignmentPresenter* source_alignment_presenter_;  // Owned (if used)
     orc::Project* project_;  // Not owned
     orc::NodeID node_id_;
     orc::public_api::AnalysisResult last_result_;

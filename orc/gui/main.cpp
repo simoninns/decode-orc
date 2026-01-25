@@ -9,8 +9,7 @@
 
 #include "mainwindow.h"
 #include "logging.h"
-// TODO(MVP Phase 4): Move crash_handler to common or public
-// #include "crash_handler.h"
+#include "crash_handler.h"
 #include "version.h"
 #include "../public/orc_logging.h"
 #include <QApplication>

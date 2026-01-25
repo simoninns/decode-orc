@@ -11,7 +11,6 @@
 #include "tbc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
-// TODO: Observer system refactored - old observers removed
 #include <sstream>
 #include <chrono>
 

@@ -650,6 +650,11 @@ PreviewImage PreviewRenderer::render_field(
         return image;
     }
     
+    // Get video parameters for IRE scaling
+    auto video_params = repr->get_video_parameters();
+    double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
+    double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
+    
     // Initialize image
     image.width = desc.width;
     image.height = desc.height;
@@ -666,7 +671,7 @@ PreviewImage PreviewRenderer::render_field(
             }
             
             uint16_t sample = field_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             // Grayscale (R=G=B)
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
@@ -750,6 +755,11 @@ PreviewImage PreviewRenderer::render_frame(
         return image;
     }
     
+    // Get video parameters for IRE scaling
+    auto video_params = repr->get_video_parameters();
+    double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
+    double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
+    
     // Frame is double height
     image.width = desc_a.width;
     image.height = desc_a.height * 2;
@@ -775,7 +785,7 @@ PreviewImage PreviewRenderer::render_frame(
             }
             
             uint16_t sample = field_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
@@ -837,6 +847,11 @@ PreviewImage PreviewRenderer::render_split_frame(
         return image;
     }
     
+    // Get video parameters for IRE scaling
+    auto video_params = repr->get_video_parameters();
+    double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
+    double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
+    
     // Split frame: stack fields vertically
     // Top half is field_a, bottom half is field_b
     image.width = desc_a.width;
@@ -854,7 +869,7 @@ PreviewImage PreviewRenderer::render_split_frame(
             }
             
             uint16_t sample = field_a_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
@@ -874,7 +889,7 @@ PreviewImage PreviewRenderer::render_split_frame(
             }
             
             uint16_t sample = field_b_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
@@ -898,12 +913,13 @@ PreviewImage PreviewRenderer::render_split_frame(
     return image;
 }
 
-uint8_t PreviewRenderer::tbc_sample_to_8bit(uint16_t sample) {
-    // Simple linear scaling from 16-bit to 8-bit
-    // TODO: Could be improved with proper IRE level scaling from metadata
-    // (black_16b_ire and white_16b_ire from capture table)
-    
-    return static_cast<uint8_t>((sample >> 8) & 0xFF);
+uint8_t PreviewRenderer::tbc_sample_to_8bit(uint16_t sample, double blackIRE, double whiteIRE) {
+    // IRE level scaling from metadata (black_16b_ire and white_16b_ire from capture table)
+    // This matches the implementation in PreviewHelpers::scale_16bit_to_8bit()
+    double ireRange = whiteIRE - blackIRE;
+    int32_t adjusted = static_cast<int32_t>(sample) - static_cast<int32_t>(blackIRE);
+    int32_t scaled = static_cast<int32_t>((adjusted * 255.0) / ireRange);
+    return static_cast<uint8_t>(std::max(0, std::min(255, scaled)));
 }
 
 namespace {

@@ -11,6 +11,8 @@
 #include <QGroupBox>
 #include <QMessageBox>
 #include <limits>
+#include <algorithm>
+#include <map>
 
 namespace orc {
 namespace gui {
@@ -367,7 +369,73 @@ void GenericAnalysisDialog::applyResults() {
 }
 
 void GenericAnalysisDialog::updateParameterDependencies() {
-    // TODO: Implement parameter dependency logic
+    // Get current values of all parameters
+    std::map<std::string, orc::ParameterValue> current_values;
+    for (const auto& pw : parameterWidgets_) {
+        const std::string& name = pw.name;
+        
+        switch (pw.type) {
+            case orc::ParameterType::BOOL: {
+                auto* cb = qobject_cast<QCheckBox*>(pw.widget);
+                if (cb) current_values[name] = cb->isChecked();
+                break;
+            }
+            case orc::ParameterType::INT32: {
+                auto* spin = qobject_cast<QSpinBox*>(pw.widget);
+                if (spin) current_values[name] = spin->value();
+                break;
+            }
+            case orc::ParameterType::DOUBLE: {
+                auto* spin = qobject_cast<QDoubleSpinBox*>(pw.widget);
+                if (spin) current_values[name] = spin->value();
+                break;
+            }
+            case orc::ParameterType::STRING: {
+                auto* combo = qobject_cast<QComboBox*>(pw.widget);
+                if (combo) {
+                    current_values[name] = combo->currentText().toStdString();
+                } else {
+                    auto* edit = qobject_cast<QLineEdit*>(pw.widget);
+                    if (edit) current_values[name] = edit->text().toStdString();
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    
+    // Check each parameter's dependencies
+    for (size_t i = 0; i < parameter_descriptors_.size(); ++i) {
+        const auto& desc = parameter_descriptors_[i];
+        
+        if (!desc.constraints.depends_on.has_value()) {
+            continue;  // No dependency, always enabled
+        }
+        
+        const auto& dep = *desc.constraints.depends_on;
+        bool should_enable = false;
+        
+        // Find the value of the parameter we depend on
+        auto it = current_values.find(dep.parameter_name);
+        if (it != current_values.end()) {
+            // Convert current value to string for comparison
+            std::string current_val = orc::parameter_util::value_to_string(it->second);
+            
+            // Check if current value is in the list of required values
+            should_enable = std::find(dep.required_values.begin(), 
+                                     dep.required_values.end(), 
+                                     current_val) != dep.required_values.end();
+        }
+        
+        // Enable or disable the widget and label
+        if (i < parameterWidgets_.size()) {
+            parameterWidgets_[i].widget->setEnabled(should_enable);
+            if (parameterWidgets_[i].label) {
+                parameterWidgets_[i].label->setEnabled(should_enable);
+            }
+        }
+    }
 }
 
 } // namespace gui

@@ -9,7 +9,6 @@
 
 
 #include "dag_field_renderer.h"
-// TODO: Observer system refactored - old observers removed
 #include "logging.h"
 #include "biphase_observer.h"
 #include "fm_code_observer.h"

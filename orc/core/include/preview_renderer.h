@@ -507,7 +507,7 @@ private:
      * Applies proper scaling based on black/white IRE levels.
      * Default: simple 16->8 bit shift, but could be improved with metadata.
      */
-    uint8_t tbc_sample_to_8bit(uint16_t sample);
+    uint8_t tbc_sample_to_8bit(uint16_t sample, double blackIRE, double whiteIRE);
     
     // ========================================================================
     // Stage preview support (new interface for sources/transforms)

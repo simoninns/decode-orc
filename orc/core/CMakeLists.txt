@@ -34,8 +34,6 @@ add_library(orc-core STATIC
     
     # Observers (organized in subdirectory)
     observers/observer.cpp
-    # TODO: Old observers temporarily disabled during refactor
-    # observers/observation_history.cpp
     observers/biphase_observer.cpp
     observers/closed_caption_observer.cpp
     observers/fm_code_observer.cpp

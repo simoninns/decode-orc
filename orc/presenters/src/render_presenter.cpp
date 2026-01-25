@@ -23,6 +23,7 @@
 #include "../core/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
 #include "../core/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"
 #include "vbi_presenter.h"
+#include "../core/include/logging.h"
 #include <stdexcept>
 #include <fstream>
 
@@ -606,6 +607,104 @@ std::vector<uint16_t> RenderPresenter::getLineSamples(
         
     } catch (const std::exception&) {
         return {};
+    }
+}
+
+RenderPresenter::LineSampleData RenderPresenter::getLineSamplesWithYC(
+    NodeID node_id,
+    orc::PreviewOutputType output_type,
+    uint64_t output_index,
+    int line_number,
+    int sample_x,
+    int preview_width)
+{
+    LineSampleData result;
+    result.has_separate_channels = false;
+    
+    if (!impl_->preview_renderer_) {
+        fprintf(stderr, "DEBUG YC: preview_renderer_ is null\n");
+        return result;
+    }
+    
+    try {
+        // Get the representation at this node
+        auto repr = impl_->preview_renderer_->get_representation_at_node(node_id);
+        fprintf(stderr, "DEBUG YC: repr=%p\n", static_cast<const void*>(repr.get()));
+        if (!repr) {
+            fprintf(stderr, "DEBUG YC: get_representation_at_node returned nullptr\n");
+            return result;
+        }
+        
+        // Determine which field to get samples from
+        orc::FieldID field_id;
+        if (output_type == orc::PreviewOutputType::Field) {
+            field_id = orc::FieldID(output_index);
+        } else {
+            // For frames, use first field (GUI should call mapImageToField first)
+            fprintf(stderr, "DEBUG YC: output_type not Field\n");
+            return result;
+        }
+        
+        fprintf(stderr, "DEBUG YC: field_id=%lu, checking has_field\n", field_id.value());
+        bool has_field_result = repr->has_field(field_id);
+        fprintf(stderr, "DEBUG YC: has_field(%lu)=%d\n", field_id.value(), has_field_result);
+        
+        // Get descriptor to know field dimensions
+        auto descriptor = repr->get_descriptor(field_id);
+        fprintf(stderr, "DEBUG YC: descriptor.has_value()=%d\n", descriptor.has_value());
+        if (!descriptor) {
+            fprintf(stderr, "DEBUG YC: no descriptor for field %lu\n", field_id.value());
+            return result;
+        }
+        
+        fprintf(stderr, "DEBUG YC: descriptor: width=%zu, height=%zu\n", descriptor->width, descriptor->height);
+        
+        // Validate line number is within bounds
+        fprintf(stderr, "DEBUG YC: line_number=%d, height=%zu\n", line_number, descriptor->height);
+        if (line_number < 0 || static_cast<size_t>(line_number) >= descriptor->height) {
+            fprintf(stderr, "DEBUG YC: line_number out of bounds\n");
+            return result;
+        }
+        
+        // Check if this is a Y/C source with separate channels
+        result.has_separate_channels = repr->has_separate_channels();
+        fprintf(stderr, "DEBUG YC: has_separate_channels=%d\n", result.has_separate_channels);
+        
+        if (result.has_separate_channels) {
+            // Y/C source - get Y and C separately (no composite available)
+            const uint16_t* y_data = repr->get_line_luma(field_id, line_number);
+            fprintf(stderr, "DEBUG YC: y_data=%p\n", static_cast<const void*>(y_data));
+            if (y_data) {
+                result.y_samples.assign(y_data, y_data + descriptor->width);
+                fprintf(stderr, "DEBUG YC: Assigned %zu Y samples\n", result.y_samples.size());
+            }
+            
+            const uint16_t* c_data = repr->get_line_chroma(field_id, line_number);
+            fprintf(stderr, "DEBUG YC: c_data=%p\n", static_cast<const void*>(c_data));
+            if (c_data) {
+                result.c_samples.assign(c_data, c_data + descriptor->width);
+                fprintf(stderr, "DEBUG YC: Assigned %zu C samples\n", result.c_samples.size());
+            }
+            
+            // For Y/C sources, use Y as composite for compatibility
+            result.composite_samples = result.y_samples;
+        } else {
+            // Composite source - get composite line data
+            const uint16_t* line_data = repr->get_line(field_id, line_number);
+            fprintf(stderr, "DEBUG YC: line_data=%p\n", static_cast<const void*>(line_data));
+            if (!line_data) {
+                fprintf(stderr, "DEBUG YC: get_line returned nullptr for field %lu, line %d\n", field_id.value(), line_number);
+                return result;
+            }
+            
+            fprintf(stderr, "DEBUG YC: SUCCESS! Assigning %zu samples\n", descriptor->width);
+            result.composite_samples.assign(line_data, line_data + descriptor->width);
+        }
+        
+        return result;
+        
+    } catch (const std::exception&) {
+        return result;
     }
 }
 

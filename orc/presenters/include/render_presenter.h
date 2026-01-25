@@ -444,9 +444,19 @@ public:
     // === Line Samples (for waveform display) ===
     
     /**
-     * @brief Get 16-bit samples for a specific line
+     * @brief Line sample data with optional Y/C separation
+     */
+    struct LineSampleData {
+        std::vector<uint16_t> composite_samples;  ///< Composite/combined samples (always populated)
+        std::vector<uint16_t> y_samples;          ///< Luma samples (only for Y/C sources)
+        std::vector<uint16_t> c_samples;          ///< Chroma samples (only for Y/C sources)
+        bool has_separate_channels;               ///< True if Y/C separation is available
+    };
+
+    /**
+     * @brief Get line samples for oscilloscope display
      * 
-     * @param node_id Node to render from
+     * @param node_id Node to get samples from
      * @param output_type Output type
      * @param output_index Output index
      * @param line_number Line number in the field/frame
@@ -455,6 +465,29 @@ public:
      * @return Vector of 16-bit sample values
      */
     std::vector<uint16_t> getLineSamples(
+        NodeID node_id,
+        orc::PreviewOutputType output_type,
+        uint64_t output_index,
+        int line_number,
+        int sample_x,
+        int preview_width
+    );
+
+    /**
+     * @brief Get line samples with Y/C separation for oscilloscope display
+     * 
+     * For Y/C sources, returns separate Y and C samples in addition to composite.
+     * For composite sources, only composite_samples is populated.
+     * 
+     * @param node_id Node to get samples from
+     * @param output_type Output type
+     * @param output_index Output index
+     * @param line_number Line number in the field/frame
+     * @param sample_x X coordinate hint (for field selection in frames)
+     * @param preview_width Width of preview image (for coordinate mapping)
+     * @return LineSampleData with composite and optional Y/C samples
+     */
+    LineSampleData getLineSamplesWithYC(
         NodeID node_id,
         orc::PreviewOutputType output_type,
         uint64_t output_index,

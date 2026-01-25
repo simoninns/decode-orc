@@ -612,12 +612,13 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
     }
     
     try {
-        auto samples = worker_render_presenter_->getLineSamples(
+        // Get line samples with Y/C separation if available
+        auto sample_data = worker_render_presenter_->getLineSamplesWithYC(
             req.node_id, req.output_type, req.output_index,
             req.line_number, req.sample_x, req.preview_image_width
         );
         
-        if (samples.empty()) {
+        if (sample_data.composite_samples.empty()) {
             // Line data not available (expected for sink stages that don't produce field representations)
             ORC_LOG_DEBUG("RenderCoordinator: Line data not available for node '{}' (expected for sink stages)",
                          req.node_id.to_string());
@@ -628,10 +629,15 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
         // Get video parameters from the representation
         auto video_params = worker_render_presenter_->getVideoParameters(req.node_id);
         
-        // For now, emit simple samples without Y/C separation
-        // TODO: Extend RenderPresenter to provide Y/C samples separately
+        // Emit samples with Y/C separation when available
+        if (sample_data.has_separate_channels) {
+            ORC_LOG_DEBUG("RenderCoordinator: Emitting line samples with Y/C separation (Y: {} samples, C: {} samples)",
+                         sample_data.y_samples.size(), sample_data.c_samples.size());
+        }
+        
         emit lineSamplesReady(req.request_id, req.output_index, req.line_number, req.sample_x,
-                            std::move(samples), video_params, {}, {});
+                            std::move(sample_data.composite_samples), video_params, 
+                            std::move(sample_data.y_samples), std::move(sample_data.c_samples));
         
     } catch (const std::exception& e) {
         ORC_LOG_DEBUG("RenderCoordinator: Get line samples failed: {} (expected for sink stages)", e.what());

@@ -25,10 +25,6 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 
 ### GUI Components
 
-2. **Y/C Sample Separation** - `orc/gui/render_coordinator.cpp:632`
-   - TODO: Extend RenderPresenter to provide Y/C samples separately
-   - Context: Render coordination needs separate luminance/chrominance access
-
 4. **Custom Range Parsing** - `orc/gui/masklineconfigdialog.cpp:257`
    - TODO: Parse custom ranges for the custom section
    - Context: Mask line configuration dialog

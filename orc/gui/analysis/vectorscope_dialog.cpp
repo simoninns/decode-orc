@@ -219,6 +219,7 @@ void VectorscopeDialog::updateVectorscope(const orc::public_api::VectorscopeData
 
 void VectorscopeDialog::renderVectorscope(const orc::public_api::VectorscopeData& data) {
     if (data.samples.empty()) {
+        ORC_LOG_DEBUG("VectorscopeDialog: renderVectorscope called with empty samples for field {}", data.field_number);
         clearDisplay();
         return;
     }
@@ -238,6 +239,24 @@ void VectorscopeDialog::renderVectorscope(const orc::public_api::VectorscopeData
         }
     }
     
+    int graticule_mode = graticule_group_->checkedId();
+    bool blend_mode = blend_color_checkbox_->isChecked();
+    bool defocus = defocus_checkbox_->isChecked();
+    int field_select = field_select_group_->checkedId();
+    ORC_LOG_DEBUG(
+        "VectorscopeDialog: renderVectorscope field={} samples={} graticule={} blend={} defocus={} field_select={} system={} white={} black={} chroma_detected={}",
+        data.field_number,
+        data.samples.size(),
+        graticule_mode,
+        blend_mode,
+        defocus,
+        field_select,
+        static_cast<int>(data.system),
+        data.white_16b_ire,
+        data.black_16b_ire,
+        has_chroma
+    );
+    
     // Create image
     QImage image(SIZE, SIZE, QImage::Format_RGB888);
     image.fill(Qt::black);
@@ -245,23 +264,18 @@ void VectorscopeDialog::renderVectorscope(const orc::public_api::VectorscopeData
     QPainter painter(&image);
     
     // Draw graticule first
-    int graticule_mode = graticule_group_->checkedId();
     if (graticule_mode != 0) {
         d_->drawGraticule(painter, this, data.system, data.white_16b_ire, data.black_16b_ire);
     }
     
     // Set blend mode
-    bool blend_mode = blend_color_checkbox_->isChecked();
     painter.setCompositionMode(blend_mode ? QPainter::CompositionMode_Plus : QPainter::CompositionMode_SourceOver);
-    
-    // Plot U/V samples
-    bool defocus = defocus_checkbox_->isChecked();
-    int field_select = field_select_group_->checkedId();
     
     // Cheap predictable PRNG for defocus
     std::minstd_rand random_engine(12345);
     std::normal_distribution<double> normal_dist(0.0, 100.0);
     
+    // Plot U/V samples
     for (const auto& sample : data.samples) {
         // Filter samples based on field selection
         if (field_select == 1 && sample.field_id != 0) continue;  // First field only
@@ -443,6 +457,7 @@ void VectorscopeDialog::closeEvent(QCloseEvent* event) {
 }
 
 void VectorscopeDialog::onBlendColorToggled() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Blend Color toggled -> {}", blend_color_checkbox_->isChecked());
     // Re-render with new blend mode
     if (d_->last_data.has_value()) {
         renderVectorscope(*d_->last_data);
@@ -450,6 +465,7 @@ void VectorscopeDialog::onBlendColorToggled() {
 }
 
 void VectorscopeDialog::onDefocusToggled() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Defocus toggled -> {}", defocus_checkbox_->isChecked());
     // Re-render with new defocus settings
     if (d_->last_data.has_value()) {
         renderVectorscope(*d_->last_data);
@@ -457,6 +473,7 @@ void VectorscopeDialog::onDefocusToggled() {
 }
 
 void VectorscopeDialog::onFieldSelectionChanged() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Field selection changed -> {}", field_select_group_->checkedId());
     // Re-render with new field selection
     if (d_->last_data.has_value()) {
         renderVectorscope(*d_->last_data);
@@ -464,6 +481,7 @@ void VectorscopeDialog::onFieldSelectionChanged() {
 }
 
 void VectorscopeDialog::onGraticuleChanged() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Graticule mode changed -> {}", graticule_group_->checkedId());
     // Re-render with new graticule
     if (d_->last_data.has_value()) {
         renderVectorscope(*d_->last_data);

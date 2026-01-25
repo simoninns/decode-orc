@@ -11,6 +11,7 @@
 #include "include/dag_field_renderer.h"
 #include "include/video_field_representation.h"
 #include "logging.h"
+#include <algorithm>
 
 namespace orc {
 
@@ -90,8 +91,25 @@ std::optional<std::shared_ptr<const VideoFieldRepresentation>> ObservationCache:
         auto result = renderer_->render_field_at_node(node_id, field_id);
         
         if (!result.is_valid || !result.representation) {
-            ORC_LOG_WARN("ObservationCache: Failed to render field {} at node '{}': {}",
-                        field_id.value(), node_id.to_string(), result.error_message);
+            // Check if this is a sink stage - sinks don't produce field representations
+            bool is_sink = false;
+            if (dag_) {
+                const auto& dag_nodes = dag_->nodes();
+                auto dag_node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+                    [&node_id](const auto& n) { return n.node_id == node_id; });
+                
+                if (dag_node_it != dag_nodes.end() && dag_node_it->stage) {
+                    auto node_type = dag_node_it->stage->get_node_type_info().type;
+                    is_sink = (node_type == NodeType::SINK || node_type == NodeType::ANALYSIS_SINK);
+                }
+            }
+            
+            if (is_sink) {
+                ORC_LOG_DEBUG("ObservationCache: Sink node '{}' has no field representation (expected)", node_id.to_string());
+            } else {
+                ORC_LOG_WARN("ObservationCache: Failed to render field {} at node '{}': {}",
+                            field_id.value(), node_id.to_string(), result.error_message);
+            }
             return std::nullopt;
         }
         

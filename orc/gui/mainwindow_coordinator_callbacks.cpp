@@ -321,11 +321,13 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
 
 void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
 {
-    ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id, message.toStdString());
-    
     // Check if this is a line sample request error
     if (request_id == pending_line_sample_request_id_) {
         pending_line_sample_request_id_ = 0;
+        
+        // Line sample errors are expected for sink stages - log at DEBUG
+        ORC_LOG_DEBUG("Coordinator line sample error (request {}): {} (expected for sink stages)",
+                     request_id, message.toStdString());
         
         // Show empty line scope with appropriate message
         if (preview_dialog_ && preview_dialog_->isLineScopeVisible()) {
@@ -343,6 +345,9 @@ void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
         statusBar()->showMessage(QString("Line data not available for this stage"), 3000);
         return;
     }
+    
+    // For other errors, log at ERROR level
+    ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id, message.toStdString());
     
     // Show error in status bar for other errors
     statusBar()->showMessage(QString("Error: %1").arg(message), 5000);

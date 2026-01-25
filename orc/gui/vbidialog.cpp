@@ -188,14 +188,18 @@ void VBIDialog::setupUI()
 void VBIDialog::updateVBIInfo(const orc::presenters::VBIFieldInfoView& vbi_info)
 {
     if (!vbi_info.has_vbi_data) {
-        // No valid VBI data - show N/A for field number too
-        field_number_label_->setText("-");
+        // No valid VBI data - show "--" for field number too
+        field_number_label_->setText("--");
         clearVBIInfo();
         return;
     }
     
-    // Field number (0-indexed)
-    field_number_label_->setText(QString::number(vbi_info.field_id));
+    // Field number (0-indexed) or "--" if invalid
+    if (vbi_info.field_id < 0) {
+        field_number_label_->setText("--");
+    } else {
+        field_number_label_->setText(QString::number(vbi_info.field_id));
+    }
     
     // Raw VBI data
     line16_label_->setText(formatVBILine(vbi_info.vbi_data[0]));
@@ -348,10 +352,14 @@ QString VBIDialog::formatSoundMode(orc::presenters::VbiSoundModeView mode)
 void VBIDialog::updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& field1_info, 
                                     const orc::presenters::VBIFieldInfoView& field2_info)
 {
-    // Display both field numbers (0-indexed)
-    field_number_label_->setText(QString("%1 + %2")
-        .arg(field1_info.field_id)
-        .arg(field2_info.field_id));
+    // Display both field numbers (0-indexed) or "--" if invalid
+    if (field1_info.field_id < 0 || field2_info.field_id < 0) {
+        field_number_label_->setText("--");
+    } else {
+        field_number_label_->setText(QString("%1 - %2")
+            .arg(field1_info.field_id)
+            .arg(field2_info.field_id));
+    }
     
     if (!field1_info.has_vbi_data && !field2_info.has_vbi_data) {
         clearVBIInfo();

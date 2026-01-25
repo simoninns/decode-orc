@@ -618,7 +618,11 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
         );
         
         if (samples.empty()) {
-            throw std::runtime_error("Line data not available");
+            // Line data not available (expected for sink stages that don't produce field representations)
+            ORC_LOG_DEBUG("RenderCoordinator: Line data not available for node '{}' (expected for sink stages)",
+                         req.node_id.to_string());
+            emit error(req.request_id, "Line data not available");
+            return;
         }
         
         // Get video parameters from the representation
@@ -630,7 +634,7 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
                             std::move(samples), video_params, {}, {});
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());
+        ORC_LOG_DEBUG("RenderCoordinator: Get line samples failed: {} (expected for sink stages)", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }

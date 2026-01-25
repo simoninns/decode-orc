@@ -2159,13 +2159,29 @@ void MainWindow::updatePreview()
 void MainWindow::updateVectorscope(const orc::public_api::PreviewRenderResult& result)
 {
     auto it = vectorscope_dialogs_.find(result.node_id);
-    if (it == vectorscope_dialogs_.end()) return;
+    if (it == vectorscope_dialogs_.end()) {
+        ORC_LOG_DEBUG("updateVectorscope: no dialog for node '{}'", result.node_id.to_string());
+        return;
+    }
     auto* dialog = it->second;
-    if (!dialog || !dialog->isVisible()) return;
+    if (!dialog) {
+        ORC_LOG_DEBUG("updateVectorscope: dialog pointer null for node '{}'", result.node_id.to_string());
+        return;
+    }
+    if (!dialog->isVisible()) {
+        ORC_LOG_DEBUG("updateVectorscope: dialog hidden for node '{}' — skipping", result.node_id.to_string());
+        return;
+    }
     
     // Update vectorscope if data is available
     if (result.vectorscope_data) {
+        const size_t sample_count = result.vectorscope_data->samples.size();
+        ORC_LOG_DEBUG("updateVectorscope: delivering {} samples to dialog for node '{}' (output_type={}, index={})",
+                      sample_count, result.node_id.to_string(), static_cast<int>(result.output_type), result.output_index);
         dialog->updateVectorscope(*result.vectorscope_data);
+    } else {
+        ORC_LOG_DEBUG("updateVectorscope: no vectorscope data for node '{}' (output_type={}, index={})",
+                      result.node_id.to_string(), static_cast<int>(result.output_type), result.output_index);
     }
 }
 

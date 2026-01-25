@@ -174,7 +174,22 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         // Get the output from our target node
         auto it = node_outputs.find(node_id);
         if (it == node_outputs.end() || it->second.empty()) {
-            ORC_LOG_ERROR("Node '{}': Produced no output", node_id);
+            // Check if this is a sink stage - sinks don't produce outputs, this is expected
+            bool is_sink = false;
+            const auto& dag_nodes = dag_->nodes();
+            auto dag_node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
+                [&node_id](const auto& n) { return n.node_id == node_id; });
+            
+            if (dag_node_it != dag_nodes.end() && dag_node_it->stage) {
+                auto node_type = dag_node_it->stage->get_node_type_info().type;
+                is_sink = (node_type == NodeType::SINK || node_type == NodeType::ANALYSIS_SINK);
+            }
+            
+            if (is_sink) {
+                ORC_LOG_DEBUG("Node '{}': Sink stage produced no output (expected)", node_id);
+            } else {
+                ORC_LOG_ERROR("Node '{}': Produced no output", node_id);
+            }
             result.is_valid = false;
             result.error_message = fmt::format("Node '{}' produced no output", node_id);
             return result;

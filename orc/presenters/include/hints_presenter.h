@@ -113,9 +113,9 @@ class HintsPresenter {
 public:
     /**
      * @brief Construct presenter for a project
-     * @param dag_provider Callback that returns the current DAG (may be null)
+     * @param dag_provider Callback that returns opaque DAG handle
      */
-    explicit HintsPresenter(std::function<std::shared_ptr<const orc::DAG>()> dag_provider);
+    explicit HintsPresenter(std::function<std::shared_ptr<void>()> dag_provider);
     
     /**
      * @brief Destructor

@@ -12,6 +12,12 @@
 #include "render_presenter.h"
 #include <common_types.h>  // For analysis result types
 
+// Forward declarations for core types used via opaque pointers
+namespace orc {
+    class DAG;
+    class Project;
+}
+
 // Phase 2.4: Analysis sink stage headers removed - now using RenderPresenter abstraction
 // Removed: #include "dropout_analysis_sink_stage.h"
 // Removed: #include "snr_analysis_sink_stage.h"
@@ -82,13 +88,13 @@ void RenderCoordinator::enqueueRequest(std::unique_ptr<RenderRequest> request)
     queue_cv_.notify_one();
 }
 
-void RenderCoordinator::updateDAG(std::shared_ptr<const orc::DAG> dag)
+void RenderCoordinator::updateDAG(std::shared_ptr<const void> dag)
 {
     auto req = std::make_unique<UpdateDAGRequest>(nextRequestId(), std::move(dag));
     enqueueRequest(std::move(req));
 }
 
-void RenderCoordinator::setProject(orc::Project* project)
+void RenderCoordinator::setProject(void* project)
 {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     worker_project_ = project;
@@ -386,11 +392,12 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         }
         
         if (!worker_render_presenter_) {
-            worker_render_presenter_ = std::make_unique<orc::presenters::RenderPresenter>(worker_project_);
+            worker_render_presenter_ = std::make_unique<orc::presenters::RenderPresenter>(
+                static_cast<orc::Project*>(worker_project_));
         }
         
-        // Set the new DAG
-        worker_render_presenter_->setDAG(worker_dag_);
+        // Set the new DAG (cast away const since setDAG signature uses non-const void*)
+        worker_render_presenter_->setDAG(std::const_pointer_cast<void>(worker_dag_));
         
         // Restore show_dropouts state
         worker_render_presenter_->setShowDropouts(show_dropouts);

@@ -22,7 +22,7 @@ namespace orc::presenters {
  */
 class DiscMapperPresenter : public AnalysisToolPresenter {
 public:
-    explicit DiscMapperPresenter(orc::Project* project);
+    explicit DiscMapperPresenter(void* project_handle);
 
     orc::public_api::AnalysisResult runAnalysis(
         NodeID node_id,

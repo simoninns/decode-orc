@@ -39,9 +39,9 @@ class SourceAlignmentPresenter : public AnalysisToolPresenter {
 public:
     /**
      * @brief Construct a Source Alignment presenter
-     * @param project The project to operate on (not owned)
+     * @param project_handle Opaque handle to project
      */
-    explicit SourceAlignmentPresenter(orc::Project* project);
+    explicit SourceAlignmentPresenter(void* project_handle);
     
     /**
      * @brief Run source alignment analysis

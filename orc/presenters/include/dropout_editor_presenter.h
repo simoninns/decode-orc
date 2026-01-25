@@ -32,9 +32,9 @@ class DropoutEditorPresenter : public AnalysisToolPresenter {
 public:
     /**
      * @brief Construct a Dropout Editor presenter
-     * @param project The project to operate on (not owned)
+     * @param project_handle Opaque handle to project
      */
-    explicit DropoutEditorPresenter(orc::Project* project);
+    explicit DropoutEditorPresenter(void* project_handle);
     
     /**
      * @brief Run dropout editor analysis

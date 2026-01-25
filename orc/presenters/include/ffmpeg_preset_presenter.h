@@ -46,9 +46,9 @@ class FFmpegPresetPresenter : public AnalysisToolPresenter {
 public:
     /**
      * @brief Construct an FFmpeg Preset presenter
-     * @param project The project to operate on (not owned)
+     * @param project_handle Opaque handle to project
      */
-    explicit FFmpegPresetPresenter(orc::Project* project);
+    explicit FFmpegPresetPresenter(void* project_handle);
     
     /**
      * @brief Run FFmpeg preset configuration

@@ -54,9 +54,8 @@ public:
 // Constructor/Destructor
 // =============================================================================
 
-AnalysisToolPresenter::AnalysisToolPresenter(orc::Project* project)
-    : impl_(std::make_unique<Impl>(project))
-    , project_(project)
+AnalysisToolPresenter::AnalysisToolPresenter(void* project_handle)
+    : impl_(std::make_unique<Impl>(static_cast<orc::Project*>(project_handle)))
 {
 }
 
@@ -69,30 +68,30 @@ AnalysisToolPresenter& AnalysisToolPresenter::operator=(AnalysisToolPresenter&&)
 // DAG Management
 // =============================================================================
 
-std::shared_ptr<orc::DAG> AnalysisToolPresenter::getOrBuildDAG() {
-    if (!cached_dag_) {
+std::shared_ptr<void> AnalysisToolPresenter::getOrBuildDAG() {
+    if (!impl_->cached_dag_) {
         ORC_LOG_DEBUG("AnalysisToolPresenter: Building DAG from project");
-        cached_dag_ = buildDAGFromProject(project_);
+        impl_->cached_dag_ = buildDAGFromProject(impl_->project_);
     }
-    return cached_dag_;
+    return impl_->cached_dag_;
 }
 
 void AnalysisToolPresenter::invalidateDAG() {
     ORC_LOG_DEBUG("AnalysisToolPresenter: Invalidating cached DAG");
-    cached_dag_.reset();
+    impl_->cached_dag_.reset();
 }
 
-const std::vector<orc::DAGNode>& AnalysisToolPresenter::getProjectNodes() const {
-    auto dag = const_cast<AnalysisToolPresenter*>(this)->getOrBuildDAG();
+// =============================================================================
+// Node Query Utilities (internal helpers using concrete DAG)
+// =============================================================================
+
+static const std::vector<orc::DAGNode>& getProjectNodesInternal(const std::shared_ptr<orc::DAG>& dag) {
     return dag->nodes();
 }
 
-// =============================================================================
-// Node Query Utilities
-// =============================================================================
-
 bool AnalysisToolPresenter::hasNodeInput(orc::NodeID node_id) const {
-    const auto& nodes = getProjectNodes();
+    auto dag = std::static_pointer_cast<orc::DAG>(const_cast<AnalysisToolPresenter*>(this)->getOrBuildDAG());
+    const auto& nodes = getProjectNodesInternal(dag);
     auto it = std::find_if(nodes.begin(), nodes.end(),
         [node_id](const orc::DAGNode& node) { return node.node_id == node_id; });
     
@@ -100,7 +99,8 @@ bool AnalysisToolPresenter::hasNodeInput(orc::NodeID node_id) const {
 }
 
 orc::NodeID AnalysisToolPresenter::getFirstInputNodeId(orc::NodeID node_id) const {
-    const auto& nodes = getProjectNodes();
+    auto dag = std::static_pointer_cast<orc::DAG>(const_cast<AnalysisToolPresenter*>(this)->getOrBuildDAG());
+    const auto& nodes = getProjectNodesInternal(dag);
     auto it = std::find_if(nodes.begin(), nodes.end(),
         [node_id](const orc::DAGNode& node) { return node.node_id == node_id; });
     
@@ -115,8 +115,9 @@ orc::NodeID AnalysisToolPresenter::getFirstInputNodeId(orc::NodeID node_id) cons
 // DAG Execution
 // =============================================================================
 
-std::vector<std::shared_ptr<const orc::Artifact>> AnalysisToolPresenter::executeToNode(orc::NodeID node_id) {
-    auto dag = getOrBuildDAG();
+std::vector<std::shared_ptr<void>> AnalysisToolPresenter::executeToNode(orc::NodeID node_id) {
+    auto dag_void = getOrBuildDAG();
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     if (!dag) {
         throw std::runtime_error("AnalysisToolPresenter: Cannot execute - DAG not available");
     }
@@ -131,11 +132,11 @@ std::vector<std::shared_ptr<const orc::Artifact>> AnalysisToolPresenter::execute
         if (output_it != all_outputs.end()) {
             ORC_LOG_DEBUG("AnalysisToolPresenter: Node {} produced {} artifacts",
                          node_id.value(), output_it->second.size());
-            // Convert from vector<shared_ptr<Artifact>> to vector<shared_ptr<const Artifact>>
-            std::vector<std::shared_ptr<const orc::Artifact>> result;
+            // Convert concrete artifacts to opaque void* handles
+            std::vector<std::shared_ptr<void>> result;
             result.reserve(output_it->second.size());
             for (const auto& artifact : output_it->second) {
-                result.push_back(artifact);
+                result.push_back(std::static_pointer_cast<void>(std::const_pointer_cast<orc::Artifact>(artifact)));
             }
             return result;
         }
@@ -157,6 +158,10 @@ void AnalysisToolPresenter::reportProgress(int percentage, const std::string& st
     if (impl_->progress_callback_) {
         impl_->progress_callback_(percentage, status);
     }
+}
+
+void* AnalysisToolPresenter::getProjectPointer() const {
+    return impl_->project_;
 }
 
 // =============================================================================
@@ -206,11 +211,11 @@ bool AnalysisToolPresenter::applyResultToGraph(
     }
     
     try {
-        bool success = tool->applyToGraph(core_result, *project_, node_id);
+        bool success = tool->applyToGraph(core_result, *impl_->project_, node_id);
         if (success) {
             // Apply parameter changes to the project
             if (!core_result.parameterChanges.empty()) {
-                orc::project_io::set_node_parameters(*project_, node_id, core_result.parameterChanges);
+                orc::project_io::set_node_parameters(*impl_->project_, node_id, core_result.parameterChanges);
                 ORC_LOG_DEBUG("AnalysisToolPresenter: Applied {} parameter changes to node {}",
                             core_result.parameterChanges.size(), node_id.value());
             }

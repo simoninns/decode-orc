@@ -104,9 +104,10 @@ bool DropoutPresenter::importCorrections(NodeID node_id, const std::string& file
     return false;
 }
 
-std::vector<uint8_t> DropoutPresenter::getFieldData(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr,
+std::vector<uint8_t> DropoutPresenter::getFieldData(const std::shared_ptr<void>& field_repr_handle,
                                                      FieldID field_id, int& width, int& height)
 {
+    auto field_repr = std::static_pointer_cast<const orc::VideoFieldRepresentation>(field_repr_handle);
     width = 0;
     height = 0;
     
@@ -143,9 +144,10 @@ std::vector<uint8_t> DropoutPresenter::getFieldData(const std::shared_ptr<const 
     }
 }
 
-std::vector<DropoutRegion> DropoutPresenter::getSourceDropouts(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr,
+std::vector<DropoutRegion> DropoutPresenter::getSourceDropouts(const std::shared_ptr<void>& field_repr_handle,
                                                                 FieldID field_id)
 {
+    auto field_repr = std::static_pointer_cast<const orc::VideoFieldRepresentation>(field_repr_handle);
     if (!field_repr) {
         return {};
     }
@@ -241,8 +243,9 @@ bool DropoutPresenter::setDropoutMap(NodeID node_id, const std::map<uint64_t, Fi
     }
 }
 
-size_t DropoutPresenter::getFieldCount(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr)
+size_t DropoutPresenter::getFieldCount(const std::shared_ptr<void>& field_repr_handle)
 {
+    auto field_repr = std::static_pointer_cast<const orc::VideoFieldRepresentation>(field_repr_handle);
     if (!field_repr) {
         return 0;
     }

@@ -18,13 +18,13 @@ namespace orc::presenters {
 
 class VbiPresenter::Impl {
 public:
-    explicit Impl(std::function<std::shared_ptr<const orc::DAG>()> dag_provider)
+    explicit Impl(std::function<std::shared_ptr<void>()> dag_provider)
         : dag_provider_(std::move(dag_provider)) {}
 
-    std::function<std::shared_ptr<const orc::DAG>()> dag_provider_;
+    std::function<std::shared_ptr<void>()> dag_provider_;
 };
 
-VbiPresenter::VbiPresenter(std::function<std::shared_ptr<const orc::DAG>()> dag_provider)
+VbiPresenter::VbiPresenter(std::function<std::shared_ptr<void>()> dag_provider)
     : impl_(std::make_unique<Impl>(std::move(dag_provider))) {}
 
 VbiPresenter::~VbiPresenter() = default;
@@ -100,8 +100,9 @@ namespace {
 
 std::optional<VBIFieldInfoView> VbiPresenter::getVbiForField(NodeID node_id, FieldID field_id) const
 {
-    auto dag = impl_->dag_provider_ ? impl_->dag_provider_() : nullptr;
-    if (!dag) return std::nullopt;
+    auto dag_void = impl_->dag_provider_ ? impl_->dag_provider_() : nullptr;
+    if (!dag_void) return std::nullopt;
+    auto dag = std::static_pointer_cast<const orc::DAG>(dag_void);
 
     try {
         DAGFieldRenderer renderer(dag);

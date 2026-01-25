@@ -143,9 +143,9 @@ class AnalysisPresenter {
 public:
     /**
      * @brief Construct presenter for a project
-     * @param project Project to analyze
+     * @param project_handle Opaque handle to project
      */
-    explicit AnalysisPresenter(orc::Project* project);
+    explicit AnalysisPresenter(void* project_handle);
     
     /**
      * @brief Destructor

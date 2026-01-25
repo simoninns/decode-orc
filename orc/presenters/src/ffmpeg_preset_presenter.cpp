@@ -18,8 +18,8 @@
 
 namespace orc::presenters {
 
-FFmpegPresetPresenter::FFmpegPresetPresenter(orc::Project* project)
-    : AnalysisToolPresenter(project) {
+FFmpegPresetPresenter::FFmpegPresetPresenter(void* project_handle)
+    : AnalysisToolPresenter(project_handle) {
 }
 
 std::string FFmpegPresetPresenter::toolId() const {
@@ -31,11 +31,12 @@ std::string FFmpegPresetPresenter::toolName() const {
 }
 
 bool FFmpegPresetPresenter::validateNode(NodeID node_id, std::string& error_message) {
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         error_message = "Failed to build DAG from project";
         return false;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     
     const auto& dag_nodes = dag->nodes();
     auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
@@ -76,12 +77,13 @@ orc::public_api::AnalysisResult FFmpegPresetPresenter::runAnalysis(
     }
     
     // Build DAG for validation only (tool doesn't need to execute anything)
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         result.summary = "Failed to build DAG from project";
         ORC_LOG_ERROR("{}", result.summary);
         return result;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     
     // Validate node
     std::string error_message;

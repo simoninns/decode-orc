@@ -19,8 +19,8 @@
 
 namespace orc::presenters {
 
-SourceAlignmentPresenter::SourceAlignmentPresenter(orc::Project* project)
-    : AnalysisToolPresenter(project) {
+SourceAlignmentPresenter::SourceAlignmentPresenter(void* project_handle)
+    : AnalysisToolPresenter(project_handle) {
 }
 
 std::string SourceAlignmentPresenter::toolId() const {
@@ -32,11 +32,12 @@ std::string SourceAlignmentPresenter::toolName() const {
 }
 
 bool SourceAlignmentPresenter::validateNode(NodeID node_id, std::string& error_message) {
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         error_message = "Failed to build DAG from project";
         return false;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     
     const auto& dag_nodes = dag->nodes();
     auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
@@ -84,12 +85,13 @@ orc::public_api::AnalysisResult SourceAlignmentPresenter::runAnalysis(
     }
     
     // Build DAG
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         result.summary = "Failed to build DAG from project";
         ORC_LOG_ERROR("{}", result.summary);
         return result;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     
     // Validate node
     std::string error_message;
@@ -113,8 +115,9 @@ orc::public_api::AnalysisResult SourceAlignmentPresenter::runAnalysis(
     ctx.node_id = node_id;
     ctx.parameters = parameters;
     ctx.dag = dag;
-    // Create non-owning shared_ptr to project (we don't own it, so use empty deleter)
-    ctx.project = std::shared_ptr<orc::Project>(getProject(), [](orc::Project*) {});
+    // Create snapshot of project for analysis context
+    // Create snapshot of project for analysis context (cast opaque handle)
+    ctx.project = std::make_shared<orc::Project>(*static_cast<orc::Project*>(getProjectPointer()));
     
     // Create progress adapter to convert AnalysisProgress to our callback
     class ProgressAdapter : public orc::AnalysisProgress {

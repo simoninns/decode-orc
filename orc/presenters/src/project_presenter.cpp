@@ -90,8 +90,9 @@ ProjectPresenter::ProjectPresenter()
     ORC_LOG_DEBUG("ProjectPresenter default constructor: project = {}", static_cast<void*>(project_.get()));
 }
 
-ProjectPresenter::ProjectPresenter(orc::Project& project)
+ProjectPresenter::ProjectPresenter(void* project_handle)
     : project_(nullptr)  // Don't own the project
+    , external_project_(static_cast<orc::Project*>(project_handle))
     , project_path_()
     , is_modified_(false)
     , dag_(nullptr)
@@ -123,6 +124,8 @@ ProjectPresenter& ProjectPresenter::operator=(ProjectPresenter&& other) noexcept
 {
     if (this != &other) {
         project_ = std::move(other.project_);
+        external_project_ = other.external_project_;
+        other.external_project_ = nullptr;
         project_path_ = std::move(other.project_path_);
         is_modified_ = other.is_modified_;
         dag_ = std::move(other.dag_);
@@ -147,12 +150,12 @@ bool ProjectPresenter::createQuickProject(VideoFormat format, SourceType source,
     std::vector<NodeID> source_nodes;
     
     for (const auto& file : input_files) {
-        orc::NodeID source_id = orc::project_io::add_node(*project_.get(), "tbc-source", 0.0, y_offset);
+        orc::NodeID source_id = orc::project_io::add_node(*getProject(), "tbc-source", 0.0, y_offset);
         
         // Set the TBC path parameter
         std::map<std::string, orc::ParameterValue> params;
         params["tbc_path"] = file;
-        orc::project_io::set_node_parameters(*project_.get(), source_id, params);
+        orc::project_io::set_node_parameters(*getProject(), source_id, params);
         
         source_nodes.push_back(source_id);
         y_offset += 100.0;
@@ -162,15 +165,15 @@ bool ProjectPresenter::createQuickProject(VideoFormat format, SourceType source,
     orc::NodeID decoder_id;
     if (format == VideoFormat::NTSC) {
         if (source == SourceType::Composite) {
-            decoder_id = orc::project_io::add_node(*project_.get(), "ntsc-comb-decode", 200.0, 50.0);
+            decoder_id = orc::project_io::add_node(*getProject(), "ntsc-comb-decode", 200.0, 50.0);
         } else {
-            decoder_id = orc::project_io::add_node(*project_.get(), "ntsc-yc-decode", 200.0, 50.0);
+            decoder_id = orc::project_io::add_node(*getProject(), "ntsc-yc-decode", 200.0, 50.0);
         }
     } else if (format == VideoFormat::PAL) {
         if (source == SourceType::Composite) {
-            decoder_id = orc::project_io::add_node(*project_.get(), "pal-transform-2d", 200.0, 50.0);
+            decoder_id = orc::project_io::add_node(*getProject(), "pal-transform-2d", 200.0, 50.0);
         } else {
-            decoder_id = orc::project_io::add_node(*project_.get(), "pal-yc-decode", 200.0, 50.0);
+            decoder_id = orc::project_io::add_node(*getProject(), "pal-yc-decode", 200.0, 50.0);
         }
     } else {
         return false;
@@ -178,12 +181,12 @@ bool ProjectPresenter::createQuickProject(VideoFormat format, SourceType source,
     
     // Connect first source to decoder
     if (!source_nodes.empty()) {
-        orc::project_io::add_edge(*project_.get(), source_nodes[0], decoder_id);
+        orc::project_io::add_edge(*getProject(), source_nodes[0], decoder_id);
     }
     
     // Add a preview sink
-    orc::NodeID preview_id = orc::project_io::add_node(*project_.get(), "preview-sink", 400.0, 50.0);
-    orc::project_io::add_edge(*project_.get(), decoder_id, preview_id);
+    orc::NodeID preview_id = orc::project_io::add_node(*getProject(), "preview-sink", 400.0, 50.0);
+    orc::project_io::add_edge(*getProject(), decoder_id, preview_id);
     
     is_modified_ = true;
     return true;
@@ -204,7 +207,7 @@ bool ProjectPresenter::loadProject(const std::string& project_path)
 bool ProjectPresenter::saveProject(const std::string& project_path)
 {
     try {
-        orc::project_io::save_project(*project_.get(), project_path);
+        orc::project_io::save_project(*getProject(), project_path);
         project_path_ = project_path;
         is_modified_ = false;
         return true;
@@ -215,7 +218,7 @@ bool ProjectPresenter::saveProject(const std::string& project_path)
 
 void ProjectPresenter::clearProject()
 {
-    orc::project_io::clear_project(*project_);
+    orc::project_io::clear_project(*getProject());
     is_modified_ = true;
 }
 
@@ -236,7 +239,7 @@ std::string ProjectPresenter::getProjectName() const
 
 void ProjectPresenter::setProjectName(const std::string& name)
 {
-    orc::project_io::set_project_name(*project_.get(), name);
+    orc::project_io::set_project_name(*getProject(), name);
     is_modified_ = true;
 }
 
@@ -247,7 +250,7 @@ std::string ProjectPresenter::getProjectDescription() const
 
 void ProjectPresenter::setProjectDescription(const std::string& description)
 {
-    orc::project_io::set_project_description(*project_.get(), description);
+    orc::project_io::set_project_description(*getProject(), description);
     is_modified_ = true;
 }
 
@@ -258,7 +261,7 @@ VideoFormat ProjectPresenter::getVideoFormat() const
 
 void ProjectPresenter::setVideoFormat(VideoFormat format)
 {
-    orc::project_io::set_video_format(*project_.get(), toVideoSystem(format));
+    orc::project_io::set_video_format(*getProject(), toVideoSystem(format));
     is_modified_ = true;
 }
 
@@ -269,21 +272,23 @@ SourceType ProjectPresenter::getSourceType() const
 
 void ProjectPresenter::setSourceType(SourceType source)
 {
-    orc::project_io::set_source_format(*project_.get(), toSourceType(source));
+    orc::project_io::set_source_format(*getProject(), toSourceType(source));
     is_modified_ = true;
 }
 
-std::shared_ptr<const orc::Project> ProjectPresenter::createSnapshot() const
+std::shared_ptr<const void> ProjectPresenter::createSnapshot() const
 {
     if (!project_) {
         return nullptr;
     }
-    return std::make_shared<orc::Project>(*project_);
+    return std::static_pointer_cast<const void>(
+        std::make_shared<orc::Project>(*getProject())
+    );
 }
 
 orc::NodeID ProjectPresenter::addNode(const std::string& stage_name, double x_position, double y_position)
 {
-    orc::NodeID id = orc::project_io::add_node(*project_.get(), stage_name, x_position, y_position);
+    orc::NodeID id = orc::project_io::add_node(*getProject(), stage_name, x_position, y_position);
     is_modified_ = true;
     return id;
 }
@@ -295,25 +300,25 @@ bool ProjectPresenter::removeNode(orc::NodeID node_id)
         return false;
     }
     
-    orc::project_io::remove_node(*project_.get(), node_id);
+    orc::project_io::remove_node(*getProject(), node_id);
     is_modified_ = true;
     return true;
 }
 
 bool ProjectPresenter::canRemoveNode(orc::NodeID node_id, std::string* reason) const
 {
-    return orc::project_io::can_remove_node(*project_.get(), node_id, reason);
+    return orc::project_io::can_remove_node(*getProject(), node_id, reason);
 }
 
 void ProjectPresenter::setNodePosition(orc::NodeID node_id, double x, double y)
 {
-    orc::project_io::set_node_position(*project_.get(), node_id, x, y);
+    orc::project_io::set_node_position(*getProject(), node_id, x, y);
     is_modified_ = true;
 }
 
 void ProjectPresenter::setNodeLabel(orc::NodeID node_id, const std::string& label)
 {
-    orc::project_io::set_node_label(*project_.get(), node_id, label);
+    orc::project_io::set_node_label(*getProject(), node_id, label);
     is_modified_ = true;
 }
 
@@ -323,19 +328,19 @@ void ProjectPresenter::setNodeParameters(orc::NodeID node_id, const std::map<std
     for (const auto& [key, value] : parameters) {
         param_values[key] = value;
     }
-    orc::project_io::set_node_parameters(*project_.get(), node_id, param_values);
+    orc::project_io::set_node_parameters(*getProject(), node_id, param_values);
     is_modified_ = true;
 }
 
 void ProjectPresenter::addEdge(orc::NodeID source_node, orc::NodeID target_node)
 {
-    orc::project_io::add_edge(*project_.get(), source_node, target_node);
+    orc::project_io::add_edge(*getProject(), source_node, target_node);
     is_modified_ = true;
 }
 
 void ProjectPresenter::removeEdge(orc::NodeID source_node, orc::NodeID target_node)
 {
-    orc::project_io::remove_edge(*project_.get(), source_node, target_node);
+    orc::project_io::remove_edge(*getProject(), source_node, target_node);
     is_modified_ = true;
 }
 
@@ -413,7 +418,7 @@ NodeInfo ProjectPresenter::getNodeInfo(orc::NodeID node_id) const
 {
     for (const auto& node : project_.get()->get_nodes()) {
         if (node.node_id == node_id) {
-            orc::NodeCapabilities caps = orc::project_io::get_node_capabilities(*project_.get(), node_id);
+            orc::NodeCapabilities caps = orc::project_io::get_node_capabilities(*getProject(), node_id);
             
             NodeInfo info;
             info.node_id = node.node_id;
@@ -500,7 +505,7 @@ std::shared_ptr<void> ProjectPresenter::getStageForInspection(NodeID node_id) co
     if (!project_.get()) return nullptr;
     
     // Try to get from DAG first (preserves execution state)
-    auto dag = orc::project_to_dag(*project_.get());
+    auto dag = orc::project_to_dag(*getProject());
     if (dag) {
         const auto& dag_nodes = dag->nodes();
         auto it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
@@ -530,7 +535,7 @@ std::shared_ptr<void> ProjectPresenter::createStageInstance(const std::string& s
 
 bool ProjectPresenter::canTriggerNode(orc::NodeID node_id, std::string* reason) const
 {
-    return orc::project_io::can_trigger_node(*project_.get(), node_id, reason);
+    return orc::project_io::can_trigger_node(*getProject(), node_id, reason);
 }
 
 bool ProjectPresenter::triggerNode(orc::NodeID node_id, ProgressCallback progress_callback)
@@ -544,7 +549,7 @@ bool ProjectPresenter::triggerNode(orc::NodeID node_id, ProgressCallback progres
         };
     }
     
-    bool success = orc::project_io::trigger_node(*project_.get(), node_id, status, core_callback);
+    bool success = orc::project_io::trigger_node(*getProject(), node_id, status, core_callback);
     
     if (success) {
         is_modified_ = true;
@@ -736,7 +741,7 @@ std::shared_ptr<void> ProjectPresenter::getDAG() const
     }
     
     // Otherwise build new DAG
-    return std::static_pointer_cast<void>(orc::project_to_dag(*project_.get()));
+    return std::static_pointer_cast<void>(orc::project_to_dag(*getProject()));
 }
 
 std::shared_ptr<void> ProjectPresenter::buildDAG()
@@ -745,7 +750,7 @@ std::shared_ptr<void> ProjectPresenter::buildDAG()
     
     try {
         // Build and cache the DAG
-        dag_ = std::static_pointer_cast<void>(orc::project_to_dag(*project_.get()));
+        dag_ = std::static_pointer_cast<void>(orc::project_to_dag(*getProject()));
         return dag_;
     } catch (const std::exception&) {
         dag_.reset();
@@ -759,7 +764,7 @@ bool ProjectPresenter::validateDAG()
     
     try {
         // Try to build the DAG - if successful, it's valid
-        auto test_dag = orc::project_to_dag(*project_.get());
+        auto test_dag = orc::project_to_dag(*getProject());
         return test_dag != nullptr;
     } catch (const std::exception&) {
         return false;
@@ -811,7 +816,7 @@ bool ProjectPresenter::setNodeParameters(NodeID node_id, const std::map<std::str
     if (!project_.get()) return false;
     
     try {
-        orc::project_io::set_node_parameters(*project_.get(), node_id, params);
+        orc::project_io::set_node_parameters(*getProject(), node_id, params);
         is_modified_ = true;
         
         // Invalidate cached DAG since parameters changed

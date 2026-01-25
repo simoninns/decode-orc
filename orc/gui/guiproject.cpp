@@ -150,14 +150,14 @@ QString GUIProject::getSourceName() const
     return QString();
 }
 
-std::shared_ptr<orc::DAG> GUIProject::getDAG() const
+std::shared_ptr<void> GUIProject::getDAG() const
 {
     if (!presenter_) return nullptr;
     
     // Get DAG from presenter and cache it
     auto dag_handle = presenter_->getDAG();
     if (dag_handle) {
-        dag_cache_ = std::static_pointer_cast<orc::DAG>(dag_handle);
+        dag_cache_ = dag_handle;
     }
     return dag_cache_;
 }
@@ -178,7 +178,7 @@ void GUIProject::rebuildDAG()
         auto dag_handle = presenter_->buildDAG();
         
         if (dag_handle) {
-            dag_cache_ = std::static_pointer_cast<orc::DAG>(dag_handle);
+            dag_cache_ = dag_handle;
             ORC_LOG_DEBUG("DAG built successfully from project");
         } else {
             ORC_LOG_ERROR("Failed to build DAG from project");

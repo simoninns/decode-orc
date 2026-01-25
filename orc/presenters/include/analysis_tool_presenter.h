@@ -52,8 +52,8 @@ namespace orc::presenters {
  * ```cpp
  * class FieldCorruptionPresenter : public AnalysisToolPresenter {
  * public:
- *     explicit FieldCorruptionPresenter(orc::Project* project)
- *         : AnalysisToolPresenter(project) {}
+ *     explicit FieldCorruptionPresenter(void* project_handle)
+ *         : AnalysisToolPresenter(project_handle) {}
  *     
  *     orc::public_api::AnalysisResult runAnalysis(
  *         NodeID node_id,
@@ -83,10 +83,10 @@ public:
 protected:
     /**
      * @brief Construct base presenter
-     * @param project Project to analyze (not owned)
-     * @throws std::invalid_argument if project is null
+     * @param project_handle Opaque handle to project
+     * @throws std::invalid_argument if project_handle is null
      */
-    explicit AnalysisToolPresenter(orc::Project* project);
+    explicit AnalysisToolPresenter(void* project_handle);
 
     /**
      * @brief Virtual destructor
@@ -123,19 +123,13 @@ protected:
 
     /**
      * @brief Build or retrieve cached DAG from project
-     * @return Shared pointer to DAG
+     * @return Opaque handle to DAG
      * @throws std::runtime_error if DAG cannot be built
      * 
      * The DAG is cached on first call. Subsequent calls return the cached DAG.
      * Call invalidateDAG() if the project structure changes.
      */
-    std::shared_ptr<orc::DAG> getOrBuildDAG();
-
-    /**
-     * @brief Get the project nodes
-     * @return Reference to project DAG nodes
-     */
-    const std::vector<orc::DAGNode>& getProjectNodes() const;
+    std::shared_ptr<void> getOrBuildDAG();
 
     /**
      * @brief Check if a node has at least one input connection
@@ -154,14 +148,14 @@ protected:
     /**
      * @brief Execute DAG up to specified node and get its output artifacts
      * @param node_id Node to execute to
-     * @return Vector of output artifacts from that node
+     * @return Vector of opaque handles to output artifacts
      * @throws std::runtime_error if execution fails
      * 
      * This executes the DAG incrementally up to the specified node,
      * caching intermediate results. Subsequent calls with the same or
      * later nodes will reuse cached data.
      */
-    std::vector<std::shared_ptr<const orc::Artifact>> executeToNode(orc::NodeID node_id);
+    std::vector<std::shared_ptr<void>> executeToNode(orc::NodeID node_id);
 
     /**
      * @brief Invalidate cached DAG
@@ -178,19 +172,19 @@ protected:
      */
     void reportProgress(int percentage, const std::string& status);
 
+protected:
     /**
-     * @brief Get the project pointer
-     * @return Project pointer (not owned)
+     * @brief Get project pointer for derived classes
+     * @return Opaque handle to project (cast to Project* in derived .cpp files)
+     * 
+     * This allows derived analysis tool presenters to access the project
+     * when building analysis contexts.
      */
-    orc::Project* getProject() const { return project_; }
+    void* getProjectPointer() const;
 
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;
-    
-    orc::Project* project_;  // Not owned
-    std::shared_ptr<orc::DAG> cached_dag_;
-    ProgressCallback progress_callback_;
 };
 
 } // namespace orc::presenters

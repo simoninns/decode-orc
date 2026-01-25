@@ -14,11 +14,6 @@
 #include <memory>
 #include "presenters/include/project_presenter.h"
 
-namespace orc {
-    class Project;  // Forward declaration for legacy methods
-    class DAG;      // Forward declaration for legacy methods
-}
-
 /**
  * @brief GUI wrapper around ProjectPresenter
  * 
@@ -91,7 +86,7 @@ public:
      * @brief Get the current DAG
      * @deprecated Use presenter()->buildDAG() instead
      */
-    std::shared_ptr<orc::DAG> getDAG() const;
+    std::shared_ptr<void> getDAG() const;
     
     /**
      * @brief Rebuild DAG from current project structure
@@ -106,7 +101,7 @@ public:
 private:
     QString project_path_;                                           // Path to .orcprj file
     std::unique_ptr<orc::presenters::ProjectPresenter> presenter_;   // Presenter managing core project
-    mutable std::shared_ptr<orc::DAG> dag_cache_;                    // Cached DAG for getDAG()
+    mutable std::shared_ptr<void> dag_cache_;                        // Cached DAG for getDAG() (opaque handle)
 };
 
 #endif // ORC_GUI_PROJECT_H

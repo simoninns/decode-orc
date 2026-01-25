@@ -16,6 +16,11 @@
 #include <QMessageBox>
 #include <algorithm>
 
+// Forward declaration for core type used via opaque pointer
+namespace orc {
+    class VideoFieldRepresentation;
+}
+
 // ============================================================================
 // DropoutFieldView Implementation
 // ============================================================================
@@ -496,7 +501,7 @@ void DropoutFieldView::removeRegionAtPoint(int x, int y)
 DropoutEditorDialog::DropoutEditorDialog(
     orc::NodeID node_id,
     orc::presenters::DropoutPresenter* presenter,
-    std::shared_ptr<const orc::VideoFieldRepresentation> field_repr,
+    std::shared_ptr<const void> field_repr,
     QWidget *parent)
     : QDialog(parent)
     , node_id_(node_id)
@@ -516,7 +521,8 @@ DropoutEditorDialog::DropoutEditorDialog(
     dropout_map_ = presenter_->getDropoutMap(node_id_);
     
     if (field_repr_) {
-        total_fields_ = presenter_->getFieldCount(field_repr_);
+        auto field_repr_non_const = std::const_pointer_cast<void>(field_repr_);
+        total_fields_ = presenter_->getFieldCount(field_repr_non_const);
     }
 
     setupUI();
@@ -705,15 +711,16 @@ void DropoutEditorDialog::loadField(uint64_t field_id)
     orc::FieldID fid(field_id);
     
     int width = 0, height = 0;
-    std::vector<uint8_t> field_data = presenter_->getFieldData(field_repr_, fid, width, height);
+    auto field_repr_non_const = std::const_pointer_cast<void>(field_repr_);
+    std::vector<uint8_t> field_data = presenter_->getFieldData(field_repr_non_const, fid, width, height);
     
     if (field_data.empty() || width == 0 || height == 0) {
         ORC_LOG_ERROR("Failed to get field data for field {}", field_id);
         return;
     }
 
-    // Get existing source dropouts from presenter
-    std::vector<orc::presenters::DropoutRegion> source_dropouts = presenter_->getSourceDropouts(field_repr_, fid);
+    // Get existing source dropouts from presenter (use non-const handle)
+    std::vector<orc::presenters::DropoutRegion> source_dropouts = presenter_->getSourceDropouts(field_repr_non_const, fid);
     
     // Load existing dropout map for this field
     std::vector<orc::presenters::DropoutRegion> additions;

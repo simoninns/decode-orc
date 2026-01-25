@@ -111,9 +111,9 @@ public:
     
     /**
      * @brief Construct presenter wrapping an existing project
-     * @param project Reference to existing Project (not owned)
+     * @param project_handle Opaque handle to existing project
      */
-    explicit ProjectPresenter(orc::Project& project);
+    explicit ProjectPresenter(void* project_handle);
     
     /**
      * @brief Construct presenter by loading existing project
@@ -219,6 +219,22 @@ public:
     void setVideoFormat(VideoFormat format);
     
     /**
+     * @brief Get source format
+     */
+    SourceType getSourceFormat() const;
+    
+    /**
+     * @brief Set source format
+     */
+    void setSourceFormat(SourceType source);
+    
+    /**
+     * @brief Create a snapshot copy of the project
+     * @return Shared pointer to immutable project copy (opaque handle)
+     */
+    std::shared_ptr<const void> createSnapshot() const;
+    
+    /**
      * @brief Get source type
      */
     SourceType getSourceType() const;
@@ -227,18 +243,6 @@ public:
      * @brief Set source type
      */
     void setSourceType(SourceType source);
-    
-    // === Project Snapshots ===
-    
-    /**
-     * @brief Create an immutable snapshot copy of the project
-     * @return Shared pointer to project copy (safe to cache)
-     * 
-     * @note Exposes core Project type for analysis tools that need
-     * to work with a stable copy without concurrent modifications.
-     * Analysis tools should migrate to use presenter-based access patterns.
-     */
-    std::shared_ptr<const orc::Project> createSnapshot() const;
     
     // === DAG Management ===
     
@@ -476,17 +480,28 @@ public:
      * The presenter retains ownership of the Project.
      */
     /**
-     * @brief Get pointer to underlying core project
-     * @return Pointer to core project
+     * @brief Get opaque handle to core project
+     * @return Opaque handle to project
      * 
      * @note This method provides direct Project access for components like
      * RenderPresenter that manage DAG lifecycle. The presenter retains ownership.
      * New GUI code should use presenter methods instead.
      */
-    orc::Project* getCoreProject() { return project_.get(); }
+    void* getCoreProjectHandle() { 
+        return external_project_ ? external_project_ : project_.get(); 
+    }
 
 private:
+    // Helper to get project pointer (owned or external)
+    orc::Project* getProject() { 
+        return external_project_ ? external_project_ : project_.get(); 
+    }
+    const orc::Project* getProject() const { 
+        return external_project_ ? external_project_ : project_.get(); 
+    }
+
     std::unique_ptr<orc::Project> project_;  ///< Owned project (if constructed without existing project)
+    orc::Project* external_project_ = nullptr;  ///< Non-owned external project (if constructed with existing project)
     std::string project_path_;
     bool is_modified_;
     mutable std::shared_ptr<void> dag_;      ///< Cached DAG instance

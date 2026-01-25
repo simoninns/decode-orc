@@ -6,6 +6,12 @@
 #include "presenters/include/mask_line_presenter.h"
 #include "presenters/include/ffmpeg_preset_presenter.h"
 #include "presenters/include/dropout_editor_presenter.h"
+
+// Forward declaration for core type used via opaque pointer
+namespace orc {
+    class Project;
+}
+
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -22,7 +28,7 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     const orc::public_api::AnalysisToolInfo& tool_info,
     orc::presenters::AnalysisPresenter* presenter,
     const orc::NodeID& node_id,
-    orc::Project* project,
+    void* project,
     QWidget* parent)
     : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
             presenter_(presenter), field_corruption_presenter_(nullptr),
@@ -33,17 +39,23 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     
         // Create specialized presenters when needed
         if (tool_id_ == "field_corruption") {
-        field_corruption_presenter_ = new orc::presenters::FieldCorruptionPresenter(project_);
+        field_corruption_presenter_ = new orc::presenters::FieldCorruptionPresenter(
+            static_cast<orc::Project*>(project_));
         } else if (tool_id_ == "field_mapping" || tool_id_ == "disc_mapper") {
-                disc_mapper_presenter_ = new orc::presenters::DiscMapperPresenter(project_);
+                disc_mapper_presenter_ = new orc::presenters::DiscMapperPresenter(
+            static_cast<orc::Project*>(project_));
     } else if (tool_id_ == "source_alignment") {
-        source_alignment_presenter_ = new orc::presenters::SourceAlignmentPresenter(project_);
+        source_alignment_presenter_ = new orc::presenters::SourceAlignmentPresenter(
+            static_cast<orc::Project*>(project_));
     } else if (tool_id_ == "mask_line_config") {
-        mask_line_presenter_ = new orc::presenters::MaskLinePresenter(project_);
+        mask_line_presenter_ = new orc::presenters::MaskLinePresenter(
+            static_cast<orc::Project*>(project_));
     } else if (tool_id_ == "ffmpeg_preset_config") {
-        ffmpeg_preset_presenter_ = new orc::presenters::FFmpegPresetPresenter(project_);
+        ffmpeg_preset_presenter_ = new orc::presenters::FFmpegPresetPresenter(
+            static_cast<orc::Project*>(project_));
     } else if (tool_id_ == "dropout_editor") {
-        dropout_editor_presenter_ = new orc::presenters::DropoutEditorPresenter(project_);
+        dropout_editor_presenter_ = new orc::presenters::DropoutEditorPresenter(
+            static_cast<orc::Project*>(project_));
     }
     
     setupUI();

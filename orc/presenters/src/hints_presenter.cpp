@@ -19,12 +19,12 @@ namespace orc::presenters {
 
 class HintsPresenter::Impl {
 public:
-    explicit Impl(std::function<std::shared_ptr<const orc::DAG>()> dag_provider)
+    explicit Impl(std::function<std::shared_ptr<void>()> dag_provider)
         : dag_provider_(std::move(dag_provider))
         , next_hint_id_(1)
     {}
     
-    std::function<std::shared_ptr<const orc::DAG>()> dag_provider_;
+    std::function<std::shared_ptr<void>()> dag_provider_;
     int next_hint_id_;
 
     // In-memory hint store keyed by ID and node
@@ -32,7 +32,7 @@ public:
     std::unordered_map<NodeID, std::vector<int>> node_to_hint_ids_;
 };
 
-HintsPresenter::HintsPresenter(std::function<std::shared_ptr<const orc::DAG>()> dag_provider)
+HintsPresenter::HintsPresenter(std::function<std::shared_ptr<void>()> dag_provider)
     : impl_(std::make_unique<Impl>(std::move(dag_provider)))
 {
 }
@@ -240,10 +240,11 @@ HintsPresenter::FieldHintsView HintsPresenter::getHintsForField(NodeID node_id, 
 {
     FieldHintsView out{};
 
-    auto dag = impl_->dag_provider_ ? impl_->dag_provider_() : nullptr;
-    if (!dag) {
+    auto dag_void = impl_->dag_provider_ ? impl_->dag_provider_() : nullptr;
+    if (!dag_void) {
         return out;
     }
+    auto dag = std::static_pointer_cast<const orc::DAG>(dag_void);
 
     try {
         DAGFieldRenderer renderer(dag);

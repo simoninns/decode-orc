@@ -55,12 +55,12 @@ public:
      * @brief Extract quality metrics for a single field
      * 
      * @param field_id Field to extract metrics for
-     * @param obs_context Core observation context (wrapped by this presenter)
+     * @param obs_context_ptr Opaque pointer to observation context
      * @return Quality metrics
      */
     static QualityMetrics extractFieldMetrics(
         FieldID field_id,
-        const orc::ObservationContext& obs_context
+        const void* obs_context_ptr
     );
     
     /**
@@ -68,20 +68,20 @@ public:
      * 
      * @param field1_id First field of frame
      * @param field2_id Second field of frame
-     * @param obs_context Core observation context (wrapped by this presenter)
+     * @param obs_context_ptr Opaque pointer to observation context
      * @return Averaged quality metrics
      */
     static QualityMetrics extractFrameMetrics(
         FieldID field1_id,
         FieldID field2_id,
-        const orc::ObservationContext& obs_context
+        const void* obs_context_ptr
     );
 
 private:
     /**
      * @brief Extract a double value from observation context
      * 
-     * @param obs_context Context to extract from
+     * @param obs_context_ptr Opaque pointer to observation context
      * @param field_id Field ID
      * @param namespace_ Observation namespace
      * @param key Observation key
@@ -89,7 +89,7 @@ private:
      * @return True if value was found and extracted
      */
     static bool extractDoubleValue(
-        const orc::ObservationContext& obs_context,
+        const void* obs_context_ptr,
         FieldID field_id,
         const std::string& namespace_,
         const std::string& key,
@@ -99,7 +99,7 @@ private:
     /**
      * @brief Extract an int32_t value from observation context
      * 
-     * @param obs_context Context to extract from
+     * @param obs_context_ptr Opaque pointer to observation context
      * @param field_id Field ID
      * @param namespace_ Observation namespace
      * @param key Observation key
@@ -107,7 +107,7 @@ private:
      * @return True if value was found and extracted
      */
     static bool extractInt32Value(
-        const orc::ObservationContext& obs_context,
+        const void* obs_context_ptr,
         FieldID field_id,
         const std::string& namespace_,
         const std::string& key,

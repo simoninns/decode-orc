@@ -273,7 +273,7 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
         QMenu* analysis_menu = menu->addMenu("Stage Tools");
         
         // Phase 2.4: Use AnalysisPresenter instead of direct registry access
-        orc::presenters::AnalysisPresenter analysis_presenter(graph_model_.presenter().getCoreProject());
+        orc::presenters::AnalysisPresenter analysis_presenter(graph_model_.presenter().getCoreProjectHandle());
         auto tool_infos = analysis_presenter.getToolsForStage(node_info.stage_name);
         
         if (tool_infos.empty()) {

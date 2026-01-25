@@ -246,31 +246,31 @@ public:
     // === Field Access (for dropout editor) ===
     
     /**
-     * @brief Get field data for display from VideoFieldRepresentation
-     * @param field_repr Field representation from DAG execution
+     * @brief Get field data for display from artifact
+     * @param field_repr_handle Opaque handle to field representation
      * @param field_id Field to retrieve
      * @param width Output field width
      * @param height Output field height
      * @return Grayscale field data (8-bit), or empty if not available
      */
-    std::vector<uint8_t> getFieldData(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr,
+    std::vector<uint8_t> getFieldData(const std::shared_ptr<void>& field_repr_handle,
                                       FieldID field_id, int& width, int& height);
     
     /**
-     * @brief Get source dropout regions from VideoFieldRepresentation
-     * @param field_repr Field representation from DAG execution
+     * @brief Get source dropout regions from artifact
+     * @param field_repr_handle Opaque handle to field representation
      * @param field_id Field to retrieve dropouts for
      * @return List of detected dropout regions
      */
-    std::vector<DropoutRegion> getSourceDropouts(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr,
+    std::vector<DropoutRegion> getSourceDropouts(const std::shared_ptr<void>& field_repr_handle,
                                                   FieldID field_id);
     
     /**
-     * @brief Get total number of fields from VideoFieldRepresentation
-     * @param field_repr Field representation from DAG execution
+     * @brief Get total number of fields from artifact
+     * @param field_repr_handle Opaque handle to field representation
      * @return Number of fields
      */
-    size_t getFieldCount(const std::shared_ptr<const orc::VideoFieldRepresentation>& field_repr);
+    size_t getFieldCount(const std::shared_ptr<void>& field_repr_handle);
     
     /**
      * @brief Get dropout map for a node (if it's a dropout_map stage)

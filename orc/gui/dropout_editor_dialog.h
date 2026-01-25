@@ -32,11 +32,6 @@
 #include <node_id.h>
 #include "presenters/include/dropout_presenter.h"
 
-// Forward declarations
-namespace orc {
-    class VideoFieldRepresentation;
-}
-
 /**
  * @brief Interactive widget for displaying and editing dropout regions on a field image
  * 
@@ -222,7 +217,7 @@ public:
     explicit DropoutEditorDialog(
         orc::NodeID node_id,
         orc::presenters::DropoutPresenter* presenter,
-        std::shared_ptr<const orc::VideoFieldRepresentation> field_repr,
+        std::shared_ptr<const void> field_repr,
         QWidget *parent = nullptr);
     
     ~DropoutEditorDialog() = default;
@@ -272,7 +267,7 @@ private:
     orc::presenters::DropoutPresenter* presenter_;
     
     // Source data
-    std::shared_ptr<const orc::VideoFieldRepresentation> field_repr_;
+    std::shared_ptr<const void> field_repr_;
     
     // Current state
     uint64_t current_field_id_;

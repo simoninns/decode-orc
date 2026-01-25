@@ -35,12 +35,12 @@ public:
      * @brief Extract NTSC observations for a single field
      * 
      * @param field_id Field to extract observations for
-     * @param obs_context Core observation context
+     * @param obs_context_ptr Opaque pointer to observation context
      * @return NTSC observations (may have empty optionals if data unavailable)
      */
     static NtscFieldObservationsView extractFieldObservations(
         FieldID field_id,
-        const orc::ObservationContext& obs_context
+        const void* obs_context_ptr
     );
 
 private:
@@ -49,7 +49,7 @@ private:
      */
     static std::optional<FMCodeView> extractFMCode(
         FieldID field_id,
-        const orc::ObservationContext& obs_context
+        const void* obs_context_ptr
     );
 
     /**
@@ -57,7 +57,7 @@ private:
      */
     static std::optional<WhiteFlagView> extractWhiteFlag(
         FieldID field_id,
-        const orc::ObservationContext& obs_context
+        const void* obs_context_ptr
     );
 };
 

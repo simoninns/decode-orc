@@ -39,9 +39,9 @@ class MaskLinePresenter : public AnalysisToolPresenter {
 public:
     /**
      * @brief Construct a Mask Line presenter
-     * @param project The project to operate on (not owned)
+     * @param project_handle Opaque handle to project
      */
-    explicit MaskLinePresenter(orc::Project* project);
+    explicit MaskLinePresenter(void* project_handle);
     
     /**
      * @brief Run mask line configuration

@@ -31,8 +31,8 @@ namespace orc::presenters {
 
 class RenderPresenter::Impl {
 public:
-    explicit Impl(orc::Project* project)
-        : project_(project)
+    explicit Impl(void* project_handle)
+        : project_(static_cast<orc::Project*>(project_handle))
         , trigger_cancel_requested_(false)
         , trigger_active_(false)
         , next_request_id_(1)
@@ -42,8 +42,13 @@ public:
         }
     }
     
+    // Helper to get concrete DAG from opaque handle
+    std::shared_ptr<const orc::DAG> getConcreteDAG() const {
+        return std::static_pointer_cast<const orc::DAG>(dag_void_);
+    }
+    
     orc::Project* project_;
-    std::shared_ptr<const orc::DAG> dag_;
+    std::shared_ptr<void> dag_void_;  // Opaque DAG handle
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
     std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
@@ -54,7 +59,8 @@ public:
     orc::TriggerableStage* current_trigger_stage_ = nullptr;
     
     void rebuildRenderersFromDAG() {
-        if (!dag_) {
+        auto dag = getConcreteDAG();
+        if (!dag) {
             // Clear all renderers for null DAG
             preview_renderer_.reset();
             field_renderer_.reset();
@@ -70,9 +76,9 @@ public:
         }
         
         // Rebuild renderers
-        obs_cache_ = std::make_shared<orc::ObservationCache>(dag_);
-        preview_renderer_ = std::make_unique<orc::PreviewRenderer>(dag_);
-        field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(dag_);
+        obs_cache_ = std::make_shared<orc::ObservationCache>(dag);
+        preview_renderer_ = std::make_unique<orc::PreviewRenderer>(dag);
+        field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(dag);
         vbi_decoder_ = std::make_unique<orc::VBIDecoder>();
         
         // Restore dropout state
@@ -82,8 +88,8 @@ public:
     }
 };
 
-RenderPresenter::RenderPresenter(orc::Project* project)
-    : impl_(std::make_unique<Impl>(project))
+RenderPresenter::RenderPresenter(void* project_handle)
+    : impl_(std::make_unique<Impl>(project_handle))
 {
 }
 
@@ -95,7 +101,7 @@ RenderPresenter& RenderPresenter::operator=(RenderPresenter&&) noexcept = defaul
 bool RenderPresenter::updateDAG()
 {
     try {
-        impl_->dag_ = orc::project_to_dag(*impl_->project_);
+        impl_->getConcreteDAG() = orc::project_to_dag(*impl_->project_);
         impl_->rebuildRenderersFromDAG();
         return true;
     } catch (const std::exception&) {
@@ -103,9 +109,9 @@ bool RenderPresenter::updateDAG()
     }
 }
 
-void RenderPresenter::setDAG(std::shared_ptr<const orc::DAG> dag)
+void RenderPresenter::setDAG(std::shared_ptr<void> dag_handle)
 {
-    impl_->dag_ = std::move(dag);
+    impl_->dag_void_ = std::move(dag_handle);
     impl_->rebuildRenderersFromDAG();
 }
 
@@ -258,13 +264,13 @@ bool RenderPresenter::requestDropoutData(
     std::function<void(uint64_t, bool, const std::string&)> callback)
 {
     // This is a synchronous operation - find the node and return data immediately
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         if (callback) callback(request_id, false, "DAG not initialized");
         return false;
     }
     
     const orc::DAGNode* target_node = nullptr;
-    for (const auto& node : impl_->dag_->nodes()) {
+    for (const auto& node : impl_->getConcreteDAG()->nodes()) {
         if (node.node_id == node_id) {
             target_node = &node;
             break;
@@ -297,13 +303,13 @@ bool RenderPresenter::requestSNRData(
     uint64_t request_id,
     std::function<void(uint64_t, bool, const std::string&)> callback)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         if (callback) callback(request_id, false, "DAG not initialized");
         return false;
     }
     
     const orc::DAGNode* target_node = nullptr;
-    for (const auto& node : impl_->dag_->nodes()) {
+    for (const auto& node : impl_->getConcreteDAG()->nodes()) {
         if (node.node_id == node_id) {
             target_node = &node;
             break;
@@ -335,13 +341,13 @@ bool RenderPresenter::requestBurstLevelData(
     uint64_t request_id,
     std::function<void(uint64_t, bool, const std::string&)> callback)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         if (callback) callback(request_id, false, "DAG not initialized");
         return false;
     }
     
     const orc::DAGNode* target_node = nullptr;
-    for (const auto& node : impl_->dag_->nodes()) {
+    for (const auto& node : impl_->getConcreteDAG()->nodes()) {
         if (node.node_id == node_id) {
             target_node = &node;
             break;
@@ -370,7 +376,7 @@ bool RenderPresenter::requestBurstLevelData(
 
 uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         throw std::runtime_error("DAG not initialized");
     }
     
@@ -381,7 +387,7 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
     try {
         // Find the target node in the DAG
         const orc::DAGNode* target_node = nullptr;
-        for (const auto& node : impl_->dag_->nodes()) {
+        for (const auto& node : impl_->getConcreteDAG()->nodes()) {
             if (node.node_id == node_id) {
                 target_node = &node;
                 break;
@@ -407,7 +413,7 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
         
         if (!target_node->input_node_ids.empty()) {
             // Execute predecessor nodes to get inputs
-            auto node_outputs = executor->execute_to_node(*impl_->dag_, target_node->input_node_ids[0]);
+            auto node_outputs = executor->execute_to_node(*impl_->getConcreteDAG(), target_node->input_node_ids[0]);
             
             // Collect inputs from predecessor nodes
             for (size_t i = 0; i < target_node->input_node_ids.size(); ++i) {
@@ -622,16 +628,13 @@ RenderPresenter::LineSampleData RenderPresenter::getLineSamplesWithYC(
     result.has_separate_channels = false;
     
     if (!impl_->preview_renderer_) {
-        fprintf(stderr, "DEBUG YC: preview_renderer_ is null\n");
         return result;
     }
     
     try {
         // Get the representation at this node
         auto repr = impl_->preview_renderer_->get_representation_at_node(node_id);
-        fprintf(stderr, "DEBUG YC: repr=%p\n", static_cast<const void*>(repr.get()));
         if (!repr) {
-            fprintf(stderr, "DEBUG YC: get_representation_at_node returned nullptr\n");
             return result;
         }
         
@@ -641,49 +644,33 @@ RenderPresenter::LineSampleData RenderPresenter::getLineSamplesWithYC(
             field_id = orc::FieldID(output_index);
         } else {
             // For frames, use first field (GUI should call mapImageToField first)
-            fprintf(stderr, "DEBUG YC: output_type not Field\n");
             return result;
         }
-        
-        fprintf(stderr, "DEBUG YC: field_id=%lu, checking has_field\n", field_id.value());
-        bool has_field_result = repr->has_field(field_id);
-        fprintf(stderr, "DEBUG YC: has_field(%lu)=%d\n", field_id.value(), has_field_result);
         
         // Get descriptor to know field dimensions
         auto descriptor = repr->get_descriptor(field_id);
-        fprintf(stderr, "DEBUG YC: descriptor.has_value()=%d\n", descriptor.has_value());
         if (!descriptor) {
-            fprintf(stderr, "DEBUG YC: no descriptor for field %lu\n", field_id.value());
             return result;
         }
         
-        fprintf(stderr, "DEBUG YC: descriptor: width=%zu, height=%zu\n", descriptor->width, descriptor->height);
-        
         // Validate line number is within bounds
-        fprintf(stderr, "DEBUG YC: line_number=%d, height=%zu\n", line_number, descriptor->height);
         if (line_number < 0 || static_cast<size_t>(line_number) >= descriptor->height) {
-            fprintf(stderr, "DEBUG YC: line_number out of bounds\n");
             return result;
         }
         
         // Check if this is a Y/C source with separate channels
         result.has_separate_channels = repr->has_separate_channels();
-        fprintf(stderr, "DEBUG YC: has_separate_channels=%d\n", result.has_separate_channels);
         
         if (result.has_separate_channels) {
             // Y/C source - get Y and C separately (no composite available)
             const uint16_t* y_data = repr->get_line_luma(field_id, line_number);
-            fprintf(stderr, "DEBUG YC: y_data=%p\n", static_cast<const void*>(y_data));
             if (y_data) {
                 result.y_samples.assign(y_data, y_data + descriptor->width);
-                fprintf(stderr, "DEBUG YC: Assigned %zu Y samples\n", result.y_samples.size());
             }
             
             const uint16_t* c_data = repr->get_line_chroma(field_id, line_number);
-            fprintf(stderr, "DEBUG YC: c_data=%p\n", static_cast<const void*>(c_data));
             if (c_data) {
                 result.c_samples.assign(c_data, c_data + descriptor->width);
-                fprintf(stderr, "DEBUG YC: Assigned %zu C samples\n", result.c_samples.size());
             }
             
             // For Y/C sources, use Y as composite for compatibility
@@ -691,13 +678,10 @@ RenderPresenter::LineSampleData RenderPresenter::getLineSamplesWithYC(
         } else {
             // Composite source - get composite line data
             const uint16_t* line_data = repr->get_line(field_id, line_number);
-            fprintf(stderr, "DEBUG YC: line_data=%p\n", static_cast<const void*>(line_data));
             if (!line_data) {
-                fprintf(stderr, "DEBUG YC: get_line returned nullptr for field %lu, line %d\n", field_id.value(), line_number);
                 return result;
             }
             
-            fprintf(stderr, "DEBUG YC: SUCCESS! Assigning %zu samples\n", descriptor->width);
             result.composite_samples.assign(line_data, line_data + descriptor->width);
         }
         
@@ -755,7 +739,7 @@ void RenderPresenter::clearCache()
 {
     if (impl_->obs_cache_) {
         impl_->obs_cache_.reset();
-        impl_->obs_cache_ = std::make_shared<orc::ObservationCache>(impl_->dag_);
+        impl_->obs_cache_ = std::make_shared<orc::ObservationCache>(impl_->getConcreteDAG());
     }
 }
 
@@ -772,13 +756,13 @@ bool RenderPresenter::getDropoutAnalysisData(
     std::vector<void*>& frame_stats,
     int32_t& total_frames)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         return false;
     }
     
     // Find the node in the DAG
     const orc::DAGNode* target_node = nullptr;
-    for (const auto& node : impl_->dag_->nodes()) {
+    for (const auto& node : impl_->getConcreteDAG()->nodes()) {
         if (node.node_id == node_id) {
             target_node = &node;
             break;
@@ -812,13 +796,13 @@ bool RenderPresenter::getSNRAnalysisData(
     std::vector<void*>& frame_stats,
     int32_t& total_frames)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         return false;
     }
     
     // Find the node in the DAG
     const orc::DAGNode* target_node = nullptr;
-    for (const auto& node : impl_->dag_->nodes()) {
+    for (const auto& node : impl_->getConcreteDAG()->nodes()) {
         if (node.node_id == node_id) {
             target_node = &node;
             break;
@@ -849,13 +833,13 @@ bool RenderPresenter::getBurstLevelAnalysisData(
     std::vector<void*>& frame_stats,
     int32_t& total_frames)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         return false;
     }
     
     // Find the node in the DAG
     const orc::DAGNode* target_node = nullptr;
-    for (const auto& node : impl_->dag_->nodes()) {
+    for (const auto& node : impl_->getConcreteDAG()->nodes()) {
         if (node.node_id == node_id) {
             target_node = &node;
             break;
@@ -896,7 +880,7 @@ QualityMetrics RenderPresenter::getFieldQualityMetrics(NodeID node_id, FieldID f
     
     // Extract metrics from observation context
     const auto& obs_context = impl_->field_renderer_->get_observation_context();
-    return MetricsPresenter::extractFieldMetrics(field_id, obs_context);
+    return MetricsPresenter::extractFieldMetrics(field_id, const_cast<void*>(static_cast<const void*>(&obs_context)));
 }
 
 QualityMetrics RenderPresenter::getFrameQualityMetrics(NodeID node_id, FieldID field1_id, FieldID field2_id)
@@ -915,18 +899,18 @@ QualityMetrics RenderPresenter::getFrameQualityMetrics(NodeID node_id, FieldID f
     
     // Extract and average metrics from observation context
     const auto& obs_context = impl_->field_renderer_->get_observation_context();
-    return MetricsPresenter::extractFrameMetrics(field1_id, field2_id, obs_context);
+    return MetricsPresenter::extractFrameMetrics(field1_id, field2_id, const_cast<void*>(static_cast<const void*>(&obs_context)));
 }
 
 std::shared_ptr<const void> RenderPresenter::executeToNode(NodeID node_id)
 {
-    if (!impl_->dag_) {
+    if (!impl_->getConcreteDAG()) {
         return nullptr;
     }
     
     try {
         orc::DAGExecutor executor;
-        auto node_outputs = executor.execute_to_node(*impl_->dag_, node_id);
+        auto node_outputs = executor.execute_to_node(*impl_->getConcreteDAG(), node_id);
         
         auto it = node_outputs.find(node_id);
         if (it != node_outputs.end() && !it->second.empty()) {

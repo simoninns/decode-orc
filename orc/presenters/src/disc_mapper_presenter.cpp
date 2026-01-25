@@ -21,8 +21,8 @@
 
 namespace orc::presenters {
 
-DiscMapperPresenter::DiscMapperPresenter(orc::Project* project)
-    : AnalysisToolPresenter(project) {
+DiscMapperPresenter::DiscMapperPresenter(void* project_handle)
+    : AnalysisToolPresenter(project_handle) {
 }
 
 std::string DiscMapperPresenter::toolId() const {
@@ -94,12 +94,13 @@ orc::public_api::AnalysisResult DiscMapperPresenter::runAnalysis(
         return result;
     }
 
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         result.summary = "Failed to build DAG from project";
         ORC_LOG_ERROR("{}", result.summary);
         return result;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
 
     // Validate node and stage
     const auto& nodes = dag->nodes();
@@ -128,8 +129,8 @@ orc::public_api::AnalysisResult DiscMapperPresenter::runAnalysis(
     ctx.node_id = node_id;
     ctx.parameters = parameters;
     ctx.dag = dag;
-    // Provide a non-owning shared_ptr wrapper for project as required by AnalysisContext
-    ctx.project = std::shared_ptr<orc::Project>(getProject(), [](orc::Project*){});
+    // Create snapshot of project for analysis context (cast opaque handle)
+    ctx.project = std::make_shared<orc::Project>(*static_cast<orc::Project*>(getProjectPointer()));
 
     if (progress_callback) {
         progress_callback(20, "Running disc mapper analysis...");

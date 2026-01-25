@@ -25,7 +25,7 @@ namespace orc::presenters {
 
 class VbiPresenter {
 public:
-    explicit VbiPresenter(std::function<std::shared_ptr<const orc::DAG>()> dag_provider);
+    explicit VbiPresenter(std::function<std::shared_ptr<void>()> dag_provider);
     ~VbiPresenter();
 
     VbiPresenter(const VbiPresenter&) = delete;
@@ -49,7 +49,7 @@ public:
     // Static method for decoding VBI from observation context
     // This allows render_coordinator to decode VBI without including core headers
     static std::optional<VBIFieldInfoView> decodeVbiFromObservation(
-        const void* observation_context_ptr,  // orc::ObservationContext* but opaque
+        const void* observation_context_ptr,  ///< Opaque handle to observation context
         FieldID field_id);
 
 private:

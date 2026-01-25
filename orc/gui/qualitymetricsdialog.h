@@ -19,11 +19,6 @@
 #include <field_id.h>
 #include <metrics_presenter.h>
 
-// Forward declarations - wrapped by presenter, not used directly
-namespace orc {
-    class ObservationContext;
-}
-
 /**
  * @brief Dialog for displaying quality metrics for the current field/frame
  * 
@@ -52,18 +47,18 @@ public:
     /**
      * @brief Update the quality metrics display for a field using observation context
      * @param field_id Field ID to extract metrics for
-     * @param obs_context Observation context with populated metrics (wrapped by presenter)
+     * @param obs_context Observation context with populated metrics (opaque handle from presenter)
      */
-    void updateMetricsFromContext(orc::FieldID field_id, const orc::ObservationContext& obs_context);
+    void updateMetricsFromContext(orc::FieldID field_id, const void* obs_context);
     
     /**
      * @brief Update the quality metrics display for a frame using observation context
      * @param field1_id First field ID
      * @param field2_id Second field ID
-     * @param obs_context Observation context with populated metrics (wrapped by presenter)
+     * @param obs_context Observation context with populated metrics (opaque handle from presenter)
      */
     void updateMetricsForFrameFromContext(orc::FieldID field1_id, orc::FieldID field2_id,
-                                          const orc::ObservationContext& obs_context);
+                                          const void* obs_context);
     
     /**
      * @brief Update the quality metrics display for a field using pre-extracted metrics

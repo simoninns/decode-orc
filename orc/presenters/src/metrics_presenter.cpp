@@ -16,40 +16,41 @@ namespace orc::presenters {
 
 QualityMetrics MetricsPresenter::extractFieldMetrics(
     FieldID field_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context_handle)
 {
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(obs_context_handle);
     QualityMetrics metrics;
     
     // Extract disc quality metrics from observation context
     double quality_score = 0.0;
-    if (extractDoubleValue(obs_context, field_id, "disc_quality", "quality_score", quality_score)) {
+    if (extractDoubleValue(obs_context_handle, field_id, "disc_quality", "quality_score", quality_score)) {
         metrics.quality_score = quality_score;
         metrics.has_quality_score = true;
     }
     
     int32_t dropout_count = 0;
-    if (extractInt32Value(obs_context, field_id, "disc_quality", "dropout_count", dropout_count)) {
+    if (extractInt32Value(obs_context_handle, field_id, "disc_quality", "dropout_count", dropout_count)) {
         metrics.dropout_count = static_cast<size_t>(dropout_count);
         metrics.has_dropout_count = true;
     }
     
     // Extract burst level from observation context
     double burst_level = 0.0;
-    if (extractDoubleValue(obs_context, field_id, "burst_level", "median_burst_ire", burst_level)) {
+    if (extractDoubleValue(obs_context_handle, field_id, "burst_level", "median_burst_ire", burst_level)) {
         metrics.burst_level = burst_level;
         metrics.has_burst_level = true;
     }
     
     // Extract white SNR from observation context
     double white_snr = 0.0;
-    if (extractDoubleValue(obs_context, field_id, "white_snr", "snr_db", white_snr)) {
+    if (extractDoubleValue(obs_context_handle, field_id, "white_snr", "snr_db", white_snr)) {
         metrics.white_snr = white_snr;
         metrics.has_white_snr = true;
     }
     
     // Extract black PSNR from observation context
     double black_psnr = 0.0;
-    if (extractDoubleValue(obs_context, field_id, "black_psnr", "psnr_db", black_psnr)) {
+    if (extractDoubleValue(obs_context_handle, field_id, "black_psnr", "psnr_db", black_psnr)) {
         metrics.black_psnr = black_psnr;
         metrics.has_black_psnr = true;
     }
@@ -60,11 +61,11 @@ QualityMetrics MetricsPresenter::extractFieldMetrics(
 QualityMetrics MetricsPresenter::extractFrameMetrics(
     FieldID field1_id,
     FieldID field2_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context_handle)
 {
     // Extract metrics for both fields
-    auto field1_metrics = extractFieldMetrics(field1_id, obs_context);
-    auto field2_metrics = extractFieldMetrics(field2_id, obs_context);
+    auto field1_metrics = extractFieldMetrics(field1_id, obs_context_handle);
+    auto field2_metrics = extractFieldMetrics(field2_id, obs_context_handle);
     
     // Create averaged metrics for the frame
     QualityMetrics frame_metrics;
@@ -150,13 +151,14 @@ QualityMetrics MetricsPresenter::extractFrameMetrics(
 }
 
 bool MetricsPresenter::extractDoubleValue(
-    const orc::ObservationContext& obs_context,
+    const void* obs_context_handle,
     FieldID field_id,
     const std::string& namespace_,
     const std::string& key,
     double& out_value)
 {
-    auto value_opt = obs_context.get(field_id, namespace_, key);
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(obs_context_handle);
+    auto value_opt = obs_context->get(field_id, namespace_, key);
     if (!value_opt) {
         return false;
     }
@@ -183,13 +185,14 @@ bool MetricsPresenter::extractDoubleValue(
 }
 
 bool MetricsPresenter::extractInt32Value(
-    const orc::ObservationContext& obs_context,
+    const void* obs_context_handle,
     FieldID field_id,
     const std::string& namespace_,
     const std::string& key,
     int32_t& out_value)
 {
-    auto value_opt = obs_context.get(field_id, namespace_, key);
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(obs_context_handle);
+    auto value_opt = obs_context->get(field_id, namespace_, key);
     if (!value_opt) {
         return false;
     }

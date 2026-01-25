@@ -15,24 +15,26 @@ namespace orc::presenters {
 
 NtscFieldObservationsView NtscObservationPresenter::extractFieldObservations(
     FieldID field_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context_handle)
 {
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(obs_context_handle);
     NtscFieldObservationsView result;
     
-    result.fm_code = extractFMCode(field_id, obs_context);
-    result.white_flag = extractWhiteFlag(field_id, obs_context);
+    result.fm_code = extractFMCode(field_id, obs_context_handle);
+    result.white_flag = extractWhiteFlag(field_id, obs_context_handle);
     
     return result;
 }
 
 std::optional<FMCodeView> NtscObservationPresenter::extractFMCode(
     FieldID field_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context_handle)
 {
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(obs_context_handle);
     // Get FM code observations (namespace "fm_code")
-    auto present_obs = obs_context.get(field_id, "fm_code", "present");
-    auto data_obs = obs_context.get(field_id, "fm_code", "data_value");
-    auto flag_obs = obs_context.get(field_id, "fm_code", "field_flag");
+    auto present_obs = obs_context->get(field_id, "fm_code", "present");
+    auto data_obs = obs_context->get(field_id, "fm_code", "data_value");
+    auto flag_obs = obs_context->get(field_id, "fm_code", "field_flag");
     
     // Only return data if we have at least the present flag
     if (!present_obs) {
@@ -61,10 +63,11 @@ std::optional<FMCodeView> NtscObservationPresenter::extractFMCode(
 
 std::optional<WhiteFlagView> NtscObservationPresenter::extractWhiteFlag(
     FieldID field_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context_handle)
 {
+    const auto* obs_context = static_cast<const orc::ObservationContext*>(obs_context_handle);
     // Get white flag observations (namespace "white_flag")
-    auto present_obs = obs_context.get(field_id, "white_flag", "present");
+    auto present_obs = obs_context->get(field_id, "white_flag", "present");
     
     if (!present_obs) {
         return std::nullopt;

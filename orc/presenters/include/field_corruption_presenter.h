@@ -32,9 +32,9 @@ class FieldCorruptionPresenter : public AnalysisToolPresenter {
 public:
     /**
      * @brief Construct a Field Corruption presenter
-     * @param project The project to operate on (not owned)
+     * @param project_handle Opaque handle to project
      */
-    explicit FieldCorruptionPresenter(orc::Project* project);
+    explicit FieldCorruptionPresenter(void* project_handle);
     
     /**
      * @brief Run field corruption analysis

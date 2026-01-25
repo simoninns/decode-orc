@@ -21,8 +21,8 @@
 
 namespace orc::presenters {
 
-DropoutEditorPresenter::DropoutEditorPresenter(orc::Project* project)
-    : AnalysisToolPresenter(project) {
+DropoutEditorPresenter::DropoutEditorPresenter(void* project_handle)
+    : AnalysisToolPresenter(project_handle) {
     ORC_LOG_DEBUG("DropoutEditorPresenter created");
 }
 
@@ -40,8 +40,19 @@ orc::public_api::AnalysisResult DropoutEditorPresenter::runAnalysis(
         progress_callback(0, "Preparing dropout editor...");
     }
     
+    // Build DAG to validate node
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
+        ORC_LOG_ERROR("Failed to build DAG");
+        orc::public_api::AnalysisResult result;
+        result.status = orc::public_api::AnalysisResult::Status::Failed;
+        result.summary = "Failed to build project DAG";
+        return result;
+    }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
+    
     // Validate node exists and is a dropout_map stage
-    const auto& nodes = getProjectNodes();
+    const auto& nodes = dag->nodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
         [node_id](const orc::DAGNode& n) { return n.node_id == node_id; });
     
@@ -61,18 +72,9 @@ orc::public_api::AnalysisResult DropoutEditorPresenter::runAnalysis(
         return result;
     }
     
-    // Build DAG for execution
+    // Report additional progress
     if (progress_callback) {
-        progress_callback(20, "Building DAG...");
-    }
-    
-    auto dag = getOrBuildDAG();
-    if (!dag) {
-        ORC_LOG_ERROR("Failed to build DAG from project");
-        orc::public_api::AnalysisResult result;
-        result.status = orc::public_api::AnalysisResult::Status::Failed;
-        result.summary = "Failed to build DAG from project";
-        return result;
+        progress_callback(20, "Validating input connections...");
     }
     
     // Check if node has input (needed to get field data)
@@ -90,15 +92,21 @@ orc::public_api::AnalysisResult DropoutEditorPresenter::runAnalysis(
     }
     
     auto input_node_id = getFirstInputNodeId(node_id);
-    std::vector<std::shared_ptr<const orc::Artifact>> input_artifacts;
+    std::vector<std::shared_ptr<void>> input_artifacts_void;
     try {
-        input_artifacts = executeToNode(input_node_id);
+        input_artifacts_void = executeToNode(input_node_id);
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Failed to execute input node: {}", e.what());
         orc::public_api::AnalysisResult result;
         result.status = orc::public_api::AnalysisResult::Status::Failed;
         result.summary = std::string("Failed to execute input node: ") + e.what();
         return result;
+    }
+    
+    // Cast opaque handles back to concrete artifacts
+    std::vector<std::shared_ptr<const orc::Artifact>> input_artifacts;
+    for (const auto& void_artifact : input_artifacts_void) {
+        input_artifacts.push_back(std::static_pointer_cast<const orc::Artifact>(void_artifact));
     }
     
     if (input_artifacts.empty()) {

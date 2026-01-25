@@ -15,6 +15,11 @@
 #include <QLabel>
 #include <cmath>
 
+// Forward declaration for core type used via opaque pointer
+namespace orc {
+    class ObservationContext;
+}
+
 QualityMetricsDialog::QualityMetricsDialog(QWidget *parent)
     : QDialog(parent)
     , showing_frame_mode_(false)
@@ -257,7 +262,7 @@ void QualityMetricsDialog::clearMetrics()
 
 void QualityMetricsDialog::updateMetricsFromContext(
     orc::FieldID field_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context)
 {
     showing_frame_mode_ = false;
     field1_group_->show();
@@ -265,7 +270,9 @@ void QualityMetricsDialog::updateMetricsFromContext(
     frame_group_->hide();
     field1_group_->setTitle("Field");
     
-    auto metrics = orc::presenters::MetricsPresenter::extractFieldMetrics(field_id, obs_context);
+    // Pass opaque handle directly to presenter
+    auto metrics = orc::presenters::MetricsPresenter::extractFieldMetrics(
+        field_id, obs_context);
     updateFieldLabels(metrics, true);
 }
 
@@ -286,7 +293,7 @@ void QualityMetricsDialog::updateMetrics(
 void QualityMetricsDialog::updateMetricsForFrameFromContext(
     orc::FieldID field1_id,
     orc::FieldID field2_id,
-    const orc::ObservationContext& obs_context)
+    const void* obs_context)
 {
     showing_frame_mode_ = true;
     field1_group_->show();
@@ -294,8 +301,11 @@ void QualityMetricsDialog::updateMetricsForFrameFromContext(
     frame_group_->show();
     field1_group_->setTitle("Field 1");
     
-    auto field1_metrics = orc::presenters::MetricsPresenter::extractFieldMetrics(field1_id, obs_context);
-    auto field2_metrics = orc::presenters::MetricsPresenter::extractFieldMetrics(field2_id, obs_context);
+    // Pass opaque handle directly to presenter
+    auto field1_metrics = orc::presenters::MetricsPresenter::extractFieldMetrics(
+        field1_id, obs_context);
+    auto field2_metrics = orc::presenters::MetricsPresenter::extractFieldMetrics(
+        field2_id, obs_context);
     
     updateFieldLabels(field1_metrics, true);
     updateFieldLabels(field2_metrics, false);

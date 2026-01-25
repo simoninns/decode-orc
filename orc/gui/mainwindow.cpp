@@ -40,8 +40,13 @@
 #include <node_type.h>
 #include <common_types.h>
 
-// Forward declare core observation context to avoid including core headers in GUI
-namespace orc { class ObservationContext; }
+// Forward declarations for core types used via opaque pointers
+namespace orc {
+    class DAG;
+    class Project;
+    class VideoFieldRepresentation;
+    class ObservationContext;
+}
 
 #include <QFileDialog>
 #include <QFileInfo>
@@ -128,15 +133,15 @@ MainWindow::MainWindow(QWidget *parent)
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
 
     // Presenter for hint data (uses DAG provider to fetch hints via core renderer)
-    hints_presenter_ = std::make_unique<orc::presenters::HintsPresenter>([this]() {
-        auto dag = project_.getDAG();
-        return std::static_pointer_cast<const orc::DAG>(dag);
-    });
+    hints_presenter_ = std::make_unique<orc::presenters::HintsPresenter>(
+        std::function<std::shared_ptr<void>()>([this]() -> std::shared_ptr<void> {
+            return project_.getDAG();
+        })
+    );
 
     // Presenter for VBI observations
-    vbi_presenter_ = std::make_unique<orc::presenters::VbiPresenter>([this]() {
-        auto dag = project_.getDAG();
-        return std::static_pointer_cast<const orc::DAG>(dag);
+    vbi_presenter_ = std::make_unique<orc::presenters::VbiPresenter>([this]() -> std::shared_ptr<void> {
+        return project_.getDAG();
     });
     
     // Presenter for dropout editing (uses ProjectPresenter for delegation)
@@ -175,7 +180,7 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onCoordinatorError, Qt::QueuedConnection);
     
     // Set the project for the render coordinator (required before updateDAG)
-    render_coordinator_->setProject(project_.presenter()->getCoreProject());
+    render_coordinator_->setProject(project_.presenter()->getCoreProjectHandle());
     
     // Start the coordinator worker thread
     render_coordinator_->start();
@@ -858,7 +863,7 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
     }
     
     // Update render coordinator with new project pointer (presenter was recreated)
-    render_coordinator_->setProject(project_.presenter()->getCoreProject());
+    render_coordinator_->setProject(project_.presenter()->getCoreProjectHandle());
     
     // Recreate DAG model/scene since the presenter has changed
     if (dag_model_) {
@@ -925,7 +930,7 @@ void MainWindow::openProject(const QString& filename)
     }
     
     // Update render coordinator with new project pointer (presenter was recreated)
-    render_coordinator_->setProject(project_.presenter()->getCoreProject());
+    render_coordinator_->setProject(project_.presenter()->getCoreProjectHandle());
     
     // Recreate DAG model/scene since the presenter has changed
     if (dag_model_) {
@@ -1091,7 +1096,7 @@ void MainWindow::quickProject(const QString& filename)
     }
     
     // Update render coordinator with new project pointer (presenter was recreated)
-    render_coordinator_->setProject(project_.presenter()->getCoreProject());
+    render_coordinator_->setProject(project_.presenter()->getCoreProjectHandle());
     
     // Add source stage
     ORC_LOG_INFO("Adding source stage: {}", source_stage_name);
@@ -2835,7 +2840,7 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
         // Get DAG and execute to input node
         auto dag = project_.getDAG();
         // Create temporary RenderPresenter for execution
-        auto* core_project = project_.presenter()->getCoreProject();
+        auto* core_project = project_.presenter()->getCoreProjectHandle();
         if (!core_project) {
             QMessageBox::warning(this, "Error", "Invalid project state.");
             return;
@@ -3125,7 +3130,7 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
     // This handles tools like Field Corruption Generator using auto-generated UI
     
     // Create an AnalysisPresenter to get tool parameters and run the analysis
-    auto* analysis_presenter = new orc::presenters::AnalysisPresenter(project_.presenter()->getCoreProject());
+    auto* analysis_presenter = new orc::presenters::AnalysisPresenter(project_.presenter()->getCoreProjectHandle());
     
     // Get tool info to verify it exists
     const auto tool_info_full = analysis_presenter->getToolInfo(tool_info.id);
@@ -3145,7 +3150,7 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
         tool_info_full,
         analysis_presenter,
         node_id,
-        project_.presenter()->getCoreProject(),
+        project_.presenter()->getCoreProjectHandle(),
         this
     );
     dialog->setAttribute(Qt::WA_DeleteOnClose, true);
@@ -3309,7 +3314,7 @@ void MainWindow::updateQualityMetricsDialog()
     // Get quality metrics using presenter (no direct DAGFieldRenderer access)
     try {
         // Create temporary RenderPresenter for metrics extraction
-        auto* core_project = project_.presenter()->getCoreProject();
+        auto* core_project = project_.presenter()->getCoreProjectHandle();
         if (!core_project) {
             quality_metrics_dialog_->clearMetrics();
             return;
@@ -3327,8 +3332,7 @@ void MainWindow::updateQualityMetricsDialog()
                 quality_metrics_dialog_->clearMetrics();
                 return;
             }
-            const orc::ObservationContext& obs_context = *static_cast<const orc::ObservationContext*>(ctx_ptr);
-            quality_metrics_dialog_->updateMetricsForFrameFromContext(field1_id, field2_id, obs_context);
+            quality_metrics_dialog_->updateMetricsForFrameFromContext(field1_id, field2_id, ctx_ptr);
         } else {
             // Single field mode: render field to populate observation context, then update dialog
             const void* ctx_ptr = render_presenter.getObservationContext(current_view_node_id_, field1_id);
@@ -3336,8 +3340,7 @@ void MainWindow::updateQualityMetricsDialog()
                 quality_metrics_dialog_->clearMetrics();
                 return;
             }
-            const orc::ObservationContext& obs_context = *static_cast<const orc::ObservationContext*>(ctx_ptr);
-            quality_metrics_dialog_->updateMetricsFromContext(field1_id, obs_context);
+            quality_metrics_dialog_->updateMetricsFromContext(field1_id, ctx_ptr);
         }
         
     } catch (const std::exception& e) {
@@ -3548,7 +3551,7 @@ void MainWindow::updateNtscObserverDialog()
     // Get NTSC observations using presenter (no direct DAGFieldRenderer access)
     try {
         // Create temporary RenderPresenter for observation extraction
-        auto* core_project = project_.presenter()->getCoreProject();
+        auto* core_project = project_.presenter()->getCoreProjectHandle();
         if (!core_project) {
             ntsc_observer_dialog_->clearObservations();
             return;
@@ -3567,10 +3570,11 @@ void MainWindow::updateNtscObserverDialog()
                 return;
             }
             
-            // Cast to ObservationContext and extract observations
-            const auto& context = *static_cast<const orc::ObservationContext*>(context1_void);
-            auto field1_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field1_id, context);
-            auto field2_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field2_id, context);
+            // Extract observations from opaque context pointers
+            auto field1_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(
+                field1_id, context1_void);
+            auto field2_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(
+                field2_id, context2_void);
             ntsc_observer_dialog_->updateObservationsForFrame(field1_id, field1_obs, field2_id, field2_obs);
         } else {
             // Get observation context for single field
@@ -3581,9 +3585,9 @@ void MainWindow::updateNtscObserverDialog()
                 return;
             }
             
-            // Cast to ObservationContext and extract observations
-            const auto& context = *static_cast<const orc::ObservationContext*>(context_void);
-            auto field_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(field1_id, context);
+            // Extract observations from opaque context pointer
+            auto field_obs = orc::presenters::NtscObservationPresenter::extractFieldObservations(
+                field1_id, context_void);
             ntsc_observer_dialog_->updateObservations(field1_id, field_obs);
         }
         

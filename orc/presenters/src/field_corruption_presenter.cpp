@@ -19,8 +19,8 @@
 
 namespace orc::presenters {
 
-FieldCorruptionPresenter::FieldCorruptionPresenter(orc::Project* project)
-    : AnalysisToolPresenter(project) {
+FieldCorruptionPresenter::FieldCorruptionPresenter(void* project_handle)
+    : AnalysisToolPresenter(project_handle) {
 }
 
 std::string FieldCorruptionPresenter::toolId() const {
@@ -57,7 +57,8 @@ uint64_t FieldCorruptionPresenter::getInputFieldCount(NodeID node_id) {
     
     // Find VideoFieldRepresentation artifact
     for (const auto& artifact : artifacts) {
-        auto source = std::dynamic_pointer_cast<const orc::VideoFieldRepresentation>(artifact);
+        // artifacts are opaque void* handles, need to cast
+        auto source = std::static_pointer_cast<const orc::VideoFieldRepresentation>(artifact);
         if (source) {
             uint64_t field_count = source->field_count();
             ORC_LOG_DEBUG("Field Corruption Presenter: Got field count {} from input", field_count);
@@ -70,10 +71,11 @@ uint64_t FieldCorruptionPresenter::getInputFieldCount(NodeID node_id) {
 }
 
 int32_t FieldCorruptionPresenter::getExistingSeed(NodeID node_id) {
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         return 0;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     
     const auto& dag_nodes = dag->nodes();
     auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
@@ -113,12 +115,13 @@ orc::public_api::AnalysisResult FieldCorruptionPresenter::runAnalysis(
     }
     
     // Build DAG
-    auto dag = getOrBuildDAG();
-    if (!dag) {
+    auto dag_void = getOrBuildDAG();
+    if (!dag_void) {
         result.summary = "Failed to build DAG from project";
         ORC_LOG_ERROR("{}", result.summary);
         return result;
     }
+    auto dag = std::static_pointer_cast<orc::DAG>(dag_void);
     
     // Validate the node exists and is a field_map stage
     const auto& dag_nodes = dag->nodes();

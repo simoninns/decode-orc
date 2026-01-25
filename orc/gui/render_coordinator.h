@@ -30,12 +30,6 @@
 #include <orc_video_metadata.h>  // Public API VideoParameters
 #include "vbi_view_models.h"
 
-namespace orc {
-    class DAG;
-    class Project;
-    // Phase 2.7: TriggerableStage forward declaration removed - now handled by RenderPresenter
-}
-
 namespace orc::presenters {
     class RenderPresenter;
 }
@@ -80,9 +74,9 @@ protected:
  * @brief Request to update the DAG
  */
 struct UpdateDAGRequest : public RenderRequest {
-    std::shared_ptr<const orc::DAG> dag;
+    std::shared_ptr<const void> dag;
     
-    UpdateDAGRequest(uint64_t id, std::shared_ptr<const orc::DAG> d)
+    UpdateDAGRequest(uint64_t id, std::shared_ptr<const void> d)
         : RenderRequest(RenderRequestType::UpdateDAG, id)
         , dag(std::move(d)) {}
 };
@@ -411,18 +405,18 @@ public:
      * 
      * This invalidates all caches and recreates renderers.
      * 
-     * @param dag New DAG to use
+     * @param dag New DAG to use (opaque handle)
      */
-    void updateDAG(std::shared_ptr<const orc::DAG> dag);
+    void updateDAG(std::shared_ptr<const void> dag);
     
     /**
      * @brief Set the project for rendering
      * 
      * Must be called before updateDAG to initialize the presenter.
      * 
-     * @param project Project pointer (must outlive RenderCoordinator)
+     * @param project Project pointer (opaque handle, must outlive RenderCoordinator)
      */
-    void setProject(orc::Project* project);
+    void setProject(void* project);
     
     /**
      * @brief Request a preview render (async)
@@ -787,9 +781,9 @@ private:
     // Worker thread state (owned by worker thread, never accessed from GUI)
     // ========================================================================
     
-    std::shared_ptr<const orc::DAG> worker_dag_;
+    std::shared_ptr<const void> worker_dag_;
     std::unique_ptr<orc::presenters::RenderPresenter> worker_render_presenter_;
-    orc::Project* worker_project_{nullptr};  // Non-owning pointer for presenter
+    void* worker_project_{nullptr};  // Non-owning opaque handle for presenter
     
     // Phase 2.7: Trigger state now managed by RenderPresenter
     // Removed: trigger_cancel_requested_ and current_trigger_stage_

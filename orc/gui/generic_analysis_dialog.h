@@ -18,10 +18,6 @@
 #include <orc_analysis.h>
 #include <node_id.h>
 
-namespace orc {
-    class Project;
-}
-
 namespace orc::presenters {
     class AnalysisPresenter;
     class FieldCorruptionPresenter;
@@ -53,7 +49,7 @@ public:
         const orc::public_api::AnalysisToolInfo& tool_info,
         orc::presenters::AnalysisPresenter* presenter,
         const orc::NodeID& node_id,
-        orc::Project* project,
+        void* project,
         QWidget* parent = nullptr);
     
     ~GenericAnalysisDialog();
@@ -83,7 +79,7 @@ private:
     orc::presenters::MaskLinePresenter* mask_line_presenter_;  // Owned (if used)
     orc::presenters::FFmpegPresetPresenter* ffmpeg_preset_presenter_;  // Owned (if used)
     orc::presenters::DropoutEditorPresenter* dropout_editor_presenter_;  // Owned (if used)
-    orc::Project* project_;  // Not owned
+    void* project_;  // Not owned (opaque handle)
     orc::NodeID node_id_;
     orc::public_api::AnalysisResult last_result_;
     std::vector<orc::ParameterDescriptor> parameter_descriptors_;

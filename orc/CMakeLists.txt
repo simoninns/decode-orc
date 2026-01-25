@@ -121,10 +121,10 @@ add_custom_target(check-mvp-fast
 
 # Optional: Uncomment to enforce MVP check before every GUI/CLI build
 # This adds ~1 second overhead per build but catches violations immediately
-# if(BUILD_GUI)
-#     add_dependencies(orc-gui check-mvp-fast)
-# endif()
-# add_dependencies(orc-cli check-mvp-fast)
+if(BUILD_GUI)
+    add_dependencies(orc-gui check-mvp-fast)
+endif()
+add_dependencies(orc-cli check-mvp-fast)
 
 # Doxygen documentation (optional)
 if(BUILD_DOCS)

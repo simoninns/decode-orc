@@ -128,7 +128,8 @@ for header in $GUI_HEADERS; do
     
     for core_type in "${FORBIDDEN_CORE_TYPES[@]}"; do
         # In GUI, even forward declarations are suspicious
-        matches=$(grep -n "$core_type" "$header" | grep -v "^[[:space:]]*//")
+        # Filter out comment-only lines (grep -n output format is "linenum:content")
+        matches=$(grep -n "$core_type" "$header" | grep -v "^[0-9]*:[[:space:]]*/\|^[0-9]*:[[:space:]]*\*") || true
         if [[ -n "$matches" ]]; then
             echo -e "${YELLOW}⚠️  WARNING${NC} in $header:"
             echo "   Core type '$core_type' referenced:"

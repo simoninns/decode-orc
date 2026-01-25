@@ -103,9 +103,9 @@ class RenderPresenter {
 public:
     /**
      * @brief Construct presenter for a project
-     * @param project Project to render from (must outlive this presenter)
+     * @param project_handle Opaque handle to project
      */
-    explicit RenderPresenter(orc::Project* project);
+    explicit RenderPresenter(void* project_handle);
     
     /**
      * @brief Destructor
@@ -132,16 +132,12 @@ public:
     
     /**
      * @brief Set the DAG directly (for coordination with external DAG management)
-     * @param dag Shared pointer to DAG (can be nullptr for empty projects)
-     */
-    /**
-     * @brief Set the DAG for rendering
-     * @param dag Shared pointer to DAG
+     * @param dag_handle Opaque handle to DAG
      * 
      * @note Used for coordination with external DAG management.
      * The DAG is typically obtained from ProjectPresenter.
      */
-    void setDAG(std::shared_ptr<const orc::DAG> dag);
+    void setDAG(std::shared_ptr<void> dag_handle);
     
     // === Preview Rendering ===
     

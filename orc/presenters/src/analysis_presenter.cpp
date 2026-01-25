@@ -43,8 +43,8 @@ public:
     bool is_running_;
 };
 
-AnalysisPresenter::AnalysisPresenter(orc::Project* project)
-    : impl_(std::make_unique<Impl>(project))
+AnalysisPresenter::AnalysisPresenter(void* project_handle)
+    : impl_(std::make_unique<Impl>(static_cast<orc::Project*>(project_handle)))
 {
 }
 

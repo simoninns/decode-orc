@@ -8,12 +8,12 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 
 ## Summary
 
-- **Total items tracked:** 18 (down from 19)
-- **Active implementation gaps:** 4 (items #8, #16, #17, #4)
+- **Total items tracked:** 17 (down from 18)
+- **Active implementation gaps:** 3 (items #8, #16, #17)
 - **Working code with TODOs:** 9 (items #2, #5, #9, #10, #11, #12, #13, #22, #23)
 - **Known bugs/hacks:** 5 (items #18, #19, #20, #21, #23)
 - **Aspirational features:** 1 (item #14)
-- **Resolved and removed:** 6 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing, audio loading, EFM loading - removed 25 Jan 2026)
+- **Resolved and removed:** 7 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing, audio loading, EFM loading, custom range parsing - removed 25 Jan 2026)
 
 **Key Findings:**
 - Most TODOs are legitimate and still active
@@ -24,10 +24,6 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 ## High Priority Implementation Items
 
 ### GUI Components
-
-4. **Custom Range Parsing** - `orc/gui/masklineconfigdialog.cpp:257`
-   - TODO: Parse custom ranges for the custom section
-   - Context: Mask line configuration dialog
 
 5. **Field Descriptor Coordinate Mapping** - `orc/gui/mainwindow.cpp:3629`
    - TODO: Get actual field descriptor to properly map coordinates
@@ -134,9 +130,8 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 
 ### Medium (Enhancements)
 - Y/C sample separation (#2) - **Enhancement to working feature**
-- Stacker neighbor modes (#12) - **Unused par
-- Custom range parsing (#4) - **Partial impleameters**
-- Cache statistics (#17) - **Returns placeholder string**mentation**
+- Stacker neighbor modes (#12) - **Unused parameters**
+- Cache statistics (#17) - **Returns placeholder string**
 - Field coordinate mapping (#5) - **Uses approximation**
 
 ### Low (Technical Debt / Optimizations)
@@ -165,6 +160,14 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 ## Changelog
 
 ### 25 January 2026
+- **Implemented:** Item #4 (Custom Range Parsing) - MaskLineConfigDialog now parses custom line ranges
+  - Implemented full parsing logic in `parse_line_spec_to_ui()` to extract custom range specifications
+  - Parses line specs like "F:50-100", "S:30-45", or "A:15-25" and populates UI fields
+  - Handles both range formats ("start-end") and single value formats ("line")
+  - Automatically detects and skips known preset patterns (NTSC CC, NTSC VBI)
+  - Properly sets field selection combo box (First/Second/Both), start line, and end line spinboxes
+  - Uses robust parsing with exception handling for malformed inputs
+  - Enables custom range checkbox when valid custom spec is detected
 - **Refactored:** Audio and EFM loading - Eliminated code duplication between TBC representations
   - Created `TBCAudioEFMHandler` shared helper class for audio/EFM functionality
   - Both `TBCVideoFieldRepresentation` and `TBCYCVideoFieldRepresentation` now use composition

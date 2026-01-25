@@ -17,7 +17,7 @@
 #include <map>
 #include <node_id.h>
 #include <orc_analysis.h>
-#include <stage_parameter.h>
+#include <parameter_types.h>
 
 namespace orc {
     // Forward declarations from core

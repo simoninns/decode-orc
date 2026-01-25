@@ -1,5 +1,6 @@
 #include "generic_analysis_dialog.h"
 #include "presenters/include/analysis_presenter.h"
+#include "presenters/include/field_corruption_presenter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -17,7 +18,13 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     orc::Project* project,
     QWidget* parent)
     : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
-      presenter_(presenter), project_(project), node_id_(node_id) {
+      presenter_(presenter), field_corruption_presenter_(nullptr),
+      project_(project), node_id_(node_id) {
+    
+    // Check if this is the Field Corruption tool - if so, create specialized presenter
+    if (tool_id_ == "field_corruption") {
+        field_corruption_presenter_ = new orc::presenters::FieldCorruptionPresenter(project_);
+    }
     
     setupUI();
     populateParameters();
@@ -27,6 +34,7 @@ GenericAnalysisDialog::GenericAnalysisDialog(
 
 GenericAnalysisDialog::~GenericAnalysisDialog() {
     delete presenter_;
+    delete field_corruption_presenter_;
 }
 
 void GenericAnalysisDialog::setupUI() {
@@ -243,19 +251,44 @@ void GenericAnalysisDialog::runAnalysis() {
         }
     }
     
-    // Build additional_context - will be populated by presenter if needed
-    std::map<std::string, orc::ParameterValue> additional_context;
+    // Progress callback to update UI for specialized presenter
+    auto progress_callback = [this](int percentage, const std::string& status) {
+        statusLabel_->setText(QString::fromStdString(status));
+        progressBar_->setValue(percentage);
+    };
     
-    // Run analysis
-    orc::public_api::AnalysisSourceType source_type = orc::public_api::AnalysisSourceType::LaserDisc;
-    auto result = presenter_->runGenericAnalysis(
-        tool_id_,
-        node_id_,
-        source_type,
-        parameters,
-        additional_context,
-        nullptr  // No progress callback for now
-    );
+    // Run analysis using specialized presenter if available
+    orc::public_api::AnalysisResult result;
+    
+    if (field_corruption_presenter_) {
+        // Use specialized Field Corruption Presenter
+        result = field_corruption_presenter_->runAnalysis(node_id_, parameters, progress_callback);
+    } else {
+        // Use generic analysis presenter for other tools
+        std::map<std::string, orc::ParameterValue> additional_context;
+        orc::public_api::AnalysisSourceType source_type = orc::public_api::AnalysisSourceType::LaserDisc;
+
+        // Adapt progress callback signature expected by AnalysisPresenter
+        std::function<void(int, int, const std::string&, const std::string&)> generic_progress;
+        generic_progress = [this](int current, int total, const std::string& status, const std::string& sub_status) {
+            int pct = (total > 0) ? (current * 100 / total) : 0;
+            std::string combined_status = status;
+            if (!sub_status.empty()) {
+                combined_status += " - " + sub_status;
+            }
+            statusLabel_->setText(QString::fromStdString(combined_status));
+            progressBar_->setValue(pct);
+        };
+
+        result = presenter_->runGenericAnalysis(
+            tool_id_,
+            node_id_,
+            source_type,
+            parameters,
+            additional_context,
+            generic_progress
+        );
+    }
     
     last_result_ = result;
     displayResults(result);

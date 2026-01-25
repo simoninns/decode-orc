@@ -48,6 +48,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
+# Include MVP enforcement utilities
+include(${CMAKE_SOURCE_DIR}/cmake/MVPEnforcement.cmake)
+
 # Common types (shared across all layers)
 add_subdirectory(common)
 
@@ -94,6 +97,34 @@ if(BUILD_GUI)
     
     add_subdirectory(gui)
 endif()
+
+# =============================================================================
+# MVP Architecture Validation
+# =============================================================================
+# Add custom target to check MVP violations
+# Run with: cmake --build build --target check-mvp
+# Or manually: ./check_mvp_architecture.sh
+add_custom_target(check-mvp
+    COMMAND ${CMAKE_SOURCE_DIR}/check_mvp_architecture.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Validating MVP architecture boundaries..."
+    VERBATIM
+)
+
+# Fast check without compiler tests (for CI/quick validation)
+add_custom_target(check-mvp-fast
+    COMMAND ${CMAKE_SOURCE_DIR}/check_mvp_architecture.sh --skip-compiler-tests
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Quick MVP validation (skip compiler tests)..."
+    VERBATIM
+)
+
+# Optional: Uncomment to enforce MVP check before every GUI/CLI build
+# This adds ~1 second overhead per build but catches violations immediately
+# if(BUILD_GUI)
+#     add_dependencies(orc-gui check-mvp-fast)
+# endif()
+# add_dependencies(orc-cli check-mvp-fast)
 
 # Doxygen documentation (optional)
 if(BUILD_DOCS)

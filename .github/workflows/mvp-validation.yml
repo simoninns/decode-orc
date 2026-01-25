@@ -1,0 +1,46 @@
+name: MVP Architecture Validation
+
+on:
+  pull_request:
+    paths:
+      - 'orc/presenters/include/**'
+      - 'orc/gui/**'
+      - 'orc/cli/**'
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  check-mvp-violations:
+    runs-on: ubuntu-latest
+    name: Check MVP Architecture Boundaries
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run MVP Architecture Validation
+        run: |
+          chmod +x check_mvp_architecture.sh
+          ./check_mvp_architecture.sh
+      
+      - name: Check for Direct Core Dependencies in CMake
+        run: |
+          # Verify GUI/CLI don't link core directly
+          if grep -r "orc-core" orc/gui/CMakeLists.txt orc/cli/CMakeLists.txt | grep -v "#\|PRIVATE.*orc-presenters"; then
+            echo "❌ VIOLATION: GUI or CLI directly depends on orc-core"
+            echo "   They should only depend on orc-presenters"
+            exit 1
+          fi
+          echo "✅ No direct core dependencies found"
+      
+      - name: Summary
+        if: success()
+        run: |
+          echo "✅ All MVP architecture checks passed!"
+          echo ""
+          echo "Verified:"
+          echo "  - No core types in presenter public interfaces"
+          echo "  - No core types referenced in GUI code"
+          echo "  - Compile guards prevent direct core header inclusion"
+          echo "  - GUI/CLI only link presenters, not core"

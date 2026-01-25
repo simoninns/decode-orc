@@ -8,6 +8,7 @@
  */
 
 #include "ffmpegpresetdialog.h"
+#include "logging.h"
 #include <QFormLayout>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -18,6 +19,7 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <set>
+#include <map>
 
 FFmpegPresetDialog::FFmpegPresetDialog(QWidget *parent)
     : ConfigDialogBase("FFmpeg Export Preset Configuration", parent),
@@ -485,29 +487,36 @@ void FFmpegPresetDialog::update_preset_description()
 
 void FFmpegPresetDialog::detect_available_hardware_encoders()
 {
+    ORC_LOG_DEBUG("FFmpegPresetDialog: Probing for available hardware encoders...");
+    
     // Probe FFmpeg for available encoders by calling ffmpeg -encoders
     QProcess ffmpeg;
     ffmpeg.start("ffmpeg", QStringList() << "-encoders");
     
     if (!ffmpeg.waitForStarted(3000)) {
         // FFmpeg not found or failed to start - fall back to platform heuristics
+        ORC_LOG_WARN("FFmpegPresetDialog: FFmpeg not available, using platform heuristics");
         #ifdef __linux__
             available_hw_encoders_.push_back("vaapi");
+            ORC_LOG_DEBUG("FFmpegPresetDialog: Added fallback encoder: vaapi");
         #endif
         
         #ifdef __APPLE__
             available_hw_encoders_.push_back("videotoolbox");
+            ORC_LOG_DEBUG("FFmpegPresetDialog: Added fallback encoder: videotoolbox");
         #endif
         return;
     }
     
     if (!ffmpeg.waitForFinished(5000)) {
+        ORC_LOG_WARN("FFmpegPresetDialog: FFmpeg -encoders command timed out");
         ffmpeg.kill();
         return;
     }
     
     // Parse ffmpeg output to detect hardware encoders
     QString output = QString::fromUtf8(ffmpeg.readAllStandardOutput());
+    ORC_LOG_DEBUG("FFmpegPresetDialog: Successfully retrieved encoder list from FFmpeg");
     
     // Hardware encoder patterns to look for
     // Format: "V..... encoder_name    Description"
@@ -542,6 +551,7 @@ void FFmpegPresetDialog::detect_available_hardware_encoders()
     
     // Track which hardware encoder types we've found
     std::set<QString> found_encoders;
+    std::map<QString, std::vector<QString>> found_encoder_details; // Track which specific encoders were found
     
     // Parse each line looking for hardware encoders
     QStringList lines = output.split('\n');
@@ -555,7 +565,19 @@ void FFmpegPresetDialog::detect_available_hardware_encoders()
         for (const auto& hw : hw_encoders) {
             if (line.contains(hw.pattern)) {
                 found_encoders.insert(hw.identifier);
+                found_encoder_details[hw.identifier].push_back(hw.pattern);
             }
+        }
+    }
+    
+    // Log what we found
+    if (found_encoders.empty()) {
+        ORC_LOG_DEBUG("FFmpegPresetDialog: No hardware encoders detected");
+    } else {
+        ORC_LOG_DEBUG("FFmpegPresetDialog: Detected {} hardware encoder type(s)", found_encoders.size());
+        for (const auto& [type, encoders] : found_encoder_details) {
+            QString encoder_list = QStringList(encoders.begin(), encoders.end()).join(", ");
+            ORC_LOG_DEBUG("FFmpegPresetDialog:   {}: [{}]", type.toStdString(), encoder_list.toStdString());
         }
     }
     
@@ -567,13 +589,23 @@ void FFmpegPresetDialog::detect_available_hardware_encoders()
     // If no hardware encoders found but we're on a platform that typically has them,
     // add platform defaults as fallback
     if (available_hw_encoders_.empty()) {
+        ORC_LOG_DEBUG("FFmpegPresetDialog: No hardware encoders found, adding platform defaults");
         #ifdef __linux__
             available_hw_encoders_.push_back("vaapi");
+            ORC_LOG_DEBUG("FFmpegPresetDialog:   Added platform default: vaapi");
         #endif
         
         #ifdef __APPLE__
             available_hw_encoders_.push_back("videotoolbox");
+            ORC_LOG_DEBUG("FFmpegPresetDialog:   Added platform default: videotoolbox");
         #endif
+    }
+    
+    // Log final summary
+    if (available_hw_encoders_.empty()) {
+        ORC_LOG_INFO("FFmpegPresetDialog: No hardware encoders available");
+    } else {
+        ORC_LOG_INFO("FFmpegPresetDialog: {} hardware encoder type(s) available", available_hw_encoders_.size());
     }
 }
 

@@ -8,12 +8,12 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 
 ## Summary
 
-- **Total items tracked:** 21 (down from 24)
-- **Active implementation gaps:** 7 (items #3, #6, #7, #8, #16, #17, #4)
+- **Total items tracked:** 20 (down from 21)
+- **Active implementation gaps:** 6 (items #6, #7, #8, #16, #17, #4)
 - **Working code with TODOs:** 9 (items #2, #5, #9, #10, #11, #12, #13, #22, #23)
 - **Known bugs/hacks:** 5 (items #18, #19, #20, #21, #23)
 - **Aspirational features:** 1 (item #14)
-- **Resolved and removed:** 3 (observer system refactor, IRE level scaling, parameter dependency logic - removed 25 Jan 2026)
+- **Resolved and removed:** 4 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing - removed 25 Jan 2026)
 
 **Key Findings:**
 - Most TODOs are legitimate and still active
@@ -28,10 +28,6 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 2. **Y/C Sample Separation** - `orc/gui/render_coordinator.cpp:632`
    - TODO: Extend RenderPresenter to provide Y/C samples separately
    - Context: Render coordination needs separate luminance/chrominance access
-
-3. **FFmpeg Codec Probing** - `orc/gui/ffmpegpresetdialog.cpp:489`
-   - TODO: Actually probe FFmpeg codecs using `avcodec_find_encoder_by_name`
-   - Context: FFmpeg preset dialog should validate available codecs
 
 4. **Custom Range Parsing** - `orc/gui/masklineconfigdialog.cpp:257`
    - TODO: Parse custom ranges for the custom section
@@ -154,7 +150,6 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 
 ### High (Feature Completeness)
 - Dropout correction explicit lists (#8) - **Active implementation gap**
-- FFmpeg codec probing (#3) - **Active implementation gap**
 - Observation serialization (#16) - **Active implementation gap**
 
 ### Medium (Enhancements)
@@ -190,6 +185,11 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 ## Changelog
 
 ### 25 January 2026
+- **Implemented:** Item #3 (FFmpeg Codec Probing) - FFmpegPresetDialog now probes available encoders
+  - Calls `ffmpeg -encoders` subprocess to detect available hardware encoders
+  - Parses output to identify NVENC, QuickSync, AMF, VA-API, and VideoToolbox encoders
+  - Falls back to platform-based heuristics if FFmpeg is unavailable
+  - Added includes: `<QProcess>`, `<QRegularExpression>`, and `<set>`
 - **Removed:** Item #24 (Observer system refactor) - Completed, stale TODOs cleaned up
 - **Fixed:** Item #15 (IRE Level Scaling) - PreviewRenderer now uses proper IRE scaling from metadata
   - Updated `PreviewRenderer::tbc_sample_to_8bit()` to accept blackIRE and whiteIRE parameters

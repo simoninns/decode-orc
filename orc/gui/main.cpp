@@ -277,8 +277,7 @@ int main(int argc, char *argv[])
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
     ORC_LOG_DEBUG("GNOME theme detected: {}", isDark ? "dark" : "light");
 
-    // TODO(MVP Phase 4): Re-enable crash handler after moving to common/public
-    /* // Initialize crash handler
+    // Initialize crash handler
     orc::CrashHandlerConfig crash_config;
     crash_config.application_name = "orc-gui";
     crash_config.version = ORC_VERSION;
@@ -310,7 +309,6 @@ int main(int argc, char *argv[])
         ORC_LOG_DEBUG("Crash handler initialized - bundles will be saved to: {}",
                       crash_config.output_directory);
     }
-    */
 
     MainWindow window;
     window.show();
@@ -363,7 +361,6 @@ int main(int argc, char *argv[])
     int result = app.exec();
     ORC_LOG_INFO("orc-gui exiting");
 
-    // Crash handler cleanup removed - not currently in use
-    // orc::cleanup_crash_handler();
+    orc::cleanup_crash_handler();
     return result;
 }

@@ -164,9 +164,16 @@ static std::string get_backtrace() {
     char** strings = backtrace_symbols(buffer, nptrs);
     
     if (strings != nullptr) {
+        trace << "Raw backtrace (use addr2line for source locations):\n";
         for (int i = 0; i < nptrs; i++) {
-            trace << strings[i] << "\n";
+            trace << "#" << std::setw(2) << i << " " << strings[i] << "\n";
         }
+        trace << "\nTo resolve addresses to source code lines, use:\n";
+        trace << "  addr2line -e <binary> -f -C -p <address>\n";
+        trace << "Or use gdb:\n";
+        trace << "  gdb <binary> -ex 'set confirm off' -ex 'bt' -ex quit <coredump>\n";
+        trace << "\n";
+        trace << "Note: Binary has debug symbols (not stripped)\n";
         free(strings);
     } else {
         trace << "Unable to obtain backtrace\n";
@@ -354,16 +361,32 @@ static std::string create_bundle_zip(const std::string& crash_info_content,
         readme << "=== Crash Diagnostic Bundle ===\n\n";
         readme << "This bundle contains diagnostic information about a crash in " 
                << g_crash_config.application_name << ".\n\n";
-        readme << "To report this issue:\n";
+        readme << "DEBUGGING INSTRUCTIONS:\n";
+        readme << "------------------------\n";
+        readme << "The binary has debug symbols. To analyze the crash:\n\n";
+        readme << "1. Extract addresses from the backtrace in crash_info.txt\n";
+        readme << "2. Use addr2line to get source locations:\n";
+        readme << "     addr2line -e /path/to/" << g_crash_config.application_name 
+               << " -f -C -p <address>\n\n";
+        readme << "3. Or use gdb with the coredump:\n";
+        readme << "     gdb /path/to/" << g_crash_config.application_name << " coredump\n";
+        readme << "     (gdb) bt        # Show backtrace\n";
+        readme << "     (gdb) bt full   # Show backtrace with variables\n";
+        readme << "     (gdb) info registers  # Show CPU registers\n";
+        readme << "     (gdb) frame N   # Select frame N from backtrace\n";
+        readme << "     (gdb) list      # Show source code around that frame\n\n";
+        readme << "TO REPORT THIS ISSUE:\n";
+        readme << "---------------------\n";
         readme << "1. Go to https://github.com/simoninns/decode-orc/issues\n";
         readme << "2. Click 'New Issue'\n";
         readme << "3. Attach this ZIP file or upload it to a file sharing service\n";
         readme << "4. Include crash_info.txt contents in the issue description\n";
         readme << "5. Describe what you were doing when the crash occurred\n\n";
-        readme << "Files in this bundle:\n";
+        readme << "FILES IN THIS BUNDLE:\n";
+        readme << "---------------------\n";
         readme << "- crash_info.txt: System info, backtrace, and error details\n";
         readme << "- *.log: Application log files (if available)\n";
-        readme << "- coredump: Core dump file (if available)\n";
+        readme << "- coredump: Core dump file (if available, use with gdb)\n";
         readme.close();
         
         // Create ZIP file using system zip command

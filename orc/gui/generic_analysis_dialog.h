@@ -29,6 +29,7 @@ namespace orc::presenters {
     class SourceAlignmentPresenter;
     class MaskLinePresenter;
     class FFmpegPresetPresenter;
+    class DropoutEditorPresenter;
 }
 
 namespace orc {
@@ -81,6 +82,7 @@ private:
     orc::presenters::SourceAlignmentPresenter* source_alignment_presenter_;  // Owned (if used)
     orc::presenters::MaskLinePresenter* mask_line_presenter_;  // Owned (if used)
     orc::presenters::FFmpegPresetPresenter* ffmpeg_preset_presenter_;  // Owned (if used)
+    orc::presenters::DropoutEditorPresenter* dropout_editor_presenter_;  // Owned (if used)
     orc::Project* project_;  // Not owned
     orc::NodeID node_id_;
     orc::public_api::AnalysisResult last_result_;

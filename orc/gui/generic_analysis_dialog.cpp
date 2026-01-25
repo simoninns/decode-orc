@@ -5,6 +5,7 @@
 #include "presenters/include/source_alignment_presenter.h"
 #include "presenters/include/mask_line_presenter.h"
 #include "presenters/include/ffmpeg_preset_presenter.h"
+#include "presenters/include/dropout_editor_presenter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -25,6 +26,7 @@ GenericAnalysisDialog::GenericAnalysisDialog(
             presenter_(presenter), field_corruption_presenter_(nullptr),
             disc_mapper_presenter_(nullptr), source_alignment_presenter_(nullptr),
             mask_line_presenter_(nullptr), ffmpeg_preset_presenter_(nullptr),
+            dropout_editor_presenter_(nullptr),
       project_(project), node_id_(node_id) {
     
         // Create specialized presenters when needed
@@ -38,6 +40,8 @@ GenericAnalysisDialog::GenericAnalysisDialog(
         mask_line_presenter_ = new orc::presenters::MaskLinePresenter(project_);
     } else if (tool_id_ == "ffmpeg_preset_config") {
         ffmpeg_preset_presenter_ = new orc::presenters::FFmpegPresetPresenter(project_);
+    } else if (tool_id_ == "dropout_editor") {
+        dropout_editor_presenter_ = new orc::presenters::DropoutEditorPresenter(project_);
     }
     
     setupUI();
@@ -53,6 +57,7 @@ GenericAnalysisDialog::~GenericAnalysisDialog() {
     delete source_alignment_presenter_;
     delete mask_line_presenter_;
     delete ffmpeg_preset_presenter_;
+    delete dropout_editor_presenter_;
 }
 
 void GenericAnalysisDialog::setupUI() {
@@ -291,6 +296,8 @@ void GenericAnalysisDialog::runAnalysis() {
         result = mask_line_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else if (ffmpeg_preset_presenter_) {
         result = ffmpeg_preset_presenter_->runAnalysis(node_id_, parameters, progress_callback);
+    } else if (dropout_editor_presenter_) {
+        result = dropout_editor_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else {
         // Use generic analysis presenter for other tools
         std::map<std::string, orc::ParameterValue> additional_context;

@@ -12,6 +12,7 @@ add_library(orc-presenters STATIC
     src/disc_mapper_presenter.cpp
     src/mask_line_presenter.cpp
     src/ffmpeg_preset_presenter.cpp
+    src/dropout_editor_presenter.cpp
     src/hints_presenter.cpp
     src/hints_view_models.cpp
     src/dropout_presenter.cpp
@@ -42,6 +43,7 @@ target_include_directories(orc-presenters
     PRIVATE
         # Core headers are private - only presenters can see them
         ${CMAKE_SOURCE_DIR}/orc/core/include
+        ${CMAKE_SOURCE_DIR}/orc/core/analysis
         ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
         ${CMAKE_SOURCE_DIR}/orc/public
 )

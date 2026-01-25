@@ -15,6 +15,9 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QDir>
+#include <QProcess>
+#include <QRegularExpression>
+#include <set>
 
 FFmpegPresetDialog::FFmpegPresetDialog(QWidget *parent)
     : ConfigDialogBase("FFmpeg Export Preset Configuration", parent),
@@ -482,27 +485,96 @@ void FFmpegPresetDialog::update_preset_description()
 
 void FFmpegPresetDialog::detect_available_hardware_encoders()
 {
-    // This is a simplified detection - in a real implementation, you'd
-    // probe FFmpeg for available encoders
+    // Probe FFmpeg for available encoders by calling ffmpeg -encoders
+    QProcess ffmpeg;
+    ffmpeg.start("ffmpeg", QStringList() << "-encoders");
     
-    // For now, just check common ones
-    // TODO: Actually probe FFmpeg codecs using avcodec_find_encoder_by_name
+    if (!ffmpeg.waitForStarted(3000)) {
+        // FFmpeg not found or failed to start - fall back to platform heuristics
+        #ifdef __linux__
+            available_hw_encoders_.push_back("vaapi");
+        #endif
+        
+        #ifdef __APPLE__
+            available_hw_encoders_.push_back("videotoolbox");
+        #endif
+        return;
+    }
     
-    #ifdef __linux__
-        // Check for VA-API
-        available_hw_encoders_.push_back("vaapi");
-    #endif
+    if (!ffmpeg.waitForFinished(5000)) {
+        ffmpeg.kill();
+        return;
+    }
     
-    #ifdef __APPLE__
-        // VideoToolbox is usually available on macOS
-        available_hw_encoders_.push_back("videotoolbox");
-    #endif
+    // Parse ffmpeg output to detect hardware encoders
+    QString output = QString::fromUtf8(ffmpeg.readAllStandardOutput());
     
-    // Note: Real implementation should probe:
-    // - NVENC (nvidia)
-    // - QuickSync (qsv)
-    // - AMF (amd)
-    // by trying to create encoders
+    // Hardware encoder patterns to look for
+    // Format: "V..... encoder_name    Description"
+    // The first character is 'V' for video encoders
+    struct HWEncoder {
+        QString pattern;        // Regex pattern to match encoder name
+        QString identifier;     // Internal identifier we use
+    };
+    
+    std::vector<HWEncoder> hw_encoders = {
+        // NVIDIA NVENC
+        {"h264_nvenc", "nvenc"},
+        {"hevc_nvenc", "nvenc"},
+        
+        // Intel QuickSync
+        {"h264_qsv", "qsv"},
+        {"hevc_qsv", "qsv"},
+        
+        // AMD AMF
+        {"h264_amf", "amf"},
+        {"hevc_amf", "amf"},
+        
+        // VA-API (Linux)
+        {"h264_vaapi", "vaapi"},
+        {"hevc_vaapi", "vaapi"},
+        
+        // Apple VideoToolbox
+        {"h264_videotoolbox", "videotoolbox"},
+        {"hevc_videotoolbox", "videotoolbox"},
+        {"prores_videotoolbox", "videotoolbox"},
+    };
+    
+    // Track which hardware encoder types we've found
+    std::set<QString> found_encoders;
+    
+    // Parse each line looking for hardware encoders
+    QStringList lines = output.split('\n');
+    for (const QString& line : lines) {
+        // Skip header lines and non-video encoders
+        if (!line.contains(QRegularExpression("^\\s*V"))) {
+            continue;
+        }
+        
+        // Check each hardware encoder pattern
+        for (const auto& hw : hw_encoders) {
+            if (line.contains(hw.pattern)) {
+                found_encoders.insert(hw.identifier);
+            }
+        }
+    }
+    
+    // Convert set to vector (removes duplicates)
+    for (const QString& encoder : found_encoders) {
+        available_hw_encoders_.push_back(encoder.toStdString());
+    }
+    
+    // If no hardware encoders found but we're on a platform that typically has them,
+    // add platform defaults as fallback
+    if (available_hw_encoders_.empty()) {
+        #ifdef __linux__
+            available_hw_encoders_.push_back("vaapi");
+        #endif
+        
+        #ifdef __APPLE__
+            available_hw_encoders_.push_back("videotoolbox");
+        #endif
+    }
 }
 
 std::string FFmpegPresetDialog::get_file_extension_for_format(const std::string& format_string) const

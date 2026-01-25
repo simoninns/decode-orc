@@ -8,17 +8,17 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
 
 ## Summary
 
-- **Total items tracked:** 20 (down from 21)
-- **Active implementation gaps:** 6 (items #6, #7, #8, #16, #17, #4)
+- **Total items tracked:** 18 (down from 19)
+- **Active implementation gaps:** 4 (items #8, #16, #17, #4)
 - **Working code with TODOs:** 9 (items #2, #5, #9, #10, #11, #12, #13, #22, #23)
 - **Known bugs/hacks:** 5 (items #18, #19, #20, #21, #23)
 - **Aspirational features:** 1 (item #14)
-- **Resolved and removed:** 4 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing - removed 25 Jan 2026)
+- **Resolved and removed:** 6 (observer system refactor, IRE level scaling, parameter dependency logic, FFmpeg codec probing, audio loading, EFM loading - removed 25 Jan 2026)
 
 **Key Findings:**
 - Most TODOs are legitimate and still active
 - Several are placeholder comments for working-but-suboptimal code
-- Audio/EFM loading are the most significant missing features
+- Audio and EFM loading have been implemented for YC sources
 - PAL color decoder has several unexplained constants requiring research
 
 ## High Priority Implementation Items
@@ -34,18 +34,6 @@ This document tracks TODO comments, HACKs, and missing implementations found in 
    - Context: Main window coordinate transformation
 
 ## Core Library Missing Features
-
-### Media Loading
-
-6. **Audio Loading** - `orc/core/tbc_yc_video_field_representation.cpp:558`
-   - TODO: Implement audio loading
-   - Current: `has_audio_ = false;` (hardcoded)
-   - Context: TBC Y/C video field representation
-
-7. **EFM Loading** - `orc/core/tbc_yc_video_field_representation.cpp:580`
-   - TODO: Implement EFM loading
-   - Current: `has_efm_ = false;` (hardcoded)
-   - Context: LaserDisc EFM data extraction
 
 ### Stage Implementations
 
@@ -140,10 +128,6 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 
 ## Priority Assessment
 
-### Critical (Affects Core Functionality)
-- Audio loading (#6) - **Real missing feature**
-- EFM loading (#7) - **Real missing feature**
-
 ### High (Feature Completeness)
 - Dropout correction explicit lists (#8) - **Active implementation gap**
 - Observation serialization (#16) - **Active implementation gap**
@@ -181,6 +165,29 @@ The codebase includes a "HackDAC" sink stage that appears to be a specialized ex
 ## Changelog
 
 ### 25 January 2026
+- **Refactored:** Audio and EFM loading - Eliminated code duplication between TBC representations
+  - Created `TBCAudioEFMHandler` shared helper class for audio/EFM functionality
+  - Both `TBCVideoFieldRepresentation` and `TBCYCVideoFieldRepresentation` now use composition
+  - Removed ~400 lines of duplicated code across both classes
+  - Audio/EFM handling is now centralized in a single, well-tested implementation
+  - Both classes implement `MetadataProvider` interface to provide handler with field metadata access
+  - Architecture: Helper uses dependency injection pattern for clean separation of concerns
+- **Implemented:** Item #7 (EFM Loading) - TBCYCVideoFieldRepresentation now supports EFM data loading
+  - Implemented `set_efm_file()` with full file validation and error handling
+  - Implemented `get_efm_sample_count()` to retrieve t-value counts from metadata
+  - Implemented `get_efm_samples()` to read EFM data with t-value validation (range [3, 11])
+  - Implemented `compute_efm_offsets()` to compute cumulative byte offsets for O(1) access
+  - Uses same architecture as TBCVideoFieldRepresentation (BufferedFileReader, metadata validation)
+  - Validates EFM file size against metadata expectations before accepting file
+  - Each t-value is 1 byte (uint8_t)
+- **Implemented:** Item #6 (Audio Loading) - TBCYCVideoFieldRepresentation now supports PCM audio loading
+  - Implemented `set_audio_file()` with full file validation and error handling
+  - Implemented `get_audio_sample_count()` to retrieve sample counts from metadata
+  - Implemented `get_audio_samples()` to read audio data using buffered I/O
+  - Implemented `compute_audio_offsets()` to compute cumulative byte offsets for O(1) access
+  - Uses same architecture as TBCVideoFieldRepresentation (BufferedFileReader, metadata validation)
+  - Validates PCM file size against metadata expectations before accepting file
+  - Supports stereo 16-bit signed audio (4 bytes per sample)
 - **Implemented:** Item #3 (FFmpeg Codec Probing) - FFmpegPresetDialog now probes available encoders
   - Calls `ffmpeg -encoders` subprocess to detect available hardware encoders
   - Parses output to identify NVENC, QuickSync, AMF, VA-API, and VideoToolbox encoders

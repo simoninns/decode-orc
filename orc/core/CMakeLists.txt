@@ -22,6 +22,7 @@ add_library(orc-core STATIC
     # TBC file I/O
     tbc_reader.cpp
     tbc_metadata.cpp
+    tbc_audio_efm_handler.cpp
     tbc_video_field_representation.cpp
     tbc_yc_video_field_representation.cpp
     

@@ -14,6 +14,7 @@
 #include "video_field_representation.h"
 #include "tbc_reader.h"
 #include "tbc_metadata.h"
+#include "tbc_audio_efm_handler.h"
 #include "lru_cache.h"
 #include "buffered_file_io.h"
 #include <memory>
@@ -69,7 +70,8 @@ namespace orc {
  * 1. Observations (via get_observations()) - from analyzing video data
  * 2. Hints (via get_*_hint()) - from metadata
  */
-class TBCYCVideoFieldRepresentation : public VideoFieldRepresentation {
+class TBCYCVideoFieldRepresentation : public VideoFieldRepresentation,
+                                       public TBCAudioEFMHandler::MetadataProvider {
 public:
     /**
      * @brief Create from separate Y and C TBC files with shared metadata
@@ -168,17 +170,8 @@ private:
     VideoParameters video_params_;
     std::map<FieldID, FieldMetadata> field_metadata_cache_;
     
-    // PCM audio file handle and path
-    std::string pcm_audio_path_;
-    mutable std::unique_ptr<BufferedFileReader<int16_t>> pcm_audio_reader_;
-    mutable std::mutex audio_mutex_;  // Protect audio file access
-    bool has_audio_;
-    
-    // EFM data file handle and path
-    std::string efm_data_path_;
-    mutable std::unique_ptr<BufferedFileReader<uint8_t>> efm_data_reader_;
-    mutable std::mutex efm_mutex_;  // Protect EFM file access
-    bool has_efm_;
+    // Audio and EFM handling delegated to shared handler
+    std::unique_ptr<TBCAudioEFMHandler> audio_efm_handler_;
     
     // Separate line data caches for Y and C channels
     // Cache size: 500 fields × ~1.4MB/field × 2 channels = ~1.4GB max for preview navigation
@@ -189,9 +182,10 @@ private:
     void ensure_video_parameters();
     void ensure_field_metadata();
     
-    // Compute cumulative byte offsets from sample/t-value counts
-    void compute_audio_offsets();
-    void compute_efm_offsets();
+    // MetadataProvider interface implementation
+    std::map<FieldID, FieldMetadata>& get_field_metadata_cache() override {
+        return field_metadata_cache_;
+    }
 };
 
 /**

@@ -13,6 +13,7 @@
 #include "video_field_representation.h"
 #include "tbc_reader.h"
 #include "tbc_metadata.h"
+#include "tbc_audio_efm_handler.h"
 #include "lru_cache.h"
 #include "buffered_file_io.h"
 #include <memory>
@@ -53,7 +54,8 @@ namespace orc {
  * - Testability with synthetic sources
  * - Reusability of stages with different source types
  */
-class TBCVideoFieldRepresentation : public VideoFieldRepresentation {
+class TBCVideoFieldRepresentation : public VideoFieldRepresentation,
+                                     public TBCAudioEFMHandler::MetadataProvider {
 public:
     /**
      * @brief Create from an open TBC file and metadata
@@ -147,24 +149,11 @@ private:
     VideoParameters video_params_;
     std::map<FieldID, FieldMetadata> field_metadata_cache_;
     
-    // PCM audio file handle and path
-    std::string pcm_audio_path_;
-    mutable std::unique_ptr<BufferedFileReader<int16_t>> pcm_audio_reader_;
-    mutable std::mutex audio_mutex_;  // Protect audio file access
-    bool has_audio_;
-    
-    // EFM data file handle and path
-    std::string efm_data_path_;
-    mutable std::unique_ptr<BufferedFileReader<uint8_t>> efm_data_reader_;
-    mutable std::mutex efm_mutex_;  // Protect EFM file access
-    bool has_efm_;
+    // Audio and EFM handling delegated to shared handler
+    std::unique_ptr<TBCAudioEFMHandler> audio_efm_handler_;
     
     // Access to metadata reader for internal use only
     const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
-    
-    // Compute cumulative byte offsets from sample/t-value counts
-    void compute_audio_offsets();
-    void compute_efm_offsets();
     
     // Line data cache (for get_line calls)
     // Cache size: 500 fields × ~1.4MB/field = ~700MB max for preview navigation
@@ -173,6 +162,11 @@ private:
     
     void ensure_video_parameters();
     void ensure_field_metadata();
+    
+    // MetadataProvider interface implementation
+    std::map<FieldID, FieldMetadata>& get_field_metadata_cache() override {
+        return field_metadata_cache_;
+    }
 };
 
 /**

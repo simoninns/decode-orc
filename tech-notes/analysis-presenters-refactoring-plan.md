@@ -318,10 +318,21 @@ Repeat Phase 2 pattern for each tool:
 - GUI integration: Dialog instantiates SourceAlignmentPresenter when tool_id is "source_alignment"
 - Uses same pattern as FieldCorruptionPresenter and DiscMapperPresenter
 
-3.3. **Mask Line Presenter** (1 day)
-- Needs: video format, frame dimensions
-- Implement presenter
-- Integration test
+3.3. **Mask Line Presenter** (1 day) ✅ **COMPLETED 2026-01-25**
+- ✅ Created `/orc/presenters/include/mask_line_presenter.h`
+- ✅ Created `/orc/presenters/src/mask_line_presenter.cpp`
+- ✅ Updated `/orc/presenters/CMakeLists.txt`
+- ✅ Updated `GenericAnalysisDialog` to use `MaskLinePresenter`
+- ✅ Builds successfully - all targets compile
+- ✅ Fully integrated with GUI
+
+**Implementation Notes:**
+- Presenter handles configuration generation (instant tool, no DAG execution needed)
+- Validates node is a mask_line stage
+- Converts user preset selections to line specification strings
+- Progress adapter implements full AnalysisProgress interface
+- Uses same pattern as other specialized presenters
+- GUI integration: Dialog instantiates MaskLinePresenter when tool_id is "mask_line_config"
 
 3.4. **FFmpeg Preset Presenter** (0.5 days)
 - Simpler tool - just needs stage parameters

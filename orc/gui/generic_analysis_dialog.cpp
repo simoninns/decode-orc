@@ -3,6 +3,7 @@
 #include "presenters/include/field_corruption_presenter.h"
 #include "presenters/include/disc_mapper_presenter.h"
 #include "presenters/include/source_alignment_presenter.h"
+#include "presenters/include/mask_line_presenter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
@@ -22,6 +23,7 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
             presenter_(presenter), field_corruption_presenter_(nullptr),
             disc_mapper_presenter_(nullptr), source_alignment_presenter_(nullptr),
+            mask_line_presenter_(nullptr),
       project_(project), node_id_(node_id) {
     
         // Create specialized presenters when needed
@@ -31,6 +33,8 @@ GenericAnalysisDialog::GenericAnalysisDialog(
                 disc_mapper_presenter_ = new orc::presenters::DiscMapperPresenter(project_);
     } else if (tool_id_ == "source_alignment") {
         source_alignment_presenter_ = new orc::presenters::SourceAlignmentPresenter(project_);
+    } else if (tool_id_ == "mask_line_config") {
+        mask_line_presenter_ = new orc::presenters::MaskLinePresenter(project_);
     }
     
     setupUI();
@@ -44,6 +48,7 @@ GenericAnalysisDialog::~GenericAnalysisDialog() {
     delete field_corruption_presenter_;
     delete disc_mapper_presenter_;
     delete source_alignment_presenter_;
+    delete mask_line_presenter_;
 }
 
 void GenericAnalysisDialog::setupUI() {
@@ -278,6 +283,8 @@ void GenericAnalysisDialog::runAnalysis() {
         result = field_corruption_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else if (source_alignment_presenter_) {
         result = source_alignment_presenter_->runAnalysis(node_id_, parameters, progress_callback);
+    } else if (mask_line_presenter_) {
+        result = mask_line_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else {
         // Use generic analysis presenter for other tools
         std::map<std::string, orc::ParameterValue> additional_context;

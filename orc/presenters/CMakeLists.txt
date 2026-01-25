@@ -10,6 +10,7 @@ add_library(orc-presenters STATIC
     src/field_corruption_presenter.cpp
     src/source_alignment_presenter.cpp
     src/disc_mapper_presenter.cpp
+    src/mask_line_presenter.cpp
     src/hints_presenter.cpp
     src/hints_view_models.cpp
     src/dropout_presenter.cpp

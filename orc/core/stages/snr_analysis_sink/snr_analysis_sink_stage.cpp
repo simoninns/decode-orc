@@ -223,7 +223,7 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
     
     FrameSNRStats current_bin;
     size_t fields_in_bin = 0;
-    int32_t current_frame = 1;
+    int32_t output_frame_number = 1;  // Sequential output frame counter for graph X-axis
 
     for (size_t i = 0; i < total_fields; ++i) {
         if (cancel_requested_.load()) {
@@ -240,9 +240,6 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
         // Run observers on this field to populate observations
         white_snr_observer.process_field(vfr, fid, mutable_context);
         black_psnr_observer.process_field(vfr, fid, mutable_context);
-
-        // Get frame number for this field
-        int32_t frame_num = descriptor->frame_number.value_or(static_cast<int32_t>((fid.value() / 2) + 1));
 
         try {
             // Read SNR values from observation context
@@ -272,21 +269,21 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
         }
 
         fields_in_bin++;
-        current_frame = frame_num;
 
         // When bin is full, output it and reset
         if (fields_in_bin >= fields_per_bin) {
             if (current_bin.has_white_snr || current_bin.has_black_psnr) {
                 if (current_bin.has_white_snr) current_bin.white_snr /= fields_in_bin;
                 if (current_bin.has_black_psnr) current_bin.black_psnr /= fields_in_bin;
-                current_bin.frame_number = current_frame;
+                current_bin.frame_number = output_frame_number;
                 current_bin.has_data = true;
-                ORC_LOG_DEBUG("SNRAnalysisSink: Bucket {} - frame {}: white_snr={:.2f}dB, black_psnr={:.2f}dB ({} fields)",
-                              frame_stats_.size(), current_frame,
+                ORC_LOG_DEBUG("SNRAnalysisSink: Bucket {} - output_frame {}: white_snr={:.2f}dB, black_psnr={:.2f}dB ({} fields)",
+                              frame_stats_.size(), output_frame_number,
                               current_bin.has_white_snr ? current_bin.white_snr : 0.0,
                               current_bin.has_black_psnr ? current_bin.black_psnr : 0.0,
                               fields_in_bin);
                 frame_stats_.push_back(current_bin);
+                output_frame_number++;  // Increment for next data point
             }
             
             current_bin = FrameSNRStats();
@@ -302,10 +299,10 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
     if (fields_in_bin > 0 && (current_bin.has_white_snr || current_bin.has_black_psnr)) {
         if (current_bin.has_white_snr) current_bin.white_snr /= fields_in_bin;
         if (current_bin.has_black_psnr) current_bin.black_psnr /= fields_in_bin;
-        current_bin.frame_number = current_frame;
+        current_bin.frame_number = output_frame_number;
         current_bin.has_data = true;
-        ORC_LOG_DEBUG("SNRAnalysisSink: Final bucket {} - frame {}: white_snr={:.2f}dB, black_psnr={:.2f}dB ({} fields)",
-                      frame_stats_.size(), current_frame,
+        ORC_LOG_DEBUG("SNRAnalysisSink: Final bucket {} - output_frame {}: white_snr={:.2f}dB, black_psnr={:.2f}dB ({} fields)",
+                      frame_stats_.size(), output_frame_number,
                       current_bin.has_white_snr ? current_bin.white_snr : 0.0,
                       current_bin.has_black_psnr ? current_bin.black_psnr : 0.0,
                       fields_in_bin);

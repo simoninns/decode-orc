@@ -203,7 +203,7 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
 
     FrameBurstLevelStats current_bin{};
     size_t fields_in_bin = 0;
-    int32_t current_frame = 1;
+    int32_t output_frame_number = 1;  // Sequential output frame counter for graph X-axis
 
     for (size_t i = 0; i < total_fields; ++i) {
         if (cancel_requested_.load()) {
@@ -236,23 +236,19 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
             ORC_LOG_WARN("BurstLevelAnalysisSink: Exception reading observations for field {}: {}", fid.value(), e.what());
         }
 
-        int32_t frame_num = descriptor->frame_number.value_or(static_cast<int32_t>((fid.value() / 2) + 1));
-
         current_bin.field_count++;
-        current_frame = frame_num;
         fields_in_bin++;
 
         if (fields_in_bin >= fields_per_bin) {
             if (current_bin.field_count > 0 && current_bin.has_data) {
                 current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
+                current_bin.frame_number = output_frame_number;
+                ORC_LOG_DEBUG("BurstLevelAnalysisSink: Bucket {} - output_frame {}: median_burst_ire={:.2f} IRE ({} fields)",
+                              frame_stats_.size(), output_frame_number,
+                              current_bin.median_burst_ire, current_bin.field_count);
+                frame_stats_.push_back(current_bin);
+                output_frame_number++;  // Increment for next data point
             }
-
-            current_bin.frame_number = current_frame;
-            ORC_LOG_DEBUG("BurstLevelAnalysisSink: Bucket {} - frame {}: median_burst_ire={:.2f} IRE ({} fields)",
-                          frame_stats_.size(), current_frame,
-                          current_bin.has_data ? current_bin.median_burst_ire : 0.0,
-                          current_bin.field_count);
-            frame_stats_.push_back(current_bin);
 
             current_bin = FrameBurstLevelStats();
             fields_in_bin = 0;
@@ -264,15 +260,12 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
     }
 
     // Output final partial bin if any fields were accumulated
-    if (fields_in_bin > 0) {
-        if (current_bin.field_count > 0 && current_bin.has_data) {
-            current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
-        }
-        current_bin.frame_number = current_frame;
-        ORC_LOG_DEBUG("BurstLevelAnalysisSink: Final bucket {} - frame {}: median_burst_ire={:.2f} IRE ({} fields)",
-                      frame_stats_.size(), current_frame,
-                      current_bin.has_data ? current_bin.median_burst_ire : 0.0,
-                      current_bin.field_count);
+    if (fields_in_bin > 0 && current_bin.field_count > 0 && current_bin.has_data) {
+        current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
+        current_bin.frame_number = output_frame_number;
+        ORC_LOG_DEBUG("BurstLevelAnalysisSink: Final bucket {} - output_frame {}: median_burst_ire={:.2f} IRE ({} fields)",
+                      frame_stats_.size(), output_frame_number,
+                      current_bin.median_burst_ire, current_bin.field_count);
         frame_stats_.push_back(current_bin);
     }
 

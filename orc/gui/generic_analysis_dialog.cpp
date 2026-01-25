@@ -283,7 +283,7 @@ void GenericAnalysisDialog::runAnalysis() {
         progressBar_->setValue(percentage);
     };
     
-    // Run analysis using specialized presenter if available
+    // Run analysis using specialized presenter
     orc::public_api::AnalysisResult result;
     
     if (disc_mapper_presenter_) {
@@ -299,30 +299,9 @@ void GenericAnalysisDialog::runAnalysis() {
     } else if (dropout_editor_presenter_) {
         result = dropout_editor_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else {
-        // Use generic analysis presenter for other tools
-        std::map<std::string, orc::ParameterValue> additional_context;
-        orc::public_api::AnalysisSourceType source_type = orc::public_api::AnalysisSourceType::LaserDisc;
-
-        // Adapt progress callback signature expected by AnalysisPresenter
-        std::function<void(int, int, const std::string&, const std::string&)> generic_progress;
-        generic_progress = [this](int current, int total, const std::string& status, const std::string& sub_status) {
-            int pct = (total > 0) ? (current * 100 / total) : 0;
-            std::string combined_status = status;
-            if (!sub_status.empty()) {
-                combined_status += " - " + sub_status;
-            }
-            statusLabel_->setText(QString::fromStdString(combined_status));
-            progressBar_->setValue(pct);
-        };
-
-        result = presenter_->runGenericAnalysis(
-            tool_id_,
-            node_id_,
-            source_type,
-            parameters,
-            additional_context,
-            generic_progress
-        );
+        // Unknown tool - should not happen if all tools have specialized presenters
+        result.status = orc::public_api::AnalysisResult::Status::Failed;
+        result.summary = "No specialized presenter available for tool: " + tool_id_;
     }
     
     last_result_ = result;
@@ -362,7 +341,7 @@ void GenericAnalysisDialog::applyResults() {
         return;
     }
     
-    // Apply results using the specialized presenter if available
+    // Apply results using the specialized presenter
     // This ensures the core tool's applyToGraph logic is executed
     bool applied = false;
     
@@ -372,12 +351,6 @@ void GenericAnalysisDialog::applyResults() {
         applied = disc_mapper_presenter_->applyResultToGraph(last_result_, node_id_);
     } else if (source_alignment_presenter_) {
         applied = source_alignment_presenter_->applyResultToGraph(last_result_, node_id_);
-    } else if (presenter_) {
-        // Fallback to generic presenter (though this shouldn't happen for modern tools)
-        // The mainwindow will handle this case
-        emit applyResultsRequested(last_result_);
-        accept();
-        return;
     }
     
     if (!applied) {

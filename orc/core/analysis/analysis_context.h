@@ -38,9 +38,6 @@ struct AnalysisContext {
     // DAG execution context - preferred over source_file
     std::shared_ptr<DAG> dag;           // DAG to execute
     std::shared_ptr<Project> project;   // Project for node metadata
-    
-    // Stage-specific additional context (e.g., input field count for field_map stage)
-    std::map<std::string, ParameterValue> additional_context;
 };
 
 } // namespace orc

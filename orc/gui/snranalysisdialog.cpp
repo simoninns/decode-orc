@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QStackedLayout>
 #include <QtMath>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -189,12 +190,20 @@ void SNRAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
     
     // Set the data for both series with theme-aware colors
     if (!whitePoints_.isEmpty()) {
+        // Sort points by X-coordinate (frame number) to ensure proper line drawing
+        std::sort(whitePoints_.begin(), whitePoints_.end(), 
+                  [](const QPointF& a, const QPointF& b) { return a.x() < b.x(); });
+        
         QColor whiteColor = PlotWidget::isDarkTheme() ? Qt::green : Qt::darkGreen;
         whiteSNRSeries_->setPen(QPen(whiteColor, 2));
         whiteSNRSeries_->setData(whitePoints_);
     }
     
     if (!blackPoints_.isEmpty()) {
+        // Sort points by X-coordinate (frame number) to ensure proper line drawing
+        std::sort(blackPoints_.begin(), blackPoints_.end(), 
+                  [](const QPointF& a, const QPointF& b) { return a.x() < b.x(); });
+        
         QColor blackColor = PlotWidget::isDarkTheme() ? Qt::cyan : Qt::darkBlue;
         blackPSNRSeries_->setPen(QPen(blackColor, 2));
         blackPSNRSeries_->setData(blackPoints_);

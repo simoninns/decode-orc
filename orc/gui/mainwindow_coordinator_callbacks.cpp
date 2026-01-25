@@ -236,21 +236,27 @@ void MainWindow::onTriggerProgress(size_t current, size_t total, QString message
         return;
     }
     
-    // Store pointer locally and check validity before each use
-    // This protects against the dialog being deleted mid-function
-    QPointer<QProgressDialog> dialog = trigger_progress_dialog_;
-    if (!dialog || total == 0) {
+    // Check validity - don't make a local copy of QPointer as it won't track deletion
+    // We must check the member variable directly each time to ensure Qt's tracking works
+    if (!trigger_progress_dialog_ || total == 0) {
         return;
     }
     
     int percentage = static_cast<int>((current * 100) / total);
     
-    // Re-check before each call in case dialog was deleted
-    if (dialog) {
-        dialog->setValue(percentage);
+    // Prevent setting value to 100 which would trigger reset() - let onTriggerComplete handle cleanup
+    // QProgressDialog calls reset() internally when value reaches maximum, which can cause crashes
+    // if the dialog is being deleted or is in an invalid state
+    if (percentage >= 100) {
+        percentage = 99;  // Cap at 99% to prevent automatic reset()
     }
-    if (dialog) {
-        dialog->setLabelText(message);
+    
+    // Re-check member variable directly before each call in case dialog was deleted
+    if (trigger_progress_dialog_) {
+        trigger_progress_dialog_->setValue(percentage);
+    }
+    if (trigger_progress_dialog_) {
+        trigger_progress_dialog_->setLabelText(message);
     }
 }
 
@@ -266,13 +272,16 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
     // This ensures onTriggerProgress will ignore any queued signals
     pending_trigger_request_id_ = 0;
     
-    // Close and delete progress dialog immediately (not deleteLater)
-    // Using delete instead of deleteLater ensures the object is truly gone
-    // and QPointer will be nulled immediately
+    // Close and delete progress dialog safely
     if (trigger_progress_dialog_) {
+        // Disconnect and block all signals from the dialog to prevent any callbacks during destruction
+        disconnect(trigger_progress_dialog_, nullptr, this, nullptr);
+        trigger_progress_dialog_->blockSignals(true);
+        // Reset to 0 before deletion to prevent any internal reset() call
+        trigger_progress_dialog_->setValue(0);
         trigger_progress_dialog_->hide();
-        delete trigger_progress_dialog_;  // Immediate deletion, not deferred
-        // QPointer automatically becomes null after delete
+        trigger_progress_dialog_->deleteLater();  // Use deleteLater for safe asynchronous deletion
+        // QPointer will be nulled when dialog is deleted
     }
     
     // If trigger was successful, automatically create dialog and request analysis data for display
@@ -375,6 +384,7 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
     if (prog_it != dropout_progress_dialogs_.end() && prog_it->second) {
         prog_it->second->close();
         prog_it->second->deleteLater();
+        dropout_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
     }
     
     // Find the dialog for this stage
@@ -435,6 +445,7 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     if (prog_it != snr_progress_dialogs_.end() && prog_it->second) {
         prog_it->second->close();
         prog_it->second->deleteLater();
+        snr_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
     }
     
     // Find the dialog for this stage
@@ -481,7 +492,12 @@ void MainWindow::onDropoutProgress(size_t current, size_t total, QString message
     for (auto& pair : dropout_progress_dialogs_) {
         if (pair.second) {
             pair.second->setMaximum(static_cast<int>(total));
-            pair.second->setValue(static_cast<int>(current));
+            // Cap current to prevent reaching 100% which triggers internal reset()
+            int value = static_cast<int>(current);
+            if (total > 0 && value >= static_cast<int>(total)) {
+                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
+            }
+            pair.second->setValue(value);
             pair.second->setLabelText(message);
         }
     }
@@ -493,7 +509,12 @@ void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
     for (auto& pair : snr_progress_dialogs_) {
         if (pair.second) {
             pair.second->setMaximum(static_cast<int>(total));
-            pair.second->setValue(static_cast<int>(current));
+            // Cap current to prevent reaching 100% which triggers internal reset()
+            int value = static_cast<int>(current);
+            if (total > 0 && value >= static_cast<int>(total)) {
+                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
+            }
+            pair.second->setValue(value);
             pair.second->setLabelText(message);
         }
     }
@@ -521,6 +542,7 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
     if (prog_it != burst_level_progress_dialogs_.end() && prog_it->second) {
         prog_it->second->close();
         prog_it->second->deleteLater();
+        burst_level_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
     }
     
     // Find the dialog for this stage
@@ -565,7 +587,12 @@ void MainWindow::onBurstLevelProgress(size_t current, size_t total, QString mess
     for (auto& pair : burst_level_progress_dialogs_) {
         if (pair.second) {
             pair.second->setMaximum(static_cast<int>(total));
-            pair.second->setValue(static_cast<int>(current));
+            // Cap current to prevent reaching 100% which triggers internal reset()
+            int value = static_cast<int>(current);
+            if (total > 0 && value >= static_cast<int>(total)) {
+                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
+            }
+            pair.second->setValue(value);
             pair.second->setLabelText(message);
         }
     }

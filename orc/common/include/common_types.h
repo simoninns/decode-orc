@@ -130,7 +130,7 @@ struct FieldSNRStats {
  * @brief SNR statistics aggregated for a frame (two fields)
  */
 struct FrameSNRStats {
-    int32_t frame_number;                 ///< Frame number (1-based)
+    int32_t frame_number = 0;             ///< Frame number (1-based)
     double white_snr = 0.0;               ///< Average white SNR (dB)
     double black_psnr = 0.0;              ///< Average black PSNR (dB)
     bool has_white_snr = false;           ///< True if white SNR data is available
@@ -153,7 +153,7 @@ struct FieldBurstLevelStats {
  * @brief Burst level statistics aggregated for a frame (two fields)
  */
 struct FrameBurstLevelStats {
-    int32_t frame_number;                 ///< Frame number (1-based)
+    int32_t frame_number = 0;             ///< Frame number (1-based)
     double median_burst_ire = 0.0;        ///< Average burst level from both fields (IRE)
     bool has_data = false;                ///< True if at least one field had data
     size_t field_count = 0;               ///< Number of fields with data (for averaging)

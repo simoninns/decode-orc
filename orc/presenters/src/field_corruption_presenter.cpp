@@ -165,10 +165,6 @@ orc::public_api::AnalysisResult FieldCorruptionPresenter::runAnalysis(
     ctx.dag = dag;
     ctx.parameters = parameters;
     
-    // Add field count to additional_context (for backward compatibility)
-    // Note: The tool will primarily use DAG execution, but this is a fallback
-    ctx.additional_context["input_field_count"] = static_cast<int32_t>(field_count);
-    
     if (progress_callback) {
         progress_callback(30, "Running field corruption analysis...");
     }

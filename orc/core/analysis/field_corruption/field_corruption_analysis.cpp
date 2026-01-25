@@ -170,17 +170,6 @@ AnalysisResult FieldCorruptionAnalysisTool::analyze(const AnalysisContext& ctx,
         }
     }
     
-    // Fallback: check additional_context if DAG execution didn't work
-    if (field_count == 0) {
-        auto it_field_count = ctx.additional_context.find("input_field_count");
-        if (it_field_count != ctx.additional_context.end()) {
-            if (auto* int_val = std::get_if<int32_t>(&it_field_count->second)) {
-                field_count = static_cast<uint64_t>(*int_val);
-                ORC_LOG_DEBUG("Field Corruption Generator: Using field count from additional_context: {}", field_count);
-            }
-        }
-    }
-    
     if (field_count == 0) {
         result.status = AnalysisResult::Failed;
         result.summary = "Cannot determine input field count.\n\n"

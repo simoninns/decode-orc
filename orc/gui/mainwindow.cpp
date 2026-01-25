@@ -1876,7 +1876,16 @@ void MainWindow::onTriggerStage(const orc::NodeID& node_id)
         // Connect cancel button
         connect(trigger_progress_dialog_, &QProgressDialog::canceled,
                 this, [this]() {
+            ORC_LOG_DEBUG("User canceled trigger");
             render_coordinator_->cancelTrigger();
+            // Clean up the dialog and request state
+            pending_trigger_request_id_ = 0;
+            pending_trigger_node_id_ = orc::NodeID();  // Reset to invalid ID
+            if (trigger_progress_dialog_) {
+                trigger_progress_dialog_->blockSignals(true);
+                trigger_progress_dialog_->deleteLater();
+                // QPointer will be nulled when dialog is deleted
+            }
         });
         
         // Request trigger from coordinator (async, thread-safe)
@@ -3148,36 +3157,8 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
                      tool_info_id, node_id.to_string());
         
         try {
-            // The analysis result may have graphData that needs to be converted to parameterChanges
-            // For tools like Field Corruption Generator, we need to call applyToGraph to populate
-            // parameterChanges from graphData. However, since we're in the GUI and can't directly
-            // call core methods, we check if graphData has the needed values and apply them directly.
-            
-            std::map<std::string, orc::ParameterValue> params_to_apply;
-            
-            // First, add any existing parameterChanges
-            params_to_apply = result.parameterChanges;
-            
-            // For Field Corruption Generator, check if we have graphData that needs to be applied
-            if (result.graphData.count("ranges") && result.graphData.count("seed")) {
-                // Apply the corruption pattern from graphData
-                params_to_apply["ranges"] = result.graphData.at("ranges");
-                try {
-                    params_to_apply["seed"] = std::stoi(result.graphData.at("seed"));
-                } catch (...) {
-                    ORC_LOG_WARN("Failed to parse seed value, using string");
-                    params_to_apply["seed"] = result.graphData.at("seed");
-                }
-                ORC_LOG_DEBUG("Applying corruption pattern from graphData: ranges={}, seed={}",
-                             result.graphData.at("ranges"), result.graphData.at("seed"));
-            }
-            
-            // Apply parameter changes if any
-            if (!params_to_apply.empty()) {
-                project_.presenter()->setNodeParameters(node_id, params_to_apply);
-                ORC_LOG_DEBUG("Applied {} parameter changes to node '{}'",
-                             params_to_apply.size(), node_id.to_string());
-            }
+            // Specialized presenters have already applied results to the graph via applyResultToGraph()
+            // MainWindow just needs to update the UI
             
             // Rebuild DAG and update preview to reflect changes
             project_.rebuildDAG();

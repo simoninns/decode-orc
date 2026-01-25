@@ -11,6 +11,7 @@ add_library(orc-presenters STATIC
     src/source_alignment_presenter.cpp
     src/disc_mapper_presenter.cpp
     src/mask_line_presenter.cpp
+    src/ffmpeg_preset_presenter.cpp
     src/hints_presenter.cpp
     src/hints_view_models.cpp
     src/dropout_presenter.cpp

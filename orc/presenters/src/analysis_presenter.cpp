@@ -11,8 +11,12 @@
 #include "../core/include/project.h"
 #include "../core/analysis/analysis_registry.h"
 #include "../core/analysis/analysis_tool.h"
+#include "../core/include/dag_executor.h"
+#include "../core/include/video_field_representation.h"
+#include "../core/include/logging.h"
 #include <stdexcept>
 #include <algorithm>
+#include <iostream>
 
 namespace orc::presenters {
 
@@ -224,8 +228,7 @@ orc::public_api::AnalysisResult AnalysisPresenter::runGenericAnalysis(
     const std::string& tool_id,
     NodeID node_id,
     orc::public_api::AnalysisSourceType source_type,
-    const std::map<std::string, orc::ParameterValue>& parameters,
-    std::function<void(int current, int total, const std::string& status, const std::string& sub_status)> progress_callback
+    const std::map<std::string, orc::ParameterValue>& parameters,    const std::map<std::string, orc::ParameterValue>& additional_context,    std::function<void(int current, int total, const std::string& status, const std::string& sub_status)> progress_callback
 ) const {
     auto* tool = impl_->getToolById(tool_id);
     if (!tool) {
@@ -240,8 +243,10 @@ orc::public_api::AnalysisResult AnalysisPresenter::runGenericAnalysis(
     context.source_type = static_cast<orc::AnalysisSourceType>(source_type);
     context.node_id = node_id;
     context.parameters = parameters;
-    context.dag = impl_->dag;
-    context.project = impl_->project;
+    context.additional_context = additional_context;  // Use caller-provided context
+    context.dag = nullptr;
+    context.project = nullptr;  // Not used in generic analysis path (will be replaced by specialized presenters)
+
     
     // Create progress wrapper
     class PresenterProgress : public orc::AnalysisProgress {

@@ -311,6 +311,7 @@ public:
      * @param node_id Node to analyze
      * @param source_type Type of source
      * @param parameters User-configured parameter values
+     * @param additional_context Optional context data (e.g., input_field_count for field-based stages)
      * @param progress_callback Callback for progress updates (optional)
      * @return Analysis result
      */
@@ -319,6 +320,7 @@ public:
         NodeID node_id,
         orc::public_api::AnalysisSourceType source_type,
         const std::map<std::string, orc::ParameterValue>& parameters,
+        const std::map<std::string, orc::ParameterValue>& additional_context = {},
         std::function<void(int current, int total, const std::string& status, const std::string& sub_status)> progress_callback = nullptr
     ) const;
 

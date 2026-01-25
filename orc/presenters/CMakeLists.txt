@@ -6,6 +6,7 @@ add_library(orc-presenters STATIC
     src/project_presenter.cpp
     src/render_presenter.cpp
     src/analysis_presenter.cpp
+    src/analysis_tool_presenter.cpp
     src/hints_presenter.cpp
     src/hints_view_models.cpp
     src/dropout_presenter.cpp

@@ -25,7 +25,7 @@
 #include "stageparameterdialog.h"
 #include "inspection_dialog.h"
 #include "dropout_editor_dialog.h"
-// analysis/analysis_dialog.h removed - Phase 2.8 bridge migration
+#include "generic_analysis_dialog.h"
 #include "analysis/vectorscope_dialog.h"  // Safe now - uses pimpl to hide core types
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
@@ -36,6 +36,7 @@
 #include "presenters/include/ntsc_observation_presenter.h"
 #include "presenters/include/project_presenter.h"
 #include "presenters/include/render_presenter.h"
+#include "presenters/include/analysis_presenter.h"
 #include <node_type.h>
 #include <common_types.h>
 
@@ -3168,17 +3169,97 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
         return;
     }
     
-    // TODO(Phase 2.8): Generic analysis path removed during bridge migration
-    // All currently supported analysis tools have dedicated special-case implementations above.
-    // Future generic analysis tools can be added through AnalysisPresenter::runGenericAnalysis()
-    // with a new presenter-based dialog.
+    // Default path: Generic analysis dialog for all other tools
+    // This handles tools like Field Corruption Generator using auto-generated UI
     
-    ORC_LOG_WARN("Analysis tool '{}' (id='{}') is not yet implemented",
-                 tool_info.name, tool_info.id);
-    QMessageBox::information(this, "Analysis Tool",
-        QString("The analysis tool '%1' requires a dedicated implementation.\n\n"
-                "This will be added in a future update.")
-            .arg(QString::fromStdString(tool_info.name)));
+    // Create an AnalysisPresenter to get tool parameters and run the analysis
+    auto* analysis_presenter = new orc::presenters::AnalysisPresenter(project_.presenter()->getCoreProject());
+    
+    // Get tool info to verify it exists
+    const auto tool_info_full = analysis_presenter->getToolInfo(tool_info.id);
+    if (tool_info_full.name.empty()) {
+        ORC_LOG_WARN("Analysis tool '{}' (id='{}') not found",
+                     tool_info.name, tool_info.id);
+        QMessageBox::warning(this, "Analysis Tool Not Found",
+            QString("The analysis tool '%1' was not found.")
+                .arg(QString::fromStdString(tool_info.name)));
+        delete analysis_presenter;
+        return;
+    }
+    
+    // Create and show generic analysis dialog
+    auto* dialog = new orc::gui::GenericAnalysisDialog(
+        tool_info.id,
+        tool_info_full,
+        analysis_presenter,
+        node_id,
+        project_.presenter()->getCoreProject(),
+        this
+    );
+    dialog->setAttribute(Qt::WA_DeleteOnClose, true);
+    
+    // Connect apply signal to actually apply results to the stage
+    connect(dialog, &orc::gui::GenericAnalysisDialog::applyResultsRequested,
+            [this, tool_info_id = tool_info.id, node_id, analysis_presenter](const orc::public_api::AnalysisResult& result) {
+        ORC_LOG_DEBUG("Applying analysis results from tool '{}' to node '{}'",
+                     tool_info_id, node_id.to_string());
+        
+        try {
+            // The analysis result may have graphData that needs to be converted to parameterChanges
+            // For tools like Field Corruption Generator, we need to call applyToGraph to populate
+            // parameterChanges from graphData. However, since we're in the GUI and can't directly
+            // call core methods, we check if graphData has the needed values and apply them directly.
+            
+            std::map<std::string, orc::ParameterValue> params_to_apply;
+            
+            // First, add any existing parameterChanges
+            params_to_apply = result.parameterChanges;
+            
+            // For Field Corruption Generator, check if we have graphData that needs to be applied
+            if (result.graphData.count("ranges") && result.graphData.count("seed")) {
+                // Apply the corruption pattern from graphData
+                params_to_apply["ranges"] = result.graphData.at("ranges");
+                try {
+                    params_to_apply["seed"] = std::stoi(result.graphData.at("seed"));
+                } catch (...) {
+                    ORC_LOG_WARN("Failed to parse seed value, using string");
+                    params_to_apply["seed"] = result.graphData.at("seed");
+                }
+                ORC_LOG_DEBUG("Applying corruption pattern from graphData: ranges={}, seed={}",
+                             result.graphData.at("ranges"), result.graphData.at("seed"));
+            }
+            
+            // Apply parameter changes if any
+            if (!params_to_apply.empty()) {
+                project_.presenter()->setNodeParameters(node_id, params_to_apply);
+                ORC_LOG_DEBUG("Applied {} parameter changes to node '{}'",
+                             params_to_apply.size(), node_id.to_string());
+            }
+            
+            // Rebuild DAG and update preview to reflect changes
+            project_.rebuildDAG();
+            updatePreviewRenderer();
+            dag_model_->refresh();
+            updatePreview();
+            
+            statusBar()->showMessage(
+                QString("Applied analysis results from '%1' to node '%2'")
+                    .arg(QString::fromStdString(tool_info_id))
+                    .arg(QString::fromStdString(node_id.to_string())),
+                5000
+            );
+            QMessageBox::information(this, "Results Applied",
+                "Analysis results have been successfully applied to the stage.");
+        } catch (const std::exception& e) {
+            ORC_LOG_ERROR("Failed to apply analysis results: {}", e.what());
+            QMessageBox::warning(this, "Apply Failed",
+                QString("Failed to apply results: %1").arg(e.what()));
+        }
+    });
+    
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
 }
 
 QProgressDialog* MainWindow::createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog)

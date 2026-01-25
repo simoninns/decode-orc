@@ -1,0 +1,309 @@
+#include "generic_analysis_dialog.h"
+#include "presenters/include/analysis_presenter.h"
+#include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QGroupBox>
+#include <QMessageBox>
+#include <limits>
+
+namespace orc {
+namespace gui {
+
+GenericAnalysisDialog::GenericAnalysisDialog(
+    const std::string& tool_id,
+    const orc::public_api::AnalysisToolInfo& tool_info,
+    orc::presenters::AnalysisPresenter* presenter,
+    const orc::NodeID& node_id,
+    orc::Project* project,
+    QWidget* parent)
+    : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
+      presenter_(presenter), project_(project), node_id_(node_id) {
+    
+    setupUI();
+    populateParameters();
+    setWindowTitle(QString::fromStdString(tool_info_.name));
+    resize(900, 700);
+}
+
+GenericAnalysisDialog::~GenericAnalysisDialog() {
+    delete presenter_;
+}
+
+void GenericAnalysisDialog::setupUI() {
+    auto* layout = new QVBoxLayout(this);
+    
+    // Description
+    descriptionLabel_ = new QLabel(QString::fromStdString(tool_info_.description));
+    descriptionLabel_->setWordWrap(true);
+    layout->addWidget(descriptionLabel_);
+    
+    // Parameters group
+    auto* paramsGroup = new QGroupBox("Parameters");
+    parametersLayout_ = new QFormLayout();
+    paramsGroup->setLayout(parametersLayout_);
+    layout->addWidget(paramsGroup);
+    
+    // Progress group
+    auto* progressGroup = new QGroupBox("Progress");
+    auto* progLayout = new QVBoxLayout();
+    statusLabel_ = new QLabel("Ready");
+    progressBar_ = new QProgressBar();
+    progressBar_->setMaximum(100);
+    progressBar_->setValue(0);
+    progLayout->addWidget(statusLabel_);
+    progLayout->addWidget(progressBar_);
+    progressGroup->setLayout(progLayout);
+    layout->addWidget(progressGroup);
+    
+    // Results/report text area
+    auto* reportGroup = new QGroupBox("Report");
+    auto* reportLayout = new QVBoxLayout();
+    reportText_ = new QTextEdit();
+    reportText_->setReadOnly(true);
+    reportText_->setMinimumHeight(300);
+    reportText_->setLineWrapMode(QTextEdit::WidgetWidth);
+    reportLayout->addWidget(reportText_);
+    reportGroup->setLayout(reportLayout);
+    layout->addWidget(reportGroup);
+    
+    // Buttons
+    auto* buttonLayout = new QHBoxLayout();
+    runButton_ = new QPushButton("Run Analysis");
+    applyButton_ = new QPushButton("Apply to Stage");
+    closeButton_ = new QPushButton("OK");
+    
+    applyButton_->setEnabled(false);
+    
+    buttonLayout->addWidget(runButton_);
+    buttonLayout->addWidget(applyButton_);
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(closeButton_);
+    
+    layout->addLayout(buttonLayout);
+    
+    // Connections
+    connect(runButton_, &QPushButton::clicked, this, &GenericAnalysisDialog::runAnalysis);
+    connect(applyButton_, &QPushButton::clicked, this, &GenericAnalysisDialog::applyResults);
+    connect(closeButton_, &QPushButton::clicked, this, &QDialog::accept);
+}
+
+void GenericAnalysisDialog::populateParameters() {
+    // Get parameters from presenter
+    orc::public_api::AnalysisSourceType source_type = orc::public_api::AnalysisSourceType::LaserDisc;
+    parameter_descriptors_ = presenter_->getToolParameters(tool_id_, source_type);
+    
+    for (const auto& param : parameter_descriptors_) {
+        QWidget* widget = createParameterWidget(param.name, param);
+        
+        // Create label with tooltip
+        auto* label = new QLabel(QString::fromStdString(param.display_name) + ":");
+        label->setToolTip(QString::fromStdString(param.description));
+        if (widget) {
+            widget->setToolTip(QString::fromStdString(param.description));
+        }
+        
+        parametersLayout_->addRow(label, widget ? widget : new QLabel("N/A"));
+        
+        if (widget) {
+            ParameterWidget pw;
+            pw.name = param.name;
+            pw.widget = widget;
+            pw.type = param.type;
+            pw.label = label;
+            parameterWidgets_.push_back(pw);
+            
+            // Connect change signals for dependency updates
+            switch (param.type) {
+                case orc::ParameterType::STRING:
+                    if (auto* combo = qobject_cast<QComboBox*>(widget)) {
+                        connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                                this, &GenericAnalysisDialog::updateParameterDependencies);
+                    }
+                    break;
+                case orc::ParameterType::INT32:
+                    connect(static_cast<QSpinBox*>(widget), QOverload<int>::of(&QSpinBox::valueChanged),
+                            this, &GenericAnalysisDialog::updateParameterDependencies);
+                    break;
+                case orc::ParameterType::DOUBLE:
+                    connect(static_cast<QDoubleSpinBox*>(widget), QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+                            this, &GenericAnalysisDialog::updateParameterDependencies);
+                    break;
+                case orc::ParameterType::BOOL:
+                    connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
+                            this, &GenericAnalysisDialog::updateParameterDependencies);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+QWidget* GenericAnalysisDialog::createParameterWidget(const std::string& name, const orc::ParameterDescriptor& param) {
+    switch (param.type) {
+        case orc::ParameterType::BOOL: {
+            auto* cb = new QCheckBox();
+            if (param.constraints.default_value && std::holds_alternative<bool>(*param.constraints.default_value)) {
+                cb->setChecked(std::get<bool>(*param.constraints.default_value));
+            }
+            return cb;
+        }
+        case orc::ParameterType::INT32: {
+            auto* spin = new QSpinBox();
+            if (param.constraints.min_value && std::holds_alternative<int32_t>(*param.constraints.min_value)) {
+                spin->setMinimum(std::get<int32_t>(*param.constraints.min_value));
+            } else {
+                spin->setMinimum(std::numeric_limits<int32_t>::min());
+            }
+            if (param.constraints.max_value && std::holds_alternative<int32_t>(*param.constraints.max_value)) {
+                spin->setMaximum(std::get<int32_t>(*param.constraints.max_value));
+            } else {
+                spin->setMaximum(std::numeric_limits<int32_t>::max());
+            }
+            if (param.constraints.default_value && std::holds_alternative<int32_t>(*param.constraints.default_value)) {
+                spin->setValue(std::get<int32_t>(*param.constraints.default_value));
+            }
+            return spin;
+        }
+        case orc::ParameterType::DOUBLE: {
+            auto* spin = new QDoubleSpinBox();
+            if (param.constraints.default_value && std::holds_alternative<double>(*param.constraints.default_value)) {
+                spin->setValue(std::get<double>(*param.constraints.default_value));
+            }
+            return spin;
+        }
+        case orc::ParameterType::STRING: {
+            if (!param.constraints.allowed_strings.empty()) {
+                auto* combo = new QComboBox();
+                for (const auto& allowed : param.constraints.allowed_strings) {
+                    combo->addItem(QString::fromStdString(allowed));
+                }
+                if (param.constraints.default_value && std::holds_alternative<std::string>(*param.constraints.default_value)) {
+                    combo->setCurrentText(QString::fromStdString(std::get<std::string>(*param.constraints.default_value)));
+                }
+                return combo;
+            } else {
+                auto* edit = new QLineEdit();
+                if (param.constraints.default_value && std::holds_alternative<std::string>(*param.constraints.default_value)) {
+                    edit->setText(QString::fromStdString(std::get<std::string>(*param.constraints.default_value)));
+                }
+                return edit;
+            }
+        }
+        default:
+            return nullptr;
+    }
+}
+
+void GenericAnalysisDialog::collectParameters() {
+    // Note: Parameters are collected directly in runAnalysis() and passed to the presenter
+    // This method is kept for potential future use
+}
+
+void GenericAnalysisDialog::runAnalysis() {
+    collectParameters();
+    
+    runButton_->setEnabled(false);
+    applyButton_->setEnabled(false);
+    reportText_->clear();
+    statusLabel_->setText("Running analysis...");
+    progressBar_->setValue(0);
+    
+    // Prepare parameters
+    std::map<std::string, orc::ParameterValue> parameters;
+    for (const auto& pw : parameterWidgets_) {
+        switch (pw.type) {
+            case orc::ParameterType::BOOL: {
+                auto* cb = qobject_cast<QCheckBox*>(pw.widget);
+                if (cb) parameters[pw.name] = cb->isChecked();
+                break;
+            }
+            case orc::ParameterType::INT32: {
+                auto* spin = qobject_cast<QSpinBox*>(pw.widget);
+                if (spin) parameters[pw.name] = spin->value();
+                break;
+            }
+            case orc::ParameterType::DOUBLE: {
+                auto* spin = qobject_cast<QDoubleSpinBox*>(pw.widget);
+                if (spin) parameters[pw.name] = spin->value();
+                break;
+            }
+            case orc::ParameterType::STRING: {
+                auto* combo = qobject_cast<QComboBox*>(pw.widget);
+                if (combo) {
+                    parameters[pw.name] = combo->currentText().toStdString();
+                } else {
+                    auto* edit = qobject_cast<QLineEdit*>(pw.widget);
+                    if (edit) parameters[pw.name] = edit->text().toStdString();
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    
+    // Build additional_context - will be populated by presenter if needed
+    std::map<std::string, orc::ParameterValue> additional_context;
+    
+    // Run analysis
+    orc::public_api::AnalysisSourceType source_type = orc::public_api::AnalysisSourceType::LaserDisc;
+    auto result = presenter_->runGenericAnalysis(
+        tool_id_,
+        node_id_,
+        source_type,
+        parameters,
+        additional_context,
+        nullptr  // No progress callback for now
+    );
+    
+    last_result_ = result;
+    displayResults(result);
+    
+    runButton_->setEnabled(true);
+    if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+        applyButton_->setEnabled(true);
+        statusLabel_->setText("Analysis complete");
+        progressBar_->setValue(100);
+    } else {
+        statusLabel_->setText("Analysis failed");
+        progressBar_->setValue(0);
+    }
+}
+
+void GenericAnalysisDialog::displayResults(const orc::public_api::AnalysisResult& result) {
+    QString text;
+    
+    if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+        text = "Analysis completed successfully.\n\n";
+    } else if (result.status == orc::public_api::AnalysisResult::Status::Failed) {
+        text = "Analysis failed.\n\n";
+    } else {
+        text = "Analysis cancelled.\n\n";
+    }
+    
+    text += QString::fromStdString(result.summary);
+    
+    reportText_->setPlainText(text);
+}
+
+void GenericAnalysisDialog::applyResults() {
+    if (last_result_.status != orc::public_api::AnalysisResult::Status::Success) {
+        QMessageBox::warning(this, "Cannot Apply",
+            "Analysis results are not valid. Please run the analysis again.");
+        return;
+    }
+    
+    // Emit signal with results so mainwindow can apply them
+    emit applyResultsRequested(last_result_);
+    
+    // Close dialog
+    accept();
+}
+
+void GenericAnalysisDialog::updateParameterDependencies() {
+    // TODO: Implement parameter dependency logic
+}
+
+} // namespace gui
+} // namespace orc

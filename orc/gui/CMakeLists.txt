@@ -58,6 +58,8 @@ add_executable(orc-gui WIN32
     # Analysis dialogs
     analysis/vectorscope_dialog.cpp
     analysis/vectorscope_dialog.h
+    generic_analysis_dialog.cpp
+    generic_analysis_dialog.h
     
     # Inspection dialog
     inspection_dialog.cpp

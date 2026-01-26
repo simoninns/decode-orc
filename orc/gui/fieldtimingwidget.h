@@ -94,6 +94,9 @@ protected:
     void paintEvent(QPaintEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
     void updateScrollBar();
@@ -125,6 +128,11 @@ private:
     static constexpr int SAMPLES_PER_VIEW = 2000;  // Number of samples visible at once
     static constexpr double PIXELS_PER_SAMPLE = 0.5;  // Base zoom level
     double zoom_factor_;  // Current zoom multiplier (1.0 = default)
+    
+    // Mouse dragging state
+    bool is_dragging_;
+    QPoint drag_start_pos_;
+    int drag_start_scroll_value_;
 };
 
 #endif // FIELDTIMINGWIDGET_H

@@ -13,6 +13,7 @@
 #include <QScrollBar>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QMouseEvent>
 #include <algorithm>
 #include <cmath>
 
@@ -89,6 +90,8 @@ FieldTimingWidget::FieldTimingWidget(QWidget *parent)
     : QWidget(parent)
     , scroll_offset_(0)
     , zoom_factor_(1.0)
+    , is_dragging_(false)
+    , drag_start_scroll_value_(0)
 {
     // Create scroll bar
     scroll_bar_ = new QScrollBar(Qt::Horizontal, this);
@@ -305,6 +308,53 @@ void FieldTimingWidget::wheelEvent(QWheelEvent *event)
         event->accept();
     } else {
         QWidget::wheelEvent(event);
+    }
+}
+
+void FieldTimingWidget::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && scroll_bar_->isEnabled()) {
+        is_dragging_ = true;
+        drag_start_pos_ = event->pos();
+        drag_start_scroll_value_ = scroll_bar_->value();
+        setCursor(Qt::ClosedHandCursor);
+        event->accept();
+    } else {
+        QWidget::mousePressEvent(event);
+    }
+}
+
+void FieldTimingWidget::mouseMoveEvent(QMouseEvent *event)
+{
+    if (is_dragging_) {
+        // Calculate how far we've dragged in pixels
+        int dx = event->pos().x() - drag_start_pos_.x();
+        
+        // Convert pixel movement to sample movement
+        double base_pixels_per_sample = getBasePixelsPerSample();
+        double effective_pixels_per_sample = base_pixels_per_sample * zoom_factor_;
+        
+        // Invert the direction: dragging right should scroll left (see earlier content)
+        int sample_delta = static_cast<int>(-dx / effective_pixels_per_sample);
+        
+        // Update scroll position
+        int new_value = drag_start_scroll_value_ + sample_delta;
+        scroll_bar_->setValue(new_value);
+        
+        event->accept();
+    } else {
+        QWidget::mouseMoveEvent(event);
+    }
+}
+
+void FieldTimingWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && is_dragging_) {
+        is_dragging_ = false;
+        setCursor(Qt::ArrowCursor);
+        event->accept();
+    } else {
+        QWidget::mouseReleaseEvent(event);
     }
 }
 

@@ -165,6 +165,16 @@ uint64_t RenderCoordinator::requestLineSamples(const orc::NodeID& node_id,
     return id;
 }
 
+uint64_t RenderCoordinator::requestFieldTimingData(const orc::NodeID& node_id,
+                                                   orc::PreviewOutputType output_type,
+                                                   uint64_t output_index)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<GetFieldTimingRequest>(id, node_id, output_type, output_index);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
 uint64_t RenderCoordinator::requestSavePNG(const orc::NodeID& node_id, 
                                           orc::PreviewOutputType output_type,
                                           uint64_t output_index,
@@ -334,6 +344,10 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             
         case RenderRequestType::GetLineSamples:
             handleGetLineSamples(*static_cast<GetLineSamplesRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::GetFieldTiming:
+            handleGetFieldTiming(*static_cast<GetFieldTimingRequest*>(request.get()));
             break;
             
         case RenderRequestType::SavePNG:
@@ -648,6 +662,65 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
         
     } catch (const std::exception& e) {
         ORC_LOG_DEBUG("RenderCoordinator: Get line samples failed: {} (expected for sink stages)", e.what());
+        emit error(req.request_id, QString::fromStdString(e.what()));
+    }
+}
+
+void RenderCoordinator::handleGetFieldTiming(const GetFieldTimingRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: Getting field timing data for node '{}', index {} (request {})",
+                  req.node_id.to_string(), req.output_index, req.request_id);
+    
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
+        return;
+    }
+    
+    try {
+        // Get field samples for timing view
+        auto sample_data = worker_render_presenter_->getFieldSamplesForTiming(
+            req.node_id, req.output_type, req.output_index
+        );
+        
+        if (sample_data.composite_samples.empty() && sample_data.y_samples.empty()) {
+            // Field data not available
+            ORC_LOG_DEBUG("RenderCoordinator: Field data not available for node '{}'",
+                         req.node_id.to_string());
+            emit error(req.request_id, "Field data not available");
+            return;
+        }
+        
+        // Determine field indices based on output type
+        uint64_t field_index = req.output_index;
+        std::optional<uint64_t> field_index_2;
+        std::vector<uint16_t> samples_2;
+        std::vector<uint16_t> y_samples_2;
+        std::vector<uint16_t> c_samples_2;
+        
+        if (req.output_type == orc::PreviewOutputType::Frame ||
+            req.output_type == orc::PreviewOutputType::Frame_Reversed ||
+            req.output_type == orc::PreviewOutputType::Split) {
+            // For frame modes, output_index is a frame number, so convert to field indices
+            // Frame N consists of fields (N*2) and (N*2 + 1)
+            field_index = req.output_index * 2;
+            field_index_2 = field_index + 1;
+            
+            // Note: For frame modes, the data is already concatenated in sample_data
+            // We don't separate it back out here - the widget will handle the combined data
+        }
+        
+        ORC_LOG_DEBUG("RenderCoordinator: Emitting field timing data (field {}{}, {} composite samples, {} Y samples, {} C samples)",
+                     field_index, field_index_2.has_value() ? std::string(" + ") + std::to_string(field_index_2.value()) : "",
+                     sample_data.composite_samples.size(), sample_data.y_samples.size(), sample_data.c_samples.size());
+        
+        emit fieldTimingDataReady(req.request_id, field_index, field_index_2,
+                                 std::move(sample_data.composite_samples), std::move(samples_2),
+                                 std::move(sample_data.y_samples), std::move(sample_data.c_samples),
+                                 std::move(y_samples_2), std::move(c_samples_2));
+        
+    } catch (const std::exception& e) {
+        ORC_LOG_DEBUG("RenderCoordinator: Get field timing failed: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }

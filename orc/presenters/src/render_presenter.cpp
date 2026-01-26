@@ -692,6 +692,93 @@ RenderPresenter::LineSampleData RenderPresenter::getLineSamplesWithYC(
     }
 }
 
+RenderPresenter::LineSampleData RenderPresenter::getFieldSamplesForTiming(
+    NodeID node_id,
+    orc::PreviewOutputType output_type,
+    uint64_t output_index)
+{
+    LineSampleData result;
+    result.has_separate_channels = false;
+    
+    if (!impl_->preview_renderer_) {
+        return result;
+    }
+    
+    try {
+        // Get the representation at this node
+        auto repr = impl_->preview_renderer_->get_representation_at_node(node_id);
+        if (!repr) {
+            return result;
+        }
+        
+        // Check if this is a Y/C source with separate channels
+        result.has_separate_channels = repr->has_separate_channels();
+        
+        // Determine which field(s) to get samples from
+        if (output_type == orc::PreviewOutputType::Field || 
+            output_type == orc::PreviewOutputType::Luma) {
+            // Single field
+            orc::FieldID field_id(output_index);
+            
+            if (result.has_separate_channels) {
+                // Y/C source - get entire field for Y and C
+                result.y_samples = repr->get_field_luma(field_id);
+                result.c_samples = repr->get_field_chroma(field_id);
+                result.composite_samples = result.y_samples;  // Use Y as composite
+            } else {
+                // Composite source
+                result.composite_samples = repr->get_field(field_id);
+            }
+        } else if (output_type == orc::PreviewOutputType::Frame ||
+                   output_type == orc::PreviewOutputType::Frame_Reversed ||
+                   output_type == orc::PreviewOutputType::Split) {
+            // Two fields - convert frame index to field indices
+            // Frame N consists of fields (N*2) and (N*2 + 1)
+            uint64_t first_field = output_index * 2;
+            
+            orc::FieldID field1_id(first_field);
+            orc::FieldID field2_id(first_field + 1);
+            
+            // Handle reversed field order
+            if (output_type == orc::PreviewOutputType::Frame_Reversed) {
+                std::swap(field1_id, field2_id);
+            }
+            
+            if (result.has_separate_channels) {
+                // Y/C source - get both fields for Y and C
+                auto y1 = repr->get_field_luma(field1_id);
+                auto c1 = repr->get_field_chroma(field1_id);
+                auto y2 = repr->get_field_luma(field2_id);
+                auto c2 = repr->get_field_chroma(field2_id);
+                
+                // Concatenate field 1 and field 2
+                result.y_samples.reserve(y1.size() + y2.size());
+                result.y_samples.insert(result.y_samples.end(), y1.begin(), y1.end());
+                result.y_samples.insert(result.y_samples.end(), y2.begin(), y2.end());
+                
+                result.c_samples.reserve(c1.size() + c2.size());
+                result.c_samples.insert(result.c_samples.end(), c1.begin(), c1.end());
+                result.c_samples.insert(result.c_samples.end(), c2.begin(), c2.end());
+                
+                result.composite_samples = result.y_samples;  // Use Y as composite
+            } else {
+                // Composite source - get both fields and concatenate
+                auto f1 = repr->get_field(field1_id);
+                auto f2 = repr->get_field(field2_id);
+                
+                result.composite_samples.reserve(f1.size() + f2.size());
+                result.composite_samples.insert(result.composite_samples.end(), f1.begin(), f1.end());
+                result.composite_samples.insert(result.composite_samples.end(), f2.begin(), f2.end());
+            }
+        }
+        
+        return result;
+        
+    } catch (const std::exception&) {
+        return result;
+    }
+}
+
 std::optional<orc::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
 {
     if (!impl_->preview_renderer_) {

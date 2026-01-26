@@ -12,6 +12,7 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QHideEvent>
 #include <cmath>
 
 LineScopeDialog::LineScopeDialog(QWidget *parent)
@@ -41,6 +42,12 @@ LineScopeDialog::LineScopeDialog(QWidget *parent)
 }
 
 LineScopeDialog::~LineScopeDialog() = default;
+
+void LineScopeDialog::hideEvent(QHideEvent* event)
+{
+    QDialog::hideEvent(event);
+    emit dialogClosed();
+}
 
 void LineScopeDialog::setupUI()
 {

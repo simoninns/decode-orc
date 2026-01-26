@@ -12,6 +12,8 @@
 #include "fieldpreviewwidget.h"
 #include "previewdialog.h"
 #include "linescopedialog.h"
+#include "fieldtimingdialog.h"
+#include "fieldtimingwidget.h"
 #include "vbidialog.h"
 #include "hintsdialog.h"
 #include "ntscobserverdialog.h"
@@ -75,6 +77,7 @@ namespace orc {
 #include <QMoveEvent>
 #include <QResizeEvent>
 #include <QRegularExpression>
+#include <limits>
 
 #include <queue>
 #include <map>
@@ -158,6 +161,8 @@ MainWindow::MainWindow(QWidget *parent)
             this, &MainWindow::onAvailableOutputsReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::lineSamplesReady,
             this, &MainWindow::onLineSamplesReady, Qt::QueuedConnection);
+    connect(render_coordinator_.get(), &RenderCoordinator::fieldTimingDataReady,
+            this, &MainWindow::onFieldTimingDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady,
             this, &MainWindow::onDropoutDataReady, Qt::QueuedConnection);
     connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress,
@@ -359,6 +364,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onLineNavigation);
     connect(preview_dialog_, &PreviewDialog::sampleMarkerMovedInLineScope,
             this, &MainWindow::onSampleMarkerMoved);
+    connect(preview_dialog_, &PreviewDialog::fieldTimingRequested,
+            this, &MainWindow::onFieldTimingRequested);
     
     // Connect preview frame changed signal to line scope
     // When frame changes, line scope should refresh samples at its current field/line
@@ -366,6 +373,25 @@ void MainWindow::setupUI()
     if (line_scope) {
         connect(preview_dialog_, &PreviewDialog::previewFrameChanged,
                 this, &MainWindow::onLineScopeRefreshAtFieldLine);
+        connect(line_scope, &LineScopeDialog::dialogClosed,
+                this, &MainWindow::onLineScopeDialogClosed);
+    }
+    
+    // Connect preview frame changed signal to field timing
+    // When frame changes, field timing should refresh if visible
+    auto field_timing = preview_dialog_->fieldTimingDialog();
+    if (field_timing) {
+        connect(preview_dialog_, &PreviewDialog::previewFrameChanged,
+                this, [this]() {
+                    auto* dialog = preview_dialog_->fieldTimingDialog();
+                    if (dialog && dialog->isVisible()) {
+                        onFieldTimingRequested();
+                    }
+                });
+        connect(field_timing, &FieldTimingDialog::refreshRequested,
+                this, &MainWindow::onFieldTimingRequested);
+        connect(field_timing, &FieldTimingDialog::setCrosshairsRequested,
+                this, &MainWindow::onSetCrosshairsFromFieldTiming);
     }
     
     // Create QtNodes DAG editor
@@ -3271,6 +3297,219 @@ void MainWindow::onShowNtscObserverDialog()
     updateNtscObserverDialog();
 }
 
+void MainWindow::onFieldTimingRequested()
+{
+    if (!current_view_node_id_.is_valid()) {
+        ORC_LOG_WARN("No node selected for field timing view");
+        return;
+    }
+    
+    // Request field timing data for current preview frame/field
+    int current_index = preview_dialog_->previewSlider()->value();
+    pending_field_timing_request_id_ = render_coordinator_->requestFieldTimingData(
+        current_view_node_id_,
+        current_output_type_,
+        current_index
+    );
+    
+    ORC_LOG_DEBUG("Requested field timing data (request_id={})", pending_field_timing_request_id_);
+}
+
+void MainWindow::onLineScopeDialogClosed()
+{
+    // Clear the marker state when line scope is closed
+    last_line_scope_field_index_ = std::numeric_limits<uint64_t>::max();
+    last_line_scope_line_number_ = -1;
+    last_line_scope_image_x_ = -1;
+    
+    // Update field timing dialog if it's visible to remove the marker
+    auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
+    if (field_timing_dialog && field_timing_dialog->isVisible()) {
+        onFieldTimingRequested();
+    }
+}
+
+void MainWindow::onSetCrosshairsFromFieldTiming()
+{
+    auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
+    if (!field_timing_dialog) {
+        return;
+    }
+    
+    // Get video parameters to convert sample to field/line/x
+    std::optional<orc::presenters::VideoParametersView> video_params;
+    if (current_view_node_id_.is_valid()) {
+        auto* core_project = project_.presenter()->getCoreProjectHandle();
+        if (core_project) {
+            orc::presenters::RenderPresenter render_presenter(core_project);
+            render_presenter.setDAG(project_.getDAG());
+            auto vp = render_presenter.getVideoParameters(current_view_node_id_);
+            if (vp.has_value()) {
+                video_params = orc::presenters::toVideoParametersView(*vp);
+            }
+        }
+    }
+    
+    if (!video_params.has_value() || video_params->field_width <= 0 || video_params->field_height <= 0) {
+        ORC_LOG_WARN("No video parameters available for set crosshairs");
+        return;
+    }
+    
+    // Get center sample from timing widget
+    int center_sample = field_timing_dialog->timingWidget()->getCenterSample();
+    if (center_sample < 0) {
+        ORC_LOG_WARN("No valid center sample position");
+        return;
+    }
+    
+    const int fw = video_params->field_width;
+    const int fh = video_params->field_height;
+    
+    // Determine which field the sample is in
+    int samples_per_field = fw * fh;
+    uint64_t field_offset = 0;
+    int sample_in_field = center_sample;
+    
+    // Check if we're showing two fields (frame mode)
+    if (current_output_type_ == orc::PreviewOutputType::Frame ||
+        current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
+        current_output_type_ == orc::PreviewOutputType::Split) {
+        // Determine which field based on sample position
+        int frame_index = preview_dialog_->previewSlider()->value();
+        uint64_t field1 = frame_index * 2;
+        uint64_t field2 = frame_index * 2 + 1;
+        
+        if (center_sample >= samples_per_field) {
+            // In second field
+            field_offset = field2;
+            sample_in_field = center_sample - samples_per_field;
+        } else {
+            // In first field
+            field_offset = field1;
+            sample_in_field = center_sample;
+        }
+    } else {
+        // Single field mode
+        field_offset = preview_dialog_->previewSlider()->value();
+    }
+    
+    // Convert sample position to line and x
+    int line_number = sample_in_field / fw;
+    int sample_x = sample_in_field % fw;
+    
+    // Clamp to valid range
+    if (line_number >= fh) line_number = fh - 1;
+    if (sample_x >= fw) sample_x = fw - 1;
+    
+    ORC_LOG_DEBUG("Setting crosshairs from field timing: center_sample={}, field={}, line={}, x={}",
+                 center_sample, field_offset, line_number, sample_x);
+    
+    // Map field/line to image coordinates
+    int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    auto mapping = render_coordinator_->mapFieldToImage(
+        current_view_node_id_, current_output_type_,
+        preview_dialog_->previewSlider()->value(),
+        field_offset, line_number, image_height);
+    
+    if (!mapping.is_valid) {
+        ORC_LOG_WARN("Failed to map field/line to image coordinates");
+        return;
+    }
+    
+    // Request line samples at this position (which will set crosshairs)
+    onLineScopeRequested(sample_x, mapping.image_y);
+}
+
+void MainWindow::onFieldTimingDataReady(uint64_t request_id, uint64_t field_index,
+                                       std::optional<uint64_t> field_index_2,
+                                       std::vector<uint16_t> samples, std::vector<uint16_t> samples_2,
+                                       std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples,
+                                       std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2)
+{
+    Q_UNUSED(request_id);
+    
+    ORC_LOG_DEBUG("Field timing data ready: field {}{}, {} composite samples, {} Y samples, {} C samples",
+                  field_index, field_index_2.has_value() ? " + " + std::to_string(field_index_2.value()) : "",
+                  samples.size(), y_samples.size(), c_samples.size());
+    
+    auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
+    if (!field_timing_dialog) {
+        ORC_LOG_WARN("No field timing dialog available!");
+        return;
+    }
+    
+    // Get video parameters for mV conversion
+    std::optional<orc::presenters::VideoParametersView> video_params;
+    if (current_view_node_id_.is_valid()) {
+        // Create temporary render presenter to get video parameters
+        auto* core_project = project_.presenter()->getCoreProjectHandle();
+        if (core_project) {
+            orc::presenters::RenderPresenter render_presenter(core_project);
+            render_presenter.setDAG(project_.getDAG());
+            
+            auto vp = render_presenter.getVideoParameters(current_view_node_id_);
+            if (vp.has_value()) {
+                // Convert to view model
+                video_params = orc::presenters::toVideoParametersView(*vp);
+            }
+        }
+    }
+    
+    // Set the field data and show the dialog
+    std::optional<int> marker_sample;
+    if (video_params.has_value() && video_params->field_width > 0 && video_params->field_height > 0 &&
+        last_line_scope_field_index_ != std::numeric_limits<uint64_t>::max() &&
+        last_line_scope_image_x_ >= 0 && last_line_scope_line_number_ >= 0) {
+        const int fw = video_params->field_width;
+        const int fh = video_params->field_height;
+        
+        ORC_LOG_DEBUG("Field timing marker calculation: last_field={}, last_line={}, last_x={}, field_index={}, field_index_2={}",
+                     last_line_scope_field_index_, last_line_scope_line_number_, last_line_scope_image_x_,
+                     field_index, field_index_2.has_value() ? field_index_2.value() : 0);
+        
+        if (last_line_scope_line_number_ < fh) {
+            int clamped_x = std::max(0, std::min(last_line_scope_image_x_, fw - 1));
+            int local_sample = last_line_scope_line_number_ * fw + clamped_x;
+
+            // Determine which field in the timing data this maps to
+            uint64_t f1 = field_index;
+            std::optional<uint64_t> f2 = field_index_2;
+            if (last_line_scope_field_index_ == f1) {
+                marker_sample = local_sample;
+                ORC_LOG_DEBUG("Marker in field 1 at sample {}", local_sample);
+            } else if (f2.has_value() && last_line_scope_field_index_ == f2.value()) {
+                marker_sample = local_sample + fw * fh;  // offset into second field
+                ORC_LOG_DEBUG("Marker in field 2 at sample {} (offset {})", marker_sample.value(), local_sample);
+            } else {
+                ORC_LOG_DEBUG("Marker field {} doesn't match f1={} or f2={}", 
+                            last_line_scope_field_index_, f1, f2.has_value() ? f2.value() : 0);
+            }
+        }
+    }
+
+    field_timing_dialog->setFieldData(
+        QString::fromStdString(current_view_node_id_.to_string()),
+        field_index,
+        samples,
+        field_index_2,
+        samples_2,
+        y_samples,
+        c_samples,
+        y_samples_2,
+        c_samples_2,
+        video_params,
+        marker_sample
+    );
+    
+    // Only show/raise/activate if not already visible
+    // This prevents stealing focus when the dialog is already open
+    if (!field_timing_dialog->isVisible()) {
+        field_timing_dialog->show();
+        field_timing_dialog->raise();
+        field_timing_dialog->activateWindow();
+    }
+}
+
 void MainWindow::updateQualityMetricsDialog()
 {
     // Only update if dialog is visible
@@ -3727,6 +3966,12 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
     preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, view_params, 
                                    preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
+    
+    // Update field timing dialog if it's visible (to update the marker position)
+    if (preview_dialog_->fieldTimingDialog() && preview_dialog_->fieldTimingDialog()->isVisible()) {
+        ORC_LOG_DEBUG("Refreshing field timing dialog to update marker position");
+        onFieldTimingRequested();
+    }
 }
 
 void MainWindow::onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result)
@@ -3799,6 +4044,12 @@ void MainWindow::onSampleMarkerMoved(int sample_x)
         
         // Update stored position so it's maintained when changing stages
         last_line_scope_image_x_ = preview_x;
+        
+        // Update field timing dialog if it's visible (to update the marker position)
+        if (preview_dialog_->fieldTimingDialog() && preview_dialog_->fieldTimingDialog()->isVisible()) {
+            ORC_LOG_DEBUG("Refreshing field timing dialog to update marker after sample marker move");
+            onFieldTimingRequested();
+        }
     } else {
         ORC_LOG_WARN("Failed to map field coordinates in onSampleMarkerMoved - not updating cross-hairs");
     }

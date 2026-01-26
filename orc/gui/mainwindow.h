@@ -131,6 +131,9 @@ private slots:
     void onLineNavigation(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
     void onSampleMarkerMoved(int sample_x);
     void refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
+    void onFieldTimingRequested();
+    void onSetCrosshairsFromFieldTiming();
+    void onLineScopeDialogClosed();
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -139,6 +142,11 @@ private slots:
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
                             std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
                             std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
+    void onFieldTimingDataReady(uint64_t request_id, uint64_t field_index,
+                               std::optional<uint64_t> field_index_2,
+                               std::vector<uint16_t> samples, std::vector<uint16_t> samples_2,
+                               std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples,
+                               std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2);
     void onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     void onDropoutProgress(size_t current, size_t total, QString message);
@@ -207,6 +215,7 @@ private:
     uint64_t pending_trigger_request_id_{0};
     orc::NodeID pending_trigger_node_id_;  // Track which node is being triggered
     uint64_t pending_line_sample_request_id_{0};
+    uint64_t pending_field_timing_request_id_{0};
     std::unordered_map<uint64_t, orc::NodeID> pending_dropout_requests_;  // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_snr_requests_;      // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_burst_level_requests_;  // request_id -> node_id

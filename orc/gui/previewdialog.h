@@ -26,6 +26,7 @@
 
 class FieldPreviewWidget;
 class LineScopeDialog;
+class FieldTimingDialog;
 
 /**
  * @brief Separate dialog window for previewing field/frame outputs from DAG nodes
@@ -115,6 +116,11 @@ public:
      * @brief Get line scope dialog (for updating when stage changes)
      */
     LineScopeDialog* lineScopeDialog() { return line_scope_dialog_; }
+    
+    /**
+     * @brief Get field timing dialog (for updating when frame changes)
+     */
+    FieldTimingDialog* fieldTimingDialog() { return field_timing_dialog_; }
 
 Q_SIGNALS:
     void previewIndexChanged(int index);
@@ -132,6 +138,7 @@ Q_SIGNALS:
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);  // Emitted when navigating lines
     void sampleMarkerMovedInLineScope(int sample_x);  // Emitted when sample marker moves in line scope
     void previewFrameChanged();  // Emitted when preview frame/output type changes - tells line scope to refresh at current position
+    void fieldTimingRequested();  // Emitted when user requests field timing view
 
 private slots:
     void onSampleMarkerMoved(int sample_x);
@@ -156,7 +163,9 @@ private:
     QAction* show_hints_action_;
     QAction* show_quality_metrics_action_;
     QAction* show_ntsc_observer_action_;
+    QAction* show_field_timing_action_;
     LineScopeDialog* line_scope_dialog_;
+    FieldTimingDialog* field_timing_dialog_;
     
     // Current line scope context for cross-hair updates
     int current_line_scope_line_ = -1;  // Image Y coordinate of current line being scoped

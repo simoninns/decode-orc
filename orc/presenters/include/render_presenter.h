@@ -493,6 +493,24 @@ public:
     );
     
     /**
+     * @brief Get all field samples for timing display
+     * 
+     * Returns all samples from one or two fields (depending on output type).
+     * For field output: returns samples from single field.
+     * For frame outputs: returns samples from both fields in field order.
+     * 
+     * @param node_id Node to get samples from
+     * @param output_type Output type
+     * @param output_index Output index
+     * @return LineSampleData with all field samples concatenated
+     */
+    LineSampleData getFieldSamplesForTiming(
+        NodeID node_id,
+        orc::PreviewOutputType output_type,
+        uint64_t output_index
+    );
+    
+    /**
      * @brief Get video parameters for a node
      * 
      * @param node_id Node to get parameters from

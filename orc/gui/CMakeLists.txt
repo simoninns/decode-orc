@@ -77,6 +77,12 @@ add_executable(orc-gui WIN32
     ntscobserverdialog.cpp
     ntscobserverdialog.h
     
+    # Field timing dialog
+    fieldtimingdialog.cpp
+    fieldtimingdialog.h
+    fieldtimingwidget.cpp
+    fieldtimingwidget.h
+    
     # Plot widget
     plotwidget.cpp
     plotwidget.h

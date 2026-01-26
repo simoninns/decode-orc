@@ -88,12 +88,16 @@ Q_SIGNALS:
     void lineNavigationRequested(int direction, uint64_t current_field, int current_line, int sample_x, int preview_image_width);
     void sampleMarkerMoved(int sample_x);  // Emitted when sample marker position changes (field-space)
     void refreshRequested(int image_x, int image_y);  // Emitted when refresh is needed (for frame changes)
+    void dialogClosed();  // Emitted when dialog is closed/hidden
 
 private slots:
     void onLineUp();
     void onLineDown();
     void onPlotClicked(const QPointF &dataPoint);
     void onChannelSelectionChanged(int index);
+
+protected:
+    void hideEvent(QHideEvent* event) override;
 
 private:
     void setupUI();

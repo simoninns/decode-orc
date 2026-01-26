@@ -10,6 +10,7 @@
 #include "previewdialog.h"
 #include "fieldpreviewwidget.h"
 #include "linescopedialog.h"
+#include "fieldtimingdialog.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -28,6 +29,7 @@
 PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
     , line_scope_dialog_(nullptr)
+    , field_timing_dialog_(nullptr)
 {
     setupUI();
     setWindowTitle("Field/Frame Preview");
@@ -78,6 +80,11 @@ void PreviewDialog::setupUI()
     show_hints_action_ = hintsMenu->addAction("&Video Parameter Hints");
     show_hints_action_->setShortcut(QKeySequence("Ctrl+H"));
     connect(show_hints_action_, &QAction::triggered, this, &PreviewDialog::showHintsDialogRequested);
+    
+    auto* viewMenu = menu_bar_->addMenu("&View");
+    show_field_timing_action_ = viewMenu->addAction("&Field Timing");
+    show_field_timing_action_->setShortcut(QKeySequence("Ctrl+T"));
+    connect(show_field_timing_action_, &QAction::triggered, this, &PreviewDialog::fieldTimingRequested);
     
     mainLayout->setMenuBar(menu_bar_);
     
@@ -260,6 +267,9 @@ void PreviewDialog::setupUI()
     // Create line scope dialog
     line_scope_dialog_ = new LineScopeDialog(this);
     
+    // Create field timing dialog
+    field_timing_dialog_ = new FieldTimingDialog(this);
+    
     // Connect to dialog hide/close events to disable cross-hairs
     connect(line_scope_dialog_, &QDialog::finished, this, [this]() {
         preview_widget_->setCrosshairsEnabled(false);
@@ -290,6 +300,11 @@ void PreviewDialog::closeChildDialogs()
     // Close line scope dialog if open
     if (line_scope_dialog_ && line_scope_dialog_->isVisible()) {
         line_scope_dialog_->close();
+    }
+    
+    // Close field timing dialog if open
+    if (field_timing_dialog_ && field_timing_dialog_->isVisible()) {
+        field_timing_dialog_->close();
     }
     
     // Disable cross-hairs when closing

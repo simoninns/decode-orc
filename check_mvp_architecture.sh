@@ -181,9 +181,18 @@ void test_function() {
 }
 EOF
     
+    # Get spdlog include paths (for fmt dependency in node_id.h)
+    SPDLOG_INCLUDES=""
+    if command -v pkg-config &> /dev/null; then
+        if pkg-config --exists spdlog 2>/dev/null; then
+            SPDLOG_INCLUDES=$(pkg-config --cflags spdlog)
+        fi
+    fi
+    
     if ! g++ -c /tmp/test_mvp_valid.cpp \
         -I orc/view-types \
         -I orc/common/include \
+        $SPDLOG_INCLUDES \
         -DORC_GUI_BUILD \
         -std=c++17 \
         2>&1 > /tmp/compile_output.txt; then

@@ -16,6 +16,11 @@ target_include_directories(orc-common PUBLIC
     $<INSTALL_INTERFACE:include/orc/common>
 )
 
+# Find and link spdlog (which includes fmt)
+# Note: spdlog bundles fmt, so we get both libraries
+find_package(spdlog REQUIRED)
+target_link_libraries(orc-common PUBLIC spdlog::spdlog)
+
 # Install headers
 install(DIRECTORY include/
     DESTINATION include/orc/common

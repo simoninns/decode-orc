@@ -165,7 +165,7 @@ EOF
     if ! g++ -c /tmp/test_mvp_violation2.cpp \
         -I orc/core/include \
         -I orc/common/include \
-        -I orc/public \
+        -I orc/view-types \
         -DORC_GUI_BUILD \
         2>&1 | grep -q "error.*GUI code cannot include"; then
         COMPILER_FAILURES=$((COMPILER_FAILURES + 1))
@@ -176,13 +176,13 @@ EOF
 #include <orc_rendering.h>
 #include <parameter_types.h>
 void test_function() {
-    orc::public_api::PreviewImage img;
+    orc::PreviewImage img;
     orc::ParameterValue param = std::string("test");
 }
 EOF
     
     if ! g++ -c /tmp/test_mvp_valid.cpp \
-        -I orc/public \
+        -I orc/view-types \
         -I orc/common/include \
         -DORC_GUI_BUILD \
         -std=c++17 \

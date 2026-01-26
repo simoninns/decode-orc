@@ -11,14 +11,16 @@
 
 #include <QtNodes/BasicGraphicsScene>
 #include <QMenu>
+#include <node_id.h>
+#include <orc_analysis.h>  // For AnalysisToolInfo
 #include "orcgraphmodel.h"
-#include "../core/include/node_id.h"
 
 namespace orc {
     class AnalysisTool;
 }
 
-using orc::NodeID;  // Make NodeID available for Qt signals/slots without namespace
+// Use orc::NodeID for Qt signals/slots
+using orc::NodeID;
 
 /**
  * @brief Custom QtNodes graphics scene with DAG-specific context menus
@@ -42,7 +44,7 @@ public:
      * @param parent Parent QObject
      */
     explicit OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent = nullptr);
-    ~OrcGraphicsScene() override = default;
+    ~OrcGraphicsScene() override;
 
     /**
      * @brief Create context menu for scene background
@@ -59,11 +61,11 @@ signals:
     
     /**
      * @brief Emitted when user requests to run an analysis tool on a node
-     * @param tool The analysis tool to run
+     * @param tool_info The analysis tool information
      * @param node_id Node to analyze
      * @param stage_name Stage type name
      */
-    void runAnalysisRequested(orc::AnalysisTool* tool, const NodeID& node_id, const std::string& stage_name);
+    void runAnalysisRequested(const orc::AnalysisToolInfo& tool_info, const NodeID& node_id, const std::string& stage_name);
 
 private slots:
     void onSelectionChanged();

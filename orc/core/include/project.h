@@ -9,14 +9,28 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI and CLI code must NOT include this header directly.
+// Use ProjectPresenter from orc/presenters instead.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/project.h. Use ProjectPresenter instead."
+#endif
+#if defined(ORC_CLI_BUILD)
+#error "CLI code cannot include core/include/project.h. Use ProjectPresenter instead."
+#endif
+
 #include <string>
 #include <vector>
 #include <map>
 #include <memory>
 #include <future>
 #include "stage_parameter.h"
-#include "node_type.h"
-#include "node_id.h"
+#include <node_type.h>
+#include <node_id.h>
 #include "tbc_metadata.h"
 
 namespace orc {

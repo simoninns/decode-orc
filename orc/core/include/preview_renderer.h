@@ -9,12 +9,33 @@
 
 #pragma once
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
+#endif
+#if defined(ORC_CLI_BUILD)
+#error "CLI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
+#endif
+
+// =============================================================================
+// MVP Architecture Enforcement - Phase 3.5 Complete
+// =============================================================================
+// GUI/CLI code cannot include this file (enforced by compile guards).
+// This header is part of core and contains internal implementation types.
+//
+// GUI/CLI must use:
+// - orc/public/*.h for public API types (PreviewImage, etc.)
+// - orc/presenters/include/*.h for rendering operations (RenderPresenter)
+//
+// Presenters bridge between GUI and core, performing type conversions.
+// =============================================================================
+
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"
-#include "field_id.h"
-#include "node_id.h"
+#include <field_id.h>
+#include <node_id.h>
+#include <common_types.h>  // For PreviewOutputType, AspectRatioMode
+#include <orc_rendering.h>  // For public API types (DropoutRegion, PreviewImage)
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
-#include "dropout_decision.h"  // For DropoutRegion
 #include "../analysis/vectorscope/vectorscope_data.h"
 #include <memory>
 #include <string>
@@ -24,157 +45,22 @@
 
 namespace orc {
 
-/**
- * @brief Output types available for preview
- */
-enum class PreviewOutputType {
-    Field,              ///< Single field (interlaced)
-    Frame,              ///< Frame with natural field order (using is_first_field)
-    Frame_Reversed,     ///< Frame with reversed field order
-    Split,              ///< Frame with fields stacked vertically (first field on top, second on bottom)
-    Luma,               ///< Luma component only
-    Chroma,             ///< Chroma component only (future)
-    Composite          ///< Composite video (future)
-};
+// PreviewOutputType and AspectRatioMode now defined in common_types.h
 
-/**
- * @brief Aspect ratio display modes
- */
-enum class AspectRatioMode {
-    SAR_1_1,           ///< Sample Aspect Ratio 1:1 (square pixels, no correction)
-    DAR_4_3            ///< Display Aspect Ratio 4:3 (corrected for non-square pixels)
-};
+// Use public API DropoutRegion in core (already aliased in dropout_decision.h, but include here for clarity)
+using DropoutRegion = orc::DropoutRegion;
 
-/**
- * @brief Information about an aspect ratio mode option
- */
-struct AspectRatioModeInfo {
-    AspectRatioMode mode;
-    std::string display_name;       ///< Human-readable name for GUI
-    double correction_factor;       ///< Width scaling factor (1.0 for SAR, 0.7 for DAR)
-};
+// Use view-type structs (defined in orc_rendering.h)
+using SuggestedViewNode = orc::SuggestedViewNode;
+using PreviewOutputInfo = orc::PreviewOutputInfo;
+using PreviewItemDisplayInfo = orc::PreviewItemDisplayInfo;
 
-/**
- * @brief Result of querying for suggested view node
- */
-struct SuggestedViewNode {
-    NodeID node_id;            ///< Node to view (invalid if none available)
-    bool has_nodes;                 ///< True if DAG has any nodes at all
-    std::string message;            ///< User-facing message explaining the situation
-    
-    /// Helper to check if a valid node was suggested
-    bool is_valid() const { return node_id.is_valid(); }
-};
-
-/**
- * @brief Information about an available output type
- */
-struct PreviewOutputInfo {
-    PreviewOutputType type;
-    std::string display_name;       ///< Human-readable name
-    uint64_t count;                 ///< Number of outputs available (e.g., 100 fields, 50 frames)
-    bool is_available;              ///< Whether this type is available for this node
-    double dar_aspect_correction;   ///< Width scaling factor for 4:3 DAR (e.g., 0.7 for PAL/NTSC)
-    std::string option_id;          ///< Original option ID from PreviewableStage (for direct rendering)
-    bool dropouts_available;        ///< Whether dropout highlighting is available for this output type
-    bool has_separate_channels;     ///< Whether source has separate Y/C channels (for signal dropdown)
-};
-
-/**
- * @brief Detailed information for displaying an item in preview
- * 
- * Provides all components needed for GUI to arrange labels as desired.
- */
-struct PreviewItemDisplayInfo {
-    std::string type_name;          ///< Type name (e.g., "Field", "Frame", "Frame (Reversed)")
-    uint64_t current_number;        ///< Current item number (1-based)
-    uint64_t total_count;           ///< Total number of items available
-    uint64_t first_field_number;    ///< First field number (1-based, 0 if N/A)
-    uint64_t second_field_number;   ///< Second field number (1-based, 0 if N/A)
-    bool has_field_info;            ///< True if field numbers are relevant
-};
-
-/**
- * @brief Rendered preview image data
- * 
- * Simple RGB888 image format for GUI display.
- * All rendering logic (sample scaling, field weaving, etc.) is done in core.
- */
-struct PreviewImage {
-    uint32_t width;
-    uint32_t height;
-    std::vector<uint8_t> rgb_data;  ///< RGB888 format (width * height * 3 bytes)
-    std::optional<VectorscopeData> vectorscope_data;  ///< Optional UV scatter for chroma preview
-    std::vector<DropoutRegion> dropout_regions;  ///< Dropout regions for visualization
-    
-    bool is_valid() const {
-        return !rgb_data.empty() && rgb_data.size() == width * height * 3;
-    }
-
-    bool has_vectorscope() const {
-        return vectorscope_data.has_value() && !vectorscope_data->samples.empty();
-    }
-};
-
-/**
- * @brief Result of rendering a preview
- */
-struct PreviewRenderResult {
-    PreviewImage image;
-    bool success;
-    std::string error_message;
-    NodeID node_id;
-    PreviewOutputType output_type;
-    uint64_t output_index;          ///< Which output was rendered (field N, frame N, etc.)
-};
-
-/**
- * @brief Result of navigating to next/previous line in frame mode
- * 
- * When displaying a frame with two interlaced fields, moving up/down navigates
- * between alternating fields. This structure tells you which field and line to
- * fetch next.
- */
-struct FrameLineNavigationResult {
-    bool is_valid;                  ///< True if navigation succeeded (within bounds)
-    uint64_t new_field_index;       ///< Field index to render next
-    int new_line_number;            ///< Line number to render next (within the field)
-};
-
-/**
- * @brief Result of mapping image coordinates to field coordinates
- * 
- * Converts preview image coordinates (x, y) to field-space coordinates,
- * accounting for output type (field/frame/split) and field ordering.
- */
-struct ImageToFieldMappingResult {
-    bool is_valid;                  ///< True if mapping succeeded
-    uint64_t field_index;           ///< Field index for this position
-    int field_line;                 ///< Line number within the field
-};
-
-/**
- * @brief Result of mapping field coordinates to image coordinates
- * 
- * Converts field-space coordinates back to preview image coordinates.
- * Used for positioning UI elements like cross-hairs.
- */
-struct FieldToImageMappingResult {
-    bool is_valid;                  ///< True if mapping succeeded
-    int image_y;                    ///< Y coordinate in the preview image
-};
-
-/**
- * @brief Result of querying which fields make up a frame
- * 
- * Returns the two field indices that comprise a given frame,
- * accounting for field ordering (parity hint).
- */
-struct FrameFieldsResult {
-    bool is_valid;                  ///< True if query succeeded
-    uint64_t first_field;           ///< Index of first field in frame
-    uint64_t second_field;          ///< Index of second field in frame
-};
+// Note: PreviewImage and PreviewRenderResult are used directly from view-types
+// Use public API mapping result types in core
+using FrameLineNavigationResult = orc::FrameLineNavigationResult;
+using ImageToFieldMappingResult = orc::ImageToFieldMappingResult;
+using FieldToImageMappingResult = orc::FieldToImageMappingResult;
+using FrameFieldsResult = orc::FrameFieldsResult;
 
 /**
  * @brief Preview renderer for GUI
@@ -273,18 +159,6 @@ public:
     void update_dag(std::shared_ptr<const DAG> dag);
     
     /**
-     * @brief Set the aspect ratio display mode
-     * @param mode The aspect ratio mode to use (SAR 1:1 or DAR 4:3)
-     */
-    void set_aspect_ratio_mode(AspectRatioMode mode);
-    
-    /**
-     * @brief Get the current aspect ratio display mode
-     * @return The current aspect ratio mode
-     */
-    AspectRatioMode get_aspect_ratio_mode() const;
-    
-    /**
      * @brief Set whether to render dropout regions onto the image
      * @param show True to render dropouts, false to hide
      */
@@ -306,18 +180,6 @@ public:
      * @return Shared pointer to the field representation, or nullptr if not available
      */
     std::shared_ptr<const VideoFieldRepresentation> get_representation_at_node(const NodeID& node_id);
-    
-    /**
-     * @brief Get available aspect ratio modes
-     * @return Vector of available aspect ratio mode options
-     */
-    std::vector<AspectRatioModeInfo> get_available_aspect_ratio_modes() const;
-    
-    /**
-     * @brief Get current aspect ratio mode information
-     * @return Info about the currently selected aspect ratio mode
-     */
-    AspectRatioModeInfo get_current_aspect_ratio_mode_info() const;
     
     /**
      * @brief Convert an index from one output type to equivalent index in another type
@@ -528,9 +390,6 @@ private:
     /// DAG executor for on-demand execution
     mutable DAGExecutor dag_executor_;
     
-    /// Current aspect ratio display mode
-    AspectRatioMode aspect_ratio_mode_ = AspectRatioMode::DAR_4_3;
-    
     /// Whether to render dropout regions onto images
     bool show_dropouts_ = false;
     
@@ -575,14 +434,6 @@ private:
     );
     
     /**
-     * @brief Apply aspect ratio scaling to an image
-     * 
-     * @param input The input image at native TBC resolution
-     * @return Scaled image if DAR 4:3 mode, otherwise returns input unchanged
-     */
-    PreviewImage apply_aspect_ratio_scaling(const PreviewImage& input) const;
-    
-    /**
      * @brief Render dropout regions onto an image
      * @param image Image to render dropouts onto (modified in place)
      */
@@ -594,7 +445,7 @@ private:
      * Applies proper scaling based on black/white IRE levels.
      * Default: simple 16->8 bit shift, but could be improved with metadata.
      */
-    uint8_t tbc_sample_to_8bit(uint16_t sample);
+    uint8_t tbc_sample_to_8bit(uint16_t sample, double blackIRE, double whiteIRE);
     
     // ========================================================================
     // Stage preview support (new interface for sources/transforms)

@@ -4,18 +4,18 @@
 #include <QDialog>
 #include <QTextEdit>
 #include <QVBoxLayout>
-#include "../core/stages/stage.h"
+#include "presenters/include/stage_inspection_view_models.h"
 
 namespace orc {
 
 class InspectionDialog : public QDialog {
     Q_OBJECT
 public:
-    explicit InspectionDialog(const StageReport& report, QWidget* parent = nullptr);
+    explicit InspectionDialog(const orc::presenters::StageInspectionView& report, QWidget* parent = nullptr);
     ~InspectionDialog() override = default;
 
 private:
-    void buildUI(const StageReport& report);
+    void buildUI(const orc::presenters::StageInspectionView& report);
     
     QTextEdit* reportText_;
 };

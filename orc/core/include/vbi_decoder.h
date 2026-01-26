@@ -11,8 +11,8 @@
 #define ORC_CORE_VBI_DECODER_H
 
 #include "vbi_types.h"
-#include "field_id.h"
-#include "node_id.h"
+#include <field_id.h>
+#include <node_id.h>
 #include "lru_cache.h"
 #include <array>
 #include <memory>

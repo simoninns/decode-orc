@@ -79,8 +79,8 @@ bool FFmpegPresetAnalysisTool::canApplyToGraph() const {
     return true;
 }
 
-bool FFmpegPresetAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                           Project& project,
+bool FFmpegPresetAnalysisTool::applyToGraph(AnalysisResult& result,
+                                           const Project& project,
                                            NodeID node_id) {
     // Application is handled directly by the GUI dialog
     // This is called if the user uses the analysis result dialog

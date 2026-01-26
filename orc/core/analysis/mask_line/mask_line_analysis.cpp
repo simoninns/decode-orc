@@ -199,8 +199,8 @@ bool MaskLineAnalysisTool::canApplyToGraph() const {
     return true;
 }
 
-bool MaskLineAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                       Project& project,
+bool MaskLineAnalysisTool::applyToGraph(AnalysisResult& result,
+                                       const Project& project,
                                        NodeID node_id) {
     // Apply the configuration to the mask_line stage
     try {
@@ -233,10 +233,10 @@ bool MaskLineAnalysisTool::applyToGraph(const AnalysisResult& result,
             }
         }
         
-        // Apply the parameters
-        project_io::set_node_parameters(project, node_id, updated_params);
+        // Populate parameterChanges instead of modifying project directly
+        result.parameterChanges = updated_params;
         
-        ORC_LOG_INFO("Applied line masking configuration to node '{}'", node_id);
+        ORC_LOG_INFO("Prepared line masking configuration for node '{}'", node_id);
         return true;
         
     } catch (const std::exception& e) {

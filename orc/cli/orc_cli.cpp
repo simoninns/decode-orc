@@ -123,7 +123,7 @@ int main(int argc, char* argv[]) {
     }
     
     // Initialize logging
-    orc::init_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
+    orc::init_app_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
     // Initialize crash handler
     CrashHandlerConfig crash_config;

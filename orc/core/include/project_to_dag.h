@@ -10,6 +10,20 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI code must NOT include this header directly.
+// DAG operations are exposed through ProjectPresenter and RenderPresenter.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/project_to_dag.h. Use ProjectPresenter/RenderPresenter instead."
+#endif
+#if defined(ORC_CLI_BUILD)
+#error "CLI code cannot include core/include/project_to_dag.h. DAG is managed by presenters."
+#endif
+
 #include "project.h"
 #include "dag_executor.h"
 #include "video_field_representation.h"

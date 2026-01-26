@@ -9,6 +9,7 @@
 
 #include "fieldpreviewwidget.h"
 #include "logging.h"
+#include <orc_rendering.h>  // For public API PreviewImage and DropoutRegion
 
 #include <QPainter>
 #include <QPaintEvent>
@@ -140,13 +141,14 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     }
     
     // Scale image to fit widget
-    // Note: Aspect ratio correction is now applied by orc-core in render_output,
-    // so we just display the image as-is
+    // Apply GUI-side aspect ratio correction by scaling width
     QRect target = rect();
     QSize image_size = current_image_.size();
     
-    // Calculate proper display size
-    QSize scaled_size = image_size.scaled(target.size(), Qt::KeepAspectRatio);
+    // Calculate display size with width correction (aspect_correction_)
+    // aspect_correction_ = 1.0 for SAR 1:1; < 1.0 (e.g., ~0.7) for DAR 4:3
+    QSize corrected_size(static_cast<int>(image_size.width() * aspect_correction_), image_size.height());
+    QSize scaled_size = corrected_size.scaled(target.size(), Qt::KeepAspectRatio);
     
     QRect dest_rect(
         (target.width() - scaled_size.width()) / 2,
@@ -163,6 +165,38 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::Antialiasing, false);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
     painter.drawImage(dest_rect, current_image_);
+    
+    // Draw dropout regions if enabled
+    if (show_dropouts_ && !dropout_regions_.empty()) {
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+        
+        // Draw each dropout region as a semi-transparent red rectangle
+        for (const auto& region : dropout_regions_) {
+            int line = static_cast<int>(region.line);
+            int start_sample = static_cast<int>(region.start_sample);
+            int end_sample = static_cast<int>(region.end_sample);
+            
+            // Validate region bounds
+            if (line < 0 || line >= image_size.height() || 
+                start_sample < 0 || end_sample > image_size.width() || 
+                start_sample >= end_sample) {
+                continue;
+            }
+            
+            // Map image coordinates to widget coordinates
+            qreal widget_x1 = image_rect_.left() + (start_sample * image_rect_.width()) / static_cast<qreal>(image_size.width());
+            qreal widget_x2 = image_rect_.left() + (end_sample * image_rect_.width()) / static_cast<qreal>(image_size.width());
+            qreal widget_y = image_rect_.top() + (line * image_rect_.height()) / static_cast<qreal>(image_size.height());
+            
+            // Calculate thickness - scale with image height, 1-4 pixels
+            int thickness = std::max(1, std::min(4, image_rect_.height() / 200));
+            
+            // Draw solid red region centered on the scanline
+            QColor color(255, 0, 0);  // Solid red
+            QRectF dropout_rect(widget_x1, widget_y - thickness / 2.0, widget_x2 - widget_x1, thickness);
+            painter.fillRect(dropout_rect, color);
+        }
+    }
     
     // Draw cross-hairs if enabled and (mouse is over the image area or cross-hairs are locked)
     QPoint draw_pos = crosshairs_locked_ ? locked_crosshairs_pos_ : mouse_pos_;

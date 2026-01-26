@@ -10,6 +10,20 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI/CLI code must NOT include this header directly.
+// Stage registry access is provided through ProjectPresenter methods.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/stage_registry.h. Use ProjectPresenter for stage registry access."
+#endif
+#if defined(ORC_CLI_BUILD)
+#error "CLI code cannot include core/include/stage_registry.h. Use ProjectPresenter for stage registry access."
+#endif
+
 #include "dag_executor.h"
 #include <memory>
 #include <string>

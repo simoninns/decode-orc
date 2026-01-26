@@ -28,10 +28,9 @@
 #include <memory>
 #include <map>
 #include <vector>
-#include "../core/include/field_id.h"
-#include "../core/include/dropout_decision.h"
-#include "../core/include/video_field_representation.h"
-#include "../core/stages/dropout_map/dropout_map_stage.h"
+#include <field_id.h>
+#include <node_id.h>
+#include "presenters/include/dropout_presenter.h"
 
 /**
  * @brief Interactive widget for displaying and editing dropout regions on a field image
@@ -59,21 +58,21 @@ public:
      * @param removals Dropout regions to remove (highlighted in red)
      */
     void setField(const std::vector<uint8_t>& field_data, int width, int height,
-                  const std::vector<orc::DropoutRegion>& source_dropouts,
-                  const std::vector<orc::DropoutRegion>& additions,
-                  const std::vector<orc::DropoutRegion>& removals);
+                  const std::vector<orc::presenters::DropoutRegion>& source_dropouts,
+                  const std::vector<orc::presenters::DropoutRegion>& additions,
+                  const std::vector<orc::presenters::DropoutRegion>& removals);
 
     /**
      * @brief Get the current additions list
      */
-    const std::vector<orc::DropoutRegion>& getAdditions() const { return additions_; }
-    std::vector<orc::DropoutRegion>& getAdditionsMutable() { return additions_; }
+    const std::vector<orc::presenters::DropoutRegion>& getAdditions() const { return additions_; }
+    std::vector<orc::presenters::DropoutRegion>& getAdditionsMutable() { return additions_; }
 
     /**
      * @brief Get the current removals list
      */
-    const std::vector<orc::DropoutRegion>& getRemovals() const { return removals_; }
-    std::vector<orc::DropoutRegion>& getRemovalsMutable() { return removals_; }
+    const std::vector<orc::presenters::DropoutRegion>& getRemovals() const { return removals_; }
+    std::vector<orc::presenters::DropoutRegion>& getRemovalsMutable() { return removals_; }
 
     /**
      * @brief Clear all edits
@@ -99,7 +98,7 @@ public:
     /**
      * @brief Get source dropouts for external access
      */
-    const std::vector<orc::DropoutRegion>& getSourceDropouts() const { return source_dropouts_; }
+    const std::vector<orc::presenters::DropoutRegion>& getSourceDropouts() const { return source_dropouts_; }
 
 protected:
     QSize sizeHint() const override;
@@ -143,7 +142,7 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
 
 private:
-    bool isPointInRegion(int x, int y, const orc::DropoutRegion& region) const;
+    bool isPointInRegion(int x, int y, const orc::presenters::DropoutRegion& region) const;
     void removeRegionAtPoint(int x, int y);
 
     // Field data
@@ -152,9 +151,9 @@ private:
     int field_height_;
 
     // Dropout regions
-    std::vector<orc::DropoutRegion> source_dropouts_;  // From source TBC
-    std::vector<orc::DropoutRegion> additions_;
-    std::vector<orc::DropoutRegion> removals_;
+    std::vector<orc::presenters::DropoutRegion> source_dropouts_;  // From source TBC
+    std::vector<orc::presenters::DropoutRegion> additions_;
+    std::vector<orc::presenters::DropoutRegion> removals_;
 
 public:
     // Mouse interaction state
@@ -210,13 +209,15 @@ class DropoutEditorDialog : public QDialog
 public:
     /**
      * @brief Create a dropout editor dialog
-     * @param source_repr Source video field representation to edit
-     * @param existing_map Existing dropout map from the stage parameter
+     * @param node_id Node ID of the dropout_map stage
+     * @param presenter Dropout presenter for data access
+     * @param field_repr Source video field representation (from DAG execution)
      * @param parent Parent widget
      */
     explicit DropoutEditorDialog(
-        std::shared_ptr<const orc::VideoFieldRepresentation> source_repr,
-        const std::map<uint64_t, orc::FieldDropoutMap>& existing_map,
+        orc::NodeID node_id,
+        orc::presenters::DropoutPresenter* presenter,
+        std::shared_ptr<const void> field_repr,
         QWidget *parent = nullptr);
     
     ~DropoutEditorDialog() = default;
@@ -225,7 +226,7 @@ public:
      * @brief Get the edited dropout map
      * @return Map of field IDs to dropout modifications
      */
-    std::map<uint64_t, orc::FieldDropoutMap> getDropoutMap() const;
+    std::map<uint64_t, orc::presenters::FieldDropoutMap> getDropoutMap() const;
 
 private slots:
     void onPreviousField();
@@ -261,13 +262,17 @@ private:
     // Helper to set button states based on whether an addition or removal is selected
     void updateButtonStatesForSelection(bool is_addition);
 
+    // Presenter and node info
+    orc::NodeID node_id_;
+    orc::presenters::DropoutPresenter* presenter_;
+    
     // Source data
-    std::shared_ptr<const orc::VideoFieldRepresentation> source_repr_;
+    std::shared_ptr<const void> field_repr_;
     
     // Current state
     uint64_t current_field_id_;
     uint64_t total_fields_;
-    std::map<uint64_t, orc::FieldDropoutMap> dropout_map_;
+    std::map<uint64_t, orc::presenters::FieldDropoutMap> dropout_map_;
 
     // UI elements
     QSpinBox* field_spin_box_;

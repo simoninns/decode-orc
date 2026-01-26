@@ -10,7 +10,7 @@
 
 #pragma once
 
-#include "../core/include/node_type.h"
+#include <node_type.h>
 #include <QString>
 #include <QPointF>
 #include <vector>

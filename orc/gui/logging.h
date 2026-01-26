@@ -9,24 +9,25 @@
 
 #pragma once
 
-#include "../core/include/logging.h"
 #include <spdlog/spdlog.h>
+#include <memory>
 
 namespace orc {
 
 /// Get the GUI-specific logger
 std::shared_ptr<spdlog::logger> get_gui_logger();
 
+/// Reset the GUI logger (it will be recreated on next use)
+void reset_gui_logger();
+
+/// Initialize GUI logging independently of core
+void init_gui_logging(const std::string& level = "info",
+					  const std::string& pattern = "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
+					  const std::string& log_file = "");
+
 } // namespace orc
 
 // GUI-specific logging macros that use the GUI logger
-#undef ORC_LOG_TRACE
-#undef ORC_LOG_DEBUG
-#undef ORC_LOG_INFO
-#undef ORC_LOG_WARN
-#undef ORC_LOG_ERROR
-#undef ORC_LOG_CRITICAL
-
 #define ORC_LOG_TRACE(...)    SPDLOG_LOGGER_TRACE(orc::get_gui_logger(), __VA_ARGS__)
 #define ORC_LOG_DEBUG(...)    SPDLOG_LOGGER_DEBUG(orc::get_gui_logger(), __VA_ARGS__)
 #define ORC_LOG_INFO(...)     SPDLOG_LOGGER_INFO(orc::get_gui_logger(), __VA_ARGS__)

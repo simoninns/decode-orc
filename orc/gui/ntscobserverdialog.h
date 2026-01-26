@@ -14,11 +14,8 @@
 #include <QLabel>
 #include <QGroupBox>
 #include <memory>
-
-namespace orc {
-    class ObservationContext;
-    class FieldID;
-}
+#include <field_id.h>
+#include "presenters/include/ntsc_observation_view_models.h"
 
 /**
  * @brief Dialog for displaying NTSC-specific observations
@@ -40,18 +37,21 @@ public:
     /**
      * @brief Update the displayed observation information for a single field
      * @param field_id Field ID to display observations for
-     * @param context Observation context containing FM code and white flag data
+     * @param observations NTSC observations containing FM code and white flag data
      */
-    void updateObservations(const orc::FieldID& field_id, const orc::ObservationContext& context);
+    void updateObservations(const orc::FieldID& field_id, const orc::presenters::NtscFieldObservationsView& observations);
     
     /**
      * @brief Update the displayed observation information for a frame (two fields)
      * @param field1_id First field ID
+     * @param field1_observations NTSC observations for first field
      * @param field2_id Second field ID
-     * @param context Observation context containing FM code and white flag data
+     * @param field2_observations NTSC observations for second field
      */
-    void updateObservationsForFrame(const orc::FieldID& field1_id, const orc::FieldID& field2_id, 
-                                   const orc::ObservationContext& context);
+    void updateObservationsForFrame(const orc::FieldID& field1_id, 
+                                   const orc::presenters::NtscFieldObservationsView& field1_observations,
+                                   const orc::FieldID& field2_id,
+                                   const orc::presenters::NtscFieldObservationsView& field2_observations);
     
     /**
      * @brief Clear the displayed observation information
@@ -62,8 +62,8 @@ private:
     void setupUI();
     void updateFieldObservations(QGroupBox* field_group, const QString& field_label,
                                 QLabel* fm_present, QLabel* fm_data, QLabel* fm_flag,
-                                QLabel* white_flag, const orc::FieldID& field_id, 
-                                const orc::ObservationContext& context);
+                                QLabel* white_flag,
+                                const orc::presenters::NtscFieldObservationsView& observations);
     
     // UI components - Field 1
     QGroupBox* field1_group_;

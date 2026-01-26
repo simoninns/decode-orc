@@ -19,8 +19,12 @@
 #include <QImage>
 #include <string>
 #include <optional>
-#include "../../core/include/node_id.h"
-#include "../../core/analysis/vectorscope/vectorscope_data.h"
+#include <memory>
+#include <node_id.h>
+#include <orc_vectorscope.h>  // Public API types
+
+// Forward declaration for pimpl
+class VectorscopeDialogPrivate;
 
 /**
  * @brief QLabel subclass that maintains aspect ratio of the displayed pixmap
@@ -42,11 +46,6 @@ private:
     QPixmap original_pixmap_;
 };
 
-namespace orc {
-    struct VectorscopeData;
-    class ChromaSinkStage;
-}
-
 /**
  * @brief Live vectorscope visualization for chroma decoder output
  * 
@@ -64,10 +63,10 @@ public:
     void setStage(orc::NodeID node_id);
     
     /**
-     * @brief Update vectorscope for a specific field
-     * @param field_number Field number to display
+     * @brief Update vectorscope with new data
+     * @param data Vectorscope data from renderer
      */
-    void updateForField(uint64_t field_number, const orc::VectorscopeData* data);
+    void updateVectorscope(const orc::VectorscopeData& data);
     
     /**
      * @brief Render vectorscope from extracted U/V data
@@ -93,13 +92,14 @@ private slots:
     void onGraticuleChanged();
 
 private:
+    friend class VectorscopeDialogPrivate;
+    
     void setupUI();
     void connectSignals();
-    void drawGraticule(QPainter& painter, const orc::VectorscopeData& data);
+    int getGraticuleMode() const;
     
-    // Associated stage
-    orc::NodeID node_id_;
-    orc::ChromaSinkStage* stage_;  // Not owned
+    // Pimpl - hides core types from header
+    std::unique_ptr<VectorscopeDialogPrivate> d_;
     
     // UI components
     AspectRatioLabel* scope_label_;
@@ -120,10 +120,6 @@ private:
     QRadioButton* graticule_full_radio_;
     QRadioButton* graticule_75_radio_;
     QButtonGroup* graticule_group_;
-    
-    // Current field info
-    uint64_t current_field_number_;
-    std::optional<orc::VectorscopeData> last_data_;
 };
 
 #endif // ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H

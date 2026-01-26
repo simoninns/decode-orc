@@ -10,8 +10,22 @@
 
 #pragma once
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI/CLI code must NOT include this header directly.
+// DAG execution is managed by presenters.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/include/dag_executor.h. DAG execution is managed by presenters."
+#endif
+#if defined(ORC_CLI_BUILD)
+#error "CLI code cannot include core/include/dag_executor.h. DAG execution is managed by presenters."
+#endif
+
 #include "artifact.h"
-#include "node_id.h"
+#include <node_id.h>
 #include "lru_cache.h"
 #include "observation_context.h"
 #include "../stages/stage.h"

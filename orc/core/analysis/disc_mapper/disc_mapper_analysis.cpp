@@ -302,8 +302,8 @@ bool DiscMapperAnalysisTool::canApplyToGraph() const {
     return true;
 }
 
-bool DiscMapperAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                         Project& project,
+bool DiscMapperAnalysisTool::applyToGraph(AnalysisResult& result,
+                                         const Project& project,
                                          NodeID node_id) {
     // Find the target node in the project
     const auto& nodes = project.get_nodes();
@@ -342,14 +342,12 @@ bool DiscMapperAnalysisTool::applyToGraph(const AnalysisResult& result,
         std::cout << "  Rationale: " << rationale_it->second << std::endl;
     }
     
-    // Set the FieldMapStage's "ranges" parameter to the computed mapping spec
-    // Use project_io function to modify parameters
-    auto updated_params = node_it->parameters;
-    updated_params["ranges"] = mappingSpec;
-    project_io::set_node_parameters(project, node_id, updated_params);
+    // Set the FieldMapStage's "ranges" parameter via parameterChanges
+    // The presenter will apply these changes properly
+    result.parameterChanges["ranges"] = mappingSpec;
     
-    ORC_LOG_DEBUG("Successfully applied mapping spec to FieldMapStage 'ranges' parameter");
-    std::cout << "Successfully applied mapping spec to FieldMapStage 'ranges' parameter" << std::endl;
+    ORC_LOG_DEBUG("Successfully prepared mapping spec for FieldMapStage 'ranges' parameter");
+    std::cout << "Successfully prepared mapping spec for FieldMapStage 'ranges' parameter" << std::endl;
     return true;
 }
 

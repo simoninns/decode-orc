@@ -13,8 +13,8 @@
 #include <vector>
 #include <map>
 #include "stage_parameter.h"
-#include "node_type.h"
-#include "node_id.h"
+#include <node_type.h>
+#include <node_id.h>
 
 namespace orc {
 

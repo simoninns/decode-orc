@@ -18,14 +18,18 @@
 #include <QTimer>
 #include <memory>
 #include <future>
-#include "../core/include/node_id.h"
+#include <node_id.h>
 #include "guiproject.h"
-#include "preview_renderer.h"  // For PreviewOutputType
+#include <orc_rendering.h>  // Public API rendering types
+#include <orc_analysis.h>   // For AnalysisToolInfo
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
-#include "tbc_metadata.h"
-#include "../core/include/node_id.h"
+#include <common_types.h>  // For VideoSystem, SourceType
+#include "presenters/include/hints_presenter.h"
+#include "presenters/include/vbi_view_models.h"
+#include "presenters/include/vbi_presenter.h"
+#include "presenters/include/dropout_presenter.h"
 
 class OrcGraphicsView;
 class PreviewDialog;
@@ -130,7 +134,7 @@ private slots:
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
-    void onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info);
+    void onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
                             std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
@@ -161,15 +165,15 @@ private:
     void updatePreviewRenderer();
     void updatePreviewModeCombo();
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
-    void refreshViewerControls();  // Update slider, combo, preview, and info for current node
+    void refreshViewerControls(bool skip_preview = false);  // Update slider, combo, preview, and info for current node
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
-    void updateVectorscope(const orc::NodeID& node_id, const orc::PreviewImage& image);
+    void updateVectorscope(const orc::PreviewRenderResult& result);
     void loadProjectDAG();  // Load DAG into embedded viewer
     void positionViewToTopLeft();  // Position view to show top-left node
     void selectLowestSourceStage();  // Auto-select source stage with lowest node ID
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
-    void runAnalysisForNode(orc::AnalysisTool* tool, const orc::NodeID& node_id, const std::string& stage_name);
+    void runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name);
     QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
     void closeAllDialogs();  ///< Close all open dialogs when switching projects
     void createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name);
@@ -198,7 +202,7 @@ private:
     uint64_t pending_vbi_request_id_{0};
     uint64_t pending_vbi_request_id_field2_{0};  // Second field for frame mode
     bool pending_vbi_is_frame_mode_{false};
-    orc::VBIFieldInfo pending_vbi_field1_info_;  // Cached first field data
+    orc::presenters::VBIFieldInfoView pending_vbi_field1_info_;  // Cached first field data (view model)
     uint64_t pending_outputs_request_id_{0};
     uint64_t pending_trigger_request_id_{0};
     orc::NodeID pending_trigger_node_id_;  // Track which node is being triggered
@@ -222,6 +226,10 @@ private:
     QualityMetricsDialog* quality_metrics_dialog_;
     VBIDialog* vbi_dialog_;
     HintsDialog* hints_dialog_;
+    std::unique_ptr<orc::presenters::HintsPresenter> hints_presenter_;
+    std::unique_ptr<orc::presenters::DropoutPresenter> dropout_presenter_;
+    std::unique_ptr<orc::presenters::VbiPresenter> vbi_presenter_;
+    // Note: project_presenter_ removed - use project_.presenter() instead
     NtscObserverDialog* ntsc_observer_dialog_;
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
     std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;

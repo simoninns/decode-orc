@@ -15,7 +15,7 @@
 #include <QGroupBox>
 #include <QTabWidget>
 #include <memory>
-#include "../core/include/vbi_decoder.h"
+#include "presenters/include/vbi_view_models.h"
 
 /**
  * @brief Dialog for displaying decoded VBI information
@@ -41,15 +41,15 @@ public:
      * @brief Update the displayed VBI information
      * @param vbi_info The VBI data to display
      */
-    void updateVBIInfo(const orc::VBIFieldInfo& vbi_info);
+    void updateVBIInfo(const orc::presenters::VBIFieldInfoView& vbi_info);
     
     /**
      * @brief Update the displayed VBI information for a frame (both fields)
      * @param field1_info VBI data for first field
      * @param field2_info VBI data for second field
      */
-    void updateVBIInfoFrame(const orc::VBIFieldInfo& field1_info, 
-                            const orc::VBIFieldInfo& field2_info);
+    void updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& field1_info, 
+                            const orc::presenters::VBIFieldInfoView& field2_info);
     
     /**
      * @brief Clear the displayed VBI information
@@ -59,7 +59,7 @@ public:
 private:
     void setupUI();
     QString formatVBILine(int32_t vbi_value);
-    QString formatSoundMode(orc::VbiSoundMode mode);
+    QString formatSoundMode(orc::presenters::VbiSoundModeView mode);
     
     // UI components - Raw VBI data
     QLabel* field_number_label_;

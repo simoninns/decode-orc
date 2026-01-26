@@ -21,7 +21,10 @@ generate_platform_icons(
     "${ICON_OUTPUT_DIR}"
 )
 
-# GUI application sources
+# =============================================================================
+# GUI Application Sources
+# =============================================================================
+
 add_executable(orc-gui WIN32
     main.cpp
     mainwindow.cpp
@@ -52,15 +55,11 @@ add_executable(orc-gui WIN32
     node_type_helper.cpp
     node_type_helper.h
     
-    # Analysis framework GUI components
-    analysis/analysis_progress_impl.cpp
-    analysis/analysis_progress_impl.h
-    analysis/analysis_runner.cpp
-    analysis/analysis_runner.h
-    analysis/analysis_dialog.cpp
-    analysis/analysis_dialog.h
-        analysis/vectorscope_dialog.cpp
-        analysis/vectorscope_dialog.h
+    # Analysis dialogs
+    analysis/vectorscope_dialog.cpp
+    analysis/vectorscope_dialog.h
+    generic_analysis_dialog.cpp
+    generic_analysis_dialog.h
     
     # Inspection dialog
     inspection_dialog.cpp
@@ -122,26 +121,56 @@ add_executable(orc-gui WIN32
     orc_gui_resources.qrc
 )
 
+# =============================================================================
+# Link Libraries
+# =============================================================================
+# The GUI accesses core functionality exclusively through the presenter layer.
+# Direct linking to orc-core is intentionally avoided to enforce architectural
+# boundaries. The presenter layer handles all conversions between public API
+# types and internal core types.
+# =============================================================================
 target_link_libraries(orc-gui PRIVATE 
-    orc-core 
+    orc-common           # Common types shared across all layers
+    orc-view-types       # Shared presentation layer data structures
+    orc-presenters       # Presenter layer (privately links orc-core)
     Qt6::Core 
     Qt6::Widgets
     QtNodes
 )
 
-# Note: FFTW3 is already linked transitively through orc-core from orc_chroma_decoders
-
+# =============================================================================
+# Compile Definitions
+# =============================================================================
+# ORC_GUI_BUILD: Enables compile-time guards in core headers that prevent
+#                direct inclusion from GUI code. If GUI code attempts to
+#                include a core header, compilation will fail with a message
+#                directing the developer to use the appropriate presenter or
+#                public API type instead.
+# =============================================================================
 target_compile_definitions(orc-gui PRIVATE
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
+    ORC_GUI_BUILD
 )
 
+# =============================================================================
+# Include Directories
+# =============================================================================
+# The GUI has access to:
+# - Public API (orc/public): Stable interface types for rendering, analysis, etc.
+# - Presenters (orc/presenters/include): Application logic layer
+# - Common types (orc/common/include): Types shared across all layers
+# - Generated files: Build version information
+#
+# Core implementation headers (orc/core) are intentionally NOT in the include
+# path. This ensures GUI code cannot directly access internal implementation
+# details. If you need access to core functionality, add it to the appropriate
+# presenter or create a new public API type.
+# =============================================================================
 target_include_directories(orc-gui PRIVATE
-    ${CMAKE_SOURCE_DIR}/orc/core/include
-    ${CMAKE_SOURCE_DIR}/orc/core/analysis
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/dropout_analysis_sink
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/snr_analysis_sink
-    ${CMAKE_SOURCE_DIR}/orc/core/stages/burst_level_analysis_sink
+    ${CMAKE_SOURCE_DIR}/orc/public
+    ${CMAKE_SOURCE_DIR}/orc/presenters/include
+    ${CMAKE_SOURCE_DIR}/orc/common/include
+    ${CMAKE_SOURCE_DIR}/orc
     ${CMAKE_BINARY_DIR}/generated
 )
 

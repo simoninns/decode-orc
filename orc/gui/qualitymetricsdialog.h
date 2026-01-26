@@ -16,13 +16,8 @@
 #include <QGroupBox>
 #include <QVBoxLayout>
 #include <memory>
-#include "../core/include/field_id.h"
-#include "../core/include/node_id.h"
-
-namespace orc {
-    class VideoFieldRepresentation;
-    class ObservationContext;
-}
+#include <field_id.h>
+#include <metrics_presenter.h>
 
 /**
  * @brief Dialog for displaying quality metrics for the current field/frame
@@ -37,6 +32,9 @@ namespace orc {
  * 
  * The dialog updates automatically when the preview changes to show metrics
  * for the current field/frame.
+ * 
+ * Metrics are extracted from the observation context via the MetricsPresenter,
+ * which provides a clean MVP interface for data access.
  */
 class QualityMetricsDialog : public QDialog
 {
@@ -49,18 +47,34 @@ public:
     /**
      * @brief Update the quality metrics display for a field using observation context
      * @param field_id Field ID to extract metrics for
-     * @param obs_context Observation context with populated metrics
+     * @param obs_context Observation context with populated metrics (opaque handle from presenter)
      */
-    void updateMetricsFromContext(orc::FieldID field_id, const orc::ObservationContext& obs_context);
+    void updateMetricsFromContext(orc::FieldID field_id, const void* obs_context);
     
     /**
      * @brief Update the quality metrics display for a frame using observation context
      * @param field1_id First field ID
      * @param field2_id Second field ID
-     * @param obs_context Observation context with populated metrics
+     * @param obs_context Observation context with populated metrics (opaque handle from presenter)
      */
     void updateMetricsForFrameFromContext(orc::FieldID field1_id, orc::FieldID field2_id,
-                                          const orc::ObservationContext& obs_context);
+                                          const void* obs_context);
+    
+    /**
+     * @brief Update the quality metrics display for a field using pre-extracted metrics
+     * @param field_id Field ID for display
+     * @param metrics Pre-extracted quality metrics
+     */
+    void updateMetrics(orc::FieldID field_id, const orc::presenters::QualityMetrics& metrics);
+    
+    /**
+     * @brief Update the quality metrics display for a frame using pre-extracted metrics
+     * @param field1_id First field ID for display
+     * @param field2_id Second field ID for display
+     * @param metrics Combined/averaged quality metrics for the frame
+     */
+    void updateMetricsForFrame(orc::FieldID field1_id, orc::FieldID field2_id,
+                                const orc::presenters::QualityMetrics& metrics);
     
     /**
      * @brief Clear all metrics (when no preview is available)
@@ -70,27 +84,9 @@ public:
 private:
     void setupUI();
     
-    /**
-     * @brief Extract metrics from a single field
-     */
-    struct FieldMetrics {
-        double white_snr = 0.0;
-        double black_psnr = 0.0;
-        double burst_level = 0.0;
-        double quality_score = 0.0;
-        size_t dropout_count = 0;
-        bool has_white_snr = false;
-        bool has_black_psnr = false;
-        bool has_burst_level = false;
-        bool has_quality_score = false;
-        bool has_dropout_count = false;
-    };
-    
-    FieldMetrics extractMetricsFromContext(orc::FieldID field_id,
-                                           const orc::ObservationContext& obs_context);
-    
-    void updateFieldLabels(const FieldMetrics& metrics, bool is_field1);
-    void updateFrameAverageLabels(const FieldMetrics& field1, const FieldMetrics& field2);
+    void updateFieldLabels(const orc::presenters::QualityMetrics& metrics, bool is_field1);
+    void updateFrameAverageLabels(const orc::presenters::QualityMetrics& field1, 
+                                   const orc::presenters::QualityMetrics& field2);
     
     // UI components
     QGroupBox* field1_group_;

@@ -1,9 +1,9 @@
 /*
  * File:        render_coordinator.h
  * Module:      orc-gui
- * Purpose:     Thread-safe coordinator for core rendering operations
+ * Purpose:     Thread-safe coordinator for rendering operations using presenters
  *
- * This class implements an Actor Model pattern where all orc-core state
+ * This class implements an Actor Model pattern where rendering state
  * is owned by a single worker thread. The GUI thread sends requests via
  * a thread-safe queue and receives responses via Qt signals.
  *
@@ -23,22 +23,15 @@
 #include <queue>
 #include <atomic>
 #include <functional>
-#include "preview_renderer.h"
-#include "dag_field_renderer.h"
-#include "vbi_decoder.h"
-#include "observation_cache.h"
-#include "field_id.h"
-#include "../core/include/node_id.h"
-#include "../core/stages/dropout_analysis_sink/dropout_analysis_types.h"
-#include "../core/stages/snr_analysis_sink/snr_analysis_types.h"
-#include "../core/stages/burst_level_analysis_sink/burst_level_analysis_types.h"
+#include <field_id.h>
+#include <node_id.h>
+#include <common_types.h>
+#include <orc_rendering.h>  // Public API rendering types (includes mapping result types)
+#include <orc_video_metadata.h>  // Public API VideoParameters
+#include "vbi_view_models.h"
 
-namespace orc {
-    class DAG;
-    class Project;
-    class PreviewRenderer;
-    class VBIDecoder;
-    class TriggerableStage;
+namespace orc::presenters {
+    class RenderPresenter;
 }
 
 // Forward declarations
@@ -81,9 +74,9 @@ protected:
  * @brief Request to update the DAG
  */
 struct UpdateDAGRequest : public RenderRequest {
-    std::shared_ptr<const orc::DAG> dag;
+    std::shared_ptr<const void> dag;
     
-    UpdateDAGRequest(uint64_t id, std::shared_ptr<const orc::DAG> d)
+    UpdateDAGRequest(uint64_t id, std::shared_ptr<const void> d)
         : RenderRequest(RenderRequestType::UpdateDAG, id)
         , dag(std::move(d)) {}
 };
@@ -276,10 +269,10 @@ struct PreviewRenderResponse : public RenderResponse {
  * @brief Response with VBI data
  */
 struct VBIDataResponse : public RenderResponse {
-    orc::VBIFieldInfo vbi_info;
+    orc::presenters::VBIFieldInfoView vbi_info;
     
     VBIDataResponse(uint64_t id, bool s, 
-                   orc::VBIFieldInfo info, std::string err = "")
+                   orc::presenters::VBIFieldInfoView info, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , vbi_info(std::move(info)) {}
 };
@@ -412,9 +405,18 @@ public:
      * 
      * This invalidates all caches and recreates renderers.
      * 
-     * @param dag New DAG to use
+     * @param dag New DAG to use (opaque handle)
      */
-    void updateDAG(std::shared_ptr<const orc::DAG> dag);
+    void updateDAG(std::shared_ptr<const void> dag);
+    
+    /**
+     * @brief Set the project for rendering
+     * 
+     * Must be called before updateDAG to initialize the presenter.
+     * 
+     * @param project Project pointer (opaque handle, must outlive RenderCoordinator)
+     */
+    void setProject(void* project);
     
     /**
      * @brief Request a preview render (async)
@@ -601,16 +603,6 @@ public:
     void cancelTrigger();
     
     /**
-     * @brief Set aspect ratio mode for rendering
-     * 
-     * This affects how images are scaled in render_output and save_png.
-     * Thread-safe - can be called from GUI thread.
-     * 
-     * @param mode The aspect ratio mode to use
-     */
-    void setAspectRatioMode(orc::AspectRatioMode mode);
-    
-    /**
      * @brief Set whether to render dropout regions onto images
      * 
      * Thread-safe - can be called from GUI thread.
@@ -631,7 +623,7 @@ signals:
     /**
      * @brief Emitted when VBI data is ready
      */
-    void vbiDataReady(uint64_t request_id, orc::VBIFieldInfo info);
+    void vbiDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     
     /**
      * @brief Emitted when dropout analysis data is ready
@@ -789,14 +781,12 @@ private:
     // Worker thread state (owned by worker thread, never accessed from GUI)
     // ========================================================================
     
-    std::shared_ptr<const orc::DAG> worker_dag_;
-    std::shared_ptr<orc::ObservationCache> worker_obs_cache_;
-    std::unique_ptr<orc::PreviewRenderer> worker_preview_renderer_;
-    std::unique_ptr<orc::DAGFieldRenderer> worker_field_renderer_;
-    std::unique_ptr<orc::VBIDecoder> worker_vbi_decoder_;
+    std::shared_ptr<const void> worker_dag_;
+    std::unique_ptr<orc::presenters::RenderPresenter> worker_render_presenter_;
+    void* worker_project_{nullptr};  // Non-owning opaque handle for presenter
     
-    std::atomic<bool> trigger_cancel_requested_{false};
-    orc::TriggerableStage* current_trigger_stage_{nullptr};  // Pointer to currently executing trigger (if any)
+    // Phase 2.7: Trigger state now managed by RenderPresenter
+    // Removed: trigger_cancel_requested_ and current_trigger_stage_
 };
 
 #endif // RENDER_COORDINATOR_H

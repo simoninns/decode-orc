@@ -1,6 +1,10 @@
 #ifndef ORC_CORE_ANALYSIS_PROGRESS_H
 #define ORC_CORE_ANALYSIS_PROGRESS_H
 
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/analysis/analysis_progress.h. Use AnalysisPresenter instead."
+#endif
+
 #include "analysis_result.h"
 #include <string>
 #include <atomic>
@@ -37,7 +41,7 @@ public:
     /**
      * @brief Report intermediate result (for live updates)
      */
-    virtual void reportPartialResult(const AnalysisResult::ResultItem& item) = 0;
+    virtual void reportPartialResult(const AnalysisResultItem& item) = 0;
 };
 
 /**
@@ -49,7 +53,7 @@ public:
     void setStatus(const std::string&) override {}
     void setSubStatus(const std::string&) override {}
     bool isCancelled() const override { return false; }
-    void reportPartialResult(const AnalysisResult::ResultItem&) override {}
+    void reportPartialResult(const AnalysisResultItem&) override {}
 };
 
 } // namespace orc

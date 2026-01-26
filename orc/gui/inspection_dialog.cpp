@@ -5,7 +5,7 @@
 
 namespace orc {
 
-InspectionDialog::InspectionDialog(const StageReport& report, QWidget* parent)
+InspectionDialog::InspectionDialog(const orc::presenters::StageInspectionView& report, QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle("Stage Inspection");
@@ -14,7 +14,7 @@ InspectionDialog::InspectionDialog(const StageReport& report, QWidget* parent)
     buildUI(report);
 }
 
-void InspectionDialog::buildUI(const StageReport& report)
+void InspectionDialog::buildUI(const orc::presenters::StageInspectionView& report)
 {
     auto* layout = new QVBoxLayout(this);
     

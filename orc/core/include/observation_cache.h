@@ -10,8 +10,8 @@
 #ifndef ORC_CORE_OBSERVATION_CACHE_H
 #define ORC_CORE_OBSERVATION_CACHE_H
 
-#include "field_id.h"
-#include "node_id.h"
+#include <field_id.h>
+#include <node_id.h>
 #include "lru_cache.h"
 #include <memory>
 #include <string>

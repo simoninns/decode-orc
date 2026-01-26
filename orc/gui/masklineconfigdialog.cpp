@@ -254,8 +254,75 @@ void MaskLineConfigDialog::parse_line_spec_to_ui(const std::string& line_spec)
         ntsc_vbi_checkbox_->setChecked(true);
     }
 
-    // TODO: Parse custom ranges for the custom section
-    // For now, custom section is not auto-populated from complex specs
+    // Parse custom ranges for the custom section
+    // Try to extract a custom range specification
+    if (!line_spec.empty()) {
+        // Split by commas to get individual specs
+        std::vector<std::string> parts;
+        std::istringstream iss(line_spec);
+        std::string part;
+        while (std::getline(iss, part, ',')) {
+            parts.push_back(part);
+        }
+
+        // Look for a spec that isn't already handled by quick options
+        for (const auto& spec : parts) {
+            // Skip known quick option specs
+            if (spec == "F:20" || spec == "F:10-20" || spec == "S:10-20") {
+                continue;
+            }
+
+            // Try to parse as custom range: [F|S|A]:[start] or [F|S|A]:[start-end]
+            if (spec.size() >= 3 && spec[1] == ':') {
+                char parity = spec[0];
+                if (parity != 'F' && parity != 'S' && parity != 'A') {
+                    continue;  // Invalid parity
+                }
+
+                std::string range_str = spec.substr(2);
+                int start = -1, end = -1;
+
+                // Check for range (start-end) or single value
+                size_t dash_pos = range_str.find('-');
+                if (dash_pos != std::string::npos) {
+                    // Range format
+                    try {
+                        start = std::stoi(range_str.substr(0, dash_pos));
+                        end = std::stoi(range_str.substr(dash_pos + 1));
+                    } catch (...) {
+                        continue;  // Parse error, skip this spec
+                    }
+                } else {
+                    // Single value
+                    try {
+                        start = end = std::stoi(range_str);
+                    } catch (...) {
+                        continue;  // Parse error, skip this spec
+                    }
+                }
+
+                // Valid custom range found - populate UI
+                if (start >= 0 && end >= 0) {
+                    custom_enabled_checkbox_->setChecked(true);
+                    
+                    // Set field selection
+                    if (parity == 'F') {
+                        field_selection_combo_->setCurrentIndex(0);  // First field
+                    } else if (parity == 'S') {
+                        field_selection_combo_->setCurrentIndex(1);  // Second field
+                    } else {  // 'A'
+                        field_selection_combo_->setCurrentIndex(2);  // Both fields
+                    }
+
+                    start_line_spinbox_->setValue(start);
+                    end_line_spinbox_->setValue(end);
+
+                    // Only parse the first custom spec found
+                    break;
+                }
+            }
+        }
+    }
 }
 
 std::string MaskLineConfigDialog::build_line_spec_from_ui() const

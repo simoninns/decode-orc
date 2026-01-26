@@ -12,7 +12,7 @@
 
 #include "dag_executor.h"
 #include "stage_parameter.h"
-#include "node_type.h"
+#include <node_type.h>
 #include "video_field_representation.h"
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
 #include <atomic>

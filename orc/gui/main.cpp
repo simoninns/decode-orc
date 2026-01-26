@@ -11,6 +11,7 @@
 #include "logging.h"
 #include "crash_handler.h"
 #include "version.h"
+#include "project_presenter.h"  // For initCoreLogging
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
@@ -25,35 +26,81 @@
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <sstream>
 #include <filesystem>
+#include <iostream>
 
 namespace fs = std::filesystem;
 
 namespace orc {
 
 static std::shared_ptr<spdlog::logger> g_gui_logger;
+/// Initialize GUI logging system
+/// @param level Log level string
+/// @param pattern Log pattern
+/// @param log_file Optional log file path
+void init_gui_logging(const std::string& level,
+                      const std::string& pattern,
+                      const std::string& log_file) {
+    // Reset existing logger
+    g_gui_logger.reset();
+    
+    // Create sinks
+    std::vector<spdlog::sink_ptr> sinks;
+    
+    // Console sink (with colors)
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    console_sink->set_pattern(pattern);
+    sinks.push_back(console_sink);
+    
+    // Optional file sink
+    if (!log_file.empty()) {
+        try {
+            auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file, true);
+            file_sink->set_pattern(pattern);
+            sinks.push_back(file_sink);
+        } catch (const spdlog::spdlog_ex& ex) {
+            // If file logging fails, just continue with console only
+            std::cerr << "Failed to create log file: " << ex.what() << std::endl;
+        }
+    }
+    
+    // Create logger
+    g_gui_logger = std::make_shared<spdlog::logger>("gui", sinks.begin(), sinks.end());
+    g_gui_logger->set_pattern(pattern);
+    
+    // Set log level
+    if (level == "trace") {
+        g_gui_logger->set_level(spdlog::level::trace);
+    } else if (level == "debug") {
+        g_gui_logger->set_level(spdlog::level::debug);
+    } else if (level == "info") {
+        g_gui_logger->set_level(spdlog::level::info);
+    } else if (level == "warn" || level == "warning") {
+        g_gui_logger->set_level(spdlog::level::warn);
+    } else if (level == "error") {
+        g_gui_logger->set_level(spdlog::level::err);
+    } else if (level == "critical") {
+        g_gui_logger->set_level(spdlog::level::critical);
+    } else if (level == "off") {
+        g_gui_logger->set_level(spdlog::level::off);
+    } else {
+        g_gui_logger->set_level(spdlog::level::info);
+    }
+    
+    // Flush on warnings and above
+    g_gui_logger->flush_on(spdlog::level::warn);
+    
+    // Register with spdlog
+    spdlog::register_logger(g_gui_logger);
+}
+
 
 std::shared_ptr<spdlog::logger> get_gui_logger() {
     if (!g_gui_logger) {
-        // Ensure core logger is initialized first
-        auto core_logger = get_logger();
-        if (!core_logger) {
-            return nullptr;
-        }
-        
-        // Create GUI logger that shares the core logger's sinks
-        auto sinks = core_logger->sinks();
-        g_gui_logger = std::make_shared<spdlog::logger>("gui", sinks.begin(), sinks.end());
-        
-        // Register it with spdlog
-        spdlog::register_logger(g_gui_logger);
-        
-        // Match the pattern from core logger
-        g_gui_logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
-        
-        // Match log level with core logger
-        g_gui_logger->set_level(core_logger->level());
+        // Initialize with defaults if not already done
+        init_gui_logging();
     }
     return g_gui_logger;
 }
@@ -167,104 +214,73 @@ int main(int argc, char *argv[])
 {
     // Enable high DPI scaling
     QApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
-    
+
     QApplication app(argc, argv);
-    
+
     app.setApplicationName("orc-gui");
     app.setApplicationVersion(ORC_VERSION);
     app.setOrganizationName("domesday86");
     app.setWindowIcon(QIcon(":/orc-gui/icon.png"));
-    
-    // Detect and apply GNOME theme
+
+    // Apply system theme
     bool isDark = isGNOMEDarkTheme();
-    
-    // Use Fusion style which works well with custom palettes
-    app.setStyle("Fusion");
     applySystemTheme(app, isDark);
-    
-    // Command-line argument parsing
+
+    // Command line parser
     QCommandLineParser parser;
-    parser.setApplicationDescription("Orc GUI - *-decode Orchestration GUI");
+    parser.setApplicationDescription("Decode Orc GUI");
     parser.addHelpOption();
     parser.addVersionOption();
-    
-    // Add log level option
+
     QCommandLineOption logLevelOption(
-        "log-level",
-        "Set logging verbosity (trace, debug, info, warn, error, critical, off)",
+        QStringList{ "l", "log-level" },
+        "Set log level (trace, debug, info, warn, error, critical, off) for both GUI and core",
         "level",
-        "info"
-    );
+        "info");
     parser.addOption(logLevelOption);
-    
-    // Add log file option
-    QCommandLineOption logFileOption(
-        "log-file",
-        "Write logs to specified file (in addition to console)",
-        "filename"
-    );
-    parser.addOption(logFileOption);
-    
-    // Add quick project option
+
+    // Single shared log file option
+    QCommandLineOption sharedLogFileOption(
+        QStringList{ "f", "log-file" },
+        "Write both GUI and core logs to the specified file",
+        "file");
+    parser.addOption(sharedLogFileOption);
+
+
     QCommandLineOption quickProjectOption(
         "quick",
         "Create a quick project from a TBC/TBCC/TBCY file",
-        "filename"
-    );
+        "filename");
     parser.addOption(quickProjectOption);
-    
-    // Add project file argument
+
     parser.addPositionalArgument("project", "Project file to open (optional)");
-    
     parser.process(app);
-    
-    // Initialize logging system
+
+    // Initialize GUI and core logging
     QString logLevel = parser.value(logLevelOption);
-    QString logFile = parser.value(logFileOption);
-    
-    // Reset GUI logger if it exists (so it will be recreated with new sinks)
-    orc::reset_gui_logger();
-    
-    orc::init_logging(logLevel.toStdString(), "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", logFile.toStdString());
-    
-    // Now create GUI logger (it will get the sinks including file sink if specified)
-    auto gui_logger = orc::get_gui_logger();
-    if (gui_logger) {
-        std::string level_str = logLevel.toStdString();
-        if (level_str == "trace") {
-            gui_logger->set_level(spdlog::level::trace);
-        } else if (level_str == "debug") {
-            gui_logger->set_level(spdlog::level::debug);
-        } else if (level_str == "info") {
-            gui_logger->set_level(spdlog::level::info);
-        } else if (level_str == "warn" || level_str == "warning") {
-            gui_logger->set_level(spdlog::level::warn);
-        } else if (level_str == "error") {
-            gui_logger->set_level(spdlog::level::err);
-        } else if (level_str == "critical") {
-            gui_logger->set_level(spdlog::level::critical);
-        } else if (level_str == "off") {
-            gui_logger->set_level(spdlog::level::off);
-        } else {
-            gui_logger->set_level(spdlog::level::info);
-        }
-        
-        // Flush on warnings and above to avoid I/O thrashing during debug logging
-        gui_logger->flush_on(spdlog::level::warn);
-    }
-    
-    // Install Qt message handler to bridge Qt messages to spdlog
+    QString sharedLogFile = parser.value(sharedLogFileOption);
+
+    // Initialize GUI logging
+    orc::init_gui_logging(logLevel.toStdString(),
+                          "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
+                          sharedLogFile.toStdString());
+
+    // Initialize core logging (same file) through presenters layer
+    orc::presenters::initCoreLogging(logLevel.toStdString(),
+                                     "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
+                                     sharedLogFile.toStdString());
+
+    // Bridge Qt messages to spdlog
     qInstallMessageHandler(qtMessageHandler);
-    
+
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
     ORC_LOG_DEBUG("GNOME theme detected: {}", isDark ? "dark" : "light");
-    
+
     // Initialize crash handler
     orc::CrashHandlerConfig crash_config;
     crash_config.application_name = "orc-gui";
     crash_config.version = ORC_VERSION;
-    
-    // Use user's home directory or documents folder for crash bundles
+
     QString crashDir = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     if (crashDir.isEmpty()) {
         crashDir = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
@@ -276,94 +292,74 @@ int main(int argc, char *argv[])
     } else {
         crash_config.output_directory = fs::current_path().string();
     }
-    
+
     crash_config.enable_coredump = true;
     crash_config.auto_upload_info = true;
-    
-    // Add callback for custom application state
     crash_config.custom_info_callback = []() -> std::string {
         std::ostringstream info;
         info << "Working directory: " << fs::current_path().string() << "\n";
         info << "Qt version: " << qVersion() << "\n";
         return info.str();
     };
-    
+
     if (!orc::init_crash_handler(crash_config)) {
         ORC_LOG_WARN("Failed to initialize crash handler");
     } else {
-        ORC_LOG_DEBUG("Crash handler initialized - bundles will be saved to: {}", 
-                     crash_config.output_directory);
+        ORC_LOG_DEBUG("Crash handler initialized - bundles will be saved to: {}",
+                      crash_config.output_directory);
     }
-    
+
     MainWindow window;
-    
     window.show();
     ORC_LOG_DEBUG("Main window shown");
-    
-    // Handle quick project if specified
+
     if (parser.isSet(quickProjectOption)) {
         QString quickFile = parser.value(quickProjectOption);
         ORC_LOG_INFO("Loading quick project from command line: {}", quickFile.toStdString());
         window.quickProject(quickFile);
     } else {
-        // Open project if provided (after window is shown so viewport has correct dimensions)
         const QStringList args = parser.positionalArguments();
         if (!args.isEmpty()) {
             ORC_LOG_INFO("Opening project from command line: {}", args.first().toStdString());
             window.openProject(args.first());
         }
     }
-    
-    // Create and show splash screen after main window to ensure proper z-order
+
+    // Splash screen
     QPixmap logoPixmap(":/orc-gui/decode-orc-logo-small.png");
-    
-    // Create a larger pixmap to hold logo + text below it
     QPixmap splashPixmap(logoPixmap.width(), logoPixmap.height() + 120);
     splashPixmap.fill(Qt::transparent);
-    
-    // Paint logo and text onto the splash pixmap
+
     QPainter painter(&splashPixmap);
     painter.drawPixmap(0, 0, logoPixmap);
-    
-    // Set up font for main text
     QFont titleFont = painter.font();
     titleFont.setPointSize(titleFont.pointSize() * 4);
     titleFont.setBold(true);
     painter.setFont(titleFont);
     painter.setPen(Qt::white);
-    
-    // Draw "Decode Orc" below the logo
     QRect titleRect(0, logoPixmap.height() + 5, splashPixmap.width(), 60);
     painter.drawText(titleRect, Qt::AlignCenter, "Decode Orc");
-    
-    // Set up font for copyright text (smaller, normal weight)
+
     QFont copyrightFont = painter.font();
     copyrightFont.setPointSize(titleFont.pointSize() / 4);
     copyrightFont.setBold(false);
     painter.setFont(copyrightFont);
-    
-    // Draw copyright below the title
     QRect copyrightRect(0, logoPixmap.height() + 65, splashPixmap.width(), 40);
     painter.drawText(copyrightRect, Qt::AlignCenter, "(c) 2026 Simon Inns");
     painter.end();
-    
+
     QSplashScreen splash(splashPixmap, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
     splash.show();
     app.processEvents();
-    
     ORC_LOG_DEBUG("Splash screen displayed");
-    
-    // Close splash screen after 3 seconds
     QTimer::singleShot(3000, [&splash]() {
         splash.close();
         ORC_LOG_DEBUG("Splash screen closed");
     });
-    
+
     int result = app.exec();
     ORC_LOG_INFO("orc-gui exiting");
-    
-    // Clean up crash handler
+
     orc::cleanup_crash_handler();
-    
     return result;
 }

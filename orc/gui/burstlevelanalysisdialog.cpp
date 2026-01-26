@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QStackedLayout>
 #include <QtMath>
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -149,6 +150,10 @@ void BurstLevelAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
     
     // Set the data for the series with theme-aware colors
     if (!burstPoints_.isEmpty()) {
+        // Sort points by X-coordinate (frame number) to ensure proper line drawing
+        std::sort(burstPoints_.begin(), burstPoints_.end(), 
+                  [](const QPointF& a, const QPointF& b) { return a.x() < b.x(); });
+        
         QColor burstColor = PlotWidget::isDarkTheme() ? Qt::yellow : QColor(180, 140, 0); // Dark gold for light theme
         burstSeries_->setPen(QPen(burstColor, 2));
         burstSeries_->setData(burstPoints_);

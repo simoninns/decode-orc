@@ -19,6 +19,8 @@
 #include "burstlevelanalysisdialog.h"
 #include <algorithm>
 #include <limits>
+#include "presenters/include/vbi_view_models.h"
+#include "presenters/include/vbi_presenter.h"
 
 
 // Coordinator response slot implementations
@@ -34,8 +36,9 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     ORC_LOG_DEBUG("onPreviewReady: request_id={}, success={}", request_id, result.success);
     
     if (result.success) {
+        // Use public API image directly - no conversion needed
         preview_dialog_->previewWidget()->setImage(result.image);
-        updateVectorscope(result.node_id, result.image);
+        updateVectorscope(result);
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(
@@ -69,7 +72,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     }
 }
 
-void MainWindow::onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info)
+void MainWindow::onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info)
 {
     if (request_id != pending_vbi_request_id_ && request_id != pending_vbi_request_id_field2_) {
         return;
@@ -77,39 +80,34 @@ void MainWindow::onVBIDataReady(uint64_t request_id, orc::VBIFieldInfo info)
     
     ORC_LOG_DEBUG("onVBIDataReady: request_id={}", request_id);
     
-    if (!vbi_dialog_ || !vbi_dialog_->isVisible()) {
+    if (!vbi_dialog_ || !vbi_presenter_) {
         return;
     }
+    
+    // Process VBI data whether or not the dialog is currently visible,
+    // so that when it is shown, it has the latest data
     
     if (pending_vbi_is_frame_mode_) {
         // Frame mode - need both fields
         if (request_id == pending_vbi_request_id_) {
             // First field received - cache it
             pending_vbi_field1_info_ = info;
-            
-            // Check if we already received the second field
-            if (pending_vbi_request_id_field2_ == 0) {
-                // Second field already processed, update now
-                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
-                pending_vbi_is_frame_mode_ = false;
-            }
+            pending_vbi_request_id_ = 0;  // Mark first request as processed
         } else if (request_id == pending_vbi_request_id_field2_) {
-            // Second field received
-            if (pending_vbi_request_id_ == 0) {
-                // First field already processed - shouldn't happen in normal flow
-                vbi_dialog_->updateVBIInfo(info);
-                pending_vbi_is_frame_mode_ = false;
-            } else {
-                // Update dialog with both fields
+            // Second field received - update dialog with both fields
+            if (vbi_dialog_->isVisible()) {
                 vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
-                pending_vbi_is_frame_mode_ = false;
             }
-            // Mark second request as complete
+            pending_vbi_is_frame_mode_ = false;
             pending_vbi_request_id_field2_ = 0;
+            pending_vbi_request_id_ = 0;
         }
     } else {
         // Field mode - single field display
-        vbi_dialog_->updateVBIInfo(info);
+        if (vbi_dialog_->isVisible()) {
+            vbi_dialog_->updateVBIInfo(info);
+        }
+        pending_vbi_request_id_ = 0;
     }
 }
 
@@ -176,16 +174,16 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     }
     
     // Update preview dialog to show current node
-    // Get node label from project (prefer user_label, fallback to display_name)
-    const auto& nodes = project_.coreProject().get_nodes();
+    // Get node label from project (prefer label, fallback to stage_name)
+    const auto nodes = project_.presenter()->getNodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [this](const orc::ProjectDAGNode& n) { return n.node_id == current_view_node_id_; });
+        [this](const orc::presenters::NodeInfo& n) { return n.node_id == current_view_node_id_; });
     QString node_label;
     if (node_it != nodes.end()) {
-        if (!node_it->user_label.empty()) {
-            node_label = QString::fromStdString(node_it->user_label);
-        } else if (!node_it->display_name.empty()) {
-            node_label = QString::fromStdString(node_it->display_name);
+        if (!node_it->label.empty()) {
+            node_label = QString::fromStdString(node_it->label);
+        } else if (!node_it->stage_name.empty()) {
+            node_label = QString::fromStdString(node_it->stage_name);
         } else {
             node_label = QString::fromStdString(current_view_node_id_.to_string());
         }
@@ -238,21 +236,27 @@ void MainWindow::onTriggerProgress(size_t current, size_t total, QString message
         return;
     }
     
-    // Store pointer locally and check validity before each use
-    // This protects against the dialog being deleted mid-function
-    QPointer<QProgressDialog> dialog = trigger_progress_dialog_;
-    if (!dialog || total == 0) {
+    // Check validity - don't make a local copy of QPointer as it won't track deletion
+    // We must check the member variable directly each time to ensure Qt's tracking works
+    if (!trigger_progress_dialog_ || total == 0) {
         return;
     }
     
     int percentage = static_cast<int>((current * 100) / total);
     
-    // Re-check before each call in case dialog was deleted
-    if (dialog) {
-        dialog->setValue(percentage);
+    // Prevent setting value to 100 which would trigger reset() - let onTriggerComplete handle cleanup
+    // QProgressDialog calls reset() internally when value reaches maximum, which can cause crashes
+    // if the dialog is being deleted or is in an invalid state
+    if (percentage >= 100) {
+        percentage = 99;  // Cap at 99% to prevent automatic reset()
     }
-    if (dialog) {
-        dialog->setLabelText(message);
+    
+    // Re-check member variable directly before each call in case dialog was deleted
+    if (trigger_progress_dialog_) {
+        trigger_progress_dialog_->setValue(percentage);
+    }
+    if (trigger_progress_dialog_) {
+        trigger_progress_dialog_->setLabelText(message);
     }
 }
 
@@ -268,21 +272,24 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
     // This ensures onTriggerProgress will ignore any queued signals
     pending_trigger_request_id_ = 0;
     
-    // Close and delete progress dialog immediately (not deleteLater)
-    // Using delete instead of deleteLater ensures the object is truly gone
-    // and QPointer will be nulled immediately
+    // Close and delete progress dialog safely
     if (trigger_progress_dialog_) {
+        // Disconnect and block all signals from the dialog to prevent any callbacks during destruction
+        disconnect(trigger_progress_dialog_, nullptr, this, nullptr);
+        trigger_progress_dialog_->blockSignals(true);
+        // Reset to 0 before deletion to prevent any internal reset() call
+        trigger_progress_dialog_->setValue(0);
         trigger_progress_dialog_->hide();
-        delete trigger_progress_dialog_;  // Immediate deletion, not deferred
-        // QPointer automatically becomes null after delete
+        trigger_progress_dialog_->deleteLater();  // Use deleteLater for safe asynchronous deletion
+        // QPointer will be nulled when dialog is deleted
     }
     
     // If trigger was successful, automatically create dialog and request analysis data for display
     if (success && pending_trigger_node_id_.is_valid()) {
         // Determine which type of analysis sink was triggered by checking stage_name
-        const auto& nodes = project_.coreProject().get_nodes();
+        const auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
-            [this](const orc::ProjectDAGNode& n) { return n.node_id == pending_trigger_node_id_; });
+            [this](const orc::presenters::NodeInfo& n) { return n.node_id == pending_trigger_node_id_; });
         
         if (node_it != nodes.end()) {
             const std::string& stage_name = node_it->stage_name;
@@ -323,11 +330,13 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
 
 void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
 {
-    ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id, message.toStdString());
-    
     // Check if this is a line sample request error
     if (request_id == pending_line_sample_request_id_) {
         pending_line_sample_request_id_ = 0;
+        
+        // Line sample errors are expected for sink stages - log at DEBUG
+        ORC_LOG_DEBUG("Coordinator line sample error (request {}): {} (expected for sink stages)",
+                     request_id, message.toStdString());
         
         // Show empty line scope with appropriate message
         if (preview_dialog_ && preview_dialog_->isLineScopeVisible()) {
@@ -345,6 +354,9 @@ void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
         statusBar()->showMessage(QString("Line data not available for this stage"), 3000);
         return;
     }
+    
+    // For other errors, log at ERROR level
+    ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id, message.toStdString());
     
     // Show error in status bar for other errors
     statusBar()->showMessage(QString("Error: %1").arg(message), 5000);
@@ -372,6 +384,7 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
     if (prog_it != dropout_progress_dialogs_.end() && prog_it->second) {
         prog_it->second->close();
         prog_it->second->deleteLater();
+        dropout_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
     }
     
     // Find the dialog for this stage
@@ -432,6 +445,7 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     if (prog_it != snr_progress_dialogs_.end() && prog_it->second) {
         prog_it->second->close();
         prog_it->second->deleteLater();
+        snr_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
     }
     
     // Find the dialog for this stage
@@ -478,7 +492,12 @@ void MainWindow::onDropoutProgress(size_t current, size_t total, QString message
     for (auto& pair : dropout_progress_dialogs_) {
         if (pair.second) {
             pair.second->setMaximum(static_cast<int>(total));
-            pair.second->setValue(static_cast<int>(current));
+            // Cap current to prevent reaching 100% which triggers internal reset()
+            int value = static_cast<int>(current);
+            if (total > 0 && value >= static_cast<int>(total)) {
+                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
+            }
+            pair.second->setValue(value);
             pair.second->setLabelText(message);
         }
     }
@@ -490,7 +509,12 @@ void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
     for (auto& pair : snr_progress_dialogs_) {
         if (pair.second) {
             pair.second->setMaximum(static_cast<int>(total));
-            pair.second->setValue(static_cast<int>(current));
+            // Cap current to prevent reaching 100% which triggers internal reset()
+            int value = static_cast<int>(current);
+            if (total > 0 && value >= static_cast<int>(total)) {
+                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
+            }
+            pair.second->setValue(value);
             pair.second->setLabelText(message);
         }
     }
@@ -518,6 +542,7 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
     if (prog_it != burst_level_progress_dialogs_.end() && prog_it->second) {
         prog_it->second->close();
         prog_it->second->deleteLater();
+        burst_level_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
     }
     
     // Find the dialog for this stage
@@ -562,7 +587,12 @@ void MainWindow::onBurstLevelProgress(size_t current, size_t total, QString mess
     for (auto& pair : burst_level_progress_dialogs_) {
         if (pair.second) {
             pair.second->setMaximum(static_cast<int>(total));
-            pair.second->setValue(static_cast<int>(current));
+            // Cap current to prevent reaching 100% which triggers internal reset()
+            int value = static_cast<int>(current);
+            if (total > 0 && value >= static_cast<int>(total)) {
+                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
+            }
+            pair.second->setValue(value);
             pair.second->setLabelText(message);
         }
     }

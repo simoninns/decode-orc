@@ -1,6 +1,17 @@
 #ifndef ORC_CORE_ANALYSIS_REGISTRY_H
 #define ORC_CORE_ANALYSIS_REGISTRY_H
 
+// =============================================================================
+// MVP Architecture Enforcement
+// =============================================================================
+// This header is part of the CORE internal implementation.
+// GUI code must NOT include this header directly.
+// Use AnalysisPresenter from orc/presenters instead.
+// =============================================================================
+#if defined(ORC_GUI_BUILD)
+#error "GUI code cannot include core/analysis/analysis_registry.h. Use AnalysisPresenter instead."
+#endif
+
 #include "analysis_tool.h"
 #include "analysis_context.h"
 #include <vector>

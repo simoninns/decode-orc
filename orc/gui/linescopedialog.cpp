@@ -121,7 +121,7 @@ void LineScopeDialog::setupUI()
 
 void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
                                       const std::vector<uint16_t>& samples,
-                                      const std::optional<orc::VideoParameters>& video_params,
+                                      const std::optional<orc::presenters::VideoParametersView>& video_params,
                                       int preview_image_width, int original_sample_x, int original_image_y,
                                       const std::vector<uint16_t>& y_samples,
                                       const std::vector<uint16_t>& c_samples)
@@ -161,9 +161,9 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     QString system_suffix;
     if (video_params.has_value()) {
         const auto& vp = video_params.value();
-        if (vp.system == orc::VideoSystem::NTSC) {
+        if (vp.system == orc::presenters::VideoSystem::NTSC) {
             system_suffix = " (NTSC)";
-        } else if (vp.system == orc::VideoSystem::PAL || vp.system == orc::VideoSystem::PAL_M) {
+        } else if (vp.system == orc::presenters::VideoSystem::PAL || vp.system == orc::presenters::VideoSystem::PAL_M) {
             system_suffix = " (PAL)";  // Treat PAL-M as PAL for title
         }
     }
@@ -262,7 +262,7 @@ void LineScopeDialog::updatePlotData()
         double ire_to_mv = 7.0;  // Default to PAL
         if (current_video_params_.has_value()) {
             const auto& vp = current_video_params_.value();
-            if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
+            if (vp.system == orc::presenters::VideoSystem::NTSC || vp.system == orc::presenters::VideoSystem::PAL_M) {
                 ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
             }
         }
@@ -281,14 +281,14 @@ void LineScopeDialog::updatePlotData()
             // Convert to mV via IRE if we have video parameters
             if (current_video_params_.has_value()) {
                 const auto& vp = current_video_params_.value();
-                if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
                     // Use blanking as reference for 0 IRE, white as 100 IRE
-                    double ire = (mv_value - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                    double ire = (mv_value - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
                     // Then convert IRE to mV
                     mv_value = ire * ire_to_mv;
-                } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
                     // Fallback to black level if blanking is not available
-                    double ire = (mv_value - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                    double ire = (mv_value - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
                     mv_value = ire * ire_to_mv;
                 }
             }
@@ -415,7 +415,7 @@ void LineScopeDialog::updatePlotData()
     
     if (current_video_params_.has_value()) {
         const auto& vp = current_video_params_.value();
-        if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
+        if (vp.system == orc::presenters::VideoSystem::NTSC || vp.system == orc::presenters::VideoSystem::PAL_M) {
             ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
         }
     }
@@ -425,11 +425,11 @@ void LineScopeDialog::updatePlotData()
     
     if (current_video_params_.has_value()) {
         const auto& vp = current_video_params_.value();
-        if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
             // Convert 16-bit extremes (0 and 65535) to mV via IRE
             // Using blanking as reference for 0 IRE
-            double raw_min_ire = (0.0 - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
-            double raw_max_ire = (65535.0 - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+            double raw_min_ire = (0.0 - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
+            double raw_max_ire = (65535.0 - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
             double raw_min_mv = raw_min_ire * ire_to_mv;
             double raw_max_mv = raw_max_ire * ire_to_mv;
             
@@ -451,10 +451,10 @@ void LineScopeDialog::updatePlotData()
             // Calculate corresponding IRE range
             min_ire = min_mv / ire_to_mv;
             max_ire = max_mv / ire_to_mv;
-        } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
             // Fallback to black level if blanking not available
-            double raw_min_ire = (0.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
-            double raw_max_ire = (65535.0 - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+            double raw_min_ire = (0.0 - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
+            double raw_max_ire = (65535.0 - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
             double raw_min_mv = raw_min_ire * ire_to_mv;
             double raw_max_mv = raw_max_ire * ire_to_mv;
             
@@ -514,7 +514,7 @@ void LineScopeDialog::updatePlotData()
     // Configure secondary Y-axis to show IRE values
     if (current_video_params_.has_value()) {
         const auto& vp = current_video_params_.value();
-        if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        if (vp.black_ire >= 0 && vp.white_ire >= 0) {
             plot_widget_->setSecondaryYAxisEnabled(true);
             plot_widget_->setSecondaryYAxisTitle("IRE");
             plot_widget_->setSecondaryYAxisRange(min_ire, max_ire);
@@ -540,9 +540,9 @@ void LineScopeDialog::updatePlotData()
         }
         
         // Color burst region (cyan)
-        if (vp.colour_burst_start >= 0 && vp.colour_burst_end >= 0) {
-            double cb_start_us = static_cast<double>(vp.colour_burst_start) * us_per_sample;
-            double cb_end_us = static_cast<double>(vp.colour_burst_end) * us_per_sample;
+        if (vp.color_burst_start >= 0 && vp.color_burst_end >= 0) {
+            double cb_start_us = static_cast<double>(vp.color_burst_start) * us_per_sample;
+            double cb_end_us = static_cast<double>(vp.color_burst_end) * us_per_sample;
             
             auto* cb_start = plot_widget_->addMarker();
             cb_start->setStyle(PlotMarker::VLine);
@@ -575,7 +575,7 @@ void LineScopeDialog::updatePlotData()
         // 0 IRE (blanking level) - dark gray
         // Black level - light gray (if different from blanking)
         // 100 IRE (white level) - light gray
-        if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
             // 0 IRE (blanking) = 0 mV by definition
             auto* ire0 = plot_widget_->addMarker();
             ire0->setStyle(PlotMarker::HLine);
@@ -583,8 +583,8 @@ void LineScopeDialog::updatePlotData()
             ire0->setPen(QPen(Qt::darkGray, 1, Qt::DashLine));
             
             // Black level marker (if different from blanking)
-            if (vp.black_16b_ire >= 0 && vp.black_16b_ire != vp.blanking_16b_ire) {
-                double black_ire = (static_cast<double>(vp.black_16b_ire) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+            if (vp.black_ire >= 0 && vp.black_ire != vp.blanking_ire) {
+                double black_ire = (static_cast<double>(vp.black_ire) - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
                 double black_mv = black_ire * ire_to_mv;
                 auto* black_marker = plot_widget_->addMarker();
                 black_marker->setStyle(PlotMarker::HLine);
@@ -597,7 +597,7 @@ void LineScopeDialog::updatePlotData()
             ire100->setStyle(PlotMarker::HLine);
             ire100->setPosition(QPointF(0, 100.0 * ire_to_mv));  // 100 IRE in mV
             ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
-        } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+        } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
             // Fallback: use black level as reference if blanking not available
             auto* ire0 = plot_widget_->addMarker();
             ire0->setStyle(PlotMarker::HLine);
@@ -674,7 +674,7 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         double ire_to_mv = 7.0;  // Default to PAL
         if (current_video_params_.has_value()) {
             const auto& vp = current_video_params_.value();
-            if (vp.system == orc::VideoSystem::NTSC || vp.system == orc::VideoSystem::PAL_M) {
+            if (vp.system == orc::presenters::VideoSystem::NTSC || vp.system == orc::presenters::VideoSystem::PAL_M) {
                 ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
             }
         }
@@ -691,18 +691,18 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
                 
                 if (current_video_params_.has_value()) {
                     const auto& vp = current_video_params_.value();
-                    if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
-                        double y_ire = (static_cast<double>(y_value) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
-                        double c_ire = (static_cast<double>(c_value) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                    if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
+                        double y_ire = (static_cast<double>(y_value) - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
+                        double c_ire = (static_cast<double>(c_value) - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
                         double y_mv = y_ire * ire_to_mv;
                         double c_mv = c_ire * ire_to_mv;
                         
                         info_text += QString("\nY: %1 mV (%2 IRE)").arg(y_mv, 0, 'f', 1).arg(y_ire, 0, 'f', 1);
                         info_text += QString("\nC: %1 mV (%2 IRE)").arg(c_mv, 0, 'f', 1).arg(c_ire, 0, 'f', 1);
-                    } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                    } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
                         // Fallback if blanking not available
-                        double y_ire = (static_cast<double>(y_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
-                        double c_ire = (static_cast<double>(c_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                        double y_ire = (static_cast<double>(y_value) - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
+                        double c_ire = (static_cast<double>(c_value) - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
                         double y_mv = y_ire * ire_to_mv;
                         double c_mv = c_ire * ire_to_mv;
                         
@@ -718,14 +718,14 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
             // Single channel mode - show mV and IRE if we have video parameters
             if (current_video_params_.has_value()) {
                 const auto& vp = current_video_params_.value();
-                if (vp.blanking_16b_ire >= 0 && vp.white_16b_ire >= 0) {
-                    double ire = (static_cast<double>(sample_value) - vp.blanking_16b_ire) * 100.0 / (vp.white_16b_ire - vp.blanking_16b_ire);
+                if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
+                    double ire = (static_cast<double>(sample_value) - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
                     double mv = ire * ire_to_mv;
                     info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
                     info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
-                } else if (vp.black_16b_ire >= 0 && vp.white_16b_ire >= 0) {
+                } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
                     // Fallback if blanking not available
-                    double ire = (static_cast<double>(sample_value) - vp.black_16b_ire) * 100.0 / (vp.white_16b_ire - vp.black_16b_ire);
+                    double ire = (static_cast<double>(sample_value) - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
                     double mv = ire * ire_to_mv;
                     info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
                     info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);

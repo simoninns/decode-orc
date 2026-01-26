@@ -329,6 +329,56 @@ static void interpret_vbi_data(
                      cx_enabled, is_12_inch ? 12 : 8, is_side_1 ? 1 : 2, is_digital);
     }
     
+    // IEC 60857-1986 - 10.1.8 Amendment 2 status code --------------------------------
+    // Amendment 2 uses the same status code location as programme status (line 16)
+    // Decode Amendment 2 in all cases (parallel to programme status)
+    if ((vbi16 & 0xFFF000) == 0x8DC000 || (vbi16 & 0xFFF000) == 0x8BA000) {
+        // Extract x3, x4, x5 parameters
+        uint32_t x3 = (vbi16 & 0x000F00) >> 8;
+        uint32_t x4 = (vbi16 & 0x0000F0) >> 4;
+        
+        // Copy permitted flag (x34): 1=copy permitted, 0=copy prohibited
+        bool copy_permitted = ((x3 & 0x01) != 0);
+        context.set(field_id, "vbi", "amendment2_status_copy_permitted", copy_permitted ? 1 : 0);
+        
+        // For Amendment 2, the audio status is in x41, x42, x43, x44 (all 4 bits of x4)
+        uint32_t am2_audio_status = (x4 & 0x0F);
+        
+        // Decode Amendment 2 audio status
+        // Valid Amendment 2 audio status codes map to video standard and sound mode
+        bool is_video_standard = true;  // Default
+        int am2_sound_mode = 0;         // Default to STEREO
+        
+        switch (am2_audio_status) {
+            case 0:  // 0000: STEREO, video standard
+                is_video_standard = true;
+                am2_sound_mode = 0;  // STEREO
+                break;
+            case 1:  // 0001: MONO, video standard
+                is_video_standard = true;
+                am2_sound_mode = 1;  // MONO
+                break;
+            case 3:  // 0011: BILINGUAL, video standard
+                is_video_standard = true;
+                am2_sound_mode = 3;  // BILINGUAL
+                break;
+            case 8:  // 1000: MONO_DUMP, video standard
+                is_video_standard = true;
+                am2_sound_mode = 8;  // MONO_DUMP
+                break;
+            default:  // All other codes: non-standard video
+                is_video_standard = false;
+                am2_sound_mode = 11;  // FUTURE_USE
+                break;
+        }
+        
+        context.set(field_id, "vbi", "amendment2_status_is_video_standard", is_video_standard ? 1 : 0);
+        context.set(field_id, "vbi", "amendment2_status_sound_mode", am2_sound_mode);
+        
+        ORC_LOG_DEBUG("BiphaseObserver: Amendment 2 status - copy_permitted={}, video_standard={}, sound_mode={}",
+                     copy_permitted, is_video_standard, am2_sound_mode);
+    }
+    
     // IEC 60857-1986 - 10.1.9 Users code ----------------------------------------------
     if ((vbi16 & 0xF0F000) == 0x80D000) {
         uint32_t x1 = (vbi16 & 0x0F0000) >> 16;

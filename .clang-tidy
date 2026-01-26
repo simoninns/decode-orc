@@ -1,0 +1,22 @@
+# Clang-Tidy Configuration for ORC MVP Architecture
+# Helps enforce architectural boundaries at compile time
+
+Checks: >
+  -*,
+  readability-identifier-naming,
+  modernize-*,
+  performance-*,
+  bugprone-*
+
+# Custom naming conventions to help enforce MVP
+CheckOptions:
+  # Presenter files must not use core types in public APIs
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  
+  # Add warnings for common anti-patterns
+  - key: bugprone-suspicious-include.HeaderFileExtensions
+    value: 'h,hpp'
+
+# Note: For full MVP enforcement, use the check_mvp_interface_leakage.sh script
+# This is a supplementary tool for general code quality

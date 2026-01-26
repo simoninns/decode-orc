@@ -139,40 +139,43 @@ AnalysisResult FieldCorruptionAnalysisTool::analyze(const AnalysisContext& ctx,
         }
     }
     
-    // Get the VideoFieldRepresentation from the DAG to determine field count
-    uint64_t field_count = 1000;  // Default fallback
+    // Get input field count by executing the input node
+    uint64_t field_count = 0;
     
     if (ctx.dag && ctx.node_id.is_valid()) {
-        // Find the node in the DAG
         const auto& dag_nodes = ctx.dag->nodes();
         auto node_it = std::find_if(dag_nodes.begin(), dag_nodes.end(),
             [&ctx](const DAGNode& node) { return node.node_id == ctx.node_id; });
         
         if (node_it != dag_nodes.end() && !node_it->input_node_ids.empty()) {
-            NodeID input_node_id = node_it->input_node_ids[0];
-            
-            // Execute DAG to get the input source
-            DAGExecutor executor;
             try {
+                orc::NodeID input_node_id = node_it->input_node_ids[0];
+                orc::DAGExecutor executor;
                 auto all_outputs = executor.execute_to_node(*ctx.dag, input_node_id);
                 auto output_it = all_outputs.find(input_node_id);
                 
                 if (output_it != all_outputs.end() && !output_it->second.empty()) {
-                    // Find the VideoFieldRepresentation output
                     for (const auto& artifact : output_it->second) {
-                        auto source = std::dynamic_pointer_cast<VideoFieldRepresentation>(artifact);
+                        auto source = std::dynamic_pointer_cast<const orc::VideoFieldRepresentation>(artifact);
                         if (source) {
-                            field_count = source->field_range().size();
-                            ORC_LOG_DEBUG("Auto-detected field count: {}", field_count);
+                            field_count = source->field_count();
+                            ORC_LOG_DEBUG("Field Corruption Generator: Got field count {} from input", field_count);
                             break;
                         }
                     }
                 }
-            } catch (...) {
-                // Fall back to default if DAG execution fails
-                ORC_LOG_WARN("Failed to auto-detect field count, using default: {}", field_count);
+            } catch (const std::exception& e) {
+                ORC_LOG_WARN("Field Corruption Generator: Failed to execute input node: {}", e.what());
             }
         }
+    }
+    
+    if (field_count == 0) {
+        result.status = AnalysisResult::Failed;
+        result.summary = "Cannot determine input field count.\n\n"
+                        "Field Corruption Generator requires a field-based input.\n"
+                        "Ensure this field_map stage has an input connection.";
+        return result;
     }
     
     // Extract pattern parameter
@@ -333,8 +336,8 @@ bool FieldCorruptionAnalysisTool::canApplyToGraph() const {
     return true;
 }
 
-bool FieldCorruptionAnalysisTool::applyToGraph(const AnalysisResult& result,
-                                              Project& project,
+bool FieldCorruptionAnalysisTool::applyToGraph(AnalysisResult& result,
+                                              const Project& project,
                                               NodeID node_id) {
     // Find the ranges in graphData
     auto it_ranges = result.graphData.find("ranges");
@@ -368,23 +371,20 @@ bool FieldCorruptionAnalysisTool::applyToGraph(const AnalysisResult& result,
         return false;
     }
     
-    // Update the node's parameters with both ranges and seed
-    std::map<std::string, ParameterValue> params = node_it->parameters;
-    params["ranges"] = it_ranges->second;
-    
     // Parse seed string to int32
+    int32_t seed_value;
     try {
-        int32_t seed_value = std::stoi(it_seed->second);
-        params["seed"] = seed_value;
+        seed_value = std::stoi(it_seed->second);
     } catch (...) {
         ORC_LOG_ERROR("Failed to parse seed value: {}", it_seed->second);
         return false;
     }
     
-    // Apply updated parameters back to project using project_io
-    project_io::set_node_parameters(project, node_id, params);
+    // Populate parameterChanges instead of modifying project directly
+    result.parameterChanges["ranges"] = it_ranges->second;
+    result.parameterChanges["seed"] = seed_value;
     
-    ORC_LOG_DEBUG("Applied corruption pattern to node {}: ranges={}, seed={}", 
+    ORC_LOG_DEBUG("Prepared corruption pattern for node {}: ranges={}, seed={}", 
                  node_id, it_ranges->second, it_seed->second);
     
     return true;

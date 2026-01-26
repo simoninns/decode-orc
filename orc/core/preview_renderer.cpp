@@ -159,7 +159,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -169,7 +170,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -179,7 +181,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -189,7 +192,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for placeholder
-            false   // No separate channels for placeholder
+            false,  // No separate channels for placeholder
+            0       // first_field_offset
         });
         return outputs;
     }
@@ -235,7 +239,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -245,7 +250,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -255,7 +261,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -265,7 +272,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for unavailable content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         return outputs;
     }
@@ -283,7 +291,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame,
@@ -293,7 +302,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Frame_Reversed,
@@ -303,7 +313,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         outputs.push_back(PreviewOutputInfo{
             PreviewOutputType::Split,
@@ -313,7 +324,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             0.7,
             "",
             false,  // No dropouts for empty content
-            false   // No separate channels
+            false,  // No separate channels
+            0       // first_field_offset
         });
         return outputs;
     }
@@ -327,7 +339,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
         "",
         true,  // Dropouts available for field outputs
-        false  // No separate channels
+        false, // No separate channels
+        0      // first_field_offset (not applicable for field view)
     });
     
     // Frame outputs - available if we have at least 2 fields
@@ -356,7 +369,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
                 true,  // Dropouts available for frame outputs
-                false  // No separate channels
+                false, // No separate channels
+                first_frame_start  // Field offset for first frame
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -367,7 +381,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
                 true,  // Dropouts available for reversed frame outputs
-                false  // No separate channels
+                false, // No separate channels
+                first_frame_start  // Field offset for first frame
             });
             
             outputs.push_back(PreviewOutputInfo{
@@ -378,7 +393,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
                 "",
                 true,  // Dropouts available for split outputs
-                false  // No separate channels
+                false, // No separate channels
+                first_frame_start  // Field offset for first frame
             });
         }
     }
@@ -558,10 +574,7 @@ PreviewRenderResult PreviewRenderer::render_output(
         render_dropouts(result.image);
     }
     
-    // Apply aspect ratio scaling to the rendered image
-    if (result.success && result.image.is_valid()) {
-        result.image = apply_aspect_ratio_scaling(result.image);
-    }
+    // Aspect ratio scaling removed from core; GUI handles display scaling
     
     return result;
 }
@@ -637,6 +650,11 @@ PreviewImage PreviewRenderer::render_field(
         return image;
     }
     
+    // Get video parameters for IRE scaling
+    auto video_params = repr->get_video_parameters();
+    double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
+    double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
+    
     // Initialize image
     image.width = desc.width;
     image.height = desc.height;
@@ -653,7 +671,7 @@ PreviewImage PreviewRenderer::render_field(
             }
             
             uint16_t sample = field_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             // Grayscale (R=G=B)
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
@@ -737,6 +755,11 @@ PreviewImage PreviewRenderer::render_frame(
         return image;
     }
     
+    // Get video parameters for IRE scaling
+    auto video_params = repr->get_video_parameters();
+    double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
+    double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
+    
     // Frame is double height
     image.width = desc_a.width;
     image.height = desc_a.height * 2;
@@ -762,7 +785,7 @@ PreviewImage PreviewRenderer::render_frame(
             }
             
             uint16_t sample = field_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
@@ -824,6 +847,11 @@ PreviewImage PreviewRenderer::render_split_frame(
         return image;
     }
     
+    // Get video parameters for IRE scaling
+    auto video_params = repr->get_video_parameters();
+    double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
+    double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
+    
     // Split frame: stack fields vertically
     // Top half is field_a, bottom half is field_b
     image.width = desc_a.width;
@@ -841,7 +869,7 @@ PreviewImage PreviewRenderer::render_split_frame(
             }
             
             uint16_t sample = field_a_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
@@ -861,7 +889,7 @@ PreviewImage PreviewRenderer::render_split_frame(
             }
             
             uint16_t sample = field_b_data[field_offset + x];
-            uint8_t value = tbc_sample_to_8bit(sample);
+            uint8_t value = tbc_sample_to_8bit(sample, blackIRE, whiteIRE);
             
             image.rgb_data[rgb_offset + x * 3 + 0] = value; // R
             image.rgb_data[rgb_offset + x * 3 + 1] = value; // G
@@ -885,80 +913,19 @@ PreviewImage PreviewRenderer::render_split_frame(
     return image;
 }
 
-uint8_t PreviewRenderer::tbc_sample_to_8bit(uint16_t sample) {
-    // Simple linear scaling from 16-bit to 8-bit
-    // TODO: Could be improved with proper IRE level scaling from metadata
-    // (black_16b_ire and white_16b_ire from capture table)
-    
-    return static_cast<uint8_t>((sample >> 8) & 0xFF);
+uint8_t PreviewRenderer::tbc_sample_to_8bit(uint16_t sample, double blackIRE, double whiteIRE) {
+    // IRE level scaling from metadata (black_16b_ire and white_16b_ire from capture table)
+    // This matches the implementation in PreviewHelpers::scale_16bit_to_8bit()
+    double ireRange = whiteIRE - blackIRE;
+    int32_t adjusted = static_cast<int32_t>(sample) - static_cast<int32_t>(blackIRE);
+    int32_t scaled = static_cast<int32_t>((adjusted * 255.0) / ireRange);
+    return static_cast<uint8_t>(std::max(0, std::min(255, scaled)));
 }
 
 namespace {
-/**
- * @brief Helper to copy all metadata fields from one PreviewImage to another
- * 
- * This ensures that when creating a new PreviewImage (e.g., during scaling),
- * all metadata fields are preserved. Only excludes width, height, and rgb_data
- * which are typically set explicitly by the caller.
- * 
- * @param from Source PreviewImage to copy metadata from
- * @param to Destination PreviewImage to copy metadata to
- */
-void copy_preview_metadata(const PreviewImage& from, PreviewImage& to) {
-    to.vectorscope_data = from.vectorscope_data;
-    // Note: dropout_regions often need transformation, so not copied here
-    // Caller should handle dropout_regions explicitly if needed
-}
 } // anonymous namespace
 
-PreviewImage PreviewRenderer::apply_aspect_ratio_scaling(const PreviewImage& input) const {
-    // If SAR 1:1 mode or invalid image, return as-is
-    if (aspect_ratio_mode_ == AspectRatioMode::SAR_1_1 || !input.is_valid()) {
-        return input;
-    }
-    
-    // DAR 4:3 mode - apply aspect correction
-    // PAL/NTSC have rectangular pixels that need to be displayed wider
-    // The correction factor compresses width for display (client applies inverse for stretching)
-    const double aspect_correction = 0.7;
-    
-    PreviewImage output;
-    output.height = input.height;
-    output.width = static_cast<size_t>(input.width * aspect_correction + 0.5);
-    output.rgb_data.resize(output.width * output.height * 3);
-    
-    // Simple nearest-neighbor scaling
-    for (size_t y = 0; y < output.height; ++y) {
-        for (size_t x = 0; x < output.width; ++x) {
-            // Map output pixel to input pixel
-            size_t src_x = static_cast<size_t>(x / aspect_correction);
-            if (src_x >= input.width) src_x = input.width - 1;
-            
-            size_t src_offset = (y * input.width + src_x) * 3;
-            size_t dst_offset = (y * output.width + x) * 3;
-            
-            output.rgb_data[dst_offset + 0] = input.rgb_data[src_offset + 0];
-            output.rgb_data[dst_offset + 1] = input.rgb_data[src_offset + 1];
-            output.rgb_data[dst_offset + 2] = input.rgb_data[src_offset + 2];
-        }
-    }
-    
-    // Scale dropout regions to match the new image dimensions
-    output.dropout_regions.reserve(input.dropout_regions.size());
-    for (const auto& region : input.dropout_regions) {
-        DropoutRegion scaled_region = region;
-        // Scale the sample coordinates (x-axis)
-        scaled_region.start_sample = static_cast<uint32_t>(region.start_sample * aspect_correction + 0.5);
-        scaled_region.end_sample = static_cast<uint32_t>(region.end_sample * aspect_correction + 0.5);
-        // Line numbers (y-axis) remain unchanged
-        output.dropout_regions.push_back(scaled_region);
-    }
-    
-    // Copy all metadata fields (vectorscope_data, etc.)
-    copy_preview_metadata(input, output);
-    
-    return output;
-}
+
 
 bool PreviewRenderer::save_png(
     const NodeID& node_id,
@@ -1048,13 +1015,7 @@ bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& fil
     return true;
 }
 
-void PreviewRenderer::set_aspect_ratio_mode(AspectRatioMode mode) {
-    aspect_ratio_mode_ = mode;
-}
 
-AspectRatioMode PreviewRenderer::get_aspect_ratio_mode() const {
-    return aspect_ratio_mode_;
-}
 
 void PreviewRenderer::set_show_dropouts(bool show) {
     show_dropouts_ = show;
@@ -1121,23 +1082,7 @@ void PreviewRenderer::render_dropouts(PreviewImage& image) const {
     }
 }
 
-std::vector<AspectRatioModeInfo> PreviewRenderer::get_available_aspect_ratio_modes() const {
-    return {
-        { AspectRatioMode::SAR_1_1, "SAR 1:1", 1.0 },
-        { AspectRatioMode::DAR_4_3, "DAR 4:3", 0.7 }
-    };
-}
 
-AspectRatioModeInfo PreviewRenderer::get_current_aspect_ratio_mode_info() const {
-    auto modes = get_available_aspect_ratio_modes();
-    for (const auto& mode_info : modes) {
-        if (mode_info.mode == aspect_ratio_mode_) {
-            return mode_info;
-        }
-    }
-    // Fallback (should never happen)
-    return modes[0];
-}
 
 uint64_t PreviewRenderer::get_equivalent_index(
     PreviewOutputType from_type,
@@ -1771,6 +1716,18 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             }
         }
         
+        // Determine first field offset for frame-based outputs by probing field 0 parity
+        uint64_t first_field_offset = 0;
+        if (type == PreviewOutputType::Frame || type == PreviewOutputType::Frame_Reversed || type == PreviewOutputType::Split) {
+            auto probe_result = field_renderer_->render_field_at_node(stage_node_id, FieldID(0));
+            if (probe_result.is_valid && probe_result.representation) {
+                auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+                if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                    first_field_offset = 1;
+                }
+            }
+        }
+
         outputs.push_back(PreviewOutputInfo{
             type,
             option.display_name,
@@ -1779,7 +1736,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
             option.dar_aspect_correction,  // Use stage-provided DAR correction
             option.id,  // Store original option ID
             !is_chroma_decoder,  // Dropouts not available for chroma decoder (RGB output)
-            has_separate_channels  // YC sources have separate channels
+            has_separate_channels,  // YC sources have separate channels
+            first_field_offset      // field offset for frame-based outputs
         });
     }
     
@@ -1831,10 +1789,7 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
         render_dropouts(result.image);
     }
     
-    // Apply aspect ratio scaling to the rendered image
-    if (result.success && result.image.is_valid()) {
-        result.image = apply_aspect_ratio_scaling(result.image);
-    }
+    // Aspect ratio scaling removed from core; GUI handles display scaling
     
     return result;
 }

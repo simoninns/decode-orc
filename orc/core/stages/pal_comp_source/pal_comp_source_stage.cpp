@@ -378,7 +378,7 @@ std::vector<PreviewOption> PALCompSourceStage::get_preview_options() const
     // Option 1: Individual fields (Y component with IRE scaling)
     options.push_back(PreviewOption{
         "field",                // id
-        "Field (Y)",            // display_name
+        "Field (Clamped)",      // display_name
         false,                  // is_rgb (this is luma/YUV data)
         width,                  // width
         height,                 // height
@@ -403,7 +403,7 @@ std::vector<PreviewOption> PALCompSourceStage::get_preview_options() const
         
         options.push_back(PreviewOption{
             "split",            // id
-            "Split (Y)",        // display_name
+            "Split (Clamped)",  // display_name
             false,              // is_rgb
             width,              // width
             height * 2,         // height (two fields stacked)
@@ -428,7 +428,7 @@ std::vector<PreviewOption> PALCompSourceStage::get_preview_options() const
         
         options.push_back(PreviewOption{
             "frame",            // id
-            "Frame (Y)",        // display_name
+            "Frame (Clamped)",  // display_name
             false,              // is_rgb
             width,              // width
             height * 2,         // height (two fields woven)

@@ -8,9 +8,20 @@
  */
 
 #include "vectorscope_dialog.h"
-#include "../../core/analysis/vectorscope/vectorscope_data.h"
-#include "../../core/stages/chroma_sink/chroma_sink_stage.h"
-#include "logging.h"
+#include "../logging.h"
+
+// ============================================================================
+// Private Implementation - Simple state, no core access
+// ============================================================================
+class VectorscopeDialogPrivate {
+public:
+    orc::NodeID node_id;
+    uint64_t current_field_number = 0;
+    std::optional<orc::VectorscopeData> last_data;
+    
+    void drawGraticule(QPainter& painter, VectorscopeDialog* dialog, 
+                       orc::VideoSystem system, int32_t white_16b_ire, int32_t black_16b_ire);
+};
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -72,8 +83,7 @@ void AspectRatioLabel::updateScaledPixmap() {
 
 VectorscopeDialog::VectorscopeDialog(QWidget *parent)
     : QDialog(parent)
-    , node_id_()
-    , current_field_number_(0)
+    , d_(std::make_unique<VectorscopeDialogPrivate>())
 {
     setWindowTitle("Vectorscope");
     setWindowFlags(Qt::Window);
@@ -83,11 +93,14 @@ VectorscopeDialog::VectorscopeDialog(QWidget *parent)
     connectSignals();
 }
 
-VectorscopeDialog::~VectorscopeDialog() {
+VectorscopeDialog::~VectorscopeDialog() = default;
+
+int VectorscopeDialog::getGraticuleMode() const {
+    return graticule_group_->checkedId();
 }
 
 void VectorscopeDialog::setStage(orc::NodeID node_id) {
-    node_id_ = node_id;
+    d_->node_id = node_id;
     setWindowTitle(QString("Vectorscope - Node %1").arg(node_id.value()));
 }
 
@@ -191,22 +204,22 @@ void VectorscopeDialog::connectSignals() {
             this, [this](int){ onGraticuleChanged(); });
 }
 
-void VectorscopeDialog::updateForField(uint64_t field_number, const orc::VectorscopeData* data) {
-    current_field_number_ = field_number;
-
-    if (!data || data->samples.empty()) {
-        info_label_->setText(QString("Field %1 - No vectorscope data").arg(field_number));
+void VectorscopeDialog::updateVectorscope(const orc::VectorscopeData& data) {
+    if (data.samples.empty()) {
+        info_label_->setText(QString("Field %1 - No vectorscope data").arg(data.field_number));
         clearDisplay();
         return;
     }
 
-    last_data_ = *data;
-    renderVectorscope(*data);
-    ORC_LOG_DEBUG("Vectorscope update requested for field {} ({} samples)", field_number, data->samples.size());
+    d_->last_data = data;
+    d_->current_field_number = data.field_number;
+    renderVectorscope(data);
+    ORC_LOG_DEBUG("Vectorscope updated for field {} ({} samples)", data.field_number, data.samples.size());
 }
 
 void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     if (data.samples.empty()) {
+        ORC_LOG_DEBUG("VectorscopeDialog: renderVectorscope called with empty samples for field {}", data.field_number);
         clearDisplay();
         return;
     }
@@ -226,6 +239,24 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         }
     }
     
+    int graticule_mode = graticule_group_->checkedId();
+    bool blend_mode = blend_color_checkbox_->isChecked();
+    bool defocus = defocus_checkbox_->isChecked();
+    int field_select = field_select_group_->checkedId();
+    ORC_LOG_DEBUG(
+        "VectorscopeDialog: renderVectorscope field={} samples={} graticule={} blend={} defocus={} field_select={} system={} white={} black={} chroma_detected={}",
+        data.field_number,
+        data.samples.size(),
+        graticule_mode,
+        blend_mode,
+        defocus,
+        field_select,
+        static_cast<int>(data.system),
+        data.white_16b_ire,
+        data.black_16b_ire,
+        has_chroma
+    );
+    
     // Create image
     QImage image(SIZE, SIZE, QImage::Format_RGB888);
     image.fill(Qt::black);
@@ -233,23 +264,18 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     QPainter painter(&image);
     
     // Draw graticule first
-    int graticule_mode = graticule_group_->checkedId();
     if (graticule_mode != 0) {
-        drawGraticule(painter, data);
+        d_->drawGraticule(painter, this, data.system, data.white_16b_ire, data.black_16b_ire);
     }
     
     // Set blend mode
-    bool blend_mode = blend_color_checkbox_->isChecked();
     painter.setCompositionMode(blend_mode ? QPainter::CompositionMode_Plus : QPainter::CompositionMode_SourceOver);
-    
-    // Plot U/V samples
-    bool defocus = defocus_checkbox_->isChecked();
-    int field_select = field_select_group_->checkedId();
     
     // Cheap predictable PRNG for defocus
     std::minstd_rand random_engine(12345);
     std::normal_distribution<double> normal_dist(0.0, 100.0);
     
+    // Plot U/V samples
     for (const auto& sample : data.samples) {
         // Filter samples based on field selection
         if (field_select == 1 && sample.field_id != 0) continue;  // First field only
@@ -321,7 +347,8 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         .arg(field_info));
 }
 
-void VectorscopeDialog::drawGraticule(QPainter& painter, const orc::VectorscopeData& data) {
+void VectorscopeDialogPrivate::drawGraticule(QPainter& painter, VectorscopeDialog* dialog,
+                                              orc::VideoSystem system, int32_t white_16b_ire, int32_t black_16b_ire) {
     constexpr int SIZE = 1024;
     constexpr int HALF_SIZE = SIZE / 2;
 
@@ -334,7 +361,7 @@ void VectorscopeDialog::drawGraticule(QPainter& painter, const orc::VectorscopeD
     painter.drawEllipse(0, 0, SIZE - 1, SIZE - 1);
 
     // NTSC I/Q axes only if system is NTSC
-    if (data.system == orc::VideoSystem::NTSC) {
+    if (system == orc::VideoSystem::NTSC) {
         double theta = (-33.0 * M_PI) / 180.0;
         for (int i = 0; i < 4; i++) {
             painter.drawLine(
@@ -348,11 +375,12 @@ void VectorscopeDialog::drawGraticule(QPainter& painter, const orc::VectorscopeD
     }
 
     // 75% vs 100% targets scaling
-    const bool draw_graticule = (graticule_group_->checkedId() != 0);
+    const int graticule_mode = dialog->getGraticuleMode();
+    const bool draw_graticule = (graticule_mode != 0);
     if (draw_graticule) {
-        const double percent = (graticule_group_->checkedId() == 2) ? 0.75 : 1.0;
-        const int32_t white = data.white_16b_ire;
-        const int32_t black = data.black_16b_ire;
+        const double percent = (graticule_mode == 2) ? 0.75 : 1.0;
+        const int32_t white = white_16b_ire;
+        const int32_t black = black_16b_ire;
         const double SCALE = 65536.0 / SIZE;
 
         if (white > black) {
@@ -404,8 +432,9 @@ void VectorscopeDialog::clearDisplay() {
     blank.fill(Qt::black);
     {
         QPainter painter(&blank);
-        if (last_data_.has_value()) {
-            drawGraticule(painter, *last_data_);
+        if (d_->last_data.has_value()) {
+            d_->drawGraticule(painter, this, d_->last_data->system, 
+                             d_->last_data->white_16b_ire, d_->last_data->black_16b_ire);
         } else {
             // Draw basic cross and outer circle when no data yet
             constexpr int SIZE = 1024;
@@ -428,29 +457,33 @@ void VectorscopeDialog::closeEvent(QCloseEvent* event) {
 }
 
 void VectorscopeDialog::onBlendColorToggled() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Blend Color toggled -> {}", blend_color_checkbox_->isChecked());
     // Re-render with new blend mode
-    if (last_data_.has_value()) {
-        renderVectorscope(*last_data_);
+    if (d_->last_data.has_value()) {
+        renderVectorscope(*d_->last_data);
     }
 }
 
 void VectorscopeDialog::onDefocusToggled() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Defocus toggled -> {}", defocus_checkbox_->isChecked());
     // Re-render with new defocus settings
-    if (last_data_.has_value()) {
-        renderVectorscope(*last_data_);
+    if (d_->last_data.has_value()) {
+        renderVectorscope(*d_->last_data);
     }
 }
 
 void VectorscopeDialog::onFieldSelectionChanged() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Field selection changed -> {}", field_select_group_->checkedId());
     // Re-render with new field selection
-    if (last_data_.has_value()) {
-        renderVectorscope(*last_data_);
+    if (d_->last_data.has_value()) {
+        renderVectorscope(*d_->last_data);
     }
 }
 
 void VectorscopeDialog::onGraticuleChanged() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Graticule mode changed -> {}", graticule_group_->checkedId());
     // Re-render with new graticule
-    if (last_data_.has_value()) {
-        renderVectorscope(*last_data_);
+    if (d_->last_data.has_value()) {
+        renderVectorscope(*d_->last_data);
     }
 }

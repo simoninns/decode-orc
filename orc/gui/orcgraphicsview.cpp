@@ -11,9 +11,18 @@
 #include "orcgraphicsscene.h"
 #include "orcgraphmodel.h"
 #include "logging.h"
-#include "../core/include/project.h"
+#include <node_id.h>
+#include "presenters/include/project_presenter.h"
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
 #include <QtNodes/internal/ConnectionGraphicsObject.hpp>
+#include <QKeySequence>
+#include <QAction>
+#include <QMessageBox>
+#include <QWheelEvent>
+#include <QShowEvent>
+#include <cmath>
+
+using orc::NodeID;
 #include <QKeySequence>
 #include <QAction>
 #include <QMessageBox>
@@ -87,10 +96,9 @@ void OrcGraphicsView::onDeleteSelectedObjects()
     }
     
     auto& graph_model = dynamic_cast<OrcGraphModel&>(orc_scene->graphModel());
-    const auto& project = graph_model.project();
     
     // Check if any selected nodes have connections
-    std::vector<orc::NodeID> cannot_delete;
+    std::vector<NodeID> cannot_delete;
     bool has_selected_nodes = false;
     
     for (QGraphicsItem* item : selected_items) {
@@ -98,14 +106,14 @@ void OrcGraphicsView::onDeleteSelectedObjects()
         if (node_graphics) {
             has_selected_nodes = true;
             QtNodes::NodeId qt_node_id = node_graphics->nodeId();
-            orc::NodeID orc_node_id = graph_model.getOrcNodeId(qt_node_id);
+            NodeID orc_node_id = graph_model.getOrcNodeId(qt_node_id);
             
-            ORC_LOG_DEBUG("Delete check: QtNode {} -> ORC node '{}'", qt_node_id, orc_node_id);
+            ORC_LOG_DEBUG("Delete check: QtNode {} -> ORC node '{}'", qt_node_id, orc_node_id.to_string());
             
             if (orc_node_id.is_valid()) {
                 std::string reason;
-                if (!orc::project_io::can_remove_node(project, orc_node_id, &reason)) {
-                    ORC_LOG_DEBUG("Cannot delete '{}': {}", orc_node_id, reason);
+                if (!graph_model.presenter().canRemoveNode(orc_node_id, &reason)) {
+                    ORC_LOG_DEBUG("Cannot delete '{}': {}", orc_node_id.to_string(), reason);
                     cannot_delete.push_back(orc_node_id);
                 }
             }

@@ -11,7 +11,6 @@
 #include "tbc_yc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
-// TODO: Observer system refactored - old observers removed
 #include <sstream>
 #include <chrono>
 
@@ -27,8 +26,7 @@ TBCYCVideoFieldRepresentation::TBCYCVideoFieldRepresentation(
     y_reader_(std::move(y_reader)),
     c_reader_(std::move(c_reader)),
     metadata_reader_(std::move(metadata_reader)),
-    has_audio_(false),
-    has_efm_(false),
+    audio_efm_handler_(std::make_unique<TBCAudioEFMHandler>(this)),
     y_field_data_cache_(MAX_CACHED_TBC_FIELDS),
     c_field_data_cache_(MAX_CACHED_TBC_FIELDS)
 {
@@ -538,55 +536,41 @@ std::optional<ActiveLineHint> TBCYCVideoFieldRepresentation::get_active_line_hin
 }
 
 // Audio interface - same as composite TBC sources
-uint32_t TBCYCVideoFieldRepresentation::get_audio_sample_count(FieldID /*id*/) const {
-    // Audio support to be implemented (same as TBCVideoFieldRepresentation)
-    return 0;
+uint32_t TBCYCVideoFieldRepresentation::get_audio_sample_count(FieldID id) const {
+    return audio_efm_handler_->get_audio_sample_count(id);
 }
 
-std::vector<int16_t> TBCYCVideoFieldRepresentation::get_audio_samples(FieldID /*id*/) const {
-    // Audio support to be implemented (same as TBCVideoFieldRepresentation)
-    return {};
+std::vector<int16_t> TBCYCVideoFieldRepresentation::get_audio_samples(FieldID id) const {
+    return audio_efm_handler_->get_audio_samples(id);
 }
 
 bool TBCYCVideoFieldRepresentation::has_audio() const {
-    return has_audio_;
+    return audio_efm_handler_->has_audio();
 }
 
 bool TBCYCVideoFieldRepresentation::set_audio_file(const std::string& pcm_path) {
-    // Audio support to be implemented (same as TBCVideoFieldRepresentation)
-    pcm_audio_path_ = pcm_path;
-    has_audio_ = false;  // TODO: Implement audio loading
-    return false;
+    // Ensure metadata is loaded before setting audio file
+    ensure_field_metadata();
+    return audio_efm_handler_->set_audio_file(pcm_path);
 }
 
 // EFM interface - same as composite TBC sources
-uint32_t TBCYCVideoFieldRepresentation::get_efm_sample_count(FieldID /*id*/) const {
-    // EFM support to be implemented (same as TBCVideoFieldRepresentation)
-    return 0;
+uint32_t TBCYCVideoFieldRepresentation::get_efm_sample_count(FieldID id) const {
+    return audio_efm_handler_->get_efm_sample_count(id);
 }
 
-std::vector<uint8_t> TBCYCVideoFieldRepresentation::get_efm_samples(FieldID /*id*/) const {
-    // EFM support to be implemented (same as TBCVideoFieldRepresentation)
-    return {};
+std::vector<uint8_t> TBCYCVideoFieldRepresentation::get_efm_samples(FieldID id) const {
+    return audio_efm_handler_->get_efm_samples(id);
 }
 
 bool TBCYCVideoFieldRepresentation::has_efm() const {
-    return has_efm_;
+    return audio_efm_handler_->has_efm();
 }
 
 bool TBCYCVideoFieldRepresentation::set_efm_file(const std::string& efm_path) {
-    // EFM support to be implemented (same as TBCVideoFieldRepresentation)
-    efm_data_path_ = efm_path;
-    has_efm_ = false;  // TODO: Implement EFM loading
-    return false;
-}
-
-void TBCYCVideoFieldRepresentation::compute_audio_offsets() {
-    // Audio support to be implemented (same as TBCVideoFieldRepresentation)
-}
-
-void TBCYCVideoFieldRepresentation::compute_efm_offsets() {
-    // EFM support to be implemented (same as TBCVideoFieldRepresentation)
+    // Ensure metadata is loaded before setting EFM file
+    ensure_field_metadata();
+    return audio_efm_handler_->set_efm_file(efm_path);
 }
 
 } // namespace orc

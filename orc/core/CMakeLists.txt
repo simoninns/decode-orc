@@ -1,7 +1,6 @@
 add_library(orc-core STATIC
     # Phase 1: Foundations
     field_id.cpp
-    node_id.cpp
     video_field_representation.cpp
     artifact.cpp
     dag_executor.cpp
@@ -23,6 +22,7 @@ add_library(orc-core STATIC
     # TBC file I/O
     tbc_reader.cpp
     tbc_metadata.cpp
+    tbc_audio_efm_handler.cpp
     tbc_video_field_representation.cpp
     tbc_yc_video_field_representation.cpp
     
@@ -35,8 +35,6 @@ add_library(orc-core STATIC
     
     # Observers (organized in subdirectory)
     observers/observer.cpp
-    # TODO: Old observers temporarily disabled during refactor
-    # observers/observation_history.cpp
     observers/biphase_observer.cpp
     observers/closed_caption_observer.cpp
     observers/fm_code_observer.cpp
@@ -49,7 +47,6 @@ add_library(orc-core STATIC
     # Analysis framework
     analysis/analysis_registry.cpp
     analysis/analysis_init.cpp
-    analysis/batch_analysis_tool.cpp
     
     # Vectorscope analysis
     analysis/vectorscope/vectorscope_analysis.cpp
@@ -58,7 +55,6 @@ add_library(orc-core STATIC
     # Re-enable range-based field mapping tools (observer-independent)
     analysis/disc_mapper/disc_mapper_analysis.cpp
     analysis/disc_mapper/disc_mapper_analyzer.cpp
-    analysis/field_mapping/field_mapping_range_analysis.cpp
     
     # Field corruption analysis (testing tool)
     analysis/field_corruption/field_corruption_analyzer.cpp
@@ -133,6 +129,7 @@ add_library(orc-core STATIC
 
 target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/orc/view-types  # Access to view types (MVP architecture allows core -> view dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/analysis
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/pal_comp_source
@@ -156,6 +153,19 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/snr_analysis_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
 )
+
+# =============================================================================
+# MVP Architecture - Core Headers are PRIVATE
+# =============================================================================
+# Core headers are marked PRIVATE to prevent transitive inclusion.
+# Only orc-presenters should directly access core headers.
+# GUI/CLI code accesses core functionality through presenters only.
+# =============================================================================
+# Note: All include directories above are PRIVATE by default
+# =============================================================================
+
+# Link against common types
+target_link_libraries(orc-core PUBLIC orc-common)
 
 # Compiler-specific warning flags
 if(MSVC)

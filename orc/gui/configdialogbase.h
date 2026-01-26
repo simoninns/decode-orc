@@ -24,7 +24,7 @@
 #include <map>
 #include <string>
 #include <functional>
-#include "stage_parameter.h"
+#include <parameter_types.h>
 
 /**
  * @brief Base class for simple rule-based configuration dialogs

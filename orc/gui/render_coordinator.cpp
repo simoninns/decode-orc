@@ -1,7 +1,7 @@
 /*
  * File:        render_coordinator.cpp
  * Module:      orc-gui
- * Purpose:     Thread-safe coordinator for core rendering operations
+ * Purpose:     Thread-safe coordinator for rendering operations using presenters
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -9,15 +9,22 @@
 
 #include "render_coordinator.h"
 #include "logging.h"
-#include "dag_executor.h"
-#include "project_to_dag.h"
-#include "project.h"
-#include "ld_sink_stage.h"  // For TriggerableStage
-#include "observation_context.h"
-#include "../core/include/vbi_decoder.h"
-#include "dropout_analysis_sink_stage.h"
-#include "snr_analysis_sink_stage.h"
-#include "burst_level_analysis_sink_stage.h"
+#include "render_presenter.h"
+#include <common_types.h>  // For analysis result types
+
+// Forward declarations for core types used via opaque pointers
+namespace orc {
+    class DAG;
+    class Project;
+}
+
+// Phase 2.4: Analysis sink stage headers removed - now using RenderPresenter abstraction
+// Removed: #include "dropout_analysis_sink_stage.h"
+// Removed: #include "snr_analysis_sink_stage.h"
+// Removed: #include "burst_level_analysis_sink_stage.h"
+
+// Phase 2.7: Trigger operations migrated to RenderPresenter
+// Removed: #include "ld_sink_stage.h"
 
 RenderCoordinator::RenderCoordinator(QObject* parent)
     : QObject(parent)
@@ -81,10 +88,16 @@ void RenderCoordinator::enqueueRequest(std::unique_ptr<RenderRequest> request)
     queue_cv_.notify_one();
 }
 
-void RenderCoordinator::updateDAG(std::shared_ptr<const orc::DAG> dag)
+void RenderCoordinator::updateDAG(std::shared_ptr<const void> dag)
 {
     auto req = std::make_unique<UpdateDAGRequest>(nextRequestId(), std::move(dag));
     enqueueRequest(std::move(req));
+}
+
+void RenderCoordinator::setProject(void* project)
+{
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    worker_project_ = project;
 }
 
 uint64_t RenderCoordinator::requestPreview(const orc::NodeID& node_id,
@@ -186,13 +199,14 @@ orc::ImageToFieldMappingResult RenderCoordinator::mapImageToField(const orc::Nod
                                                                   int image_y,
                                                                   int image_height)
 {
-    // This is a synchronous call - safe to call worker_preview_renderer_ directly
+    // This is a synchronous call - safe to call render presenter directly
     // since it's just a calculation with no state changes
     std::lock_guard<std::mutex> lock(queue_mutex_);
-    if (!worker_preview_renderer_) {
+    if (!worker_render_presenter_) {
         return orc::ImageToFieldMappingResult{false, 0, 0};
     }
-    return worker_preview_renderer_->map_image_to_field(node_id, output_type, output_index, image_y, image_height);
+    auto result = worker_render_presenter_->mapImageToField(node_id, output_type, output_index, image_y, image_height);
+    return orc::ImageToFieldMappingResult{result.is_valid, result.field_index, result.field_line};
 }
 
 orc::FieldToImageMappingResult RenderCoordinator::mapFieldToImage(const orc::NodeID& node_id,
@@ -202,24 +216,26 @@ orc::FieldToImageMappingResult RenderCoordinator::mapFieldToImage(const orc::Nod
                                                                   int field_line,
                                                                   int image_height)
 {
-    // This is a synchronous call - safe to call worker_preview_renderer_ directly
+    // This is a synchronous call - safe to call render presenter directly
     // since it's just a calculation with no state changes
     std::lock_guard<std::mutex> lock(queue_mutex_);
-    if (!worker_preview_renderer_) {
+    if (!worker_render_presenter_) {
         return orc::FieldToImageMappingResult{false, 0};
     }
-    return worker_preview_renderer_->map_field_to_image(node_id, output_type, output_index, field_index, field_line, image_height);
+    auto result = worker_render_presenter_->mapFieldToImage(node_id, output_type, output_index, field_index, field_line, image_height);
+    return orc::FieldToImageMappingResult{result.is_valid, result.image_y};
 }
 
 orc::FrameFieldsResult RenderCoordinator::getFrameFields(const orc::NodeID& node_id, uint64_t frame_index)
 {
-    // This is a synchronous call - safe to call worker_preview_renderer_ directly
+    // This is a synchronous call - safe to call render presenter directly
     // since it's just a calculation with no state changes
     std::lock_guard<std::mutex> lock(queue_mutex_);
-    if (!worker_preview_renderer_) {
+    if (!worker_render_presenter_) {
         return orc::FrameFieldsResult{false, 0, 0};
     }
-    return worker_preview_renderer_->get_frame_fields(node_id, frame_index);
+    auto result = worker_render_presenter_->getFrameFields(node_id, frame_index);
+    return orc::FrameFieldsResult{result.is_valid, result.first_field, result.second_field};
 }
 
 uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
@@ -232,7 +248,11 @@ uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
 
 void RenderCoordinator::cancelTrigger()
 {
-    trigger_cancel_requested_ = true;
+    // Call cancelTrigger on the presenter (thread-safe)
+    // The presenter's implementation sets a flag that the trigger operation will check
+    if (worker_render_presenter_) {
+        worker_render_presenter_->cancelTrigger();
+    }
     ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested");
 }
 
@@ -348,42 +368,44 @@ void RenderCoordinator::handleUpdateDAG(const UpdateDAGRequest& req)
         
         // Clear all worker state
         worker_dag_.reset();
-        worker_obs_cache_.reset();
-        worker_preview_renderer_.reset();
-        worker_field_renderer_.reset();
-        worker_vbi_decoder_.reset();
+        worker_render_presenter_.reset();
         
         ORC_LOG_DEBUG("RenderCoordinator: Cleared all rendering state for empty project");
         return;
     }
     
-    // Save current show_dropouts state before recreating preview renderer
+    // Save current show_dropouts state before recreating presenter
     bool show_dropouts = false;
-    if (worker_preview_renderer_) {
-        show_dropouts = worker_preview_renderer_->get_show_dropouts();
+    if (worker_render_presenter_) {
+        show_dropouts = worker_render_presenter_->getShowDropouts();
         ORC_LOG_DEBUG("RenderCoordinator: Preserving show_dropouts={}", show_dropouts);
     }
     
     // Update DAG
     worker_dag_ = req.dag;
     
-    // Create shared observation cache for all decoders
-    worker_obs_cache_ = std::make_shared<orc::ObservationCache>(worker_dag_);
-    
-    // Recreate all renderers/decoders with new DAG
+    // Create or update render presenter
     try {
-        worker_preview_renderer_ = std::make_unique<orc::PreviewRenderer>(worker_dag_);
+        if (!worker_project_) {
+            ORC_LOG_ERROR("RenderCoordinator: No project set for presenter");
+            return;
+        }
+        
+        if (!worker_render_presenter_) {
+            worker_render_presenter_ = std::make_unique<orc::presenters::RenderPresenter>(
+                static_cast<orc::Project*>(worker_project_));
+        }
+        
+        // Set the new DAG (cast away const since setDAG signature uses non-const void*)
+        worker_render_presenter_->setDAG(std::const_pointer_cast<void>(worker_dag_));
         
         // Restore show_dropouts state
-        worker_preview_renderer_->set_show_dropouts(show_dropouts);
+        worker_render_presenter_->setShowDropouts(show_dropouts);
         ORC_LOG_DEBUG("RenderCoordinator: Restored show_dropouts={}", show_dropouts);
-        
-        worker_field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(worker_dag_);
-        worker_vbi_decoder_ = std::make_unique<orc::VBIDecoder>();
         
         ORC_LOG_DEBUG("RenderCoordinator: DAG updated successfully");
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("RenderCoordinator: Failed to create renderers: {}", e.what());
+        ORC_LOG_ERROR("RenderCoordinator: Failed to create presenter: {}", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }
@@ -393,14 +415,14 @@ void RenderCoordinator::handleRenderPreview(const RenderPreviewRequest& req)
     ORC_LOG_DEBUG("RenderCoordinator: Rendering preview for node '{}', type {}, index {} (request {})",
                   req.node_id.to_string(), static_cast<int>(req.output_type), req.output_index, req.request_id);
     
-    if (!worker_preview_renderer_) {
-        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
-        emit error(req.request_id, "Preview renderer not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
         return;
     }
     
     try {
-        auto result = worker_preview_renderer_->render_output(
+        auto result = worker_render_presenter_->renderPreview(
             req.node_id,
             req.output_type,
             req.output_index,
@@ -408,24 +430,6 @@ void RenderCoordinator::handleRenderPreview(const RenderPreviewRequest& req)
         );
         
         ORC_LOG_DEBUG("RenderCoordinator: Preview render complete, success={}", result.success);
-        
-        // Populate observation cache for the rendered field(s)
-        // For single fields, just cache that field
-        // For frames, cache both constituent fields
-        if (worker_obs_cache_) {
-            if (req.output_type == orc::PreviewOutputType::Field || 
-                req.output_type == orc::PreviewOutputType::Luma) {
-                // Single field
-                worker_obs_cache_->get_field(req.node_id, orc::FieldID(req.output_index));
-            } else if (req.output_type == orc::PreviewOutputType::Frame ||
-                       req.output_type == orc::PreviewOutputType::Frame_Reversed ||
-                       req.output_type == orc::PreviewOutputType::Split) {
-                // Frame with two fields - cache both for observation availability
-                uint64_t first_field = req.output_index * 2;
-                worker_obs_cache_->get_field(req.node_id, orc::FieldID(first_field));
-                worker_obs_cache_->get_field(req.node_id, orc::FieldID(first_field + 1));
-            }
-        }
         
         // Emit result on GUI thread
         emit previewReady(req.request_id, std::move(result));
@@ -441,38 +445,25 @@ void RenderCoordinator::handleGetVBIData(const GetVBIDataRequest& req)
     ORC_LOG_DEBUG("RenderCoordinator: Getting VBI data for node '{}', field {} (request {})",
                   req.node_id.to_string(), req.field_id.value(), req.request_id);
     
+    if (!worker_render_presenter_) {
+        emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
+        return;
+    }
+    
     try {
-        // Use observation cache to render the field at the specified node
-        // This ensures we get data from the correct stage in the pipeline
-        if (worker_obs_cache_) {
-            // Render the field (populates observations in the cache's renderer)
-            auto field_opt = worker_obs_cache_->get_field(req.node_id, req.field_id);
-            if (!field_opt) {
-                ORC_LOG_DEBUG("RenderCoordinator: Field could not be rendered for VBI extraction");
-                emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
-                return;
-            }
-            
-            // Get observations from the cache's renderer
-            // The cache's renderer executed up to req.node_id for req.field_id
-            const auto& obs_context = worker_obs_cache_->get_observation_context();
-            
-            // Try to decode VBI from the populated observation context
-            auto vbi_info_opt = orc::VBIDecoder::decode_vbi(obs_context, req.field_id);
-            if (vbi_info_opt.has_value() && vbi_info_opt->has_vbi_data) {
-                ORC_LOG_DEBUG("RenderCoordinator: VBI decoded from observation context for field {}", req.field_id.value());
-                emit vbiDataReady(req.request_id, vbi_info_opt.value());
-                return;
-            }
+        auto vbi_info_opt = worker_render_presenter_->getVBIData(req.node_id, req.field_id);
+        
+        if (vbi_info_opt.has_value()) {
+            // Return the fully decoded VBI info directly
+            emit vbiDataReady(req.request_id, vbi_info_opt.value());
+        } else {
+            // No VBI data available
+            emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
         }
-
-        // Fallback: Return empty VBI data
-        ORC_LOG_DEBUG("RenderCoordinator: No VBI data available for field {}", req.field_id.value());
-        emit vbiDataReady(req.request_id, orc::VBIFieldInfo{});
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: VBI decode failed: {}", e.what());
-        emit error(req.request_id, QString::fromStdString(e.what()));
+        emit vbiDataReady(req.request_id, orc::presenters::VBIFieldInfoView{});
     }
 }
 
@@ -482,34 +473,29 @@ void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
                   req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
 
     try {
-        const orc::DAGNode* target_node = nullptr;
-        if (worker_dag_) {
-            for (const auto& node : worker_dag_->nodes()) {
-                if (node.node_id == req.node_id) {
-                    target_node = &node;
-                    break;
-                }
-            }
-        }
-
-        if (!target_node) {
-            emit error(req.request_id, "Node not found in DAG");
+        if (!worker_render_presenter_) {
+            emit error(req.request_id, "Render presenter not initialized");
             return;
         }
 
-        auto* sink = dynamic_cast<orc::DropoutAnalysisSinkStage*>(target_node->stage.get());
-        if (!sink) {
-            emit error(req.request_id, "Node is not a DropoutAnalysisSinkStage");
+        // Phase 2.4: Use RenderPresenter abstraction instead of direct DAG access
+        std::vector<void*> data_ptr;
+        int32_t total_frames = 0;
+        
+        if (!worker_render_presenter_->getDropoutAnalysisData(req.node_id, data_ptr, total_frames)) {
+            emit error(req.request_id, "Failed to get dropout data - node may not be a DropoutAnalysisSinkStage or has no results");
             return;
         }
 
-        if (!sink->has_results()) {
-            emit error(req.request_id, "No dropout dataset available - trigger the sink first");
+        if (data_ptr.empty()) {
+            emit error(req.request_id, "No dropout dataset available");
             return;
         }
 
-        auto data = sink->frame_stats();
-        int32_t total_frames = sink->total_frames();
+        // Cast back to the actual type
+        auto* stats_vec = static_cast<const std::vector<orc::FrameDropoutStats>*>(data_ptr[0]);
+        auto data = *stats_vec;  // Copy the data
+
         ORC_LOG_DEBUG("RenderCoordinator: Served dropout dataset from sink ({} buckets, {} frames total)",
                   data.size(), total_frames);
         emit dropoutDataReady(req.request_id, data, total_frames);
@@ -526,34 +512,29 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
                   req.node_id.to_string(), static_cast<int>(req.mode), req.request_id);
 
     try {
-        const orc::DAGNode* target_node = nullptr;
-        if (worker_dag_) {
-            for (const auto& node : worker_dag_->nodes()) {
-                if (node.node_id == req.node_id) {
-                    target_node = &node;
-                    break;
-                }
-            }
-        }
-
-        if (!target_node) {
-            emit error(req.request_id, "Node not found in DAG");
+        if (!worker_render_presenter_) {
+            emit error(req.request_id, "Render presenter not initialized");
             return;
         }
 
-        auto* sink = dynamic_cast<orc::SNRAnalysisSinkStage*>(target_node->stage.get());
-        if (!sink) {
-            emit error(req.request_id, "Node is not a SNRAnalysisSinkStage");
+        // Phase 2.4: Use RenderPresenter abstraction instead of direct DAG access
+        std::vector<void*> data_ptr;
+        int32_t total_frames = 0;
+        
+        if (!worker_render_presenter_->getSNRAnalysisData(req.node_id, data_ptr, total_frames)) {
+            emit error(req.request_id, "Failed to get SNR data - node may not be a SNRAnalysisSinkStage or has no results");
             return;
         }
 
-        if (!sink->has_results()) {
-            emit error(req.request_id, "No SNR dataset available - trigger the sink first");
+        if (data_ptr.empty()) {
+            emit error(req.request_id, "No SNR dataset available");
             return;
         }
 
-        auto data = sink->frame_stats();
-        int32_t total_frames = sink->total_frames();
+        // Cast back to the actual type
+        auto* stats_vec = static_cast<const std::vector<orc::FrameSNRStats>*>(data_ptr[0]);
+        auto data = *stats_vec;  // Copy the data
+
         ORC_LOG_DEBUG("RenderCoordinator: Served SNR dataset from sink ({} frames)", data.size());
         emit snrDataReady(req.request_id, data, total_frames);
 
@@ -569,34 +550,29 @@ void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& 
                   req.node_id.to_string(), req.request_id);
 
     try {
-        const orc::DAGNode* target_node = nullptr;
-        if (worker_dag_) {
-            for (const auto& node : worker_dag_->nodes()) {
-                if (node.node_id == req.node_id) {
-                    target_node = &node;
-                    break;
-                }
-            }
-        }
-
-        if (!target_node) {
-            emit error(req.request_id, "Node not found in DAG");
+        if (!worker_render_presenter_) {
+            emit error(req.request_id, "Render presenter not initialized");
             return;
         }
 
-        auto* sink = dynamic_cast<orc::BurstLevelAnalysisSinkStage*>(target_node->stage.get());
-        if (!sink) {
-            emit error(req.request_id, "Node is not a BurstLevelAnalysisSinkStage");
+        // Phase 2.4: Use RenderPresenter abstraction instead of direct DAG access
+        std::vector<void*> data_ptr;
+        int32_t total_frames = 0;
+        
+        if (!worker_render_presenter_->getBurstLevelAnalysisData(req.node_id, data_ptr, total_frames)) {
+            emit error(req.request_id, "Failed to get burst data - node may not be a BurstLevelAnalysisSinkStage or has no results");
             return;
         }
 
-        if (!sink->has_results()) {
-            emit error(req.request_id, "No burst level dataset available - trigger the sink first");
+        if (data_ptr.empty()) {
+            emit error(req.request_id, "No burst level dataset available");
             return;
         }
 
-        auto data = sink->frame_stats();
-        int32_t total_frames = sink->total_frames();
+        // Cast back to the actual type
+        auto* stats_vec = static_cast<const std::vector<orc::FrameBurstLevelStats>*>(data_ptr[0]);
+        auto data = *stats_vec;  // Copy the data
+
         ORC_LOG_DEBUG("RenderCoordinator: Served burst dataset from sink ({} frames)", data.size());
         emit burstLevelDataReady(req.request_id, data, total_frames);
 
@@ -611,18 +587,18 @@ void RenderCoordinator::handleGetAvailableOutputs(const GetAvailableOutputsReque
     ORC_LOG_DEBUG("RenderCoordinator: Getting available outputs for node '{}' (request {})",
                   req.node_id.to_string(), req.request_id);
     
-    if (!worker_preview_renderer_) {
-        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
-        emit error(req.request_id, "Preview renderer not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
         return;
     }
     
     try {
-        auto outputs = worker_preview_renderer_->get_available_outputs(req.node_id);
+        auto outputs = worker_render_presenter_->getAvailableOutputs(req.node_id);
         
         ORC_LOG_DEBUG("RenderCoordinator: Found {} available outputs", outputs.size());
         
-        // Emit result on GUI thread
+        // Emit result on GUI thread (using public_api types directly)
         emit availableOutputsReady(req.request_id, std::move(outputs));
         
     } catch (const std::exception& e) {
@@ -636,144 +612,42 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req)
     ORC_LOG_DEBUG("RenderCoordinator: Getting line samples for node '{}', line {} (request {})",
                   req.node_id.to_string(), req.line_number, req.request_id);
     
-    if (!worker_preview_renderer_) {
-        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
-        emit error(req.request_id, "Preview renderer not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
         return;
     }
     
     try {
-        // Get the representation at this node
-        auto repr = worker_preview_renderer_->get_representation_at_node(req.node_id);
-        if (!repr) {
-            throw std::runtime_error("No representation available at node");
+        // Get line samples with Y/C separation if available
+        auto sample_data = worker_render_presenter_->getLineSamplesWithYC(
+            req.node_id, req.output_type, req.output_index,
+            req.line_number, req.sample_x, req.preview_image_width
+        );
+        
+        if (sample_data.composite_samples.empty()) {
+            // Line data not available (expected for sink stages that don't produce field representations)
+            ORC_LOG_DEBUG("RenderCoordinator: Line data not available for node '{}' (expected for sink stages)",
+                         req.node_id.to_string());
+            emit error(req.request_id, "Line data not available");
+            return;
         }
         
-        // Determine which field to get samples from
-        orc::FieldID field_id;
-        if (req.output_type == orc::PreviewOutputType::Field) {
-            // Field mode or post-mapping field index
-            // When Frame mode is used, GUI should first call mapImageToField() to get the field index,
-            // then send request with PreviewOutputType::Field.
-            // This ensures all field ordering logic is in orc-core.
-            field_id = orc::FieldID(req.output_index);
-        } else {
-            throw std::runtime_error("Unsupported output type for line scope - must be Field");
+        // Get video parameters from the representation
+        auto video_params = worker_render_presenter_->getVideoParameters(req.node_id);
+        
+        // Emit samples with Y/C separation when available
+        if (sample_data.has_separate_channels) {
+            ORC_LOG_DEBUG("RenderCoordinator: Emitting line samples with Y/C separation (Y: {} samples, C: {} samples)",
+                         sample_data.y_samples.size(), sample_data.c_samples.size());
         }
         
-        // Get descriptor to know field dimensions
-        auto descriptor = repr->get_descriptor(field_id);
-        if (!descriptor) {
-            throw std::runtime_error("Field descriptor not available");
-        }
-        
-        // Validate line number is within bounds
-        if (req.line_number < 0 || static_cast<size_t>(req.line_number) >= descriptor->height) {
-            throw std::runtime_error("Line number out of bounds");
-        }
-        
-        // Check if this is a YC source
-        bool is_yc_source = repr->has_separate_channels();
-        
-        std::vector<uint16_t> samples;
-        std::vector<uint16_t> y_samples;
-        std::vector<uint16_t> c_samples;
-        
-        if (is_yc_source) {
-            // YC source - get Y and C separately
-            ORC_LOG_DEBUG("Requesting Y line for field {} line {}", field_id.value(), req.line_number);
-            const uint16_t* y_line_data = repr->get_line_luma(field_id, req.line_number);
-            ORC_LOG_DEBUG("Y pointer: {}, first 5 values: {} {} {} {} {}", 
-                          static_cast<const void*>(y_line_data),
-                          y_line_data ? y_line_data[0] : 0,
-                          y_line_data ? y_line_data[1] : 0,
-                          y_line_data ? y_line_data[2] : 0,
-                          y_line_data ? y_line_data[3] : 0,
-                          y_line_data ? y_line_data[4] : 0);
-            
-            ORC_LOG_DEBUG("Requesting C line for field {} line {}", field_id.value(), req.line_number);
-            const uint16_t* c_line_data = repr->get_line_chroma(field_id, req.line_number);
-            ORC_LOG_DEBUG("C pointer: {}, first 5 values: {} {} {} {} {}", 
-                          static_cast<const void*>(c_line_data),
-                          c_line_data ? c_line_data[0] : 0,
-                          c_line_data ? c_line_data[1] : 0,
-                          c_line_data ? c_line_data[2] : 0,
-                          c_line_data ? c_line_data[3] : 0,
-                          c_line_data ? c_line_data[4] : 0);
-            
-            if (!y_line_data || !c_line_data) {
-                throw std::runtime_error("Y or C line data not available");
-            }
-            
-            // Copy the line samples
-            y_samples.assign(y_line_data, y_line_data + descriptor->width);
-            c_samples.assign(c_line_data, c_line_data + descriptor->width);
-            
-            // For composite view, also get composite if available
-            const uint16_t* composite_line_data = repr->get_line(field_id, req.line_number);
-            if (composite_line_data) {
-                samples.assign(composite_line_data, composite_line_data + descriptor->width);
-            }
-            
-            // Debug: Check if Y and C data are actually different
-            bool are_different = false;
-            if (y_samples.size() == c_samples.size() && !y_samples.empty()) {
-                for (size_t i = 0; i < std::min(size_t(10), y_samples.size()); ++i) {
-                    if (y_samples[i] != c_samples[i]) {
-                        are_different = true;
-                        break;
-                    }
-                }
-                if (!are_different) {
-                    ORC_LOG_WARN("RenderCoordinator: Y and C samples appear identical! First 10 Y: {} {} {} {} {}, C: {} {} {} {} {}",
-                                 y_samples[0], y_samples[1], y_samples[2], y_samples[3], y_samples[4],
-                                 c_samples[0], c_samples[1], c_samples[2], c_samples[3], c_samples[4]);
-                }
-            }
-            
-            ORC_LOG_DEBUG("RenderCoordinator: Retrieved {} Y samples and {} C samples from YC source (different: {})",
-                          y_samples.size(), c_samples.size(), are_different);
-        } else {
-            // Composite source - get standard line
-            const uint16_t* line_data = repr->get_line(field_id, req.line_number);
-            if (!line_data) {
-                throw std::runtime_error("Line data not available");
-            }
-            
-            // Copy the line samples
-            samples.assign(line_data, line_data + descriptor->width);
-            
-            ORC_LOG_DEBUG("RenderCoordinator: Retrieved {} composite samples", samples.size());
-        }
-        
-        // Get video parameters for markers
-        auto video_params = repr->get_video_parameters();
-        
-        // Map the image X coordinate from preview image space to field sample space
-        // The preview image may have aspect ratio correction applied, so its width
-        // differs from the field width. We need to scale the X coordinate accordingly.
-        int actual_sample_x = req.sample_x;
-        
-        if (req.preview_image_width > 0) {
-            // Map from preview image coordinates to field sample coordinates
-            actual_sample_x = (req.sample_x * static_cast<int>(descriptor->width)) / req.preview_image_width;
-        }
-        
-        // Clamp to valid sample range
-        if (actual_sample_x < 0) actual_sample_x = 0;
-        if (actual_sample_x >= static_cast<int>(descriptor->width)) {
-            actual_sample_x = static_cast<int>(descriptor->width) - 1;
-        }
-        
-        ORC_LOG_DEBUG("RenderCoordinator: sample_x {} (preview width {}, field width {}, mapped to {})", 
-                      req.sample_x, req.preview_image_width, descriptor->width, actual_sample_x);
-        
-        // Emit result on GUI thread with Y and C samples
-        emit lineSamplesReady(req.request_id, req.output_index, req.line_number, actual_sample_x, 
-                            std::move(samples), video_params, std::move(y_samples), std::move(c_samples));
+        emit lineSamplesReady(req.request_id, req.output_index, req.line_number, req.sample_x,
+                            std::move(sample_data.composite_samples), video_params, 
+                            std::move(sample_data.y_samples), std::move(sample_data.c_samples));
         
     } catch (const std::exception& e) {
-        ORC_LOG_ERROR("RenderCoordinator: Get line samples failed: {}", e.what());
+        ORC_LOG_DEBUG("RenderCoordinator: Get line samples failed: {} (expected for sink stages)", e.what());
         emit error(req.request_id, QString::fromStdString(e.what()));
     }
 }
@@ -783,15 +657,15 @@ void RenderCoordinator::handleNavigateFrameLine(const NavigateFrameLineRequest& 
     ORC_LOG_DEBUG("RenderCoordinator: Navigating frame line for node '{}', field {}, line {}, direction {} (request {})",
                   req.node_id.to_string(), req.current_field, req.current_line, req.direction, req.request_id);
     
-    if (!worker_preview_renderer_) {
-        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
-        emit error(req.request_id, "Preview renderer not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
         return;
     }
     
     try {
-        // Use the preview renderer's method to navigate
-        auto result = worker_preview_renderer_->navigate_frame_line(
+        // Use the render presenter's method to navigate
+        auto nav_result = worker_render_presenter_->navigateFrameLine(
             req.node_id,
             req.output_type,
             req.current_field,
@@ -800,7 +674,13 @@ void RenderCoordinator::handleNavigateFrameLine(const NavigateFrameLineRequest& 
             req.field_height
         );
         
-        // Emit result on GUI thread
+        // Convert to public_api type for signal
+        orc::FrameLineNavigationResult result;
+        result.is_valid = nav_result.is_valid;
+        result.new_field_index = nav_result.new_field_index;
+        result.new_line_number = nav_result.new_line_number;
+        
+        // Emit result on GUI thread (using public_api types)
         emit frameLineNavigationReady(req.request_id, result);
         
     } catch (const std::exception& e) {
@@ -813,117 +693,36 @@ void RenderCoordinator::handleTriggerStage(const TriggerStageRequest& req)
 {
     ORC_LOG_DEBUG("RenderCoordinator: Triggering stage '{}' (request {})", req.node_id.to_string(), req.request_id);
     
-    if (!worker_dag_) {
-        ORC_LOG_ERROR("RenderCoordinator: DAG not initialized");
-        emit error(req.request_id, "DAG not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
+        emit triggerComplete(req.request_id, false, "Render presenter not initialized");
         return;
     }
     
-    trigger_cancel_requested_ = false;
-    
     try {
-        // Find the target node in the DAG
-        const orc::DAGNode* target_node = nullptr;
-        for (const auto& node : worker_dag_->nodes()) {
-            if (node.node_id == req.node_id) {
-                target_node = &node;
-                break;
-            }
-        }
+        // Use RenderPresenter to handle triggering
+        // The presenter abstracts all DAG access and stage interaction
+        worker_render_presenter_->triggerStage(req.node_id, 
+            [this](int current, int total, const std::string& message) {
+                // Emit progress updates (Qt will queue to GUI thread)
+                emit triggerProgress(current, total, QString::fromStdString(message));
+            });
         
-        if (!target_node) {
-            emit error(req.request_id, QString::fromStdString("Node '" + req.node_id.to_string() + "' not found in DAG"));
-            emit triggerComplete(req.request_id, false, "Node not found");
-            return;
-        }
-        
-        auto trigger_stage = dynamic_cast<orc::TriggerableStage*>(target_node->stage.get());
-        if (!trigger_stage) {
-            emit error(req.request_id, QString::fromStdString("Stage '" + req.node_id.to_string() + "' is not triggerable"));
-            emit triggerComplete(req.request_id, false, "Stage not triggerable");
-            return;
-        }
-        
-        // Build executor to get inputs for this node
-        auto executor = std::make_shared<orc::DAGExecutor>();
-        
-        // Execute DAG up to (but not including) the target node to get its inputs
-        std::vector<orc::ArtifactPtr> inputs;
-        
-        if (!target_node->input_node_ids.empty()) {
-            // Execute predecessor nodes to get inputs
-            auto node_outputs = executor->execute_to_node(*worker_dag_, target_node->input_node_ids[0]);
-            
-            // Collect inputs from predecessor nodes
-            for (size_t i = 0; i < target_node->input_node_ids.size(); ++i) {
-                const auto& input_node_id = target_node->input_node_ids[i];
-                size_t input_index = (i < target_node->input_indices.size()) ? target_node->input_indices[i] : 0;
-                
-                auto it = node_outputs.find(input_node_id);
-                if (it != node_outputs.end() && input_index < it->second.size()) {
-                    inputs.push_back(it->second[input_index]);
-                } else {
-                    ORC_LOG_WARN("RenderCoordinator: Failed to get input {} from node '{}'",
-                                input_index, input_node_id.to_string());
-                }
-            }
-        }
-        
-        ORC_LOG_DEBUG("RenderCoordinator: Triggering with {} input(s)", inputs.size());
-        
-        // Store pointer to current trigger stage for cancellation
-        current_trigger_stage_ = trigger_stage;
-        
-        // Set up progress callback (called from THIS worker thread, safe to emit signals)
-        trigger_stage->set_progress_callback([this, trigger_stage, req_id = req.request_id](
-            size_t current, size_t total, const std::string& message) {
-            
-            // Check for cancellation and call cancel_trigger() on the stage
-            if (trigger_cancel_requested_) {
-                ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested, calling cancel_trigger()");
-                trigger_stage->cancel_trigger();
-            }
-            
-            // Emit progress (Qt will queue this to GUI thread)
-            emit triggerProgress(current, total, QString::fromStdString(message));
-        });
-        
-        // Execute trigger using the observation context populated during execute_to_node
-        orc::ObservationContext& obs_context = executor->get_observation_context();
-        bool success = trigger_stage->trigger(inputs, target_node->parameters, obs_context);
-        std::string status = trigger_stage->get_trigger_status();
-        
-        ORC_LOG_DEBUG("RenderCoordinator: Trigger complete, success={}, status={}", success, status);
-        
-        // Clear current trigger stage pointer
-        current_trigger_stage_ = nullptr;
-        
-        // Emit completion
-        emit triggerComplete(req.request_id, success, QString::fromStdString(status));
+        ORC_LOG_DEBUG("RenderCoordinator: Trigger complete successfully");
+        emit triggerComplete(req.request_id, true, "Trigger completed successfully");
         
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("RenderCoordinator: Trigger failed: {}", e.what());
-        current_trigger_stage_ = nullptr;  // Clear pointer on error too
         emit error(req.request_id, QString::fromStdString(e.what()));
-        emit triggerComplete(req.request_id, false, QString::fromStdString("Exception: " + std::string(e.what())));
-    }
-    
-    trigger_cancel_requested_ = false;
-}
-
-void RenderCoordinator::setAspectRatioMode(orc::AspectRatioMode mode)
-{
-    if (worker_preview_renderer_) {
-        worker_preview_renderer_->set_aspect_ratio_mode(mode);
-        ORC_LOG_DEBUG("RenderCoordinator: Aspect ratio mode set to {}", 
-                      mode == orc::AspectRatioMode::SAR_1_1 ? "SAR 1:1" : "DAR 4:3");
+        emit triggerComplete(req.request_id, false, QString::fromStdString(e.what()));
     }
 }
 
 void RenderCoordinator::setShowDropouts(bool show)
 {
-    if (worker_preview_renderer_) {
-        worker_preview_renderer_->set_show_dropouts(show);
+    if (worker_render_presenter_) {
+        worker_render_presenter_->setShowDropouts(show);
         ORC_LOG_DEBUG("RenderCoordinator: Show dropouts set to {}", show);
     }
 }
@@ -933,15 +732,15 @@ void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
     ORC_LOG_DEBUG("RenderCoordinator: Saving PNG for node '{}', type {}, index {} to '{}'",
                  req.node_id.to_string(), static_cast<int>(req.output_type), req.output_index, req.filename);
     
-    if (!worker_preview_renderer_) {
-        ORC_LOG_ERROR("RenderCoordinator: Preview renderer not initialized");
-        emit error(req.request_id, "Preview renderer not initialized");
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit error(req.request_id, "Render presenter not initialized");
         return;
     }
     
     try {
-        // Use core's native PNG save functionality (no GUI business logic)
-        bool success = worker_preview_renderer_->save_png(
+        // Use presenter's PNG save functionality
+        bool success = worker_render_presenter_->savePNG(
             req.node_id,
             req.output_type,
             req.output_index,

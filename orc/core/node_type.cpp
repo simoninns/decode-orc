@@ -7,8 +7,9 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "include/node_type.h"
+#include <node_type.h>
 #include "include/stage_registry.h"
+#include "include/tbc_metadata.h"
 #include "logging.h"
 #include <limits>
 #include <vector>

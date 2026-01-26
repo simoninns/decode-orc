@@ -34,13 +34,13 @@ std::string DiscMapperPresenter::toolName() const {
     return "Disc Mapper";
 }
 
-orc::public_api::AnalysisResult DiscMapperPresenter::runAnalysis(
+orc::AnalysisResult DiscMapperPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
     std::function<void(int, const std::string&)> progress_callback) {
 
-    orc::public_api::AnalysisResult result;
-    result.status = orc::public_api::AnalysisResult::Status::Failed;
+    orc::AnalysisResult result;
+    result.status = orc::AnalysisResult::Status::Failed;
 
     // Progress helper mapping core progress to GUI callback
     class ProgressAdapter : public orc::AnalysisProgress {
@@ -157,13 +157,13 @@ orc::public_api::AnalysisResult DiscMapperPresenter::runAnalysis(
     // Convert core result to public API result
     switch (core_result.status) {
         case orc::AnalysisResult::Success:
-            result.status = orc::public_api::AnalysisResult::Status::Success;
+            result.status = orc::AnalysisResult::Status::Success;
             break;
         case orc::AnalysisResult::Failed:
-            result.status = orc::public_api::AnalysisResult::Status::Failed;
+            result.status = orc::AnalysisResult::Status::Failed;
             break;
         case orc::AnalysisResult::Cancelled:
-            result.status = orc::public_api::AnalysisResult::Status::Cancelled;
+            result.status = orc::AnalysisResult::Status::Cancelled;
             break;
     }
 
@@ -173,7 +173,7 @@ orc::public_api::AnalysisResult DiscMapperPresenter::runAnalysis(
     result.parameterChanges = core_result.parameterChanges;
 
     for (const auto& item : core_result.items) {
-        orc::public_api::AnalysisResultItem api_item;
+        orc::AnalysisResultItem api_item;
         api_item.type = item.type;
         api_item.message = item.message;
         api_item.startFrame = item.startFrame;

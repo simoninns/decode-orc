@@ -17,7 +17,7 @@ class VectorscopeDialogPrivate {
 public:
     orc::NodeID node_id;
     uint64_t current_field_number = 0;
-    std::optional<orc::public_api::VectorscopeData> last_data;
+    std::optional<orc::VectorscopeData> last_data;
     
     void drawGraticule(QPainter& painter, VectorscopeDialog* dialog, 
                        orc::VideoSystem system, int32_t white_16b_ire, int32_t black_16b_ire);
@@ -204,7 +204,7 @@ void VectorscopeDialog::connectSignals() {
             this, [this](int){ onGraticuleChanged(); });
 }
 
-void VectorscopeDialog::updateVectorscope(const orc::public_api::VectorscopeData& data) {
+void VectorscopeDialog::updateVectorscope(const orc::VectorscopeData& data) {
     if (data.samples.empty()) {
         info_label_->setText(QString("Field %1 - No vectorscope data").arg(data.field_number));
         clearDisplay();
@@ -217,7 +217,7 @@ void VectorscopeDialog::updateVectorscope(const orc::public_api::VectorscopeData
     ORC_LOG_DEBUG("Vectorscope updated for field {} ({} samples)", data.field_number, data.samples.size());
 }
 
-void VectorscopeDialog::renderVectorscope(const orc::public_api::VectorscopeData& data) {
+void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     if (data.samples.empty()) {
         ORC_LOG_DEBUG("VectorscopeDialog: renderVectorscope called with empty samples for field {}", data.field_number);
         clearDisplay();

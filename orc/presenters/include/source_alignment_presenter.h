@@ -61,7 +61,7 @@ public:
      * @param progress_callback Optional progress updates (percentage, status message)
      * @return Analysis result with alignment map or error information
      */
-    orc::public_api::AnalysisResult runAnalysis(
+    orc::AnalysisResult runAnalysis(
         NodeID node_id,
         const std::map<std::string, orc::ParameterValue>& parameters,
         std::function<void(int, const std::string&)> progress_callback = nullptr

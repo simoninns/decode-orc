@@ -115,14 +115,14 @@ void RenderPresenter::setDAG(std::shared_ptr<void> dag_handle)
     impl_->rebuildRenderersFromDAG();
 }
 
-orc::public_api::PreviewRenderResult RenderPresenter::renderPreview(
+orc::PreviewRenderResult RenderPresenter::renderPreview(
     NodeID node_id,
     orc::PreviewOutputType output_type,
     uint64_t output_index,
     const std::string& option_id)
 {
     if (!impl_->preview_renderer_) {
-        return orc::public_api::PreviewRenderResult{
+        return orc::PreviewRenderResult{
             {}, false, "Preview renderer not initialized", node_id, output_type, output_index
         };
     }
@@ -148,7 +148,7 @@ orc::public_api::PreviewRenderResult RenderPresenter::renderPreview(
         }
         
         // Convert core result to public API result
-        orc::public_api::PreviewRenderResult result;
+        orc::PreviewRenderResult result;
         result.image.width = core_result.image.width;
         result.image.height = core_result.image.height;
         result.image.rgb_data = std::move(core_result.image.rgb_data);
@@ -165,13 +165,13 @@ orc::public_api::PreviewRenderResult RenderPresenter::renderPreview(
         return result;
         
     } catch (const std::exception& e) {
-        return orc::public_api::PreviewRenderResult{
+        return orc::PreviewRenderResult{
             {}, false, e.what(), node_id, output_type, output_index
         };
     }
 }
 
-std::vector<orc::public_api::PreviewOutputInfo> RenderPresenter::getAvailableOutputs(NodeID node_id)
+std::vector<orc::PreviewOutputInfo> RenderPresenter::getAvailableOutputs(NodeID node_id)
 {
     if (!impl_->preview_renderer_) {
         return {};
@@ -180,11 +180,11 @@ std::vector<orc::public_api::PreviewOutputInfo> RenderPresenter::getAvailableOut
     auto core_outputs = impl_->preview_renderer_->get_available_outputs(node_id);
     
     // Convert to public API types
-    std::vector<orc::public_api::PreviewOutputInfo> result;
+    std::vector<orc::PreviewOutputInfo> result;
     result.reserve(core_outputs.size());
     
     for (const auto& core_out : core_outputs) {
-        orc::public_api::PreviewOutputInfo info;
+        orc::PreviewOutputInfo info;
         info.type = core_out.type;
         info.display_name = core_out.display_name;
         info.count = core_out.count;
@@ -692,7 +692,7 @@ RenderPresenter::LineSampleData RenderPresenter::getLineSamplesWithYC(
     }
 }
 
-std::optional<orc::public_api::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
+std::optional<orc::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
 {
     if (!impl_->preview_renderer_) {
         return std::nullopt;

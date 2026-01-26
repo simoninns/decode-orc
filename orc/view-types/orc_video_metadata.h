@@ -1,7 +1,7 @@
 /*
  * File:        orc_video_metadata.h
- * Module:      orc-public
- * Purpose:     Public API for video metadata types
+ * Module:      orc-view-types
+ * Purpose:     Video metadata types
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -15,7 +15,6 @@
 #include <common_types.h>  // For VideoSystem enum
 
 namespace orc {
-namespace public_api {
 
 /**
  * @brief Video parameters from TBC metadata
@@ -77,5 +76,4 @@ struct VideoParameters {
     bool is_valid() const { return system != VideoSystem::Unknown && field_width > 0; }
 };
 
-} // namespace public_api
 } // namespace orc

@@ -20,9 +20,9 @@
 namespace orc {
 
 // Type aliases for convenience in core code
-using UVSample = orc::public_api::UVSample;
-using VectorscopeData = orc::public_api::VectorscopeData;
-using orc::public_api::rgb_to_uv;
+using UVSample = orc::UVSample;
+using VectorscopeData = orc::VectorscopeData;
+using orc::rgb_to_uv;
 
 } // namespace orc
 

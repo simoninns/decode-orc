@@ -63,13 +63,13 @@ bool SourceAlignmentPresenter::validateNode(NodeID node_id, std::string& error_m
     return true;
 }
 
-orc::public_api::AnalysisResult SourceAlignmentPresenter::runAnalysis(
+orc::AnalysisResult SourceAlignmentPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
     std::function<void(int, const std::string&)> progress_callback) {
     
-    orc::public_api::AnalysisResult result;
-    result.status = orc::public_api::AnalysisResult::Status::Failed;
+    orc::AnalysisResult result;
+    result.status = orc::AnalysisResult::Status::Failed;
     
     // Report progress
     if (progress_callback) {
@@ -170,16 +170,16 @@ orc::public_api::AnalysisResult SourceAlignmentPresenter::runAnalysis(
     
     // Convert core result to public API result
     result.status = core_result.status == orc::AnalysisResult::Success
-        ? orc::public_api::AnalysisResult::Status::Success
+        ? orc::AnalysisResult::Status::Success
         : (core_result.status == orc::AnalysisResult::Cancelled 
-            ? orc::public_api::AnalysisResult::Status::Cancelled
-            : orc::public_api::AnalysisResult::Status::Failed);
+            ? orc::AnalysisResult::Status::Cancelled
+            : orc::AnalysisResult::Status::Failed);
     result.summary = core_result.summary;
     
     // Convert result items
     result.items.clear();
     for (const auto& core_item : core_result.items) {
-        orc::public_api::AnalysisResultItem item;
+        orc::AnalysisResultItem item;
         item.type = core_item.type;
         item.message = core_item.message;
         item.startFrame = core_item.startFrame;
@@ -192,9 +192,9 @@ orc::public_api::AnalysisResult SourceAlignmentPresenter::runAnalysis(
     result.graphData = core_result.graphData;
     
     if (progress_callback) {
-        if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+        if (result.status == orc::AnalysisResult::Status::Success) {
             progress_callback(100, "Analysis complete");
-        } else if (result.status == orc::public_api::AnalysisResult::Status::Cancelled) {
+        } else if (result.status == orc::AnalysisResult::Status::Cancelled) {
             progress_callback(0, "Analysis cancelled");
         } else {
             progress_callback(0, "Analysis failed");

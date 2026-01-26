@@ -276,21 +276,21 @@ public:
      * @brief Get all available analysis tools
      * @return Vector of all registered analysis tools
      */
-    std::vector<orc::public_api::AnalysisToolInfo> getAvailableTools() const;
+    std::vector<orc::AnalysisToolInfo> getAvailableTools() const;
     
     /**
      * @brief Get analysis tools applicable to a specific stage type
      * @param stage_name Name of the stage type (e.g., "field_map", "PAL_Comp_Source")
      * @return Vector of applicable tools, sorted by priority
      */
-    std::vector<orc::public_api::AnalysisToolInfo> getToolsForStage(const std::string& stage_name) const;
+    std::vector<orc::AnalysisToolInfo> getToolsForStage(const std::string& stage_name) const;
     
     /**
      * @brief Get information about a specific tool
      * @param tool_id Unique tool identifier
      * @return Tool info (empty name if not found)
      */
-    orc::public_api::AnalysisToolInfo getToolInfo(const std::string& tool_id) const;
+    orc::AnalysisToolInfo getToolInfo(const std::string& tool_id) const;
     
     // === Generic Analysis Execution (Phase 2.8) ===
     
@@ -302,7 +302,7 @@ public:
      */
     std::vector<orc::ParameterDescriptor> getToolParameters(
         const std::string& tool_id,
-        orc::public_api::AnalysisSourceType source_type
+        orc::AnalysisSourceType source_type
     ) const;
 
 private:

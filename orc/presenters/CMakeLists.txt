@@ -19,6 +19,7 @@ add_library(orc-presenters STATIC
     src/metrics_presenter.cpp
     src/vbi_presenter.cpp
     src/ntsc_observation_presenter.cpp
+    src/core_init.cpp
 )
 
 # =============================================================================
@@ -45,7 +46,7 @@ target_include_directories(orc-presenters
         ${CMAKE_SOURCE_DIR}/orc/core/include
         ${CMAKE_SOURCE_DIR}/orc/core/analysis
         ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
-        ${CMAKE_SOURCE_DIR}/orc/public
+        ${CMAKE_SOURCE_DIR}/orc/view-types
 )
 
 # =============================================================================
@@ -56,7 +57,8 @@ target_include_directories(orc-presenters
 # =============================================================================
 target_link_libraries(orc-presenters
     PUBLIC
-        orc-common  # Common types exposed to GUI/CLI
+        orc-view-types  # Shared presentation layer types
+        orc-common      # Common types
     PRIVATE
         orc-core    # Core implementation hidden from GUI/CLI
 )

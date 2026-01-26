@@ -57,8 +57,8 @@ add_subdirectory(common)
 # Core library (internal implementation)
 add_subdirectory(core)
 
-# Public API (facade to core)
-add_subdirectory(public)
+# View types (shared data structures for presentation layer)
+add_subdirectory(view-types)
 
 # Presenter layer (MVP architecture - bridge between GUI/CLI and core)
 add_subdirectory(presenters)

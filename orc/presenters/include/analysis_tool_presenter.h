@@ -55,7 +55,7 @@ namespace orc::presenters {
  *     explicit FieldCorruptionPresenter(void* project_handle)
  *         : AnalysisToolPresenter(project_handle) {}
  *     
- *     orc::public_api::AnalysisResult runAnalysis(
+ *     orc::AnalysisResult runAnalysis(
  *         NodeID node_id,
  *         const std::map<std::string, orc::ParameterValue>& parameters,
  *         ProgressCallback callback = nullptr);
@@ -77,7 +77,7 @@ public:
      * Call this from GUI after successful analysis to update the stage parameters.
      */
     bool applyResultToGraph(
-        const orc::public_api::AnalysisResult& result,
+        const orc::AnalysisResult& result,
         orc::NodeID node_id);
 
 protected:

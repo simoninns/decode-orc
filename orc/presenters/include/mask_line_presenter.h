@@ -59,7 +59,7 @@ public:
      * @param progress_callback Optional progress updates (not used for instant tool)
      * @return Analysis result with line specification configuration
      */
-    orc::public_api::AnalysisResult runAnalysis(
+    orc::AnalysisResult runAnalysis(
         NodeID node_id,
         const std::map<std::string, orc::ParameterValue>& parameters,
         std::function<void(int, const std::string&)> progress_callback = nullptr

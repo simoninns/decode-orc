@@ -34,7 +34,7 @@ namespace orc::presenters {
 class Project;
 
 // Use public API DropoutRegion
-using DropoutRegion = orc::public_api::DropoutRegion;
+using DropoutRegion = orc::DropoutRegion;
 
 /**
  * @brief Per-field dropout map view model

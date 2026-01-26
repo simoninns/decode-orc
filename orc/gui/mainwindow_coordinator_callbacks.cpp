@@ -25,7 +25,7 @@
 
 // Coordinator response slot implementations
 
-void MainWindow::onPreviewReady(uint64_t request_id, orc::public_api::PreviewRenderResult result)
+void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result)
 {
     // Ignore stale responses
     if (request_id != pending_preview_request_id_) {
@@ -111,7 +111,7 @@ void MainWindow::onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldIn
     }
 }
 
-void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::public_api::PreviewOutputInfo> outputs)
+void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs)
 {
     if (request_id != pending_outputs_request_id_) {
         return;

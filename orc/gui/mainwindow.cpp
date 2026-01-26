@@ -1482,7 +1482,7 @@ void MainWindow::onPreviewModeChanged(int index)
 void MainWindow::onAspectRatioModeChanged(int index)
 {
     // Handle aspect ratio entirely in GUI: set preview widget correction
-    static std::vector<orc::public_api::AspectRatioModeInfo> available_modes = {
+    static std::vector<orc::AspectRatioModeInfo> available_modes = {
         {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
     };
@@ -1644,7 +1644,7 @@ void MainWindow::updatePreviewInfo()
                   static_cast<int>(current_output_type_), current_index, total);
     
     // Build display info client-side
-    orc::public_api::PreviewItemDisplayInfo display_info;
+    orc::PreviewItemDisplayInfo display_info;
     // Get display name from available outputs
     display_info.type_name = "Item";  // Default fallback
     for (const auto& output : available_outputs_) {
@@ -2171,7 +2171,7 @@ void MainWindow::updatePreview()
     latest_requested_preview_index_ = current_index;
 }
 
-void MainWindow::updateVectorscope(const orc::public_api::PreviewRenderResult& result)
+void MainWindow::updateVectorscope(const orc::PreviewRenderResult& result)
 {
     auto it = vectorscope_dialogs_.find(result.node_id);
     if (it == vectorscope_dialogs_.end()) {
@@ -2245,7 +2245,7 @@ void MainWindow::updatePreviewModeCombo()
 void MainWindow::updateAspectRatioCombo()
 {
     // Populate aspect ratio combo (client-side, no coordinator needed)
-    static std::vector<orc::public_api::AspectRatioModeInfo> available_modes = {
+    static std::vector<orc::AspectRatioModeInfo> available_modes = {
         {orc::AspectRatioMode::SAR_1_1, "1:1 (Square)", 1.0},
         {orc::AspectRatioMode::DAR_4_3, "4:3 (Display)", 0.7}
     };
@@ -2620,7 +2620,7 @@ void MainWindow::onInspectStage(const NodeID& node_id)
     }
 }
 
-void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name)
+void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name)
 {
     ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool_info.name, node_id.to_string());
 
@@ -3157,7 +3157,7 @@ void MainWindow::runAnalysisForNode(const orc::public_api::AnalysisToolInfo& too
     
     // Connect apply signal to actually apply results to the stage
     connect(dialog, &orc::gui::GenericAnalysisDialog::applyResultsRequested,
-            [this, tool_info_id = tool_info.id, node_id, analysis_presenter](const orc::public_api::AnalysisResult& result) {
+            [this, tool_info_id = tool_info.id, node_id, analysis_presenter](const orc::AnalysisResult& result) {
         ORC_LOG_DEBUG("Applying analysis results from tool '{}' to node '{}'",
                      tool_info_id, node_id.to_string());
         
@@ -3650,7 +3650,7 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
 }
 
 void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                                    std::vector<uint16_t> samples, std::optional<orc::public_api::VideoParameters> video_params,
+                                    std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
                                     std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples)
 {
     Q_UNUSED(request_id);
@@ -3729,7 +3729,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
                                    preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
 }
 
-void MainWindow::onFrameLineNavigationReady(uint64_t request_id, orc::public_api::FrameLineNavigationResult result)
+void MainWindow::onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result)
 {
     Q_UNUSED(request_id);
     

@@ -130,8 +130,8 @@ add_executable(orc-gui WIN32
 # types and internal core types.
 # =============================================================================
 target_link_libraries(orc-gui PRIVATE 
-    orc-public           # Public API types and interfaces
     orc-common           # Common types shared across all layers
+    orc-view-types       # Shared presentation layer data structures
     orc-presenters       # Presenter layer (privately links orc-core)
     Qt6::Core 
     Qt6::Widgets

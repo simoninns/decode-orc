@@ -29,6 +29,21 @@ namespace orc {
 
 namespace orc::presenters {
 
+// === Application Initialization ===
+
+/**
+ * @brief Initialize core logging system
+ * @param level Log level (trace, debug, info, warn, error, critical, off)
+ * @param pattern Optional custom pattern (default: "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v")
+ * @param log_file Optional file path to write logs to (in addition to console)
+ * 
+ * This function provides access to core's logging initialization through the
+ * presenters layer, maintaining MVP architecture compliance.
+ */
+void initCoreLogging(const std::string& level = "info",
+                     const std::string& pattern = "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
+                     const std::string& log_file = "");
+
 /**
  * @brief Video format enumeration for GUI use
  */
@@ -143,7 +158,7 @@ public:
      * allowing the GUI to determine video format and other parameters from
      * existing TBC files.
      */
-    static std::optional<orc::public_api::VideoParameters> readVideoParameters(
+    static std::optional<orc::VideoParameters> readVideoParameters(
         const std::string& metadata_path);
     
     // === Project Lifecycle ===

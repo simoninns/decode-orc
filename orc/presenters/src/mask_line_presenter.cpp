@@ -55,13 +55,13 @@ bool MaskLinePresenter::validateNode(NodeID node_id, std::string& error_message)
     return true;
 }
 
-orc::public_api::AnalysisResult MaskLinePresenter::runAnalysis(
+orc::AnalysisResult MaskLinePresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
     std::function<void(int, const std::string&)> progress_callback) {
     
-    orc::public_api::AnalysisResult result;
-    result.status = orc::public_api::AnalysisResult::Status::Failed;
+    orc::AnalysisResult result;
+    result.status = orc::AnalysisResult::Status::Failed;
     
     // Report progress (instant tool, so go straight to 100%)
     if (progress_callback) {
@@ -158,18 +158,18 @@ orc::public_api::AnalysisResult MaskLinePresenter::runAnalysis(
     // Map status
     switch (core_result.status) {
         case orc::AnalysisResult::Success:
-            result.status = orc::public_api::AnalysisResult::Status::Success;
+            result.status = orc::AnalysisResult::Status::Success;
             break;
         case orc::AnalysisResult::Failed:
-            result.status = orc::public_api::AnalysisResult::Status::Failed;
+            result.status = orc::AnalysisResult::Status::Failed;
             break;
         case orc::AnalysisResult::Cancelled:
-            result.status = orc::public_api::AnalysisResult::Status::Cancelled;
+            result.status = orc::AnalysisResult::Status::Cancelled;
             break;
     }
     
     ORC_LOG_INFO("Mask line configuration completed: {}", 
-                 result.status == orc::public_api::AnalysisResult::Status::Success ? "success" : "failed");
+                 result.status == orc::AnalysisResult::Status::Success ? "success" : "failed");
     
     return result;
 }

@@ -125,9 +125,9 @@ bool AnalysisPresenter::exportToCSV(orc::NodeID node_id, AnalysisType type, cons
 
 // === Analysis Tool Registry (Phase 2.4) ===
 
-std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getAvailableTools() const
+std::vector<orc::AnalysisToolInfo> AnalysisPresenter::getAvailableTools() const
 {
-    std::vector<orc::public_api::AnalysisToolInfo> result;
+    std::vector<orc::AnalysisToolInfo> result;
     
     auto& registry = orc::AnalysisRegistry::instance();
     auto all_tools = registry.tools();
@@ -135,7 +135,7 @@ std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getAvailableTo
     for (const auto* tool : all_tools) {
         if (!tool) continue;
         
-        orc::public_api::AnalysisToolInfo info;
+        orc::AnalysisToolInfo info;
         info.id = tool->id();
         info.name = tool->name();
         info.description = tool->description();
@@ -149,9 +149,9 @@ std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getAvailableTo
     return result;
 }
 
-std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getToolsForStage(const std::string& stage_name) const
+std::vector<orc::AnalysisToolInfo> AnalysisPresenter::getToolsForStage(const std::string& stage_name) const
 {
-    std::vector<orc::public_api::AnalysisToolInfo> result;
+    std::vector<orc::AnalysisToolInfo> result;
     
     auto& registry = orc::AnalysisRegistry::instance();
     auto all_tools = registry.tools();
@@ -162,7 +162,7 @@ std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getToolsForSta
             continue;
         }
         
-        orc::public_api::AnalysisToolInfo info;
+        orc::AnalysisToolInfo info;
         info.id = tool->id();
         info.name = tool->name();
         info.description = tool->description();
@@ -175,7 +175,7 @@ std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getToolsForSta
     
     // Sort by priority (lower = first), then alphabetically
     std::sort(result.begin(), result.end(), 
-        [](const orc::public_api::AnalysisToolInfo& a, const orc::public_api::AnalysisToolInfo& b) {
+        [](const orc::AnalysisToolInfo& a, const orc::AnalysisToolInfo& b) {
             if (a.priority != b.priority) {
                 return a.priority < b.priority;
             }
@@ -185,16 +185,16 @@ std::vector<orc::public_api::AnalysisToolInfo> AnalysisPresenter::getToolsForSta
     return result;
 }
 
-orc::public_api::AnalysisToolInfo AnalysisPresenter::getToolInfo(const std::string& tool_id) const
+orc::AnalysisToolInfo AnalysisPresenter::getToolInfo(const std::string& tool_id) const
 {
     auto& registry = orc::AnalysisRegistry::instance();
     auto* tool = registry.findById(tool_id);
     
     if (!tool) {
-        return orc::public_api::AnalysisToolInfo{};  // Empty info
+        return orc::AnalysisToolInfo{};  // Empty info
     }
     
-    orc::public_api::AnalysisToolInfo info;
+    orc::AnalysisToolInfo info;
     info.id = tool->id();
     info.name = tool->name();
     info.description = tool->description();
@@ -208,7 +208,7 @@ orc::public_api::AnalysisToolInfo AnalysisPresenter::getToolInfo(const std::stri
 
 std::vector<orc::ParameterDescriptor> AnalysisPresenter::getToolParameters(
     const std::string& tool_id,
-    orc::public_api::AnalysisSourceType source_type
+    orc::AnalysisSourceType source_type
 ) const {
     auto* tool = impl_->getToolById(tool_id);
     if (!tool) {

@@ -80,7 +80,7 @@ struct ExportOptions {
 };
 
 // Use public API types
-using RenderProgress = orc::public_api::RenderProgress;
+using RenderProgress = orc::RenderProgress;
 
 /**
  * @brief RenderPresenter - Manages preview and export rendering
@@ -152,7 +152,7 @@ public:
      * 
      * Thread-safe: Yes (uses internal DAG)
      */
-    orc::public_api::PreviewRenderResult renderPreview(
+    orc::PreviewRenderResult renderPreview(
         NodeID node_id,
         orc::PreviewOutputType output_type,
         uint64_t output_index,
@@ -167,7 +167,7 @@ public:
      * 
      * Thread-safe: Yes
      */
-    std::vector<orc::public_api::PreviewOutputInfo> getAvailableOutputs(NodeID node_id);
+    std::vector<orc::PreviewOutputInfo> getAvailableOutputs(NodeID node_id);
     
     /**
      * @brief Get the count of outputs for a specific type
@@ -498,7 +498,7 @@ public:
      * @param node_id Node to get parameters from
      * @return Video parameters if available
      */
-    std::optional<orc::public_api::VideoParameters> getVideoParameters(NodeID node_id);
+    std::optional<orc::VideoParameters> getVideoParameters(NodeID node_id);
     
     // === Observations (for debugging) ===
     

@@ -25,7 +25,7 @@ namespace gui {
 
 GenericAnalysisDialog::GenericAnalysisDialog(
     const std::string& tool_id,
-    const orc::public_api::AnalysisToolInfo& tool_info,
+    const orc::AnalysisToolInfo& tool_info,
     orc::presenters::AnalysisPresenter* presenter,
     const orc::NodeID& node_id,
     void* project,
@@ -134,7 +134,7 @@ void GenericAnalysisDialog::setupUI() {
 
 void GenericAnalysisDialog::populateParameters() {
     // Get parameters from presenter
-    orc::public_api::AnalysisSourceType source_type = orc::public_api::AnalysisSourceType::LaserDisc;
+    orc::AnalysisSourceType source_type = orc::AnalysisSourceType::LaserDisc;
     parameter_descriptors_ = presenter_->getToolParameters(tool_id_, source_type);
     
     for (const auto& param : parameter_descriptors_) {
@@ -298,7 +298,7 @@ void GenericAnalysisDialog::runAnalysis() {
     };
     
     // Run analysis using specialized presenter
-    orc::public_api::AnalysisResult result;
+    orc::AnalysisResult result;
     
     if (disc_mapper_presenter_) {
         result = disc_mapper_presenter_->runAnalysis(node_id_, parameters, progress_callback);
@@ -314,7 +314,7 @@ void GenericAnalysisDialog::runAnalysis() {
         result = dropout_editor_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else {
         // Unknown tool - should not happen if all tools have specialized presenters
-        result.status = orc::public_api::AnalysisResult::Status::Failed;
+        result.status = orc::AnalysisResult::Status::Failed;
         result.summary = "No specialized presenter available for tool: " + tool_id_;
     }
     
@@ -322,7 +322,7 @@ void GenericAnalysisDialog::runAnalysis() {
     displayResults(result);
     
     runButton_->setEnabled(true);
-    if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+    if (result.status == orc::AnalysisResult::Status::Success) {
         applyButton_->setEnabled(true);
         statusLabel_->setText("Analysis complete");
         progressBar_->setValue(100);
@@ -332,12 +332,12 @@ void GenericAnalysisDialog::runAnalysis() {
     }
 }
 
-void GenericAnalysisDialog::displayResults(const orc::public_api::AnalysisResult& result) {
+void GenericAnalysisDialog::displayResults(const orc::AnalysisResult& result) {
     QString text;
     
-    if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+    if (result.status == orc::AnalysisResult::Status::Success) {
         text = "Analysis completed successfully.\n\n";
-    } else if (result.status == orc::public_api::AnalysisResult::Status::Failed) {
+    } else if (result.status == orc::AnalysisResult::Status::Failed) {
         text = "Analysis failed.\n\n";
     } else {
         text = "Analysis cancelled.\n\n";
@@ -349,7 +349,7 @@ void GenericAnalysisDialog::displayResults(const orc::public_api::AnalysisResult
 }
 
 void GenericAnalysisDialog::applyResults() {
-    if (last_result_.status != orc::public_api::AnalysisResult::Status::Success) {
+    if (last_result_.status != orc::AnalysisResult::Status::Success) {
         QMessageBox::warning(this, "Cannot Apply",
             "Analysis results are not valid. Please run the analysis again.");
         return;

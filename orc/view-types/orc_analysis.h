@@ -1,7 +1,7 @@
 /*
  * File:        orc_analysis.h
- * Module:      orc-public
- * Purpose:     Public API for analysis tools and results
+ * Module:      orc-view-types
+ * Purpose:     Analysis tools and results view types
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Simon Inns
@@ -16,7 +16,7 @@
 #include <variant>
 #include <parameter_types.h>
 
-namespace orc::public_api {
+namespace orc {
 
 /**
  * @brief Information about an available analysis tool
@@ -42,9 +42,9 @@ enum class AnalysisStatus {
 };
 
 /**
- * @brief Progress information for running analysis
+ * @brief Progress information snapshot for displaying analysis progress
  */
-struct AnalysisProgress {
+struct AnalysisProgressInfo {
     int current;                ///< Current progress value
     int total;                  ///< Total work units
     std::string status_message; ///< Primary status message
@@ -81,18 +81,21 @@ struct AnalysisResultItem {
  * @brief Complete analysis result
  */
 struct AnalysisResult {
-    enum class Status {
+    enum Status {
         Success,
         Failed,
         Cancelled
     };
     
-    Status status = Status::Success;
+    Status status = Success;
     std::string summary;                                    ///< Human-readable summary
     std::vector<AnalysisResultItem> items;                  ///< Structured results
     std::map<std::string, StatisticValue> statistics;       ///< Statistics for display
     std::map<std::string, std::string> graphData;           ///< Data for graph application (opaque to GUI)
     std::map<std::string, orc::ParameterValue> parameterChanges;  ///< Parameter modifications to apply
+    
+    //  Nested type alias for compatibility
+    using ResultItem = AnalysisResultItem;
 };
 
-} // namespace orc::public_api
+} // namespace orc

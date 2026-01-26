@@ -24,7 +24,7 @@ class DiscMapperPresenter : public AnalysisToolPresenter {
 public:
     explicit DiscMapperPresenter(void* project_handle);
 
-    orc::public_api::AnalysisResult runAnalysis(
+    orc::AnalysisResult runAnalysis(
         NodeID node_id,
         const std::map<std::string, orc::ParameterValue>& parameters,
         std::function<void(int, const std::string&)> progress_callback = nullptr

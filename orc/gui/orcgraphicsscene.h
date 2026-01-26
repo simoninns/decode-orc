@@ -65,7 +65,7 @@ signals:
      * @param node_id Node to analyze
      * @param stage_name Stage type name
      */
-    void runAnalysisRequested(const orc::public_api::AnalysisToolInfo& tool_info, const NodeID& node_id, const std::string& stage_name);
+    void runAnalysisRequested(const orc::AnalysisToolInfo& tool_info, const NodeID& node_id, const std::string& stage_name);
 
 private slots:
     void onSelectionChanged();

@@ -55,13 +55,13 @@ bool FFmpegPresetPresenter::validateNode(NodeID node_id, std::string& error_mess
     return true;
 }
 
-orc::public_api::AnalysisResult FFmpegPresetPresenter::runAnalysis(
+orc::AnalysisResult FFmpegPresetPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
     std::function<void(int, const std::string&)> progress_callback) {
     
-    orc::public_api::AnalysisResult result;
-    result.status = orc::public_api::AnalysisResult::Status::Failed;
+    orc::AnalysisResult result;
+    result.status = orc::AnalysisResult::Status::Failed;
     
     // Report progress (instant tool, so go straight to 100%)
     if (progress_callback) {
@@ -156,19 +156,19 @@ orc::public_api::AnalysisResult FFmpegPresetPresenter::runAnalysis(
     // Convert status
     switch (core_result.status) {
         case orc::AnalysisResult::Success:
-            result.status = orc::public_api::AnalysisResult::Status::Success;
+            result.status = orc::AnalysisResult::Status::Success;
             break;
         case orc::AnalysisResult::Failed:
-            result.status = orc::public_api::AnalysisResult::Status::Failed;
+            result.status = orc::AnalysisResult::Status::Failed;
             break;
         case orc::AnalysisResult::Cancelled:
-            result.status = orc::public_api::AnalysisResult::Status::Cancelled;
+            result.status = orc::AnalysisResult::Status::Cancelled;
             break;
     }
     
     // Note: graphData not used by this tool - configuration is applied via FFmpegPresetDialog
     
-    if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+    if (result.status == orc::AnalysisResult::Status::Success) {
         ORC_LOG_INFO("FFmpeg preset configuration completed successfully");
     } else {
         ORC_LOG_ERROR("FFmpeg preset configuration failed: {}", result.summary);

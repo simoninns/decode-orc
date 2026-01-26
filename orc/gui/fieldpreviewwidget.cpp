@@ -37,7 +37,7 @@ FieldPreviewWidget::~FieldPreviewWidget()
 {
 }
 
-void FieldPreviewWidget::setImage(const orc::public_api::PreviewImage& image)
+void FieldPreviewWidget::setImage(const orc::PreviewImage& image)
 {
     // Convert RGB888 data from orc-core to QImage
     if (image.rgb_data.empty() || image.width == 0 || image.height == 0) {

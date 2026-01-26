@@ -48,81 +48,19 @@ namespace orc {
 // PreviewOutputType and AspectRatioMode now defined in common_types.h
 
 // Use public API DropoutRegion in core (already aliased in dropout_decision.h, but include here for clarity)
-using DropoutRegion = orc::public_api::DropoutRegion;
+using DropoutRegion = orc::DropoutRegion;
 
-/**
- * @brief Result of querying for suggested view node
- */
-struct SuggestedViewNode {
-    NodeID node_id;            ///< Node to view (invalid if none available)
-    bool has_nodes;                 ///< True if DAG has any nodes at all
-    std::string message;            ///< User-facing message explaining the situation
-    
-    /// Helper to check if a valid node was suggested
-    bool is_valid() const { return node_id.is_valid(); }
-};
+// Use view-type structs (defined in orc_rendering.h)
+using SuggestedViewNode = orc::SuggestedViewNode;
+using PreviewOutputInfo = orc::PreviewOutputInfo;
+using PreviewItemDisplayInfo = orc::PreviewItemDisplayInfo;
 
-/**
- * @brief Information about an available output type
- */
-struct PreviewOutputInfo {
-    PreviewOutputType type;
-    std::string display_name;       ///< Human-readable name
-    uint64_t count;                 ///< Number of outputs available (e.g., 100 fields, 50 frames)
-    bool is_available;              ///< Whether this type is available for this node
-    double dar_aspect_correction;   ///< Width scaling factor for 4:3 DAR (e.g., 0.7 for PAL/NTSC)
-    std::string option_id;          ///< Original option ID from PreviewableStage (for direct rendering)
-    bool dropouts_available;        ///< Whether dropout highlighting is available for this output type
-    bool has_separate_channels;     ///< Whether source has separate Y/C channels (for signal dropdown)
-    uint64_t first_field_offset;    ///< Field offset for frame-based outputs (0 or 1, indicates first field of frame 0)
-};
-
-/**
- * @brief Detailed information for displaying an item in preview
- * 
- * Provides all components needed for GUI to arrange labels as desired.
- */
-struct PreviewItemDisplayInfo {
-    std::string type_name;          ///< Type name (e.g., "Field", "Frame", "Frame (Reversed)")
-    uint64_t current_number;        ///< Current item number (1-based)
-    uint64_t total_count;           ///< Total number of items available
-    uint64_t first_field_number;    ///< First field number (1-based, 0 if N/A)
-    uint64_t second_field_number;   ///< Second field number (1-based, 0 if N/A)
-    bool has_field_info;            ///< True if field numbers are relevant
-};
-
-/**
- * @brief Rendered preview image data (core version with additional fields)
- * 
- * This extends the public API PreviewImage with core-internal fields like vectorscope data.
- * The public API version is in orc_rendering.h and contains the essential fields (width, height, rgb_data, dropout_regions).
- * This core version adds optional analytical data used by specialized GUI components.
- */
-struct PreviewImage : public orc::public_api::PreviewImage {
-    std::optional<VectorscopeData> vectorscope_data;  ///< Optional UV scatter for chroma preview
-    
-    bool has_vectorscope() const {
-        return vectorscope_data.has_value() && !vectorscope_data->samples.empty();
-    }
-};
-
-/**
- * @brief Result of rendering a preview
- */
-struct PreviewRenderResult {
-    PreviewImage image;
-    bool success;
-    std::string error_message;
-    NodeID node_id;
-    PreviewOutputType output_type;
-    uint64_t output_index;          ///< Which output was rendered (field N, frame N, etc.)
-};
-
+// Note: PreviewImage and PreviewRenderResult are used directly from view-types
 // Use public API mapping result types in core
-using FrameLineNavigationResult = orc::public_api::FrameLineNavigationResult;
-using ImageToFieldMappingResult = orc::public_api::ImageToFieldMappingResult;
-using FieldToImageMappingResult = orc::public_api::FieldToImageMappingResult;
-using FrameFieldsResult = orc::public_api::FrameFieldsResult;
+using FrameLineNavigationResult = orc::FrameLineNavigationResult;
+using ImageToFieldMappingResult = orc::ImageToFieldMappingResult;
+using FieldToImageMappingResult = orc::FieldToImageMappingResult;
+using FrameFieldsResult = orc::FrameFieldsResult;
 
 /**
  * @brief Preview renderer for GUI

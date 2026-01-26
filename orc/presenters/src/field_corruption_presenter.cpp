@@ -93,13 +93,13 @@ int32_t FieldCorruptionPresenter::getExistingSeed(NodeID node_id) {
     return 0;
 }
 
-orc::public_api::AnalysisResult FieldCorruptionPresenter::runAnalysis(
+orc::AnalysisResult FieldCorruptionPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
     std::function<void(int, const std::string&)> progress_callback) {
     
-    orc::public_api::AnalysisResult result;
-    result.status = orc::public_api::AnalysisResult::Status::Failed;
+    orc::AnalysisResult result;
+    result.status = orc::AnalysisResult::Status::Failed;
     
     // Report progress
     if (progress_callback) {
@@ -222,13 +222,13 @@ orc::public_api::AnalysisResult FieldCorruptionPresenter::runAnalysis(
     
     // Convert core result to public API result
     result.status = core_result.status == orc::AnalysisResult::Success
-        ? orc::public_api::AnalysisResult::Status::Success
-        : orc::public_api::AnalysisResult::Status::Failed;
+        ? orc::AnalysisResult::Status::Success
+        : orc::AnalysisResult::Status::Failed;
     result.summary = core_result.summary;
     result.graphData = core_result.graphData;
 
     if (progress_callback) {
-        if (result.status == orc::public_api::AnalysisResult::Status::Success) {
+        if (result.status == orc::AnalysisResult::Status::Success) {
             progress_callback(100, "Analysis complete");
         } else {
             progress_callback(0, "Analysis failed");

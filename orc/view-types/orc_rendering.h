@@ -20,7 +20,7 @@
 #include "orc_vectorscope.h"  // For VectorscopeData
 
 namespace orc {
-namespace public_api {
+
 
 /**
  * @brief Represents a dropout region in a field
@@ -56,6 +56,7 @@ struct PreviewImage {
     uint32_t height;
     std::vector<uint8_t> rgb_data;  ///< RGB888 format (width * height * 3 bytes)
     std::vector<DropoutRegion> dropout_regions;  ///< Dropout regions to highlight
+    std::optional<VectorscopeData> vectorscope_data;  ///< Optional vectorscope data for chroma analysis
     
     bool is_valid() const {
         return !rgb_data.empty() && rgb_data.size() == width * height * 3;
@@ -221,5 +222,4 @@ struct FrameFieldsResult {
     uint64_t second_field;          ///< Index of second field in frame
 };
 
-} // namespace public_api
 } // namespace orc

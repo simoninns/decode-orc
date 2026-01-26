@@ -46,18 +46,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-echo "============================================================================="
-echo "  MVP Architecture Validation"
-echo "============================================================================="
-echo ""
+
 
 # =============================================================================
 # CHECK 1: Interface Leakage Detection
 # =============================================================================
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "CHECK 1: Interface Leakage (Core types in presenter public APIs)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
 
 # Core types that should NEVER appear in presenter public interfaces
 FORBIDDEN_CORE_TYPES=(
@@ -103,20 +96,15 @@ for header in $PRESENTER_HEADERS; do
 done
 
 if [[ $PRESENTER_VIOLATIONS -eq 0 ]]; then
-    echo -e "${GREEN}✅ PASS${NC}: No core types exposed in presenter interfaces"
+    echo -e "MVP check 1: Interface Leakage (Core types in presenter public APIs) - ${GREEN}Passed${NC}"
 else
-    echo -e "${RED}✗ FAIL${NC}: Found $PRESENTER_VIOLATIONS presenter interface violation(s)"
+    echo -e "MVP check 1: Interface Leakage (Core types in presenter public APIs) - ${RED}Failed${NC} ($PRESENTER_VIOLATIONS violation(s))"
     TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + PRESENTER_VIOLATIONS))
 fi
-echo ""
 
 # =============================================================================
 # CHECK 2: GUI Layer Violations
 # =============================================================================
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "CHECK 2: GUI Layer (Core type references in GUI code)"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
 
 GUI_VIOLATIONS=0
 GUI_HEADERS="orc/gui/*.h"
@@ -141,63 +129,49 @@ for header in $GUI_HEADERS; do
 done
 
 if [[ $GUI_VIOLATIONS -eq 0 ]]; then
-    echo -e "${GREEN}✅ PASS${NC}: No core types referenced in GUI headers"
+    echo -e "MVP check 2: GUI Layer (Core type references in GUI code) - ${GREEN}Passed${NC}"
 else
-    echo -e "${YELLOW}⚠ WARNING${NC}: Found $GUI_VIOLATIONS GUI header warning(s)"
+    echo -e "MVP check 2: GUI Layer (Core type references in GUI code) - ${YELLOW}Warning${NC} ($GUI_VIOLATIONS reference(s))"
     TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + GUI_VIOLATIONS))
 fi
-echo ""
 
 # =============================================================================
 # CHECK 3: Compiler Enforcement Tests
 # =============================================================================
 if [[ $SKIP_COMPILER_TESTS -eq 0 ]]; then
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "CHECK 3: Compiler Enforcement (Compile guards prevent direct includes)"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
     
     COMPILER_FAILURES=0
     
     # Test 3.1: Core header inclusion should fail with ORC_GUI_BUILD
-    echo "Test 3.1: Verify project.h rejected with ORC_GUI_BUILD..."
     cat > /tmp/test_mvp_violation.cpp << 'EOF'
 #include "project.h"
 void test_function() {}
 EOF
     
-    if g++ -c /tmp/test_mvp_violation.cpp \
+    if ! g++ -c /tmp/test_mvp_violation.cpp \
         -I orc/core/include \
         -I orc/common/include \
         -DORC_GUI_BUILD \
         2>&1 | grep -q "error.*GUI code cannot include"; then
-        echo -e "  ${GREEN}✅ PASS${NC}: Compiler correctly rejected project.h"
-    else
-        echo -e "  ${RED}❌ FAIL${NC}: Compiler did not catch project.h inclusion!"
         COMPILER_FAILURES=$((COMPILER_FAILURES + 1))
     fi
     
     # Test 3.2: Preview renderer header should also fail
-    echo "Test 3.2: Verify preview_renderer.h rejected with ORC_GUI_BUILD..."
     cat > /tmp/test_mvp_violation2.cpp << 'EOF'
 #include "preview_renderer.h"
 void test_function() {}
 EOF
     
-    if g++ -c /tmp/test_mvp_violation2.cpp \
+    if ! g++ -c /tmp/test_mvp_violation2.cpp \
         -I orc/core/include \
         -I orc/common/include \
         -I orc/public \
         -DORC_GUI_BUILD \
         2>&1 | grep -q "error.*GUI code cannot include"; then
-        echo -e "  ${GREEN}✅ PASS${NC}: Compiler correctly rejected preview_renderer.h"
-    else
-        echo -e "  ${RED}❌ FAIL${NC}: Compiler did not catch preview_renderer.h inclusion!"
         COMPILER_FAILURES=$((COMPILER_FAILURES + 1))
     fi
     
     # Test 3.3: Public API should compile successfully
-    echo "Test 3.3: Verify public API compiles with ORC_GUI_BUILD..."
     cat > /tmp/test_mvp_valid.cpp << 'EOF'
 #include <orc_rendering.h>
 #include <parameter_types.h>
@@ -207,15 +181,12 @@ void test_function() {
 }
 EOF
     
-    if g++ -c /tmp/test_mvp_valid.cpp \
+    if ! g++ -c /tmp/test_mvp_valid.cpp \
         -I orc/public \
         -I orc/common/include \
         -DORC_GUI_BUILD \
         -std=c++17 \
         2>&1 > /tmp/compile_output.txt; then
-        echo -e "  ${GREEN}✅ PASS${NC}: Public API compiles successfully"
-    else
-        echo -e "  ${RED}❌ FAIL${NC}: Valid GUI code failed to compile"
         cat /tmp/compile_output.txt
         COMPILER_FAILURES=$((COMPILER_FAILURES + 1))
     fi
@@ -224,52 +195,23 @@ EOF
     rm -f /tmp/test_mvp_*.cpp /tmp/compile_output.txt
     
     if [[ $COMPILER_FAILURES -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}✅ PASS${NC}: All compiler enforcement tests passed"
+        echo -e "MVP check 3: Compiler Enforcement (Compile guards prevent direct includes) - ${GREEN}Passed${NC}"
     else
-        echo ""
-        echo -e "${RED}✗ FAIL${NC}: $COMPILER_FAILURES compiler test(s) failed"
+        echo -e "MVP check 3: Compiler Enforcement (Compile guards prevent direct includes) - ${RED}Failed${NC} ($COMPILER_FAILURES test(s) failed)"
         TOTAL_VIOLATIONS=$((TOTAL_VIOLATIONS + COMPILER_FAILURES))
     fi
-    echo ""
 else
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "CHECK 3: Compiler Enforcement (SKIPPED)"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+    echo -e "MVP check 3: Compiler Enforcement (Compile guards prevent direct includes) - Skipped"
 fi
 
 # =============================================================================
 # Summary
 # =============================================================================
-echo "============================================================================="
-echo "  Summary"
-echo "============================================================================="
-echo ""
 
 if [[ $TOTAL_VIOLATIONS -eq 0 ]]; then
-    echo -e "${GREEN}✅ ALL CHECKS PASSED${NC}"
-    echo ""
-    echo "MVP architecture is properly enforced:"
-    echo "  ✓ Presenter APIs properly encapsulate core types"
-    echo "  ✓ GUI code doesn't reference core types"
-    if [[ $SKIP_COMPILER_TESTS -eq 0 ]]; then
-        echo "  ✓ Compile guards prevent direct core header inclusion"
-    fi
-    echo ""
     exit 0
 else
-    echo -e "${RED}✗ VIOLATIONS DETECTED${NC}"
     echo ""
-    echo "Found $TOTAL_VIOLATIONS total violation(s)"
-    echo ""
-    echo "Recommended fixes:"
-    echo "  1. Use std::shared_ptr<void> for opaque handles"
-    echo "  2. Add presenter methods instead of exposing core pointers"
-    echo "  3. Create view-model types in orc/presenters/include/*_view_models.h"
-    echo "  4. Move business logic from GUI into presenter layer"
-    echo ""
-    echo "See architectural guidelines in docs/ for more information"
-    echo ""
+    echo -e "${RED}MVP architecture violations detected${NC}: $TOTAL_VIOLATIONS total violation(s)"
     exit 1
 fi

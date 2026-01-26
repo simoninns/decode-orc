@@ -15,7 +15,7 @@
 #include <common_types.h>  // For VideoSystem enum
 
 namespace orc {
-namespace public_api {
+
 
 /**
  * @brief Single U/V sample point for vectorscope display
@@ -80,7 +80,6 @@ inline UVSample rgb_to_uv(uint16_t r, uint16_t g, uint16_t b) {
     return UVSample{ u * 32768.0, v * 32768.0 };
 }
 
-} // namespace public_api
 } // namespace orc
 
 #endif // ORC_PUBLIC_ORC_VECTORSCOPE_H

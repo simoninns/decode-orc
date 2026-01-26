@@ -60,7 +60,7 @@ static SourceType fromSourceType(orc::SourceType type) {
 
 // === Static Utility Methods ===
 
-std::optional<orc::public_api::VideoParameters> ProjectPresenter::readVideoParameters(
+std::optional<orc::VideoParameters> ProjectPresenter::readVideoParameters(
     const std::string& metadata_path)
 {
     try {

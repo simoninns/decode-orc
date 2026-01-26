@@ -47,7 +47,6 @@ add_library(orc-core STATIC
     # Analysis framework
     analysis/analysis_registry.cpp
     analysis/analysis_init.cpp
-    analysis/batch_analysis_tool.cpp
     
     # Vectorscope analysis
     analysis/vectorscope/vectorscope_analysis.cpp
@@ -130,7 +129,7 @@ add_library(orc-core STATIC
 
 target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/orc/public  # Access to public API types (MVP architecture allows core -> public dependency)
+    ${CMAKE_SOURCE_DIR}/orc/view-types  # Access to view types (MVP architecture allows core -> view dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/analysis
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/pal_comp_source

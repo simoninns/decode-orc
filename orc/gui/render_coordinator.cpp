@@ -193,7 +193,7 @@ uint64_t RenderCoordinator::requestFrameLineNavigation(const orc::NodeID& node_i
     return id;
 }
 
-orc::public_api::ImageToFieldMappingResult RenderCoordinator::mapImageToField(const orc::NodeID& node_id,
+orc::ImageToFieldMappingResult RenderCoordinator::mapImageToField(const orc::NodeID& node_id,
                                                                   orc::PreviewOutputType output_type,
                                                                   uint64_t output_index,
                                                                   int image_y,
@@ -203,13 +203,13 @@ orc::public_api::ImageToFieldMappingResult RenderCoordinator::mapImageToField(co
     // since it's just a calculation with no state changes
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (!worker_render_presenter_) {
-        return orc::public_api::ImageToFieldMappingResult{false, 0, 0};
+        return orc::ImageToFieldMappingResult{false, 0, 0};
     }
     auto result = worker_render_presenter_->mapImageToField(node_id, output_type, output_index, image_y, image_height);
-    return orc::public_api::ImageToFieldMappingResult{result.is_valid, result.field_index, result.field_line};
+    return orc::ImageToFieldMappingResult{result.is_valid, result.field_index, result.field_line};
 }
 
-orc::public_api::FieldToImageMappingResult RenderCoordinator::mapFieldToImage(const orc::NodeID& node_id,
+orc::FieldToImageMappingResult RenderCoordinator::mapFieldToImage(const orc::NodeID& node_id,
                                                                   orc::PreviewOutputType output_type,
                                                                   uint64_t output_index,
                                                                   uint64_t field_index,
@@ -220,22 +220,22 @@ orc::public_api::FieldToImageMappingResult RenderCoordinator::mapFieldToImage(co
     // since it's just a calculation with no state changes
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (!worker_render_presenter_) {
-        return orc::public_api::FieldToImageMappingResult{false, 0};
+        return orc::FieldToImageMappingResult{false, 0};
     }
     auto result = worker_render_presenter_->mapFieldToImage(node_id, output_type, output_index, field_index, field_line, image_height);
-    return orc::public_api::FieldToImageMappingResult{result.is_valid, result.image_y};
+    return orc::FieldToImageMappingResult{result.is_valid, result.image_y};
 }
 
-orc::public_api::FrameFieldsResult RenderCoordinator::getFrameFields(const orc::NodeID& node_id, uint64_t frame_index)
+orc::FrameFieldsResult RenderCoordinator::getFrameFields(const orc::NodeID& node_id, uint64_t frame_index)
 {
     // This is a synchronous call - safe to call render presenter directly
     // since it's just a calculation with no state changes
     std::lock_guard<std::mutex> lock(queue_mutex_);
     if (!worker_render_presenter_) {
-        return orc::public_api::FrameFieldsResult{false, 0, 0};
+        return orc::FrameFieldsResult{false, 0, 0};
     }
     auto result = worker_render_presenter_->getFrameFields(node_id, frame_index);
-    return orc::public_api::FrameFieldsResult{result.is_valid, result.first_field, result.second_field};
+    return orc::FrameFieldsResult{result.is_valid, result.first_field, result.second_field};
 }
 
 uint64_t RenderCoordinator::requestTrigger(const orc::NodeID& node_id)
@@ -675,7 +675,7 @@ void RenderCoordinator::handleNavigateFrameLine(const NavigateFrameLineRequest& 
         );
         
         // Convert to public_api type for signal
-        orc::public_api::FrameLineNavigationResult result;
+        orc::FrameLineNavigationResult result;
         result.is_valid = nav_result.is_valid;
         result.new_field_index = nav_result.new_field_index;
         result.new_line_number = nav_result.new_line_number;

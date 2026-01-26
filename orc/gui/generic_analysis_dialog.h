@@ -46,7 +46,7 @@ class GenericAnalysisDialog : public QDialog {
 public:
     GenericAnalysisDialog(
         const std::string& tool_id,
-        const orc::public_api::AnalysisToolInfo& tool_info,
+        const orc::AnalysisToolInfo& tool_info,
         orc::presenters::AnalysisPresenter* presenter,
         const orc::NodeID& node_id,
         void* project,
@@ -56,7 +56,7 @@ public:
 
 signals:
     void analysisApplied();
-    void applyResultsRequested(const orc::public_api::AnalysisResult& result);
+    void applyResultsRequested(const orc::AnalysisResult& result);
 
 private slots:
     void runAnalysis();
@@ -68,10 +68,10 @@ private:
     void populateParameters();
     QWidget* createParameterWidget(const std::string& name, const orc::ParameterDescriptor& param);
     void collectParameters();
-    void displayResults(const orc::public_api::AnalysisResult& result);
+    void displayResults(const orc::AnalysisResult& result);
 
     std::string tool_id_;
-    orc::public_api::AnalysisToolInfo tool_info_;
+    orc::AnalysisToolInfo tool_info_;
     orc::presenters::AnalysisPresenter* presenter_;  // Not owned
     orc::presenters::FieldCorruptionPresenter* field_corruption_presenter_;  // Owned (if used)
     orc::presenters::DiscMapperPresenter* disc_mapper_presenter_;  // Owned (if used)
@@ -81,7 +81,7 @@ private:
     orc::presenters::DropoutEditorPresenter* dropout_editor_presenter_;  // Owned (if used)
     void* project_;  // Not owned (opaque handle)
     orc::NodeID node_id_;
-    orc::public_api::AnalysisResult last_result_;
+    orc::AnalysisResult last_result_;
     std::vector<orc::ParameterDescriptor> parameter_descriptors_;
 
     // UI widgets

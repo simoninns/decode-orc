@@ -257,10 +257,10 @@ protected:
  * @brief Response with preview render result
  */
 struct PreviewRenderResponse : public RenderResponse {
-    orc::public_api::PreviewRenderResult result;
+    orc::PreviewRenderResult result;
     
     PreviewRenderResponse(uint64_t id, bool s, 
-                         orc::public_api::PreviewRenderResult r, std::string err = "")
+                         orc::PreviewRenderResult r, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , result(std::move(r)) {}
 };
@@ -326,10 +326,10 @@ struct BurstLevelDataResponse : public RenderResponse {
  * @brief Response with available outputs
  */
 struct AvailableOutputsResponse : public RenderResponse {
-    std::vector<orc::public_api::PreviewOutputInfo> outputs;
+    std::vector<orc::PreviewOutputInfo> outputs;
     
     AvailableOutputsResponse(uint64_t id, bool s,
-                            std::vector<orc::public_api::PreviewOutputInfo> out, std::string err = "")
+                            std::vector<orc::PreviewOutputInfo> out, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , outputs(std::move(out)) {}
 };
@@ -349,10 +349,10 @@ struct TriggerCompleteResponse : public RenderResponse {
  * @brief Response for frame line navigation
  */
 struct FrameLineNavigationResponse : public RenderResponse {
-    orc::public_api::FrameLineNavigationResult result;
+    orc::FrameLineNavigationResult result;
     
     FrameLineNavigationResponse(uint64_t id, bool s,
-                               orc::public_api::FrameLineNavigationResult nav_result, std::string err = "")
+                               orc::FrameLineNavigationResult nav_result, std::string err = "")
         : RenderResponse(id, s, std::move(err))
         , result(nav_result) {}
 };
@@ -542,7 +542,7 @@ public:
      * @param image_height Total height of the image (for split mode)
      * @return Mapping result (field_index, field_line)
      */
-    orc::public_api::ImageToFieldMappingResult mapImageToField(const orc::NodeID& node_id,
+    orc::ImageToFieldMappingResult mapImageToField(const orc::NodeID& node_id,
                                                    orc::PreviewOutputType output_type,
                                                    uint64_t output_index,
                                                    int image_y,
@@ -562,7 +562,7 @@ public:
      * @param image_height Total height of the image (for split mode)
      * @return Mapping result (image_y)
      */
-    orc::public_api::FieldToImageMappingResult mapFieldToImage(const orc::NodeID& node_id,
+    orc::FieldToImageMappingResult mapFieldToImage(const orc::NodeID& node_id,
                                                    orc::PreviewOutputType output_type,
                                                    uint64_t output_index,
                                                    uint64_t field_index,
@@ -578,7 +578,7 @@ public:
      * @param frame_index The frame index (0-based)
      * @return Result with first_field and second_field indices
      */
-    orc::public_api::FrameFieldsResult getFrameFields(const orc::NodeID& node_id, uint64_t frame_index);
+    orc::FrameFieldsResult getFrameFields(const orc::NodeID& node_id, uint64_t frame_index);
     
     uint64_t requestSavePNG(const orc::NodeID& node_id, 
                            orc::PreviewOutputType output_type,
@@ -618,7 +618,7 @@ signals:
      * @param request_id The request ID from requestPreview()
      * @param result The render result
      */
-    void previewReady(uint64_t request_id, orc::public_api::PreviewRenderResult result);
+    void previewReady(uint64_t request_id, orc::PreviewRenderResult result);
     
     /**
      * @brief Emitted when VBI data is ready
@@ -658,13 +658,13 @@ signals:
     /**
      * @brief Emitted when available outputs query completes
      */
-    void availableOutputsReady(uint64_t request_id, std::vector<orc::public_api::PreviewOutputInfo> outputs);
+    void availableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     
     /**
      * @brief Emitted when line samples are ready
      */
     void lineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                          std::vector<uint16_t> samples, std::optional<orc::public_api::VideoParameters> video_params,
+                          std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
                           std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     
     /**
@@ -680,7 +680,7 @@ signals:
     /**
      * @brief Emitted when frame line navigation result is ready
      */
-    void frameLineNavigationReady(uint64_t request_id, orc::public_api::FrameLineNavigationResult result);
+    void frameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
     
     /**
      * @brief Emitted on any error

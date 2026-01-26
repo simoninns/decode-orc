@@ -12,7 +12,7 @@
 
 #include <field_id.h>
 #include <common_types.h>  // For VideoSystem enum
-#include <orc_video_metadata.h>  // For public_api::VideoParameters
+#include <orc_video_metadata.h>  // For VideoParameters
 #include <string>
 #include <vector>
 #include <optional>
@@ -26,9 +26,6 @@ namespace orc {
 
 std::string video_system_to_string(VideoSystem system);
 VideoSystem video_system_from_string(const std::string& name);
-
-// Use the public API VideoParameters type
-using VideoParameters = orc::public_api::VideoParameters;
 
 /**
  * @brief VBI (Vertical Blanking Interval) data

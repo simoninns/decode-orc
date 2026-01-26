@@ -169,7 +169,7 @@ void* AnalysisToolPresenter::getProjectPointer() const {
 // =============================================================================
 
 bool AnalysisToolPresenter::applyResultToGraph(
-    const orc::public_api::AnalysisResult& result,
+    const orc::AnalysisResult& result,
     orc::NodeID node_id)
 {
     // Get the tool from registry
@@ -193,13 +193,13 @@ bool AnalysisToolPresenter::applyResultToGraph(
     core_result.summary = result.summary;
     
     switch (result.status) {
-        case orc::public_api::AnalysisResult::Status::Success:
+        case orc::AnalysisResult::Status::Success:
             core_result.status = orc::AnalysisResult::Success;
             break;
-        case orc::public_api::AnalysisResult::Status::Failed:
+        case orc::AnalysisResult::Status::Failed:
             core_result.status = orc::AnalysisResult::Failed;
             break;
-        case orc::public_api::AnalysisResult::Status::Cancelled:
+        case orc::AnalysisResult::Status::Cancelled:
             core_result.status = orc::AnalysisResult::Cancelled;
             break;
     }

@@ -18,7 +18,7 @@
 namespace orc {
 
 // Use the public API DropoutRegion type
-using DropoutRegion = orc::public_api::DropoutRegion;
+using DropoutRegion = orc::DropoutRegion;
 
 /// Represents a user decision to modify dropout detection
 /// 

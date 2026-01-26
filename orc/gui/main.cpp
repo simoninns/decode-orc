@@ -11,7 +11,7 @@
 #include "logging.h"
 #include "crash_handler.h"
 #include "version.h"
-#include "../public/orc_logging.h"
+#include "project_presenter.h"  // For initCoreLogging
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
@@ -265,10 +265,10 @@ int main(int argc, char *argv[])
                           "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
                           sharedLogFile.toStdString());
 
-    // Initialize core logging via public API (same file)
-    orc_logging_init(logLevel.toStdString().c_str(),
-                     "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
-                     sharedLogFile.isEmpty() ? nullptr : sharedLogFile.toStdString().c_str());
+    // Initialize core logging (same file) through presenters layer
+    orc::presenters::initCoreLogging(logLevel.toStdString(),
+                                     "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v",
+                                     sharedLogFile.toStdString());
 
     // Bridge Qt messages to spdlog
     qInstallMessageHandler(qtMessageHandler);

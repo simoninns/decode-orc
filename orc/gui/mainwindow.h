@@ -133,13 +133,13 @@ private slots:
     void refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
     
     // Coordinator response slots
-    void onPreviewReady(uint64_t request_id, orc::public_api::PreviewRenderResult result);
+    void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
     void onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
-    void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::public_api::PreviewOutputInfo> outputs);
+    void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                            std::vector<uint16_t> samples, std::optional<orc::public_api::VideoParameters> video_params,
+                            std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
                             std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
-    void onFrameLineNavigationReady(uint64_t request_id, orc::public_api::FrameLineNavigationResult result);
+    void onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     void onDropoutProgress(size_t current, size_t total, QString message);
     void onSNRDataReady(uint64_t request_id, std::vector<orc::FrameSNRStats> frame_stats, int32_t total_frames);
@@ -167,13 +167,13 @@ private:
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls(bool skip_preview = false);  // Update slider, combo, preview, and info for current node
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
-    void updateVectorscope(const orc::public_api::PreviewRenderResult& result);
+    void updateVectorscope(const orc::PreviewRenderResult& result);
     void loadProjectDAG();  // Load DAG into embedded viewer
     void positionViewToTopLeft();  // Position view to show top-left node
     void selectLowestSourceStage();  // Auto-select source stage with lowest node ID
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
-    void runAnalysisForNode(const orc::public_api::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name);
+    void runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name);
     QProgressDialog* createAnalysisProgressDialog(const QString& title, const QString& message, QPointer<QProgressDialog>& existingDialog);
     void closeAllDialogs();  ///< Close all open dialogs when switching projects
     void createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name);
@@ -248,7 +248,7 @@ private:
     orc::PreviewOutputType current_output_type_;
     std::string current_option_id_;  ///< Current option ID for PreviewableStage rendering
     orc::AspectRatioMode current_aspect_ratio_mode_;  ///< Current aspect ratio mode
-    std::vector<orc::public_api::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
+    std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
     // Line scope tracking - store the actual field/line being displayed
     // All visual positions are derived from these via orc-core mapping functions
     uint64_t last_line_scope_field_index_;  ///< Current field being displayed in line scope

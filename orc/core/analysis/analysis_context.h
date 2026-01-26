@@ -7,6 +7,7 @@
 
 #include "../include/stage_parameter.h"
 #include <node_id.h>
+#include <orc_analysis.h>  // For AnalysisSourceType
 #include <string>
 #include <map>
 #include <memory>
@@ -16,15 +17,6 @@ namespace orc {
 // Forward declarations
 class DAG;
 class Project;
-
-/**
- * @brief Type of source being analyzed
- */
-enum class AnalysisSourceType {
-    LaserDisc,
-    CVBSVideo,
-    Other
-};
 
 /**
  * @brief Input context for running an analysis

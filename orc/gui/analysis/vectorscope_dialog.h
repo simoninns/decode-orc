@@ -66,13 +66,13 @@ public:
      * @brief Update vectorscope with new data
      * @param data Vectorscope data from renderer
      */
-    void updateVectorscope(const orc::public_api::VectorscopeData& data);
+    void updateVectorscope(const orc::VectorscopeData& data);
     
     /**
      * @brief Render vectorscope from extracted U/V data
      * @param data Vectorscope data containing U/V samples
      */
-    void renderVectorscope(const orc::public_api::VectorscopeData& data);
+    void renderVectorscope(const orc::VectorscopeData& data);
     
     /**
      * @brief Clear the vectorscope display

@@ -101,6 +101,6 @@ namespace orc::presenters {
  * This helper function encapsulates the conversion logic to avoid
  * duplication across the codebase.
  */
-VideoParametersView toVideoParametersView(const orc::public_api::VideoParameters& params);
+VideoParametersView toVideoParametersView(const orc::VideoParameters& params);
 
 } // namespace orc::presenters

@@ -18,7 +18,7 @@ PalDecoder::PalDecoder(const PalColour::Configuration &palConfig)
     config.pal = palConfig;
 }
 
-bool PalDecoder::configure(const ::orc::VideoParameters &videoParameters) {
+bool PalDecoder::configure(const ::orc::SourceParameters &videoParameters) {
     // Ensure the source video is PAL
     if (videoParameters.system != orc::VideoSystem::PAL && videoParameters.system != orc::VideoSystem::PAL_M) {
         ORC_LOG_ERROR("This decoder is for PAL video sources only");

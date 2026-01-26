@@ -232,7 +232,7 @@ void TBCMetadataWriter::close() {
     capture_id_ = -1;
 }
 
-bool TBCMetadataWriter::write_video_parameters(const VideoParameters& params) {
+bool TBCMetadataWriter::write_video_parameters(const SourceParameters& params) {
     if (!is_open_) return false;
     
     sqlite3_stmt* stmt = nullptr;

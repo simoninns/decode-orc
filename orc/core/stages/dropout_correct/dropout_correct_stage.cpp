@@ -15,8 +15,6 @@
  */
 
 #include <dropout_correct_stage.h>
-#include "tbc_metadata.h"
-#include "tbc_video_field_representation.h"
 #include "stage_registry.h"
 #include "preview_helpers.h"
 #include "logging.h"
@@ -301,7 +299,7 @@ std::shared_ptr<CorrectedVideoFieldRepresentation> DropoutCorrectStage::correct_
 DropoutCorrectStage::DropoutLocation DropoutCorrectStage::classify_dropout(
     const DropoutRegion& dropout,
     const FieldDescriptor& descriptor,
-    const std::optional<VideoParameters>& video_params) const
+    const std::optional<SourceParameters>& video_params) const
 {
     // Get color burst and active video positions from video parameters
     uint32_t color_burst_end = 0;
@@ -338,7 +336,7 @@ DropoutCorrectStage::DropoutLocation DropoutCorrectStage::classify_dropout(
 std::vector<DropoutRegion> DropoutCorrectStage::split_dropout_regions(
     const std::vector<DropoutRegion>& dropouts,
     const FieldDescriptor& descriptor,
-    const std::optional<VideoParameters>& video_params) const
+    const std::optional<SourceParameters>& video_params) const
 {
     std::vector<DropoutRegion> result;
     

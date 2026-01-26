@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <cassert>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 #include "logging.h"
 
 // Two complete, interlaced fields' worth of decoded luma and chroma information.
@@ -31,7 +31,7 @@ public:
 
     // Set the frame's size and clear it to black
     // If mono is true, only Y set to black, while U and V are cleared.
-    void init(const ::orc::VideoParameters &videoParameters, bool mono=false);
+    void init(const ::orc::SourceParameters &videoParameters, bool mono=false);
 
     // Get a pointer to a line of samples. Line numbers are 0-based within the frame.
     // Lines are stored in a contiguous array, so it's safe to get a pointer to

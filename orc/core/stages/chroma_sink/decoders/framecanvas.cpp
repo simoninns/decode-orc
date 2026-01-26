@@ -11,7 +11,7 @@
 
 #include "framecanvas.h"
 
-FrameCanvas::FrameCanvas(ComponentFrame &_componentFrame, const ::orc::VideoParameters &_videoParameters)
+FrameCanvas::FrameCanvas(ComponentFrame &_componentFrame, const ::orc::SourceParameters &_videoParameters)
     : yData(_componentFrame.y(0)), uData(_componentFrame.u(0)), vData(_componentFrame.v(0)),
       width(_componentFrame.getWidth()), height(_componentFrame.getHeight()),
       ireRange(_videoParameters.white_16b_ire - _videoParameters.black_16b_ire), blackIre(_videoParameters.black_16b_ire),

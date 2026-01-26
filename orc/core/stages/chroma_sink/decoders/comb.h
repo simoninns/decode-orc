@@ -17,7 +17,7 @@
 #include <fstream>
 #include <cmath>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "componentframe.h"
 #include "decoder.h"
@@ -50,7 +50,7 @@ public:
     };
 
     const Configuration &getConfiguration() const;
-    void updateConfiguration(const ::orc::VideoParameters &videoParameters,
+    void updateConfiguration(const ::orc::SourceParameters &videoParameters,
                              const Configuration &configuration);
 
     // Decode a sequence of fields into a sequence of interlaced frames
@@ -74,12 +74,12 @@ private:
     // Comb-filter configuration parameters
     bool configurationSet;
     Configuration configuration;
-    ::orc::VideoParameters videoParameters;
+    ::orc::SourceParameters videoParameters;
 
     // An input frame in the process of being decoded
     class FrameBuffer {
     public:
-        FrameBuffer(const ::orc::VideoParameters &videoParameters_, const Configuration &configuration_);
+        FrameBuffer(const ::orc::SourceParameters &videoParameters_, const Configuration &configuration_);
 
         void loadFields(const SourceField &firstField, const SourceField &secondField);
         
@@ -111,7 +111,7 @@ private:
         void overlayMap(const FrameBuffer &previousFrame, const FrameBuffer &nextFrame);
 
     private:
-        const ::orc::VideoParameters &videoParameters;
+        const ::orc::SourceParameters &videoParameters;
         const Configuration &configuration;
 
         // Calculated frame height

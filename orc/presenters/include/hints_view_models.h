@@ -91,16 +91,16 @@ struct VideoParametersView {
 } // namespace orc::presenters
 
 // Include public API types that are used
-#include <orc_video_metadata.h>
+#include <orc_source_parameters.h>
 
 namespace orc::presenters {
 
 /**
- * @brief Convert core VideoParameters to presenter VideoParametersView
+ * @brief Convert core SourceParameters to presenter VideoParametersView
  * 
  * This helper function encapsulates the conversion logic to avoid
  * duplication across the codebase.
  */
-VideoParametersView toVideoParametersView(const orc::VideoParameters& params);
+VideoParametersView toVideoParametersView(const orc::SourceParameters& params);
 
 } // namespace orc::presenters

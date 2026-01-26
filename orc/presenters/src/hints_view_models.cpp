@@ -8,12 +8,12 @@
  */
 
 #include "../include/hints_view_models.h"
-#include <orc_video_metadata.h>
+#include <orc_source_parameters.h>
 #include <common_types.h>  // For VideoSystem enum
 
 namespace orc::presenters {
 
-VideoParametersView toVideoParametersView(const orc::VideoParameters& params) {
+VideoParametersView toVideoParametersView(const orc::SourceParameters& params) {
     VideoParametersView v{};
     
     // Convert VideoSystem enum

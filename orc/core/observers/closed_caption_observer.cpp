@@ -9,7 +9,6 @@
 
 #include "closed_caption_observer.h"
 #include "logging.h"
-#include "tbc_video_field_representation.h"
 #include "vbi_utilities.h"
 #include "video_field_representation.h"
 #include "observation_context.h"
@@ -71,41 +70,15 @@ void ClosedCaptionObserver::process_field(
                       field_id.value(), line_num, sample_debug);
     }
     
-    // Get actual VideoParameters from TBCVideoFieldRepresentation
-    // Need to unwrap through VideoFieldRepresentationWrapper chain
-    const TBCVideoFieldRepresentation* tbc_rep = nullptr;
-    const VideoFieldRepresentation* current = &representation;
-    
-    // Try direct cast first
-    tbc_rep = dynamic_cast<const TBCVideoFieldRepresentation*>(current);
-    
-    // If not direct TBC, unwrap through wrapper chain
-    while (tbc_rep == nullptr && current != nullptr) {
-        auto* wrapper = dynamic_cast<const VideoFieldRepresentationWrapper*>(current);
-        if (wrapper) {
-            current = wrapper->get_source().get();
-            if (current) {
-                tbc_rep = dynamic_cast<const TBCVideoFieldRepresentation*>(current);
-            }
-        } else {
-            break;
-        }
-    }
-    
-    if (tbc_rep == nullptr) {
-        ORC_LOG_DEBUG("Field {}: Failed to find TBCVideoFieldRepresentation in wrapper chain", field_id.value());
-        context.set(field_id, "closed_caption", "present", false);
-        return;
-    }
-    
-    auto video_params_opt = tbc_rep->get_video_parameters();
+    // Get video parameters from VideoFieldRepresentation interface
+    auto video_params_opt = representation.get_video_parameters();
     if (!video_params_opt.has_value()) {
         ORC_LOG_DEBUG("Field {}: Failed to get video parameters", field_id.value());
         context.set(field_id, "closed_caption", "present", false);
         return;
     }
     
-    const VideoParameters& video_params = video_params_opt.value();
+    const SourceParameters& video_params = video_params_opt.value();
     
     // Calculate zero crossing from actual line data
     // VBI line amplitude may differ from active video, so use line's own min/max

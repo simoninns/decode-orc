@@ -17,7 +17,7 @@
 #include <cmath>
 #include <memory>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "componentframe.h"
 #include "decoder.h"
@@ -59,7 +59,7 @@ public:
     };
 
     const Configuration &getConfiguration() const;
-    void updateConfiguration(const ::orc::VideoParameters &videoParameters,
+    void updateConfiguration(const ::orc::SourceParameters &videoParameters,
                              const Configuration &configuration);
 
     // Decode a sequence of fields into a sequence of interlaced frames
@@ -97,7 +97,7 @@ private:
     // Configuration parameters
     bool configurationSet;
     Configuration configuration;
-    ::orc::VideoParameters videoParameters;
+    ::orc::SourceParameters videoParameters;
 
     // Transform PAL filter
     std::unique_ptr<TransformPal> transformPal;

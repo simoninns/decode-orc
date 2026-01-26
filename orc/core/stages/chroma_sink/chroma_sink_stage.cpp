@@ -509,7 +509,7 @@ bool ChromaSinkStage::trigger(
         return false;
     }
     
-    // 3. Use orc-core VideoParameters directly
+    // 3. Use orc-core SourceParameters directly
     auto videoParams = *video_params_opt;  // Make a copy so we can modify it
     
     ORC_LOG_DEBUG("ChromaSink: Video parameters from source metadata:");
@@ -1168,33 +1168,33 @@ SourceField ChromaSinkStage::convertToSourceField(
     
     const auto& desc = *desc_opt;
     
-    // Set field metadata
+    // Set field metadata from VFR interface
     // Note: seq_no must be 1-based (ORC uses 0-based FieldID, so add 1)
-    sf.field.seq_no = static_cast<int32_t>(field_id.value()) + 1;
+    sf.seq_no = static_cast<int32_t>(field_id.value()) + 1;
     
     // Determine if this is the "first field" or "second field" from field parity
     // Field parity determines field ordering (same for both NTSC and PAL):
     //   - Top field (even field indices)    → first field
     //   - Bottom field (odd field indices)  → second field
-    sf.field.is_first_field = (desc.parity == FieldParity::Top);
+    sf.is_first_field = (desc.parity == FieldParity::Top);
     
     ORC_LOG_TRACE("ChromaSink: Field {} parity={} → isFirstField={}",
                  field_id.value(),
                  desc.parity == FieldParity::Top ? "Top" : "Bottom",
-                 sf.field.is_first_field.value_or(false));
+                 sf.is_first_field);
     
-    // Get field_phase_id from phase hint (from TBC metadata)
+    // Get field_phase_id from phase hint (from VFR interface)
     auto phase_hint = vfr->get_field_phase_hint(field_id);
     if (phase_hint.has_value()) {
-        sf.field.field_phase_id = phase_hint->field_phase_id;
-        ORC_LOG_TRACE("ChromaSink: Field {} has fieldPhaseID={}", field_id.value(), sf.field.field_phase_id.value());
+        sf.field_phase_id = phase_hint->field_phase_id;
+        ORC_LOG_TRACE("ChromaSink: Field {} has fieldPhaseID={}", field_id.value(), sf.field_phase_id.value());
     }
     
     ORC_LOG_TRACE("ChromaSink: Field {} (1-based seqNo={}) parity={} -> isFirstField={}", 
                   field_id.value(),
-                  sf.field.seq_no,
+                  sf.seq_no,
                   (desc.parity == FieldParity::Top ? "Top" : "Bottom"),
-                  sf.field.is_first_field.value_or(false));
+                  sf.is_first_field);
     
     // Check if this is a YC source (separate Y and C channels)
     if (vfr->has_separate_channels()) {
@@ -1241,9 +1241,9 @@ SourceField ChromaSinkStage::convertToSourceField(
         if (field_id.value() < 6) {
             ORC_LOG_DEBUG("ChromaSink: YC Field {} FULL metadata:", field_id.value());
             ORC_LOG_DEBUG("  seq_no={} is_first_field={} field_phase_id={}", 
-                          sf.field.seq_no, 
-                          sf.field.is_first_field.value_or(false), 
-                          sf.field.field_phase_id.value_or(-1));
+                          sf.seq_no, 
+                          sf.is_first_field, 
+                          sf.field_phase_id.value_or(-1));
             ORC_LOG_DEBUG("  is_yc=true luma.size()={} chroma.size()={}",
                           sf.luma_data.size(), sf.chroma_data.size());
             ORC_LOG_DEBUG("  Y first4=[{},{},{},{}] C first4=[{},{},{},{}]",
@@ -1290,9 +1290,9 @@ SourceField ChromaSinkStage::convertToSourceField(
         if (field_id.value() < 6) {
             ORC_LOG_DEBUG("ChromaSink: Composite Field {} FULL metadata:", field_id.value());
             ORC_LOG_DEBUG("  seq_no={} is_first_field={} field_phase_id={}", 
-                          sf.field.seq_no, 
-                          sf.field.is_first_field.value_or(false), 
-                          sf.field.field_phase_id.value_or(-1));
+                          sf.seq_no, 
+                          sf.is_first_field, 
+                          sf.field_phase_id.value_or(-1));
             ORC_LOG_DEBUG("  is_yc=false data.size()={} first4=[{},{},{},{}]",
                           sf.data.size(),
                           sf.data.size() > 0 ? sf.data[0] : 0,
@@ -1316,7 +1316,7 @@ bool ChromaSinkStage::writeOutputFile(
     uint64_t num_fields,
     std::string& error_message) const
 {
-    const auto& videoParams = *static_cast<const orc::VideoParameters*>(videoParamsPtr);
+    const auto& videoParams = *static_cast<const orc::SourceParameters*>(videoParamsPtr);
     if (frames.empty()) {
         ORC_LOG_ERROR("ChromaSink: No frames to write");
         error_message = "Error: No frames to write";
@@ -1491,7 +1491,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     if (!video_params_opt) {
         return result;
     }
-    const VideoParameters& videoParams = *video_params_opt;
+    const SourceParameters& videoParams = *video_params_opt;
     
     // Calculate first field offset
     uint64_t first_field_offset = 0;
@@ -1557,8 +1557,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         } else {
             // For out-of-bounds indices (look-behind or look-ahead), create a blank field with proper metadata
             SourceField blank_field;
-            blank_field.field.seq_no = static_cast<int32_t>(f) + 1;
-            blank_field.field.is_first_field = (f % 2 == 0);  // Even indices are first field
+            blank_field.seq_no = static_cast<int32_t>(f) + 1;
+            blank_field.is_first_field = (f % 2 == 0);  // Even indices are first field
             
             // Create blank data for composite or YC as appropriate
             if (is_yc_source) {

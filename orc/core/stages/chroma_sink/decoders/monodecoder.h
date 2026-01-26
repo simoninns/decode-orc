@@ -17,7 +17,7 @@
 #include <iostream>
 
 #include "componentframe.h"
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "comb.h"
 #include "decoder.h"
@@ -30,12 +30,12 @@ public:
 	struct MonoConfiguration {
 		double yNRLevel = 0.0;
 		bool filterChroma = false;  // If true, use comb filter to remove chroma subcarrier (ld-chroma-decoder -b mode)
-		::orc::VideoParameters videoParameters;
+		::orc::SourceParameters videoParameters;
 	};
 	MonoDecoder();
 	MonoDecoder(const MonoDecoder::MonoConfiguration &config);
-	bool updateConfiguration(const ::orc::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
-	bool configure(const ::orc::VideoParameters &videoParameters) override;
+	bool updateConfiguration(const ::orc::SourceParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
+	bool configure(const ::orc::SourceParameters &videoParameters) override;
 
 	/// Decode luma-only frames (optionally filtering out chroma)
 	void decodeFrames(const std::vector<SourceField>& inputFields,

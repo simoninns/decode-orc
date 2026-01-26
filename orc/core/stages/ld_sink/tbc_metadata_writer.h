@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "tbc_metadata.h"
+#include "../../tbc_source_internal/tbc_metadata.h"
 #include <field_id.h>
 #include "observer.h"
 #include "observation_context.h"
@@ -37,7 +37,7 @@ public:
     bool is_open() const { return is_open_; }
     
     // Write video parameters (creates capture record)
-    bool write_video_parameters(const VideoParameters& params);
+    bool write_video_parameters(const SourceParameters& params);
     
     // Write PCM audio parameters (optional)
     bool write_pcm_audio_parameters(const PcmAudioParameters& params);

@@ -14,7 +14,7 @@
 #include "stage_parameter.h"
 #include <node_type.h>
 #include "video_field_representation.h"
-#include "tbc_metadata.h"
+#include "../../tbc_source_internal/tbc_metadata.h"
 #include "previewable_stage.h"
 #include "observation_context.h"
 #include "observation_schema.h"

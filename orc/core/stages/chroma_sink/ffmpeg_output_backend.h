@@ -91,7 +91,7 @@ private:
     VideoSystem video_system_ = VideoSystem::PAL;
     double black_ire_ = 0.0;
     double white_ire_ = 0.0;
-    orc::VideoParameters video_params_;
+    orc::SourceParameters video_params_;
     
     // Crop parameters
     int crop_top_ = 0;
@@ -104,7 +104,7 @@ private:
     std::string prores_profile_ = "hq";
     
     // Helper methods
-    bool setupEncoder(const std::string& codec_id, const orc::VideoParameters& params);
+    bool setupEncoder(const std::string& codec_id, const orc::SourceParameters& params);
     bool setupAudioEncoder();
     bool setupSubtitleEncoder();
     void extractClosedCaptionsFromObservations(const class ObservationContext& observation_context,

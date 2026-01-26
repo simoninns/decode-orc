@@ -9,7 +9,6 @@
 
 #include <node_type.h>
 #include "include/stage_registry.h"
-#include "include/tbc_metadata.h"
 #include "logging.h"
 #include <limits>
 #include <vector>

@@ -10,7 +10,6 @@
 #pragma once
 
 #include "video_field_representation.h"
-#include "tbc_metadata.h"
 #include "dropout_decision.h"
 #include "stage_parameter.h"
 #include "dag_executor.h"
@@ -208,13 +207,13 @@ private:
     
     /// Classify a dropout region by location
     DropoutLocation classify_dropout(const DropoutRegion& dropout, const FieldDescriptor& descriptor,
-                                    const std::optional<VideoParameters>& video_params) const;
+                                    const std::optional<SourceParameters>& video_params) const;
     
     /// Split dropout regions that span multiple areas
     std::vector<DropoutRegion> split_dropout_regions(
         const std::vector<DropoutRegion>& dropouts,
         const FieldDescriptor& descriptor,
-        const std::optional<VideoParameters>& video_params) const;
+        const std::optional<SourceParameters>& video_params) const;
     
     /// Find the best replacement line for a dropout
     /// 

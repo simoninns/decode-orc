@@ -8,7 +8,7 @@
  */
 
 
-#include "tbc_metadata.h"
+#include "tbc_source_internal/tbc_metadata.h"
 #include "logging.h"
 #include <stdexcept>
 #include <sqlite3.h>
@@ -189,15 +189,13 @@ void TBCMetadataReader::close() {
     is_open_ = false;
 }
 
-std::optional<VideoParameters> TBCMetadataReader::read_video_parameters() {
+std::optional<SourceParameters> TBCMetadataReader::read_video_parameters() {
     if (!is_open_) {
         ORC_LOG_DEBUG("read_video_parameters: Metadata database is not open");
         return std::nullopt;
     }
     
-    VideoParameters params;
-    
-    // Try to read with all columns including blanking_16b_ire
+    SourceParameters params;
     const char* sql_with_blanking = 
         "SELECT system, video_sample_rate, active_video_start, active_video_end, "
         "field_width, field_height, number_of_sequential_fields, "

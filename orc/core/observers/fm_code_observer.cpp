@@ -9,7 +9,6 @@
 
 #include "fm_code_observer.h"
 #include "logging.h"
-#include "tbc_video_field_representation.h"
 #include "vbi_utilities.h"
 
 namespace orc {

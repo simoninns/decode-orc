@@ -19,7 +19,7 @@
 #include <iostream>
 #include <cassert>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "componentframe.h"
 #include "outputwriter.h"
@@ -40,7 +40,7 @@ public:
 
     // Configure the decoder given input video parameters.
     // If the video is not compatible, print an error message and return false.
-    virtual bool configure(const ::orc::VideoParameters &videoParameters) = 0;
+    virtual bool configure(const ::orc::SourceParameters &videoParameters) = 0;
 
     // After configuration, return the number of frames that the decoder needs
     // to be able to see into the past (each frame being two SourceFields).
@@ -59,7 +59,7 @@ public:
     // Parameters used by the decoder and its threads.
     // This may be subclassed by decoders to add extra parameters.
     struct Configuration {
-        ::orc::VideoParameters videoParameters;
+        ::orc::SourceParameters videoParameters;
     };
 };
 

@@ -17,7 +17,7 @@ ComponentFrame::ComponentFrame()
 {
 }
 
-void ComponentFrame::init(const ::orc::VideoParameters &videoParameters, bool mono)
+void ComponentFrame::init(const ::orc::SourceParameters &videoParameters, bool mono)
 {
     width = videoParameters.field_width;
     height = (videoParameters.field_height * 2) - 1;

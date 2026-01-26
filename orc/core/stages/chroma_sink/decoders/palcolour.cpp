@@ -88,7 +88,7 @@ const PalColour::Configuration &PalColour::getConfiguration() const {
     return configuration;
 }
 
-void PalColour::updateConfiguration(const ::orc::VideoParameters &_videoParameters,
+void PalColour::updateConfiguration(const ::orc::SourceParameters &_videoParameters,
                                     const Configuration &_configuration)
 {
     // Copy the configuration parameters

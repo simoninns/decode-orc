@@ -60,7 +60,7 @@ bool RawOutputBackend::initialize(const Configuration& config)
     writer_config.outputY4m = output_y4m_;
     
     // Update configuration (may modify video params for padding)
-    orc::VideoParameters mutable_params = config.video_params;
+    orc::SourceParameters mutable_params = config.video_params;
     writer_->updateConfiguration(mutable_params, writer_config);
     
     // Store dimensions for reporting

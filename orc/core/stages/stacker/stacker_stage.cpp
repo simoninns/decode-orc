@@ -980,7 +980,7 @@ void StackerStage::process_lines_range(
     const std::vector<bool>& field_valid,
     const std::vector<std::vector<DropoutRegion>>& all_dropouts,
     size_t num_sources,
-    const VideoParameters& video_params,
+    const SourceParameters& video_params,
     std::vector<uint16_t>& output_samples,
     std::vector<DropoutRegion>& output_dropouts,
     size_t& total_dropouts,
@@ -1230,7 +1230,7 @@ uint16_t StackerStage::closest(const std::vector<uint16_t>& values, int32_t targ
 
 std::vector<uint16_t> StackerStage::diff_dod(
     const std::vector<uint16_t>& input_values,
-    const VideoParameters& /*video_params*/) const
+    const SourceParameters& /*video_params*/) const
 {
     std::vector<uint16_t> result;
     

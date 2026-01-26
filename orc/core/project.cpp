@@ -29,8 +29,7 @@
  */
 
 #include "project.h"
-#include "tbc_metadata.h"
-#include "tbc_video_field_representation.h"
+#include "tbc_source_internal/tbc_metadata.h"
 #include "logging.h"
 #include "stage_registry.h"
 #include "project_to_dag.h"

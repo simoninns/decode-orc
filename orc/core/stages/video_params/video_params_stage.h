@@ -25,7 +25,7 @@ class VideoParamsOverrideRepresentation : public VideoFieldRepresentationWrapper
 public:
     VideoParamsOverrideRepresentation(
         std::shared_ptr<const VideoFieldRepresentation> source,
-        const std::optional<VideoParameters>& override_params)
+        const std::optional<SourceParameters>& override_params)
         : VideoFieldRepresentationWrapper(
             source,
             ArtifactID("video_params_override"),
@@ -41,7 +41,7 @@ public:
     }
     
     // Override video parameters hint
-    std::optional<VideoParameters> get_video_parameters() const override {
+    std::optional<SourceParameters> get_video_parameters() const override {
         return cached_video_params_;
     }
     
@@ -97,7 +97,7 @@ public:
     }
 
 private:
-    std::optional<VideoParameters> override_params_;
+    std::optional<SourceParameters> override_params_;
 };
 
 /**
@@ -162,12 +162,12 @@ public:
 
 private:
     /**
-     * @brief Build VideoParameters from current parameter values
+    * @brief Build SourceParameters from current parameter values
      * @param source_params Optional source parameters to use as base
-     * @return VideoParameters with overrides applied
+    * @return SourceParameters with overrides applied
      */
-    std::optional<VideoParameters> build_video_parameters(
-        const std::optional<VideoParameters>& source_params) const;
+    std::optional<SourceParameters> build_video_parameters(
+        const std::optional<SourceParameters>& source_params) const;
 
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
     

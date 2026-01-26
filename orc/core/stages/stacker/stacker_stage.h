@@ -303,7 +303,7 @@ private:
         const std::vector<bool>& field_valid,
         const std::vector<std::vector<DropoutRegion>>& all_dropouts,
         size_t num_sources,
-        const VideoParameters& video_params,
+        const SourceParameters& video_params,
         std::vector<uint16_t>& output_samples,
         std::vector<DropoutRegion>& output_dropouts,
         size_t& total_dropouts,
@@ -329,7 +329,7 @@ private:
      */
     std::vector<uint16_t> diff_dod(
         const std::vector<uint16_t>& input_values,
-        const VideoParameters& video_params) const;
+        const SourceParameters& video_params) const;
     
     /**
      * @brief Stack audio samples from multiple sources

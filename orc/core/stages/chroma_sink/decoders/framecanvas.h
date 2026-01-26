@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "componentframe.h"
 
@@ -24,7 +24,7 @@ class FrameCanvas {
 public:
     // componentFrame is the frame to draw upon, and videoParameters gives its parameters.
     // (Both parameters are captured by reference, not copied.)
-    FrameCanvas(ComponentFrame &componentFrame, const ::orc::VideoParameters &videoParameters);
+    FrameCanvas(ComponentFrame &componentFrame, const ::orc::SourceParameters &videoParameters);
 
     // Return the edges of the active area.
     int32_t top();
@@ -56,7 +56,7 @@ private:
     double *yData, *uData, *vData;
     int32_t width, height;
     double ireRange, blackIre;
-    const ::orc::VideoParameters &videoParameters;
+    const ::orc::SourceParameters &videoParameters;
 };
 
 #endif

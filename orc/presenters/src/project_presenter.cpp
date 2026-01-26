@@ -11,7 +11,7 @@
 #include "../core/include/project.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/include/stage_registry.h"
-#include "../core/include/tbc_metadata.h"
+#include <orc_source_parameters.h>
 #include "../core/include/stage_parameter.h"
 #include "../core/include/logging.h"
 #include "../core/stages/ld_sink/ld_sink_stage.h"  // For TriggerableStage definition
@@ -60,7 +60,7 @@ static SourceType fromSourceType(orc::SourceType type) {
 
 // === Static Utility Methods ===
 
-std::optional<orc::VideoParameters> ProjectPresenter::readVideoParameters(
+std::optional<orc::SourceParameters> ProjectPresenter::readVideoParameters(
     const std::string& metadata_path)
 {
     try {

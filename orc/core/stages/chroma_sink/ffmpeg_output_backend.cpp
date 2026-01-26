@@ -14,7 +14,6 @@
 #include "componentframe.h"
 #include "logging.h"
 #include "video_field_representation.h"
-#include "tbc_video_field_representation.h"
 #include <field_id.h>
 #include "closed_caption_observer.h"
 #include "eia608_decoder.h"
@@ -334,7 +333,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
     return true;
 }
 
-bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::VideoParameters& params)
+bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::SourceParameters& params)
 {
     // Find encoder
     const AVCodec* codec = avcodec_find_encoder_by_name(codec_id.c_str());

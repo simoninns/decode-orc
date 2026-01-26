@@ -18,7 +18,7 @@ NtscDecoder::NtscDecoder(const Comb::Configuration &combConfig)
     config.combConfig = combConfig;
 }
 
-bool NtscDecoder::configure(const ::orc::VideoParameters &videoParameters) {
+bool NtscDecoder::configure(const ::orc::SourceParameters &videoParameters) {
     // Ensure the source video is NTSC
     if (videoParameters.system != orc::VideoSystem::NTSC) {
         ORC_LOG_ERROR("This decoder is for NTSC video sources only");

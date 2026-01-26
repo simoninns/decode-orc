@@ -31,7 +31,6 @@
 #include "stage_parameter.h"
 #include <node_type.h>
 #include <node_id.h>
-#include "tbc_metadata.h"
 
 namespace orc {
 

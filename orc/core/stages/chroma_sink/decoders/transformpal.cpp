@@ -25,7 +25,7 @@ TransformPal::~TransformPal()
 {
 }
 
-void TransformPal::updateConfiguration(const ::orc::VideoParameters &_videoParameters,
+void TransformPal::updateConfiguration(const ::orc::SourceParameters &_videoParameters,
                                        double threshold, const std::vector<double> &_thresholds)
 {
     videoParameters = _videoParameters;

@@ -40,7 +40,7 @@ MonoDecoder::MonoDecoder(const MonoDecoder::MonoConfiguration &config)
     }
 }
 
-bool MonoDecoder::updateConfiguration(const ::orc::VideoParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration) {
+bool MonoDecoder::updateConfiguration(const ::orc::SourceParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration) {
     // This decoder works for both PAL and NTSC.
 	monoConfig.yNRLevel = configuration.yNRLevel;
 	monoConfig.filterChroma = configuration.filterChroma;
@@ -63,7 +63,7 @@ bool MonoDecoder::updateConfiguration(const ::orc::VideoParameters &videoParamet
     return true;
 }
 
-bool MonoDecoder::configure(const ::orc::VideoParameters &videoParameters) {
+bool MonoDecoder::configure(const ::orc::SourceParameters &videoParameters) {
     // This decoder works for both PAL and NTSC.
 
     monoConfig.videoParameters = videoParameters;
@@ -76,7 +76,7 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
                                int32_t endIndex,
                                std::vector<ComponentFrame>& componentFrames)
 {
-	const ::orc::VideoParameters &videoParameters = monoConfig.videoParameters;
+	const ::orc::SourceParameters &videoParameters = monoConfig.videoParameters;
 	
 	if (monoConfig.filterChroma && combFilter) {
 		// Use comb filter to separate and remove chroma, like ld-chroma-decoder -b

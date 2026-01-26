@@ -18,7 +18,7 @@
 #include <node_id.h>
 #include <field_id.h>
 #include <orc_rendering.h>  // Public API rendering types
-#include <orc_video_metadata.h>  // Public API VideoParameters
+#include <orc_source_parameters.h>  // Public API SourceParameters
 #include <common_types.h>   // PreviewOutputType
 #include "vbi_view_models.h"  // VBIFieldInfoView
 
@@ -516,7 +516,7 @@ public:
      * @param node_id Node to get parameters from
      * @return Video parameters if available
      */
-    std::optional<orc::VideoParameters> getVideoParameters(NodeID node_id);
+    std::optional<orc::SourceParameters> getVideoParameters(NodeID node_id);
     
     // === Observations (for debugging) ===
     

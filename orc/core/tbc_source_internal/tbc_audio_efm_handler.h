@@ -10,7 +10,7 @@
 #pragma once
 
 #include "video_field_representation.h"
-#include "tbc_metadata.h"
+#include "../tbc_source_internal/tbc_metadata.h"
 #include "buffered_file_io.h"
 #include <memory>
 #include <mutex>

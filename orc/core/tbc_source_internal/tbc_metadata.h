@@ -12,7 +12,8 @@
 
 #include <field_id.h>
 #include <common_types.h>  // For VideoSystem enum
-#include <orc_video_metadata.h>  // For VideoParameters
+#include <orc_source_parameters.h>  // For SourceParameters
+#include "../include/video_metadata_types.h"  // For VbiData
 #include <string>
 #include <vector>
 #include <optional>
@@ -26,14 +27,6 @@ namespace orc {
 
 std::string video_system_to_string(VideoSystem system);
 VideoSystem video_system_from_string(const std::string& name);
-
-/**
- * @brief VBI (Vertical Blanking Interval) data
- */
-struct VbiData {
-    bool in_use = false;
-    std::array<int32_t, 3> vbi_data = {0, 0, 0};
-};
 
 /**
  * @brief VITC (Vertical Interval Timecode) data
@@ -159,7 +152,7 @@ public:
     bool is_open() const { return is_open_; }
     
     // Read video parameters
-    std::optional<VideoParameters> read_video_parameters();
+    std::optional<SourceParameters> read_video_parameters();
     
     // Read PCM audio parameters
     std::optional<PcmAudioParameters> read_pcm_audio_parameters();

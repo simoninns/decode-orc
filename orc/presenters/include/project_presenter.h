@@ -19,7 +19,7 @@
 #include <node_type.h>
 #include <field_id.h>
 #include <parameter_types.h>
-#include <orc_video_metadata.h>  // For public_api::VideoParameters
+#include <orc_source_parameters.h>  // For public_api::SourceParameters
 #include "stage_inspection_view_models.h"
 
 // Forward declare core Project type
@@ -152,13 +152,13 @@ public:
     /**
      * @brief Read video parameters from a TBC metadata file
      * @param metadata_path Path to .tbc.db metadata file
-     * @return VideoParameters if successful, nullopt if file doesn't exist or can't be read
+     * @return SourceParameters if successful, nullopt if file doesn't exist or can't be read
      * 
      * This is a utility method for reading metadata before creating a project,
      * allowing the GUI to determine video format and other parameters from
      * existing TBC files.
      */
-    static std::optional<orc::VideoParameters> readVideoParameters(
+    static std::optional<orc::SourceParameters> readVideoParameters(
         const std::string& metadata_path);
     
     // === Project Lifecycle ===

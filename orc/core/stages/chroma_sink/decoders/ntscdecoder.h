@@ -17,7 +17,7 @@
 #include <iostream>
 
 #include "componentframe.h"
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "comb.h"
 #include "decoder.h"
@@ -28,7 +28,7 @@
 class NtscDecoder : public Decoder {
 public:
     NtscDecoder(const Comb::Configuration &combConfig);
-    bool configure(const ::orc::VideoParameters &videoParameters) override;
+    bool configure(const ::orc::SourceParameters &videoParameters) override;
     int32_t getLookBehind() const override;
     int32_t getLookAhead() const override;
 

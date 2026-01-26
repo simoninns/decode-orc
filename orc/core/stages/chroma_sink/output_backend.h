@@ -13,7 +13,7 @@
 #include <string>
 #include <map>
 #include <memory>
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 // Forward declaration
 class ComponentFrame;
@@ -37,7 +37,7 @@ public:
      */
     struct Configuration {
         std::string output_path;              ///< Output file path
-        orc::VideoParameters video_params;    ///< Video parameters from decoder
+        orc::SourceParameters video_params;    ///< Video parameters from decoder
         int padding_amount = 8;               ///< Padding for codec requirements
         std::map<std::string, std::string> options;  ///< Format-specific options
         

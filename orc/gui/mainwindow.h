@@ -140,7 +140,7 @@ private slots:
     void onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info);
     void onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs);
     void onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                            std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                            std::vector<uint16_t> samples, std::optional<orc::SourceParameters> video_params,
                             std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     void onFieldTimingDataReady(uint64_t request_id, uint64_t field_index,
                                std::optional<uint64_t> field_index_2,

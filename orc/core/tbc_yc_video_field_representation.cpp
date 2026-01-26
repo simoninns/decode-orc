@@ -8,7 +8,7 @@
  */
 
 
-#include "tbc_yc_video_field_representation.h"
+#include "tbc_source_internal/tbc_yc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
 #include <sstream>

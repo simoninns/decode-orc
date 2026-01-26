@@ -13,7 +13,8 @@
 #include <field_id.h>
 #include "artifact.h"
 #include "dropout_decision.h"
-#include "tbc_metadata.h"
+#include "video_metadata_types.h"
+#include <orc_source_parameters.h>
 #include "../hints/field_parity_hint.h"
 #include "../hints/pal_phase_hint.h"
 #include "../hints/active_line_hint.h"
@@ -73,7 +74,7 @@ struct FieldDescriptor {
  */
 class VideoFieldRepresentation : public Artifact {
 public:
-    using sample_type = uint16_t;  // 16-bit samples (standard for TBC data)
+    using sample_type = uint16_t;  // 16-bit samples (standard for video field data)
     
     virtual ~VideoFieldRepresentation() = default;
     
@@ -195,7 +196,7 @@ public:
     // Video parameters (metadata from source, e.g., TBC metadata)
     // Returns empty optional if source has no video parameter information
     // Stages should propagate this through the DAG chain
-    virtual std::optional<VideoParameters> get_video_parameters() const {
+    virtual std::optional<SourceParameters> get_video_parameters() const {
         return std::nullopt;  // Default: no parameters
     }
     
@@ -371,7 +372,7 @@ public:
         return source_ ? source_->get_active_line_hint() : std::nullopt;
     }
     
-    std::optional<VideoParameters> get_video_parameters() const override {
+    std::optional<SourceParameters> get_video_parameters() const override {
         return cached_video_params_;
     }
     
@@ -439,7 +440,7 @@ protected:
         Provenance prov);
     
     std::shared_ptr<const VideoFieldRepresentation> source_;
-    std::optional<VideoParameters> cached_video_params_;
+    std::optional<SourceParameters> cached_video_params_;
 };
 
 using VideoFieldRepresentationPtr = std::shared_ptr<VideoFieldRepresentation>;

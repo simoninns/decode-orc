@@ -81,7 +81,7 @@ private:
                       size_t half_line_samples,
                       size_t output_samples_per_field,
                       size_t processed_fields,
-                      const std::optional<VideoParameters>& video_params) const;
+                      const std::optional<SourceParameters>& video_params) const;
 
     static std::string system_to_string(VideoSystem system);
     static int16_t to_signed_sample(uint16_t sample);

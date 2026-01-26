@@ -779,7 +779,7 @@ RenderPresenter::LineSampleData RenderPresenter::getFieldSamplesForTiming(
     }
 }
 
-std::optional<orc::VideoParameters> RenderPresenter::getVideoParameters(NodeID node_id)
+std::optional<orc::SourceParameters> RenderPresenter::getVideoParameters(NodeID node_id)
 {
     if (!impl_->preview_renderer_) {
         return std::nullopt;

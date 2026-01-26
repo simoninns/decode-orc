@@ -17,7 +17,7 @@
 #include <iostream>
 
 #include "componentframe.h"
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "decoder.h"
 #include "palcolour.h"
@@ -28,7 +28,7 @@
 class PalDecoder : public Decoder {
 public:
     PalDecoder(const PalColour::Configuration &palConfig);
-    bool configure(const ::orc::VideoParameters &videoParameters) override;
+    bool configure(const ::orc::SourceParameters &videoParameters) override;
     int32_t getLookBehind() const override;
     int32_t getLookAhead() const override;
 

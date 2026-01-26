@@ -27,7 +27,7 @@
 #include <node_id.h>
 #include <common_types.h>
 #include <orc_rendering.h>  // Public API rendering types (includes mapping result types)
-#include <orc_video_metadata.h>  // Public API VideoParameters
+#include <orc_source_parameters.h>  // Public API VideoParameters
 #include "vbi_view_models.h"
 
 namespace orc::presenters {
@@ -694,7 +694,7 @@ signals:
      * @brief Emitted when line samples are ready
      */
     void lineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                          std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                          std::vector<uint16_t> samples, std::optional<orc::SourceParameters> video_params,
                           std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples);
     
     /**

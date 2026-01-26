@@ -137,7 +137,7 @@ bool HackdacSinkStage::write_report(const std::string& report_path,
                                     size_t half_line_samples,
                                     size_t output_samples_per_field,
                                     size_t processed_fields,
-                                    const std::optional<VideoParameters>& video_params) const {
+                                    const std::optional<SourceParameters>& video_params) const {
     std::ofstream report(report_path, std::ios::out | std::ios::trunc);
     if (!report.is_open()) {
         ORC_LOG_WARN("HackdacSink: Failed to write report file {}", report_path);

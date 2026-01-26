@@ -19,7 +19,7 @@
 #include "stage_parameter.h"
 #include <node_type.h>
 #include "video_field_representation.h"
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 #include "previewable_stage.h"
 #include "preview_renderer.h"  // For PreviewImage definition
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface

@@ -3889,7 +3889,7 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
 }
 
 void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, int line_number, int sample_x, 
-                                    std::vector<uint16_t> samples, std::optional<orc::VideoParameters> video_params,
+                                    std::vector<uint16_t> samples, std::optional<orc::SourceParameters> video_params,
                                     std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples)
 {
     Q_UNUSED(request_id);
@@ -3898,7 +3898,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
                   samples.size(), field_index, line_number, sample_x, y_samples.size(), c_samples.size(),
                   static_cast<int>(current_output_type_));
     
-    // Convert public API VideoParameters to presenter VideoParametersView for dialogs
+    // Convert public API SourceParameters to presenter VideoParametersView for dialogs
     std::optional<orc::presenters::VideoParametersView> view_params;
     if (video_params.has_value()) {
         view_params = orc::presenters::toVideoParametersView(video_params.value());

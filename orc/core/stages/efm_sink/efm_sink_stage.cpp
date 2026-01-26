@@ -9,7 +9,7 @@
 
 #include "efm_sink_stage.h"
 #include "logging.h"
-#include "tbc_metadata.h"
+#include <common_types.h>
 #include "buffered_file_io.h"
 #include <stage_registry.h>
 #include <stdexcept>

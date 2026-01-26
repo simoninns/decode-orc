@@ -2,7 +2,6 @@
 #include "disc_mapper_analyzer.h"
 #include "../analysis_registry.h"
 #include "../../include/video_field_representation.h"
-#include "../../include/tbc_video_field_representation.h"
 #include "../../include/dag_executor.h"
 #include "../../include/project.h"
 #include "../../observers/biphase_observer.h"

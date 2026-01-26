@@ -12,7 +12,7 @@
 #define PAL_YC_SOURCE_STAGE_H
 
 #include <dag_executor.h>
-#include <tbc_yc_video_field_representation.h>
+#include "../../tbc_source_internal/tbc_yc_video_field_representation.h"
 #include <stage_parameter.h>
 #include <previewable_stage.h>
 #include <string>

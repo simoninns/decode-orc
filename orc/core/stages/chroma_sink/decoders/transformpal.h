@@ -15,7 +15,7 @@
 
 #include <fftw3.h>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 #include "componentframe.h"
 #include "framecanvas.h"
@@ -33,7 +33,7 @@ public:
     // threshold is the similarity threshold for the filter. Values from 0-1
     // are meaningful, with higher values requiring signals to be more similar
     // to be considered chroma.
-    void updateConfiguration(const ::orc::VideoParameters &videoParameters,
+    void updateConfiguration(const ::orc::SourceParameters &videoParameters,
                              double threshold, const std::vector<double> &thresholds);
 
     // Filter input fields.
@@ -70,7 +70,7 @@ protected:
 
     // Configuration parameters
     bool configurationSet;
-    ::orc::VideoParameters videoParameters;
+    ::orc::SourceParameters videoParameters;
     std::vector<double> thresholds;
 };
 

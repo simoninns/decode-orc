@@ -16,7 +16,7 @@
 #include <vector>
 #include <string>
 
-#include "tbc_metadata.h"
+#include <orc_source_parameters.h>
 
 class ComponentFrame;
 
@@ -46,9 +46,9 @@ public:
         int32_t cropHeight = 0;  // 0 = use full height
     };
 
-    // Set the output configuration, and adjust the VideoParameters to suit.
-    // (If usePadding is disabled, this will not change the VideoParameters.)
-    void updateConfiguration(::orc::VideoParameters &videoParameters, const Configuration &config);
+    // Set the output configuration, and adjust the SourceParameters to suit.
+    // (If usePadding is disabled, this will not change the SourceParameters.)
+    void updateConfiguration(::orc::SourceParameters &videoParameters, const Configuration &config);
 
     // Print an info message about the output format
     void printOutputInfo() const;
@@ -69,7 +69,7 @@ public:
 private:
     // Configuration parameters
     Configuration config;
-    ::orc::VideoParameters videoParameters;
+    ::orc::SourceParameters videoParameters;
 
     // Number of blank lines to add at the top and bottom of the output
     int32_t topPadLines;

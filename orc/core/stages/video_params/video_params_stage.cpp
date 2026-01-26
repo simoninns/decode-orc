@@ -74,11 +74,11 @@ std::shared_ptr<const VideoFieldRepresentation> VideoParamsStage::process(
     return std::make_shared<VideoParamsOverrideRepresentation>(source, override_params);
 }
 
-std::optional<VideoParameters> VideoParamsStage::build_video_parameters(
-    const std::optional<VideoParameters>& source_params) const
+std::optional<SourceParameters> VideoParamsStage::build_video_parameters(
+    const std::optional<SourceParameters>& source_params) const
 {
     // Start with source parameters if available, otherwise create new
-    VideoParameters params;
+    SourceParameters params;
     if (source_params.has_value()) {
         params = *source_params;
     }

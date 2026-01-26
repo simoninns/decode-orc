@@ -95,7 +95,7 @@ const Comb::Configuration &Comb::getConfiguration() const {
 }
 
 // Set the comb filter configuration parameters
-void Comb::updateConfiguration(const ::orc::VideoParameters &_videoParameters, const Comb::Configuration &_configuration)
+void Comb::updateConfiguration(const ::orc::SourceParameters &_videoParameters, const Comb::Configuration &_configuration)
 {
     // Copy the configuration parameters
     videoParameters = _videoParameters;
@@ -272,7 +272,7 @@ void Comb::decodeFramesComposite(const std::vector<SourceField> &inputFields, in
 
 // Private methods ----------------------------------------------------------------------------------------------------
 
-Comb::FrameBuffer::FrameBuffer(const ::orc::VideoParameters &videoParameters_,
+Comb::FrameBuffer::FrameBuffer(const ::orc::SourceParameters &videoParameters_,
                                const Configuration &configuration_)
     : videoParameters(videoParameters_), configuration(configuration_)
 {
@@ -334,8 +334,8 @@ void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceFi
     }
 
     // Set the phase IDs for the frame
-    firstFieldPhaseID = firstField.field.field_phase_id.value_or(-1);
-    secondFieldPhaseID = secondField.field.field_phase_id.value_or(-1);
+    firstFieldPhaseID = firstField.field_phase_id.value_or(-1);
+    secondFieldPhaseID = secondField.field_phase_id.value_or(-1);
 
     // Clear clpbuffer
     for (int32_t buf = 0; buf < 3; buf++) {
@@ -386,8 +386,8 @@ void Comb::FrameBuffer::loadFieldsYC(const SourceField &firstField, const Source
     }
 
     // Set the phase IDs for the frame
-    firstFieldPhaseID = firstField.field.field_phase_id.value_or(-1);
-    secondFieldPhaseID = secondField.field.field_phase_id.value_or(-1);
+    firstFieldPhaseID = firstField.field_phase_id.value_or(-1);
+    secondFieldPhaseID = secondField.field_phase_id.value_or(-1);
 
     // Clear clpbuffer (not used for YC, but clear anyway for consistency)
     for (int32_t buf = 0; buf < 3; buf++) {
@@ -649,7 +649,7 @@ namespace {
     constexpr double ROTATE_COS = 0.838670567945424;
 
     Comb::BurstInfo detectBurst(const uint16_t* lineData,
-                          const ::orc::VideoParameters& videoParameters)
+                          const ::orc::SourceParameters& videoParameters)
     {
         double bsin = 0, bcos = 0;
 

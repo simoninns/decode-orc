@@ -8,7 +8,7 @@
  */
 
 #include "tbc_audio_efm_handler.h"
-#include "logging.h"
+#include "../include/logging.h"
 
 namespace orc {
 

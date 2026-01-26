@@ -1,7 +1,7 @@
 /*
- * File:        orc_video_metadata.h
+ * File:        orc_source_parameters.h
  * Module:      orc-view-types
- * Purpose:     Video metadata types
+ * Purpose:     Source metadata types
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -22,7 +22,7 @@ namespace orc {
  * Contains essential information about the video format, dimensions,
  * and technical parameters decoded from TBC files.
  */
-struct VideoParameters {
+struct SourceParameters {
     // Format
     VideoSystem system = VideoSystem::Unknown;
     bool is_subcarrier_locked = false;

@@ -19,6 +19,7 @@
 #include "../hints/pal_phase_hint.h"
 #include "../hints/active_line_hint.h"
 // Note: pal_phase_hint.h contains FieldPhaseHint (works for both PAL and NTSC)
+#include <common_types.h>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -45,6 +46,93 @@ enum class VideoFormat {
     PAL,
     Unknown
 };
+
+// ============================================================================
+// Field Height Calculation Utilities
+// ============================================================================
+// These utilities implement standards-compliant field height calculations
+// for VFR (Video Field Representation) conversion and TBC file I/O.
+//
+// Standards:
+// - NTSC: 525 total lines per frame
+//   * First field (even): 262 lines
+//   * Second field (odd): 263 lines
+// - PAL: 625 total lines per frame
+//   * First field (odd): 312 lines
+//   * Second field (even): 313 lines
+//
+// The VFR represents the internal format (no padding), while TBC files
+// use padded fields (both fields same length). These utilities handle both.
+
+/**
+ * @brief Calculate standards-compliant field height (VFR representation)
+ *
+ * Returns the actual number of lines in a field according to broadcast standards,
+ * without any padding. This is the height stored in VFR descriptors.
+ *
+ * @param system Video system (NTSC, PAL, etc.)
+ * @param is_first_field True if this is the first field in temporal order
+ * @return Number of active lines in this field (no padding)
+ *
+ * Examples:
+ * - NTSC, first field: 262 lines
+ * - NTSC, second field: 263 lines
+ * - PAL, first field: 312 lines
+ * - PAL, second field: 313 lines
+ */
+inline size_t calculate_standard_field_height(VideoSystem system, bool is_first_field) {
+    switch (system) {
+        case VideoSystem::NTSC:
+        case VideoSystem::PAL_M:
+            // NTSC: Even field (first) = 262 lines, Odd field (second) = 263 lines
+            return is_first_field ? 262 : 263;
+            
+        case VideoSystem::PAL:
+            // PAL: Odd field (first) = 312 lines, Even field (second) = 313 lines
+            return is_first_field ? 312 : 313;
+            
+        case VideoSystem::Unknown:
+        default:
+            // Unknown system - should not happen in normal operation
+            return 0;
+    }
+}
+
+/**
+ * @brief Calculate padded field height (TBC file format)
+ *
+ * Returns the field height as stored in TBC files. TBC files use padded fields
+ * where both fields have equal length. Padding is added to the first field
+ * (in temporal order) to equalize lengths.
+ *
+ * Used only by sink stages when writing TBC files for ld-decode compatibility.
+ *
+ * @param system Video system (NTSC, PAL, etc.)
+ * @return Padded field height as stored in TBC files
+ *
+ * Examples:
+ * - NTSC: 263 lines (padding added to first field)
+ * - PAL: 313 lines (padding added to first field)
+ */
+inline size_t calculate_padded_field_height(VideoSystem system) {
+    switch (system) {
+        case VideoSystem::NTSC:
+        case VideoSystem::PAL_M:
+            // NTSC TBC files: both fields stored as 263 lines
+            // (first field has 1 line of padding added)
+            return 263;
+            
+        case VideoSystem::PAL:
+            // PAL TBC files: both fields stored as 313 lines
+            // (first field has 1 line of padding added)
+            return 313;
+            
+        case VideoSystem::Unknown:
+        default:
+            // Unknown system - should not happen in normal operation
+            return 0;
+    }
+}
 
 /**
  * @brief Descriptor for a single video field

@@ -278,15 +278,22 @@ bool LDSinkStage::write_tbc_and_metadata(
                 continue;
             }
             
-            size_t expected_lines = descriptor->height;
+            size_t actual_lines = descriptor->height;  // VFR's standards-compliant height
             size_t line_width = descriptor->width;
+            
+            // Get field parity to determine if padding needed
+            auto parity_hint = representation->get_field_parity_hint(field_id);
+            bool is_first_field = parity_hint.has_value() && parity_hint->is_first_field;
+            
+            // Calculate padded height for TBC file format
+            size_t padded_lines = calculate_padded_field_height(video_params->system);
             
             // Buffer for accumulating the entire field before writing
             std::vector<uint16_t> field_buffer;
-            field_buffer.reserve(expected_lines * line_width);
+            field_buffer.reserve(padded_lines * line_width);
             
-            // Accumulate all lines of the field into buffer
-            for (size_t line_num = 0; line_num < expected_lines; ++line_num) {
+            // Accumulate all lines from VFR
+            for (size_t line_num = 0; line_num < actual_lines; ++line_num) {
                 const uint16_t* line_data = representation->get_line(field_id, line_num);
                 if (!line_data) {
                     ORC_LOG_WARN("Field {} line {} has no data", field_id.value(), line_num);
@@ -296,7 +303,21 @@ bool LDSinkStage::write_tbc_and_metadata(
                 }
             }
             
-            // Write the entire field to TBC
+            // Add padding for first field if needed (TBC file format requirement)
+            if (is_first_field && actual_lines < padded_lines) {
+                size_t padding_lines = padded_lines - actual_lines;
+                uint16_t blanking_level = video_params->blanking_16b_ire;
+                
+                ORC_LOG_DEBUG("Adding {} padding lines to first field {} (blanking level {})", 
+                              padding_lines, field_id.value(), blanking_level);
+                
+                // Add blanking-level padding lines at end
+                for (size_t i = 0; i < padding_lines; ++i) {
+                    field_buffer.insert(field_buffer.end(), line_width, blanking_level);
+                }
+            }
+            
+            // Write the entire field to TBC (with padding if first field)
             tbc_writer.write(field_buffer);
             
             // ===== Write metadata =====
@@ -304,8 +325,7 @@ bool LDSinkStage::write_tbc_and_metadata(
             FieldMetadata field_meta;
             field_meta.seq_no = field_id.value() + 1;  // seq_no is 1-based
             
-            // Check for field parity HINT
-            auto parity_hint = representation->get_field_parity_hint(field_id);
+            // Use parity hint (already fetched above for padding logic)
             if (parity_hint.has_value()) {
                 field_meta.is_first_field = parity_hint->is_first_field;
             } else {

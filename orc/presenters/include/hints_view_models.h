@@ -103,4 +103,32 @@ namespace orc::presenters {
  */
 VideoParametersView toVideoParametersView(const orc::SourceParameters& params);
 
+// ============================================================================
+// Field/Frame Coordinate Conversion Helpers
+// ============================================================================
+// These helpers convert between field coordinates (field index, field line)
+// and frame coordinates (frame number, frame line) for display purposes.
+
+/**
+ * @brief Result of field-to-frame conversion for display
+ */
+struct FieldToFrameDisplayResult {
+    uint64_t frame_number;       ///< 1-based frame number for display
+    int frame_line_number;       ///< 1-based frame line number (1 to 525/625)
+    bool is_first_field;         ///< True if this is the first field of the frame
+};
+
+/**
+ * @brief Convert field coordinates to frame coordinates for display
+ *
+ * @param system Video system (NTSC, PAL, PAL_M)
+ * @param field_index 0-based field index
+ * @param field_line_number 1-based line number within the field
+ * @return Frame number and line for display, or nullopt if invalid
+ */
+std::optional<FieldToFrameDisplayResult> fieldToFrameCoordinates(
+    VideoSystem system,
+    uint64_t field_index,
+    int field_line_number);
+
 } // namespace orc::presenters

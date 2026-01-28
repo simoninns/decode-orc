@@ -347,7 +347,7 @@ void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
             // Show empty line scope (no samples) - this will display "No data available for this line"
             preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
                                           std::vector<uint16_t>(),  // Empty samples
-                                          std::nullopt, 0, 0, 0);
+                                          std::nullopt, 0, 0, 0, current_output_type_);
         }
         
         // Show brief message in status bar

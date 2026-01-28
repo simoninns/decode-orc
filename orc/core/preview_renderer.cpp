@@ -1246,8 +1246,9 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
     uint64_t current_field,
     int current_line,
     int direction,
-    int field_height
+    int field_height  // Note: Not used - we check actual field heights instead
 ) const {
+    (void)field_height;  // Suppress unused parameter warning
     FrameLineNavigationResult result;
     result.is_valid = false;
     result.new_field_index = current_field;
@@ -1288,8 +1289,21 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
     }
     
     // Navigate within the interlaced frame display
+    // NOTE: Fields may have different heights (NTSC: 262/263, PAL: 312/313)
     uint64_t new_field = current_field;
     int new_line = current_line;
+    
+    // Get current field descriptor to check its height
+    auto current_field_result = field_renderer_->render_field_at_node(node_id, FieldID(current_field));
+    if (!current_field_result.is_valid || !current_field_result.representation) {
+        ORC_LOG_DEBUG("navigate_frame_line: Current field {} not available", current_field);
+        return result;
+    }
+    auto current_field_descriptor = current_field_result.representation->get_descriptor(FieldID(current_field));
+    if (!current_field_descriptor) {
+        ORC_LOG_DEBUG("navigate_frame_line: Current field {} has no descriptor", current_field);
+        return result;
+    }
     
     if (direction > 0) {
         // Moving down through interlaced lines
@@ -1298,17 +1312,33 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
             new_field = current_field + 1;
             new_line = current_line;  // Same line within field
         } else {
-            // Currently showing second field line -> next shows first field, next line number
-            // Go back to the first field (of same frame pair) with incremented line
-            new_field = current_field - 1;
-            new_line = current_line + 1;  // Next line within field
+            // Currently showing second field line
+            // Check if we can move to the next line within the same field first
+            if (current_line + 1 < static_cast<int>(current_field_descriptor->height)) {
+                // Second field has one more line available (e.g., NTSC second field line 262)
+                new_field = current_field;  // Stay in second field
+                new_line = current_line + 1;
+            } else {
+                // At the end of second field -> wrap to first field, next line number
+                new_field = current_field - 1;
+                new_line = current_line + 1;  // Next line within field
+            }
         }
     } else if (direction < 0) {
         // Moving up through interlaced lines  
         if (!current_is_first_field) {
-            // Currently showing second field line -> prev shows first field, same line number
-            new_field = current_field - 1;
-            new_line = current_line;  // Same line within field
+            // Currently showing second field line
+            // Special case: if we're on the extra line (exists in second field but not first)
+            // we need to go to the same field, previous line
+            if (current_line > 0 && current_line >= static_cast<int>(current_field_descriptor->height) - 1) {
+                // On the last line of second field (the extra line) -> stay in second field
+                new_field = current_field;
+                new_line = current_line - 1;
+            } else {
+                // Normal case: prev shows first field, same line number
+                new_field = current_field - 1;
+                new_line = current_line;  // Same line within field
+            }
         } else {
             // Currently showing first field line -> prev shows second field, prev line number
             // Go forward to the second field (of same frame pair) with decremented line
@@ -1317,16 +1347,24 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
         }
     }
     
-    // Bounds check - validate line number
-    if (new_line < 0 || new_line >= field_height) {
-        ORC_LOG_DEBUG("navigate_frame_line: Out of bounds - line {} (field_height={})", new_line, field_height);
-        return result;
-    }
-    
-    // Bounds check - validate that the new field index actually exists
+    // Bounds check - validate that the new field index actually exists first
     auto new_field_result = field_renderer_->render_field_at_node(node_id, FieldID(new_field));
     if (!new_field_result.is_valid || !new_field_result.representation) {
         ORC_LOG_DEBUG("navigate_frame_line: Field {} not available", new_field);
+        return result;
+    }
+    
+    // Get the actual field descriptor to check real field height (handles 262/263 correctly)
+    auto new_field_descriptor = new_field_result.representation->get_descriptor(FieldID(new_field));
+    if (!new_field_descriptor) {
+        ORC_LOG_DEBUG("navigate_frame_line: Field {} has no descriptor", new_field);
+        return result;
+    }
+    
+    // Bounds check - validate line number against actual field height
+    // Don't use generic field_height parameter as it assumes equal field sizes
+    if (new_line < 0 || new_line >= static_cast<int>(new_field_descriptor->height)) {
+        ORC_LOG_DEBUG("navigate_frame_line: Out of bounds - line {} (actual field height={})", new_line, new_field_descriptor->height);
         return result;
     }
     
@@ -1408,10 +1446,42 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
         // Account for reversed weaving
         if (is_reversed) first_is_top = !first_is_top;
 
+        // Get the actual field heights to handle odd total line counts correctly
+        auto first_descriptor = first_repr->get_descriptor(FieldID(frame_first_field));
+        auto second_result = field_renderer_->render_field_at_node(node_id, FieldID(frame_second_field));
+        if (!first_descriptor || !second_result.is_valid || !second_result.representation) {
+            return result;  // Missing field data
+        }
+        auto second_descriptor = second_result.representation->get_descriptor(FieldID(frame_second_field));
+        if (!second_descriptor) {
+            return result;
+        }
+        
+        size_t first_field_height = first_descriptor->height;
+        size_t second_field_height = second_descriptor->height;
+        
+        // For NTSC: first field = 262, second field = 263, total = 525 lines
+        // Lines are interleaved: 0,2,4...522 from first (262 lines), 1,3,5...523 from second (262 lines)
+        // But we have line 524 left! It must come from the second field (which has 263 lines)
+        // So the last line switches to whichever field has more lines
+        
         bool is_even_line = (image_y % 2) == 0;
         bool use_first = (is_even_line == first_is_top);
+        
+        // Check if this would be out of bounds for the selected field
+        int tentative_field_line = image_y / 2;
+        if (use_first && tentative_field_line >= static_cast<int>(first_field_height)) {
+            // Would be out of bounds for first field, must be from second field
+            use_first = false;
+            tentative_field_line = image_y / 2;  // Recalculate for second field
+        } else if (!use_first && tentative_field_line >= static_cast<int>(second_field_height)) {
+            // Would be out of bounds for second field, must be from first field
+            use_first = true;
+            tentative_field_line = image_y / 2;  // Recalculate for first field
+        }
+        
         result.field_index = use_first ? frame_first_field : frame_second_field;
-        result.field_line = image_y / 2;
+        result.field_line = tentative_field_line;
         
         // Validate that the calculated field_line is within the actual field height
         if (!first_repr) {

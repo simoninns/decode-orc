@@ -21,6 +21,7 @@
 #include <optional>
 #include "plotwidget.h"
 #include "presenters/include/hints_view_models.h"
+#include <common_types.h>
 
 /**
  * @brief Dialog for displaying line scope - all samples in a selected line
@@ -40,11 +41,12 @@ public:
     /**
      * @brief Display line samples
      * @param node_id Node identifier for the stage being viewed
-     * @param field_index The field number being displayed
-     * @param line_number The line number being displayed
+     * @param field_index The field number being displayed (0-based)
+     * @param line_number The line number being displayed (1-based for display, converted to 0-based internally)
      * @param sample_x Sample X position that was clicked
      * @param samples Vector of 16-bit sample values for the line (will be converted to mV for display)
      * @param video_params Optional video parameters for IRE conversion and region markers
+     * @param preview_mode Current preview mode (Field/Frame/Split)
      * @param y_samples Optional Y channel samples for YC sources
      * @param c_samples Optional C channel samples for YC sources
      */
@@ -52,6 +54,7 @@ public:
                         const std::vector<uint16_t>& samples,
                         const std::optional<orc::presenters::VideoParametersView>& video_params,
                         int preview_image_width, int original_sample_x, int original_image_y,
+                        orc::PreviewOutputType preview_mode,
                         const std::vector<uint16_t>& y_samples = {},
                         const std::vector<uint16_t>& c_samples = {});
     
@@ -117,11 +120,12 @@ private:
     // Current line info for navigation
     QString current_node_id_;  // Node ID of the stage being viewed
     uint64_t current_field_index_;
-    int current_line_number_;
+    int current_line_number_;  // 0-based line number for internal use/navigation
     int current_sample_x_;  // Mapped field-space coordinate for display
     int original_sample_x_;  // Original preview-space X coordinate for navigation
     int original_image_y_;   // Original preview-space Y coordinate for refresh
     int preview_image_width_;
+    orc::PreviewOutputType preview_mode_;  // Current preview mode (Field/Frame/Split)
     std::vector<uint16_t> current_samples_;  // Store samples for marker updates (composite)
     std::vector<uint16_t> current_y_samples_;  // Store Y samples for YC sources
     std::vector<uint16_t> current_c_samples_;  // Store C samples for YC sources

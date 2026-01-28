@@ -79,11 +79,12 @@ public:
     /**
      * @brief Show line scope dialog with sample data
      * @param node_id Node identifier for the stage being viewed
-     * @param field_index Field number being displayed
-     * @param line_number Line number being displayed
+     * @param field_index Field number being displayed (0-based)
+     * @param line_number Line number being displayed (1-based field line)
      * @param sample_x Sample X position that was clicked
      * @param samples Vector of 16-bit samples for the line
      * @param video_params Optional video parameters for region markers
+     * @param preview_mode Current preview mode (Field/Frame/Split)
      * @param y_samples Optional Y channel samples for YC sources
      * @param c_samples Optional C channel samples for YC sources
      */
@@ -91,6 +92,7 @@ public:
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::presenters::VideoParametersView>& video_params,
                        int preview_image_width, int original_sample_x, int original_image_y,
+                       orc::PreviewOutputType preview_mode,
                        const std::vector<uint16_t>& y_samples = {},
                        const std::vector<uint16_t>& c_samples = {});
     

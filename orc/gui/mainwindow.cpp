@@ -3865,7 +3865,10 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
     }
     
     uint64_t field_index = mapping.field_index;
-    int field_line = mapping.field_line;
+    // Core API returns 0-based field line (0 to field_height-1)
+    // Convert to 1-based for display and helper functions (1 to field_height)
+    int field_line_0based = mapping.field_line;
+    int field_line_1based = field_line_0based + 1;
     
     // Map image_x from preview image coordinates to field sample coordinates
     // The preview widget gives us coordinates in the rendered RGB image space,
@@ -3875,17 +3878,19 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
     // TODO: Get actual field descriptor to properly map coordinates
     int sample_x = image_x;
     
-    ORC_LOG_DEBUG("Requesting line samples for field {}, line {}, sample_x {}", field_index, field_line, sample_x);
+    ORC_LOG_DEBUG("Requesting line samples for field {}, line {} (0-based: {}), sample_x {}", 
+                  field_index, field_line_1based, field_line_0based, sample_x);
     
     // Get the preview image width for coordinate mapping
     int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
     
     // Request line samples from the coordinator using Field output type
+    // Note: Core API expects 0-based line numbers
     pending_line_sample_request_id_ = render_coordinator_->requestLineSamples(
         current_view_node_id_,
         orc::PreviewOutputType::Field,
         field_index,
-        field_line,
+        field_line_0based,  // Core API uses 0-based
         sample_x,
         preview_image_width
     );
@@ -3897,8 +3902,12 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
 {
     Q_UNUSED(request_id);
     
-    ORC_LOG_DEBUG("Line samples ready: {} samples for field {}, line {}, sample_x={} (YC: Y={}, C={}) mode={}", 
-                  samples.size(), field_index, line_number, sample_x, y_samples.size(), c_samples.size(),
+    // Core API returns 0-based line numbers, convert to 1-based for display
+    int line_number_0based = line_number;
+    int line_number_1based = line_number_0based + 1;
+    
+    ORC_LOG_DEBUG("Line samples ready: {} samples for field {}, line {} (0-based: {}), sample_x={} (YC: Y={}, C={}) mode={}", 
+                  samples.size(), field_index, line_number_1based, line_number_0based, sample_x, y_samples.size(), c_samples.size(),
                   static_cast<int>(current_output_type_));
     
     // Convert public API SourceParameters to presenter VideoParametersView for dialogs
@@ -3916,9 +3925,9 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
     int preview_image_height = preview_dialog_->previewWidget()->originalImageSize().height();
     
-    // Store the actual field/line being displayed - this is the ground truth
+    // Store the actual field/line being displayed (0-based for core API)
     last_line_scope_field_index_ = field_index;
-    last_line_scope_line_number_ = line_number;
+    last_line_scope_line_number_ = line_number_0based;
     
     // Store context for sample marker updates
     last_line_scope_preview_width_ = preview_image_width;
@@ -3935,7 +3944,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     uint64_t current_index = preview_dialog_->previewSlider()->value();
     auto mapping = render_coordinator_->mapFieldToImage(
         current_view_node_id_, current_output_type_, current_index,
-        field_index, line_number, preview_image_height);
+        field_index, line_number_0based, preview_image_height);
     
     int image_y = 0;
     if (mapping.is_valid) {
@@ -3946,7 +3955,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
         ORC_LOG_WARN("Failed to map field coordinates to image - not updating cross-hairs to avoid jumping");
         // Don't update cross-hairs if mapping fails - keep them at the last valid position
         // This prevents the cross-hairs from jumping to an incorrect position during navigation
-        image_y = line_number;  // Fallback for dialog display, but not for cross-hairs
+        image_y = line_number_0based;  // Fallback for dialog display, but not for cross-hairs
     }
     
     // Use the stored original image_x to avoid rounding errors from reverse-mapping
@@ -3958,17 +3967,19 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
     auto image_coords = render_coordinator_->mapFieldToImage(
         current_view_node_id_, current_output_type_,
-        preview_dialog_->previewSlider()->value(), field_index, line_number, image_height);
+        preview_dialog_->previewSlider()->value(), field_index, line_number_0based, image_height);
     int calculated_image_y = image_coords.is_valid ? image_coords.image_y : 0;
     
-    // Store field/line for later navigation
-    last_line_scope_field_index_ = field_index;
-    last_line_scope_line_number_ = line_number;
+    // Store field/line for later navigation (already stored above)
+    // last_line_scope_field_index_ = field_index;
+    // last_line_scope_line_number_ = line_number_0based;
     
     // Show the line scope dialog with the samples, including the current node_id
+    // Pass 1-based line number for display
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
-    preview_dialog_->showLineScope(node_id_str, field_index, line_number, sample_x, samples, view_params, 
-                                   preview_image_width, original_sample_x, calculated_image_y, y_samples, c_samples);
+    preview_dialog_->showLineScope(node_id_str, field_index, line_number_1based, sample_x, samples, view_params, 
+                                   preview_image_width, original_sample_x, calculated_image_y, current_output_type_,
+                                   y_samples, c_samples);
     
     // Update field timing dialog if it's visible (to update the marker position)
     if (preview_dialog_->fieldTimingDialog() && preview_dialog_->fieldTimingDialog()->isVisible()) {
@@ -4073,7 +4084,7 @@ void MainWindow::refreshLineScopeForCurrentStage()
         QString node_id_str = "(none)";
         preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
                                       std::vector<uint16_t>(),  // Empty samples
-                                      std::nullopt, 0, 0, 0);
+                                      std::nullopt, 0, 0, 0, current_output_type_);
         return;
     }
     

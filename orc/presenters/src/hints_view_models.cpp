@@ -47,4 +47,49 @@ VideoParametersView toVideoParametersView(const orc::SourceParameters& params) {
     return v;
 }
 
+std::optional<FieldToFrameDisplayResult> fieldToFrameCoordinates(
+    VideoSystem system,
+    uint64_t field_index,
+    int field_line_number)
+{
+    if (field_line_number < 1) {
+        return std::nullopt;  // Invalid line number
+    }
+
+    // Determine if this is the first or second field
+    bool is_first_field = (field_index % 2) == 0;
+    
+    // Calculate frame number (1-based)
+    uint64_t frame_number = (field_index / 2) + 1;
+    
+    // Get field heights based on system and parity
+    size_t first_field_height = 0;
+    switch (system) {
+        case VideoSystem::NTSC:
+        case VideoSystem::PAL_M:
+            // NTSC: First field = 262 lines, Second field = 263 lines
+            first_field_height = 262;
+            break;
+        case VideoSystem::PAL:
+            // PAL: First field = 312 lines, Second field = 313 lines
+            first_field_height = 312;
+            break;
+        case VideoSystem::Unknown:
+        default:
+            return std::nullopt;  // Unknown system
+    }
+    
+    // Calculate frame line number based on field parity
+    int frame_line_number;
+    if (is_first_field) {
+        // First field: frame lines start at 1
+        frame_line_number = field_line_number;
+    } else {
+        // Second field: frame lines are offset by first field height
+        frame_line_number = field_line_number + static_cast<int>(first_field_height);
+    }
+    
+    return FieldToFrameDisplayResult{frame_number, frame_line_number, is_first_field};
+}
+
 } // namespace orc::presenters

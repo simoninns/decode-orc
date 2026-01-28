@@ -130,6 +130,7 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
                                       const std::vector<uint16_t>& samples,
                                       const std::optional<orc::presenters::VideoParametersView>& video_params,
                                       int preview_image_width, int original_sample_x, int original_image_y,
+                                      orc::PreviewOutputType preview_mode,
                                       const std::vector<uint16_t>& y_samples,
                                       const std::vector<uint16_t>& c_samples)
 {
@@ -137,13 +138,15 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     const QSignalBlocker blocker(channel_selector_);
     
     // Store current line info for navigation
+    // Note: line_number parameter is 1-based (for display), convert to 0-based for internal use
     current_node_id_ = node_id;
     current_field_index_ = field_index;
-    current_line_number_ = line_number;
+    current_line_number_ = line_number - 1;  // Convert 1-based to 0-based for internal storage
     current_sample_x_ = sample_x;  // Mapped field-space coordinate
     original_sample_x_ = original_sample_x;  // Original preview-space X coordinate
     original_image_y_ = original_image_y;    // Original preview-space Y coordinate
     preview_image_width_ = preview_image_width;
+    preview_mode_ = preview_mode;
     current_samples_ = samples;  // Store samples for later updates
     current_y_samples_ = y_samples;
     current_c_samples_ = c_samples;
@@ -164,23 +167,67 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     }
     // Otherwise keep the user's current selection
     
-    // Update window title to show video system (NTSC/PAL), stage (node_id), field, and line
+    // Update window title based on preview mode
     QString system_suffix;
+    orc::presenters::VideoSystem presenter_system = orc::presenters::VideoSystem::Unknown;
     if (video_params.has_value()) {
         const auto& vp = video_params.value();
+        presenter_system = vp.system;
         if (vp.system == orc::presenters::VideoSystem::NTSC) {
             system_suffix = " (NTSC)";
-        } else if (vp.system == orc::presenters::VideoSystem::PAL || vp.system == orc::presenters::VideoSystem::PAL_M) {
-            system_suffix = " (PAL)";  // Treat PAL-M as PAL for title
+        } else if (vp.system == orc::presenters::VideoSystem::PAL) {
+            system_suffix = " (PAL)";
+        } else if (vp.system == orc::presenters::VideoSystem::PAL_M) {
+            system_suffix = " (PAL-M)";
         }
     }
     QString yc_suffix = is_yc_source_ ? " (YC Source)" : "";
-    setWindowTitle(QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
-                   .arg(system_suffix)
-                   .arg(node_id)
-                   .arg(field_index)
-                   .arg(line_number)
-                   .arg(yc_suffix));
+    
+    // Build title based on preview mode
+    // Note: current_line_number_ is stored as 0-based, convert to 1-based for display
+    int line_number_1based = current_line_number_ + 1;
+    QString title;
+    if (preview_mode == orc::PreviewOutputType::Frame || 
+        preview_mode == orc::PreviewOutputType::Frame_Reversed ||
+        preview_mode == orc::PreviewOutputType::Split) {
+        // Frame or Split mode: show frame number and frame line number
+        if (presenter_system != orc::presenters::VideoSystem::Unknown) {
+            auto frame_coords = orc::presenters::fieldToFrameCoordinates(presenter_system, field_index, line_number_1based);
+            if (frame_coords.has_value()) {
+                title = QString("Line Scope%1 - Stage: %2 - Frame %3, Line %4%5")
+                    .arg(system_suffix)
+                    .arg(node_id)
+                    .arg(frame_coords->frame_number)
+                    .arg(frame_coords->frame_line_number)
+                    .arg(yc_suffix);
+            } else {
+                // Fallback if conversion fails
+                title = QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
+                    .arg(system_suffix)
+                    .arg(node_id)
+                    .arg(field_index + 1)  // Display as 1-based
+                    .arg(line_number_1based)
+                    .arg(yc_suffix);
+            }
+        } else {
+            // No video params, fallback to field numbering
+            title = QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
+                .arg(system_suffix)
+                .arg(node_id)
+                .arg(field_index + 1)  // Display as 1-based
+                .arg(line_number_1based)
+                .arg(yc_suffix);
+        }
+    } else {
+        // Field mode: show field number and field line number
+        title = QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
+            .arg(system_suffix)
+            .arg(node_id)
+            .arg(field_index + 1)  // Display as 1-based
+            .arg(line_number_1based)
+            .arg(yc_suffix);
+    }
+    setWindowTitle(title);
     
     // Handle empty samples gracefully
     if (samples.empty() && !is_yc_source_) {

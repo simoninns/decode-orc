@@ -192,11 +192,14 @@ struct FrameLineNavigationResult {
  * 
  * Converts preview image coordinates (x, y) to field-space coordinates,
  * accounting for output type (field/frame/split) and field ordering.
+ * 
+ * Note: field_line uses 0-based indexing (0 to field_height-1) to match
+ * the core API (get_line, etc.). GUI code should convert to 1-based for display.
  */
 struct ImageToFieldMappingResult {
     bool is_valid;                  ///< True if mapping succeeded
     uint64_t field_index;           ///< Field index for this position
-    int field_line;                 ///< Line number within the field
+    int field_line;                 ///< Line number within the field (0-based: 0 to field_height-1)
 };
 
 /**

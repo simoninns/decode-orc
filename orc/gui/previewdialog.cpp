@@ -321,6 +321,7 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
                                   const std::vector<uint16_t>& samples,
                                   const std::optional<orc::presenters::VideoParametersView>& video_params,
                                    int preview_image_width, int original_sample_x, int original_image_y,
+                                  orc::PreviewOutputType preview_mode,
                                   const std::vector<uint16_t>& y_samples,
                                   const std::vector<uint16_t>& c_samples)
 {
@@ -355,7 +356,8 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
         }
         
         line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, 
-                                          preview_image_width, original_sample_x, original_image_y, y_samples, c_samples);
+                                          preview_image_width, original_sample_x, original_image_y, preview_mode,
+                                          y_samples, c_samples);
         
         // Just show the dialog - Qt will remember its position
         line_scope_dialog_->show();

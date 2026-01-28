@@ -261,8 +261,9 @@ private:
     std::vector<orc::PreviewOutputInfo> available_outputs_;  ///< Cached outputs for current node
     // Line scope tracking - store the actual field/line being displayed
     // All visual positions are derived from these via orc-core mapping functions
+    // Note: line numbers are stored as 0-based (matching core API), converted to 1-based for display
     uint64_t last_line_scope_field_index_;  ///< Current field being displayed in line scope
-    int last_line_scope_line_number_;  ///< Current line being displayed in line scope
+    int last_line_scope_line_number_;  ///< Current line in line scope (0-based: 0 to field_height-1)
     int last_line_scope_image_x_;  ///< Store original preview-space X coordinate for line scope navigation
     int last_line_scope_preview_width_;  ///< Store preview width for coordinate mapping
     int last_line_scope_samples_count_;  ///< Store samples count for coordinate mapping

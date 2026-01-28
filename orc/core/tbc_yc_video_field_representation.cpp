@@ -115,7 +115,22 @@ std::optional<FieldDescriptor> TBCYCVideoFieldRepresentation::get_descriptor(Fie
         }
         
         desc.width = video_params_.field_width;
-        desc.height = video_params_.field_height;
+        
+        // Calculate standards-compliant field height based on parity hint
+        // Try to get field parity from TBC metadata (which knows if this is first/second field)
+        bool is_first_field = false;
+        auto parity_hint = get_field_parity_hint(id);
+        if (parity_hint.has_value()) {
+            is_first_field = parity_hint->is_first_field;
+        } else {
+            // Fallback: infer from field ID (even ID = first field)
+            is_first_field = (id.value() % 2 == 0);
+            ORC_LOG_WARN("TBCYCVideoFieldRepresentation: No parity hint for field {}, using ID-based inference", 
+                         id.value());
+        }
+        
+        // Use standards-compliant height (VFR representation - no padding)
+        desc.height = calculate_standard_field_height(video_params_.system, is_first_field);
     }
     
     return desc;

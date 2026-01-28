@@ -441,12 +441,18 @@ public:
     
     /**
      * @brief Line sample data with optional Y/C separation
+     * 
+     * For frame outputs (two fields), heights reflect the actual field heights
+     * from the VFR descriptors, which may be different for first vs second field.
+     * For single field outputs, only first_field_height is used.
      */
     struct LineSampleData {
         std::vector<uint16_t> composite_samples;  ///< Composite/combined samples (always populated)
         std::vector<uint16_t> y_samples;          ///< Luma samples (only for Y/C sources)
         std::vector<uint16_t> c_samples;          ///< Chroma samples (only for Y/C sources)
         bool has_separate_channels;               ///< True if Y/C separation is available
+        int first_field_height = 0;               ///< Height of first field from VFR descriptor
+        int second_field_height = 0;              ///< Height of second field (0 if single field)
     };
 
     /**

@@ -704,7 +704,8 @@ signals:
                              std::optional<uint64_t> field_index_2,
                              std::vector<uint16_t> samples, std::vector<uint16_t> samples_2,
                              std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples,
-                             std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2);
+                             std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2,
+                             int first_field_height, int second_field_height);
     
     /**
      * @brief Emitted during trigger progress

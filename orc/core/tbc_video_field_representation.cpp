@@ -146,6 +146,13 @@ const TBCVideoFieldRepresentation::sample_type* TBCVideoFieldRepresentation::get
         return nullptr;
     }
     
+    // Validate line number against standards-compliant height (not padded height)
+    auto descriptor = get_descriptor(id);
+    if (!descriptor || line >= descriptor->height) {
+        // Line number exceeds actual field height
+        return nullptr;
+    }
+    
     // Check LRU cache for this field using get_ptr to avoid copying
     const auto* cached_field = field_data_cache_.get_ptr(id);
     if (!cached_field) {
@@ -182,8 +189,33 @@ TBCVideoFieldRepresentation::get_field(FieldID id) const {
         return {};
     }
     
+    // Get standards-compliant field height (may be less than TBC padded height)
+    auto descriptor = get_descriptor(id);
+    if (!descriptor) {
+        return {};
+    }
+    
     try {
-        return tbc_reader_->read_field(id);
+        // Read full field from TBC (may contain padding)
+        auto field_data = tbc_reader_->read_field(id);
+        
+        // Calculate how many samples we should return (actual lines only, no padding)
+        size_t line_length = tbc_reader_->get_line_length();
+        if (line_length == 0) {
+            line_length = video_params_.field_width;
+        }
+        
+        size_t actual_samples = descriptor->height * line_length;
+        
+        // Truncate to actual field height (remove TBC padding)
+        if (field_data.size() > actual_samples) {
+            field_data.resize(actual_samples);
+            ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Truncated field {} from {} to {} samples (removed padding)",
+                         id.value(), field_data.size() + (field_data.capacity() - field_data.size()), 
+                         actual_samples);
+        }
+        
+        return field_data;
     } catch (const std::exception&) {
         return {};
     }

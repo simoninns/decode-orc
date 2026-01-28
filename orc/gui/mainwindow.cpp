@@ -3424,7 +3424,8 @@ void MainWindow::onFieldTimingDataReady(uint64_t request_id, uint64_t field_inde
                                        std::optional<uint64_t> field_index_2,
                                        std::vector<uint16_t> samples, std::vector<uint16_t> samples_2,
                                        std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples,
-                                       std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2)
+                                       std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2,
+                                       int first_field_height, int second_field_height)
 {
     Q_UNUSED(request_id);
     
@@ -3498,7 +3499,9 @@ void MainWindow::onFieldTimingDataReady(uint64_t request_id, uint64_t field_inde
         y_samples_2,
         c_samples_2,
         video_params,
-        marker_sample
+        marker_sample,
+        first_field_height,
+        second_field_height
     );
     
     // Only show/raise/activate if not already visible

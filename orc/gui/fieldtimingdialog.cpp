@@ -21,6 +21,8 @@
 FieldTimingDialog::FieldTimingDialog(QWidget *parent)
     : QDialog(parent)
     , current_field_index_(0)
+    , current_first_field_height_(0)
+    , current_second_field_height_(0)
 {
     setupUI();
     setWindowTitle("Field Timing View");
@@ -62,12 +64,14 @@ void FieldTimingDialog::setupUI()
     
     jump_button_ = new QPushButton("Jump to Crosshairs");
     jump_button_->setEnabled(false);  // Initially disabled
+    jump_button_->setAutoDefault(false);  // Don't capture Enter key
     connect(jump_button_, &QPushButton::clicked, [this]() {
         timing_widget_->scrollToMarker();
     });
     control_layout->addWidget(jump_button_);
     
     set_crosshairs_button_ = new QPushButton("Set Crosshairs");
+    set_crosshairs_button_->setAutoDefault(false);  // Don't capture Enter key
     connect(set_crosshairs_button_, &QPushButton::clicked, [this]() {
         emit setCrosshairsRequested();
     });
@@ -91,6 +95,7 @@ void FieldTimingDialog::setupUI()
     control_layout->addWidget(line_spinbox_);
     
     jump_line_button_ = new QPushButton("Jump to Line");
+    jump_line_button_->setAutoDefault(false);  // Don't capture Enter key
     connect(jump_line_button_, &QPushButton::clicked, [this]() {
         timing_widget_->scrollToLine(line_spinbox_->value());
     });
@@ -123,16 +128,16 @@ void FieldTimingDialog::setupUI()
     zoom_slider_->setTickInterval(50);
     zoom_slider_->setMaximumWidth(150);
     connect(zoom_slider_, &QSlider::valueChanged, [this](int lines_to_show) {
-        // Calculate zoom factor based on total lines available
+        // Calculate zoom factor based on total lines available from VFR descriptors
         // At zoom_factor = 1.0, we show ALL lines
         // To show fewer lines, we zoom in (zoom_factor > 1.0)
-        if (timing_widget_->videoParams().has_value() && timing_widget_->videoParams()->field_height > 0) {
-            int field_height = timing_widget_->videoParams()->field_height;
-            // For frame mode, account for both fields
-            if (current_field_index_2_.has_value()) {
-                field_height *= 2;
+        if (current_first_field_height_ > 0) {
+            int total_lines = current_first_field_height_;
+            // For frame mode, use sum of both field heights
+            if (current_field_index_2_.has_value() && current_second_field_height_ > 0) {
+                total_lines += current_second_field_height_;
             }
-            double zoom_factor = static_cast<double>(field_height) / static_cast<double>(lines_to_show);
+            double zoom_factor = static_cast<double>(total_lines) / static_cast<double>(lines_to_show);
             timing_widget_->setZoomFactor(zoom_factor);
         }
     });
@@ -177,11 +182,15 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
                                     const std::vector<uint16_t>& y_samples_2,
                                     const std::vector<uint16_t>& c_samples_2,
                                     const std::optional<orc::presenters::VideoParametersView>& video_params,
-                                    const std::optional<int>& marker_sample)
+                                    const std::optional<int>& marker_sample,
+                                    int first_field_height,
+                                    int second_field_height)
 {
     current_node_id_ = node_id;
     current_field_index_ = field_index;
     current_field_index_2_ = field_index_2;
+    current_first_field_height_ = first_field_height;
+    current_second_field_height_ = second_field_height;
     
     // Update window title with field info
     QString title = QString("Field Timing View - Stage: %1, Field: %2")
@@ -199,14 +208,15 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
     // Enable/disable jump button based on whether marker is present
     jump_button_->setEnabled(marker_sample.has_value());
     
-    // Update line spinbox range based on video parameters
-    if (video_params.has_value() && video_params->field_height > 0) {
-        // Calculate total lines for frame mode if applicable
-        int total_lines = video_params->field_height;
-        if (field_index_2.has_value()) {
-            total_lines *= 2;  // Frame mode shows two fields
-        }
-        
+    // Update line spinbox range based on field heights from VFR descriptor
+    int total_lines = first_field_height;
+    
+    if (field_index_2.has_value()) {
+        // Frame mode: total height is sum of both field heights
+        total_lines = first_field_height + second_field_height;
+    }
+    
+    if (total_lines > 0) {
         // Set spinbox maximum to total lines available
         line_spinbox_->setMaximum(total_lines);
         
@@ -226,7 +236,7 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
         double zoom_factor = static_cast<double>(total_lines) / static_cast<double>(lines_to_show);
         timing_widget_->setZoomFactor(zoom_factor);
         
-        // Update tick interval based on video system
+        // Update tick interval based on total lines
         int tick_interval = (total_lines > 600) ? 100 : 50;
         zoom_slider_->setTickInterval(tick_interval);
     }

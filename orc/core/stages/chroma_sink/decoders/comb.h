@@ -59,7 +59,7 @@ public:
 
     // Maximum frame size
     static constexpr int32_t MAX_WIDTH = 910;
-    static constexpr int32_t MAX_HEIGHT = 525;
+    static constexpr int32_t MAX_HEIGHT = 625;  // PAL frame height
 
 protected:
     // YC decode path - for sources with separate Y and C channels

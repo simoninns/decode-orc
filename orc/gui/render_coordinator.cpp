@@ -717,7 +717,8 @@ void RenderCoordinator::handleGetFieldTiming(const GetFieldTimingRequest& req)
         emit fieldTimingDataReady(req.request_id, field_index, field_index_2,
                                  std::move(sample_data.composite_samples), std::move(samples_2),
                                  std::move(sample_data.y_samples), std::move(sample_data.c_samples),
-                                 std::move(y_samples_2), std::move(c_samples_2));
+                                 std::move(y_samples_2), std::move(c_samples_2),
+                                 sample_data.first_field_height, sample_data.second_field_height);
         
     } catch (const std::exception& e) {
         ORC_LOG_DEBUG("RenderCoordinator: Get field timing failed: {}", e.what());

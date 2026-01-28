@@ -699,6 +699,8 @@ RenderPresenter::LineSampleData RenderPresenter::getFieldSamplesForTiming(
 {
     LineSampleData result;
     result.has_separate_channels = false;
+    result.first_field_height = 0;
+    result.second_field_height = 0;
     
     if (!impl_->preview_renderer_) {
         return result;
@@ -719,6 +721,12 @@ RenderPresenter::LineSampleData RenderPresenter::getFieldSamplesForTiming(
             output_type == orc::PreviewOutputType::Luma) {
             // Single field
             orc::FieldID field_id(output_index);
+            
+            // Get actual field height from VFR descriptor
+            auto descriptor = repr->get_descriptor(field_id);
+            if (descriptor) {
+                result.first_field_height = descriptor->height;
+            }
             
             if (result.has_separate_channels) {
                 // Y/C source - get entire field for Y and C
@@ -742,6 +750,16 @@ RenderPresenter::LineSampleData RenderPresenter::getFieldSamplesForTiming(
             // Handle reversed field order
             if (output_type == orc::PreviewOutputType::Frame_Reversed) {
                 std::swap(field1_id, field2_id);
+            }
+            
+            // Get actual field heights from VFR descriptors
+            auto desc1 = repr->get_descriptor(field1_id);
+            auto desc2 = repr->get_descriptor(field2_id);
+            if (desc1) {
+                result.first_field_height = desc1->height;
+            }
+            if (desc2) {
+                result.second_field_height = desc2->height;
             }
             
             if (result.has_separate_channels) {

@@ -745,7 +745,7 @@ PreviewImage PreviewRenderer::render_frame(
     }
     
     const auto& desc_a = *desc_a_opt;
-    // desc_b has same dimensions as desc_a in interlaced video
+    const auto& desc_b = *desc_b_opt;
     
     // Get field data
     auto field_a_data = repr->get_field(field_a);
@@ -760,9 +760,9 @@ PreviewImage PreviewRenderer::render_frame(
     double blackIRE = video_params ? video_params->black_16b_ire : 0.0;
     double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
     
-    // Frame is double height
+    // Frame height is sum of both field heights (they can differ, e.g., NTSC: 262 + 263 = 525)
     image.width = desc_a.width;
-    image.height = desc_a.height * 2;
+    image.height = desc_a.height + desc_b.height;
     image.rgb_data.resize(image.width * image.height * 3);
     
     // Weave fields together
@@ -855,7 +855,7 @@ PreviewImage PreviewRenderer::render_split_frame(
     // Split frame: stack fields vertically
     // Top half is field_a, bottom half is field_b
     image.width = desc_a.width;
-    image.height = desc_a.height * 2;  // Double height for both fields
+    image.height = desc_a.height + desc_b.height;  // Sum of field heights (can differ)
     image.rgb_data.resize(image.width * image.height * 3);
     
     // Copy field_a to top half
@@ -1361,6 +1361,17 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
     
     if (output_type == PreviewOutputType::Field) {
         // Simple case: field mode, image_y is the line number
+        // Validate against actual field height
+        auto field_result = field_renderer_->render_field_at_node(node_id, FieldID(output_index));
+        if (!field_result.is_valid || !field_result.representation) {
+            return result;
+        }
+        
+        auto descriptor = field_result.representation->get_descriptor(FieldID(output_index));
+        if (!descriptor || image_y < 0 || image_y >= static_cast<int>(descriptor->height)) {
+            return result;  // Line out of bounds
+        }
+        
         result.is_valid = true;
         result.field_index = output_index;
         result.field_line = image_y;
@@ -1385,13 +1396,13 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
 
         // Determine whether the first field is on even (top) or odd (bottom) image lines
         bool first_is_top = true; // default assumption
-        {
-            auto first_result = field_renderer_->render_field_at_node(node_id, FieldID(frame_first_field));
-            if (first_result.is_valid && first_result.representation) {
-                auto first_parity = first_result.representation->get_field_parity_hint(FieldID(frame_first_field));
-                if (first_parity.has_value()) {
-                    first_is_top = first_parity->is_first_field;
-                }
+        auto first_result = field_renderer_->render_field_at_node(node_id, FieldID(frame_first_field));
+        std::shared_ptr<const VideoFieldRepresentation> first_repr;
+        if (first_result.is_valid && first_result.representation) {
+            first_repr = first_result.representation;
+            auto first_parity = first_repr->get_field_parity_hint(FieldID(frame_first_field));
+            if (first_parity.has_value()) {
+                first_is_top = first_parity->is_first_field;
             }
         }
         // Account for reversed weaving
@@ -1401,6 +1412,22 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
         bool use_first = (is_even_line == first_is_top);
         result.field_index = use_first ? frame_first_field : frame_second_field;
         result.field_line = image_y / 2;
+        
+        // Validate that the calculated field_line is within the actual field height
+        if (!first_repr) {
+            return result;  // No representation available
+        }
+        
+        auto target_field_result = field_renderer_->render_field_at_node(node_id, FieldID(result.field_index));
+        if (!target_field_result.is_valid || !target_field_result.representation) {
+            return result;
+        }
+        
+        auto target_descriptor = target_field_result.representation->get_descriptor(FieldID(result.field_index));
+        if (!target_descriptor || result.field_line < 0 || result.field_line >= static_cast<int>(target_descriptor->height)) {
+            return result;  // Line out of bounds for this field
+        }
+        
         result.is_valid = true;
         return result;
     }
@@ -1418,6 +1445,18 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
             result.field_index = output_index * 2 + 1;
             result.field_line = image_y - split_point;
         }
+        
+        // Validate that the calculated field_line is within the actual field height
+        auto target_field_result = field_renderer_->render_field_at_node(node_id, FieldID(result.field_index));
+        if (!target_field_result.is_valid || !target_field_result.representation) {
+            return result;
+        }
+        
+        auto target_descriptor = target_field_result.representation->get_descriptor(FieldID(result.field_index));
+        if (!target_descriptor || result.field_line < 0 || result.field_line >= static_cast<int>(target_descriptor->height)) {
+            return result;  // Line out of bounds for this field
+        }
+        
         result.is_valid = true;
         return result;
     }

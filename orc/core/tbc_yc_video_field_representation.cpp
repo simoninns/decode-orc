@@ -158,14 +158,18 @@ TBCYCVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
         return nullptr;
     }
     
+    // Validate line number against standards-compliant height (not padded height)
+    auto descriptor = get_descriptor(id);
+    if (!descriptor || line >= descriptor->height) {
+        // Line number exceeds actual field height
+        return nullptr;
+    }
+    
     // Check if we have the full field cached
     const auto* cached_field = y_field_data_cache_.get_ptr(id);
     if (cached_field) {
         // Return pointer to the line within the cached field
         size_t width = static_cast<size_t>(video_params_.field_width);
-        if (line >= static_cast<size_t>(video_params_.field_height)) {
-            return nullptr;
-        }
         return cached_field->data() + (line * width);
     }
     
@@ -180,9 +184,6 @@ TBCYCVideoFieldRepresentation::get_line_luma(FieldID id, size_t line) const {
     
     // Return pointer to the requested line
     size_t width = static_cast<size_t>(video_params_.field_width);
-    if (line >= static_cast<size_t>(video_params_.field_height)) {
-        return nullptr;
-    }
     
     // Get from cache (we just put it there)
     cached_field = y_field_data_cache_.get_ptr(id);
@@ -199,14 +200,18 @@ TBCYCVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
         return nullptr;
     }
     
+    // Validate line number against standards-compliant height (not padded height)
+    auto descriptor = get_descriptor(id);
+    if (!descriptor || line >= descriptor->height) {
+        // Line number exceeds actual field height
+        return nullptr;
+    }
+    
     // Check if we have the full field cached
     const auto* cached_field = c_field_data_cache_.get_ptr(id);
     if (cached_field) {
         // Return pointer to the line within the cached field
         size_t width = static_cast<size_t>(video_params_.field_width);
-        if (line >= static_cast<size_t>(video_params_.field_height)) {
-            return nullptr;
-        }
         return cached_field->data() + (line * width);
     }
     
@@ -221,9 +226,6 @@ TBCYCVideoFieldRepresentation::get_line_chroma(FieldID id, size_t line) const {
     
     // Return pointer to the requested line
     size_t width = static_cast<size_t>(video_params_.field_width);
-    if (line >= static_cast<size_t>(video_params_.field_height)) {
-        return nullptr;
-    }
     
     // Get from cache (we just put it there)
     cached_field = c_field_data_cache_.get_ptr(id);
@@ -246,13 +248,31 @@ TBCYCVideoFieldRepresentation::get_field_luma(FieldID id) const {
         return *cached_field;
     }
     
-    // Read from Y file
+    // Get standards-compliant field height (may be less than TBC padded height)
+    auto descriptor = get_descriptor(id);
+    if (!descriptor) {
+        return {};
+    }
+    
+    // Read from Y file (may contain padding)
     ORC_LOG_DEBUG("TBCYCVideoFieldRepresentation: Reading luma field {} from Y reader", id.value());
     auto field_data = y_reader_->read_field(id);
     
     if (field_data.empty()) {
         ORC_LOG_ERROR("Failed to read luma field {} from Y file", id.value());
         return {};
+    }
+    
+    // Calculate how many samples we should return (actual lines only, no padding)
+    size_t line_length = static_cast<size_t>(video_params_.field_width);
+    size_t actual_samples = descriptor->height * line_length;
+    
+    // Truncate to actual field height (remove TBC padding)
+    if (field_data.size() > actual_samples) {
+        field_data.resize(actual_samples);
+        ORC_LOG_DEBUG("TBCYCVideoFieldRepresentation: Truncated luma field {} from {} to {} samples (removed padding)",
+                     id.value(), field_data.size() + (field_data.capacity() - field_data.size()), 
+                     actual_samples);
     }
     
     // Debug: Log first few samples
@@ -276,13 +296,31 @@ TBCYCVideoFieldRepresentation::get_field_chroma(FieldID id) const {
         return *cached_field;
     }
     
-    // Read from C file
+    // Get standards-compliant field height (may be less than TBC padded height)
+    auto descriptor = get_descriptor(id);
+    if (!descriptor) {
+        return {};
+    }
+    
+    // Read from C file (may contain padding)
     ORC_LOG_DEBUG("TBCYCVideoFieldRepresentation: Reading chroma field {} from C reader", id.value());
     auto field_data = c_reader_->read_field(id);
     
     if (field_data.empty()) {
         ORC_LOG_ERROR("Failed to read chroma field {} from C file", id.value());
         return {};
+    }
+    
+    // Calculate how many samples we should return (actual lines only, no padding)
+    size_t line_length = static_cast<size_t>(video_params_.field_width);
+    size_t actual_samples = descriptor->height * line_length;
+    
+    // Truncate to actual field height (remove TBC padding)
+    if (field_data.size() > actual_samples) {
+        field_data.resize(actual_samples);
+        ORC_LOG_DEBUG("TBCYCVideoFieldRepresentation: Truncated chroma field {} from {} to {} samples (removed padding)",
+                     id.value(), field_data.size() + (field_data.capacity() - field_data.size()), 
+                     actual_samples);
     }
     
     // Debug: Log first few samples

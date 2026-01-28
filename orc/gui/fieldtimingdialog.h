@@ -54,6 +54,9 @@ public:
      * @param y_samples_2 Optional Y channel samples for second field
      * @param c_samples_2 Optional C channel samples for second field
      * @param video_params Optional video parameters for mV conversion and level markers
+     * @param marker_sample Optional sample position to mark with a vertical line
+     * @param first_field_height Height of first field from VFR descriptor
+     * @param second_field_height Height of second field from VFR descriptor (0 for single field)
      */
     void setFieldData(const QString& node_id, 
                      uint64_t field_index, 
@@ -65,7 +68,9 @@ public:
                      const std::vector<uint16_t>& y_samples_2 = {},
                      const std::vector<uint16_t>& c_samples_2 = {},
                      const std::optional<orc::presenters::VideoParametersView>& video_params = std::nullopt,
-                     const std::optional<int>& marker_sample = std::nullopt);
+                     const std::optional<int>& marker_sample = std::nullopt,
+                     int first_field_height = 0,
+                     int second_field_height = 0);
     
     /**
      * @brief Get the timing widget
@@ -96,6 +101,8 @@ private:
     QString current_node_id_;
     uint64_t current_field_index_;
     std::optional<uint64_t> current_field_index_2_;
+    int current_first_field_height_;
+    int current_second_field_height_;
 };
 
 #endif // FIELDTIMINGDIALOG_H

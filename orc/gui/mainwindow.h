@@ -146,7 +146,8 @@ private slots:
                                std::optional<uint64_t> field_index_2,
                                std::vector<uint16_t> samples, std::vector<uint16_t> samples_2,
                                std::vector<uint16_t> y_samples, std::vector<uint16_t> c_samples,
-                               std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2);
+                               std::vector<uint16_t> y_samples_2, std::vector<uint16_t> c_samples_2,
+                               int first_field_height, int second_field_height);
     void onFrameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
     void onDropoutDataReady(uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats, int32_t total_frames);
     void onDropoutProgress(size_t current, size_t total, QString message);

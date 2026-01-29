@@ -77,9 +77,6 @@ private:
     bool write_report(const std::string& report_path,
                       VideoSystem resolved_system,
                       size_t input_line_width,
-                      size_t input_line_count,
-                      size_t half_line_samples,
-                      size_t output_samples_per_field,
                       size_t processed_fields,
                       const std::optional<SourceParameters>& video_params) const;
 

@@ -133,9 +133,6 @@ std::string HackdacSinkStage::system_to_string(VideoSystem system) {
 bool HackdacSinkStage::write_report(const std::string& report_path,
                                     VideoSystem resolved_system,
                                     size_t input_line_width,
-                                    size_t input_line_count,
-                                    size_t half_line_samples,
-                                    size_t output_samples_per_field,
                                     size_t processed_fields,
                                     const std::optional<SourceParameters>& video_params) const {
     std::ofstream report(report_path, std::ios::out | std::ios::trunc);
@@ -144,25 +141,35 @@ bool HackdacSinkStage::write_report(const std::string& report_path,
         return false;
     }
 
+    // Calculate first and second field heights based on VFR standard
+    size_t first_field_height = calculate_standard_field_height(resolved_system, true);
+    size_t second_field_height = calculate_standard_field_height(resolved_system, false);
+    size_t first_field_samples = input_line_width * first_field_height;
+    size_t second_field_samples = input_line_width * second_field_height;
+    
     const size_t bytes_per_sample = sizeof(int16_t);
-    const size_t bytes_per_field = output_samples_per_field * bytes_per_sample;
-    const size_t total_bytes = bytes_per_field * processed_fields;
-    const size_t removed_samples_per_field = half_line_samples;
-    const size_t removed_bytes_per_field = removed_samples_per_field * bytes_per_sample;
-    const size_t total_removed_bytes = removed_bytes_per_field * processed_fields;
+    const size_t first_field_bytes = first_field_samples * bytes_per_sample;
+    const size_t second_field_bytes = second_field_samples * bytes_per_sample;
+    
+    // Calculate total bytes (alternating pattern)
+    size_t first_fields = (processed_fields + 1) / 2;  // Round up for odd counts
+    size_t second_fields = processed_fields / 2;
+    const size_t total_bytes = (first_fields * first_field_bytes) + (second_fields * second_field_bytes);
 
     report << "Hackdac sink export report\n";
-    report << "Format: headerless stream of 16-bit signed little-endian samples (fields concatenated in capture order)\n";
+    report << "Format: headerless stream of 16-bit signed little-endian samples (VFR representation, fields concatenated in capture order)\n";
     report << "Video format: " << system_to_string(resolved_system) << "\n";
-    report << "Input line width: " << input_line_width << " samples\n";
-    report << "Input lines per field: " << input_line_count << "\n";
-    report << "Half-line removed: " << half_line_samples << " samples per field\n";
-    report << "Samples per field (output): " << output_samples_per_field << "\n";
-    report << "Fields exported: " << processed_fields << "\n";
-    report << "Bytes per field: " << bytes_per_field << "\n";
+    report << "Line width: " << input_line_width << " samples\n";
+    report << "\n";
+    report << "VFR field structure (alternating pattern):\n";
+    report << "  First field: " << first_field_height << " lines = " << first_field_samples << " samples = " << first_field_bytes << " bytes\n";
+    report << "  Second field: " << second_field_height << " lines = " << second_field_samples << " samples = " << second_field_bytes << " bytes\n";
+    report << "\n";
+    report << "Export statistics:\n";
+    report << "  Fields exported: " << processed_fields << "\n";
+    report << "    First fields: " << first_fields << "\n";
+    report << "    Second fields: " << second_fields << "\n";
     report << "Total data bytes: " << total_bytes << "\n";
-    report << "Removed padding per field: " << removed_samples_per_field << " samples (" << removed_bytes_per_field << " bytes)\n";
-    report << "Total removed padding: " << total_removed_bytes << " bytes\n";
 
     const bool have_levels = video_params &&
                              video_params->blanking_16b_ire >= 0 &&
@@ -230,11 +237,8 @@ bool HackdacSinkStage::trigger(
             throw std::runtime_error("Invalid field dimensions");
         }
 
-        size_t half_line_samples = line_width / 2;
-        size_t expected_input_samples = line_width * line_count;
-        size_t output_samples_per_field = expected_input_samples >= half_line_samples
-                                            ? expected_input_samples - half_line_samples
-                                            : 0;
+        // VFR representation is already unpadded, so output samples = actual VFR samples
+        size_t vfr_samples_per_field = line_width * line_count;
 
         auto video_params = vfr->get_video_parameters();
         VideoSystem resolved_system = VideoSystem::Unknown;
@@ -270,17 +274,13 @@ bool HackdacSinkStage::trigger(
             auto field_data = vfr->get_field(fid);
             if (field_data.empty()) {
                 ORC_LOG_WARN("HackdacSink: Field {} is empty, writing zeros", fid.value());
-                field_data.resize(expected_input_samples, 0);
+                field_data.resize(vfr_samples_per_field, 0);
             }
 
-            if (field_data.size() < half_line_samples) {
-                throw std::runtime_error("Field data too short to remove half-line padding");
-            }
-
-            size_t usable_samples = field_data.size() - half_line_samples;
+            // VFR data is already unpadded - convert directly to signed without removing padding
             std::vector<int16_t> signed_data;
-            signed_data.reserve(usable_samples);
-            for (size_t i = 0; i < usable_samples; ++i) {
+            signed_data.reserve(field_data.size());
+            for (size_t i = 0; i < field_data.size(); ++i) {
                 signed_data.push_back(to_signed_sample(field_data[i]));
             }
 
@@ -296,8 +296,8 @@ bool HackdacSinkStage::trigger(
         writer.close();
 
         // Write companion report
-        write_report(cfg.report_path, resolved_system, line_width, line_count,
-                 half_line_samples, output_samples_per_field, processed_fields, video_params);
+        write_report(cfg.report_path, resolved_system, line_width,
+                 processed_fields, video_params);
 
         last_status_ = "Success: " + std::to_string(processed_fields) + " fields exported";
         ORC_LOG_INFO("HackdacSink: {}", last_status_);

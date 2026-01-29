@@ -8,6 +8,7 @@
  */
 
 #include "vbidialog.h"
+#include "field_frame_presentation.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -194,11 +195,11 @@ void VBIDialog::updateVBIInfo(const orc::presenters::VBIFieldInfoView& vbi_info)
         return;
     }
     
-    // Field number (0-indexed) or "--" if invalid
+    // Field number - convert 0-indexed to 1-indexed for display
     if (vbi_info.field_id < 0) {
         field_number_label_->setText("--");
     } else {
-        field_number_label_->setText(QString::number(vbi_info.field_id));
+        field_number_label_->setText(orc::gui::formatFieldNumber(static_cast<uint64_t>(vbi_info.field_id)));
     }
     
     // Raw VBI data
@@ -352,13 +353,14 @@ QString VBIDialog::formatSoundMode(orc::presenters::VbiSoundModeView mode)
 void VBIDialog::updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& field1_info, 
                                     const orc::presenters::VBIFieldInfoView& field2_info)
 {
-    // Display both field numbers (0-indexed) or "--" if invalid
+    // Display both field numbers (1-indexed) or "--" if invalid
     if (field1_info.field_id < 0 || field2_info.field_id < 0) {
         field_number_label_->setText("--");
     } else {
-        field_number_label_->setText(QString("%1 - %2")
-            .arg(field1_info.field_id)
-            .arg(field2_info.field_id));
+        // Calculate frame index from first field ID (0-indexed)
+        // Frame consists of fields (2*frame_index) and (2*frame_index + 1)
+        uint64_t frame_index = static_cast<uint64_t>(field1_info.field_id) / 2;
+        field_number_label_->setText(orc::gui::formatFrameFieldRange(frame_index));
     }
     
     if (!field1_info.has_vbi_data && !field2_info.has_vbi_data) {

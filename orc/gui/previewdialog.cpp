@@ -317,7 +317,7 @@ bool PreviewDialog::isLineScopeVisible() const
 {
     return line_scope_dialog_ && line_scope_dialog_->isVisible();
 }
-void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
+void PreviewDialog::showLineScope(const QString& node_id, int stage_index, uint64_t field_index, int line_number, int sample_x, 
                                   const std::vector<uint16_t>& samples,
                                   const std::optional<orc::presenters::VideoParametersView>& video_params,
                                    int preview_image_width, int original_sample_x, int original_image_y,
@@ -355,7 +355,7 @@ void PreviewDialog::showLineScope(const QString& node_id, uint64_t field_index, 
             preview_widget_->setCrosshairsEnabled(true);
         }
         
-        line_scope_dialog_->setLineSamples(node_id, field_index, line_number, sample_x, samples, video_params, 
+        line_scope_dialog_->setLineSamples(node_id, stage_index, field_index, line_number, sample_x, samples, video_params, 
                                           preview_image_width, original_sample_x, original_image_y, preview_mode,
                                           y_samples, c_samples);
         

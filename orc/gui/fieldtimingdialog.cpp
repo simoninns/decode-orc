@@ -8,6 +8,7 @@
  */
 
 #include "fieldtimingdialog.h"
+#include "field_frame_presentation.h"
 #include "fieldtimingwidget.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -192,12 +193,12 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
     current_first_field_height_ = first_field_height;
     current_second_field_height_ = second_field_height;
     
-    // Update window title with field info
+    // Update window title with field info (1-indexed for display)
     QString title = QString("Field Timing View - Stage: %1, Field: %2")
                         .arg(node_id)
-                        .arg(field_index);
+                        .arg(field_index + 1);  // Convert to 1-based
     if (field_index_2.has_value()) {
-        title += QString(" + %1").arg(field_index_2.value());
+        title += QString(" + %1").arg(field_index_2.value() + 1);  // Convert to 1-based
     }
     setWindowTitle(title);
     

@@ -79,6 +79,7 @@ public:
     /**
      * @brief Show line scope dialog with sample data
      * @param node_id Node identifier for the stage being viewed
+     * @param stage_index Stage number in the pipeline (1-based)
      * @param field_index Field number being displayed (0-based)
      * @param line_number Line number being displayed (1-based field line)
      * @param sample_x Sample X position that was clicked
@@ -88,7 +89,7 @@ public:
      * @param y_samples Optional Y channel samples for YC sources
      * @param c_samples Optional C channel samples for YC sources
      */
-    void showLineScope(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
+    void showLineScope(const QString& node_id, int stage_index, uint64_t field_index, int line_number, int sample_x, 
                        const std::vector<uint16_t>& samples,
                        const std::optional<orc::presenters::VideoParametersView>& video_params,
                        int preview_image_width, int original_sample_x, int original_image_y,

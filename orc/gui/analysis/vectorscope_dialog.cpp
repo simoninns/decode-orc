@@ -8,6 +8,7 @@
  */
 
 #include "vectorscope_dialog.h"
+#include "../field_frame_presentation.h"
 #include "../logging.h"
 
 // ============================================================================
@@ -206,7 +207,7 @@ void VectorscopeDialog::connectSignals() {
 
 void VectorscopeDialog::updateVectorscope(const orc::VectorscopeData& data) {
     if (data.samples.empty()) {
-        info_label_->setText(QString("Field %1 - No vectorscope data").arg(data.field_number));
+        info_label_->setText(QString("Field %1 - No vectorscope data").arg(data.field_number + 1));  // Convert to 1-based
         clearDisplay();
         return;
     }
@@ -340,7 +341,7 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     }
     
     info_label_->setText(QString("Field %1 - %2 samples (%3x%4) - %5")
-        .arg(data.field_number)
+        .arg(data.field_number + 1)  // Convert to 1-based
         .arg(data.samples.size())
         .arg(data.width)
         .arg(data.height)

@@ -1271,6 +1271,8 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
         }
     }
     
+    ORC_LOG_DEBUG("navigate_frame_line: first_field_offset={}, current_field={}", first_field_offset, current_field);
+    
     // For a frame, field_a is the first field shown, field_b is the second
     // In the interlaced display:
     //   - Even image lines (0, 2, 4...) show field_a
@@ -1282,11 +1284,17 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
     // Determine which field corresponds to the current position
     // The current_field we receive is already the actual field index
     // Determine if it's the first or second field of its frame
-    bool current_is_first_field = (current_field % 2 == first_field_offset);
+    // Adjust for first_field_offset: if offset=1, then field 1 is first, field 2 is second, etc.
+    bool current_is_first_field = ((current_field - first_field_offset) % 2 == 0);
+    
+    ORC_LOG_DEBUG("navigate_frame_line: current_is_first_field={} (before reverse check)", current_is_first_field);
     
     if (is_reversed) {
         current_is_first_field = !current_is_first_field;
     }
+    
+    ORC_LOG_DEBUG("navigate_frame_line: current_is_first_field={} (after reverse check, is_reversed={})", 
+                  current_is_first_field, is_reversed);
     
     // Navigate within the interlaced frame display
     // NOTE: Fields may have different heights (NTSC: 262/263, PAL: 312/313)
@@ -1313,37 +1321,43 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
             new_line = current_line;  // Same line within field
         } else {
             // Currently showing second field line
-            // Check if we can move to the next line within the same field first
-            if (current_line + 1 < static_cast<int>(current_field_descriptor->height)) {
-                // Second field has one more line available (e.g., NTSC second field line 262)
-                new_field = current_field;  // Stay in second field
+            // The second field has one extra line (line 312) that doesn't exist in first field
+            // When at line 311 (last line in both fields), next line is 312 (extra line in same field)
+            // When at line 312 (the extra line), can't navigate further
+            if (current_line >= static_cast<int>(current_field_descriptor->height) - 1) {
+                // At line 312 (the extra line) -> can't go further
+                ORC_LOG_DEBUG("navigate_frame_line: At extra line of second field, can't navigate further down");
+                return result;
+            }
+            // Check if next line is the extra line (line 312, height-1)
+            if (current_line + 1 >= static_cast<int>(current_field_descriptor->height) - 1) {
+                // Next line would be the extra line -> stay in same field
+                new_field = current_field;
                 new_line = current_line + 1;
             } else {
-                // At the end of second field -> wrap to first field, next line number
+                // Normal alternation: next shows first field at next line
                 new_field = current_field - 1;
-                new_line = current_line + 1;  // Next line within field
+                new_line = current_line + 1;
             }
         }
     } else if (direction < 0) {
         // Moving up through interlaced lines  
-        if (!current_is_first_field) {
+        if (current_is_first_field) {
+            // Currently showing first field line -> prev shows second field, prev line number
+            new_field = current_field + 1;
+            new_line = current_line - 1;  // Previous line within second field
+        } else {
             // Currently showing second field line
-            // Special case: if we're on the extra line (exists in second field but not first)
-            // we need to go to the same field, previous line
-            if (current_line > 0 && current_line >= static_cast<int>(current_field_descriptor->height) - 1) {
-                // On the last line of second field (the extra line) -> stay in second field
+            // Special case: if we're on line 312 (the extra line), prev is line 311 (same field)
+            if (current_line >= static_cast<int>(current_field_descriptor->height) - 1) {
+                // At the extra line (line 312) -> prev is line 311 in same field
                 new_field = current_field;
                 new_line = current_line - 1;
             } else {
-                // Normal case: prev shows first field, same line number
+                // Normal alternation: prev shows first field at same line
                 new_field = current_field - 1;
-                new_line = current_line;  // Same line within field
+                new_line = current_line;
             }
-        } else {
-            // Currently showing first field line -> prev shows second field, prev line number
-            // Go forward to the second field (of same frame pair) with decremented line
-            new_field = current_field + 1;
-            new_line = current_line - 1;  // Previous line within field
         }
     }
     

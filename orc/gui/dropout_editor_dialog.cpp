@@ -8,6 +8,7 @@
  */
 
 #include "dropout_editor_dialog.h"
+#include "field_frame_presentation.h"
 #include "logging.h"
 #include <QPainter>
 #include <QScrollArea>
@@ -785,7 +786,7 @@ void DropoutEditorDialog::updateFieldInfo()
 
     field_info_label_->setText(
         QString("Field %1 of %2 - Additions: %3, Removals: %4")
-            .arg(current_field_id_)
+            .arg(current_field_id_ + 1)  // Convert to 1-based for display
             .arg(total_fields_)
             .arg(additions.size())
             .arg(removals.size()));

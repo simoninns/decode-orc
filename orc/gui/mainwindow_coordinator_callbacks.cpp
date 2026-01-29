@@ -344,8 +344,18 @@ void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
             
             QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
             
+            // Calculate stage index (1-based) from the current node
+            int stage_index = 1;
+            const auto nodes = project_.presenter()->getNodes();
+            for (size_t i = 0; i < nodes.size(); ++i) {
+                if (nodes[i].node_id == current_view_node_id_) {
+                    stage_index = static_cast<int>(i) + 1;  // Convert to 1-based
+                    break;
+                }
+            }
+            
             // Show empty line scope (no samples) - this will display "No data available for this line"
-            preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
+            preview_dialog_->showLineScope(node_id_str, stage_index, 0, 0, 0, 
                                           std::vector<uint16_t>(),  // Empty samples
                                           std::nullopt, 0, 0, 0, current_output_type_);
         }

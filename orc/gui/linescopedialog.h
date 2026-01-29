@@ -41,6 +41,7 @@ public:
     /**
      * @brief Display line samples
      * @param node_id Node identifier for the stage being viewed
+     * @param stage_index Stage number in the pipeline (1-based for display as "Stage N")
      * @param field_index The field number being displayed (0-based)
      * @param line_number The line number being displayed (1-based for display, converted to 0-based internally)
      * @param sample_x Sample X position that was clicked
@@ -50,7 +51,7 @@ public:
      * @param y_samples Optional Y channel samples for YC sources
      * @param c_samples Optional C channel samples for YC sources
      */
-    void setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
+    void setLineSamples(const QString& node_id, int stage_index, uint64_t field_index, int line_number, int sample_x, 
                         const std::vector<uint16_t>& samples,
                         const std::optional<orc::presenters::VideoParametersView>& video_params,
                         int preview_image_width, int original_sample_x, int original_image_y,
@@ -119,6 +120,7 @@ private:
     
     // Current line info for navigation
     QString current_node_id_;  // Node ID of the stage being viewed
+    int current_stage_index_;  // Stage number in pipeline (1-based for display)
     uint64_t current_field_index_;
     int current_line_number_;  // 0-based line number for internal use/navigation
     int current_sample_x_;  // Mapped field-space coordinate for display

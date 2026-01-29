@@ -8,6 +8,7 @@
  */
 
 #include "linescopedialog.h"
+#include "field_frame_presentation.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -126,7 +127,7 @@ void LineScopeDialog::setupUI()
     connect(plot_widget_, &PlotWidget::plotDragged, this, &LineScopeDialog::onPlotClicked);
 }
 
-void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_index, int line_number, int sample_x, 
+void LineScopeDialog::setLineSamples(const QString& node_id, int stage_index, uint64_t field_index, int line_number, int sample_x, 
                                       const std::vector<uint16_t>& samples,
                                       const std::optional<orc::presenters::VideoParametersView>& video_params,
                                       int preview_image_width, int original_sample_x, int original_image_y,
@@ -140,6 +141,7 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     // Store current line info for navigation
     // Note: line_number parameter is 1-based (for display), convert to 0-based for internal use
     current_node_id_ = node_id;
+    current_stage_index_ = stage_index;
     current_field_index_ = field_index;
     current_line_number_ = line_number - 1;  // Convert 1-based to 0-based for internal storage
     current_sample_x_ = sample_x;  // Mapped field-space coordinate
@@ -184,47 +186,47 @@ void LineScopeDialog::setLineSamples(const QString& node_id, uint64_t field_inde
     QString yc_suffix = is_yc_source_ ? " (YC Source)" : "";
     
     // Build title based on preview mode
-    // Note: current_line_number_ is stored as 0-based, convert to 1-based for display
-    int line_number_1based = current_line_number_ + 1;
+    // Note: current_line_number_ is stored as 0-based, pass it directly to GUI helpers
     QString title;
     if (preview_mode == orc::PreviewOutputType::Frame || 
         preview_mode == orc::PreviewOutputType::Frame_Reversed ||
         preview_mode == orc::PreviewOutputType::Split) {
         // Frame or Split mode: show frame number and frame line number
         if (presenter_system != orc::presenters::VideoSystem::Unknown) {
-            auto frame_coords = orc::presenters::fieldToFrameCoordinates(presenter_system, field_index, line_number_1based);
-            if (frame_coords.has_value()) {
-                title = QString("Line Scope%1 - Stage: %2 - Frame %3, Line %4%5")
-                    .arg(system_suffix)
-                    .arg(node_id)
-                    .arg(frame_coords->frame_number)
-                    .arg(frame_coords->frame_line_number)
-                    .arg(yc_suffix);
-            } else {
-                // Fallback if conversion fails
-                title = QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
-                    .arg(system_suffix)
-                    .arg(node_id)
-                    .arg(field_index + 1)  // Display as 1-based
-                    .arg(line_number_1based)
-                    .arg(yc_suffix);
-            }
+            // Determine if PAL (625 lines) or NTSC (525 lines)
+            bool is_pal = (presenter_system == orc::presenters::VideoSystem::PAL);
+            
+            // Use GUI helper to format frame view information (takes 0-indexed line)
+            QString frame_info = orc::gui::formatFrameViewWithInternal(field_index, current_line_number_, is_pal);
+            
+            // Debug logging for internal vs presentation
+            ORC_LOG_DEBUG("LineScopeDialog: Internal: fieldID={}, fieldLineIndex={}  Presentation: {}",
+                         field_index, current_line_number_, frame_info.toStdString());
+            
+            title = QString("Stage %1 - %2%3")
+                .arg(stage_index)
+                .arg(frame_info)
+                .arg(yc_suffix);
         } else {
-            // No video params, fallback to field numbering
-            title = QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
-                .arg(system_suffix)
-                .arg(node_id)
+            // No video params, fallback to field numbering (1-indexed)
+            ORC_LOG_DEBUG("LineScopeDialog: Internal: fieldID={}, fieldLineIndex={}  Presentation: Field {}, Line {}",
+                         field_index, current_line_number_, field_index + 1, current_line_number_ + 1);
+            
+            title = QString("Stage %1 - Field %2, Line %3%4")
+                .arg(stage_index)
                 .arg(field_index + 1)  // Display as 1-based
-                .arg(line_number_1based)
+                .arg(current_line_number_ + 1)  // Display as 1-based
                 .arg(yc_suffix);
         }
     } else {
-        // Field mode: show field number and field line number
-        title = QString("Line Scope%1 - Stage: %2 - Field %3, Line %4%5")
-            .arg(system_suffix)
-            .arg(node_id)
+        // Field mode: show field number (1-indexed) and field line number (1-indexed)
+        ORC_LOG_DEBUG("LineScopeDialog: Internal: fieldID={}, fieldLineIndex={}  Presentation: Field {}, Line {}",
+                     field_index, current_line_number_, field_index + 1, current_line_number_ + 1);
+        
+        title = QString("Stage %1 - Field %2, Line %3%4")
+            .arg(stage_index)
             .arg(field_index + 1)  // Display as 1-based
-            .arg(line_number_1based)
+            .arg(current_line_number_ + 1)  // Display as 1-based
             .arg(yc_suffix);
     }
     setWindowTitle(title);

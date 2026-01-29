@@ -31,6 +31,7 @@
 #include "analysis/vectorscope_dialog.h"  // Safe now - uses pimpl to hide core types
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
+#include "field_frame_presentation.h"
 #include "logging.h"
 #include "presenters/include/hints_view_models.h"
 #include "presenters/include/hints_presenter.h"
@@ -131,6 +132,9 @@ MainWindow::MainWindow(QWidget *parent)
     , pending_preview_index_(-1)
     , preview_update_pending_(false)
     , trigger_progress_dialog_(nullptr)
+    , last_line_scope_field_index_(std::numeric_limits<uint64_t>::max())
+    , last_line_scope_line_number_(-1)
+    , last_line_scope_image_x_(-1)
 {
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
@@ -1669,39 +1673,87 @@ void MainWindow::updatePreviewInfo()
     ORC_LOG_DEBUG("updatePreviewInfo: current_output_type={}, index={}, total={}",
                   static_cast<int>(current_output_type_), current_index, total);
     
-    // Build display info client-side
-    orc::PreviewItemDisplayInfo display_info;
+    // Determine if PAL or NTSC for presentation numbering
+    bool is_pal = (video_format_presenter == orc::presenters::VideoFormat::PAL);
+    
     // Get display name from available outputs
-    display_info.type_name = "Item";  // Default fallback
+    QString type_name = "Item";  // Default fallback
     for (const auto& output : available_outputs_) {
         if (output.type == current_output_type_) {
-            display_info.type_name = output.display_name;
+            type_name = QString::fromStdString(output.display_name);
             break;
         }
     }
-    display_info.current_number = current_index;
-    display_info.total_count = total;
-    display_info.has_field_info = false;
     
-    ORC_LOG_DEBUG("updatePreviewInfo: display_info.type_name='{}', has_field_info={}",
-                  display_info.type_name, display_info.has_field_info);
+    // Build presentation-based display info using GUI helpers
+    QString info_text;
+    QString slider_min_text;
+    QString slider_max_text;
     
-    // Update slider labels with range (0-indexed)
-    preview_dialog_->sliderMinLabel()->setText(QString::number(0));
-    preview_dialog_->sliderMaxLabel()->setText(QString::number(display_info.total_count - 1));
-    
-    // Build compact info label
-    QString info_text = QString("%1 %2")
-        .arg(QString::fromStdString(display_info.type_name))
-        .arg(display_info.current_number);
-    
-    // Add field info if relevant
-    if (display_info.has_field_info) {
-        info_text += QString(" (%1-%2)")
-            .arg(display_info.first_field_number)
-            .arg(display_info.second_field_number);
+    if (current_output_type_ == orc::PreviewOutputType::Field) {
+        // Field mode: show 1-indexed field numbers
+        uint64_t field_id = static_cast<uint64_t>(current_index);
+        uint64_t min_field_id = 0;
+        uint64_t max_field_id = static_cast<uint64_t>(total - 1);
+        
+        info_text = QString("%1 %2 / %3")
+            .arg(type_name)
+            .arg(field_id + 1)  // 1-indexed presentation
+            .arg(total);
+        
+        slider_min_text = QString::number(min_field_id + 1);  // 1-indexed
+        slider_max_text = QString::number(max_field_id + 1);  // 1-indexed
+    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
+               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+        // Frame mode: show 1-indexed frame numbers with constituent field numbers
+        uint64_t frame_index = static_cast<uint64_t>(current_index);
+        uint64_t frame_number = frame_index + 1;  // 1-indexed
+        
+        // Calculate constituent field IDs (0-indexed)
+        uint64_t first_field_id = frame_index * 2;
+        uint64_t second_field_id = first_field_id + 1;
+        
+        // Convert to 1-indexed for display
+        uint64_t first_field_number = first_field_id + 1;
+        uint64_t second_field_number = second_field_id + 1;
+        
+        if (current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+            // Reversed: show second field first
+            info_text = QString("%1 %2 (Fields %3-%4) / %5")
+                .arg(type_name)
+                .arg(frame_number)
+                .arg(second_field_number)
+                .arg(first_field_number)
+                .arg(total);
+        } else {
+            // Normal: show first field first
+            info_text = QString("%1 %2 (Fields %3-%4) / %5")
+                .arg(type_name)
+                .arg(frame_number)
+                .arg(first_field_number)
+                .arg(second_field_number)
+                .arg(total);
+        }
+        
+        // Slider labels show frame numbers (1-indexed)
+        slider_min_text = "1";
+        slider_max_text = QString::number(total);
+    } else {
+        // Other modes (Split, Luma, Chroma, Composite): use simple indexing
+        info_text = QString("%1 %2 / %3")
+            .arg(type_name)
+            .arg(current_index + 1)  // 1-indexed
+            .arg(total);
+        
+        slider_min_text = "1";
+        slider_max_text = QString::number(total);
     }
     
+    ORC_LOG_DEBUG("updatePreviewInfo: display=\"{}\"", info_text.toStdString());
+    
+    // Update UI
+    preview_dialog_->sliderMinLabel()->setText(slider_min_text);
+    preview_dialog_->sliderMaxLabel()->setText(slider_max_text);
     preview_dialog_->previewInfoLabel()->setText(info_text);
 }
 
@@ -3977,7 +4029,18 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     // Show the line scope dialog with the samples, including the current node_id
     // Pass 1-based line number for display
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
-    preview_dialog_->showLineScope(node_id_str, field_index, line_number_1based, sample_x, samples, view_params, 
+    
+    // Calculate stage index (1-based) from the current node
+    int stage_index = 1;
+    const auto nodes = project_.presenter()->getNodes();
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].node_id == current_view_node_id_) {
+            stage_index = static_cast<int>(i) + 1;  // Convert to 1-based
+            break;
+        }
+    }
+    
+    preview_dialog_->showLineScope(node_id_str, stage_index, field_index, line_number_1based, sample_x, samples, view_params, 
                                    preview_image_width, original_sample_x, calculated_image_y, current_output_type_,
                                    y_samples, c_samples);
     
@@ -4082,26 +4145,27 @@ void MainWindow::refreshLineScopeForCurrentStage()
         
         // Show empty line scope
         QString node_id_str = "(none)";
-        preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 
+        preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 0, 
                                       std::vector<uint16_t>(),  // Empty samples
                                       std::nullopt, 0, 0, 0, current_output_type_);
         return;
     }
     
-    // Re-request line samples for the same field/line but new stage
-    // Calculate the image_y from stored field/line for the refresh
-    if (last_line_scope_image_x_ >= 0 && last_line_scope_field_index_ >= 0) {
-        int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
-        auto image_coords = render_coordinator_->mapFieldToImage(
-            current_view_node_id_, current_output_type_,
-            preview_dialog_->previewSlider()->value(), 
-            last_line_scope_field_index_, last_line_scope_line_number_, image_height);
-        int calculated_image_y = image_coords.is_valid ? image_coords.image_y : 0;
-        
-        ORC_LOG_DEBUG("Refreshing line scope for new stage at field={}, line={}, image_y={}", 
-                     last_line_scope_field_index_, last_line_scope_line_number_, calculated_image_y);
-        onLineScopeRequested(last_line_scope_image_x_, calculated_image_y);
-    }
+    // Clear line scope for stage switch - force a fresh click on the new stage
+    // This prevents crashes on sink stages and ensures the UI refreshes properly
+    ORC_LOG_DEBUG("Stage changed - clearing line scope state");
+    preview_dialog_->previewWidget()->setCrosshairsEnabled(false);
+    
+    // Clear the stored line scope state to sentinel values
+    last_line_scope_field_index_ = std::numeric_limits<uint64_t>::max();
+    last_line_scope_line_number_ = -1;
+    last_line_scope_image_x_ = -1;
+    
+    // Show empty line scope to indicate no data for this stage until user clicks
+    QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
+    preview_dialog_->showLineScope(node_id_str, 0, 0, 0, 0, 
+                                  std::vector<uint16_t>(),  // Empty samples
+                                  std::nullopt, 0, 0, 0, current_output_type_);
 }
 
 void MainWindow::onLineScopeRefreshAtFieldLine()

@@ -55,6 +55,10 @@ add_executable(orc-gui WIN32
     node_type_helper.cpp
     node_type_helper.h
     
+    # Field/Frame presentation helpers
+    field_frame_presentation.cpp
+    field_frame_presentation.h
+    
     # Analysis dialogs
     analysis/vectorscope_dialog.cpp
     analysis/vectorscope_dialog.h

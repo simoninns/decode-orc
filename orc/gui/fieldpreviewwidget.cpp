@@ -111,8 +111,12 @@ void FieldPreviewWidget::updateCrosshairsPosition(int image_x, int image_y)
         return;
     }
     
-    // Map image coordinates to widget coordinates
+    // Clamp coordinates to valid image bounds
     QSize image_size = current_image_.size();
+    image_x = qBound(0, image_x, image_size.width() - 1);
+    image_y = qBound(0, image_y, image_size.height() - 1);
+    
+    // Map image coordinates to widget coordinates
     int widget_x = image_rect_.left() + (image_x * image_rect_.width()) / image_size.width();
     int widget_y = image_rect_.top() + (image_y * image_rect_.height()) / image_size.height();
     

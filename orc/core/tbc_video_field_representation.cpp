@@ -117,8 +117,8 @@ std::optional<FieldDescriptor> TBCVideoFieldRepresentation::get_descriptor(Field
     auto parity_hint = get_field_parity_hint(id);
     if (parity_hint.has_value()) {
         is_first_field = parity_hint->is_first_field;
-        ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Field {} parity hint: is_first_field={}", 
-                      id.value(), is_first_field);
+        ORC_LOG_TRACE("TBCVideoFieldRepresentation: Field {} parity hint: is_first_field={}", 
+                  id.value(), is_first_field);
     } else {
         // Fallback: infer from field ID (even ID = first field)
         is_first_field = (id.value() % 2 == 0);
@@ -129,7 +129,7 @@ std::optional<FieldDescriptor> TBCVideoFieldRepresentation::get_descriptor(Field
     // Use standards-compliant height (VFR representation - no padding)
     desc.height = calculate_standard_field_height(video_params_.system, is_first_field);
     
-    ORC_LOG_DEBUG("TBCVideoFieldRepresentation: Field {} descriptor: is_first_field={}, height={}", 
+    ORC_LOG_TRACE("TBCVideoFieldRepresentation: Field {} descriptor: is_first_field={}, height={}", 
                   id.value(), is_first_field, desc.height);
     
     // Try to get frame number from metadata

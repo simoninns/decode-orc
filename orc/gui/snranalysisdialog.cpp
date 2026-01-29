@@ -141,27 +141,28 @@ void SNRAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
     plot_->setAxisTitle(Qt::Horizontal, "Frame number");
     plot_->setAxisTitle(Qt::Vertical, "SNR (dB)");
     
-    // Calculate X-axis range from actual data points
+    // Set X-axis range to cover the entire source (0 to total frames)
     double xMin = 0;
-    double xMax = numberOfFrames_;
-    if (!whitePoints_.isEmpty() || !blackPoints_.isEmpty()) {
-        xMin = std::numeric_limits<double>::max();
-        xMax = std::numeric_limits<double>::lowest();
-        
-        for (const auto& pt : whitePoints_) {
-            xMin = std::min(xMin, pt.x());
-            xMax = std::max(xMax, pt.x());
-        }
-        for (const auto& pt : blackPoints_) {
-            xMin = std::min(xMin, pt.x());
-            xMax = std::max(xMax, pt.x());
-        }
-        
-        // Round to integers (frame numbers are always whole)
-        xMin = std::floor(xMin);
-        xMax = std::ceil(xMax);
-    }
+    double xMax = static_cast<double>(numberOfFrames_);
     plot_->setAxisRange(Qt::Horizontal, xMin, xMax);
+    
+    // Calculate appropriate tick step for nice round numbers
+    double xRange = xMax - xMin;
+    double xTickStep = 1.0;
+    if (xRange > 0) {
+        // Determine tick step based on range to show ~10 ticks
+        double idealStep = xRange / 10.0;
+        
+        // Round to nice numbers: 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, etc.
+        double magnitude = std::pow(10.0, std::floor(std::log10(idealStep)));
+        double normalized = idealStep / magnitude;
+        
+        if (normalized < 1.5) xTickStep = 1.0 * magnitude;
+        else if (normalized < 3.0) xTickStep = 2.0 * magnitude;
+        else if (normalized < 7.0) xTickStep = 5.0 * magnitude;
+        else xTickStep = 10.0 * magnitude;
+    }
+    plot_->setAxisTickStep(Qt::Horizontal, xTickStep, 0.0);
     
     // Calculate appropriate Y-axis range
     // SNR values are typically in the range of 20-60 dB

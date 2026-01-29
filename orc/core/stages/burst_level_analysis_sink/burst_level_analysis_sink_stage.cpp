@@ -203,7 +203,8 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
 
     FrameBurstLevelStats current_bin{};
     size_t fields_in_bin = 0;
-    int32_t output_frame_number = 1;  // Sequential output frame counter for graph X-axis
+    size_t first_field_in_bin = 0;  // Track first field index in bin for frame number calculation
+    size_t last_field_in_bin = 0;   // Track last field index in bin
 
     for (size_t i = 0; i < total_fields; ++i) {
         if (cancel_requested_.load()) {
@@ -216,6 +217,12 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
         if (!descriptor) {
             continue;
         }
+
+        // Track first field in this bin for frame number calculation
+        if (fields_in_bin == 0) {
+            first_field_in_bin = i;
+        }
+        last_field_in_bin = i;  // Update last field index in bin
 
         // Run observer on this field to populate observations
         burst_observer.process_field(vfr, fid, mutable_context);
@@ -242,12 +249,14 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
         if (fields_in_bin >= fields_per_bin) {
             if (current_bin.field_count > 0 && current_bin.has_data) {
                 current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
-                current_bin.frame_number = output_frame_number;
-                ORC_LOG_DEBUG("BurstLevelAnalysisSink: Bucket {} - output_frame {}: median_burst_ire={:.2f} IRE ({} fields)",
-                              frame_stats_.size(), output_frame_number,
+                // Calculate frame number using the LAST field in the bin for accurate representation
+                // Frame number is 1-based, field index is 0-based, and 2 fields per frame
+                int32_t bin_frame_number = static_cast<int32_t>((last_field_in_bin / 2) + 1);
+                current_bin.frame_number = bin_frame_number;
+                ORC_LOG_DEBUG("BurstLevelAnalysisSink: Bucket {} - fields {}-{} frame {}: median_burst_ire={:.2f} IRE ({} fields)",
+                              frame_stats_.size(), first_field_in_bin, last_field_in_bin, bin_frame_number,
                               current_bin.median_burst_ire, current_bin.field_count);
                 frame_stats_.push_back(current_bin);
-                output_frame_number++;  // Increment for next data point
             }
 
             current_bin = FrameBurstLevelStats();
@@ -262,15 +271,19 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
     // Output final partial bin if any fields were accumulated
     if (fields_in_bin > 0 && current_bin.field_count > 0 && current_bin.has_data) {
         current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
-        current_bin.frame_number = output_frame_number;
-        ORC_LOG_DEBUG("BurstLevelAnalysisSink: Final bucket {} - output_frame {}: median_burst_ire={:.2f} IRE ({} fields)",
-                      frame_stats_.size(), output_frame_number,
+        // Calculate frame number for final bin using the LAST field
+        int32_t bin_frame_number = static_cast<int32_t>((last_field_in_bin / 2) + 1);
+        current_bin.frame_number = bin_frame_number;
+        ORC_LOG_DEBUG("BurstLevelAnalysisSink: Final bucket {} - fields {}-{} frame {}: median_burst_ire={:.2f} IRE ({} fields)",
+                      frame_stats_.size(), first_field_in_bin, last_field_in_bin, bin_frame_number,
                       current_bin.median_burst_ire, current_bin.field_count);
         frame_stats_.push_back(current_bin);
     }
 
-    total_frames_ = static_cast<int32_t>(frame_stats_.size());
-    ORC_LOG_DEBUG("BurstLevelAnalysisSink: Computed {} data buckets from {} total fields", total_frames_, total_fields);
+    // Set total_frames to the actual number of frames (2 fields = 1 frame)
+    total_frames_ = static_cast<int32_t>((total_fields + 1) / 2);
+    ORC_LOG_DEBUG("BurstLevelAnalysisSink: Computed {} data buckets from {} total fields ({} total frames)", 
+                  frame_stats_.size(), total_fields, total_frames_);
 }
 
 bool BurstLevelAnalysisSinkStage::write_csv(const std::string& path) const {

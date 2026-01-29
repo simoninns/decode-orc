@@ -1070,9 +1070,19 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
     if (m_xUseCustomTicks && m_xTickStep > 0) {
         // Use custom tick positions starting from origin
         double firstTick = std::ceil((m_xMin - m_xTickOrigin) / m_xTickStep) * m_xTickStep + m_xTickOrigin;
-        for (double dataX = firstTick; dataX <= m_xMax; dataX += m_xTickStep) {
-            if (dataX < m_xMin) continue;
-            
+        std::vector<double> tickValues;
+        for (double dataX = firstTick; dataX <= m_xMax + 1e-9; dataX += m_xTickStep) {
+            if (dataX < m_xMin - 1e-9) continue;
+            if (dataX > m_xMax + 1e-9) break;
+            tickValues.push_back(dataX);
+        }
+        
+        // Always include the max value if not already present
+        if (tickValues.empty() || tickValues.back() < m_xMax - 1e-9) {
+            tickValues.push_back(m_xMax);
+        }
+        
+        for (double dataX : tickValues) {
             double fraction = (dataX - m_xMin) / (m_xMax - m_xMin);
             double sceneX = m_plotRect.left() + m_plotRect.width() * fraction;
             
@@ -1101,6 +1111,9 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
         int numXTicks = 10;
         for (int i = 0; i <= numXTicks; ++i) {
             double dataX = m_xMin + (m_xMax - m_xMin) * i / numXTicks;
+            // Ensure we don't go past the max due to floating point errors
+            if (dataX > m_xMax + 1e-9) dataX = m_xMax;
+            
             double sceneX = m_plotRect.left() + m_plotRect.width() * i / numXTicks;
             
             // Draw tick mark

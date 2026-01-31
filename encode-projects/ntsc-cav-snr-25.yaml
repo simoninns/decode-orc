@@ -1,8 +1,8 @@
-name: "NTSC-CAV Standard"
+name: "NTSC-CAV with 25 dB SNR"
 description: "NTSC LaserDisc with CAV picture numbering (IEC 60856-1986)"
 
 output:
-  filename: "encode-output/ntsc-cav"
+  filename: "encode-output/ntsc-cav-snr-25"
   format: "ntsc-composite"
 
 laserdisc:
@@ -36,6 +36,13 @@ pipeline:
       
       - type: "color-burst"
         enabled: true
+
+  effects:
+    # Gaussian noise to simulate tape hiss
+    - type: "noise"
+      enabled: true
+      snr_db: 25.0  # Signal-to-noise ratio in dB
+      seed: 42      # For reproducible results
 
 sections:
   - name: "Lead-in"

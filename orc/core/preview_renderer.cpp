@@ -1457,6 +1457,12 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
                 first_is_top = first_parity->is_first_field;
             }
         }
+        
+        // Early validation: ensure we have field representation before proceeding
+        if (!first_repr) {
+            return result;  // Node doesn't support field rendering (e.g., sink nodes)
+        }
+        
         // Account for reversed weaving
         if (is_reversed) first_is_top = !first_is_top;
 

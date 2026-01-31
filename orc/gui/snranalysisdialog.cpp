@@ -141,9 +141,31 @@ void SNRAnalysisDialog::finishUpdate(int32_t currentFrameNumber)
     plot_->setAxisTitle(Qt::Horizontal, "Frame number");
     plot_->setAxisTitle(Qt::Vertical, "SNR (dB)");
     
-    // Set X-axis range to cover the entire source (0 to total frames)
+    // Set X-axis range based on actual data points
     double xMin = 0;
     double xMax = static_cast<double>(numberOfFrames_);
+    
+    // Find the actual min and max frame numbers from the data
+    if (!whitePoints_.isEmpty() || !blackPoints_.isEmpty()) {
+        double dataMin = std::numeric_limits<double>::max();
+        double dataMax = 0;
+        
+        for (const auto& pt : whitePoints_) {
+            if (pt.x() < dataMin) dataMin = pt.x();
+            if (pt.x() > dataMax) dataMax = pt.x();
+        }
+        for (const auto& pt : blackPoints_) {
+            if (pt.x() < dataMin) dataMin = pt.x();
+            if (pt.x() > dataMax) dataMax = pt.x();
+        }
+        
+        // Use the actual data range
+        if (dataMax > 0) {
+            xMin = std::floor(dataMin);  // Round down to integer
+            xMax = std::ceil(dataMax);   // Round up to integer
+        }
+    }
+    
     plot_->setAxisRange(Qt::Horizontal, xMin, xMax);
     
     // Calculate appropriate tick step for nice round numbers

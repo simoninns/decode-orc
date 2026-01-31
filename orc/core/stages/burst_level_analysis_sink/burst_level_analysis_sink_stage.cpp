@@ -186,13 +186,18 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
     size_t total_fields = range.size();
 
     // Determine binning: aim for ~1000 data points maximum
+    // Always bin at least 2 fields per data point (to combine both fields of a frame)
     const size_t TARGET_DATA_POINTS = 1000;
-    size_t fields_per_bin = 1;
+    size_t fields_per_bin = 2;  // Minimum 2 fields (one frame)
     if (total_fields > TARGET_DATA_POINTS * 2) {
         fields_per_bin = (total_fields + TARGET_DATA_POINTS - 1) / TARGET_DATA_POINTS;
+        // Ensure fields_per_bin is even to avoid splitting frames
+        if (fields_per_bin % 2 != 0) {
+            fields_per_bin++;
+        }
     }
-
-    ORC_LOG_DEBUG("BurstLevelAnalysisSink: {} total fields, binning by {} fields per data point",
+    
+    ORC_LOG_DEBUG("BurstLevelAnalysisSink: {} total fields, binning by {} fields per data point", 
                   total_fields, fields_per_bin);
 
     // Create mutable copy of observation context to populate observations
@@ -250,11 +255,15 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
             if (current_bin.field_count > 0 && current_bin.has_data) {
                 current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
                 // Calculate frame number using the LAST field in the bin for accurate representation
-                // Frame number is 1-based, field index is 0-based, and 2 fields per frame
-                int32_t bin_frame_number = static_cast<int32_t>((last_field_in_bin / 2) + 1);
+                // Frame number is 1-based, field ID value and 2 fields per frame
+                FieldID last_fid(range.start.value() + last_field_in_bin);
+                int32_t bin_frame_number = static_cast<int32_t>((last_fid.value() / 2) + 1);
                 current_bin.frame_number = bin_frame_number;
-                ORC_LOG_DEBUG("BurstLevelAnalysisSink: Bucket {} - fields {}-{} frame {}: median_burst_ire={:.2f} IRE ({} fields)",
-                              frame_stats_.size(), first_field_in_bin, last_field_in_bin, bin_frame_number,
+                ORC_LOG_INFO("BurstLevelAnalysisSink: Bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: median_burst_ire={:.2f} IRE ({} fields)",
+                              frame_stats_.size(), 
+                              first_field_in_bin, last_field_in_bin,
+                              range.start.value() + first_field_in_bin, range.start.value() + last_field_in_bin,
+                              bin_frame_number,
                               current_bin.median_burst_ire, current_bin.field_count);
                 frame_stats_.push_back(current_bin);
             }
@@ -272,10 +281,14 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
     if (fields_in_bin > 0 && current_bin.field_count > 0 && current_bin.has_data) {
         current_bin.median_burst_ire /= static_cast<double>(current_bin.field_count);
         // Calculate frame number for final bin using the LAST field
-        int32_t bin_frame_number = static_cast<int32_t>((last_field_in_bin / 2) + 1);
+        FieldID last_fid(range.start.value() + last_field_in_bin);
+        int32_t bin_frame_number = static_cast<int32_t>((last_fid.value() / 2) + 1);
         current_bin.frame_number = bin_frame_number;
-        ORC_LOG_DEBUG("BurstLevelAnalysisSink: Final bucket {} - fields {}-{} frame {}: median_burst_ire={:.2f} IRE ({} fields)",
-                      frame_stats_.size(), first_field_in_bin, last_field_in_bin, bin_frame_number,
+        ORC_LOG_INFO("BurstLevelAnalysisSink: Final bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: median_burst_ire={:.2f} IRE ({} fields)",
+                      frame_stats_.size(), 
+                      first_field_in_bin, last_field_in_bin,
+                      range.start.value() + first_field_in_bin, range.start.value() + last_field_in_bin,
+                      bin_frame_number,
                       current_bin.median_burst_ire, current_bin.field_count);
         frame_stats_.push_back(current_bin);
     }

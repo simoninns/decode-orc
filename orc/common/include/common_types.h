@@ -137,6 +137,8 @@ struct FrameSNRStats {
     bool has_black_psnr = false;          ///< True if black PSNR data is available
     bool has_data = false;                ///< True if at least one field had data
     size_t field_count = 0;               ///< Number of fields with data (for averaging)
+    size_t white_snr_count = 0;           ///< Number of fields that contributed to white SNR
+    size_t black_psnr_count = 0;          ///< Number of fields that contributed to black PSNR
 };
 
 /**

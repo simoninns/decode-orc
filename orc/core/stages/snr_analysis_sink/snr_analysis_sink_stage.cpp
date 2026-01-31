@@ -205,10 +205,15 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
     size_t total_fields = range.size();
     
     // Determine binning: aim for ~1000 data points maximum
+    // Always bin at least 2 fields per data point (to combine both fields of a frame)
     const size_t TARGET_DATA_POINTS = 1000;
-    size_t fields_per_bin = 1;
+    size_t fields_per_bin = 2;  // Minimum 2 fields (one frame)
     if (total_fields > TARGET_DATA_POINTS * 2) {
         fields_per_bin = (total_fields + TARGET_DATA_POINTS - 1) / TARGET_DATA_POINTS;
+        // Ensure fields_per_bin is even to avoid splitting frames
+        if (fields_per_bin % 2 != 0) {
+            fields_per_bin++;
+        }
     }
     
     ORC_LOG_DEBUG("SNRAnalysisSink: {} total fields, binning by {} fields per data point", 
@@ -256,6 +261,7 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
                     double val = std::get<double>(*white_snr_opt);
                     current_bin.white_snr += val;
                     current_bin.has_white_snr = true;
+                    current_bin.white_snr_count++;
                 } catch (const std::exception& e) {
                     ORC_LOG_TRACE("SNRAnalysisSink: Failed to extract white_snr: {}", e.what());
                 }
@@ -267,6 +273,7 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
                     double val = std::get<double>(*black_psnr_opt);
                     current_bin.black_psnr += val;
                     current_bin.has_black_psnr = true;
+                    current_bin.black_psnr_count++;
                 } catch (const std::exception& e) {
                     ORC_LOG_TRACE("SNRAnalysisSink: Failed to extract black_psnr: {}", e.what());
                 }
@@ -280,18 +287,27 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
         // When bin is full, output it and reset
         if (fields_in_bin >= fields_per_bin) {
             if (current_bin.has_white_snr || current_bin.has_black_psnr) {
-                if (current_bin.has_white_snr) current_bin.white_snr /= fields_in_bin;
-                if (current_bin.has_black_psnr) current_bin.black_psnr /= fields_in_bin;
+                if (current_bin.has_white_snr && current_bin.white_snr_count > 0) {
+                    current_bin.white_snr /= current_bin.white_snr_count;
+                }
+                if (current_bin.has_black_psnr && current_bin.black_psnr_count > 0) {
+                    current_bin.black_psnr /= current_bin.black_psnr_count;
+                }
                 // Calculate frame number using the LAST field in the bin for accurate representation
-                // Frame number is 1-based, field index is 0-based, and 2 fields per frame
-                int32_t bin_frame_number = static_cast<int32_t>((last_field_in_bin / 2) + 1);
+                // Frame number is 1-based, field ID value and 2 fields per frame
+                FieldID last_fid(range.start.value() + last_field_in_bin);
+                int32_t bin_frame_number = static_cast<int32_t>((last_fid.value() / 2) + 1);
                 current_bin.frame_number = bin_frame_number;
                 current_bin.has_data = true;
-                ORC_LOG_DEBUG("SNRAnalysisSink: Bucket {} - fields {}-{} frame {}: white_snr={:.2f}dB, black_psnr={:.2f}dB ({} fields)",
-                              frame_stats_.size(), first_field_in_bin, last_field_in_bin, bin_frame_number,
+                ORC_LOG_INFO("SNRAnalysisSink: Bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: white_snr={:.2f}dB ({} fields), black_psnr={:.2f}dB ({} fields)",
+                              frame_stats_.size(), 
+                              first_field_in_bin, last_field_in_bin,
+                              range.start.value() + first_field_in_bin, range.start.value() + last_field_in_bin,
+                              bin_frame_number,
                               current_bin.has_white_snr ? current_bin.white_snr : 0.0,
+                              current_bin.white_snr_count,
                               current_bin.has_black_psnr ? current_bin.black_psnr : 0.0,
-                              fields_in_bin);
+                              current_bin.black_psnr_count);
                 frame_stats_.push_back(current_bin);
             }
             
@@ -306,17 +322,26 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
 
     // Output final partial bin if it has data
     if (fields_in_bin > 0 && (current_bin.has_white_snr || current_bin.has_black_psnr)) {
-        if (current_bin.has_white_snr) current_bin.white_snr /= fields_in_bin;
-        if (current_bin.has_black_psnr) current_bin.black_psnr /= fields_in_bin;
+        if (current_bin.has_white_snr && current_bin.white_snr_count > 0) {
+            current_bin.white_snr /= current_bin.white_snr_count;
+        }
+        if (current_bin.has_black_psnr && current_bin.black_psnr_count > 0) {
+            current_bin.black_psnr /= current_bin.black_psnr_count;
+        }
         // Calculate frame number for final bin using the LAST field
-        int32_t bin_frame_number = static_cast<int32_t>((last_field_in_bin / 2) + 1);
+        FieldID last_fid(range.start.value() + last_field_in_bin);
+        int32_t bin_frame_number = static_cast<int32_t>((last_fid.value() / 2) + 1);
         current_bin.frame_number = bin_frame_number;
         current_bin.has_data = true;
-        ORC_LOG_DEBUG("SNRAnalysisSink: Final bucket {} - fields {}-{} frame {}: white_snr={:.2f}dB, black_psnr={:.2f}dB ({} fields)",
-                      frame_stats_.size(), first_field_in_bin, last_field_in_bin, bin_frame_number,
+        ORC_LOG_INFO("SNRAnalysisSink: Final bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: white_snr={:.2f}dB ({} fields), black_psnr={:.2f}dB ({} fields)",
+                      frame_stats_.size(), 
+                      first_field_in_bin, last_field_in_bin,
+                      range.start.value() + first_field_in_bin, range.start.value() + last_field_in_bin,
+                      bin_frame_number,
                       current_bin.has_white_snr ? current_bin.white_snr : 0.0,
+                      current_bin.white_snr_count,
                       current_bin.has_black_psnr ? current_bin.black_psnr : 0.0,
-                      fields_in_bin);
+                      current_bin.black_psnr_count);
         frame_stats_.push_back(current_bin);
     }
 

@@ -164,10 +164,10 @@ void FieldPreviewWidget::paintEvent(QPaintEvent *event)
     // Store image rect for cross-hair calculations
     image_rect_ = dest_rect;
     
-    // Use fast transformation for better performance during scrubbing
-    // Note: Qt::SmoothTransformation is slow, Qt::FastTransformation is much faster
-    painter.setRenderHint(QPainter::Antialiasing, false);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    // Use smooth transformation for better quality when scaling
+    // This is especially important for chroma information to avoid aliasing artifacts
+    // Modern systems should handle this fine, even during scrubbing
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
     painter.drawImage(dest_rect, current_image_);
     
     // Draw dropout regions if enabled

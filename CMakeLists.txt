@@ -4,5 +4,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(decode-orc-root)
 
+# Add external dependencies (submodules)
+add_subdirectory(external/encode-orc)
+
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)

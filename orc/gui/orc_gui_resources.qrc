@@ -2,6 +2,6 @@
 <RCC version="1.0">
     <qresource prefix="/orc-gui">
         <file alias="icon.png">../../assets/orc-gui-icon-256.png</file>
-        <file alias="decode-orc-logo-small.png">../../assets/decode-orc-logo-small.png</file>
+        <file alias="decode-orc_logotype-1024x286.png">../../assets/decode-orc_logotype-1024x286.png</file>
     </qresource>
 </RCC>

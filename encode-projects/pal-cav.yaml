@@ -1,0 +1,63 @@
+name: "PAL-CAV Standard"
+description: "PAL LaserDisc with CAV picture numbering (IEC 60857-1986)"
+
+output:
+  filename: "encode-output/pal-cav"
+  format: "pal-composite"
+
+laserdisc:
+  mode: "cav"
+
+pipeline:
+  preprocessing:
+    filters:
+      chroma:
+        enabled: true
+  
+  metadata:
+    generators:
+      - type: "biphase-vbi"
+        enabled: true
+        lines: [16, 17, 18, 328, 329, 330]
+        format: "picture-number"
+      
+      - type: "vits-pal"
+        enabled: true
+        signals:
+          - line: 13
+            signal: "multiburst"
+          - line: 19
+            signal: "uk-national"
+          - line: 325
+            signal: "itu-combination"
+          - line: 331
+            signal: "itu-composite"
+      
+      - type: "color-burst"
+        enabled: true
+
+sections:
+  - name: "Lead-in"
+    duration: 1
+    source:
+      type: "yuv422-image"
+      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+    biphase-vbi:
+      disc_area: "lead-in"
+  
+  - name: "Test Content"
+    duration: 20
+    source:
+      type: "yuv422-image"
+      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+    biphase-vbi:
+      disc_area: "programme-area"
+      picture_start: 1
+  
+  - name: "Lead-out"
+    duration: 1
+    source:
+      type: "yuv422-image"
+      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+    biphase-vbi:
+      disc_area: "lead-out"

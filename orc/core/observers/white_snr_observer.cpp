@@ -167,8 +167,8 @@ double WhiteSNRObserver::calculate_psnr(const std::vector<double>& data) const {
         return 0.0;
     }
     
-    // PSNR uses 100 IRE as the reference signal
-    double signal = 100.0;
+    // White SNR uses the mean of the data as the signal (not a fixed reference)
+    double signal = calc_mean(data);
     double noise = calc_std(data);
     
     // For very low noise (essentially perfect signal), cap at a reasonable maximum

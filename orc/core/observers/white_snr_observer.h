@@ -57,7 +57,7 @@ private:
         double start_us,
         double length_us) const;
     
-    // Calculate PSNR from IRE samples
+    // Calculate SNR from IRE samples (uses mean of data as signal)
     double calculate_psnr(const std::vector<double>& data) const;
     
     // Helper math functions

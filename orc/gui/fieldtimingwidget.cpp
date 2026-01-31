@@ -213,8 +213,31 @@ int FieldTimingWidget::getCenterSample() const
 
 void FieldTimingWidget::setZoomFactor(double zoom_factor)
 {
+    // Get the center sample before zoom change
+    int center_sample = getCenterSample();
+    
     zoom_factor_ = std::max(0.01, zoom_factor);  // Clamp to reasonable minimum
     updateScrollBar();
+    
+    // Recalculate scroll position to keep the center sample centered
+    if (center_sample >= 0) {
+        // Calculate new samples per view with updated zoom
+        int visible_width = width() - 2 * MARGIN - 50;
+        double base_pixels_per_sample = getBasePixelsPerSample();
+        double effective_pixels_per_sample = base_pixels_per_sample * zoom_factor_;
+        int samples_per_view = static_cast<int>(visible_width / effective_pixels_per_sample);
+        
+        // Calculate new scroll offset to keep center_sample in the center
+        int new_scroll_offset = center_sample - (samples_per_view / 2);
+        
+        // Clamp to valid scroll range
+        new_scroll_offset = std::max(0, new_scroll_offset);
+        new_scroll_offset = std::min(new_scroll_offset, scroll_bar_->maximum());
+        
+        // Update scroll position
+        scroll_bar_->setValue(new_scroll_offset);
+    }
+    
     update();
 }
 

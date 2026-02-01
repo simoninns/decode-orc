@@ -24,8 +24,11 @@ jobs:
       
       - name: Install system dependencies
         run: |
+          dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+          dnf install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
           dnf install -y \
             cmake \
+            gcc \
             gcc-c++ \
             make \
             git \
@@ -39,7 +42,9 @@ jobs:
             fftw-libs-double \
             fftw-libs-single \
             qt6-qtbase-devel \
-            qt6-qtsvg-devel
+            qt6-qtsvg-devel \
+            ffmpeg \
+            ffmpeg-devel --allowerasing
       
       - name: Create build directory
         run: mkdir -p build

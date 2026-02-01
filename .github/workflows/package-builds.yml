@@ -31,6 +31,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+          submodules: recursive
       
       - name: Install ImageMagick
         run: choco install imagemagick -y
@@ -229,6 +230,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+          submodules: recursive
       
       - name: Install system dependencies
         run: |
@@ -936,6 +938,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
+          submodules: recursive
       
       - name: Set bundle name
         id: set-bundle-name

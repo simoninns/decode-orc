@@ -423,7 +423,7 @@ NodeInfo ProjectPresenter::getNodeInfo(orc::NodeID node_id) const
             NodeInfo info;
             info.node_id = node.node_id;
             info.stage_name = node.stage_name;
-            info.label = node.display_name;
+            info.label = node.user_label.empty() ? node.display_name : node.user_label;
             info.x_position = node.x_position;
             info.y_position = node.y_position;
             info.can_remove = caps.can_remove;

@@ -4192,6 +4192,13 @@ void MainWindow::onLineScopeRefreshAtFieldLine()
         return;
     }
     
+    // If no line has been selected yet (line number is sentinel -1), skip refresh
+    // This can happen when field timing dialog triggers frame changes before line scope is initialized
+    if (last_line_scope_line_number_ < 0) {
+        ORC_LOG_DEBUG("No valid line number stored, skipping refresh (line scope not yet initialized)");
+        return;
+    }
+    
     // If we don't have a valid stored field, try to initialize from current slider position
     if (last_line_scope_field_index_ < 0) {
         ORC_LOG_DEBUG("No stored field index, initializing from current mode");
@@ -4266,12 +4273,6 @@ void MainWindow::onLineScopeRefreshAtFieldLine()
             new_field_index = first_field_in_pair;
         }
         ORC_LOG_DEBUG("Split mode: pair_index={}, preserving parity, using field={}", pair_index, new_field_index);
-    }
-    
-    // Validate that we have sensible values before requesting samples
-    if (new_field_index < 0 || last_line_scope_line_number_ < 0) {
-        ORC_LOG_WARN("Invalid field={} or line={}, cannot refresh", new_field_index, last_line_scope_line_number_);
-        return;
     }
     
     // Request samples at the SAME line number in the new field

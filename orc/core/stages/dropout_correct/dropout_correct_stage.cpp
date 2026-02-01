@@ -809,55 +809,45 @@ void DropoutCorrectStage::correct_single_field(
         ORC_LOG_DEBUG("DropoutCorrectStage: split into {} dropout regions", split_dropouts.size());
         
         // Process each dropout on both Y and C channels
-        size_t luma_corrections = 0;
-        size_t chroma_corrections = 0;
+        // For YC sources: find ONE replacement line and use it for both channels
+        // This ensures temporal consistency - both Y and C come from the same moment
+        size_t corrections_applied = 0;
         
         for (const auto& dropout : split_dropouts) {
-            // Correct luma channel
             uint16_t* luma_line_data = &luma_field_data[dropout.line * descriptor.width];
+            uint16_t* chroma_line_data = &chroma_field_data[dropout.line * descriptor.width];
             bool use_intrafield = config_.intrafield_only;
             
-            // Find replacement using luma channel
-            auto luma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield, false, Channel::LUMA);
-            if (!luma_replacement.found && !config_.intrafield_only) {
-                luma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false, false, Channel::LUMA);
+            // Find ONE best replacement line (search using luma channel)
+            auto replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield, false, Channel::LUMA);
+            if (!replacement.found && !config_.intrafield_only) {
+                replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false, false, Channel::LUMA);
             }
             
-            if (luma_replacement.found) {
-                // Get replacement luma line data
-                const uint16_t* replacement_luma = source->get_line_luma(luma_replacement.source_field, luma_replacement.source_line);
+            if (replacement.found) {
+                // Get BOTH luma and chroma data from the SAME replacement line
+                const uint16_t* replacement_luma = source->get_line_luma(replacement.source_field, replacement.source_line);
+                const uint16_t* replacement_chroma = source->get_line_chroma(replacement.source_field, replacement.source_line);
                 
+                // Correct both channels using the same replacement line
                 for (uint32_t sample = dropout.start_sample; sample <= dropout.end_sample && sample < descriptor.width; ++sample) {
                     if (corrected->highlight_corrections_) {
                         luma_line_data[sample] = 65535;
-                    } else {
-                        luma_line_data[sample] = replacement_luma[sample];
-                    }
-                }
-                luma_corrections++;
-            }
-            
-            // Correct chroma channel (same dropout map, independent replacement search)
-            uint16_t* chroma_line_data = &chroma_field_data[dropout.line * descriptor.width];
-            
-            // Find replacement using chroma channel
-            auto chroma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, use_intrafield, true, Channel::CHROMA);
-            if (!chroma_replacement.found && !config_.intrafield_only) {
-                chroma_replacement = find_replacement_line(*source, field_id, dropout.line, dropout, false, true, Channel::CHROMA);
-            }
-            
-            if (chroma_replacement.found) {
-                // Get replacement chroma line data
-                const uint16_t* replacement_chroma = source->get_line_chroma(chroma_replacement.source_field, chroma_replacement.source_line);
-                
-                for (uint32_t sample = dropout.start_sample; sample <= dropout.end_sample && sample < descriptor.width; ++sample) {
-                    if (corrected->highlight_corrections_) {
                         chroma_line_data[sample] = 65535;
                     } else {
+                        // Use luma channel for luma, chroma channel for chroma
+                        luma_line_data[sample] = replacement_luma[sample];
                         chroma_line_data[sample] = replacement_chroma[sample];
                     }
                 }
-                chroma_corrections++;
+                corrections_applied++;
+                
+                ORC_LOG_DEBUG("  Applied YC correction to line {} samples {}-{} from field {} line {} (both Y and C)",
+                              dropout.line, dropout.start_sample, dropout.end_sample,
+                              replacement.source_field.value(), replacement.source_line);
+            } else {
+                ORC_LOG_DEBUG("  No replacement found for YC line {} samples {}-{}",
+                              dropout.line, dropout.start_sample, dropout.end_sample);
             }
         }
         
@@ -865,9 +855,8 @@ void DropoutCorrectStage::correct_single_field(
         corrected->corrected_luma_fields_.put(field_id, std::move(luma_field_data));
         corrected->corrected_chroma_fields_.put(field_id, std::move(chroma_field_data));
         
-        ORC_LOG_DEBUG("DropoutCorrectStage: YC field {} complete - Y: {}/{} corrections, C: {}/{} corrections",
-                      field_id.value(), luma_corrections, split_dropouts.size(), 
-                      chroma_corrections, split_dropouts.size());
+        ORC_LOG_DEBUG("DropoutCorrectStage: YC field {} complete - {} corrections applied (both Y and C from same replacement lines)",
+                      field_id.value(), corrections_applied);
         return;
     }
     

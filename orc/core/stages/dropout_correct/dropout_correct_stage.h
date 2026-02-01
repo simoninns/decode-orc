@@ -234,6 +234,7 @@ private:
         uint32_t line,
         const DropoutRegion& dropout,
         bool intrafield,
+        bool match_chroma_phase_override,
         Channel channel = Channel::COMPOSITE) const;
     
     /// Apply a single dropout correction

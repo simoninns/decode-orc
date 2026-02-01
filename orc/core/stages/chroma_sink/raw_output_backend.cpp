@@ -84,7 +84,7 @@ bool RawOutputBackend::initialize(const Configuration& config)
     return true;
 }
 
-bool RawOutputBackend::writeFrame(const ComponentFrame& frame)
+bool RawOutputBackend::writeFrame(const ::ComponentFrame& frame)
 {
     if (!writer_ || !output_file_.is_open()) {
         ORC_LOG_ERROR("RawOutputBackend: Not initialized");

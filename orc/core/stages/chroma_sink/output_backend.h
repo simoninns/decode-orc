@@ -79,7 +79,7 @@ public:
      * @param frame Component frame to write
      * @return true if write successful, false otherwise
      */
-    virtual bool writeFrame(const ComponentFrame& frame) = 0;
+    virtual bool writeFrame(const ::ComponentFrame& frame) = 0;
     
     /**
      * @brief Finalize output and close file

@@ -38,7 +38,7 @@ public:
     ~FFmpegOutputBackend() override;
     
     bool initialize(const Configuration& config) override;
-    bool writeFrame(const ComponentFrame& frame) override;
+    bool writeFrame(const ::ComponentFrame& frame) override;
     bool finalize() override;
     std::string getFormatInfo() const override;
     

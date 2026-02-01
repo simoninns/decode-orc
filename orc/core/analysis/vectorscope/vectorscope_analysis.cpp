@@ -9,6 +9,7 @@
 
 #include "vectorscope_analysis.h"
 #include "../analysis_registry.h"
+#include "../../stages/chroma_sink/decoders/componentframe.h"
 #include "logging.h"
 
 namespace orc {
@@ -180,7 +181,57 @@ VectorscopeData VectorscopeAnalysisTool::extractFromInterlacedRGB(
     return data;
 }
 
+VectorscopeData VectorscopeAnalysisTool::extractFromComponentFrame(
+    const ::ComponentFrame& frame,
+    uint64_t field_number,
+    uint32_t subsample) {
+    
+    VectorscopeData data;
+    int32_t width = frame.getWidth();
+    int32_t height = frame.getHeight();
+    data.width = static_cast<uint32_t>(width);
+    data.height = static_cast<uint32_t>(height);
+    data.field_number = field_number;
+    
+    if (width == 0 || height == 0 || subsample == 0) {
+        return data;
+    }
+    
+    // Reserve space for samples from both fields (with subsampling)
+    size_t estimated_samples = (width / subsample) * (height / subsample);
+    data.samples.reserve(estimated_samples);
+    
+    // Process both fields separately
+    // Field 0 (first/odd field): even lines (0, 2, 4, ...)
+    // Field 1 (second/even field): odd lines (1, 3, 5, ...)
+    for (uint8_t field_id = 0; field_id < 2; field_id++) {
+        // Process every (2 * subsample)th line starting from field_id
+        for (int32_t y = field_id; y < height; y += (2 * static_cast<int32_t>(subsample))) {
+            const double* uLine = frame.u(y);
+            const double* vLine = frame.v(y);
+            
+            for (int32_t x = 0; x < width; x += static_cast<int32_t>(subsample)) {
+                // U and V are already in the native decoder format (doubles)
+                // They represent the actual chroma signal levels
+                UVSample uv;
+                uv.u = uLine[x];
+                uv.v = vLine[x];
+                uv.field_id = field_id;  // Tag which field this sample came from
+                data.samples.push_back(uv);
+            }
+        }
+    }
+    
+    ORC_LOG_DEBUG("Extracted {} native U/V samples from ComponentFrame field {} ({}x{}, subsample={}, both fields)",
+                 data.samples.size(), field_number, width, height, subsample);
+    
+    return data;
+}
+
 // Register the tool
 REGISTER_ANALYSIS_TOOL(VectorscopeAnalysisTool)
+
+// Force linker to include this object file
+void force_link_VectorscopeAnalysisTool() {}
 
 } // namespace orc

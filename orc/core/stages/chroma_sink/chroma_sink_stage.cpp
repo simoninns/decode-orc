@@ -852,7 +852,7 @@ bool ChromaSinkStage::trigger(
     
     // Use vector of optional frames to track which have been written
     // This allows out-of-order completion while maintaining sequential writes
-    std::vector<std::optional<ComponentFrame>> outputFrames;
+    std::vector<std::optional<::ComponentFrame>> outputFrames;
     outputFrames.resize(numOutputFrames);
     
     // Determine number of threads to use
@@ -1051,7 +1051,7 @@ bool ChromaSinkStage::trigger(
             int32_t frameEndIndex = frameStartIndex + 2;
             
             // Prepare single-frame output buffer
-            std::vector<ComponentFrame> singleOutput;
+            std::vector<::ComponentFrame> singleOutput;
             singleOutput.resize(1);
             
             // Decode this ONE frame using thread-local decoder
@@ -1309,7 +1309,7 @@ SourceField ChromaSinkStage::convertToSourceField(
 bool ChromaSinkStage::writeOutputFile(
     const std::string& output_path,
     const std::string& format,
-    const std::vector<ComponentFrame>& frames,
+    const std::vector<::ComponentFrame>& frames,
     const void* videoParamsPtr,
     const VideoFieldRepresentation* vfr,
     uint64_t start_field_index,
@@ -1668,7 +1668,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     
     // Decode the field range using cached decoder
     // For 3D mode, we need to calculate the proper start/end indices based on the extracted fields
-    std::vector<ComponentFrame> outputFrames(1);
+    std::vector<::ComponentFrame> outputFrames(1);
     
     // Calculate indices for the decoder:
     // If we extracted lookbehind/lookahead, the target frame starts at a specific offset in the field array
@@ -1695,14 +1695,28 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     auto decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(decode_end - decode_start).count();
     ORC_LOG_DEBUG("ChromaSink: Frame {} decoded using '{}' decoder in {} ms", index, active_decoder, decode_ms);
     
-    // Convert ComponentFrame YUV to RGB
-    ComponentFrame& frame = outputFrames[0];
+    // Extract vectorscope data from ComponentFrame before RGB conversion
+    ::ComponentFrame& frame = outputFrames[0];
     int32_t width = frame.getWidth();
     int32_t height = frame.getHeight();
     
     if (width == 0 || height == 0) {
         ORC_LOG_WARN("ChromaSink: Frame {} decode failed ({}x{})", index, width, height);
         return result;
+    }
+    
+    // Extract vectorscope data using native U/V channels (subsample=4 for preview performance)
+    result.vectorscope_data = VectorscopeAnalysisTool::extractFromComponentFrame(
+        frame,
+        field_a_index,
+        4  // subsample factor for preview
+    );
+    
+    // Attach video parameters for graticule rendering
+    if (result.vectorscope_data.has_value()) {
+        result.vectorscope_data->system = videoParams.system;
+        result.vectorscope_data->white_16b_ire = videoParams.white_16b_ire;
+        result.vectorscope_data->black_16b_ire = videoParams.black_16b_ire;
     }
     
     ORC_LOG_DEBUG("ChromaSink: Converting frame {} ({}x{}) YUV->RGB", index, width, height);
@@ -1771,55 +1785,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         }
     }
     
-    // Populate vectorscope payload (subsample to keep UI responsive)
-    // For YC sources, pull U/V directly from decoder output to avoid RGB round-trip
-    const uint32_t vectorscope_subsample = 2;  // sample every other pixel for speed
-    if (is_yc_source) {
-        VectorscopeData data;
-        data.width = static_cast<uint32_t>(width);
-        data.height = static_cast<uint32_t>(height);
-        data.field_number = field_a_index;
-        // Rough reserve to reduce reallocations
-        data.samples.reserve((width / static_cast<int32_t>(vectorscope_subsample)) * (height / static_cast<int32_t>(vectorscope_subsample)));
-
-        const double safeIreRange = (ireRange != 0.0) ? ireRange : 1.0;
-        const double uvScale = 32768.0 / safeIreRange;  // Map decoded U/V to vectorscope range
-
-        for (uint8_t field_id = 0; field_id < 2; ++field_id) {
-            for (int32_t y = field_id; y < height; y += static_cast<int32_t>(vectorscope_subsample) * 2) {
-                const double* uLine = frame.u(y);
-                const double* vLine = frame.v(y);
-                if (!uLine || !vLine) {
-                    continue;
-                }
-
-                for (int32_t x = 0; x < width; x += static_cast<int32_t>(vectorscope_subsample)) {
-                    double u_val = uLine[x] * uvScale;
-                    double v_val = vLine[x] * uvScale;
-                    data.samples.push_back({u_val, v_val, field_id});
-                }
-            }
-        }
-        result.vectorscope_data = std::move(data);
-    } else {
-        // Extract from both fields in the interlaced RGB frame (composite sources)
-        result.vectorscope_data = VectorscopeAnalysisTool::extractFromInterlacedRGB(
-            rgb16_data.data(),
-            static_cast<uint32_t>(width),
-            static_cast<uint32_t>(height),
-            field_a_index,
-            vectorscope_subsample
-        );
-    }
-    // Attach video parameters needed for graticule targets
-    if (result.vectorscope_data.has_value() && cached_input_) {
-        auto vparams = cached_input_->get_video_parameters();
-        if (vparams) {
-            result.vectorscope_data->system = vparams->system;
-            result.vectorscope_data->white_16b_ire = vparams->white_16b_ire;
-            result.vectorscope_data->black_16b_ire = vparams->black_16b_ire;
-        }
-    }
+    // Vectorscope data was already extracted earlier from ComponentFrame native U/V
+    // (see extractFromComponentFrame call above, before RGB conversion)
     
     return result;
 }

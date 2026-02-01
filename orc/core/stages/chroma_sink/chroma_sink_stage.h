@@ -188,7 +188,7 @@ private:
     bool writeOutputFile(
         const std::string& output_path,
         const std::string& format,
-        const std::vector<ComponentFrame>& frames,
+        const std::vector<::ComponentFrame>& frames,
         const void* videoParams,
         const VideoFieldRepresentation* vfr,
         uint64_t start_field_index,

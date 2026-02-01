@@ -14,9 +14,12 @@
 #include "vectorscope_data.h"
 #include <memory>
 
+// Forward declaration (ComponentFrame is in global namespace, not orc::)
+class ComponentFrame;
+
 namespace orc {
 
-// Forward declaration
+// Forward declarations
 class ChromaSinkStage;
 
 /**
@@ -84,6 +87,22 @@ public:
         const uint16_t* rgb_data,
         uint32_t width,
         uint32_t height,
+        uint64_t field_number,
+        uint32_t subsample = 1);
+    
+    /**
+     * @brief Extract vectorscope data directly from ComponentFrame U/V channels
+     * 
+     * This is the preferred method as it uses the native U/V chroma values from
+     * the decoder, avoiding RGB→YUV conversion artifacts and signal level issues.
+     * 
+     * @param frame ComponentFrame with decoded Y/U/V data
+     * @param field_number Field number for identification
+     * @param subsample Subsampling factor (1 = all pixels, 2 = every other pixel, etc.)
+     * @return Vectorscope data with native U/V samples from both fields
+     */
+    static VectorscopeData extractFromComponentFrame(
+        const ::ComponentFrame& frame,
         uint64_t field_number,
         uint32_t subsample = 1);
 };

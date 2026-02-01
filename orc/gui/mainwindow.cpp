@@ -647,33 +647,43 @@ void MainWindow::closeAllDialogs()
     
     // Close and delete all per-node analysis dialogs
     // These are set to WA_DeleteOnClose, so closing them will trigger deletion
+    // IMPORTANT: Don't call close() while iterating - the dialogs have destroyed signals
+    // that erase from the map, which would invalidate the iterator
+    
+    // Collect pointers first, then close (avoid iterator invalidation)
+    std::vector<QWidget*> dialogs_to_close;
+    
     for (auto& pair : dropout_analysis_dialogs_) {
-        if (pair.second && pair.second->isVisible()) {
-            pair.second->close();
+        if (pair.second) {
+            dialogs_to_close.push_back(pair.second);
         }
     }
-    dropout_analysis_dialogs_.clear();
-    
     for (auto& pair : snr_analysis_dialogs_) {
-        if (pair.second && pair.second->isVisible()) {
-            pair.second->close();
+        if (pair.second) {
+            dialogs_to_close.push_back(pair.second);
         }
     }
-    snr_analysis_dialogs_.clear();
-    
     for (auto& pair : burst_level_analysis_dialogs_) {
-        if (pair.second && pair.second->isVisible()) {
-            pair.second->close();
+        if (pair.second) {
+            dialogs_to_close.push_back(pair.second);
         }
     }
-    burst_level_analysis_dialogs_.clear();
-    
     for (auto& pair : vectorscope_dialogs_) {
-        if (pair.second && pair.second->isVisible()) {
-            pair.second->close();
+        if (pair.second) {
+            dialogs_to_close.push_back(pair.second);
         }
     }
+    
+    // Clear maps before closing to prevent destroyed signal handlers from modifying them
+    dropout_analysis_dialogs_.clear();
+    snr_analysis_dialogs_.clear();
+    burst_level_analysis_dialogs_.clear();
     vectorscope_dialogs_.clear();
+    
+    // Now safe to close all dialogs
+    for (auto* dialog : dialogs_to_close) {
+        dialog->close();
+    }
     
     // Close all progress dialogs
     if (trigger_progress_dialog_) {

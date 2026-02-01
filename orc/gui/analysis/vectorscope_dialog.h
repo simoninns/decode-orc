@@ -16,6 +16,8 @@
 #include <QRadioButton>
 #include <QButtonGroup>
 #include <QPushButton>
+#include <QSlider>
+#include <QSpinBox>
 #include <QImage>
 #include <string>
 #include <optional>
@@ -90,6 +92,8 @@ private slots:
     void onDefocusToggled();
     void onFieldSelectionChanged();
     void onGraticuleChanged();
+    void onDrawLinesToggled();
+    void onPointSizeChanged();
 
 private:
     friend class VectorscopeDialogPrivate;
@@ -108,6 +112,8 @@ private:
     // Display options
     QCheckBox* blend_color_checkbox_;
     QCheckBox* defocus_checkbox_;
+    QCheckBox* draw_lines_checkbox_;
+    QSpinBox* point_size_spinbox_;
     
     // Field selection options
     QRadioButton* field_select_all_radio_;

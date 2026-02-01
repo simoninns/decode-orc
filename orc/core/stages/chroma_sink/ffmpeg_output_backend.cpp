@@ -805,7 +805,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
     return true;
 }
 
-bool FFmpegOutputBackend::writeFrame(const ComponentFrame& component_frame)
+bool FFmpegOutputBackend::writeFrame(const ::ComponentFrame& component_frame)
 {
     if (!codec_ctx_ || !frame_) {
         ORC_LOG_ERROR("FFmpegOutputBackend: Not initialized");

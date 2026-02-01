@@ -129,10 +129,23 @@ void VectorscopeDialog::setupUI() {
     
     blend_color_checkbox_ = new QCheckBox("Blend Color (Accumulate)");
     defocus_checkbox_ = new QCheckBox("Defocus");
+    draw_lines_checkbox_ = new QCheckBox("Draw Trace Lines");
+    draw_lines_checkbox_->setChecked(true);
+    
+    // Point size spinbox
+    QHBoxLayout* point_layout = new QHBoxLayout();
+    QLabel* point_label = new QLabel("Point Size:");
+    point_size_spinbox_ = new QSpinBox();
+    point_size_spinbox_->setRange(1, 10);
+    point_size_spinbox_->setValue(3);
+    point_layout->addWidget(point_label);
+    point_layout->addWidget(point_size_spinbox_);
+    point_layout->addStretch();
     
     display_layout->addWidget(blend_color_checkbox_);
     display_layout->addWidget(defocus_checkbox_);
-    display_layout->addStretch();
+    display_layout->addWidget(draw_lines_checkbox_);
+    display_layout->addLayout(point_layout);
     
     controls_layout->addWidget(display_group);
     
@@ -155,7 +168,6 @@ void VectorscopeDialog::setupUI() {
     field_select_layout->addWidget(field_select_all_radio_);
     field_select_layout->addWidget(field_select_first_radio_);
     field_select_layout->addWidget(field_select_second_radio_);
-    field_select_layout->addStretch();
     
     controls_layout->addWidget(field_select_group);
     
@@ -169,7 +181,7 @@ void VectorscopeDialog::setupUI() {
     graticule_full_radio_ = new QRadioButton("Full");
     graticule_75_radio_ = new QRadioButton("75%");
     
-    graticule_full_radio_->setChecked(true);
+    graticule_75_radio_->setChecked(true);
     
     graticule_group_->addButton(graticule_none_radio_, 0);
     graticule_group_->addButton(graticule_full_radio_, 1);
@@ -178,7 +190,6 @@ void VectorscopeDialog::setupUI() {
     graticule_layout->addWidget(graticule_none_radio_);
     graticule_layout->addWidget(graticule_full_radio_);
     graticule_layout->addWidget(graticule_75_radio_);
-    graticule_layout->addStretch();
     
     controls_layout->addWidget(graticule_group);
     controls_layout->addStretch();
@@ -199,6 +210,8 @@ void VectorscopeDialog::setupUI() {
 void VectorscopeDialog::connectSignals() {
     connect(blend_color_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onBlendColorToggled);
     connect(defocus_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onDefocusToggled);
+    connect(draw_lines_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onDrawLinesToggled);
+    connect(point_size_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged), this, &VectorscopeDialog::onPointSizeChanged);
     connect(field_select_group_, QOverload<int>::of(&QButtonGroup::idClicked),
             this, [this](int){ onFieldSelectionChanged(); });
     connect(graticule_group_, QOverload<int>::of(&QButtonGroup::idClicked),
@@ -244,6 +257,12 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     bool blend_mode = blend_color_checkbox_->isChecked();
     bool defocus = defocus_checkbox_->isChecked();
     int field_select = field_select_group_->checkedId();
+    
+    // Calculate IRE range for debugging
+    double ire_range = data.white_16b_ire - data.black_16b_ire;
+    double black_percent = (data.black_16b_ire / 65535.0) * 100.0;
+    double white_percent = (data.white_16b_ire / 65535.0) * 100.0;
+    
     ORC_LOG_DEBUG(
         "VectorscopeDialog: renderVectorscope field={} samples={} graticule={} blend={} defocus={} field_select={} system={} white={} black={} chroma_detected={}",
         data.field_number,
@@ -257,6 +276,16 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         data.black_16b_ire,
         has_chroma
     );
+    ORC_LOG_DEBUG(
+        "VectorscopeDialog: IRE levels - black={:.2f}% ({}) white={:.2f}% ({}) range={:.0f} ({}=NTSC, {}=PAL)",
+        black_percent,
+        data.black_16b_ire,
+        white_percent,
+        data.white_16b_ire,
+        ire_range,
+        static_cast<int>(orc::VideoSystem::NTSC),
+        static_cast<int>(orc::VideoSystem::PAL)
+    );
     
     // Create image
     QImage image(SIZE, SIZE, QImage::Format_RGB888);
@@ -269,14 +298,21 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         d_->drawGraticule(painter, this, data.system, data.white_16b_ire, data.black_16b_ire);
     }
     
-    // Set blend mode
-    painter.setCompositionMode(blend_mode ? QPainter::CompositionMode_Plus : QPainter::CompositionMode_SourceOver);
+    // Set blend mode for transparency accumulation
+    if (blend_mode) {
+        painter.setCompositionMode(QPainter::CompositionMode_Plus);
+    } else {
+        painter.setCompositionMode(QPainter::CompositionMode_SourceOver);
+    }
     
     // Cheap predictable PRNG for defocus
     std::minstd_rand random_engine(12345);
     std::normal_distribution<double> normal_dist(0.0, 100.0);
     
-    // Plot U/V samples
+    // Plot U/V samples - connect consecutive points like a real vectorscope
+    std::optional<QPoint> prev_point;
+    QColor current_color = Qt::green;
+    
     for (const auto& sample : data.samples) {
         // Filter samples based on field selection
         if (field_select == 1 && sample.field_id != 0) continue;  // First field only
@@ -297,6 +333,7 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         // else: no blend → all green
         
         painter.setPen(color);
+        painter.setBrush(color);
         
         // Apply defocus if enabled
         double u = sample.u;
@@ -311,7 +348,23 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         int y = HALF_SIZE - static_cast<int>(v / SCALE);
         
         if (x >= 0 && x < SIZE && y >= 0 && y < SIZE) {
-            painter.drawPoint(x, y);
+            QPoint current_point(x, y);
+            
+            // Draw line from previous point if enabled (real vectorscope behavior)
+            if (draw_lines_checkbox_->isChecked() && prev_point.has_value() && current_color == color) {
+                painter.drawLine(*prev_point, current_point);
+            }
+            
+            // Draw a filled circle at current location to simulate beam dwell
+            // Transparent circles accumulate to create bright spots where trace dwells
+            int point_radius = point_size_spinbox_->value();
+            painter.drawEllipse(current_point, point_radius, point_radius);
+            
+            prev_point = current_point;
+            current_color = color;
+        } else {
+            // Out of bounds - break the line
+            prev_point.reset();
         }
     }
     
@@ -366,10 +419,10 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter, VectorscopeDialo
         double theta = (-33.0 * M_PI) / 180.0;
         for (int i = 0; i < 4; i++) {
             painter.drawLine(
-                HALF_SIZE + static_cast<int>(0.2 * HALF_SIZE * cos(theta)),
-                HALF_SIZE + static_cast<int>(0.2 * HALF_SIZE * sin(theta)),
-                HALF_SIZE + static_cast<int>(HALF_SIZE * cos(theta)),
-                HALF_SIZE + static_cast<int>(HALF_SIZE * sin(theta))
+                HALF_SIZE + (0.2 * HALF_SIZE * cos(theta)),
+                HALF_SIZE + (0.2 * HALF_SIZE * sin(theta)),
+                HALF_SIZE + (HALF_SIZE * cos(theta)),
+                HALF_SIZE + (HALF_SIZE * sin(theta))
             );
             theta += M_PI / 2.0;
         }
@@ -383,20 +436,27 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter, VectorscopeDialo
         const int32_t white = white_16b_ire;
         const int32_t black = black_16b_ire;
         const double SCALE = 65536.0 / SIZE;
+        const double ireRange = static_cast<double>(white - black);
 
         if (white > black) {
             // Draw targets for six colour bars (R'G'B' 001..110)
             for (int rgb = 1; rgb < 7; rgb++) {
+                // R'G'B' for this bar - scale by percent for 75% vs 100%
                 double R = percent * static_cast<double>((rgb >> 2) & 1);
                 double G = percent * static_cast<double>((rgb >> 1) & 1);
                 double B = percent * static_cast<double>(rgb & 1);
 
-                // Poynton p337 eq 28.5: Y'UV
+                // Convert R'G'B' to Y'UV [Poynton p337 eq 28.5]
                 double U = (R * -0.147141) + (G * -0.288869) + (B * 0.436010);
                 double V = (R * 0.614975)  + (G * -0.514965) + (B * -0.100010);
 
+                // Scale U/V to IRE range to match ComponentFrame scaling
+                // ComponentFrame U/V are in IRE-scaled units (from FrameCanvas::rgb)
+                U *= ireRange;
+                V *= ireRange;
+
                 double barTheta = atan2(-V, U);
-                double barMag = std::sqrt((V * V) + (U * U)) * (static_cast<double>(white - black)) / SCALE;
+                double barMag = std::sqrt((V * V) + (U * U)) / SCALE;
 
                 // Grid around target: 10° and 10% steps
                 const double stepTheta = (10.0 * M_PI) / 180.0;
@@ -406,20 +466,20 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter, VectorscopeDialo
                 for (int step = -1; step < 2; step++) {
                     double theta = barTheta + (step * stepTheta);
                     painter.drawLine(
-                        HALF_SIZE + static_cast<int>((barMag - stepMag) * cos(theta)),
-                        HALF_SIZE + static_cast<int>((barMag - stepMag) * sin(theta)),
-                        HALF_SIZE + static_cast<int>((barMag + stepMag) * cos(theta)),
-                        HALF_SIZE + static_cast<int>((barMag + stepMag) * sin(theta))
+                        HALF_SIZE + ((barMag - stepMag) * cos(theta)),
+                        HALF_SIZE + ((barMag - stepMag) * sin(theta)),
+                        HALF_SIZE + ((barMag + stepMag) * cos(theta)),
+                        HALF_SIZE + ((barMag + stepMag) * sin(theta))
                     );
                 }
                 // Magnitude sweeps
                 for (int step = -1; step < 2; step++) {
                     double mag = barMag + (step * stepMag);
                     painter.drawLine(
-                        HALF_SIZE + static_cast<int>(mag * cos(barTheta - stepTheta)),
-                        HALF_SIZE + static_cast<int>(mag * sin(barTheta - stepTheta)),
-                        HALF_SIZE + static_cast<int>(mag * cos(barTheta + stepTheta)),
-                        HALF_SIZE + static_cast<int>(mag * sin(barTheta + stepTheta))
+                        HALF_SIZE + (mag * cos(barTheta - stepTheta)),
+                        HALF_SIZE + (mag * sin(barTheta - stepTheta)),
+                        HALF_SIZE + (mag * cos(barTheta + stepTheta)),
+                        HALF_SIZE + (mag * sin(barTheta + stepTheta))
                     );
                 }
             }
@@ -484,6 +544,23 @@ void VectorscopeDialog::onFieldSelectionChanged() {
 void VectorscopeDialog::onGraticuleChanged() {
     ORC_LOG_DEBUG("VectorscopeDialog: Graticule mode changed -> {}", graticule_group_->checkedId());
     // Re-render with new graticule
+    if (d_->last_data.has_value()) {
+        renderVectorscope(*d_->last_data);
+    }
+}
+
+void VectorscopeDialog::onDrawLinesToggled() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Draw Lines toggled -> {}", draw_lines_checkbox_->isChecked());
+    // Re-render with or without trace lines
+    if (d_->last_data.has_value()) {
+        renderVectorscope(*d_->last_data);
+    }
+}
+
+void VectorscopeDialog::onPointSizeChanged() {
+    int size = point_size_spinbox_->value();
+    ORC_LOG_DEBUG("VectorscopeDialog: Point size changed -> {}", size);
+    // Re-render with new point size
     if (d_->last_data.has_value()) {
         renderVectorscope(*d_->last_data);
     }

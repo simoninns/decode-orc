@@ -66,13 +66,13 @@ inline UVSample rgb_to_uv(uint16_t r, uint16_t g, uint16_t b) {
     double gd = g / 65535.0;
     double bd = b / 65535.0;
     
-    // ITU-R BT.601 conversion (SD)
+    // ITU-R BT.601 conversion (SD) - Poynton p337 eq 28.5
     // Y = 0.299*R + 0.587*G + 0.114*B
-    // U = -0.147*R - 0.289*G + 0.436*B
-    // V = 0.615*R - 0.515*G - 0.100*B
+    // U = -0.147141*R - 0.288869*G + 0.436010*B
+    // V = 0.614975*R - 0.514965*G - 0.100010*B
     
-    double u = -0.147 * rd - 0.289 * gd + 0.436 * bd;
-    double v = 0.615 * rd - 0.515 * gd - 0.100 * bd;
+    double u = -0.147141 * rd - 0.288869 * gd + 0.436010 * bd;
+    double v = 0.614975 * rd - 0.514965 * gd - 0.100010 * bd;
 
     // Scale to signed range centered at 0
     // Note: u,v are already centered around 0 in [-~0.6, ~0.6].

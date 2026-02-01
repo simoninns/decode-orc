@@ -26,6 +26,7 @@ void force_link_DiscMapperAnalysisTool();
 void force_link_SourceAlignmentAnalysisTool();
 void force_link_MaskLineAnalysisTool();
 void force_link_DropoutEditorTool();
+void force_link_VectorscopeAnalysisTool();
 
 /**
  * @brief Force linking of all analysis tool object files
@@ -37,13 +38,14 @@ void force_link_DropoutEditorTool();
 void force_analysis_tool_linking() {
     // Only enable the FFmpeg preset analysis tool for now.
     // Additional tools can be added here as they are re-enabled/refactored.
-    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, disc mapper, source alignment, mask line, dropout editor");
+    ORC_LOG_DEBUG("Forcing link of analysis tools: FFmpeg preset, field corruption, disc mapper, source alignment, mask line, dropout editor, vectorscope");
     force_link_FFmpegPresetAnalysisTool();
     force_link_FieldCorruptionAnalysisTool();
     force_link_DiscMapperAnalysisTool();
     force_link_SourceAlignmentAnalysisTool();
     force_link_MaskLineAnalysisTool();
     force_link_DropoutEditorTool();
+    force_link_VectorscopeAnalysisTool();
 }
 
 } // namespace orc

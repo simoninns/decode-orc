@@ -80,9 +80,20 @@ jobs:
           restore-keys: |
             vcpkg-${{ runner.os }}-
       
+      - name: Enable vcpkg binary caching
+        run: |
+          # Enable binary caching with GitHub Actions cache
+          $env:VCPKG_BINARY_SOURCES = "clear;x-gha,readwrite"
+          echo "VCPKG_BINARY_SOURCES=$env:VCPKG_BINARY_SOURCES" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          
+          # Configure vcpkg to use prebuilt binaries
+          echo "VCPKG_FEATURE_FLAGS=binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      
       - name: Install vcpkg dependencies
         run: |
+          # Install dependencies with binary caching enabled
           vcpkg install --triplet x64-windows --recurse `
+            --x-binarysource="clear;x-gha,readwrite" `
             spdlog `
             sqlite3 `
             yaml-cpp `

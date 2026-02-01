@@ -55,9 +55,10 @@ if [ ! -d "$ENCODE_PROJECTS_DIR" ]; then
     exit 1
 fi
 
-yaml_files=("$ENCODE_PROJECTS_DIR"/*.yaml)
+# Find all YAML files recursively
+mapfile -d '' yaml_files < <(find "$ENCODE_PROJECTS_DIR" -type f -name "*.yaml" -print0 | sort -z)
 
-if [ ${#yaml_files[@]} -eq 0 ] || [ ! -e "${yaml_files[0]}" ]; then
+if [ ${#yaml_files[@]} -eq 0 ]; then
     echo -e "${YELLOW}Warning: No YAML test files found in $ENCODE_PROJECTS_DIR${NC}"
     exit 0
 fi
@@ -68,7 +69,26 @@ for yaml_file in "${yaml_files[@]}"; do
         total_tests=$((total_tests + 1))
         filename=$(basename "$yaml_file")
         
-        echo -n "Test $total_tests: $filename ... "
+        # Get relative path from encode-projects directory
+        rel_path="${yaml_file#$ENCODE_PROJECTS_DIR/}"
+        rel_dir=$(dirname "$rel_path")
+        
+        # Display path for nested files
+        if [ "$rel_dir" != "." ]; then
+            display_name="$rel_dir/$filename"
+        else
+            display_name="$filename"
+        fi
+        
+        echo -n "Test $total_tests: $display_name ... "
+        
+        # Extract output filename from YAML to create directory structure
+        output_file=$(grep "filename:" "$yaml_file" | head -1 | sed 's/.*filename:[[:space:]]*"\([^"]*\)".*/\1/')
+        if [ -n "$output_file" ]; then
+            # Create output directory structure
+            output_dir=$(dirname "$PROJECT_ROOT/$output_file")
+            mkdir -p "$output_dir"
+        fi
         
         # Run encode-orc with YAML file from project root
         cd "$PROJECT_ROOT"
@@ -76,8 +96,6 @@ for yaml_file in "${yaml_files[@]}"; do
             echo -e "${GREEN}PASSED${NC}"
             passed_tests=$((passed_tests + 1))
             
-            # Extract output filename from YAML to verify it was created
-            output_file=$(grep "filename:" "$yaml_file" | head -1 | sed 's/.*filename:[[:space:]]*"\([^"]*\)".*/\1/')
             if [ -n "$output_file" ]; then
                 # Check for both .tbc and .tbc.json files
                 tbc_file="$PROJECT_ROOT/${output_file}.tbc"

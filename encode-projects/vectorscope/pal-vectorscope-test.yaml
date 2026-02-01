@@ -1,9 +1,9 @@
-name: "PAL YC Vectorscope Test"
+name: "PAL Vectorscope Test"
 description: "PAL 75% and SMPTE Colour Bars for Vectorscope Calibration"
 
 output:
-  filename: "encode-output/pal-yc-vectorscope-test"
-  format: "pal-yc"
+  filename: "encode-output/vectorscope/pal-vectorscope-test"
+  format: "pal-composite"
 
 pipeline:
   preprocessing:

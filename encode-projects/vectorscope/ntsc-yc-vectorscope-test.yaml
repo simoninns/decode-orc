@@ -2,7 +2,7 @@ name: "NTSC YC Vectorscope Test"
 description: "NTSC 75% and SMPTE Colour Bars for Vectorscope Calibration"
 
 output:
-  filename: "encode-output/ntsc-yc-vectorscope-test"
+  filename: "encode-output/vectorscope/ntsc-yc-vectorscope-test"
   format: "ntsc-yc"
 
 pipeline:

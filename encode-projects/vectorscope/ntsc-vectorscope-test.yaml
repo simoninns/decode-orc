@@ -2,7 +2,7 @@ name: "NTSC Vectorscope Test"
 description: "NTSC 75% and SMPTE Colour Bars for Vectorscope Calibration"
 
 output:
-  filename: "encode-output/ntsc-vectorscope-test"
+  filename: "encode-output/vectorscope/ntsc-vectorscope-test"
   format: "ntsc-composite"
 
 pipeline:

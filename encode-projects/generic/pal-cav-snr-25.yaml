@@ -2,7 +2,7 @@ name: "PAL-CAV with 25 dB SNR"
 description: "PAL LaserDisc with CAV picture numbering (IEC 60857-1986)"
 
 output:
-  filename: "encode-output/pal-cav-snr-25"
+  filename: "encode-output/generic/pal-cav-snr-25"
   format: "pal-composite"
 
 laserdisc:
@@ -37,7 +37,7 @@ pipeline:
         enabled: true
 
   effects:
-    # Gaussian noise to simulate tape hiss
+    # Gaussian noise to simulate disc degradation
     - type: "noise"
       enabled: true
       snr_db: 25.0  # Signal-to-noise ratio in dB

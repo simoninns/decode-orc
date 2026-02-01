@@ -2,7 +2,7 @@ name: "NTSC YC Dropout Correction Test"
 description: "NTSC YC test signal with line dropouts for DOC testing"
 
 output:
-  filename: "encode-output/ntsc-yc-docorr-test"
+  filename: "encode-output/dropout-correction/ntsc-yc-docorr-test"
   format: "ntsc-yc"
 
 laserdisc:

@@ -316,7 +316,7 @@ if(WIN32)
         else()
             message(WARNING \"vcpkg bin directory not found at \${VCPKG_BIN_DIR}\")
         endif()
-    ")
+    " COMPONENT Unspecified)
 endif()
 
 # Install desktop file

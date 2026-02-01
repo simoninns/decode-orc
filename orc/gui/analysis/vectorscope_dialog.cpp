@@ -127,7 +127,7 @@ void VectorscopeDialog::setupUI() {
     QGroupBox* display_group = new QGroupBox("Display Options");
     QVBoxLayout* display_layout = new QVBoxLayout(display_group);
     
-    blend_color_checkbox_ = new QCheckBox("Blend Color (Accumulate)");
+    blend_color_checkbox_ = new QCheckBox("Blend");
     defocus_checkbox_ = new QCheckBox("Defocus");
     draw_lines_checkbox_ = new QCheckBox("Draw Trace Lines");
     draw_lines_checkbox_->setChecked(true);
@@ -439,6 +439,10 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter, VectorscopeDialo
         const double ireRange = static_cast<double>(white - black);
 
         if (white > black) {
+            // Color labels for the six colour bars
+            // rgb values: 1=B, 2=G, 3=Cy, 4=R, 5=Mg, 6=Yl
+            const char* color_labels[] = {"", "B", "G", "Cy", "R", "Mg", "Yl"};
+            
             // Draw targets for six colour bars (R'G'B' 001..110)
             for (int rgb = 1; rgb < 7; rgb++) {
                 // R'G'B' for this bar - scale by percent for 75% vs 100%
@@ -482,6 +486,25 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter, VectorscopeDialo
                         HALF_SIZE + (mag * sin(barTheta + stepTheta))
                     );
                 }
+                
+                // Draw color label positioned just outside the target
+                double label_distance = barMag + (2.5 * stepMag);
+                int label_x = HALF_SIZE + static_cast<int>(label_distance * cos(barTheta));
+                int label_y = HALF_SIZE + static_cast<int>(label_distance * sin(barTheta));
+                
+                QFont font = painter.font();
+                font.setPointSize(12);
+                font.setBold(true);
+                painter.setFont(font);
+                painter.setPen(Qt::white);
+                
+                // Center the text at the label position
+                QFontMetrics fm(font);
+                QString label_text(color_labels[rgb]);
+                int text_width = fm.horizontalAdvance(label_text);
+                int text_height = fm.height();
+                
+                painter.drawText(label_x - text_width / 2, label_y + text_height / 4, label_text);
             }
         }
     }

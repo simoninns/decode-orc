@@ -255,16 +255,12 @@ if(WIN32)
             message(STATUS \"Installing vcpkg runtime dependencies...\")
             
             # List of required DLL patterns
+            # Only install GUI-specific DLLs (other dependencies installed by encode-orc Runtime component)
             set(DLL_PATTERNS
                 \"fftw3.dll\"
                 \"fftw3f.dll\"
                 \"fftw3l.dll\"
-                \"spdlog.dll\"
-                \"yaml-cpp.dll\"
                 \"fmt.dll\"
-                \"libpng16.dll\"
-                \"zlib1.dll\"
-                \"sqlite3.dll\"
             )
             
             foreach(DLL_PATTERN \${DLL_PATTERNS})
@@ -276,35 +272,13 @@ if(WIN32)
                 endforeach()
             endforeach()
             
-            # Copy FFmpeg DLLs (with version numbers)
-            file(GLOB FFMPEG_DLLS 
-                \"\${VCPKG_BIN_DIR}/avcodec-*.dll\"
-                \"\${VCPKG_BIN_DIR}/avformat-*.dll\"
-                \"\${VCPKG_BIN_DIR}/avutil-*.dll\"
-                \"\${VCPKG_BIN_DIR}/swscale-*.dll\"
-                \"\${VCPKG_BIN_DIR}/swresample-*.dll\"
-            )
-            foreach(DLL_FILE \${FFMPEG_DLLS})
-                get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
-                message(STATUS \"  Installing \${DLL_NAME}\")
-                file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
-            endforeach()
+            # Note: FFmpeg DLLs (avcodec, avformat, avutil, swscale, swresample) are 
+            # already installed by the encode-orc subproject Runtime component
             
-            # Copy codec DLLs
-            file(GLOB CODEC_DLLS
-                \"\${VCPKG_BIN_DIR}/libx264-*.dll\"
-                \"\${VCPKG_BIN_DIR}/libx265.dll\"
-                \"\${VCPKG_BIN_DIR}/vpx*.dll\"
-            )
-            foreach(DLL_FILE \${CODEC_DLLS})
-                if(EXISTS \"\${DLL_FILE}\")
-                    get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
-                    message(STATUS \"  Installing \${DLL_NAME}\")
-                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
-                endif()
-            endforeach()
+            # Note: Codec libraries (libx264, libx265, vpx) are also already installed 
+            # by the encode-orc subproject Runtime component
             
-            # Copy additional codec dependencies
+            # Copy additional codec dependencies not in encode-orc
             file(GLOB ADDITIONAL_DLLS \"\${VCPKG_BIN_DIR}/*.dll\")
             foreach(DLL_FILE \${ADDITIONAL_DLLS})
                 get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)

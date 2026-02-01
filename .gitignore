@@ -76,7 +76,6 @@ project-examples/
 
 # Test automation results
 test-results/
-test-projects/
 test-run.log*.log
 
 # Test temporary files and outputs

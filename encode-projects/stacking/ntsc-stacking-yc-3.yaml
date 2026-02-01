@@ -1,9 +1,9 @@
-name: "NTSC Stacking Noise 2"
-description: "NTSC LaserDisc with noise only for stacking testing - Disc 2"
+name: "NTSC Stacking Y/C 3"
+description: "NTSC LaserDisc Y/C with noise only for stacking testing - Disc 3"
 
 output:
-  filename: "encode-output/stacking/ntsc-stacking-noise-2"
-  format: "ntsc-composite"
+  filename: "encode-output/stacking/ntsc-stacking-yc-3"
+  format: "ntsc-yc"
 
 laserdisc:
   mode: "cav"
@@ -42,7 +42,7 @@ pipeline:
     - type: "noise"
       enabled: true
       snr_db: 20.0  # Signal-to-noise ratio in dB
-      seed: 22      # For reproducible results
+      seed: 23      # For reproducible results
 
 sections:
   - name: "Test Content"

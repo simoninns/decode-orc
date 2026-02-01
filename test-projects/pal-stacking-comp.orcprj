@@ -1,0 +1,131 @@
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: PAL Stacking Composite
+  description: A PAL project to test stacking
+  version: 1.0
+  video_format: PAL
+  source_format: Composite
+dag:
+  nodes:
+    - id: 1
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 50
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-0.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 2
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 175
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-1.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 3
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 300
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-2.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 4
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 425
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-3.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 5
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 275
+      y: 50
+    - id: 6
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 275
+      y: 175
+    - id: 7
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 275
+      y: 300
+    - id: 8
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 500
+      y: 50
+    - id: 9
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 500
+      y: 175
+  edges:
+    - from: 1
+      to: 5
+    - from: 2
+      to: 5
+    - from: 3
+      to: 5
+    - from: 4
+      to: 5
+    - from: 4
+      to: 6
+    - from: 4
+      to: 7
+    - from: 5
+      to: 8
+    - from: 5
+      to: 9

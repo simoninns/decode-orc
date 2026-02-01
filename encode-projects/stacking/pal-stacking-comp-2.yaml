@@ -1,8 +1,8 @@
-name: "PAL Stacking Noise 0"
-description: "PAL LaserDisc with noise only for stacking testing - Disc 0"
+name: "PAL Stacking Composite 2"
+description: "PAL LaserDisc composite with noise only for stacking testing - Disc 2"
 
 output:
-  filename: "encode-output/stacking/pal-stacking-noise-0"
+  filename: "encode-output/stacking/pal-stacking-comp-2"
   format: "pal-composite"
 
 laserdisc:
@@ -41,7 +41,7 @@ pipeline:
     - type: "noise"
       enabled: true
       snr_db: 20.0  # Signal-to-noise ratio in dB
-      seed: 20      # For reproducible results
+      seed: 22      # For reproducible results
 
 sections:
   - name: "Test Content"

@@ -1,9 +1,9 @@
-name: "PAL Stacking Noise 1"
-description: "PAL LaserDisc with noise only for stacking testing - Disc 1"
+name: "NTSC Stacking Composite 0"
+description: "NTSC LaserDisc composite with noise only for stacking testing - Disc 0"
 
 output:
-  filename: "encode-output/stacking/pal-stacking-noise-1"
-  format: "pal-composite"
+  filename: "encode-output/stacking/ntsc-stacking-comp-0"
+  format: "ntsc-composite"
 
 laserdisc:
   mode: "cav"
@@ -18,20 +18,21 @@ pipeline:
     generators:
       - type: "biphase-vbi"
         enabled: true
-        lines: [16, 17, 18, 328, 329, 330]
+        lines: [16, 17, 18, 278, 279, 280]
         format: "picture-number"
       
-      - type: "vits-pal"
+      - type: "vits-ntsc"
         enabled: true
         signals:
           - line: 13
-            signal: "multiburst"
+            signal: "ntc7-composite"
           - line: 19
-            signal: "uk-national"
-          - line: 325
-            signal: "itu-combination"
-          - line: 331
-            signal: "itu-composite"
+            signal: "vir"
+          - line: 275
+            signal: "ntc7-combination"
+          - line: 281
+            signal: "vir"
+          
       
       - type: "color-burst"
         enabled: true
@@ -41,14 +42,14 @@ pipeline:
     - type: "noise"
       enabled: true
       snr_db: 20.0  # Signal-to-noise ratio in dB
-      seed: 21      # For reproducible results
+      seed: 20      # For reproducible results
 
 sections:
   - name: "Test Content"
     duration: 10
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+      file: "external/encode-orc/testcard-images/ntsc-raw/525_5994_75_BARS.raw"
     biphase-vbi:
       disc_area: "programme-area"
       picture_start: 1
@@ -57,13 +58,14 @@ sections:
     duration: 10
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_CHROMA_RAMP.raw"
+      file: "external/encode-orc/testcard-images/ntsc-raw/525_5994_CHROMA_RAMP.raw"
+    biphase-vbi:
       disc_area: "programme-area"
   
   - name: "Test Content"
     duration: 30
     source:
       type: "mp4-file"
-      file: "external/encode-orc/testcard-images/pal-mp4/pal-ice-skating.mp4"
+      file: "external/encode-orc/testcard-images/ntsc-mp4/ntsc-ice-skating.mp4"
     biphase-vbi:
       disc_area: "programme-area"

@@ -1,0 +1,155 @@
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: NTSC Stacking YC
+  description: An NTSC project to test stacking
+  version: 1.0
+  video_format: NTSC
+  source_format: YC
+dag:
+  nodes:
+    - id: 1
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 50
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-0.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-0.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-0.tbcy
+    - id: 2
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 175
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-1.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-1.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-1.tbcy
+    - id: 3
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 300
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-2.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-2.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-2.tbcy
+    - id: 4
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 425
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-3.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-3.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/ntsc-stacking-yc-3.tbcy
+    - id: 5
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 275
+      y: 50
+    - id: 6
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 500
+      y: 50
+    - id: 7
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 500
+      y: 175
+    - id: 8
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 275
+      y: 175
+    - id: 9
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 275
+      y: 300
+  edges:
+    - from: 1
+      to: 5
+    - from: 2
+      to: 5
+    - from: 3
+      to: 5
+    - from: 4
+      to: 5
+    - from: 5
+      to: 7
+    - from: 4
+      to: 8
+    - from: 4
+      to: 9
+    - from: 5
+      to: 6

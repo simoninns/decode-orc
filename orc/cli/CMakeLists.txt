@@ -36,7 +36,7 @@ if(WIN32)
     install(CODE "
         # Copy vcpkg runtime DLLs for orc-cli
         set(VCPKG_BIN_DIR \"C:/vcpkg/installed/x64-windows/bin\")
-        if(EXISTS \"\${VCPKG_BIN_DIR}\")
+        if(EXISTS \"\\\${VCPKG_BIN_DIR}\")
             message(STATUS \"Installing vcpkg runtime dependencies for orc-cli...\")
             
             # List of required DLL patterns
@@ -49,16 +49,16 @@ if(WIN32)
                 \"fmt.dll\"
             )
             
-            foreach(DLL_PATTERN \${DLL_PATTERNS})
-                file(GLOB DLL_FILES \"\${VCPKG_BIN_DIR}/\${DLL_PATTERN}\")
-                foreach(DLL_FILE \${DLL_FILES})
-                    get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
-                    message(STATUS \"  Installing \${DLL_NAME}\")
-                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
+            foreach(DLL_PATTERN \\\${DLL_PATTERNS})
+                file(GLOB DLL_FILES \"\\\${VCPKG_BIN_DIR}/\\\${DLL_PATTERN}\")
+                foreach(DLL_FILE \\\${DLL_FILES})
+                    get_filename_component(DLL_NAME \"\\\${DLL_FILE}\" NAME)
+                    message(STATUS \"  Installing \\\${DLL_NAME}\")
+                    file(INSTALL \"\\\${DLL_FILE}\" DESTINATION \"\\\${CMAKE_INSTALL_PREFIX}/bin\")
                 endforeach()
             endforeach()
         else()
-            message(WARNING \"vcpkg bin directory not found at \${VCPKG_BIN_DIR}\")
+            message(WARNING \"vcpkg bin directory not found at \\\${VCPKG_BIN_DIR}\")
         endif()
-    \" COMPONENT Runtime)
+    " COMPONENT Runtime)
 endif()

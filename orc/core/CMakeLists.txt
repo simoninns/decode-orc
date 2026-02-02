@@ -292,24 +292,31 @@ if(NOT FFMPEG_FOUND)
         libavutil
         libswscale
     )
+
+    # Compatibility aliases for older target names
+    if(TARGET PkgConfig::FFMPEG)
+        foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
+            if(NOT TARGET PkgConfig::${_ffmpeg_pc_target})
+                add_library(PkgConfig::${_ffmpeg_pc_target} INTERFACE IMPORTED)
+                target_link_libraries(PkgConfig::${_ffmpeg_pc_target} INTERFACE PkgConfig::FFMPEG)
+            endif()
+        endforeach()
+    endif()
 endif()
 
 # Link FFmpeg
 target_compile_definitions(orc-core PUBLIC HAVE_FFMPEG)
-if(WIN32 AND FFMPEG_FOUND AND TARGET FFMPEG::avcodec)
-    # Use manually created targets on Windows
+if(FFMPEG_FOUND AND TARGET FFMPEG::avcodec)
+    # Use manually created targets when available
     target_link_libraries(orc-core PUBLIC 
         FFMPEG::avcodec 
         FFMPEG::avformat 
         FFMPEG::avutil 
         FFMPEG::swscale
     )
+elseif(TARGET PkgConfig::FFMPEG)
+    # Use pkg-config imported target
+    target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)
 else()
-    # Use pkg-config targets on other platforms
-    target_link_libraries(orc-core PUBLIC 
-        PkgConfig::libavcodec
-        PkgConfig::libavformat
-        PkgConfig::libavutil
-        PkgConfig::libswscale
-    )
+    message(FATAL_ERROR "FFmpeg libraries not found (expected imported targets)")
 endif()

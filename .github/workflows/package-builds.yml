@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: 'dev'
+      use-build-artifacts:
+        description: 'Reuse build artifacts from build stage instead of rebuilding'
+        required: false
+        type: boolean
+        default: false
     outputs:
       windows-artifact:
         description: "Name of Windows artifact"
@@ -33,7 +38,29 @@ jobs:
           lfs: true
           submodules: recursive
       
+      - name: Download pre-built artifacts (if available)
+        if: inputs.use-build-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-windows
+          path: build
+        continue-on-error: true
+      
+      - name: Check if artifacts were downloaded
+        id: check-artifacts
+        if: inputs.use-build-artifacts
+        run: |
+          if (Test-Path "build/bin/Release/orc-cli.exe") {
+            Write-Host "✓ Build artifacts found - will skip compilation"
+            echo "artifacts-available=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "✗ Build artifacts not found - will perform full build"
+            echo "artifacts-available=false" >> $env:GITHUB_OUTPUT
+          }
+        shell: pwsh
+      
       - name: Install ImageMagick
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: choco install imagemagick -y
       
       - name: Install WiX Toolset
@@ -61,6 +88,7 @@ jobs:
           }
       
       - name: Install Qt6
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.1'
@@ -70,6 +98,7 @@ jobs:
           cache: true
       
       - name: Setup vcpkg binary cache
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         uses: actions/cache@v4
         with:
           path: |
@@ -79,7 +108,8 @@ jobs:
           key: vcpkg-${{ runner.os }}-${{ hashFiles('**/vcpkg.json') }}-${{ hashFiles('.github/workflows/package-builds.yml') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-
-      
+      if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        
       - name: Enable vcpkg binary caching
         run: |
           # Enable binary caching with GitHub Actions cache
@@ -89,13 +119,14 @@ jobs:
           # Configure vcpkg to use prebuilt binaries
           echo "VCPKG_FEATURE_FLAGS=binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       
-      - name: Cache FFmpeg
+      - nf: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        iame: Cache FFmpeg
         id: cache-ffmpeg
         uses: actions/cache@v4
         with:
           path: C:/ffmpeg
           key: ffmpeg-btbn-latest-win64-gpl-shared
-      
+      ${{ (!inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true') && steps.cache-ffmpeg.outputs.cache-hit != 'true' }}
       - name: Install FFmpeg (MSVC-compatible shared build)
         if: steps.cache-ffmpeg.outputs.cache-hit != 'true'
         run: |
@@ -123,6 +154,7 @@ jobs:
         shell: pwsh
       
       - name: Setup FFmpeg environment
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           # Find the FFmpeg directory (whether cached or just downloaded)
           $extractedDir = Get-ChildItem -Path "C:\ffmpeg" -Directory | Select-Object -First 1
@@ -138,6 +170,7 @@ jobs:
         shell: pwsh
       
       - name: Install vcpkg dependencies
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           # Install dependencies with binary caching enabled (excluding ffmpeg - handled separately)
           vcpkg install --triplet x64-windows --recurse `
@@ -150,9 +183,11 @@ jobs:
             pkgconf
       
       - name: Create build directory
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: mkdir -p build
       
       - name: Configure CMake
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           cd build
           cmake .. `
@@ -163,6 +198,7 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
       
       - name: Build
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           cd build
           cmake --build . --config Release -j $env:NUMBER_OF_PROCESSORS
@@ -290,7 +326,28 @@ jobs:
           lfs: true
           submodules: recursive
       
+      - name: Download pre-built artifacts (if available)
+        if: inputs.use-build-artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-macos
+          path: build
+        continue-on-error: true
+      
+      - name: Check if artifacts were downloaded
+        id: check-artifacts
+        if: inputs.use-build-artifacts
+        run: |
+          if [ -f "build/bin/orc-cli" ]; then
+            echo "✓ Build artifacts found - will skip compilation"
+            echo "artifacts-available=true" >> $GITHUB_OUTPUT
+          else
+            echo "✗ Build artifacts not found - will perform full build"
+            echo "artifacts-available=false" >> $GITHUB_OUTPUT
+          fi
+      
       - name: Install system dependencies
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           brew update || true
           brew install --quiet \
@@ -306,9 +363,11 @@ jobs:
             ffmpeg 2>&1 | grep -v "is already installed" || true
       
       - name: Create build directory
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: mkdir -p build
       
       - name: Configure CMake
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           cd build
           export HOMEBREW_PREFIX=$(brew --prefix)
@@ -322,6 +381,7 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
       
       - name: Build
+        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
         run: |
           cd build
           cmake --build . -j$(sysctl -n hw.ncpu)

@@ -1,0 +1,74 @@
+name: Build Flatpak (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      build-tests:
+        description: 'Build with tests enabled (not used by Flatpak)'
+        required: false
+        type: boolean
+        default: true
+      is-release:
+        description: 'Mark as release build'
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: 'Version string (for release builds)'
+        required: false
+        type: string
+        default: 'dev'
+    outputs:
+      artifact-name:
+        description: "Name of the build/package artifact"
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+jobs:
+  build:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    outputs:
+      artifact-name: ${{ steps.artifact-name.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Set bundle name
+        id: bundle-name
+        run: |
+          if [ "${{ inputs.is-release }}" = "true" ]; then
+            echo "bundle=decode-orc-${{ inputs.version }}.flatpak" >> $GITHUB_OUTPUT
+          else
+            echo "bundle=decode-orc.flatpak" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Build Flatpak
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: ${{ steps.bundle-name.outputs.bundle }}
+          manifest-path: io.github.simoninns.decode-orc.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          upload-artifact: false
+      
+      - name: Set artifact name
+        id: artifact-name
+        run: |
+          if [ "${{ inputs.is-release }}" = "true" ]; then
+            echo "name=flatpak-bundle" >> $GITHUB_OUTPUT
+          else
+            echo "name=build-flatpak" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: decode-orc*.flatpak
+          retention-days: ${{ inputs.is-release && 7 || 1 }}

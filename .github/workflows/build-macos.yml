@@ -1,0 +1,230 @@
+name: Build macOS (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      build-tests:
+        description: 'Build with tests enabled'
+        required: false
+        type: boolean
+        default: true
+      is-release:
+        description: 'Mark as release build'
+        required: false
+        type: boolean
+        default: false
+      version:
+        description: 'Version string (for release builds)'
+        required: false
+        type: string
+        default: 'dev'
+    outputs:
+      artifact-name:
+        description: "Name of the build/package artifact"
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+jobs:
+  build:
+    name: Build macOS
+    runs-on: macos-latest
+    outputs:
+      artifact-name: ${{ steps.artifact-name.outputs.name }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Install system dependencies
+        run: |
+          brew update || true
+          brew install --quiet cmake pkg-config spdlog sqlite yaml-cpp libpng fftw qt@6 create-dmg ffmpeg 2>&1 | grep -v "is already installed" || true
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          export HOMEBREW_PREFIX=$(brew --prefix)
+          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=${{ inputs.build-tests && 'ON' || 'OFF' }} \
+            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
+            -DQt6_DIR=$Qt6_DIR \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+      
+      - name: Verify binaries
+        run: |
+          test -f build/bin/orc-cli
+          test -f build/bin/orc-gui
+          echo "✓ orc-cli built successfully"
+          echo "✓ orc-gui built successfully"
+      
+      - name: Create app bundle (release only)
+        if: inputs.is-release
+        run: |
+          mkdir -p "orc-gui.app/Contents/MacOS"
+          mkdir -p "orc-gui.app/Contents/Resources"
+          
+          cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
+          cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
+          
+          # Use CMake-generated icon if available, otherwise create from PNG
+          if [ -f "build/orc/gui/icons/orc-gui.icns" ]; then
+            echo "Using CMake-generated icon"
+            cp "build/orc/gui/icons/orc-gui.icns" "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+            cp "build/orc/gui/icons/orc-gui.icns" ".VolumeIcon.icns"
+          else
+            echo "CMake icon not found, generating from PNG"
+            mkdir -p orc-gui.iconset
+            
+            SOURCE_PNG="assets/orc-gui-icon-256.png"
+            sips -z 16 16     "$SOURCE_PNG" --out orc-gui.iconset/icon_16x16.png
+            sips -z 32 32     "$SOURCE_PNG" --out orc-gui.iconset/icon_16x16@2x.png
+            sips -z 32 32     "$SOURCE_PNG" --out orc-gui.iconset/icon_32x32.png
+            sips -z 64 64     "$SOURCE_PNG" --out orc-gui.iconset/icon_32x32@2x.png
+            sips -z 128 128   "$SOURCE_PNG" --out orc-gui.iconset/icon_128x128.png
+            sips -z 256 256   "$SOURCE_PNG" --out orc-gui.iconset/icon_128x128@2x.png
+            sips -z 256 256   "$SOURCE_PNG" --out orc-gui.iconset/icon_256x256.png
+            sips -z 512 512   "$SOURCE_PNG" --out orc-gui.iconset/icon_256x256@2x.png
+            sips -z 512 512   "$SOURCE_PNG" --out orc-gui.iconset/icon_512x512.png
+            sips -z 1024 1024 "$SOURCE_PNG" --out orc-gui.iconset/icon_512x512@2x.png
+            
+            iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+            iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
+            
+            echo "Generated icon from PNG"
+          fi
+          
+          echo "APPL????" > "orc-gui.app/Contents/PkgInfo"
+          
+          cat > "orc-gui.app/Contents/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleExecutable</key>
+            <string>orc-gui</string>
+            <key>CFBundleIdentifier</key>
+            <string>io.github.simoninns.decode-orc</string>
+            <key>CFBundleName</key>
+            <string>Decode Orc</string>
+            <key>CFBundleDisplayName</key>
+            <string>Decode Orc</string>
+            <key>CFBundleVersion</key>
+            <string>1.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleIconFile</key>
+            <string>orc-gui-icon.icns</string>
+            <key>CFBundleIconName</key>
+            <string>orc-gui-icon</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>NSPrincipalClass</key>
+            <string>NSApplication</string>
+          </dict>
+          </plist>
+          EOF
+          
+          if [ -f "orc-gui.app/Contents/Resources/orc-gui-icon.icns" ]; then
+            echo "✓ App icon properly installed"
+            ls -lh "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
+            SetFile -a C "orc-gui.app" 2>/dev/null || true
+          else
+            echo "ERROR: Icon file not found!"
+            exit 1
+          fi
+      
+      - name: Deploy Qt dependencies (release only)
+        if: inputs.is-release
+        run: |
+          HOMEBREW_PREFIX=$(brew --prefix)
+          QT_PREFIX=$(brew --prefix qt@6 2>/dev/null || true)
+          if [ -z "$QT_PREFIX" ] || [ ! -x "$QT_PREFIX/bin/macdeployqt" ]; then
+            QT_PREFIX=$(brew --prefix qt 2>/dev/null || true)
+          fi
+          if [ -z "$QT_PREFIX" ] || [ ! -x "$QT_PREFIX/bin/macdeployqt" ]; then
+            echo "ERROR: macdeployqt not found. Ensure qt@6 or qt is installed."
+            exit 1
+          fi
+          
+          echo "Running macdeployqt..."
+          "$QT_PREFIX/bin/macdeployqt" "orc-gui.app" -verbose=2
+          
+          echo "Checking for missing Qt dependencies..."
+          MISSING_FRAMEWORKS=""
+          
+          if ! [ -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            if otool -L "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null | grep -q "QtDBus"; then
+              echo "QtDBus is required by QtGui but not bundled - adding it"
+              MISSING_FRAMEWORKS="QtDBus"
+            fi
+          fi
+          
+          for framework in $MISSING_FRAMEWORKS; do
+            if [ -d "$QT_PREFIX/lib/${framework}.framework" ]; then
+              echo "Copying ${framework}.framework..."
+              ditto "$QT_PREFIX/lib/${framework}.framework" "orc-gui.app/Contents/Frameworks/${framework}.framework"
+              
+              install_name_tool -id "@rpath/${framework}.framework/Versions/A/${framework}" \
+                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}"
+              
+              install_name_tool -change \
+                "$QT_PREFIX/lib/QtCore.framework/Versions/A/QtCore" \
+                "@rpath/QtCore.framework/Versions/A/QtCore" \
+                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
+            fi
+          done
+          
+          echo "Bundled Qt frameworks:"
+          ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
+      
+      - name: Create DMG (release only)
+        if: inputs.is-release
+        run: |
+          DMG_NAME="decode-orc-${{ inputs.version }}.dmg"
+          
+          create-dmg \
+            --volname "Decode Orc" \
+            --icon-size 120 \
+            --icon "orc-gui.app" 140 140 \
+            --hide-extension "orc-gui.app" \
+            --app-drop-link 350 140 \
+            --window-size 500 320 \
+            "$DMG_NAME" \
+            "orc-gui.app"
+          
+          echo "Created DMG: $DMG_NAME"
+          ls -lh "$DMG_NAME"
+      
+      - name: Set artifact name
+        id: artifact-name
+        run: |
+          if [ "${{ inputs.is-release }}" = "true" ]; then
+            echo "name=macos-dmg" >> $GITHUB_OUTPUT
+          else
+            echo "name=build-macos" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: |
+            ${{ inputs.is-release && 'decode-orc-*.dmg' || 'build/bin/' }}
+            build/lib/
+            build/generated/
+          retention-days: ${{ inputs.is-release && 7 || 1 }}

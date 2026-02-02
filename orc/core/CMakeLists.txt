@@ -306,5 +306,10 @@ if(WIN32 AND FFMPEG_FOUND AND TARGET FFMPEG::avcodec)
     )
 else()
     # Use pkg-config targets on other platforms
-    target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)
+    target_link_libraries(orc-core PUBLIC 
+        PkgConfig::libavcodec
+        PkgConfig::libavformat
+        PkgConfig::libavutil
+        PkgConfig::libswscale
+    )
 endif()

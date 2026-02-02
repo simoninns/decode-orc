@@ -284,7 +284,7 @@ jobs:
   # Call reusable workflow for release package builds
   build-packages:
     name: Build Release Packages
-    needs: [build-windows, build-macos]
+    needs: [build-fedora, build-windows, build-macos]
     uses: ./.github/workflows/package-builds.yml
     with:
       version: 'dev'

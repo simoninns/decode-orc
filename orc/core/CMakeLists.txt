@@ -292,28 +292,16 @@ if(NOT FFMPEG_FOUND)
         libavutil
         libswscale
     )
-
-    # Ensure a stable pkg-config imported target exists
+    
+    # Create aggregate PkgConfig::FFMPEG target if it doesn't exist
+    # (pkg_check_modules creates individual targets like PkgConfig::libavcodec)
     if(NOT TARGET PkgConfig::FFMPEG)
         add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
         set_target_properties(PkgConfig::FFMPEG PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIRS}"
-            INTERFACE_LINK_LIBRARIES "${FFMPEG_LIBRARIES}"
+            INTERFACE_LINK_LIBRARIES 
+                "PkgConfig::libavcodec;PkgConfig::libavformat;PkgConfig::libavutil;PkgConfig::libswscale"
         )
-        if(FFMPEG_LIBRARY_DIRS)
-            set_property(TARGET PkgConfig::FFMPEG PROPERTY
-                INTERFACE_LINK_DIRECTORIES "${FFMPEG_LIBRARY_DIRS}"
-            )
-        endif()
     endif()
-
-    # Compatibility aliases for older target names
-    foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
-        if(NOT TARGET PkgConfig::${_ffmpeg_pc_target})
-            add_library(PkgConfig::${_ffmpeg_pc_target} INTERFACE IMPORTED)
-            target_link_libraries(PkgConfig::${_ffmpeg_pc_target} INTERFACE PkgConfig::FFMPEG)
-        endif()
-    endforeach()
 endif()
 
 # Link FFmpeg (mirror encode-orc scheme)

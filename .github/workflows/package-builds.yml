@@ -172,15 +172,9 @@ jobs:
       - name: Install vcpkg dependencies
         # Always install for DLLs (will use cache when artifacts available)
         run: |
-          # Install dependencies with binary caching enabled (excluding ffmpeg - handled separately)
-          vcpkg install --triplet x64-windows --recurse `
-            --x-binarysource="clear;x-gha,readwrite" `
-            spdlog `
-            sqlite3 `
-            yaml-cpp `
-            libpng `
-            fftw3 `
-            pkgconf
+          # Install dependencies with binary caching enabled (manifest mode)
+          vcpkg install --triplet x64-windows `
+            --x-binarysource="clear;x-gha,readwrite"
       
       - name: Create build directory
         # Create if it doesn't exist (may already exist from artifacts)

@@ -82,8 +82,7 @@ jobs:
       
       - name: Install vcpkg dependencies
         run: |
-          vcpkg install --triplet x64-windows `
-            spdlog sqlite3 yaml-cpp libpng fftw3
+          vcpkg install --triplet x64-windows
       
       - name: Configure
         run: |

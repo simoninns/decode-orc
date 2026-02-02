@@ -288,17 +288,5 @@ jobs:
     uses: ./.github/workflows/package-builds.yml
     with:
       version: 'dev'
-      use-build-artifacts: trues/upload-artifact@v4
-        with:
-          name: decode-orc-macos
-          path: |
-            build/bin/orc-cli
-            build/bin/orc-gui
-          retention-days: 7
+      use-build-artifacts: true
 
-  # Call reusable workflow for release package builds
-  build-packages:
-    name: Build Release Packages
-    uses: ./.github/workflows/package-builds.yml
-    with:
-      version: 'dev'

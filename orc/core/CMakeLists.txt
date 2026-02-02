@@ -293,30 +293,40 @@ if(NOT FFMPEG_FOUND)
         libswscale
     )
 
-    # Compatibility aliases for older target names
-    if(TARGET PkgConfig::FFMPEG)
-        foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
-            if(NOT TARGET PkgConfig::${_ffmpeg_pc_target})
-                add_library(PkgConfig::${_ffmpeg_pc_target} INTERFACE IMPORTED)
-                target_link_libraries(PkgConfig::${_ffmpeg_pc_target} INTERFACE PkgConfig::FFMPEG)
-            endif()
-        endforeach()
+    # Ensure a stable pkg-config imported target exists
+    if(NOT TARGET PkgConfig::FFMPEG)
+        add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+        set_target_properties(PkgConfig::FFMPEG PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${FFMPEG_LIBRARIES}"
+        )
+        if(FFMPEG_LIBRARY_DIRS)
+            set_property(TARGET PkgConfig::FFMPEG PROPERTY
+                INTERFACE_LINK_DIRECTORIES "${FFMPEG_LIBRARY_DIRS}"
+            )
+        endif()
     endif()
+
+    # Compatibility aliases for older target names
+    foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
+        if(NOT TARGET PkgConfig::${_ffmpeg_pc_target})
+            add_library(PkgConfig::${_ffmpeg_pc_target} INTERFACE IMPORTED)
+            target_link_libraries(PkgConfig::${_ffmpeg_pc_target} INTERFACE PkgConfig::FFMPEG)
+        endif()
+    endforeach()
 endif()
 
-# Link FFmpeg
+# Link FFmpeg (mirror encode-orc scheme)
 target_compile_definitions(orc-core PUBLIC HAVE_FFMPEG)
-if(FFMPEG_FOUND AND TARGET FFMPEG::avcodec)
-    # Use manually created targets when available
-    target_link_libraries(orc-core PUBLIC 
-        FFMPEG::avcodec 
-        FFMPEG::avformat 
-        FFMPEG::avutil 
+if(WIN32 AND FFMPEG_FOUND AND TARGET FFMPEG::avcodec)
+    # Using manual FFmpeg discovery on Windows
+    target_link_libraries(orc-core PUBLIC
+        FFMPEG::avcodec
+        FFMPEG::avformat
+        FFMPEG::avutil
         FFMPEG::swscale
     )
-elseif(TARGET PkgConfig::FFMPEG)
-    # Use pkg-config imported target
-    target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)
 else()
-    message(FATAL_ERROR "FFmpeg libraries not found (expected imported targets)")
+    # Using pkg-config FFmpeg
+    target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)
 endif()

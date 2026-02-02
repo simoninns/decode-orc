@@ -41,10 +41,10 @@ jobs:
       - name: Download pre-built artifacts (if available)
         if: inputs.use-build-artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           name: build-windows
           path: build
-        continue-on-error: true
       
       - name: Check if artifacts were downloaded
         id: check-artifacts

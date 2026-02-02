@@ -258,7 +258,20 @@ jobs:
             -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
             -DQt6_DIR=$Qt6_DIR \
             -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-      build artifacts for packaging
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Verify binaries
+        run: |
+          test -f build/bin/orc-cli
+          test -f build/bin/orc-gui
+          echo "✓ orc-cli built successfully"
+          echo "✓ orc-gui built successfully"
+      
+      - name: Upload build artifacts for packaging
         uses: actions/upload-artifact@v4
         with:
           name: build-macos

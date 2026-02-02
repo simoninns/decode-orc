@@ -203,6 +203,69 @@ jobs:
           }
         shell: pwsh
 
+  # Build check on macOS
+  build-macos:
+    name: Build on macOS
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Install system dependencies
+        run: |
+          brew update || true
+          brew install --quiet \
+            cmake \
+            pkg-config \
+            spdlog \
+            sqlite \
+            yaml-cpp \
+            libpng \
+            fftw \
+            qt@6 \
+            ffmpeg 2>&1 | grep -v "is already installed" || true
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          export HOMEBREW_PREFIX=$(brew --prefix)
+          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=ON \
+            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
+            -DQt6_DIR=$Qt6_DIR \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . -j$(sysctl -n hw.ncpu)
+      
+      - name: Verify binaries
+        run: |
+          test -f build/bin/orc-cli
+          test -f build/bin/orc-gui
+          echo "✓ orc-cli built successfully"
+          echo "✓ orc-gui built successfully"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: decode-orc-macos
+          path: |
+            build/bin/orc-cli
+            build/bin/orc-gui
+          retention-days: 7
+
   # Call reusable workflow for release package builds
   build-packages:
     name: Build Release Packages

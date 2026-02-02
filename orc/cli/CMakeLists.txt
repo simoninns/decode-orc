@@ -35,7 +35,15 @@ install(TARGETS orc-cli
 if(WIN32)
     install(CODE "
         # Copy vcpkg runtime DLLs for orc-cli
-        set(VCPKG_BIN_DIR \"C:/vcpkg/installed/x64-windows/bin\")
+        set(VCPKG_INSTALLED_DIR \"\${VCPKG_INSTALLED_DIR}\")
+        set(VCPKG_TARGET_TRIPLET \"\${VCPKG_TARGET_TRIPLET}\")
+        if(NOT VCPKG_INSTALLED_DIR OR VCPKG_INSTALLED_DIR STREQUAL \"\")
+            set(VCPKG_INSTALLED_DIR \"\${CMAKE_BINARY_DIR}/vcpkg_installed\")
+        endif()
+        if(NOT VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL \"\")
+            set(VCPKG_TARGET_TRIPLET \"x64-windows\")
+        endif()
+        set(VCPKG_BIN_DIR \"\\\${VCPKG_INSTALLED_DIR}/\\\${VCPKG_TARGET_TRIPLET}/bin\")
         if(EXISTS \"\\\${VCPKG_BIN_DIR}\")
             message(STATUS \"Installing vcpkg runtime dependencies for orc-cli...\")
             

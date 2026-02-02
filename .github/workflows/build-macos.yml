@@ -99,6 +99,14 @@ jobs:
           echo "Running macdeployqt..."
           "$QT_PREFIX/bin/macdeployqt" "build/bin/orc-gui.app" -verbose=2
           
+          # Ad-hoc code sign the entire bundle (required for macOS Gatekeeper)
+          echo "Ad-hoc code signing the bundle..."
+          codesign --deep --force --verify --verbose --sign - "build/bin/orc-gui.app"
+          
+          # Verify the code signature
+          echo "Verifying code signature..."
+          codesign --verify --verbose "build/bin/orc-gui.app"
+          
           echo "Checking for missing Qt dependencies..."
           MISSING_FRAMEWORKS=""
           

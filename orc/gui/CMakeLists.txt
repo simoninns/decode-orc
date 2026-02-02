@@ -195,6 +195,13 @@ if(WIN32 AND WINDOWS_ICON_FILE)
 endif()
 
 if(APPLE)
+    # Configure the custom Info.plist from template
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
+        @ONLY
+    )
+    
     # Set bundle properties for macOS
     set_target_properties(orc-gui PROPERTIES
         MACOSX_BUNDLE_BUNDLE_NAME "Decode Orc"
@@ -203,6 +210,7 @@ if(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION}"
         MACOSX_BUNDLE_ICON_FILE "orc-gui.icns"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_BINARY_DIR}/Info.plist"
         MACOSX_BUNDLE_INFO_STRING "Cross-platform orchestration framework for LaserDisc and tape decoding workflows"
         MACOSX_BUNDLE_COPYRIGHT "Copyright © 2024-2026 Simon Inns"
     )

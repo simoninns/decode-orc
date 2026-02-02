@@ -88,15 +88,18 @@ jobs:
         run: |
           $versionArg = ""
           if ("${{ inputs.is-release }}" -eq "true") {
-            $versionArg = " -DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}"
+            $versionArg = "-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}"
           }
+          
+          $toolchainArg = "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          $versionArgStr = if ($versionArg) { " $versionArg" } else { "" }
           
           cmake -B build `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_GUI=ON `
             -DBUILD_TESTS=${{ inputs.build-tests && 'ON' || 'OFF' }} `
             -DCMAKE_PREFIX_PATH="${env:Qt6_DIR};$env:FFMPEG_ROOT" `
-            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake$versionArg
+            $toolchainArg $versionArgStr
         shell: pwsh
       
       - name: Build

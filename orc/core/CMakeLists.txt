@@ -283,8 +283,8 @@ if(WIN32)
     endif()
 endif()
 
-# Fall back to pkg-config if FFmpeg not found manually (or not on Windows)
-if(NOT FFMPEG_FOUND)
+# Use pkg-config for FFmpeg on non-Windows platforms
+if(NOT WIN32)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
         libavcodec
@@ -292,15 +292,34 @@ if(NOT FFMPEG_FOUND)
         libavutil
         libswscale
     )
-    
+
     # Create aggregate PkgConfig::FFMPEG target if it doesn't exist
-    # (pkg_check_modules creates individual targets like PkgConfig::libavcodec)
+    # (pkg_check_modules may create individual targets like PkgConfig::libavcodec)
     if(NOT TARGET PkgConfig::FFMPEG)
         add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
-        set_target_properties(PkgConfig::FFMPEG PROPERTIES
-            INTERFACE_LINK_LIBRARIES 
-                "PkgConfig::libavcodec;PkgConfig::libavformat;PkgConfig::libavutil;PkgConfig::libswscale"
-        )
+        set(_ffmpeg_pc_libs "")
+        foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
+            if(TARGET PkgConfig::${_ffmpeg_pc_target})
+                list(APPEND _ffmpeg_pc_libs PkgConfig::${_ffmpeg_pc_target})
+            endif()
+        endforeach()
+
+        if(_ffmpeg_pc_libs)
+            set_target_properties(PkgConfig::FFMPEG PROPERTIES
+                INTERFACE_LINK_LIBRARIES "${_ffmpeg_pc_libs}"
+            )
+        else()
+            set_target_properties(PkgConfig::FFMPEG PROPERTIES
+                INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIRS}"
+                INTERFACE_LINK_LIBRARIES "${FFMPEG_LIBRARIES}"
+            )
+            if(FFMPEG_LIBRARY_DIRS)
+                set_property(TARGET PkgConfig::FFMPEG PROPERTY
+                    INTERFACE_LINK_DIRECTORIES "${FFMPEG_LIBRARY_DIRS}"
+                )
+            endif()
+        endif()
+        unset(_ffmpeg_pc_libs)
     endif()
 endif()
 

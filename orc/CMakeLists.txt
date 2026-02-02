@@ -170,7 +170,10 @@ if(WIN32)
     set(CPACK_GENERATOR "WIX")
     set(CPACK_WIX_UPGRADE_GUID "8A4B5C6D-7E8F-9A0B-1C2D-3E4F5A6B7C8D")
     set(CPACK_WIX_PRODUCT_GUID "*") # Generate new GUID for each version
-    set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png")
+    # WiX requires a .ico file for the product icon. Only set if an .ico exists.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.ico")
+        set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.ico")
+    endif()
     set(CPACK_WIX_LICENSE_RTF "${CMAKE_BINARY_DIR}/LICENSE.rtf")
     
     # Optional: Custom WiX UI images (only if they exist)

@@ -361,6 +361,15 @@ jobs:
             qt@6 \
             create-dmg \
             ffmpeg 2>&1 | grep -v "is already installed" || true
+
+      - name: Install macOS packaging dependencies
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          brew update || true
+          brew install --quiet \
+            qt@6 \
+            dbus \
+            create-dmg 2>&1 | grep -v "is already installed" || true
       
       - name: Create build directory
         if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
@@ -483,11 +492,19 @@ jobs:
       - name: Deploy Qt dependencies
         run: |
           HOMEBREW_PREFIX=$(brew --prefix)
-          QT_LIB="$HOMEBREW_PREFIX/opt/qt@6/lib"
+          QT_PREFIX=$(brew --prefix qt@6 2>/dev/null || true)
+          if [ -z "$QT_PREFIX" ] || [ ! -x "$QT_PREFIX/bin/macdeployqt" ]; then
+            QT_PREFIX=$(brew --prefix qt 2>/dev/null || true)
+          fi
+          if [ -z "$QT_PREFIX" ] || [ ! -x "$QT_PREFIX/bin/macdeployqt" ]; then
+            echo "ERROR: macdeployqt not found. Ensure qt@6 or qt is installed."
+            exit 1
+          fi
+          QT_LIB="$QT_PREFIX/lib"
           
           # Run macdeployqt to bundle Qt frameworks
           echo "Running macdeployqt..."
-          $HOMEBREW_PREFIX/opt/qt@6/bin/macdeployqt "orc-gui.app" -verbose=2
+          "$QT_PREFIX/bin/macdeployqt" "orc-gui.app" -verbose=2
           
           # Check for missing Qt dependencies and bundle them
           echo "Checking for missing Qt dependencies..."
@@ -517,7 +534,12 @@ jobs:
               # QtDBus depends on libdbus-1 - bundle it if needed
               if [ "$framework" = "QtDBus" ]; then
                 echo "Bundling QtDBus dependencies..."
-                DBUS_LIB=$(find $HOMEBREW_PREFIX/opt/dbus/lib -name "libdbus-1.*.dylib" -type f | head -n 1)
+                DBUS_PREFIX=$(brew --prefix dbus 2>/dev/null || true)
+                if [ -n "$DBUS_PREFIX" ]; then
+                  DBUS_LIB=$(find "$DBUS_PREFIX/lib" -name "libdbus-1.*.dylib" -type f | head -n 1)
+                else
+                  DBUS_LIB=""
+                fi
                 if [ -n "$DBUS_LIB" ]; then
                   DBUS_NAME=$(basename "$DBUS_LIB")
                   echo "Copying $DBUS_NAME..."

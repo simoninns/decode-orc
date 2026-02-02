@@ -25,7 +25,7 @@ generate_platform_icons(
 # GUI Application Sources
 # =============================================================================
 
-add_executable(orc-gui WIN32
+add_executable(orc-gui WIN32 MACOSX_BUNDLE
     main.cpp
     mainwindow.cpp
     mainwindow.h
@@ -194,17 +194,35 @@ if(WIN32 AND WINDOWS_ICON_FILE)
     add_dependencies(orc-gui generate_windows_icon)
 endif()
 
-if(APPLE AND MACOS_ICON_FILE)
-    # Generate the .icns file for use by the release packaging workflow
-    # The workflow creates its own bundle structure manually
-    add_custom_target(generate_macos_icon DEPENDS ${MACOS_ICON_FILE})
-    add_dependencies(orc-gui generate_macos_icon)
+if(APPLE)
+    # Set bundle properties for macOS
+    set_target_properties(orc-gui PROPERTIES
+        MACOSX_BUNDLE_BUNDLE_NAME "Decode Orc"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.simoninns.decode-orc"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_LONG_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_ICON_FILE "orc-gui.icns"
+        MACOSX_BUNDLE_INFO_STRING "Cross-platform orchestration framework for LaserDisc and tape decoding workflows"
+        MACOSX_BUNDLE_COPYRIGHT "Copyright © 2024-2026 Simon Inns"
+    )
+    
+    # Copy the icon into the bundle's Resources directory if available
+    if(MACOS_ICON_FILE)
+        set_source_files_properties(${MACOS_ICON_FILE} PROPERTIES
+            MACOSX_PACKAGE_LOCATION "Resources"
+        )
+        target_sources(orc-gui PRIVATE ${MACOS_ICON_FILE})
+        
+        add_custom_target(generate_macos_icon DEPENDS ${MACOS_ICON_FILE})
+        add_dependencies(orc-gui generate_macos_icon)
+    endif()
 endif()
 
 # Install target
 install(TARGETS orc-gui
-    RUNTIME DESTINATION bin
-    COMPONENT Runtime
+    BUNDLE DESTINATION . COMPONENT Runtime
+    RUNTIME DESTINATION bin COMPONENT Runtime
 )
 
 # On Windows, install Qt runtime dependencies and vcpkg DLLs
@@ -268,6 +286,11 @@ if(WIN32)
                 \"fftw3f.dll\"
                 \"fftw3l.dll\"
                 \"fmt.dll\"
+                \"spdlog.dll\"
+                \"yaml-cpp.dll\"
+                \"sqlite3.dll\"
+                \"libpng*.dll\"
+                \"zlib*.dll\"
             )
             
             foreach(DLL_PATTERN \${DLL_PATTERNS})

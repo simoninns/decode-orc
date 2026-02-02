@@ -71,89 +71,14 @@ jobs:
       - name: Verify binaries
         run: |
           test -f build/bin/orc-cli
-          test -f build/bin/orc-gui
+          if [ "${{ inputs.is-release }}" = "true" ]; then
+            test -d build/bin/orc-gui.app
+            test -f build/bin/orc-gui.app/Contents/MacOS/orc-gui
+            echo "✓ orc-gui.app bundle built successfully"
+          else
+            test -f build/bin/orc-gui.app/Contents/MacOS/orc-gui || test -f build/bin/orc-gui
+          fi
           echo "✓ orc-cli built successfully"
-          echo "✓ orc-gui built successfully"
-      
-      - name: Create app bundle (release only)
-        if: inputs.is-release
-        run: |
-          mkdir -p "orc-gui.app/Contents/MacOS"
-          mkdir -p "orc-gui.app/Contents/Resources"
-          
-          cp build/bin/orc-gui "orc-gui.app/Contents/MacOS/"
-          cp build/bin/orc-cli "orc-gui.app/Contents/MacOS/"
-          
-          # Use CMake-generated icon if available, otherwise create from PNG
-          if [ -f "build/orc/gui/icons/orc-gui.icns" ]; then
-            echo "Using CMake-generated icon"
-            cp "build/orc/gui/icons/orc-gui.icns" "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
-            cp "build/orc/gui/icons/orc-gui.icns" ".VolumeIcon.icns"
-          else
-            echo "CMake icon not found, generating from PNG"
-            mkdir -p orc-gui.iconset
-            
-            SOURCE_PNG="assets/orc-gui-icon-256.png"
-            sips -z 16 16     "$SOURCE_PNG" --out orc-gui.iconset/icon_16x16.png
-            sips -z 32 32     "$SOURCE_PNG" --out orc-gui.iconset/icon_16x16@2x.png
-            sips -z 32 32     "$SOURCE_PNG" --out orc-gui.iconset/icon_32x32.png
-            sips -z 64 64     "$SOURCE_PNG" --out orc-gui.iconset/icon_32x32@2x.png
-            sips -z 128 128   "$SOURCE_PNG" --out orc-gui.iconset/icon_128x128.png
-            sips -z 256 256   "$SOURCE_PNG" --out orc-gui.iconset/icon_128x128@2x.png
-            sips -z 256 256   "$SOURCE_PNG" --out orc-gui.iconset/icon_256x256.png
-            sips -z 512 512   "$SOURCE_PNG" --out orc-gui.iconset/icon_256x256@2x.png
-            sips -z 512 512   "$SOURCE_PNG" --out orc-gui.iconset/icon_512x512.png
-            sips -z 1024 1024 "$SOURCE_PNG" --out orc-gui.iconset/icon_512x512@2x.png
-            
-            iconutil -c icns orc-gui.iconset -o "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
-            iconutil -c icns orc-gui.iconset -o ".VolumeIcon.icns"
-            
-            echo "Generated icon from PNG"
-          fi
-          
-          echo "APPL????" > "orc-gui.app/Contents/PkgInfo"
-          
-          cat > "orc-gui.app/Contents/Info.plist" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleExecutable</key>
-            <string>orc-gui</string>
-            <key>CFBundleIdentifier</key>
-            <string>io.github.simoninns.decode-orc</string>
-            <key>CFBundleName</key>
-            <string>Decode Orc</string>
-            <key>CFBundleDisplayName</key>
-            <string>Decode Orc</string>
-            <key>CFBundleVersion</key>
-            <string>1.0</string>
-            <key>CFBundleShortVersionString</key>
-            <string>1.0</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>CFBundleIconFile</key>
-            <string>orc-gui-icon.icns</string>
-            <key>CFBundleIconName</key>
-            <string>orc-gui-icon</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>11.0</string>
-            <key>NSHighResolutionCapable</key>
-            <true/>
-            <key>NSPrincipalClass</key>
-            <string>NSApplication</string>
-          </dict>
-          </plist>
-          EOF
-          
-          if [ -f "orc-gui.app/Contents/Resources/orc-gui-icon.icns" ]; then
-            echo "✓ App icon properly installed"
-            ls -lh "orc-gui.app/Contents/Resources/orc-gui-icon.icns"
-            SetFile -a C "orc-gui.app" 2>/dev/null || true
-          else
-            echo "ERROR: Icon file not found!"
-            exit 1
-          fi
       
       - name: Deploy Qt dependencies (release only)
         if: inputs.is-release
@@ -168,14 +93,17 @@ jobs:
             exit 1
           fi
           
+          # Copy orc-cli into the bundle for convenience
+          cp build/bin/orc-cli "build/bin/orc-gui.app/Contents/MacOS/"
+          
           echo "Running macdeployqt..."
-          "$QT_PREFIX/bin/macdeployqt" "orc-gui.app" -verbose=2
+          "$QT_PREFIX/bin/macdeployqt" "build/bin/orc-gui.app" -verbose=2
           
           echo "Checking for missing Qt dependencies..."
           MISSING_FRAMEWORKS=""
           
-          if ! [ -d "orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
-            if otool -L "orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null | grep -q "QtDBus"; then
+          if ! [ -d "build/bin/orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
+            if otool -L "build/bin/orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null | grep -q "QtDBus"; then
               echo "QtDBus is required by QtGui but not bundled - adding it"
               MISSING_FRAMEWORKS="QtDBus"
             fi
@@ -184,25 +112,36 @@ jobs:
           for framework in $MISSING_FRAMEWORKS; do
             if [ -d "$QT_PREFIX/lib/${framework}.framework" ]; then
               echo "Copying ${framework}.framework..."
-              ditto "$QT_PREFIX/lib/${framework}.framework" "orc-gui.app/Contents/Frameworks/${framework}.framework"
+              ditto "$QT_PREFIX/lib/${framework}.framework" "build/bin/orc-gui.app/Contents/Frameworks/${framework}.framework"
               
               install_name_tool -id "@rpath/${framework}.framework/Versions/A/${framework}" \
-                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}"
+                "build/bin/orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}"
               
               install_name_tool -change \
                 "$QT_PREFIX/lib/QtCore.framework/Versions/A/QtCore" \
                 "@rpath/QtCore.framework/Versions/A/QtCore" \
-                "orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
+                "build/bin/orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
             fi
           done
           
           echo "Bundled Qt frameworks:"
-          ls -la "orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
+          ls -la "build/bin/orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
+          
+          # Verify the bundle structure
+          echo "Bundle structure:"
+          ls -la "build/bin/orc-gui.app/Contents/"
+          ls -la "build/bin/orc-gui.app/Contents/MacOS/"
+          ls -la "build/bin/orc-gui.app/Contents/Resources/" || true
       
       - name: Create DMG (release only)
         if: inputs.is-release
         run: |
           DMG_NAME="decode-orc-${{ inputs.version }}.dmg"
+          
+          # Create a custom volume icon for the DMG
+          if [ -f "build/orc/gui/icons/orc-gui.icns" ]; then
+            cp "build/orc/gui/icons/orc-gui.icns" ".VolumeIcon.icns"
+          fi
           
           create-dmg \
             --volname "Decode Orc" \
@@ -212,7 +151,7 @@ jobs:
             --app-drop-link 350 140 \
             --window-size 500 320 \
             "$DMG_NAME" \
-            "orc-gui.app"
+            "build/bin/orc-gui.app"
           
           echo "Created DMG: $DMG_NAME"
           ls -lh "$DMG_NAME"

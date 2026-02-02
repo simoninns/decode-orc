@@ -28,4 +28,5 @@ target_compile_definitions(orc-cli PRIVATE
 # Section: Install rules
 install(TARGETS orc-cli
     RUNTIME DESTINATION bin
+    COMPONENT Runtime
 )

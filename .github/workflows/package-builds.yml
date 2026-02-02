@@ -88,7 +88,7 @@ jobs:
           }
       
       - name: Install Qt6
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always install Qt6 for windeployqt, even when using build artifacts
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.1'
@@ -98,7 +98,7 @@ jobs:
           cache: true
       
       - name: Setup vcpkg binary cache
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always setup vcpkg for runtime DLLs needed in packaging
         uses: actions/cache@v4
         with:
           path: |
@@ -110,7 +110,7 @@ jobs:
             vcpkg-${{ runner.os }}-
       
       - name: Enable vcpkg binary caching
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always enable for DLL packaging
         run: |
           # Enable binary caching with GitHub Actions cache
           $env:VCPKG_BINARY_SOURCES = "clear;x-gha,readwrite"
@@ -120,7 +120,7 @@ jobs:
           echo "VCPKG_FEATURE_FLAGS=binarycaching" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       
       - name: Cache FFmpeg
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always cache FFmpeg for DLLs needed in packaging
         id: cache-ffmpeg
         uses: actions/cache@v4
         with:
@@ -154,7 +154,7 @@ jobs:
         shell: pwsh
       
       - name: Setup FFmpeg environment
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always setup FFmpeg for DLLs in packaging
         run: |
           # Find the FFmpeg directory (whether cached or just downloaded)
           $extractedDir = Get-ChildItem -Path "C:\ffmpeg" -Directory | Select-Object -First 1
@@ -170,7 +170,7 @@ jobs:
         shell: pwsh
       
       - name: Install vcpkg dependencies
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always install for DLLs (will use cache when artifacts available)
         run: |
           # Install dependencies with binary caching enabled (excluding ffmpeg - handled separately)
           vcpkg install --triplet x64-windows --recurse `
@@ -183,11 +183,14 @@ jobs:
             pkgconf
       
       - name: Create build directory
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
-        run: mkdir -p build
+        # Create if it doesn't exist (may already exist from artifacts)
+        run: |
+          if (-not (Test-Path "build")) {
+            mkdir build
+          }
       
       - name: Configure CMake
-        if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
+        # Always configure to set Qt/vcpkg paths (required for CPack)
         run: |
           cd build
           cmake .. `
@@ -369,7 +372,12 @@ jobs:
           brew install --quiet \
             qt@6 \
             dbus \
-            create-dmg 2>&1 | grep -v "is already installed" || true
+            create-dmg \
+            yaml-cpp \
+            spdlog \
+            fmt \
+            fftw \
+            ffmpeg 2>&1 | grep -v "is already installed" || true
       
       - name: Create build directory
         if: ${{ !inputs.use-build-artifacts || steps.check-artifacts.outputs.artifacts-available != 'true' }}
@@ -904,14 +912,73 @@ jobs:
           
           if [ $MISSING_COUNT -gt 0 ]; then
             echo ""
-            echo "ERROR: Found $MISSING_COUNT missing or incorrectly referenced dependencies!"
+            echo "WARNING: Found $MISSING_COUNT potentially missing dependencies"
+            echo "Attempting to locate and fix them..."
             echo ""
-            echo "Listing all bundled .dylib files:"
-            ls -lh orc-gui.app/Contents/Frameworks/*.dylib 2>/dev/null || echo "No .dylib files found"
-            echo ""
-            echo "Listing all bundled frameworks:"
-            ls -d orc-gui.app/Contents/Frameworks/*.framework 2>/dev/null || echo "No frameworks found"
-            exit 1
+            
+            # Try to find alternate versions of missing libraries
+            for LIB in orc-gui.app/Contents/Frameworks/*.dylib orc-gui.app/Contents/MacOS/orc-gui orc-gui.app/Contents/MacOS/orc-cli; do
+              if [ ! -f "$LIB" ]; then
+                continue
+              fi
+              
+              for DEP in $(otool -L "$LIB" 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+                # Check for missing libraries with version mismatches
+                if [[ "$DEP" == "$HOMEBREW_PREFIX/"* ]]; then
+                  DEP_NAME=$(basename "$DEP")
+                  DEP_BASE=$(echo "$DEP_NAME" | sed -E 's/\.[0-9]+\.dylib/.*.dylib/')
+                  
+                  # Try to find an alternate version
+                  FOUND_LIB=$(find $HOMEBREW_PREFIX/opt $HOMEBREW_PREFIX/Cellar -name "$DEP_BASE" -o -name "$DEP_NAME" 2>/dev/null | head -n 1)
+                  if [ -n "$FOUND_LIB" ] && [ -f "$FOUND_LIB" ]; then
+                    FOUND_NAME=$(basename "$FOUND_LIB")
+                    echo "  Found alternate version: $FOUND_LIB"
+                    
+                    # Copy and update reference
+                    if [ ! -f "orc-gui.app/Contents/Frameworks/$FOUND_NAME" ]; then
+                      cp "$FOUND_LIB" "orc-gui.app/Contents/Frameworks/"
+                      install_name_tool -id "@rpath/$FOUND_NAME" "orc-gui.app/Contents/Frameworks/$FOUND_NAME" 2>/dev/null || true
+                    fi
+                    
+                    # Update references
+                    install_name_tool -change "$DEP" "@rpath/$FOUND_NAME" "$LIB" 2>/dev/null || true
+                  fi
+                fi
+              done
+            done
+            
+            # Recount missing after attempting to fix
+            MISSING_COUNT=0
+            for LIB in orc-gui.app/Contents/Frameworks/*.dylib orc-gui.app/Contents/MacOS/orc-gui orc-gui.app/Contents/MacOS/orc-cli; do
+              if [ ! -f "$LIB" ]; then
+                continue
+              fi
+              for DEP in $(otool -L "$LIB" 2>/dev/null | tail -n +2 | awk '{print $1}'); do
+                if [[ "$DEP" == "/System/"* ]] || [[ "$DEP" == "/usr/lib/"* ]] || [[ "$DEP" == "$LIB" ]] || [[ "$DEP" == *".framework/"* ]]; then
+                  continue
+                fi
+                if [[ "$DEP" == "@rpath/"* ]]; then
+                  DEP_NAME=$(echo "$DEP" | sed 's|@rpath/||')
+                  if [ ! -f "orc-gui.app/Contents/Frameworks/$DEP_NAME" ]; then
+                    MISSING_COUNT=$((MISSING_COUNT + 1))
+                  fi
+                elif [[ "$DEP" == "$HOMEBREW_PREFIX/"* ]]; then
+                  MISSING_COUNT=$((MISSING_COUNT + 1))
+                fi
+              done
+            done
+            
+            if [ $MISSING_COUNT -gt 0 ]; then
+              echo ""
+              echo "ERROR: Still found $MISSING_COUNT unresolved dependencies after attempting to fix"
+              echo ""
+              echo "Listing all bundled .dylib files:"
+              ls -lh orc-gui.app/Contents/Frameworks/*.dylib 2>/dev/null || echo "No .dylib files found"
+              echo ""
+              echo "Listing all bundled frameworks:"
+              ls -d orc-gui.app/Contents/Frameworks/*.framework 2>/dev/null || echo "No frameworks found"
+              exit 1
+            fi
           fi
           
           echo ""

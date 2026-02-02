@@ -30,12 +30,25 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
         endif()
         
         if(CONVERT_CMD)
+            # Check if we have an SVG source for better quality
+            get_filename_component(SOURCE_DIR ${SOURCE_PNG} DIRECTORY)
+            set(SVG_SOURCE "${SOURCE_DIR}/orc-gui-icon.svg")
+            
+            # Prefer SVG source if it exists
+            if(EXISTS ${SVG_SOURCE})
+                set(ICON_SOURCE ${SVG_SOURCE})
+                set(ICON_COMMENT "Generating Windows .ico from SVG")
+            else()
+                set(ICON_SOURCE ${SOURCE_PNG})
+                set(ICON_COMMENT "Generating Windows .ico from PNG")
+            endif()
+            
             set(ICO_FILE "${ICON_BASE}.ico")
             add_custom_command(
                 OUTPUT ${ICO_FILE}
-                COMMAND ${CONVERT_CMD} ${SOURCE_PNG} -define icon:auto-resize=256,128,64,48,32,16 ${ICO_FILE}
-                DEPENDS ${SOURCE_PNG}
-                COMMENT "Generating Windows .ico from ${SOURCE_PNG}"
+                COMMAND ${CONVERT_CMD} ${ICON_SOURCE} -define icon:auto-resize=256,128,64,48,32,16 ${ICO_FILE}
+                DEPENDS ${ICON_SOURCE}
+                COMMENT ${ICON_COMMENT}
                 VERBATIM
             )
             set(WINDOWS_ICON_FILE ${ICO_FILE} PARENT_SCOPE)
@@ -46,13 +59,36 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
     if(APPLE)
         find_program(SIPS sips)
         find_program(ICONUTIL iconutil)
+        find_program(RSVG_CONVERT rsvg-convert)
         
         if(SIPS AND ICONUTIL)
             set(ICONSET_DIR "${OUTPUT_DIR}/orc-gui.iconset")
             set(ICNS_FILE "${ICON_BASE}.icns")
             
+            # Check if we have an SVG source for better quality
+            get_filename_component(SOURCE_DIR ${SOURCE_PNG} DIRECTORY)
+            get_filename_component(SOURCE_NAME ${SOURCE_PNG} NAME_WE)
+            set(SVG_SOURCE "${SOURCE_DIR}/orc-gui-icon.svg")
+            
+            # If SVG exists and rsvg-convert is available, generate high-res PNG from it
+            if(EXISTS ${SVG_SOURCE} AND RSVG_CONVERT)
+                set(HIGHRES_PNG "${OUTPUT_DIR}/orc-gui-icon-1024.png")
+                add_custom_command(
+                    OUTPUT ${HIGHRES_PNG}
+                    COMMAND ${RSVG_CONVERT} -w 1024 -h 1024 ${SVG_SOURCE} -o ${HIGHRES_PNG}
+                    DEPENDS ${SVG_SOURCE}
+                    COMMENT "Generating 1024x1024 PNG from SVG for icon generation"
+                    VERBATIM
+                )
+                set(ICON_SOURCE ${HIGHRES_PNG})
+                set(ICON_SOURCE_DEPENDS ${HIGHRES_PNG})
+            else()
+                set(ICON_SOURCE ${SOURCE_PNG})
+                set(ICON_SOURCE_DEPENDS ${SOURCE_PNG})
+            endif()
+            
             # Define required icon sizes for macOS
-            set(ICON_SIZES 16 32 64 128 256 512)
+            set(ICON_SIZES 16 32 128 256 512)
             set(ICONSET_FILES "")
             
             foreach(SIZE ${ICON_SIZES})
@@ -64,8 +100,8 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
                 add_custom_command(
                     OUTPUT ${OUTPUT_FILE}
                     COMMAND ${CMAKE_COMMAND} -E make_directory ${ICONSET_DIR}
-                    COMMAND ${SIPS} -z ${SIZE} ${SIZE} ${SOURCE_PNG} --out ${OUTPUT_FILE}
-                    DEPENDS ${SOURCE_PNG}
+                    COMMAND ${SIPS} -z ${SIZE} ${SIZE} ${ICON_SOURCE} --out ${OUTPUT_FILE}
+                    DEPENDS ${ICON_SOURCE_DEPENDS}
                     VERBATIM
                 )
                 
@@ -74,8 +110,8 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
                     add_custom_command(
                         OUTPUT ${OUTPUT_FILE_2X}
                         COMMAND ${CMAKE_COMMAND} -E make_directory ${ICONSET_DIR}
-                        COMMAND ${SIPS} -z ${SIZE_2X} ${SIZE_2X} ${SOURCE_PNG} --out ${OUTPUT_FILE_2X}
-                        DEPENDS ${SOURCE_PNG}
+                        COMMAND ${SIPS} -z ${SIZE_2X} ${SIZE_2X} ${ICON_SOURCE} --out ${OUTPUT_FILE_2X}
+                        DEPENDS ${ICON_SOURCE_DEPENDS}
                         VERBATIM
                     )
                 endif()

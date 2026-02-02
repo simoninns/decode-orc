@@ -204,6 +204,7 @@ endif()
 # Install target
 install(TARGETS orc-gui
     RUNTIME DESTINATION bin
+    COMPONENT Runtime
 )
 
 # On Windows, install Qt runtime dependencies and vcpkg DLLs
@@ -221,9 +222,17 @@ if(WIN32)
     
     # Install script to run windeployqt and copy vcpkg DLLs during installation
     install(CODE "
+        # Ensure bin directory exists
+        file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\")
+        
+        # Verify target executable exists before running windeployqt
+        if(NOT EXISTS \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
+            message(FATAL_ERROR \"Target executable not found: \${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
+        endif()
+        
         # Run windeployqt
         set(WINDEPLOYQT_EXECUTABLE \"${WINDEPLOYQT_EXECUTABLE}\")
-        if(EXISTS \"\${WINDEPLOYQT_EXECUTABLE}\")
+        if(WINDEPLOYQT_EXECUTABLE AND EXISTS \"\${WINDEPLOYQT_EXECUTABLE}\")
             message(STATUS \"Running windeployqt from: \${WINDEPLOYQT_EXECUTABLE}\")
             message(STATUS \"Target executable: \${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
             execute_process(
@@ -239,14 +248,12 @@ if(WIN32)
                 ERROR_VARIABLE WINDEPLOYQT_ERROR
             )
             if(NOT WINDEPLOYQT_RESULT EQUAL 0)
-                message(WARNING \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\")
-                message(WARNING \"Output: \${WINDEPLOYQT_OUTPUT}\")
-                message(WARNING \"Error: \${WINDEPLOYQT_ERROR}\")
+                message(FATAL_ERROR \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\\nOutput: \${WINDEPLOYQT_OUTPUT}\\nError: \${WINDEPLOYQT_ERROR}\")
             else()
                 message(STATUS \"windeployqt completed successfully\")
             endif()
         else()
-            message(WARNING \"windeployqt executable not found at \${WINDEPLOYQT_EXECUTABLE}\")
+            message(FATAL_ERROR \"windeployqt executable not found. Expected at: \${WINDEPLOYQT_EXECUTABLE}\")
         endif()
         
         # Copy vcpkg runtime DLLs
@@ -290,7 +297,7 @@ if(WIN32)
         else()
             message(WARNING \"vcpkg bin directory not found at \${VCPKG_BIN_DIR}\")
         endif()
-    " COMPONENT Unspecified)
+    " COMPONENT Runtime)
 endif()
 
 # Install desktop file

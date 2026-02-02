@@ -1,6 +1,23 @@
 cmake_minimum_required(VERSION 3.20)
 project(decode-orc VERSION 0.1.0 LANGUAGES CXX)
 
+# Allow version override for release builds
+if(DEFINED PROJECT_VERSION_OVERRIDE)
+    set(PROJECT_VERSION "${PROJECT_VERSION_OVERRIDE}")
+    string(REPLACE "v" "" PROJECT_VERSION_CLEAN "${PROJECT_VERSION}")
+    set(PROJECT_VERSION "${PROJECT_VERSION_CLEAN}")
+    
+    # Parse the version string (e.g., "1.0.8")
+    string(REGEX MATCH "^([0-9]+)\.([0-9]+)\.([0-9]+)" _ "${PROJECT_VERSION}")
+    if(CMAKE_MATCH_1)
+        set(PROJECT_VERSION_MAJOR "${CMAKE_MATCH_1}")
+        set(PROJECT_VERSION_MINOR "${CMAKE_MATCH_2}")
+        set(PROJECT_VERSION_PATCH "${CMAKE_MATCH_3}")
+    endif()
+    
+    message(STATUS "Using release version override: ${PROJECT_VERSION}")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)

@@ -50,13 +50,20 @@ jobs:
           cd build
           export HOMEBREW_PREFIX=$(brew --prefix)
           export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
+          
+          VERSION_ARG=""
+          if [ "${{ inputs.is-release }}" = "true" ]; then
+            VERSION_ARG="-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}"
+          fi
+          
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_GUI=ON \
             -DBUILD_TESTS=${{ inputs.build-tests && 'ON' || 'OFF' }} \
             -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
             -DQt6_DIR=$Qt6_DIR \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+            $VERSION_ARG
       
       - name: Build
         run: cmake --build build -j$(sysctl -n hw.ncpu)

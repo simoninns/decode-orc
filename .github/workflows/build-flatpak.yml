@@ -49,11 +49,40 @@ jobs:
             echo "bundle=decode-orc.flatpak" >> $GITHUB_OUTPUT
           fi
       
+      - name: Prepare Flatpak manifest for release
+        if: inputs.is-release
+        run: |
+          python3 << 'EOF'
+          import yaml
+          
+          with open('io.github.simoninns.decode-orc.yml', 'r') as f:
+              manifest = yaml.safe_load(f)
+          
+          # Find the decode-orc module and add the version config
+          for module in manifest.get('modules', []):
+              if module.get('name') == 'decode-orc':
+                  if 'config-opts' not in module:
+                      module['config-opts'] = []
+                  module['config-opts'].append('-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}')
+                  break
+          
+          with open('io.github.simoninns.decode-orc-release.yml', 'w') as f:
+              yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
+          
+          print("Created release manifest with version override")
+          EOF
+          
+          echo "MANIFEST_FILE=io.github.simoninns.decode-orc-release.yml" >> $GITHUB_ENV
+      
+      - name: Set manifest for non-release
+        if: ${{ !inputs.is-release }}
+        run: echo "MANIFEST_FILE=io.github.simoninns.decode-orc.yml" >> $GITHUB_ENV
+      
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: ${{ steps.bundle-name.outputs.bundle }}
-          manifest-path: io.github.simoninns.decode-orc.yml
+          manifest-path: ${{ env.MANIFEST_FILE }}
           cache-key: flatpak-builder-${{ github.sha }}
           upload-artifact: false
       

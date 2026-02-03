@@ -62,13 +62,23 @@ jobs:
           sudo rm -f /Library/LaunchDaemons/com.apple.nix-daemon.plist 2>/dev/null || true
           sudo rm -f /Library/LaunchDaemons/org.nixos.nix-daemon.plist 2>/dev/null || true
           
-          # Remove Nix build users and group
+          # Remove Nix build users and group - be more aggressive
           if command -v dscl &> /dev/null; then
+            # Delete all build users
             for i in {1..10}; do
-              sudo dscl . -delete "/Users/_nixbld$i" 2>/dev/null || true
+              # Use different deletion methods to ensure cleanup
+              sudo dscl . -delete "/Users/_nixbld$i" >/dev/null 2>&1 || true
+              # Also try via DSLocalDB path
+              sudo dscl /Local/Default -delete "/Users/_nixbld$i" >/dev/null 2>&1 || true
             done
-            sudo dscl . -delete "/Groups/nixbld" 2>/dev/null || true
+            # Delete build group
+            sudo dscl . -delete "/Groups/nixbld" >/dev/null 2>&1 || true
+            sudo dscl /Local/Default -delete "/Groups/nixbld" >/dev/null 2>&1 || true
           fi
+          
+          # Verify users are gone and show what users exist
+          echo "Remaining users matching _nixbld pattern:"
+          dscl . list /Users | grep _nixbld || echo "None found (good!)"
           
           set -e
       

@@ -187,7 +187,8 @@ jobs:
         with:
           name: ${{ steps.artifact-name.outputs.name }}
           path: |
-            ${{ inputs.is-release && 'build/*.msi' || 'build/bin/' }}
+            build/*.msi
+            build/bin/
             build/lib/
             build/generated/
             build/CMakeCache.txt

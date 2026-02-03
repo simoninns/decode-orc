@@ -176,7 +176,8 @@ jobs:
         with:
           name: ${{ steps.artifact-name.outputs.name }}
           path: |
-            ${{ inputs.is-release && 'decode-orc-*.dmg' || 'build/bin/' }}
+            decode-orc-*.dmg
+            build/bin/
             build/lib/
             build/generated/
           retention-days: ${{ inputs.is-release && 7 || 1 }}

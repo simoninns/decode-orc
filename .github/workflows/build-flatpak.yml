@@ -27,9 +27,6 @@ jobs:
   build:
     name: Build Flatpak
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
-      options: --privileged
     outputs:
       artifact-name: ${{ steps.artifact-name.outputs.name }}
     
@@ -40,88 +37,85 @@ jobs:
           lfs: true
           submodules: recursive
       
-      - name: Set bundle name
-        id: bundle-name
-        run: |
-          if [ "${{ inputs.is-release }}" = "true" ]; then
-            echo "bundle=decode-orc-${{ inputs.version }}.flatpak" >> $GITHUB_OUTPUT
-          else
-            echo "bundle=decode-orc.flatpak" >> $GITHUB_OUTPUT
-          fi
-      
-      - name: Prepare Flatpak manifest for release
-        if: inputs.is-release
-        run: |
-          python3 << 'EOF'
-          import yaml
-          
-          with open('io.github.simoninns.decode-orc.yml', 'r') as f:
-              manifest = yaml.safe_load(f)
-          
-          # Find the decode-orc module and add the version config
-          for module in manifest.get('modules', []):
-              if module.get('name') == 'decode-orc':
-                  if 'config-opts' not in module:
-                      module['config-opts'] = []
-                  module['config-opts'].append('-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}')
-                  break
-          
-          with open('io.github.simoninns.decode-orc-release.yml', 'w') as f:
-              yaml.dump(manifest, f, default_flow_style=False, sort_keys=False)
-          
-          print("Created release manifest with version override")
-          EOF
-          
-          echo "MANIFEST_FILE=io.github.simoninns.decode-orc-release.yml" >> $GITHUB_ENV
-      
-      - name: Set manifest for non-release
-        if: ${{ !inputs.is-release }}
-        run: echo "MANIFEST_FILE=io.github.simoninns.decode-orc.yml" >> $GITHUB_ENV
-      
-      - name: Pre-download external dependencies with retries
-        run: |
-          # Create download helper function
-          download_with_retry() {
-            local url="$1"
-            local filename="$2"
-            local max_attempts=3
-            local retry_delay=5
-            
-            echo "Downloading: $filename from $url"
-            
-            for attempt in $(seq 1 $max_attempts); do
-              echo "  Attempt $attempt of $max_attempts..."
-              if curl -f -L -o "$filename" "$url"; then
-                echo "  ✓ Downloaded successfully"
-                return 0
-              fi
-              
-              if [ $attempt -lt $max_attempts ]; then
-                echo "  ✗ Download failed, waiting ${retry_delay}s before retry..."
-                sleep $retry_delay
-              fi
-            done
-            
-            echo "  ✗ Failed after $max_attempts attempts"
-            return 1
-          }
-          
-          # Pre-download all external dependencies
-          download_with_retry "https://www.fftw.org/fftw-3.3.10.tar.gz" "fftw-3.3.10.tar.gz"
-          download_with_retry "https://bitbucket.org/multicoreware/x265_git/downloads/x265_3.6.tar.gz" "x265_3.6.tar.gz"
-          download_with_retry "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz" "nasm-2.16.03.tar.xz"
-          download_with_retry "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz" "ffmpeg-7.1.tar.xz"
-          
-          echo ""
-          echo "All external dependencies pre-downloaded successfully"
-      
-      - name: Build Flatpak
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
         with:
-          bundle: ${{ steps.bundle-name.outputs.bundle }}
-          manifest-path: ${{ env.MANIFEST_FILE }}
-          cache-key: flatpak-builder-${{ github.sha }}
-          upload-artifact: false
+          nix_path: nixpkgs=channel:nixos-unstable
+      
+      - name: Build with Nix
+        run: nix build --cores 0 --print-build-logs
+      
+      - name: Install Flatpak and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.kde.Platform//6.8 org.kde.Sdk//6.8
+      
+      - name: Create Flatpak from Nix build
+        run: |
+          BUNDLE_NAME="decode-orc-${{ inputs.version }}.flatpak"
+          APP_ID="io.github.simoninns.decode-orc"
+          
+          # Create flatpak directory structure
+          mkdir -p flatpak-build/files/bin
+          mkdir -p flatpak-build/files/share/applications
+          mkdir -p flatpak-build/files/share/icons/hicolor/scalable/apps
+          mkdir -p flatpak-build/files/share/metainfo
+          
+          # Copy Nix build outputs
+          cp -r result/bin/* flatpak-build/files/bin/
+          
+          # Create desktop file if it doesn't exist
+          if [ ! -f flatpak-build/files/share/applications/${APP_ID}.desktop ]; then
+            cat > flatpak-build/files/share/applications/${APP_ID}.desktop << EOF
+          [Desktop Entry]
+          Type=Application
+          Name=Decode Orc
+          Comment=LaserDisc and tape decoding orchestration framework
+          Exec=orc-gui
+          Icon=${APP_ID}
+          Categories=AudioVideo;Video;
+          Terminal=false
+          EOF
+          fi
+          
+          # Create metainfo file if it doesn't exist
+          if [ ! -f flatpak-build/files/share/metainfo/${APP_ID}.metainfo.xml ]; then
+            cat > flatpak-build/files/share/metainfo/${APP_ID}.metainfo.xml << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <component type="desktop-application">
+            <id>${APP_ID}</id>
+            <name>Decode Orc</name>
+            <summary>LaserDisc and tape decoding orchestration framework</summary>
+            <metadata_license>CC0-1.0</metadata_license>
+            <project_license>GPL-3.0+</project_license>
+          </component>
+          EOF
+          fi
+          
+          # Initialize flatpak repo
+          ostree init --repo=repo --mode=archive-z2
+          
+          # Build flatpak
+          flatpak build-init flatpak-build ${APP_ID} org.kde.Sdk org.kde.Platform 6.8
+          flatpak build-finish flatpak-build \
+            --command=orc-gui \
+            --share=ipc \
+            --socket=x11 \
+            --socket=wayland \
+            --socket=pulseaudio \
+            --device=all \
+            --filesystem=host
+          
+          # Export to repo
+          flatpak build-export repo flatpak-build
+          
+          # Create bundle
+          flatpak build-bundle repo "$BUNDLE_NAME" ${APP_ID}
+          
+          echo "Created Flatpak bundle: $BUNDLE_NAME"
+          ls -lh "$BUNDLE_NAME"
       
       - name: Set artifact name
         id: artifact-name
@@ -138,3 +132,32 @@ jobs:
           name: ${{ steps.artifact-name.outputs.name }}
           path: decode-orc*.flatpak
           retention-days: ${{ inputs.is-release && 7 || 1 }}
+
+  validate-manifest:
+    name: Validate Flatpak Manifest
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.8
+      options: --privileged
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Build Flatpak from manifest
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: decode-orc-manifest-${{ inputs.version }}.flatpak
+          manifest-path: io.github.simoninns.decode-orc.yml
+          cache-key: flatpak-manifest-${{ github.sha }}
+          upload-artifact: false
+      
+      - name: Upload manifest-built Flatpak
+        if: inputs.is-release
+        uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-manifest-validation
+          path: decode-orc-manifest-*.flatpak
+          retention-days: 7

@@ -92,3 +92,9 @@ test-run.log*.log
 # Keep local/user-specific VS Code files ignored
 .vscode/c_cpp_properties.json
 .vscode/settings.json
+
+# Nix
+result
+result-*
+.direnv/
+.envrc.cache

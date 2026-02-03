@@ -1,3 +1,5 @@
+# Flatpak manifest for Flathub submission
+# NOTE: CI builds use flake.nix. This manifest is validated on every release to ensure it stays current.
 app-id: io.github.simoninns.decode-orc
 runtime: org.kde.Platform
 runtime-version: '6.8'

@@ -22,6 +22,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Repo root (used for submodules)
+get_filename_component(ORC_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+
 # Get git commit hash for version
 find_package(Git QUIET)
 if(GIT_FOUND)
@@ -68,7 +71,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Optional: build encode-orc from the external submodule (needed for installers)
 if(BUILD_ENCODE_ORC AND NOT TARGET encode-orc)
-    get_filename_component(ORC_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
     set(ENCODE_ORC_DIR "${ORC_REPO_ROOT}/external/encode-orc")
     if(EXISTS "${ENCODE_ORC_DIR}/CMakeLists.txt")
         add_subdirectory("${ENCODE_ORC_DIR}" "${CMAKE_BINARY_DIR}/external/encode-orc")
@@ -99,24 +101,22 @@ add_subdirectory(cli)
 if(BUILD_GUI)
     # Try to find QtNodes first (e.g., when building in Flatpak)
     find_package(QtNodes QUIET)
-    
+
     if(NOT QtNodes_FOUND)
-        # Fetch QtNodes for node graph editing
-        include(FetchContent)
-        FetchContent_Declare(
-            QtNodes
-            GIT_REPOSITORY https://github.com/paceholder/nodeeditor.git
-            GIT_TAG master
-            GIT_SHALLOW TRUE
-        )
-        
-        set(USE_QT6 ON CACHE BOOL "Use Qt6 for QtNodes" FORCE)
-        set(BUILD_TESTING OFF CACHE BOOL "Disable QtNodes tests" FORCE)
-        set(BUILD_EXAMPLES OFF CACHE BOOL "Disable QtNodes examples" FORCE)
-        set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build QtNodes as static lib" FORCE)
-        
-        message(STATUS "Fetching QtNodes...")
-        FetchContent_MakeAvailable(QtNodes)
+        # Prefer the submodule if present
+        set(QTNODES_DIR "${ORC_REPO_ROOT}/external/qtnodes")
+
+        if(EXISTS "${QTNODES_DIR}/CMakeLists.txt")
+            set(USE_QT6 ON CACHE BOOL "Use Qt6 for QtNodes" FORCE)
+            set(BUILD_TESTING OFF CACHE BOOL "Disable QtNodes tests" FORCE)
+            set(BUILD_EXAMPLES OFF CACHE BOOL "Disable QtNodes examples" FORCE)
+            set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build QtNodes as static lib" FORCE)
+
+            message(STATUS "Using QtNodes submodule at ${QTNODES_DIR}")
+            add_subdirectory("${QTNODES_DIR}" "${CMAKE_BINARY_DIR}/external/qtnodes")
+        else()
+            message(FATAL_ERROR "QtNodes not found. Please init submodule: git submodule update --init --recursive")
+        endif()
     else()
         message(STATUS "Using system QtNodes")
     endif()

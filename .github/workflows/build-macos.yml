@@ -37,127 +37,30 @@ jobs:
           lfs: true
           submodules: recursive
       
-      - name: Install system dependencies
-        run: |
-          brew update || true
-          brew install --quiet cmake pkg-config spdlog sqlite yaml-cpp libpng fftw qt@6 create-dmg ffmpeg 2>&1 | grep -v "is already installed" || true
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
       
-      - name: Create build directory
-        run: mkdir -p build
+      - name: Install create-dmg (for packaging)
+        run: brew install create-dmg
       
-      - name: Configure CMake
-        run: |
-          cd build
-          export HOMEBREW_PREFIX=$(brew --prefix)
-          export Qt6_DIR=$HOMEBREW_PREFIX/opt/qt@6/lib/cmake/Qt6
-          
-          VERSION_ARG=""
-          if [ "${{ inputs.is-release }}" = "true" ]; then
-            VERSION_ARG="-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}"
-          fi
-          
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_GUI=ON \
-            -DBUILD_TESTS=${{ inputs.build-tests && 'ON' || 'OFF' }} \
-            -DCMAKE_PREFIX_PATH="$HOMEBREW_PREFIX" \
-            -DQt6_DIR=$Qt6_DIR \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
-            $VERSION_ARG
-      
-      - name: Build
-        run: cmake --build build -j$(sysctl -n hw.ncpu)
-      
-      - name: Verify binaries
-        run: |
-          test -f build/bin/orc-cli
-          if [ "${{ inputs.is-release }}" = "true" ]; then
-            test -d build/bin/orc-gui.app
-            test -f build/bin/orc-gui.app/Contents/MacOS/orc-gui
-            echo "✓ orc-gui.app bundle built successfully"
-          else
-            test -f build/bin/orc-gui.app/Contents/MacOS/orc-gui || test -f build/bin/orc-gui
-          fi
-          echo "✓ orc-cli built successfully"
-      
-      - name: Deploy Qt dependencies
-        run: |
-          HOMEBREW_PREFIX=$(brew --prefix)
-          QT_PREFIX=$(brew --prefix qt@6 2>/dev/null || true)
-          if [ -z "$QT_PREFIX" ] || [ ! -x "$QT_PREFIX/bin/macdeployqt" ]; then
-            QT_PREFIX=$(brew --prefix qt 2>/dev/null || true)
-          fi
-          if [ -z "$QT_PREFIX" ] || [ ! -x "$QT_PREFIX/bin/macdeployqt" ]; then
-            echo "ERROR: macdeployqt not found. Ensure qt@6 or qt is installed."
-            exit 1
-          fi
-          
-          # Copy orc-cli into the bundle for convenience
-          cp build/bin/orc-cli "build/bin/orc-gui.app/Contents/MacOS/"
-          
-          echo "Running macdeployqt..."
-          "$QT_PREFIX/bin/macdeployqt" "build/bin/orc-gui.app" -verbose=2
-          
-          # Ad-hoc code sign the entire bundle (required for macOS Gatekeeper)
-          echo "Ad-hoc code signing the bundle..."
-          codesign --deep --force --verify --verbose --sign - "build/bin/orc-gui.app"
-          
-          # Verify the code signature
-          echo "Verifying code signature..."
-          codesign --verify --verbose "build/bin/orc-gui.app"
-          
-          echo "Checking for missing Qt dependencies..."
-          MISSING_FRAMEWORKS=""
-          
-          if ! [ -d "build/bin/orc-gui.app/Contents/Frameworks/QtDBus.framework" ]; then
-            if otool -L "build/bin/orc-gui.app/Contents/Frameworks/QtGui.framework/Versions/A/QtGui" 2>/dev/null | grep -q "QtDBus"; then
-              echo "QtDBus is required by QtGui but not bundled - adding it"
-              MISSING_FRAMEWORKS="QtDBus"
-            fi
-          fi
-          
-          for framework in $MISSING_FRAMEWORKS; do
-            if [ -d "$QT_PREFIX/lib/${framework}.framework" ]; then
-              echo "Copying ${framework}.framework..."
-              ditto "$QT_PREFIX/lib/${framework}.framework" "build/bin/orc-gui.app/Contents/Frameworks/${framework}.framework"
-              
-              install_name_tool -id "@rpath/${framework}.framework/Versions/A/${framework}" \
-                "build/bin/orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}"
-              
-              install_name_tool -change \
-                "$QT_PREFIX/lib/QtCore.framework/Versions/A/QtCore" \
-                "@rpath/QtCore.framework/Versions/A/QtCore" \
-                "build/bin/orc-gui.app/Contents/Frameworks/${framework}.framework/Versions/A/${framework}" 2>/dev/null || true
-            fi
-          done
-          
-          echo "Bundled Qt frameworks:"
-          ls -la "build/bin/orc-gui.app/Contents/Frameworks/" | grep "\.framework" || true
-          
-          # Verify the bundle structure
-          echo "Bundle structure:"
-          ls -la "build/bin/orc-gui.app/Contents/"
-          ls -la "build/bin/orc-gui.app/Contents/MacOS/"
-          ls -la "build/bin/orc-gui.app/Contents/Resources/" || true
+      - name: Build with Nix
+        run: nix build --cores 0 --print-build-logs
       
       - name: Create DMG
         run: |
           DMG_NAME="decode-orc-${{ inputs.version }}.dmg"
           
-          # Create a custom volume icon for the DMG
-          if [ -f "build/orc/gui/icons/orc-gui.icns" ]; then
-            cp "build/orc/gui/icons/orc-gui.icns" ".VolumeIcon.icns"
-          fi
+          # Nix builds don't create .app bundles with GUI, so create a simple DMG with binaries
+          mkdir -p dmg-contents
+          cp -r result/bin/* dmg-contents/
           
           create-dmg \
             --volname "Decode Orc" \
-            --icon-size 120 \
-            --icon "orc-gui.app" 140 140 \
-            --hide-extension "orc-gui.app" \
-            --app-drop-link 350 140 \
             --window-size 500 320 \
             "$DMG_NAME" \
-            "build/bin/orc-gui.app"
+            "dmg-contents"
           
           echo "Created DMG: $DMG_NAME"
           ls -lh "$DMG_NAME"
@@ -175,9 +78,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifact-name.outputs.name }}
-          path: |
-            decode-orc-*.dmg
-            build/bin/
-            build/lib/
-            build/generated/
+          path: decode-orc-*.dmg
           retention-days: ${{ inputs.is-release && 7 || 1 }}

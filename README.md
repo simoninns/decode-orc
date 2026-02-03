@@ -33,6 +33,29 @@ The release packages can be found in the [release section](https://github.com/si
 
 For instructions on how to install please see the [release installtion](https://simoninns.github.io/decode-orc-docs/release-installation.html) instructions.
 
+## Building from Source
+
+### Using Nix (Recommended for Reproducible Builds)
+
+The project supports [Nix](https://nixos.org/) for deterministic, reproducible builds:
+
+```bash
+# Enter development environment
+nix develop
+
+# Build the project
+nix build
+
+# Run the application
+nix run .#orc-gui
+```
+
+See [docs/NIX-BUILD.md](docs/NIX-BUILD.md) for complete Nix build instructions.
+
+### Traditional Build
+
+For traditional CMake builds with vcpkg, please refer to the [build documentation](https://simoninns.github.io/decode-orc-docs/).
+
 # Crash Reporting
 
 If the application crashes unexpectedly, it will automatically create a diagnostic bundle to help identify and fix the issue. This bundle contains:

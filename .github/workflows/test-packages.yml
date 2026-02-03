@@ -8,6 +8,7 @@ on:
       - develop
     paths:
       - '.github/workflows/test-packages.yml'
+      - '.github/workflows/build-packages.yml'
       - '.github/workflows/build-windows.yml'
       - '.github/workflows/build-macos.yml'
       - '.github/workflows/build-flatpak.yml'
@@ -15,6 +16,8 @@ on:
       - 'orc/**/CMakeLists.txt'
       - 'external/**'
       - 'vcpkg.json'
+      - 'flake.nix'
+      - 'flake.lock'
   pull_request:
     branches:
       - main

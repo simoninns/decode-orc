@@ -7,68 +7,31 @@ on:
     branches: [ main, develop, master ]
 
 jobs:
-  # Linux CI build (Fedora)
   build:
-    name: Build on Fedora
+    name: Build with Nix
     runs-on: ubuntu-latest
-    container: fedora:latest
     
     steps:
-      - name: Install git for checkout
-        run: dnf install -y git git-lfs
-      
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           lfs: true
           submodules: recursive
       
-      - name: Install system dependencies
-        run: |
-          dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
-          dnf install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
-          dnf install -y \
-            cmake \
-            gcc \
-            gcc-c++ \
-            make \
-            git \
-            pkg-config \
-            spdlog-devel \
-            sqlite-devel \
-            yaml-cpp-devel \
-            libpng-devel \
-            fftw-devel \
-            fftw-libs \
-            fftw-libs-double \
-            fftw-libs-single \
-            qt6-qtbase-devel \
-            qt6-qtsvg-devel \
-            ffmpeg \
-            ffmpeg-devel --allowerasing
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
       
-      - name: Create build directory
-        run: mkdir -p build
+      - name: Build with Nix
+        run: nix build --cores 0 --print-build-logs
       
-      - name: Configure CMake
+      - name: Run encode-orc tests
         run: |
-          cd build
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_GUI=ON \
-            -DBUILD_TESTS=ON
-      
-      - name: Build
-        run: |
-          cd build
-          cmake --build . --parallel $(nproc)
-      
-      - name: Run tests
-        run: |
-          cd build
-          ctest --output-on-failure
+          # Make test script executable and run it
+          chmod +x encode-tests.sh
+          ./encode-tests.sh
 
-  # MVP Architecture Validation (runs after successful build)
   mvp-validation:
     name: Check MVP Architecture Boundaries
     runs-on: ubuntu-latest
@@ -78,15 +41,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Install dependencies for compilation tests
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libspdlog-dev
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
       
-      - name: Run MVP Architecture Validation
-        run: |
-          chmod +x check_mvp_architecture.sh
-          ./check_mvp_architecture.sh
+      - name: Run MVP Architecture Validation in Nix shell
+        run: nix develop --command bash -c "chmod +x check_mvp_architecture.sh && ./check_mvp_architecture.sh"
 
   # Generate and Deploy Documentation (runs after successful build)
   docs:

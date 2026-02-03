@@ -21,18 +21,20 @@ PROJECT_ROOT="$SCRIPT_DIR"
 ENCODE_PROJECTS_DIR="$PROJECT_ROOT/encode-projects"
 ENCODE_OUTPUT_DIR="$PROJECT_ROOT/encode-output"
 BUILD_DIR="$PROJECT_ROOT/build/external/encode-orc"
+NIX_RESULT_DIR="$PROJECT_ROOT/result"
 
-# Check if decode-orc has been built (which builds encode-orc)
-if [ ! -d "$BUILD_DIR" ]; then
-    echo -e "${RED}Error: encode-orc build not found at $BUILD_DIR${NC}"
-    echo -e "${YELLOW}Please build decode-orc first (which builds encode-orc as a dependency)${NC}"
-    exit 1
-fi
-
-ENCODE_ORC="$BUILD_DIR/encode-orc"
-
-if [ ! -f "$ENCODE_ORC" ]; then
-    echo -e "${RED}Error: encode-orc executable not found. Build may have failed.${NC}"
+# Try Nix build first, then fall back to CMake build
+if [ -f "$NIX_RESULT_DIR/bin/encode-orc" ]; then
+    ENCODE_ORC="$NIX_RESULT_DIR/bin/encode-orc"
+    echo -e "${GREEN}Using Nix-built encode-orc${NC}"
+elif [ -f "$BUILD_DIR/encode-orc" ]; then
+    ENCODE_ORC="$BUILD_DIR/encode-orc"
+    echo -e "${GREEN}Using CMake-built encode-orc${NC}"
+else
+    echo -e "${RED}Error: encode-orc executable not found.${NC}"
+    echo -e "${YELLOW}Please build with either:${NC}"
+    echo -e "${YELLOW}  nix build               (Nix)${NC}"
+    echo -e "${YELLOW}  cmake --build build     (CMake)${NC}"
     exit 1
 fi
 

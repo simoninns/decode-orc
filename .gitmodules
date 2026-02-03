@@ -4,3 +4,6 @@
 [submodule "external/encode-orc"]
 	path = external/encode-orc
 	url = https://github.com/simoninns/encode-orc
+[submodule "external/qtnodes"]
+	path = external/qtnodes
+	url = https://github.com/paceholder/nodeeditor

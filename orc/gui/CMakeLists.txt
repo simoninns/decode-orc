@@ -12,6 +12,7 @@ endif()
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
+set(CMAKE_INCLUDE_CURRENT_DIR_IN_INTERFACE ON)
 
 # Generate platform-specific icons from source PNG
 include(${CMAKE_SOURCE_DIR}/cmake/GenerateIcons.cmake)

@@ -55,9 +55,6 @@
             "-DBUILD_SHARED_LIBS=OFF"
           ];
 
-          # Define NODE_EDITOR_STATIC for static linking
-          CXXFLAGS = "-DNODE_EDITOR_STATIC";
-
           meta = with pkgs.lib; {
             description = "Qt-based library for node graph editing";
             homepage = "https://github.com/paceholder/nodeeditor";
@@ -108,6 +105,8 @@
             "-DQtNodes_DIR=${qtNodes}/lib/cmake/QtNodes"
             # Pass git version to CMake since .git dir isn't available in Nix builds
             "-DPROJECT_VERSION_OVERRIDE=${builtins.replaceStrings ["\n"] [""] version}"
+            # Define NODE_EDITOR_STATIC to match QtNodes static build
+            "-DCMAKE_CXX_FLAGS=-DNODE_EDITOR_STATIC"
           ];
 
           # Ensure git is available for version detection and patch shebangs

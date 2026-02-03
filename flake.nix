@@ -151,51 +151,54 @@
         # This is more reliable than trying to build flatpaks in pure nix environments
         # See: .github/workflows/build-flatpak.yml for flatpak build instructions
 
-        # macOS DMG bundle (macOS only)
-        dmg = pkgs.stdenv.mkDerivation {
-          pname = "decode-orc-dmg";
-          version = builtins.replaceStrings ["\n"] [""] version;
+        # macOS DMG bundle (macOS only) - only defined when building on macOS
+        dmg = if pkgs.stdenv.isDarwin then
+          pkgs.stdenv.mkDerivation {
+            pname = "decode-orc-dmg";
+            version = builtins.replaceStrings ["\n"] [""] version;
 
-          src = self;
+            src = self;
 
-          nativeBuildInputs = with pkgs; [
-            create-dmg
-          ];
+            nativeBuildInputs = with pkgs; [
+              create-dmg
+            ];
 
-          buildInputs = [ decode-orc ];
+            buildInputs = [ decode-orc ];
 
-          buildPhase = ''
-            mkdir -p dmg-contents
-            
-            # Copy the .app bundle if it exists, otherwise copy binaries
-            if [ -d ${decode-orc}/orc-gui.app ]; then
-              cp -r ${decode-orc}/orc-gui.app dmg-contents/
-            else
-              mkdir -p dmg-contents/bin
-              cp -r ${decode-orc}/bin/* dmg-contents/bin/
-            fi
-            
-            # Create DMG
-            create-dmg \
-              --volname "Decode Orc" \
-              --window-size 500 320 \
-              decode-orc.dmg \
-              dmg-contents
-          '';
+            buildPhase = ''
+              mkdir -p dmg-contents
+              
+              # Copy the .app bundle if it exists, otherwise copy binaries
+              if [ -d ${decode-orc}/orc-gui.app ]; then
+                cp -r ${decode-orc}/orc-gui.app dmg-contents/
+              else
+                mkdir -p dmg-contents/bin
+                cp -r ${decode-orc}/bin/* dmg-contents/bin/
+              fi
+              
+              # Create DMG
+              create-dmg \
+                --volname "Decode Orc" \
+                --window-size 500 320 \
+                decode-orc.dmg \
+                dmg-contents
+            '';
 
-          installPhase = ''
-            mkdir -p $out
-            cp decode-orc.dmg $out/
-          '';
+            installPhase = ''
+              mkdir -p $out
+              cp decode-orc.dmg $out/
+            '';
 
-          meta = with pkgs.lib; {
-            description = "macOS DMG of Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows";
-            homepage = "https://github.com/simoninns/decode-orc";
-            license = licenses.gpl3Plus;
-            platforms = platforms.darwin;
-            maintainers = [ ];
-          };
-        };
+            meta = with pkgs.lib; {
+              description = "macOS DMG of Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows";
+              homepage = "https://github.com/simoninns/decode-orc";
+              license = licenses.gpl3Plus;
+              platforms = platforms.darwin;
+              maintainers = [ ];
+            };
+          }
+        else
+          null;  # DMG not available on non-macOS systems
 
       in
       {
@@ -205,6 +208,7 @@
           decode-orc = decode-orc;
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
           dmg = dmg;
+          decode-orc-dmg = dmg;  # Alias for clarity
         };
 
         # Development shell with all dependencies

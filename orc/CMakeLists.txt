@@ -124,10 +124,13 @@ if(BUILD_GUI)
         endif()
     else()
         message(STATUS "Using system QtNodes")
+        # Only use NODE_EDITOR_STATIC if not using shared system library
     endif()
     
-    # Define NODE_EDITOR_STATIC for static linking
-    add_compile_definitions(NODE_EDITOR_STATIC)
+    # Only define NODE_EDITOR_STATIC for static linking when using submodule
+    if(NOT QtNodes_FOUND)
+        add_compile_definitions(NODE_EDITOR_STATIC)
+    endif()
     
     add_subdirectory(gui)
 endif()

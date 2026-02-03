@@ -160,6 +160,7 @@
 
             nativeBuildInputs = with pkgs; [
               create-dmg
+              darwin.DarwinTools  # Provides sw_vers needed by create-dmg
             ];
 
             buildInputs = [ decode-orc ];

@@ -6,20 +6,6 @@ on:
       - main
       - master
       - develop
-    paths:
-      - '.github/workflows/test-packages.yml'
-      - '.github/workflows/build-packages.yml'
-      - '.github/workflows/build-windows.yml'
-      - '.github/workflows/build-macos.yml'
-      - '.github/workflows/build-flatpak.yml'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/release.yml'
-      - 'CMakeLists.txt'
-      - 'orc/**/CMakeLists.txt'
-      - 'external/**'
-      - 'vcpkg.json'
-      - 'flake.nix'
-      - 'flake.lock'
   pull_request:
     branches:
       - main

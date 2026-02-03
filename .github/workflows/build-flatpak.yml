@@ -46,11 +46,17 @@ jobs:
             appstream
       
       - name: Add Flathub repository
-        run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+        run: flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      
+      - name: Install Flatpak runtime and SDK
+        run: |
+          flatpak install --user -y flathub org.kde.Platform/x86_64/6.8
+          flatpak install --user -y flathub org.kde.Sdk/x86_64/6.8
       
       - name: Build Flatpak with flatpak-builder
         run: |
           flatpak-builder \
+            --user \
             --repo=repo \
             --disable-rofiles-fuse \
             --install-deps-from=flathub \

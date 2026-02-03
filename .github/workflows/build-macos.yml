@@ -37,60 +37,8 @@ jobs:
           lfs: true
           submodules: recursive
       
-      - name: Clean up any existing Nix installation
-        run: |
-          # Clean up any leftover Nix installation state
-          set +e
-          
-          # Kill any running Nix processes
-          sudo pkill -f nix-daemon 2>/dev/null || true
-          pkill -f nix 2>/dev/null || true
-          sleep 2
-          
-          # Unmount any existing Nix volumes
-          DISKUTIL_OUT=$(diskutil list | grep "Nix Store" | awk '{print $NF}' || true)
-          if [ -n "$DISKUTIL_OUT" ]; then
-            echo "Found Nix Store volume: $DISKUTIL_OUT"
-            sudo diskutil unmount force "/dev/$DISKUTIL_OUT" 2>/dev/null || true
-            sudo diskutil apfs deleteVolume "/dev/$DISKUTIL_OUT" 2>/dev/null || true
-          fi
-          
-          # Remove Nix directories and volumes
-          sudo rm -rf /nix 2>/dev/null || true
-          sudo rm -rf /var/root/.nix-profile 2>/dev/null || true
-          sudo rm -rf /etc/nix 2>/dev/null || true
-          
-          # Remove synthetic.conf entries for Nix
-          sudo sed -i '' '/^nix/d' /etc/synthetic.conf 2>/dev/null || true
-          
-          # Remove fstab entries for Nix
-          sudo sed -i '' '/nix/d' /etc/fstab 2>/dev/null || true
-          
-          # Remove LaunchDaemons related to Nix
-          sudo rm -f /Library/LaunchDaemons/org.nixos.darwin-store.plist 2>/dev/null || true
-          sudo rm -f /Library/LaunchDaemons/org.nixos.nix-daemon.plist 2>/dev/null || true
-          
-          # Remove Nix build users and group - comprehensive cleanup
-          if command -v dscl &> /dev/null; then
-            # Delete all potential build users (up to 32 is common on runners)
-            for i in {1..32}; do
-              sudo dscl . -delete "/Users/_nixbld$i" 2>/dev/null || true
-            done
-            # Delete build group
-            sudo dscl . -delete "/Groups/nixbld" 2>/dev/null || true
-          fi
-          
-          # Verify users are gone
-          echo "Remaining _nixbld users:"
-          dscl . list /Users | grep _nixbld || echo "None (clean!)"
-          
-          set -e
-      
-      - name: Install Nix
-        uses: cachix/install-nix-action@v27
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-          install_options: '--daemon'
+      - name: Install Nix (via Determinate Systems)
+        uses: DeterminateSystems/nix-installer-action@main
       
       - name: Install create-dmg (for packaging)
         run: brew install create-dmg

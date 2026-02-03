@@ -336,33 +336,33 @@ if(WIN32)
         endif()
         # Scan and install any remaining runtime dependencies for orc-gui
         set(SEARCH_DIRS
-            "\${VCPKG_BIN_DIR}"
-            "${QT_BIN_DIR}"
-            "${CMAKE_BINARY_DIR}/bin"
-            "${CMAKE_BINARY_DIR}/bin/Release"
-            "${CMAKE_BINARY_DIR}/bin/Debug"
+            \"\${VCPKG_BIN_DIR}\"
+            \"${QT_BIN_DIR}\"
+            \"${CMAKE_BINARY_DIR}/bin\"
+            \"${CMAKE_BINARY_DIR}/bin/Release\"
+            \"${CMAKE_BINARY_DIR}/bin/Debug\"
         )
         file(GET_RUNTIME_DEPENDENCIES
-            EXECUTABLES "\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe"
+            EXECUTABLES \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\"
             DIRECTORIES \${SEARCH_DIRS}
             RESOLVED_DEPENDENCIES_VAR RESOLVED_DEPS
             UNRESOLVED_DEPENDENCIES_VAR UNRESOLVED_DEPS
             PRE_EXCLUDE_REGEXES
-                "api-ms-win-.*"
-                "ext-ms-.*"
+                \"api-ms-win-.*\"
+                \"ext-ms-.*\"
             POST_EXCLUDE_REGEXES
-                ".*\\\\system32\\\\.*"
-                ".*\\\\Windows\\\\.*"
+                \".*\\\\system32\\\\.*\"
+                \".*\\\\Windows\\\\.*\"
         )
         foreach(DEP_PATH \${RESOLVED_DEPS})
-            get_filename_component(DEP_NAME "\${DEP_PATH}" NAME)
-            if(NOT EXISTS "\${CMAKE_INSTALL_PREFIX}/bin/\${DEP_NAME}")
-                message(STATUS "  Installing runtime dependency \${DEP_NAME}")
-                file(INSTALL "\${DEP_PATH}" DESTINATION "\${CMAKE_INSTALL_PREFIX}/bin")
+            get_filename_component(DEP_NAME \"\${DEP_PATH}\" NAME)
+            if(NOT EXISTS \"\${CMAKE_INSTALL_PREFIX}/bin/\${DEP_NAME}\")
+                message(STATUS \"  Installing runtime dependency \${DEP_NAME}\")
+                file(INSTALL \"\${DEP_PATH}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
             endif()
         endforeach()
         if(UNRESOLVED_DEPS)
-            message(WARNING "Unresolved runtime dependencies: \${UNRESOLVED_DEPS}")
+            message(WARNING \"Unresolved runtime dependencies: \${UNRESOLVED_DEPS}\")
         endif()
     " COMPONENT Runtime)
 endif()

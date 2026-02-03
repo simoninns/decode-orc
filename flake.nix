@@ -147,126 +147,9 @@
           };
         };
 
-        # Flatpak bundle built from decode-orc (Linux only)
-        flatpak = pkgs.stdenv.mkDerivation {
-          pname = "decode-orc-flatpak";
-          version = builtins.replaceStrings ["\n"] [""] version;
-
-          src = self;
-
-          nativeBuildInputs = with pkgs; [
-            python3
-            python3Packages.pyyaml
-            jq
-          ];
-
-          buildPhase = ''
-            # Validate the flatpak manifest exists
-            if [ ! -f io.github.simoninns.decode-orc.yml ]; then
-              echo "ERROR: Flatpak manifest not found!"
-              exit 1
-            fi
-            
-            # Parse and validate the manifest using python
-            python3 << 'VALIDATE_SCRIPT'
-            import yaml
-            import sys
-            
-            try:
-              with open('io.github.simoninns.decode-orc.yml', 'r') as f:
-                manifest = yaml.safe_load(f)
-              
-              # Verify required fields
-              required_fields = ['app-id', 'runtime', 'sdk', 'command']
-              for field in required_fields:
-                if field not in manifest:
-                  print(f"ERROR: Missing required field: {field}")
-                  sys.exit(1)
-              
-              print(f"✓ Manifest valid")
-              print(f"  App ID: {manifest['app-id']}")
-              print(f"  Runtime: {manifest['runtime']} {manifest.get('runtime-version', 'default')}")
-              print(f"  SDK: {manifest['sdk']}")
-              print(f"  Command: {manifest['command']}")
-              print(f"  Modules: {len(manifest.get('modules', []))} dependencies")
-              
-              sys.exit(0)
-            except Exception as e:
-              print(f"ERROR: Failed to validate manifest: {e}")
-              sys.exit(1)
-            VALIDATE_SCRIPT
-            
-            # Create a summary document
-            cat > flatpak-manifest-info.txt << 'EOF'
-            Flatpak Build Test Summary
-            ==========================
-            
-            App ID: io.github.simoninns.decode-orc
-            Runtime: org.kde.Platform 6.8
-            SDK: org.kde.Sdk
-            Command: orc-gui
-            
-            Dependencies configured:
-            - fftw3 (FFT library)
-            - yaml-cpp (YAML parser)
-            - fmt (formatting library)
-            - spdlog (logging library)
-            - qtnodes (Qt node editor)
-            - FFmpeg and codecs (x264, x265, libvpx)
-            - decode-orc source
-            
-            Manifest Status: ✓ VALID
-            Ready for Flathub submission
-            
-            To build locally with flatpak-builder:
-              flatpak-builder --user --install decode-orc-build io.github.simoninns.decode-orc.yml
-            
-            To install the built flatpak:
-              flatpak install --user decode-orc.flatpak
-            
-            To run:
-              flatpak run io.github.simoninns.decode-orc
-            EOF
-            
-            cat flatpak-manifest-info.txt
-          '';
-
-          installPhase = ''
-            mkdir -p $out
-            cp io.github.simoninns.decode-orc.yml $out/
-            cp flatpak-manifest-info.txt $out/
-            
-            # Also create a simple script to build the flatpak
-            cat > $out/build-flatpak.sh << 'EOF'
-            #!/bin/bash
-            set -e
-            
-            MANIFEST_PATH="''${1:-.}/io.github.simoninns.decode-orc.yml"
-            BUILD_DIR="decode-orc-build"
-            
-            if [ ! -f "$MANIFEST_PATH" ]; then
-              echo "Error: Manifest not found at $MANIFEST_PATH"
-              exit 1
-            fi
-            
-            echo "Building Flatpak from manifest..."
-            flatpak-builder --user --install "$BUILD_DIR" "$MANIFEST_PATH"
-            
-            echo "✓ Flatpak build complete!"
-            echo "Run with: flatpak run io.github.simoninns.decode-orc"
-            EOF
-            
-            chmod +x $out/build-flatpak.sh
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Flatpak bundle of Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows";
-            homepage = "https://github.com/simoninns/decode-orc";
-            license = licenses.gpl3Plus;
-            platforms = platforms.linux;
-            maintainers = [ ];
-          };
-        };
+        # Note: Flatpak building is handled by the CI/CD pipeline using flatpak-builder
+        # This is more reliable than trying to build flatpaks in pure nix environments
+        # See: .github/workflows/build-flatpak.yml for flatpak build instructions
 
         # macOS DMG bundle (macOS only)
         dmg = pkgs.stdenv.mkDerivation {
@@ -320,8 +203,6 @@
         packages = {
           default = decode-orc;
           decode-orc = decode-orc;
-        } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
-          flatpak = flatpak;
         } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
           dmg = dmg;
         };

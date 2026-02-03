@@ -37,22 +37,13 @@ jobs:
           lfs: true
           submodules: recursive
       
-      - name: Install Nix
-        uses: cachix/install-nix-action@v27
+      - name: Build Flatpak with flatpak-builder
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          nix_path: nixpkgs=channel:nixos-unstable
-      
-      - name: Build Flatpak with Nix
-        run: |
-          nix build .#flatpak --cores 0 --print-build-logs
-          
-          # Rename the flatpak bundle to include version
-          BUNDLE_NAME="decode-orc-${{ inputs.version }}.flatpak"
-          cp result/decode-orc.flatpak "$BUNDLE_NAME"
-          
-          echo "Created Flatpak bundle: $BUNDLE_NAME"
-          ls -lh "$BUNDLE_NAME"
-          ls -lh "$BUNDLE_NAME"
+          bundle: decode-orc-${{ inputs.version }}.flatpak
+          manifest-path: io.github.simoninns.decode-orc.yml
+          cache-key: flatpak-build-${{ github.sha }}
+          upload-artifact: true
       
       - name: Set artifact name
         id: artifact-name
@@ -67,16 +58,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.artifact-name.outputs.name }}
-          path: decode-orc*.flatpak
+          path: decode-orc-*.flatpak
           retention-days: ${{ inputs.is-release && 7 || 1 }}
-      
-      - name: Clean up before validation
-        run: rm -rf flatpak-build repo .flatpak-builder
-      
-      - name: Validate Flatpak Manifest
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: decode-orc-manifest-validation-${{ inputs.version }}.flatpak
-          manifest-path: io.github.simoninns.decode-orc.yml
-          cache-key: flatpak-manifest-${{ github.sha }}
-          upload-artifact: false

@@ -199,6 +199,8 @@ if(WIN32)
     set(CPACK_GENERATOR "WIX")
     set(CPACK_WIX_UPGRADE_GUID "8A4B5C6D-7E8F-9A0B-1C2D-3E4F5A6B7C8D")
     set(CPACK_WIX_PRODUCT_GUID "*") # Generate new GUID for each version
+    # Ensure MSI filename uses the project version (not the default 0.1.0)
+    set(CPACK_PACKAGE_FILE_NAME "Decode.Orc-${PROJECT_VERSION}-win64")
     # WiX requires a .ico file for the product icon. Use generated icon if available.
     if(EXISTS "${CMAKE_BINARY_DIR}/orc/gui/icons/orc-gui.ico")
         set(CPACK_WIX_PRODUCT_ICON "${CMAKE_BINARY_DIR}/orc/gui/icons/orc-gui.ico")

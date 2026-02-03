@@ -37,6 +37,18 @@ jobs:
           lfs: true
           submodules: recursive
       
+      - name: Clean up any existing Nix installation
+        run: |
+          # Clean up any leftover Nix installation state
+          sudo rm -rf /nix 2>/dev/null || true
+          sudo rm -rf /var/root/.nix-profile 2>/dev/null || true
+          if command -v dscl &> /dev/null; then
+            for i in {1..6}; do
+              sudo dscl . -delete "/Users/_nixbld$i" 2>/dev/null || true
+            done
+            sudo dscl . -delete "/Groups/nixbld" 2>/dev/null || true
+          fi
+      
       - name: Install Nix
         uses: cachix/install-nix-action@v27
         with:

@@ -57,6 +57,9 @@ jobs:
           BUNDLE_NAME="decode-orc-${{ inputs.version }}.flatpak"
           APP_ID="io.github.simoninns.decode-orc"
           
+          # Clean up any existing flatpak-build directory to avoid "already initialized" error
+          rm -rf flatpak-build repo
+          
           # Create flatpak directory structure
           mkdir -p flatpak-build/files/bin
           mkdir -p flatpak-build/files/share/applications

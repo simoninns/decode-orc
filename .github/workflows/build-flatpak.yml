@@ -136,6 +136,9 @@ jobs:
           path: decode-orc*.flatpak
           retention-days: ${{ inputs.is-release && 7 || 1 }}
       
+      - name: Clean up before validation
+        run: rm -rf flatpak-build repo .flatpak-builder
+      
       - name: Validate Flatpak Manifest
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

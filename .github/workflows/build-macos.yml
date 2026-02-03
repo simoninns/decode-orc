@@ -47,6 +47,14 @@ jobs:
           pkill -f nix 2>/dev/null || true
           sleep 2
           
+          # Unmount any existing Nix volumes
+          DISKUTIL_OUT=$(diskutil list | grep "Nix Store" | awk '{print $NF}' || true)
+          if [ -n "$DISKUTIL_OUT" ]; then
+            echo "Found Nix Store volume: $DISKUTIL_OUT"
+            sudo diskutil unmount force "/dev/$DISKUTIL_OUT" 2>/dev/null || true
+            sudo diskutil apfs deleteVolume "/dev/$DISKUTIL_OUT" 2>/dev/null || true
+          fi
+          
           # Remove Nix directories and volumes
           sudo rm -rf /nix 2>/dev/null || true
           sudo rm -rf /var/root/.nix-profile 2>/dev/null || true
@@ -59,26 +67,22 @@ jobs:
           sudo sed -i '' '/nix/d' /etc/fstab 2>/dev/null || true
           
           # Remove LaunchDaemons related to Nix
-          sudo rm -f /Library/LaunchDaemons/com.apple.nix-daemon.plist 2>/dev/null || true
+          sudo rm -f /Library/LaunchDaemons/org.nixos.darwin-store.plist 2>/dev/null || true
           sudo rm -f /Library/LaunchDaemons/org.nixos.nix-daemon.plist 2>/dev/null || true
           
-          # Remove Nix build users and group - be more aggressive
+          # Remove Nix build users and group - comprehensive cleanup
           if command -v dscl &> /dev/null; then
-            # Delete all build users
-            for i in {1..10}; do
-              # Use different deletion methods to ensure cleanup
-              sudo dscl . -delete "/Users/_nixbld$i" >/dev/null 2>&1 || true
-              # Also try via DSLocalDB path
-              sudo dscl /Local/Default -delete "/Users/_nixbld$i" >/dev/null 2>&1 || true
+            # Delete all potential build users (up to 32 is common on runners)
+            for i in {1..32}; do
+              sudo dscl . -delete "/Users/_nixbld$i" 2>/dev/null || true
             done
             # Delete build group
-            sudo dscl . -delete "/Groups/nixbld" >/dev/null 2>&1 || true
-            sudo dscl /Local/Default -delete "/Groups/nixbld" >/dev/null 2>&1 || true
+            sudo dscl . -delete "/Groups/nixbld" 2>/dev/null || true
           fi
           
-          # Verify users are gone and show what users exist
-          echo "Remaining users matching _nixbld pattern:"
-          dscl . list /Users | grep _nixbld || echo "None found (good!)"
+          # Verify users are gone
+          echo "Remaining _nixbld users:"
+          dscl . list /Users | grep _nixbld || echo "None (clean!)"
           
           set -e
       
@@ -86,6 +90,7 @@ jobs:
         uses: cachix/install-nix-action@v27
         with:
           nix_path: nixpkgs=channel:nixos-unstable
+          install_options: '--daemon'
       
       - name: Install create-dmg (for packaging)
         run: brew install create-dmg

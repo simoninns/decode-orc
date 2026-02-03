@@ -26,29 +26,34 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 get_filename_component(ORC_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 
 # Get git commit hash for version
-find_package(Git QUIET)
-if(GIT_FOUND)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_COMMIT_HASH
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
-    )
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} diff-index --quiet HEAD --
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        RESULT_VARIABLE GIT_DIRTY
-        ERROR_QUIET
-    )
-    if(NOT GIT_DIRTY EQUAL 0)
-        set(GIT_COMMIT_HASH "${GIT_COMMIT_HASH}-dirty")
-    endif()
+# If PROJECT_VERSION_OVERRIDE is set (e.g., from Nix build), use it
+if(DEFINED PROJECT_VERSION_OVERRIDE)
+    set(ORC_VERSION "${PROJECT_VERSION_OVERRIDE}")
 else()
-    set(GIT_COMMIT_HASH "unknown")
+    find_package(Git QUIET)
+    if(GIT_FOUND)
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE GIT_COMMIT_HASH
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} diff-index --quiet HEAD --
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            RESULT_VARIABLE GIT_DIRTY
+            ERROR_QUIET
+        )
+        if(NOT GIT_DIRTY EQUAL 0)
+            set(GIT_COMMIT_HASH "${GIT_COMMIT_HASH}-dirty")
+        endif()
+    else()
+        set(GIT_COMMIT_HASH "unknown")
+    endif()
+    set(ORC_VERSION "${GIT_COMMIT_HASH}")
 endif()
 
-set(ORC_VERSION "${GIT_COMMIT_HASH}")
 message(STATUS "Decode Orc Version: ${ORC_VERSION}")
 
 # Configure version header

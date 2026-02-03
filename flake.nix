@@ -25,13 +25,12 @@
         };
 
         # Helper to get version from git or use a default
-        version = if (builtins.pathExists ./.git) then
-          builtins.readFile (pkgs.runCommand "get-version" {} ''
-            cd ${./.}
-            ${pkgs.git}/bin/git describe --tags --always --dirty 2>/dev/null || echo "1.0.15" > $out
-          '')
-        else
-          "1.0.15";
+        # For clean commits in CI/releases: use short rev
+        # For local dirty builds: use git describe if possible
+        version =
+          if (self ? shortRev)
+          then self.shortRev
+          else "1.0.15-dirty";
 
         # Build QtNodes as a separate package
         qtNodes = pkgs.stdenv.mkDerivation {
@@ -107,6 +106,8 @@
             "-DBUILD_ENCODE_ORC=ON"
             # Tell CMake where to find QtNodes
             "-DQtNodes_DIR=${qtNodes}/lib/cmake/QtNodes"
+            # Pass git version to CMake since .git dir isn't available in Nix builds
+            "-DPROJECT_VERSION_OVERRIDE=${builtins.replaceStrings ["\n"] [""] version}"
           ];
 
           # Ensure git is available for version detection and patch shebangs
@@ -129,6 +130,12 @@
           # Make ffprobe available during tests
           preCheck = ''
             export PATH=${pkgs.ffmpeg}/bin:$PATH
+          '';
+
+          # Create symlink for macOS .app bundle
+          postInstall = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+            mkdir -p $out/bin
+            ln -s $out/orc-gui.app/Contents/MacOS/orc-gui $out/bin/orc-gui
           '';
 
           meta = with pkgs.lib; {

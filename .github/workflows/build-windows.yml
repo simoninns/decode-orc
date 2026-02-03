@@ -86,20 +86,21 @@ jobs:
       
       - name: Configure
         run: |
-          $versionArg = ""
+          $cmakeArgs = @(
+            "-B build",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DBUILD_GUI=ON",
+            "-DBUILD_TESTS=${{ inputs.build-tests && 'ON' || 'OFF' }}",
+            "-DCMAKE_PREFIX_PATH=`"${env:Qt6_DIR};$env:FFMPEG_ROOT`"",
+            "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          )
+          
           if ("${{ inputs.is-release }}" -eq "true") {
-            $versionArg = "-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}"
+            $cmakeArgs += "-DPROJECT_VERSION_OVERRIDE=${{ inputs.version }}"
+            Write-Host "Building release with version: ${{ inputs.version }}"
           }
           
-          $toolchainArg = "-DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake"
-          $versionArgStr = if ($versionArg) { " $versionArg" } else { "" }
-          
-          cmake -B build `
-            -DCMAKE_BUILD_TYPE=Release `
-            -DBUILD_GUI=ON `
-            -DBUILD_TESTS=${{ inputs.build-tests && 'ON' || 'OFF' }} `
-            -DCMAKE_PREFIX_PATH="${env:Qt6_DIR};$env:FFMPEG_ROOT" `
-            $toolchainArg $versionArgStr
+          & cmake @cmakeArgs
         shell: pwsh
       
       - name: Build

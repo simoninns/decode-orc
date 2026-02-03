@@ -7,25 +7,9 @@ on:
 
 jobs:
   # Build release packages
-  build-windows:
-    name: Build Windows Release
-    uses: ./.github/workflows/build-windows.yml
-    with:
-      build-tests: false
-      is-release: true
-      version: ${{ github.ref_name }}
-
-  build-macos:
-    name: Build macOS Release
-    uses: ./.github/workflows/build-macos.yml
-    with:
-      build-tests: false
-      is-release: true
-      version: ${{ github.ref_name }}
-
-  build-flatpak:
-    name: Build Flatpak Release
-    uses: ./.github/workflows/build-flatpak.yml
+  build-packages:
+    name: Build Packages
+    uses: ./.github/workflows/build-packages.yml
     with:
       build-tests: false
       is-release: true
@@ -33,7 +17,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [build-windows, build-macos, build-flatpak]
+    needs: [build-packages]
     runs-on: ubuntu-latest
     permissions:
       contents: write

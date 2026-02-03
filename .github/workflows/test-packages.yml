@@ -1,0 +1,53 @@
+name: Test Package Builds
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+    paths:
+      - '.github/workflows/test-packages.yml'
+      - '.github/workflows/build-windows.yml'
+      - '.github/workflows/build-macos.yml'
+      - '.github/workflows/build-flatpak.yml'
+      - 'CMakeLists.txt'
+      - 'orc/**/CMakeLists.txt'
+      - 'external/**'
+      - 'vcpkg.json'
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  workflow_dispatch:
+
+jobs:
+  # Build test packages (same workflow as release, but without release creation)
+  build-packages:
+    name: Build Packages
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      build-tests: false
+      is-release: false
+      version: 'dev'
+
+  summary:
+    name: Package Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-packages]
+    if: always()
+    steps:
+      - name: Check build status
+        run: |
+          echo "## Package Build Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Build status: ${{ needs.build-packages.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.build-packages.result }}" != "success" ]; then
+            echo "⚠️ Package build failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ All package builds succeeded" >> $GITHUB_STEP_SUMMARY
+          fi

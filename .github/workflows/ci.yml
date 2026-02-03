@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop, master ]
+  pull_request:
+    branches: [ main, develop, master ]
+
+jobs:
+  # Linux CI build (Fedora)
+  build:
+    name: Build on Fedora
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    
+    steps:
+      - name: Install git for checkout
+        run: dnf install -y git git-lfs
+      
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+      
+      - name: Install system dependencies
+        run: |
+          dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
+          dnf install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+          dnf install -y \
+            cmake \
+            gcc \
+            gcc-c++ \
+            make \
+            git \
+            pkg-config \
+            spdlog-devel \
+            sqlite-devel \
+            yaml-cpp-devel \
+            libpng-devel \
+            fftw-devel \
+            fftw-libs \
+            fftw-libs-double \
+            fftw-libs-single \
+            qt6-qtbase-devel \
+            qt6-qtsvg-devel \
+            ffmpeg \
+            ffmpeg-devel --allowerasing
+      
+      - name: Create build directory
+        run: mkdir -p build
+      
+      - name: Configure CMake
+        run: |
+          cd build
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_GUI=ON \
+            -DBUILD_TESTS=ON
+      
+      - name: Build
+        run: |
+          cd build
+          cmake --build . --parallel $(nproc)
+      
+      - name: Run tests
+        run: |
+          cd build
+          ctest --output-on-failure
+
+  # MVP Architecture Validation (runs after successful build)
+  mvp-validation:
+    name: Check MVP Architecture Boundaries
+    runs-on: ubuntu-latest
+    needs: build
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install dependencies for compilation tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libspdlog-dev
+      
+      - name: Run MVP Architecture Validation
+        run: |
+          chmod +x check_mvp_architecture.sh
+          ./check_mvp_architecture.sh
+
+  # Generate and Deploy Documentation (runs after successful build)
+  docs:
+    name: Generate and Deploy Documentation
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+      
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+      
+      - name: Generate documentation
+        run: |
+          doxygen Doxyfile
+      
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs/html'
+      
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/deploy-pages@v4

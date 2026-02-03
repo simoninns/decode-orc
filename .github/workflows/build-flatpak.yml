@@ -78,6 +78,43 @@ jobs:
         if: ${{ !inputs.is-release }}
         run: echo "MANIFEST_FILE=io.github.simoninns.decode-orc.yml" >> $GITHUB_ENV
       
+      - name: Pre-download external dependencies with retries
+        run: |
+          # Create download helper function
+          download_with_retry() {
+            local url="$1"
+            local filename="$2"
+            local max_attempts=3
+            local retry_delay=5
+            
+            echo "Downloading: $filename from $url"
+            
+            for attempt in $(seq 1 $max_attempts); do
+              echo "  Attempt $attempt of $max_attempts..."
+              if curl -f -L -o "$filename" "$url"; then
+                echo "  ✓ Downloaded successfully"
+                return 0
+              fi
+              
+              if [ $attempt -lt $max_attempts ]; then
+                echo "  ✗ Download failed, waiting ${retry_delay}s before retry..."
+                sleep $retry_delay
+              fi
+            done
+            
+            echo "  ✗ Failed after $max_attempts attempts"
+            return 1
+          }
+          
+          # Pre-download all external dependencies
+          download_with_retry "https://www.fftw.org/fftw-3.3.10.tar.gz" "fftw-3.3.10.tar.gz"
+          download_with_retry "https://bitbucket.org/multicoreware/x265_git/downloads/x265_3.6.tar.gz" "x265_3.6.tar.gz"
+          download_with_retry "https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/nasm-2.16.03.tar.xz" "nasm-2.16.03.tar.xz"
+          download_with_retry "https://ffmpeg.org/releases/ffmpeg-7.1.tar.xz" "ffmpeg-7.1.tar.xz"
+          
+          echo ""
+          echo "All external dependencies pre-downloaded successfully"
+      
       - name: Build Flatpak
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:

@@ -37,13 +37,36 @@ jobs:
           lfs: true
           submodules: recursive
       
+      - name: Install flatpak and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            flatpak \
+            flatpak-builder \
+            appstream
+      
+      - name: Add Flathub repository
+        run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+      
       - name: Build Flatpak with flatpak-builder
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: decode-orc-${{ inputs.version }}.flatpak
-          manifest-path: io.github.simoninns.decode-orc.yml
-          cache-key: flatpak-build-${{ github.sha }}
-          upload-artifact: true
+        run: |
+          flatpak-builder \
+            --repo=repo \
+            --disable-rofiles-fuse \
+            --install-deps-from=flathub \
+            --force-clean \
+            --default-branch=master \
+            --arch=x86_64 \
+            flatpak_app \
+            io.github.simoninns.decode-orc.yml
+      
+      - name: Create Flatpak bundle
+        run: |
+          flatpak build-bundle \
+            --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo \
+            repo \
+            decode-orc-${{ inputs.version }}.flatpak \
+            io.github.simoninns.decode-orc
       
       - name: Set artifact name
         id: artifact-name

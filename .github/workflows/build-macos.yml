@@ -80,8 +80,7 @@ jobs:
           fi
           echo "✓ orc-cli built successfully"
       
-      - name: Deploy Qt dependencies (release only)
-        if: inputs.is-release
+      - name: Deploy Qt dependencies
         run: |
           HOMEBREW_PREFIX=$(brew --prefix)
           QT_PREFIX=$(brew --prefix qt@6 2>/dev/null || true)
@@ -141,8 +140,7 @@ jobs:
           ls -la "build/bin/orc-gui.app/Contents/MacOS/"
           ls -la "build/bin/orc-gui.app/Contents/Resources/" || true
       
-      - name: Create DMG (release only)
-        if: inputs.is-release
+      - name: Create DMG
         run: |
           DMG_NAME="decode-orc-${{ inputs.version }}.dmg"
           

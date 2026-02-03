@@ -122,8 +122,7 @@ jobs:
           }
         shell: pwsh
       
-      - name: Install WiX Toolset (release only)
-        if: inputs.is-release
+      - name: Install WiX Toolset
         run: |
           choco install wixtoolset -y
           
@@ -144,8 +143,7 @@ jobs:
             exit 1
           }
       
-      - name: Create RTF license (release only)
-        if: inputs.is-release
+      - name: Create RTF license
         run: |
           $licenseContent = Get-Content -Path "LICENSE" -Raw
           $rtfHeader = "{\rtf1\ansi\deff0 {\fonttbl {\f0 Courier New;}}\f0\fs18"
@@ -155,8 +153,7 @@ jobs:
           $fullRtf | Out-File -FilePath "build/LICENSE.rtf" -Encoding ASCII
           Write-Host "Created LICENSE.rtf for WiX installer"
       
-      - name: Generate MSI installer (release only)
-        if: inputs.is-release
+      - name: Generate MSI installer
         run: |
           cd build
           cpack -C Release -G WIX --verbose 2>&1 | Tee-Object -FilePath cpack-output.log

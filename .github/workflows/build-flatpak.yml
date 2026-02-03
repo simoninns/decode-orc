@@ -42,82 +42,16 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
       
-      - name: Build with Nix
-        run: nix build --cores 0 --print-build-logs
-      
-      - name: Install Flatpak and dependencies
+      - name: Build Flatpak with Nix
         run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.freedesktop.Platform//23.08 org.freedesktop.Sdk//23.08 org.kde.Platform//6.8 org.kde.Sdk//6.8
-      
-      - name: Create Flatpak from Nix build
-        run: |
+          nix build .#flatpak --cores 0 --print-build-logs
+          
+          # Rename the flatpak bundle to include version
           BUNDLE_NAME="decode-orc-${{ inputs.version }}.flatpak"
-          APP_ID="io.github.simoninns.decode-orc"
-          
-          # Clean up any existing flatpak-build directory to avoid "already initialized" error
-          rm -rf flatpak-build repo
-          
-          # Create flatpak directory structure
-          mkdir -p flatpak-build/files/bin
-          mkdir -p flatpak-build/files/share/applications
-          mkdir -p flatpak-build/files/share/icons/hicolor/scalable/apps
-          mkdir -p flatpak-build/files/share/metainfo
-          
-          # Copy Nix build outputs
-          cp -r result/bin/* flatpak-build/files/bin/
-          
-          # Create desktop file if it doesn't exist
-          if [ ! -f flatpak-build/files/share/applications/${APP_ID}.desktop ]; then
-            cat > flatpak-build/files/share/applications/${APP_ID}.desktop << EOF
-          [Desktop Entry]
-          Type=Application
-          Name=Decode Orc
-          Comment=LaserDisc and tape decoding orchestration framework
-          Exec=orc-gui
-          Icon=${APP_ID}
-          Categories=AudioVideo;Video;
-          Terminal=false
-          EOF
-          fi
-          
-          # Create metainfo file if it doesn't exist
-          if [ ! -f flatpak-build/files/share/metainfo/${APP_ID}.metainfo.xml ]; then
-            cat > flatpak-build/files/share/metainfo/${APP_ID}.metainfo.xml << EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <component type="desktop-application">
-            <id>${APP_ID}</id>
-            <name>Decode Orc</name>
-            <summary>LaserDisc and tape decoding orchestration framework</summary>
-            <metadata_license>CC0-1.0</metadata_license>
-            <project_license>GPL-3.0+</project_license>
-          </component>
-          EOF
-          fi
-          
-          # Initialize flatpak repo
-          ostree init --repo=repo --mode=archive-z2
-          
-          # Build flatpak
-          flatpak build-init flatpak-build ${APP_ID} org.kde.Sdk org.kde.Platform 6.8
-          flatpak build-finish flatpak-build \
-            --command=orc-gui \
-            --share=ipc \
-            --socket=x11 \
-            --socket=wayland \
-            --socket=pulseaudio \
-            --device=all \
-            --filesystem=host
-          
-          # Export to repo
-          flatpak build-export repo flatpak-build
-          
-          # Create bundle
-          flatpak build-bundle repo "$BUNDLE_NAME" ${APP_ID}
+          cp result/decode-orc.flatpak "$BUNDLE_NAME"
           
           echo "Created Flatpak bundle: $BUNDLE_NAME"
+          ls -lh "$BUNDLE_NAME"
           ls -lh "$BUNDLE_NAME"
       
       - name: Set artifact name

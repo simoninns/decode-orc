@@ -147,12 +147,138 @@
           };
         };
 
+        # Flatpak bundle built from decode-orc (Linux only)
+        flatpak = pkgs.stdenv.mkDerivation {
+          pname = "decode-orc-flatpak";
+          version = builtins.replaceStrings ["\n"] [""] version;
+
+          src = self;
+
+          nativeBuildInputs = with pkgs; [
+            flatpak
+            flatpak-builder
+            ostree
+          ];
+
+          buildInputs = [ decode-orc ];
+
+          buildPhase = ''
+            APP_ID="io.github.simoninns.decode-orc"
+            
+            # Initialize flatpak build
+            flatpak build-init flatpak-build $APP_ID org.kde.Sdk org.kde.Platform 6.8
+            
+            # Copy binaries
+            cp -r ${decode-orc}/bin/* flatpak-build/files/bin/
+            
+            # Create desktop file
+            mkdir -p flatpak-build/files/share/applications
+            cat > flatpak-build/files/share/applications/$APP_ID.desktop << EOF
+            [Desktop Entry]
+            Type=Application
+            Name=Decode Orc
+            Comment=LaserDisc and tape decoding orchestration framework
+            Exec=orc-gui
+            Icon=$APP_ID
+            Categories=AudioVideo;Video;
+            Terminal=false
+            EOF
+            
+            # Create metainfo
+            mkdir -p flatpak-build/files/share/metainfo
+            cat > flatpak-build/files/share/metainfo/$APP_ID.metainfo.xml << EOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <component type="desktop-application">
+              <id>$APP_ID</id>
+              <name>Decode Orc</name>
+              <summary>LaserDisc and tape decoding orchestration framework</summary>
+              <metadata_license>CC0-1.0</metadata_license>
+              <project_license>GPL-3.0+</project_license>
+            </component>
+            EOF
+            
+            # Finish flatpak build
+            flatpak build-finish flatpak-build \
+              --command=orc-gui \
+              --share=ipc \
+              --socket=x11 \
+              --socket=wayland \
+              --socket=pulseaudio \
+              --device=all \
+              --filesystem=host
+            
+            # Create repo and export
+            ostree init --repo=repo --mode=archive-z2
+            flatpak build-export repo flatpak-build
+            
+            # Create bundle
+            flatpak build-bundle repo decode-orc.flatpak $APP_ID
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            cp decode-orc.flatpak $out/
+          '';
+
+          meta = decode-orc.meta // {
+            description = "Flatpak bundle of ${decode-orc.meta.description}";
+            platforms = pkgs.lib.platforms.linux;
+          };
+        };
+
+        # macOS DMG bundle (macOS only)
+        dmg = pkgs.stdenv.mkDerivation {
+          pname = "decode-orc-dmg";
+          version = builtins.replaceStrings ["\n"] [""] version;
+
+          src = self;
+
+          nativeBuildInputs = with pkgs; [
+            create-dmg
+          ];
+
+          buildInputs = [ decode-orc ];
+
+          buildPhase = ''
+            mkdir -p dmg-contents
+            
+            # Copy the .app bundle if it exists, otherwise copy binaries
+            if [ -d ${decode-orc}/orc-gui.app ]; then
+              cp -r ${decode-orc}/orc-gui.app dmg-contents/
+            else
+              mkdir -p dmg-contents/bin
+              cp -r ${decode-orc}/bin/* dmg-contents/bin/
+            fi
+            
+            # Create DMG
+            create-dmg \
+              --volname "Decode Orc" \
+              --window-size 500 320 \
+              decode-orc.dmg \
+              dmg-contents
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            cp decode-orc.dmg $out/
+          '';
+
+          meta = decode-orc.meta // {
+            description = "macOS DMG of ${decode-orc.meta.description}";
+            platforms = pkgs.lib.platforms.darwin;
+          };
+        };
+
       in
       {
         # The package that can be built with `nix build`
         packages = {
           default = decode-orc;
           decode-orc = decode-orc;
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          flatpak = flatpak;
+        } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
+          dmg = dmg;
         };
 
         # Development shell with all dependencies

@@ -40,25 +40,13 @@ jobs:
       - name: Install Nix (via Determinate Systems)
         uses: DeterminateSystems/nix-installer-action@main
       
-      - name: Install create-dmg (for packaging)
-        run: brew install create-dmg
-      
-      - name: Build with Nix
-        run: nix build --cores 0 --print-build-logs
-      
-      - name: Create DMG
+      - name: Build DMG with Nix
         run: |
+          nix build .#dmg --cores 0 --print-build-logs
+          
+          # Rename the DMG to include version
           DMG_NAME="decode-orc-${{ inputs.version }}.dmg"
-          
-          # Nix builds don't create .app bundles with GUI, so create a simple DMG with binaries
-          mkdir -p dmg-contents
-          cp -r result/bin/* dmg-contents/
-          
-          create-dmg \
-            --volname "Decode Orc" \
-            --window-size 500 320 \
-            "$DMG_NAME" \
-            "dmg-contents"
+          cp result/decode-orc.dmg "$DMG_NAME"
           
           echo "Created DMG: $DMG_NAME"
           ls -lh "$DMG_NAME"

@@ -160,8 +160,6 @@
             ostree
           ];
 
-          buildInputs = [ decode-orc ];
-
           buildPhase = ''
             APP_ID="io.github.simoninns.decode-orc"
             

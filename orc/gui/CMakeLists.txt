@@ -295,17 +295,7 @@ if(WIN32)
             
             # List of required DLL patterns
             # Only install GUI-specific DLLs (other dependencies installed by encode-orc Runtime component)
-            set(DLL_PATTERNS
-                \"fftw3.dll\"
-                \"fftw3f.dll\"
-                \"fftw3l.dll\"
-                \"fmt.dll\"
-                \"spdlog.dll\"
-                \"yaml-cpp.dll\"
-                \"sqlite3.dll\"
-                \"libpng*.dll\"
-                \"zlib*.dll\"
-            )
+            set(DLL_PATTERNS \"fftw3.dll\" \"fftw3f.dll\" \"fftw3l.dll\" \"fmt.dll\" \"spdlog.dll\" \"yaml-cpp.dll\" \"sqlite3.dll\" \"libpng*.dll\" \"zlib*.dll\")
             
             foreach(DLL_PATTERN \${DLL_PATTERNS})
                 file(GLOB DLL_FILES \"\${VCPKG_BIN_DIR}/\${DLL_PATTERN}\")

@@ -245,116 +245,13 @@ if(WIN32)
     endif()
     
     # Install script to run windeployqt and copy vcpkg DLLs during installation
-    install(CODE "
-        # Ensure bin directory exists
-        file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/bin\")
-        
-        # Verify target executable exists before running windeployqt
-        if(NOT EXISTS \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
-            message(FATAL_ERROR \"Target executable not found: \${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
-        endif()
-        
-        # Run windeployqt
-        set(WINDEPLOYQT_EXECUTABLE \"${WINDEPLOYQT_EXECUTABLE}\")
-        if(WINDEPLOYQT_EXECUTABLE AND EXISTS \"\${WINDEPLOYQT_EXECUTABLE}\")
-            message(STATUS \"Running windeployqt from: \${WINDEPLOYQT_EXECUTABLE}\")
-            message(STATUS \"Target executable: \${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\")
-            execute_process(
-                COMMAND \"\${WINDEPLOYQT_EXECUTABLE}\"
-                    --release 
-                    --no-translations 
-                    --no-compiler-runtime
-                    --no-system-d3d-compiler
-                    --no-opengl-sw
-                    \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\"
-                RESULT_VARIABLE WINDEPLOYQT_RESULT
-                OUTPUT_VARIABLE WINDEPLOYQT_OUTPUT
-                ERROR_VARIABLE WINDEPLOYQT_ERROR
-            )
-            if(NOT WINDEPLOYQT_RESULT EQUAL 0)
-                message(FATAL_ERROR \"windeployqt failed with result \${WINDEPLOYQT_RESULT}\\nOutput: \${WINDEPLOYQT_OUTPUT}\\nError: \${WINDEPLOYQT_ERROR}\")
-            else()
-                message(STATUS \"windeployqt completed successfully\")
-            endif()
-        else()
-            message(FATAL_ERROR \"windeployqt executable not found. Expected at: \${WINDEPLOYQT_EXECUTABLE}\")
-        endif()
-        
-        # Copy vcpkg runtime DLLs
-        set(VCPKG_INSTALLED_DIR "${VCPKG_INSTALLED_DIR}")
-        set(VCPKG_TARGET_TRIPLET "${VCPKG_TARGET_TRIPLET}")
-        if(NOT VCPKG_INSTALLED_DIR OR VCPKG_INSTALLED_DIR STREQUAL "")
-            set(VCPKG_INSTALLED_DIR "${CMAKE_BINARY_DIR}/vcpkg_installed")
-        endif()
-        if(NOT VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL "")
-            set(VCPKG_TARGET_TRIPLET "x64-windows")
-        endif()
-        set(VCPKG_BIN_DIR "\${VCPKG_INSTALLED_DIR}/\${VCPKG_TARGET_TRIPLET}/bin")
-        if(EXISTS "\${VCPKG_BIN_DIR}")
-            message(STATUS "Installing vcpkg runtime dependencies...")
-            
-            # List of required DLL patterns
-            # Only install GUI-specific DLLs (other dependencies installed by encode-orc Runtime component)
-            set(DLL_PATTERNS \"fftw3.dll\" \"fftw3f.dll\" \"fftw3l.dll\" \"fmt.dll\" \"spdlog.dll\" \"yaml-cpp.dll\" \"sqlite3.dll\" \"libpng*.dll\" \"zlib*.dll\")
-            
-            foreach(DLL_PATTERN \${DLL_PATTERNS})
-                file(GLOB DLL_FILES \"\${VCPKG_BIN_DIR}/\${DLL_PATTERN}\")
-                foreach(DLL_FILE \${DLL_FILES})
-                    get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
-                    message(STATUS \"  Installing \${DLL_NAME}\")
-                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
-                endforeach()
-            endforeach()
-            
-            # Note: FFmpeg DLLs (avcodec, avformat, avutil, swscale, swresample) are 
-            # already installed by the encode-orc subproject Runtime component
-            
-            # Note: Codec libraries (libx264, libx265, vpx) are also already installed 
-            # by the encode-orc subproject Runtime component
-            
-            # Copy additional codec dependencies not in encode-orc
-            file(GLOB ADDITIONAL_DLLS \"\${VCPKG_BIN_DIR}/*.dll\")
-            foreach(DLL_FILE \${ADDITIONAL_DLLS})
-                get_filename_component(DLL_NAME \"\${DLL_FILE}\" NAME)
-                if(DLL_NAME MATCHES \"(opus|vorbis|ogg|webp|dav1d|aom|svt)\")
-                    message(STATUS \"  Installing \${DLL_NAME}\")
-                    file(INSTALL \"\${DLL_FILE}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
-                endif()
-            endforeach()
-        else()
-            message(WARNING \"vcpkg bin directory not found at \${VCPKG_BIN_DIR}\")
-        endif()
-        # Scan and install any remaining runtime dependencies for orc-gui
-        set(SEARCH_DIRS
-            \"\${VCPKG_BIN_DIR}\"
-            \"${QT_BIN_DIR}\"
-            \"${CMAKE_BINARY_DIR}/bin\"
-            \"${CMAKE_BINARY_DIR}/bin/Release\"
-            \"${CMAKE_BINARY_DIR}/bin/Debug\"
-        )
-        file(GET_RUNTIME_DEPENDENCIES
-            EXECUTABLES \"\${CMAKE_INSTALL_PREFIX}/bin/orc-gui.exe\"
-            DIRECTORIES \${SEARCH_DIRS}
-            RESOLVED_DEPENDENCIES_VAR RESOLVED_DEPS
-            UNRESOLVED_DEPENDENCIES_VAR UNRESOLVED_DEPS
-            PRE_EXCLUDE_REGEXES
-                \"api-ms-win-.*\"
-                \"ext-ms-.*\"
-            POST_EXCLUDE_REGEXES
-                \".*\\\\system32\\\\.*\"
-                \".*\\\\Windows\\\\.*\"
-        )
-        foreach(DEP_PATH \${RESOLVED_DEPS})
-            get_filename_component(DEP_NAME \"\${DEP_PATH}\" NAME)
-            if(NOT EXISTS \"\${CMAKE_INSTALL_PREFIX}/bin/\${DEP_NAME}\")
-                message(STATUS \"  Installing runtime dependency \${DEP_NAME}\")
-                file(INSTALL \"\${DEP_PATH}\" DESTINATION \"\${CMAKE_INSTALL_PREFIX}/bin\")
-            endif()
-        endforeach()
-        if(UNRESOLVED_DEPS)
-            message(WARNING \"Unresolved runtime dependencies: \${UNRESOLVED_DEPS}\")
-        endif()
-    " COMPONENT Runtime)
+    # Configure the install script with necessary variables
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/windows-install-runtime.cmake.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/windows-install-runtime.cmake"
+        @ONLY
+    )
+    install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/windows-install-runtime.cmake" COMPONENT Runtime)
 endif()
 
 # Install desktop file

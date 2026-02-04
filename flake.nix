@@ -2,7 +2,7 @@
   description = "decode-orc - LaserDisc and tape decoding orchestration framework";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
     qtnodes = {
       url = "github:paceholder/nodeeditor";
@@ -25,12 +25,21 @@
         };
 
         # Helper to get version from git or use a default
-        # For clean commits in CI/releases: use short rev
-        # For local dirty builds: use git describe if possible
-        version =
-          if (self ? shortRev)
-          then self.shortRev
-          else "1.0.15-dirty";
+        # For clean commits in CI/releases: include branch + short rev
+        # For local dirty builds: use a fixed fallback
+        branch =
+          if (self ? sourceInfo && self.sourceInfo ? ref)
+          then self.sourceInfo.ref
+          else "detached";
+
+        commit = if (self ? shortRev) then self.shortRev else null;
+
+        rawVersion =
+          if (commit != null)
+          then "${branch}-${commit}"
+          else "0.0.0-dirty";
+
+        version = builtins.replaceStrings ["\n" "/" " "] ["" "-" "-"] rawVersion;
 
         # Build QtNodes as a separate package
         qtNodes = pkgs.stdenv.mkDerivation {
@@ -39,8 +48,11 @@
 
           src = qtnodes;
 
+          strictDeps = true;
+
           nativeBuildInputs = with pkgs; [
             cmake
+            ninja
             qt6.wrapQtAppsHook
           ];
 
@@ -49,6 +61,7 @@
           ];
 
           cmakeFlags = [
+            "-GNinja"
             "-DUSE_QT6=ON"
             "-DBUILD_TESTING=OFF"
             "-DBUILD_EXAMPLES=OFF"
@@ -65,14 +78,16 @@
         # Build the decode-orc package
         decode-orc = pkgs.stdenv.mkDerivation {
           pname = "decode-orc";
-          version = builtins.replaceStrings ["\n"] [""] version;
+          version = version;
 
           src = self;
 
+          strictDeps = true;
+
           nativeBuildInputs = with pkgs; [
             cmake
+            ninja
             pkg-config
-            git
             qt6.wrapQtAppsHook
           ];
 
@@ -96,6 +111,7 @@
           ];
 
           cmakeFlags = [
+            "-GNinja"
             "-DCMAKE_BUILD_TYPE=Release"
             "-DBUILD_TESTS=ON"
             "-DBUILD_GUI=ON"
@@ -104,31 +120,38 @@
             # Tell CMake where to find QtNodes
             "-DQtNodes_DIR=${qtNodes}/lib/cmake/QtNodes"
             # Pass git version to CMake since .git dir isn't available in Nix builds
-            "-DPROJECT_VERSION_OVERRIDE=${builtins.replaceStrings ["\n"] [""] version}"
+            "-DPROJECT_VERSION_OVERRIDE=${version}"
             # Define NODE_EDITOR_STATIC to match QtNodes static build
             "-DCMAKE_CXX_FLAGS=-DNODE_EDITOR_STATIC"
           ];
 
-          # Ensure git is available for version detection and patch shebangs
-          preConfigure = ''
-            # If we're in a git repo, let CMake detect the version
-            if [ -d .git ]; then
-              export GIT_EXECUTABLE=${pkgs.git}/bin/git
+          postPatch = ''
+            # Copy encode-orc source into expected location (if not already present)
+            ENCODE_ORC_SRC="${encode-orc}"
+            ENCODE_ORC_DST="external/encode-orc"
+            if [ -e "$ENCODE_ORC_DST" ] && [ "$(readlink -f "$ENCODE_ORC_DST")" = "$(readlink -f "$ENCODE_ORC_SRC")" ]; then
+              echo "encode-orc already present; skipping copy"
+            else
+              rm -rf "$ENCODE_ORC_DST"
+              mkdir -p "$ENCODE_ORC_DST"
+              cp -r "$ENCODE_ORC_SRC"/. "$ENCODE_ORC_DST"/
+              chmod -R u+w "$ENCODE_ORC_DST"
             fi
-            
-            # Copy encode-orc submodule into expected location
-            mkdir -p external/encode-orc
-            cp -r ${encode-orc}/* external/encode-orc/
-            chmod -R u+w external/encode-orc
-            
+
             # Patch shell script shebangs to use Nix bash
-            patchShebangs check_mvp_architecture.sh
+            patchShebangs scripts/check_mvp_architecture.sh
             patchShebangs encode-tests.sh || true
           '';
 
           # Make ffprobe available during tests
           preCheck = ''
             export PATH=${pkgs.ffmpeg}/bin:$PATH
+          '';
+
+          doInstallCheck = true;
+
+          installCheckPhase = ''
+            ctest --output-on-failure -R MVPArchitectureCheck
           '';
 
           # Create symlink for macOS .app bundle
@@ -202,6 +225,8 @@
 
       in
       {
+        formatter = pkgs.nixfmt-rfc-style;
+
         # The package that can be built with `nix build`
         packages = {
           default = decode-orc;
@@ -215,31 +240,26 @@
         devShells.default = pkgs.mkShell {
           inputsFrom = [ decode-orc ];
 
-          buildInputs = with pkgs; [
+          packages = with pkgs; [
             # Additional development tools
             cmake-format
             clang-tools
-            gdb
-            valgrind
             ccache
             doxygen
             graphviz
+            ninja
 
             # Version control
             git
-
-            # Build tools already included from decode-orc buildInputs
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            gdb
+            valgrind
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            lldb
           ];
 
           shellHook = ''
-            echo "🎬 decode-orc development environment"
-            echo "======================================"
-            echo ""
-            echo "Available commands:"
-            echo "  cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug"
-            echo "  cmake --build build -j$(nproc)"
-            echo "  ./build/bin/orc-gui"
-            echo "  ./build/bin/orc-cli"
+            echo "decode-orc nix development environment"
             echo ""
             echo "CMake version: $(cmake --version | head -n1)"
             echo "Qt version: ${pkgs.qt6.qtbase.version}"
@@ -257,48 +277,32 @@
           QT_QPA_PLATFORM = "xcb"; # For Linux
         };
 
-        # Alternative minimal shell without GUI dependencies
-        devShells.minimal = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            cmake
-            pkg-config
-            git
-            
-            # Core dependencies only (no Qt)
-            spdlog
-            sqlite
-            yaml-cpp
-            libpng
-            fftw
-            ffmpeg
-          ];
-
-          cmakeFlags = [
-            "-DBUILD_GUI=OFF"
-            "-DBUILD_TESTS=ON"
-          ];
-
-          shellHook = ''
-            echo "🎬 decode-orc minimal development environment (CLI only)"
-            echo "========================================================"
-            echo "GUI components disabled"
-          '';
-        };
-
         # Apps that can be run with `nix run`
         apps.default = {
           type = "app";
           program = "${decode-orc}/bin/orc-gui";
+          meta = with pkgs.lib; {
+            description = "Decode Orc GUI";
+            license = licenses.gpl3Plus;
+          };
         };
 
         apps.orc-gui = {
           type = "app";
           program = "${decode-orc}/bin/orc-gui";
+          meta = with pkgs.lib; {
+            description = "Decode Orc GUI";
+            license = licenses.gpl3Plus;
+          };
         };
 
         apps.orc-cli = {
           type = "app";
           program = "${decode-orc}/bin/orc-cli";
+          meta = with pkgs.lib; {
+            description = "Decode Orc CLI";
+            license = licenses.gpl3Plus;
+          };
         };
       }
     );

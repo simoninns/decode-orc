@@ -20,22 +20,32 @@ PROJECT_ROOT="$SCRIPT_DIR"
 # Directories
 ENCODE_PROJECTS_DIR="$PROJECT_ROOT/encode-projects"
 ENCODE_OUTPUT_DIR="$PROJECT_ROOT/encode-output"
-BUILD_DIR="$PROJECT_ROOT/build/external/encode-orc"
 NIX_RESULT_DIR="$PROJECT_ROOT/result"
+ENCODE_ORC_EXTERNAL_DIR="$PROJECT_ROOT/external/encode-orc"
 
-# Try Nix build first, then fall back to CMake build
+# Nix-only build
 if [ -f "$NIX_RESULT_DIR/bin/encode-orc" ]; then
     ENCODE_ORC="$NIX_RESULT_DIR/bin/encode-orc"
     echo -e "${GREEN}Using Nix-built encode-orc${NC}"
-elif [ -f "$BUILD_DIR/encode-orc" ]; then
-    ENCODE_ORC="$BUILD_DIR/encode-orc"
-    echo -e "${GREEN}Using CMake-built encode-orc${NC}"
 else
     echo -e "${RED}Error: encode-orc executable not found.${NC}"
-    echo -e "${YELLOW}Please build with either:${NC}"
-    echo -e "${YELLOW}  nix build               (Nix)${NC}"
-    echo -e "${YELLOW}  cmake --build build     (CMake)${NC}"
+    echo -e "${YELLOW}Please build with:${NC}"
+    echo -e "${YELLOW}  nix build${NC}"
     exit 1
+fi
+
+# Ensure encode-orc assets are available for test YAML paths
+if [ ! -d "$ENCODE_ORC_EXTERNAL_DIR" ]; then
+    echo -e "${BLUE}Linking encode-orc assets from Nix store...${NC}"
+    ENCODE_ORC_SRC=$(nix eval --raw --impure --expr "(builtins.getFlake (toString ${PROJECT_ROOT})).inputs.encode-orc.outPath" 2>/dev/null || true)
+    if [ -z "$ENCODE_ORC_SRC" ] || [ ! -d "$ENCODE_ORC_SRC" ]; then
+        echo -e "${RED}Error: unable to locate encode-orc source via Nix.${NC}"
+        echo -e "${YELLOW}Try running: nix flake update && nix build${NC}"
+        exit 1
+    fi
+    mkdir -p "$(dirname "$ENCODE_ORC_EXTERNAL_DIR")"
+    rm -f "$ENCODE_ORC_EXTERNAL_DIR"
+    ln -s "$ENCODE_ORC_SRC" "$ENCODE_ORC_EXTERNAL_DIR"
 fi
 
 # Create output directory if it doesn't exist

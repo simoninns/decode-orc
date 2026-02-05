@@ -9,6 +9,7 @@
 
 #include "vbidialog.h"
 #include "field_frame_presentation.h"
+#include "presenters/include/vbi_presenter.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QGridLayout>
@@ -207,83 +208,28 @@ void VBIDialog::updateVBIInfo(const orc::presenters::VBIFieldInfoView& vbi_info)
     line17_label_->setText(formatVBILine(vbi_info.vbi_data[1]));
     line18_label_->setText(formatVBILine(vbi_info.vbi_data[2]));
     
-    // Picture number (CAV)
-    if (vbi_info.picture_number.has_value()) {
-        picture_number_label_->setText(QString::number(vbi_info.picture_number.value()));
-    } else {
-        picture_number_label_->setText("-");
-    }
-    
-    // CLV timecode
-    if (vbi_info.clv_timecode.has_value()) {
-        const auto& tc = vbi_info.clv_timecode.value();
-        clv_timecode_label_->setText(QString("%1:%2:%3.%4")
-            .arg(tc.hours, 2, 10, QChar('0'))
-            .arg(tc.minutes, 2, 10, QChar('0'))
-            .arg(tc.seconds, 2, 10, QChar('0'))
-            .arg(tc.picture_number, 2, 10, QChar('0')));
-    } else {
-        clv_timecode_label_->setText("-");
-    }
-    
-    // Chapter number
-    if (vbi_info.chapter_number.has_value()) {
-        chapter_number_label_->setText(QString::number(vbi_info.chapter_number.value()));
-    } else {
-        chapter_number_label_->setText("-");
-    }
-    
-    // User code
-    if (vbi_info.user_code.has_value()) {
-        user_code_label_->setText(QString::fromStdString(vbi_info.user_code.value()));
-    } else {
-        user_code_label_->setText("-");
-    }
-    
-    // Control codes
-    stop_code_label_->setText(vbi_info.stop_code_present ? "Yes" : "No");
-    lead_in_label_->setText(vbi_info.lead_in ? "Yes" : "No");
-    lead_out_label_->setText(vbi_info.lead_out ? "Yes" : "No");
-    
-    // Programme status (original spec)
-    if (vbi_info.programme_status.has_value()) {
-        const auto& ps = vbi_info.programme_status.value();
-        cx_enabled_label_->setText(ps.cx_enabled ? "On" : "Off");
-        disc_size_label_->setText(ps.is_12_inch ? "12\"" : "8\"");
-        disc_side_label_->setText(ps.is_side_1 ? "Side 1" : "Side 2");
-        teletext_label_->setText(ps.has_teletext ? "Yes" : "No");
-        digital_label_->setText(ps.is_digital ? "Digital" : "Analogue");
-        sound_mode_label_->setText(formatSoundMode(ps.sound_mode));
-        fm_multiplex_label_->setText(ps.is_fm_multiplex ? "Yes" : "No");
-        programme_dump_label_->setText(ps.is_programme_dump ? "Yes" : "No");
-        parity_valid_label_->setText(ps.parity_valid ? "Valid" : "Invalid");
-        original_spec_tab_->setEnabled(true);
-    } else {
-        cx_enabled_label_->setText("-");
-        disc_size_label_->setText("-");
-        disc_side_label_->setText("-");
-        teletext_label_->setText("-");
-        digital_label_->setText("-");
-        sound_mode_label_->setText("-");
-        fm_multiplex_label_->setText("-");
-        programme_dump_label_->setText("-");
-        parity_valid_label_->setText("-");
-        original_spec_tab_->setEnabled(false);
-    }
-    
-    // Amendment 2 status
-    if (vbi_info.amendment2_status.has_value()) {
-        const auto& am2 = vbi_info.amendment2_status.value();
-        copy_permitted_label_->setText(am2.copy_permitted ? "Yes" : "No");
-        video_standard_label_->setText(am2.is_video_standard ? "Standard" : "Non-standard");
-        sound_mode_am2_label_->setText(formatSoundMode(am2.sound_mode));
-        amendment2_tab_->setEnabled(true);
-    } else {
-        copy_permitted_label_->setText("-");
-        video_standard_label_->setText("-");
-        sound_mode_am2_label_->setText("-");
-        amendment2_tab_->setEnabled(false);
-    }
+    // Field mode: raw VBI only (no interpretation)
+    picture_number_label_->setText("-");
+    clv_timecode_label_->setText("-");
+    chapter_number_label_->setText("-");
+    user_code_label_->setText("-");
+    stop_code_label_->setText("-");
+    lead_in_label_->setText("-");
+    lead_out_label_->setText("-");
+    cx_enabled_label_->setText("-");
+    disc_size_label_->setText("-");
+    disc_side_label_->setText("-");
+    teletext_label_->setText("-");
+    digital_label_->setText("-");
+    sound_mode_label_->setText("-");
+    fm_multiplex_label_->setText("-");
+    programme_dump_label_->setText("-");
+    parity_valid_label_->setText("-");
+    copy_permitted_label_->setText("-");
+    video_standard_label_->setText("-");
+    sound_mode_am2_label_->setText("-");
+    original_spec_tab_->setEnabled(false);
+    amendment2_tab_->setEnabled(false);
 }
 
 void VBIDialog::clearVBIInfo()
@@ -379,21 +325,17 @@ void VBIDialog::updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& fiel
         .arg(formatVBILine(field1_info.vbi_data[2]))
         .arg(formatVBILine(field2_info.vbi_data[2])));
     
-    // Prefer merged-like data by picking available values
-    const auto pick_optional = [](const auto& a, const auto& b) {
-        return a.has_value() ? a : b;
-    };
+    // Frame interpretation uses both fields (6 values)
+    auto merged = orc::presenters::VbiPresenter::mergeFrameVbiViews(field1_info, field2_info);
 
-    auto picture_number = pick_optional(field1_info.picture_number, field2_info.picture_number);
-    if (picture_number.has_value()) {
-        picture_number_label_->setText(QString::number(*picture_number));
+    if (merged.picture_number.has_value()) {
+        picture_number_label_->setText(QString::number(merged.picture_number.value()));
     } else {
         picture_number_label_->setText("-");
     }
 
-    auto clv_tc = pick_optional(field1_info.clv_timecode, field2_info.clv_timecode);
-    if (clv_tc.has_value()) {
-        const auto& tc = *clv_tc;
+    if (merged.clv_timecode.has_value()) {
+        const auto& tc = merged.clv_timecode.value();
         clv_timecode_label_->setText(QString("%1:%2:%3.%4")
             .arg(tc.hours, 2, 10, QChar('0'))
             .arg(tc.minutes, 2, 10, QChar('0'))
@@ -403,29 +345,24 @@ void VBIDialog::updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& fiel
         clv_timecode_label_->setText("-");
     }
 
-    auto chapter = pick_optional(field1_info.chapter_number, field2_info.chapter_number);
-    if (chapter.has_value()) {
-        chapter_number_label_->setText(QString::number(*chapter));
+    if (merged.chapter_number.has_value()) {
+        chapter_number_label_->setText(QString::number(merged.chapter_number.value()));
     } else {
         chapter_number_label_->setText("-");
     }
 
-    auto user_code = pick_optional(field1_info.user_code, field2_info.user_code);
-    if (user_code.has_value()) {
-        user_code_label_->setText(QString::fromStdString(*user_code));
+    if (merged.user_code.has_value()) {
+        user_code_label_->setText(QString::fromStdString(merged.user_code.value()));
     } else {
         user_code_label_->setText("-");
     }
 
-    // Control codes (OR across both fields)
-    stop_code_label_->setText((field1_info.stop_code_present || field2_info.stop_code_present) ? "Yes" : "No");
-    lead_in_label_->setText((field1_info.lead_in || field2_info.lead_in) ? "Yes" : "No");
-    lead_out_label_->setText((field1_info.lead_out || field2_info.lead_out) ? "Yes" : "No");
+    stop_code_label_->setText(merged.stop_code_present ? "Yes" : "No");
+    lead_in_label_->setText(merged.lead_in ? "Yes" : "No");
+    lead_out_label_->setText(merged.lead_out ? "Yes" : "No");
 
-    // Programme status
-    auto programme = pick_optional(field1_info.programme_status, field2_info.programme_status);
-    if (programme.has_value()) {
-        const auto& ps = *programme;
+    if (merged.programme_status.has_value()) {
+        const auto& ps = merged.programme_status.value();
         cx_enabled_label_->setText(ps.cx_enabled ? "On" : "Off");
         disc_size_label_->setText(ps.is_12_inch ? "12\"" : "8\"");
         disc_side_label_->setText(ps.is_side_1 ? "Side 1" : "Side 2");
@@ -449,10 +386,8 @@ void VBIDialog::updateVBIInfoFrame(const orc::presenters::VBIFieldInfoView& fiel
         original_spec_tab_->setEnabled(false);
     }
 
-    // Amendment 2 status
-    auto am2 = pick_optional(field1_info.amendment2_status, field2_info.amendment2_status);
-    if (am2.has_value()) {
-        const auto& a = *am2;
+    if (merged.amendment2_status.has_value()) {
+        const auto& a = merged.amendment2_status.value();
         copy_permitted_label_->setText(a.copy_permitted ? "Yes" : "No");
         video_standard_label_->setText(a.is_video_standard ? "Standard" : "Non-standard");
         sound_mode_am2_label_->setText(formatSoundMode(a.sound_mode));

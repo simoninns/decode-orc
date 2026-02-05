@@ -52,6 +52,11 @@ public:
         const void* observation_context_ptr,  ///< Opaque handle to observation context
         FieldID field_id);
 
+    // Merge two field VBI views into a single frame-level interpretation
+    static VBIFieldInfoView mergeFrameVbiViews(
+        const VBIFieldInfoView& field1,
+        const VBIFieldInfoView& field2);
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

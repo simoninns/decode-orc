@@ -10,6 +10,103 @@
 #include "vbi_decoder.h"
 #include "include/observation_context.h"
 #include "logging.h"
+#include <cstdio>
+
+namespace {
+
+// Helper function to decode BCD (Binary Coded Decimal)
+bool decode_bcd(uint32_t bcd, int32_t& output) {
+    output = 0;
+    int32_t multiplier = 1;
+
+    while (bcd > 0) {
+        uint32_t digit = bcd & 0x0F;
+        if (digit > 9) {
+            return false;  // Invalid BCD digit
+        }
+        output += static_cast<int32_t>(digit) * multiplier;
+        multiplier *= 10;
+        bcd >>= 4;
+    }
+
+    return true;
+}
+
+// Helper function to check IEC 60857 parity (x51/x52/x53)
+bool check_parity(uint32_t x4, uint32_t x5) {
+    int x51 = (x5 & 0x8) ? 1 : 0;
+    int x52 = (x5 & 0x4) ? 1 : 0;
+    int x53 = (x5 & 0x2) ? 1 : 0;
+
+    int x41 = (x4 & 0x8) ? 1 : 0;
+    int x42 = (x4 & 0x4) ? 1 : 0;
+    int x43 = (x4 & 0x2) ? 1 : 0;
+    int x44 = (x4 & 0x1) ? 1 : 0;
+
+    int x51count = x41 + x42 + x44;
+    int x52count = x41 + x43 + x44;
+    int x53count = x42 + x43 + x44;
+
+    bool x51p = (((x51count % 2) == 0) && (x51 == 0)) || (((x51count % 2) != 0) && (x51 != 0));
+    bool x52p = (((x52count % 2) == 0) && (x52 == 0)) || (((x52count % 2) != 0) && (x52 != 0));
+    bool x53p = (((x53count % 2) == 0) && (x53 == 0)) || (((x53count % 2) != 0) && (x53 != 0));
+
+    return x51p && x52p && x53p;
+}
+
+bool decode_clv_hours_minutes(int32_t vbi_line_17, int32_t vbi_line_18, int32_t& hours, int32_t& minutes) {
+    bool found = false;
+    hours = -1;
+    minutes = -1;
+
+    if ((vbi_line_17 & 0xF0FF00) == 0xF0DD00) {
+        int32_t hour17 = -1, minute17 = -1;
+        if (decode_bcd((vbi_line_17 & 0x0F0000) >> 16, hour17) &&
+            decode_bcd(vbi_line_17 & 0x0000FF, minute17)) {
+            hours = hour17;
+            minutes = minute17;
+            found = true;
+        }
+    }
+
+    if ((vbi_line_18 & 0xF0FF00) == 0xF0DD00) {
+        int32_t hour18 = -1, minute18 = -1;
+        if (decode_bcd((vbi_line_18 & 0x0F0000) >> 16, hour18) &&
+            decode_bcd(vbi_line_18 & 0x0000FF, minute18)) {
+            hours = hour18;
+            minutes = minute18;
+            found = true;
+        }
+    }
+
+    return found;
+}
+
+bool decode_clv_seconds_picture(int32_t vbi_line_16, int32_t& seconds, int32_t& picture) {
+    seconds = -1;
+    picture = -1;
+
+    if ((vbi_line_16 & 0xF0F000) == 0x80E000) {
+        int32_t sec_digit, pic_no;
+        uint32_t tens = (vbi_line_16 & 0x0F0000) >> 16;
+
+        if (tens >= 0xA && tens <= 0xF &&
+            decode_bcd((vbi_line_16 & 0x000F00) >> 8, sec_digit) &&
+            decode_bcd(vbi_line_16 & 0x0000FF, pic_no)) {
+
+            int32_t sec = (10 * (tens - 0xA)) + sec_digit;
+            if (sec >= 0 && sec <= 59 && pic_no >= 0 && pic_no <= 29) {
+                seconds = sec;
+                picture = pic_no;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+} // namespace
 
 namespace orc {
 
@@ -36,7 +133,10 @@ std::optional<VBIFieldInfo> VBIDecoder::decode_vbi(
     int32_t vbi_16 = std::get<int32_t>(*vbi_16_opt);
     int32_t vbi_17 = std::get<int32_t>(*vbi_17_opt);
     int32_t vbi_18 = std::get<int32_t>(*vbi_18_opt);
-    
+
+    ORC_LOG_DEBUG("VBIDecoder: Field {} raw VBI lines: {:#08x}, {:#08x}, {:#08x}",
+                  field_id.value(), vbi_16, vbi_17, vbi_18);
+
     return parse_vbi_data(field_id, vbi_16, vbi_17, vbi_18, observation_context);
 }
 
@@ -51,105 +151,251 @@ VBIFieldInfo VBIDecoder::parse_vbi_data(
     info.field_id = field_id;
     info.has_vbi_data = true;
     info.vbi_data = {vbi_line_16, vbi_line_17, vbi_line_18};
-    
-    // The BiphaseObserver has already interpreted the VBI data according to IEC 60857.
-    // We read the interpreted values from the observation context here.
-    
-    // Try to get picture number
-    auto pic_num_opt = observation_context.get(field_id, "vbi", "picture_number");
-    if (pic_num_opt) {
-        info.picture_number = std::get<int32_t>(*pic_num_opt);
-    }
-    
-    // Try to get CLV timecode
-    auto hours_opt = observation_context.get(field_id, "vbi", "clv_timecode_hours");
-    auto minutes_opt = observation_context.get(field_id, "vbi", "clv_timecode_minutes");
-    auto seconds_opt = observation_context.get(field_id, "vbi", "clv_timecode_seconds");
-    auto picture_opt = observation_context.get(field_id, "vbi", "clv_timecode_picture");
-    
-    if (hours_opt && minutes_opt && seconds_opt && picture_opt) {
-        CLVTimecode tc;
-        tc.hours = std::get<int32_t>(*hours_opt);
-        tc.minutes = std::get<int32_t>(*minutes_opt);
-        tc.seconds = std::get<int32_t>(*seconds_opt);
-        tc.picture_number = std::get<int32_t>(*picture_opt);
-        info.clv_timecode = tc;
-    }
-    
-    // Try to get chapter number
-    auto chapter_opt = observation_context.get(field_id, "vbi", "chapter_number");
-    if (chapter_opt) {
-        info.chapter_number = std::get<int32_t>(*chapter_opt);
-    }
-    
-    // Try to get control codes
-    auto lead_in_opt = observation_context.get(field_id, "vbi", "lead_in");
-    if (lead_in_opt) {
-        info.lead_in = std::get<int32_t>(*lead_in_opt) != 0;
-    }
-    
-    auto lead_out_opt = observation_context.get(field_id, "vbi", "lead_out");
-    if (lead_out_opt) {
-        info.lead_out = std::get<int32_t>(*lead_out_opt) != 0;
-    }
-    
-    auto stop_code_opt = observation_context.get(field_id, "vbi", "stop_code_present");
-    if (stop_code_opt) {
-        info.stop_code_present = std::get<int32_t>(*stop_code_opt) != 0;
-    }
-    
-    // Try to get programme status
-    auto cx_opt = observation_context.get(field_id, "vbi", "programme_status_cx_enabled");
-    auto size_opt = observation_context.get(field_id, "vbi", "programme_status_is_12_inch");
-    auto side_opt = observation_context.get(field_id, "vbi", "programme_status_is_side_1");
-    auto teletext_opt = observation_context.get(field_id, "vbi", "programme_status_has_teletext");
-    auto digital_opt = observation_context.get(field_id, "vbi", "programme_status_is_digital");
-    auto sound_opt = observation_context.get(field_id, "vbi", "programme_status_sound_mode");
-    auto fm_opt = observation_context.get(field_id, "vbi", "programme_status_is_fm_multiplex");
-    auto dump_opt = observation_context.get(field_id, "vbi", "programme_status_is_programme_dump");
-    auto parity_opt = observation_context.get(field_id, "vbi", "programme_status_parity_valid");
-    
-    if (cx_opt || size_opt || side_opt || teletext_opt || digital_opt || sound_opt || fm_opt || dump_opt || parity_opt) {
-        ProgrammeStatus prog_status;
-        if (cx_opt) prog_status.cx_enabled = std::get<int32_t>(*cx_opt) != 0;
-        if (size_opt) prog_status.is_12_inch = std::get<int32_t>(*size_opt) != 0;
-        if (side_opt) prog_status.is_side_1 = std::get<int32_t>(*side_opt) != 0;
-        if (teletext_opt) prog_status.has_teletext = std::get<int32_t>(*teletext_opt) != 0;
-        if (digital_opt) prog_status.is_digital = std::get<int32_t>(*digital_opt) != 0;
-        if (sound_opt) {
-            int32_t sound_val = std::get<int32_t>(*sound_opt);
-            if (sound_val >= 0 && sound_val <= static_cast<int32_t>(VbiSoundMode::FUTURE_USE)) {
-                prog_status.sound_mode = static_cast<VbiSoundMode>(sound_val);
-            }
+
+    (void)observation_context;
+
+    // ------------------------------------------------------------------------
+    // Decode from raw VBI lines (IEC 60857)
+    // ------------------------------------------------------------------------
+
+    // Picture numbers (CAV) - lines 17/18
+    std::optional<int32_t> cav_picture_number;
+    if ((vbi_line_17 & 0xF00000) == 0xF00000) {
+        int32_t pic_no;
+        if (decode_bcd(vbi_line_17 & 0x07FFFF, pic_no)) {
+            cav_picture_number = pic_no;
         }
-        if (fm_opt) prog_status.is_fm_multiplex = std::get<int32_t>(*fm_opt) != 0;
-        if (dump_opt) prog_status.is_programme_dump = std::get<int32_t>(*dump_opt) != 0;
-        if (parity_opt) prog_status.parity_valid = std::get<int32_t>(*parity_opt) != 0;
+    }
+
+    if ((vbi_line_18 & 0xF00000) == 0xF00000) {
+        int32_t pic_no;
+        if (decode_bcd(vbi_line_18 & 0x07FFFF, pic_no)) {
+            cav_picture_number = pic_no;
+        }
+    }
+
+    // Chapter numbers - lines 17/18
+    if ((vbi_line_17 & 0xF00FFF) == 0x800DDD) {
+        int32_t chapter;
+        if (decode_bcd((vbi_line_17 & 0x07F000) >> 12, chapter)) {
+            info.chapter_number = chapter;
+        }
+    }
+
+    if ((vbi_line_18 & 0xF00FFF) == 0x800DDD) {
+        int32_t chapter;
+        if (decode_bcd((vbi_line_18 & 0x07F000) >> 12, chapter)) {
+            info.chapter_number = chapter;
+        }
+    }
+
+    // CLV programme time code (hours/minutes) - lines 17/18
+    CLVTimecode clv_tc{-1, -1, -1, -1};
+    decode_clv_hours_minutes(vbi_line_17, vbi_line_18, clv_tc.hours, clv_tc.minutes);
+
+    // CLV picture number (seconds/picture) - line 16
+    bool has_clv_picture_number = decode_clv_seconds_picture(vbi_line_16, clv_tc.seconds, clv_tc.picture_number);
+
+    if (clv_tc.hours != -1 && clv_tc.minutes != -1 &&
+        clv_tc.seconds != -1 && clv_tc.picture_number != -1) {
+        info.clv_timecode = clv_tc;
+    }
+
+    if (!has_clv_picture_number && cav_picture_number.has_value()) {
+        info.picture_number = cav_picture_number.value();
+    }
+
+    // Lead-in / lead-out / picture stop codes
+    if (vbi_line_17 == 0x88FFFF || vbi_line_18 == 0x88FFFF) {
+        info.lead_in = true;
+    }
+
+    if (vbi_line_17 == 0x80EEEE || vbi_line_18 == 0x80EEEE) {
+        info.lead_out = true;
+    }
+
+    if (vbi_line_16 == 0x82CFFF || vbi_line_17 == 0x82CFFF) {
+        info.stop_code_present = true;
+    }
+
+    // Programme status (line 16)
+    if ((vbi_line_16 & 0xFFF000) == 0x8DC000 || (vbi_line_16 & 0xFFF000) == 0x8BA000) {
+        ProgrammeStatus prog_status;
+
+        bool cx_enabled = ((vbi_line_16 & 0x0FF000) == 0x0DC000);
+        prog_status.cx_enabled = cx_enabled;
+
+        uint32_t x3 = (vbi_line_16 & 0x000F00) >> 8;
+        uint32_t x4 = (vbi_line_16 & 0x0000F0) >> 4;
+        uint32_t x5 = (vbi_line_16 & 0x00000F);
+
+        prog_status.parity_valid = check_parity(x4, x5);
+
+        prog_status.is_12_inch = ((x3 & 0x08) == 0);
+        prog_status.is_side_1 = ((x3 & 0x04) == 0);
+        prog_status.has_teletext = ((x3 & 0x02) != 0);
+        prog_status.is_digital = ((x4 & 0x04) != 0);
+
+        uint32_t audio_status = 0;
+        if ((x4 & 0x08) == 0x08) audio_status += 8; // X41
+        if ((x3 & 0x01) == 0x01) audio_status += 4; // X34
+        if ((x4 & 0x02) == 0x02) audio_status += 2; // X43
+        if ((x4 & 0x01) == 0x01) audio_status += 1; // X44
+
+        bool is_programme_dump = false;
+        bool is_fm_multiplex = false;
+        int sound_mode = static_cast<int>(VbiSoundMode::STEREO);
+
+        switch (audio_status) {
+            case 0:
+                sound_mode = static_cast<int>(VbiSoundMode::STEREO);
+                break;
+            case 1:
+                sound_mode = static_cast<int>(VbiSoundMode::MONO);
+                break;
+            case 2:
+                sound_mode = static_cast<int>(VbiSoundMode::FUTURE_USE);
+                break;
+            case 3:
+                sound_mode = static_cast<int>(VbiSoundMode::BILINGUAL);
+                break;
+            case 4:
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::STEREO_STEREO);
+                break;
+            case 5:
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::STEREO_BILINGUAL);
+                break;
+            case 6:
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::CROSS_CHANNEL_STEREO);
+                break;
+            case 7:
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::BILINGUAL_BILINGUAL);
+                break;
+            case 8:
+                is_programme_dump = true;
+                sound_mode = static_cast<int>(VbiSoundMode::MONO_DUMP);
+                break;
+            case 9:
+                is_programme_dump = true;
+                sound_mode = static_cast<int>(VbiSoundMode::MONO_DUMP);
+                break;
+            case 10:
+                is_programme_dump = true;
+                sound_mode = static_cast<int>(VbiSoundMode::FUTURE_USE);
+                break;
+            case 11:
+                is_programme_dump = true;
+                sound_mode = static_cast<int>(VbiSoundMode::MONO_DUMP);
+                break;
+            case 12:
+                is_programme_dump = true;
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::STEREO_DUMP);
+                break;
+            case 13:
+                is_programme_dump = true;
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::STEREO_DUMP);
+                break;
+            case 14:
+                is_programme_dump = true;
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::BILINGUAL_DUMP);
+                break;
+            case 15:
+                is_programme_dump = true;
+                is_fm_multiplex = true;
+                sound_mode = static_cast<int>(VbiSoundMode::BILINGUAL_DUMP);
+                break;
+            default:
+                sound_mode = static_cast<int>(VbiSoundMode::STEREO);
+                break;
+        }
+
+        prog_status.is_programme_dump = is_programme_dump;
+        prog_status.is_fm_multiplex = is_fm_multiplex;
+        prog_status.sound_mode = static_cast<VbiSoundMode>(sound_mode);
+
         info.programme_status = prog_status;
     }
-    
-    // Try to get Amendment 2 status
-    auto am2_copy_opt = observation_context.get(field_id, "vbi", "amendment2_status_copy_permitted");
-    auto am2_video_opt = observation_context.get(field_id, "vbi", "amendment2_status_is_video_standard");
-    auto am2_sound_opt = observation_context.get(field_id, "vbi", "amendment2_status_sound_mode");
-    
-    if (am2_copy_opt || am2_video_opt || am2_sound_opt) {
+
+    // Amendment 2 status (line 16)
+    if ((vbi_line_16 & 0xFFF000) == 0x8DC000 || (vbi_line_16 & 0xFFF000) == 0x8BA000) {
         Amendment2Status am2_status;
-        if (am2_copy_opt) am2_status.copy_permitted = std::get<int32_t>(*am2_copy_opt) != 0;
-        if (am2_video_opt) am2_status.is_video_standard = std::get<int32_t>(*am2_video_opt) != 0;
-        if (am2_sound_opt) {
-            int32_t sound_val = std::get<int32_t>(*am2_sound_opt);
-            if (sound_val >= 0 && sound_val <= 11) {
-                am2_status.sound_mode = static_cast<VbiSoundMode>(sound_val);
-            }
+
+        uint32_t x3 = (vbi_line_16 & 0x000F00) >> 8;
+        uint32_t x4 = (vbi_line_16 & 0x0000F0) >> 4;
+
+        am2_status.copy_permitted = ((x3 & 0x01) != 0);
+
+        uint32_t am2_audio_status = (x4 & 0x0F);
+        bool is_video_standard = true;
+        int am2_sound_mode = static_cast<int>(VbiSoundMode::STEREO);
+
+        switch (am2_audio_status) {
+            case 0:
+                is_video_standard = true;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::STEREO);
+                break;
+            case 1:
+                is_video_standard = true;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::MONO);
+                break;
+            case 2:
+                is_video_standard = false;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::FUTURE_USE);
+                break;
+            case 3:
+                is_video_standard = true;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::BILINGUAL);
+                break;
+            case 4:
+            case 5:
+            case 6:
+            case 7:
+                is_video_standard = false;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::FUTURE_USE);
+                break;
+            case 8:
+                is_video_standard = true;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::MONO_DUMP);
+                break;
+            case 9:
+            case 10:
+            case 11:
+            case 12:
+            case 13:
+            case 14:
+            case 15:
+                is_video_standard = false;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::FUTURE_USE);
+                break;
+            default:
+                is_video_standard = false;
+                am2_sound_mode = static_cast<int>(VbiSoundMode::STEREO);
+                break;
         }
+
+        am2_status.is_video_standard = is_video_standard;
+        am2_status.sound_mode = static_cast<VbiSoundMode>(am2_sound_mode);
+
         info.amendment2_status = am2_status;
     }
 
-    // Try to get user code
-    auto user_code_opt = observation_context.get(field_id, "vbi", "user_code");
-    if (user_code_opt && std::holds_alternative<std::string>(*user_code_opt)) {
-        info.user_code = std::get<std::string>(*user_code_opt);
+    // User code (line 16)
+    if ((vbi_line_16 & 0xF0F000) == 0x80D000) {
+        uint32_t x1 = (vbi_line_16 & 0x0F0000) >> 16;
+        uint32_t x3x4x5 = (vbi_line_16 & 0x000FFF);
+
+        if (x1 <= 7) {
+            char user_code_str[8];
+            std::snprintf(user_code_str, sizeof(user_code_str), "%01X%03X", x1, x3x4x5);
+            info.user_code = std::string(user_code_str);
+        }
     }
     
     ORC_LOG_DEBUG("VBIDecoder: Parsed VBI for field {} - lines: {:#08x}, {:#08x}, {:#08x}",
@@ -170,6 +416,10 @@ VBIFieldInfo VBIDecoder::merge_frame_vbi(
     // Has VBI data if either field has it
     merged.has_vbi_data = field1_info.has_vbi_data || field2_info.has_vbi_data;
     
+    ORC_LOG_DEBUG("VBIDecoder: Frame merge raw VBI field1: {:#08x}, {:#08x}, {:#08x} | field2: {:#08x}, {:#08x}, {:#08x}",
+                  field1_info.vbi_data[0], field1_info.vbi_data[1], field1_info.vbi_data[2],
+                  field2_info.vbi_data[0], field2_info.vbi_data[1], field2_info.vbi_data[2]);
+
     // Raw VBI data - prefer first field, use second as fallback
     merged.vbi_data = field1_info.has_vbi_data ? field1_info.vbi_data : field2_info.vbi_data;
     
@@ -180,26 +430,34 @@ VBIFieldInfo VBIDecoder::merge_frame_vbi(
         merged.picture_number = field2_info.picture_number;
     }
     
-    // CLV timecode - merge components from both fields
-    // Hours/minutes may be on one field, seconds/picture on another
-    bool has_hours = false, has_minutes = false, has_seconds = false, has_picture = false;
-    CLVTimecode merged_tc;
-    
-    if (field1_info.clv_timecode.has_value()) {
-        const auto& tc1 = field1_info.clv_timecode.value();
-        merged_tc = tc1;
-        has_hours = has_minutes = has_seconds = has_picture = true;
+    // CLV timecode - merge components from both fields (raw VBI lines)
+    CLVTimecode merged_tc{-1, -1, -1, -1};
+
+    int32_t hours = -1, minutes = -1;
+    int32_t seconds = -1, picture = -1;
+
+    if (!field1_info.vbi_data.empty()) {
+        decode_clv_hours_minutes(field1_info.vbi_data[1], field1_info.vbi_data[2], hours, minutes);
+        decode_clv_seconds_picture(field1_info.vbi_data[0], seconds, picture);
     }
-    
-    if (field2_info.clv_timecode.has_value()) {
-        const auto& tc2 = field2_info.clv_timecode.value();
-        if (!has_hours) { merged_tc.hours = tc2.hours; has_hours = true; }
-        if (!has_minutes) { merged_tc.minutes = tc2.minutes; has_minutes = true; }
-        if (!has_seconds) { merged_tc.seconds = tc2.seconds; has_seconds = true; }
-        if (!has_picture) { merged_tc.picture_number = tc2.picture_number; has_picture = true; }
+
+    if (hours == -1 || minutes == -1) {
+        if (!field2_info.vbi_data.empty()) {
+            decode_clv_hours_minutes(field2_info.vbi_data[1], field2_info.vbi_data[2], hours, minutes);
+        }
     }
-    
-    if (has_hours && has_minutes && has_seconds && has_picture) {
+
+    if (seconds == -1 || picture == -1) {
+        if (!field2_info.vbi_data.empty()) {
+            decode_clv_seconds_picture(field2_info.vbi_data[0], seconds, picture);
+        }
+    }
+
+    if (hours != -1 && minutes != -1 && seconds != -1 && picture != -1) {
+        merged_tc.hours = hours;
+        merged_tc.minutes = minutes;
+        merged_tc.seconds = seconds;
+        merged_tc.picture_number = picture;
         merged.clv_timecode = merged_tc;
     }
     
@@ -222,18 +480,64 @@ VBIFieldInfo VBIDecoder::merge_frame_vbi(
     merged.lead_out = field1_info.lead_out || field2_info.lead_out;
     merged.stop_code_present = field1_info.stop_code_present || field2_info.stop_code_present;
     
-    // Programme status - prefer first field
-    if (field1_info.programme_status.has_value()) {
-        merged.programme_status = field1_info.programme_status;
-    } else if (field2_info.programme_status.has_value()) {
-        merged.programme_status = field2_info.programme_status;
+    // Programme status - merge across both fields
+    if (field1_info.programme_status.has_value() || field2_info.programme_status.has_value()) {
+        ProgrammeStatus merged_status{};
+        const ProgrammeStatus* ps1 = field1_info.programme_status.has_value() ? &field1_info.programme_status.value() : nullptr;
+        const ProgrammeStatus* ps2 = field2_info.programme_status.has_value() ? &field2_info.programme_status.value() : nullptr;
+
+        if (ps1 && ps1->cx_enabled) merged_status.cx_enabled = true;
+        if (ps2 && ps2->cx_enabled) merged_status.cx_enabled = true;
+
+        if (ps1 && ps1->is_12_inch) merged_status.is_12_inch = true;
+        if (ps2 && ps2->is_12_inch) merged_status.is_12_inch = true;
+
+        if (ps1 && ps1->is_side_1) merged_status.is_side_1 = true;
+        if (ps2 && ps2->is_side_1) merged_status.is_side_1 = true;
+
+        if (ps1 && ps1->has_teletext) merged_status.has_teletext = true;
+        if (ps2 && ps2->has_teletext) merged_status.has_teletext = true;
+
+        if (ps1 && ps1->is_digital) merged_status.is_digital = true;
+        if (ps2 && ps2->is_digital) merged_status.is_digital = true;
+
+        if (ps1 && ps1->is_fm_multiplex) merged_status.is_fm_multiplex = true;
+        if (ps2 && ps2->is_fm_multiplex) merged_status.is_fm_multiplex = true;
+
+        if (ps1 && ps1->is_programme_dump) merged_status.is_programme_dump = true;
+        if (ps2 && ps2->is_programme_dump) merged_status.is_programme_dump = true;
+
+        if (ps1 && ps1->parity_valid) merged_status.parity_valid = true;
+        if (ps2 && ps2->parity_valid) merged_status.parity_valid = true;
+
+        if (ps1 && ps1->sound_mode != VbiSoundMode::FUTURE_USE) {
+            merged_status.sound_mode = ps1->sound_mode;
+        } else if (ps2 && ps2->sound_mode != VbiSoundMode::FUTURE_USE) {
+            merged_status.sound_mode = ps2->sound_mode;
+        }
+
+        merged.programme_status = merged_status;
     }
-    
-    // Amendment 2 status - prefer first field
-    if (field1_info.amendment2_status.has_value()) {
-        merged.amendment2_status = field1_info.amendment2_status;
-    } else if (field2_info.amendment2_status.has_value()) {
-        merged.amendment2_status = field2_info.amendment2_status;
+
+    // Amendment 2 status - merge across both fields
+    if (field1_info.amendment2_status.has_value() || field2_info.amendment2_status.has_value()) {
+        Amendment2Status merged_status{};
+        const Amendment2Status* a1 = field1_info.amendment2_status.has_value() ? &field1_info.amendment2_status.value() : nullptr;
+        const Amendment2Status* a2 = field2_info.amendment2_status.has_value() ? &field2_info.amendment2_status.value() : nullptr;
+
+        if (a1 && a1->copy_permitted) merged_status.copy_permitted = true;
+        if (a2 && a2->copy_permitted) merged_status.copy_permitted = true;
+
+        if (a1 && a1->is_video_standard) merged_status.is_video_standard = true;
+        if (a2 && a2->is_video_standard) merged_status.is_video_standard = true;
+
+        if (a1 && a1->sound_mode != VbiSoundMode::FUTURE_USE) {
+            merged_status.sound_mode = a1->sound_mode;
+        } else if (a2 && a2->sound_mode != VbiSoundMode::FUTURE_USE) {
+            merged_status.sound_mode = a2->sound_mode;
+        }
+
+        merged.amendment2_status = merged_status;
     }
     
     ORC_LOG_DEBUG("VBIDecoder: Merged frame VBI from fields {} and {}", 

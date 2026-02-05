@@ -16,6 +16,7 @@
 #include "presenters/include/analysis_presenter.h"
 // Removed: #include "analysis_registry.h"  // Phase 2.4: Now using AnalysisPresenter
 #include <QtNodes/internal/NodeGraphicsObject.hpp>
+#include <QtNodes/internal/ConnectionGraphicsObject.hpp>
 #include <QGraphicsView>
 #include <QMessageBox>
 #include <QInputDialog>
@@ -83,6 +84,18 @@ void OrcGraphicsScene::onSelectionChanged()
 
     // Get selected items and emit nodeSelected for the first selected node
     auto selected = selectedItems();
+    for (auto* item : selected) {
+        auto* connection_graphics = dynamic_cast<QtNodes::ConnectionGraphicsObject*>(item);
+        if (connection_graphics) {
+            const auto connection_id = connection_graphics->connectionId();
+            QtNodes::NodeId source_node_id = connection_id.outNodeId;
+            if (source_node_id != QtNodes::InvalidNodeId) {
+                last_selected_node_id_ = source_node_id;
+                Q_EMIT nodeSelected(source_node_id);
+                return;
+            }
+        }
+    }
     for (auto* item : selected) {
         auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
         if (node_graphics) {

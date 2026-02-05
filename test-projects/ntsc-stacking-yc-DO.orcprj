@@ -1,0 +1,155 @@
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: NTSC Stacking YC DO
+  description: An NTSC project to test stacking with dropouts only
+  version: 1.0
+  video_format: NTSC
+  source_format: YC
+dag:
+  nodes:
+    - id: 1
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 50
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-0-do.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-0-do.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-0-do.tbcy
+    - id: 2
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 175
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-1-do.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-1-do.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-1-do.tbcy
+    - id: 3
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 300
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-2-do.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-2-do.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-2-do.tbcy
+    - id: 4
+      stage: NTSC_YC_Source
+      node_type: SOURCE
+      display_name: NTSC YC Source
+      user_label: NTSC YC Source
+      x: 50
+      y: 425
+      parameters:
+        c_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-3-do.tbcc
+        db_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-3-do.tbc.db
+        efm_path:
+          type: string
+          value: ""
+        pcm_path:
+          type: string
+          value: ""
+        y_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/ntsc-stacking-yc-3-do.tbcy
+    - id: 5
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 275
+      y: 50
+    - id: 6
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 500
+      y: 50
+    - id: 9
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 275
+      y: 175
+    - id: 10
+      stage: dropout_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: Dropout Analysis Sink
+      user_label: Dropout Analysis Sink
+      x: 500
+      y: 175
+    - id: 11
+      stage: dropout_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: Dropout Analysis Sink
+      user_label: Dropout Analysis Sink
+      x: 275
+      y: 300
+  edges:
+    - from: 1
+      to: 5
+    - from: 2
+      to: 5
+    - from: 3
+      to: 5
+    - from: 4
+      to: 5
+    - from: 4
+      to: 9
+    - from: 5
+      to: 6
+    - from: 4
+      to: 11
+    - from: 5
+      to: 10

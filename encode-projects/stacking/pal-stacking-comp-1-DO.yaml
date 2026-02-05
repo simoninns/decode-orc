@@ -1,0 +1,71 @@
+name: "PAL Stacking Composite DO 1"
+description: "PAL LaserDisc composite with dropouts only for stacking testing - Disc 1"
+
+output:
+  filename: "encode-output/stacking/pal-stacking-comp-1-do"
+  format: "pal-composite"
+
+laserdisc:
+  mode: "cav"
+
+pipeline:
+  preprocessing:
+    filters:
+      chroma:
+        enabled: true
+  
+  metadata:
+    generators:
+      - type: "biphase-vbi"
+        enabled: true
+        lines: [16, 17, 18, 328, 329, 330]
+        format: "picture-number"
+      
+      - type: "vits-pal"
+        enabled: true
+        signals:
+          - line: 13
+            signal: "multiburst"
+          - line: 19
+            signal: "uk-national"
+          - line: 325
+            signal: "itu-combination"
+          - line: 331
+            signal: "itu-composite"
+      
+      - type: "color-burst"
+        enabled: true
+
+  effects:
+    # Random dropouts to simulate disc damage and scratches
+    - type: "dropout"
+      enabled: true
+      density: 0.001
+      multi_field_probability: 0.30    # 30% chance of multi-field (scratches)
+      single_field_probability: 0.70   # 70% chance of single-field (disc degradation)
+      seed: 21
+
+sections:
+  - name: "Test Content"
+    duration: 10
+    source:
+      type: "yuv422-image"
+      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+    biphase-vbi:
+      disc_area: "programme-area"
+      picture_start: 1
+  
+  - name: "Test Content"
+    duration: 10
+    source:
+      type: "yuv422-image"
+      file: "external/encode-orc/testcard-images/pal-raw/625_50_CHROMA_RAMP.raw"
+      disc_area: "programme-area"
+  
+  - name: "Test Content"
+    duration: 30
+    source:
+      type: "mp4-file"
+      file: "external/encode-orc/testcard-images/pal-mp4/pal-ice-skating.mp4"
+    biphase-vbi:
+      disc_area: "programme-area"

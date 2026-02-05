@@ -398,7 +398,7 @@ int main(int argc, char *argv[])
     painter.drawPixmap(0, 0, logoPixmapScaled);
     
     QFont copyrightFont = painter.font();
-    copyrightFont.setPointSize(copyrightFont.pointSize() * 2);
+    copyrightFont.setPointSize(copyrightFont.pointSize());
     copyrightFont.setBold(false);
     painter.setFont(copyrightFont);
     painter.setPen(Qt::white);

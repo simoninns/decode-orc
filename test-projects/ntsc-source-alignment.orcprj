@@ -1,0 +1,113 @@
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: NTSC Source Alignment
+  description: NTSC CLV sources aligned by VBI timecode
+  version: 1.0
+  video_format: NTSC
+  source_format: Composite
+dag:
+  nodes:
+    - id: 1
+      stage: NTSC_Comp_Source
+      node_type: SOURCE
+      display_name: NTSC Composite Source
+      user_label: NTSC Composite Source 1
+      x: 50
+      y: 50
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/source-alignment/ntsc-clv-tc-00000000.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 2
+      stage: NTSC_Comp_Source
+      node_type: SOURCE
+      display_name: NTSC Composite Source
+      user_label: NTSC Composite Source 2
+      x: 50
+      y: 175
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/source-alignment/ntsc-clv-tc-00000001.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 3
+      stage: NTSC_Comp_Source
+      node_type: SOURCE
+      display_name: NTSC Composite Source
+      user_label: NTSC Composite Source 3
+      x: 50
+      y: 300
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/source-alignment/ntsc-clv-tc-00000002.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 4
+      stage: NTSC_Comp_Source
+      node_type: SOURCE
+      display_name: NTSC Composite Source
+      user_label: NTSC Composite Source 4
+      x: 50
+      y: 425
+      parameters:
+        efm_path:
+          type: string
+          value: ""
+        input_path:
+          type: string
+          value: /home/sdi/Coding/decode-orc/encode-output/source-alignment/ntsc-clv-tc-00000003.tbc
+        pcm_path:
+          type: string
+          value: ""
+    - id: 5
+      stage: source_align
+      node_type: MERGER
+      display_name: Source Align
+      user_label: Source Align
+      x: 275
+      y: 50
+    - id: 6
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 725
+      y: 50
+    - id: 7
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 500
+      y: 50
+  edges:
+    - from: 1
+      to: 5
+    - from: 2
+      to: 5
+    - from: 3
+      to: 5
+    - from: 4
+      to: 5
+    - from: 5
+      to: 7
+    - from: 7
+      to: 6

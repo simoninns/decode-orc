@@ -135,6 +135,7 @@ MainWindow::MainWindow(QWidget *parent)
     , last_line_scope_field_index_(std::numeric_limits<uint64_t>::max())
     , last_line_scope_line_number_(-1)
     , last_line_scope_image_x_(-1)
+    , last_line_scope_image_y_(-1)
 {
     // Create and start render coordinator
     render_coordinator_ = std::make_unique<RenderCoordinator>(this);
@@ -1999,15 +2000,16 @@ void MainWindow::onTriggerStage(const orc::NodeID& node_id)
 void MainWindow::onNodeSelectedForView(const orc::NodeID& node_id)
 {
     ORC_LOG_DEBUG("Main window: switching view to node '{}'", node_id.to_string());
-    
+    applyStageSelection(node_id);
+}
+
+void MainWindow::applyStageSelection(const orc::NodeID& node_id)
+{
     // Update which node is being viewed
     current_view_node_id_ = node_id;
     
     // Request available outputs from coordinator
     pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
-    
-    // If line scope is visible, refresh it for the new stage
-    refreshLineScopeForCurrentStage();
     
     // Note: Analysis dialogs (dropout/SNR) are triggered from stage context menu,
     // not automatically updated when switching nodes
@@ -2505,8 +2507,7 @@ void MainWindow::updatePreviewRenderer()
             // Pick first node as temporary fallback
             NodeID first_node = project_.presenter()->getFirstNode();
             if (first_node.is_valid()) {
-                current_view_node_id_ = first_node;
-                pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(current_view_node_id_);
+                selectStageInDAG(first_node);
             }
         }
     } else {
@@ -2586,10 +2587,22 @@ void MainWindow::selectLowestSourceStage()
     
     if (found) {
         ORC_LOG_DEBUG("Auto-selecting source stage: {}", lowest_source_id.to_string());
-        onNodeSelectedForView(lowest_source_id);
+        selectStageInDAG(lowest_source_id);
     } else {
         ORC_LOG_DEBUG("No source stages found to auto-select");
     }
+}
+
+void MainWindow::selectStageInDAG(const orc::NodeID& node_id)
+{
+    if (!dag_model_ || !dag_scene_) {
+        return;
+    }
+    QtNodes::NodeId qt_node_id = dag_model_->getQtNodeId(node_id);
+    if (qt_node_id == QtNodes::InvalidNodeId) {
+        return;
+    }
+    dag_scene_->selectNode(qt_node_id);
 }
 
 QString MainWindow::getLastProjectDirectory() const
@@ -3383,6 +3396,7 @@ void MainWindow::onLineScopeDialogClosed()
     last_line_scope_field_index_ = std::numeric_limits<uint64_t>::max();
     last_line_scope_line_number_ = -1;
     last_line_scope_image_x_ = -1;
+    last_line_scope_image_y_ = -1;
     
     // Update field timing dialog if it's visible to remove the marker
     auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
@@ -3911,6 +3925,7 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y)
     
     // Store original image x coordinate for later use (to avoid rounding errors)
     last_line_scope_image_x_ = image_x;
+    last_line_scope_image_y_ = image_y;
     
     // Get the preview image height for split mode
     int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
@@ -4013,6 +4028,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
         image_y = mapping.image_y;
         // Update cross-hairs using the correctly mapped position for this frame
         preview_dialog_->previewWidget()->updateCrosshairsPosition(last_line_scope_image_x_, image_y);
+        last_line_scope_image_y_ = image_y;
     } else {
         ORC_LOG_WARN("Failed to map field coordinates to image - not updating cross-hairs to avoid jumping");
         // Don't update cross-hairs if mapping fails - keep them at the last valid position
@@ -4031,6 +4047,9 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
         current_view_node_id_, current_output_type_,
         preview_dialog_->previewSlider()->value(), field_index, line_number_0based, image_height);
     int calculated_image_y = image_coords.is_valid ? image_coords.image_y : 0;
+    if (image_coords.is_valid) {
+        last_line_scope_image_y_ = image_coords.image_y;
+    }
     
     // Store field/line for later navigation (already stored above)
     // last_line_scope_field_index_ = field_index;
@@ -4131,6 +4150,7 @@ void MainWindow::onSampleMarkerMoved(int sample_x)
         
         // Update stored position so it's maintained when changing stages
         last_line_scope_image_x_ = preview_x;
+        last_line_scope_image_y_ = image_coords.image_y;
         
         // Update field timing dialog if it's visible (to update the marker position)
         if (preview_dialog_->fieldTimingDialog() && preview_dialog_->fieldTimingDialog()->isVisible()) {
@@ -4161,8 +4181,30 @@ void MainWindow::refreshLineScopeForCurrentStage()
         return;
     }
     
-    // Clear line scope for stage switch - force a fresh click on the new stage
-    // This prevents crashes on sink stages and ensures the UI refreshes properly
+    // If we have a valid stored position, try to keep the same image location on stage change
+    if (last_line_scope_line_number_ >= 0 && last_line_scope_image_x_ >= 0 && last_line_scope_image_y_ >= 0) {
+        int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+        auto mapping = render_coordinator_->mapImageToField(
+            current_view_node_id_, current_output_type_,
+            preview_dialog_->previewSlider()->value(),
+            last_line_scope_image_y_, image_height);
+        
+        if (mapping.is_valid) {
+            int preview_image_width = preview_dialog_->previewWidget()->originalImageSize().width();
+            ORC_LOG_DEBUG("Stage changed - refreshing line scope at image position ({}, {}) -> field={}, line={}",
+                         last_line_scope_image_x_, last_line_scope_image_y_,
+                         mapping.field_index, mapping.field_line);
+            requestLineSamplesForNavigation(
+                mapping.field_index,
+                mapping.field_line,
+                last_line_scope_image_x_,
+                preview_image_width);
+            return;
+        }
+        ORC_LOG_WARN("Stage changed - failed to map stored image position to field; clearing line scope");
+    }
+    
+    // Fallback: clear line scope for stage switch
     ORC_LOG_DEBUG("Stage changed - clearing line scope state");
     preview_dialog_->previewWidget()->setCrosshairsEnabled(false);
     
@@ -4170,6 +4212,7 @@ void MainWindow::refreshLineScopeForCurrentStage()
     last_line_scope_field_index_ = std::numeric_limits<uint64_t>::max();
     last_line_scope_line_number_ = -1;
     last_line_scope_image_x_ = -1;
+    last_line_scope_image_y_ = -1;
     
     // Show empty line scope to indicate no data for this stage until user clicks
     QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());

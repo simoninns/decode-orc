@@ -59,18 +59,63 @@ OrcGraphicsScene::~OrcGraphicsScene()
     disconnect();
 }
 
+void OrcGraphicsScene::selectNode(QtNodes::NodeId nodeId)
+{
+    // Clear current selection first
+    clearSelection();
+    
+    // Find the node graphics item and select it
+    const auto items_list = items();
+    for (auto* item : items_list) {
+        auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
+        if (node_graphics && node_graphics->nodeId() == nodeId) {
+            node_graphics->setSelected(true);
+            break;
+        }
+    }
+}
+
 void OrcGraphicsScene::onSelectionChanged()
 {
+    if (restoring_selection_) {
+        return;
+    }
+
     // Get selected items and emit nodeSelected for the first selected node
     auto selected = selectedItems();
     for (auto* item : selected) {
         auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
         if (node_graphics) {
             QtNodes::NodeId nodeId = node_graphics->nodeId();
+            last_selected_node_id_ = nodeId;
             Q_EMIT nodeSelected(nodeId);
             return; // Only handle first selected node
         }
     }
+
+    if (last_selected_node_id_ == QtNodes::InvalidNodeId) {
+        return;
+    }
+
+    // If selection cleared by clicking the background, restore the last selection
+    bool has_last_node = false;
+    const auto items_list = items();
+    for (auto* item : items_list) {
+        auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
+        if (node_graphics && node_graphics->nodeId() == last_selected_node_id_) {
+            has_last_node = true;
+            break;
+        }
+    }
+
+    if (!has_last_node) {
+        last_selected_node_id_ = QtNodes::InvalidNodeId;
+        return;
+    }
+
+    restoring_selection_ = true;
+    selectNode(last_selected_node_id_);
+    restoring_selection_ = false;
 }
 
 QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)

@@ -48,7 +48,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
             5000
         );
     }
-    
+
     // Get the index we just rendered
     int rendered_index = preview_dialog_->previewSlider()->value();
     
@@ -121,15 +121,38 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     
     available_outputs_ = std::move(outputs);
     
-    // Try to preserve current option_id across node switches
+    // Try to preserve current option_id AND output_type across node switches
     bool found_match = false;
     for (const auto& output : available_outputs_) {
-        if (output.option_id == current_option_id_) {
-            current_output_type_ = output.type;
+        if (output.option_id == current_option_id_ && output.type == current_output_type_) {
             found_match = true;
-            ORC_LOG_DEBUG("Preserved option_id '{}', output_type={}", 
+            ORC_LOG_DEBUG("Preserved option_id '{}' and output_type={}", 
                           current_option_id_, static_cast<int>(current_output_type_));
             break;
+        }
+    }
+    // Fallback: preserve option_id only if exact type match is unavailable
+    if (!found_match) {
+        for (const auto& output : available_outputs_) {
+            if (output.option_id == current_option_id_) {
+                current_output_type_ = output.type;
+                found_match = true;
+                ORC_LOG_DEBUG("Preserved option_id '{}' with fallback output_type={}", 
+                              current_option_id_, static_cast<int>(current_output_type_));
+                break;
+            }
+        }
+    }
+    // Fallback: preserve output type if possible, even if option_id changes
+    if (!found_match) {
+        for (const auto& output : available_outputs_) {
+            if (output.type == current_output_type_) {
+                current_option_id_ = output.option_id;
+                found_match = true;
+                ORC_LOG_DEBUG("Preserved output_type {} with fallback option_id='{}'",
+                              static_cast<int>(current_output_type_), current_option_id_);
+                break;
+            }
         }
     }
     
@@ -200,6 +223,9 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     updatePreviewModeCombo();
     refreshViewerControls();
     updateUIState();
+
+    // If line scope is visible, refresh it after outputs and controls are updated
+    refreshLineScopeForCurrentStage();
     
     // Update dropouts button state based on current output's availability
     // Find the current output info to check if dropouts are available

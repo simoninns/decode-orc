@@ -211,9 +211,17 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         if (node_it != dag_nodes.end() && node_it->stage) {
             // Check if this stage implements PreviewableStage (sources/transforms/sinks)
             auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
-            if (previewable_stage && previewable_stage->supports_preview()) {
-                // Stage supports preview - get outputs from stage options
-                return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+            if (previewable_stage) {
+                if (previewable_stage->supports_preview()) {
+                    // Stage supports preview - get outputs from stage options
+                    return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+                }
+
+                // Try executing with cache disabled to populate cached output, then re-check
+                ensure_node_executed(node_id, true);
+                if (previewable_stage->supports_preview()) {
+                    return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+                }
             }
             
             auto node_type = node_it->stage->get_node_type_info().type;
@@ -1899,13 +1907,38 @@ PreviewRenderResult PreviewRenderer::render_stage_preview(
     // Disable cache to force fresh execution with cached_output_ populated
     ensure_node_executed(stage_node_id, true);
     
+    // Determine effective option ID (fallback if empty)
+    std::string effective_option_id = requested_option_id;
+    if (effective_option_id.empty()) {
+        auto options = previewable.get_preview_options();
+        if (!options.empty()) {
+            // Prefer an option that matches the requested output type
+            for (const auto& option : options) {
+                if ((type == PreviewOutputType::Field && (option.id == "field" || option.id == "field_raw")) ||
+                    (type == PreviewOutputType::Split && (option.id == "split" || option.id == "split_raw")) ||
+                    (type == PreviewOutputType::Frame && (option.id == "frame" || option.id == "frame_raw")) ||
+                    (type == PreviewOutputType::Frame_Reversed && (option.id == "frame" || option.id == "frame_raw"))) {
+                    effective_option_id = option.id;
+                    break;
+                }
+            }
+            if (effective_option_id.empty()) {
+                effective_option_id = options.front().id;
+            }
+        }
+    }
+
     // Get preview image from the stage
-    auto stage_result = previewable.render_preview(requested_option_id, index, hint);
+    auto stage_result = previewable.render_preview(effective_option_id, index, hint);
     
     if (!stage_result.is_valid()) {
         result.image = create_placeholder_image(type, "Rendering failed");
         result.success = true;
         result.error_message = "Failed to render stage preview";
+
+        // Log the failure to render
+        ORC_LOG_DEBUG("Rendering failed for node '{}', type={}, index={}, option_id='{}'", 
+                      stage_node_id.to_string(), static_cast<int>(type), index, effective_option_id);
         return result;
     }
     

@@ -180,6 +180,8 @@ private:
     void loadProjectDAG();  // Load DAG into embedded viewer
     void positionViewToTopLeft();  // Position view to show top-left node
     void selectLowestSourceStage();  // Auto-select source stage with lowest node ID
+    void applyStageSelection(const orc::NodeID& node_id);  // Centralized stage selection handling
+    void selectStageInDAG(const orc::NodeID& node_id);  // Select stage in DAG view (same as user click)
     void onEditParameters(const orc::NodeID& node_id);
     void onTriggerStage(const orc::NodeID& node_id);
     void runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name);
@@ -265,6 +267,7 @@ private:
     uint64_t last_line_scope_field_index_;  ///< Current field being displayed in line scope
     int last_line_scope_line_number_;  ///< Current line in line scope (0-based: 0 to field_height-1)
     int last_line_scope_image_x_;  ///< Store original preview-space X coordinate for line scope navigation
+    int last_line_scope_image_y_;  ///< Store original preview-space Y coordinate for line scope navigation
     int last_line_scope_preview_width_;  ///< Store preview width for coordinate mapping
     int last_line_scope_samples_count_;  ///< Store samples count for coordinate mapping
     

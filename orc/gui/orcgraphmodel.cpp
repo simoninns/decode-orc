@@ -494,3 +494,12 @@ NodeID OrcGraphModel::getOrcNodeId(NodeId qtNodeId) const
     }
     return NodeID();
 }
+
+NodeId OrcGraphModel::getQtNodeId(const NodeID& orc_node_id) const
+{
+    auto it = orc_to_qt_nodes_.find(orc_node_id);
+    if (it == orc_to_qt_nodes_.end()) {
+        return QtNodes::InvalidNodeId;
+    }
+    return it->second;
+}

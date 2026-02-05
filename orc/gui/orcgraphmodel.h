@@ -100,6 +100,13 @@ public:
      * @return Corresponding NodeID
      */
     NodeID getOrcNodeId(NodeId qtNodeId) const;
+
+    /**
+     * @brief Convert ORC NodeID to QtNodes NodeId
+     * @param orc_node_id ORC node identifier
+     * @return Corresponding QtNodes NodeId (or QtNodes::InvalidNodeId if not found)
+     */
+    NodeId getQtNodeId(const NodeID& orc_node_id) const;
     
     /// @name Presenter Access
     /// @{

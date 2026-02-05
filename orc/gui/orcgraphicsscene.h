@@ -47,6 +47,12 @@ public:
     ~OrcGraphicsScene() override;
 
     /**
+     * @brief Programmatically select a node in the scene
+     * @param nodeId QtNodes node identifier
+     */
+    void selectNode(QtNodes::NodeId nodeId);
+
+    /**
      * @brief Create context menu for scene background
      * @param scenePos Position where menu was requested
      * @return Context menu with node creation options
@@ -73,4 +79,6 @@ private slots:
 
 private:
     OrcGraphModel& graph_model_;
+    QtNodes::NodeId last_selected_node_id_ = QtNodes::InvalidNodeId;
+    bool restoring_selection_ = false;
 };

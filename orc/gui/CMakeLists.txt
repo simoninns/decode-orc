@@ -138,14 +138,42 @@ add_executable(orc-gui WIN32 MACOSX_BUNDLE
 # boundaries. The presenter layer handles all conversions between public API
 # types and internal core types.
 # =============================================================================
+if(TARGET QtNodes::QtNodes)
+    set(QTNODES_TARGET QtNodes::QtNodes)
+elseif(TARGET QtNodes)
+    set(QTNODES_TARGET QtNodes)
+else()
+    message(FATAL_ERROR "QtNodes target not found")
+endif()
+
 target_link_libraries(orc-gui PRIVATE 
     orc-common           # Common types shared across all layers
     orc-view-types       # Shared presentation layer data structures
     orc-presenters       # Presenter layer (privately links orc-core)
     Qt6::Core 
     Qt6::Widgets
-    QtNodes
+    ${QTNODES_TARGET}
 )
+
+# QtNodes may be provided as a static library (e.g., Nix dev shells).
+# Ensure NODE_EDITOR_STATIC is defined for consumers in that case.
+if(TARGET ${QTNODES_TARGET})
+    get_target_property(QTNODES_IMPORTED ${QTNODES_TARGET} IMPORTED)
+    if(QTNODES_IMPORTED)
+        get_target_property(QTNODES_LOCATION ${QTNODES_TARGET} IMPORTED_LOCATION)
+        if(NOT QTNODES_LOCATION)
+            get_target_property(QTNODES_LOCATION ${QTNODES_TARGET} IMPORTED_LOCATION_RELEASE)
+        endif()
+        if(QTNODES_LOCATION MATCHES "\\.a$")
+            target_compile_definitions(orc-gui PRIVATE NODE_EDITOR_STATIC)
+        endif()
+    else()
+        get_target_property(QTNODES_TYPE ${QTNODES_TARGET} TYPE)
+        if(QTNODES_TYPE STREQUAL "STATIC_LIBRARY")
+            target_compile_definitions(orc-gui PRIVATE NODE_EDITOR_STATIC)
+        endif()
+    endif()
+endif()
 
 # =============================================================================
 # Compile Definitions

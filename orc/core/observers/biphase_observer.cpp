@@ -436,7 +436,9 @@ void BiphaseObserver::process_field(
             continue;
         }
         
-        const uint16_t* line_data = representation.get_line(field_id, line_num);
+        const uint16_t* line_data = representation.has_separate_channels()
+            ? representation.get_line_luma(field_id, line_num)
+            : representation.get_line(field_id, line_num);
         if (!line_data) {
             vbi_data[line_offset] = -1;
             continue;

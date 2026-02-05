@@ -140,8 +140,10 @@ std::vector<double> WhiteSNRObserver::get_line_slice_ire(
         return result;
     }
     
-    // Get the line data
-    const uint16_t* line_data = representation.get_line(field_id, line_index);
+    // Get the line data (YC sources use luma only)
+    const uint16_t* line_data = representation.has_separate_channels()
+        ? representation.get_line_luma(field_id, line_index)
+        : representation.get_line(field_id, line_index);
     if (!line_data) {
         return result;
     }

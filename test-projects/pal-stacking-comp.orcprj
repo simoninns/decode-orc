@@ -22,7 +22,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-0.tbc
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/pal-stacking-comp-0.tbc
         pcm_path:
           type: string
           value: ""
@@ -39,7 +39,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-1.tbc
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/pal-stacking-comp-1.tbc
         pcm_path:
           type: string
           value: ""
@@ -56,7 +56,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-2.tbc
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/pal-stacking-comp-2.tbc
         pcm_path:
           type: string
           value: ""
@@ -73,7 +73,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: /home/sdi/Coding/github/decode-orc/encode-output/stacking/pal-stacking-comp-3.tbc
+          value: /home/sdi/Coding/decode-orc/encode-output/stacking/pal-stacking-comp-3.tbc
         pcm_path:
           type: string
           value: ""

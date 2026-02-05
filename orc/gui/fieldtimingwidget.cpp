@@ -8,9 +8,11 @@
  */
 
 #include "fieldtimingwidget.h"
+#include "plotwidget.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
+#include <QPalette>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <QMouseEvent>
@@ -387,7 +389,9 @@ void FieldTimingWidget::paintEvent(QPaintEvent *event)
     painter.setRenderHint(QPainter::Antialiasing);
     
     // Fill background
-    painter.fillRect(rect(), Qt::black);
+    const bool is_dark_theme = PlotWidget::isDarkTheme();
+    const QColor background_color = is_dark_theme ? QColor(42, 42, 42) : Qt::white;
+    painter.fillRect(rect(), background_color);
     
     // Define graph area (leave room for margins and scroll bar)
     // Add extra left margin for Y-axis labels
@@ -400,7 +404,7 @@ void FieldTimingWidget::paintEvent(QPaintEvent *event)
     if (field1_samples_.empty() && field2_samples_.empty() && 
         y1_samples_.empty() && y2_samples_.empty()) {
         // No data to display
-        painter.setPen(Qt::white);
+        painter.setPen(is_dark_theme ? Qt::lightGray : Qt::darkGray);
         painter.drawText(rect(), Qt::AlignCenter, "No field data available");
         return;
     }
@@ -410,8 +414,14 @@ void FieldTimingWidget::paintEvent(QPaintEvent *event)
 
 void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
 {
+    const bool is_dark_theme = PlotWidget::isDarkTheme();
+    const QColor axis_color = is_dark_theme ? Qt::white : Qt::black;
+    const QColor grid_color = Qt::gray;
+    const QColor label_color = axis_color;
+    const QColor marker_yellow = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
+
     // Draw graph border
-    painter.setPen(Qt::darkGray);
+    painter.setPen(axis_color);
     painter.drawRect(graph_area);
     
     // Get mV range
@@ -425,12 +435,11 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
     double first_tick = std::floor(min_mv / grid_step) * grid_step;
     
     // Draw grid lines and labels
-    painter.setPen(Qt::lightGray);
     QFont label_font = painter.font();
     label_font.setPointSize(8);
     painter.setFont(label_font);
     
-    painter.setPen(QColor(40, 40, 40));  // Dark gray for grid
+    painter.setPen(grid_color);
     
     // Draw grid lines at 50 mV intervals, labels at 100 mV intervals
     for (double mv_value = first_tick; mv_value <= max_mv; mv_value += grid_step) {
@@ -441,14 +450,14 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
         // Only draw if within bounds
         if (y >= graph_area.top() && y <= graph_area.bottom()) {
             // Draw grid line
-            painter.setPen(QColor(40, 40, 40));
+            painter.setPen(grid_color);
             painter.drawLine(graph_area.left(), y, graph_area.right(), y);
         }
     }
     
     // Draw labels at 100 mV intervals
     double first_label = std::floor(min_mv / label_step) * label_step;
-    painter.setPen(Qt::lightGray);
+    painter.setPen(label_color);
     for (double mv_value = first_label; mv_value <= max_mv; mv_value += label_step) {
         // Map mV to Y coordinate
         double normalized = (mv_value - min_mv) / (max_mv - min_mv);
@@ -490,17 +499,17 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
         if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
             // Blanking level - convert the blanking_ire sample value to mV
             double blanking_mv = convertSampleToMV(vp.blanking_ire);
-            drawLevelLine(blanking_mv, Qt::darkGray, Qt::DashLine);
+            drawLevelLine(blanking_mv, is_dark_theme ? QColor(120, 120, 120) : Qt::darkGray, Qt::DashLine);
             
             // Black level (if different from blanking)
             if (vp.black_ire >= 0 && vp.black_ire != vp.blanking_ire) {
                 double black_mv = convertSampleToMV(vp.black_ire);
-                drawLevelLine(black_mv, Qt::gray, Qt::DashDotLine);
+                drawLevelLine(black_mv, is_dark_theme ? QColor(150, 150, 150) : Qt::gray, Qt::DashDotLine);
             }
             
             // White level
             double white_mv = convertSampleToMV(vp.white_ire);
-            drawLevelLine(white_mv, Qt::lightGray, Qt::DashLine);
+            drawLevelLine(white_mv, is_dark_theme ? QColor(200, 200, 200) : Qt::lightGray, Qt::DashLine);
         }
     }
     
@@ -548,11 +557,11 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
                         int x = graph_area.left() + static_cast<int>((sample_pos - start_sample) * effective_pixels_per_sample);
                         
                         // Draw vertical line in yellow
-                        painter.setPen(QPen(QColor(200, 200, 0), 1, Qt::DotLine));
+                        painter.setPen(QPen(marker_yellow, 1, Qt::DotLine));
                         painter.drawLine(x, graph_area.top(), x, graph_area.bottom());
                         
                         // Draw line number on x-axis below the graph
-                        painter.setPen(QColor(200, 200, 0));
+                        painter.setPen(axis_color);
                         QString line_label = QString::number(line + 1);
                         QRect text_rect(x - 15, graph_area.bottom() + 5, 30, 12);
                         painter.drawText(text_rect, Qt::AlignCenter, line_label);
@@ -581,7 +590,7 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
     }
     
     // Draw X-axis label
-    painter.setPen(Qt::lightGray);
+    painter.setPen(axis_color);
     painter.drawText(graph_area.center().x() - 50, height() - 5, "Sample Position");
     
     // Determine which samples to draw and their colors
@@ -591,27 +600,34 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
     
     if (has_yc) {
         // Draw Y and C channels separately
+        const QColor y1_color = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
+        const QColor c1_color = is_dark_theme ? QColor(100, 150, 255) : QColor(0, 80, 200);
+        const QColor y2_color = is_dark_theme ? QColor(255, 255, 180) : QColor(230, 210, 40);
+        const QColor c2_color = is_dark_theme ? QColor(160, 190, 255) : QColor(80, 120, 220);
+
         if (!y1_samples_.empty()) {
-            drawSamples(painter, graph_area, y1_samples_, QColor(0, 255, 0), 0);  // Green for Y
+            drawSamples(painter, graph_area, y1_samples_, y1_color, 0);
         }
         if (!c1_samples_.empty()) {
-            drawSamples(painter, graph_area, c1_samples_, QColor(255, 128, 0), 0);  // Orange for C
+            drawSamples(painter, graph_area, c1_samples_, c1_color, 0);
         }
         if (has_two_fields) {
             if (!y2_samples_.empty()) {
-                drawSamples(painter, graph_area, y2_samples_, QColor(128, 255, 128), 0);  // Light green for Y2
+                drawSamples(painter, graph_area, y2_samples_, y2_color, 0);
             }
             if (!c2_samples_.empty()) {
-                drawSamples(painter, graph_area, c2_samples_, QColor(255, 200, 128), 0);  // Light orange for C2
+                drawSamples(painter, graph_area, c2_samples_, c2_color, 0);
             }
         }
     } else {
         // Draw composite samples
+        const QColor field1_color = is_dark_theme ? QColor(100, 200, 255) : QColor(0, 100, 200);
+        const QColor field2_color = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
         if (!field1_samples_.empty()) {
-            drawSamples(painter, graph_area, field1_samples_, QColor(0, 200, 255), 0);  // Cyan for field 1
+            drawSamples(painter, graph_area, field1_samples_, field1_color, 0);
         }
         if (!field2_samples_.empty()) {
-            drawSamples(painter, graph_area, field2_samples_, QColor(255, 200, 0), 0);  // Yellow for field 2
+            drawSamples(painter, graph_area, field2_samples_, field2_color, 0);
         }
     }
 }

@@ -19,6 +19,7 @@
 #include <QStyleHints>
 #include <QStyle>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSplashScreen>
 #include <QPixmap>
 #include <QTimer>
@@ -111,39 +112,76 @@ void reset_gui_logger() {
 
 } // namespace orc
 
+static QString getGSettingsValue(const QString& schema, const QString& key)
+{
+    QProcess process;
+    process.start("gsettings", QStringList() << "get" << schema << key);
+    process.waitForFinished(1000);
+
+    if (process.exitCode() == 0) {
+        QString output = process.readAllStandardOutput().trimmed();
+        return output.remove('\'');
+    }
+
+    return QString();
+}
+
 // Check if GNOME is using dark theme
 bool isGNOMEDarkTheme()
 {
-    // First, try to use gsettings to check GNOME color scheme
-    QProcess process;
-    process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "color-scheme");
-    process.waitForFinished(1000);
-    
-    if (process.exitCode() == 0) {
-        QString output = process.readAllStandardOutput().trimmed();
-        // Remove quotes if present
-        output = output.remove('\'');
-        if (output.contains("dark", Qt::CaseInsensitive)) {
+    QString colorScheme = getGSettingsValue("org.gnome.desktop.interface", "color-scheme");
+    if (!colorScheme.isEmpty()) {
+        if (colorScheme.contains("dark", Qt::CaseInsensitive)) {
             return true;
         }
-        if (output.contains("light", Qt::CaseInsensitive)) {
+        if (colorScheme.contains("light", Qt::CaseInsensitive)) {
             return false;
         }
     }
-    
+
     // Fallback: try gtk-theme setting
-    process.start("gsettings", QStringList() << "get" << "org.gnome.desktop.interface" << "gtk-theme");
-    process.waitForFinished(1000);
-    
-    if (process.exitCode() == 0) {
-        QString output = process.readAllStandardOutput().trimmed();
-        output = output.remove('\'');
-        if (output.contains("dark", Qt::CaseInsensitive)) {
-            return true;
-        }
+    QString gtkTheme = getGSettingsValue("org.gnome.desktop.interface", "gtk-theme");
+    if (!gtkTheme.isEmpty() && gtkTheme.contains("dark", Qt::CaseInsensitive)) {
+        return true;
     }
     
     return false;
+}
+
+// Apply system font settings (GNOME) if available
+void applySystemFont(QApplication& app)
+{
+    QFont baseFont = app.font();
+
+    QString fontName = getGSettingsValue("org.gnome.desktop.interface", "font-name");
+    if (!fontName.isEmpty()) {
+        QRegularExpression re(R"(^\s*(.+?)\s+(\d+(?:\.\d+)?)\s*$)");
+        QRegularExpressionMatch match = re.match(fontName);
+        if (match.hasMatch()) {
+            QString family = match.captured(1).trimmed();
+            double size = match.captured(2).toDouble();
+            if (!family.isEmpty()) {
+                baseFont.setFamily(family);
+            }
+            if (size > 0.0) {
+                baseFont.setPointSizeF(size);
+            }
+        } else {
+            baseFont.setFamily(fontName.trimmed());
+        }
+    }
+
+    QString scaleStr = getGSettingsValue("org.gnome.desktop.interface", "text-scaling-factor");
+    bool ok = false;
+    double scale = scaleStr.toDouble(&ok);
+    if (ok && scale > 0.0) {
+        double pointSize = baseFont.pointSizeF();
+        if (pointSize > 0.0) {
+            baseFont.setPointSizeF(pointSize * scale);
+        }
+    }
+
+    app.setFont(baseFont);
 }
 
 // Apply dark or light palette to the application
@@ -222,10 +260,6 @@ int main(int argc, char *argv[])
     app.setOrganizationName("domesday86");
     app.setWindowIcon(QIcon(":/orc-gui/icon.png"));
 
-    // Apply system theme
-    bool isDark = isGNOMEDarkTheme();
-    applySystemTheme(app, isDark);
-
     // Command line parser
     QCommandLineParser parser;
     parser.setApplicationDescription("Decode Orc GUI");
@@ -238,6 +272,13 @@ int main(int argc, char *argv[])
         "level",
         "info");
     parser.addOption(logLevelOption);
+
+    QCommandLineOption themeOption(
+        "theme",
+        "Set UI theme (auto, light, dark). Default: auto",
+        "mode",
+        "auto");
+    parser.addOption(themeOption);
 
     // Single shared log file option
     QCommandLineOption sharedLogFileOption(
@@ -255,6 +296,25 @@ int main(int argc, char *argv[])
 
     parser.addPositionalArgument("project", "Project file to open (optional)");
     parser.process(app);
+
+    // Apply system theme (optionally overridden by CLI)
+    QString themeMode = parser.value(themeOption).trimmed().toLower();
+    bool isDark = isGNOMEDarkTheme();
+    if (themeMode == "dark") {
+        isDark = true;
+        app.setProperty("isDarkTheme", true);
+    } else if (themeMode == "light") {
+        isDark = false;
+        app.setProperty("isDarkTheme", false);
+    } else if (themeMode == "auto") {
+        // Use system detection, no explicit override
+    } else {
+        std::cerr << "Unknown theme '" << themeMode.toStdString() << "', using auto" << std::endl;
+    }
+    applySystemTheme(app, isDark);
+    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORMTHEME")) {
+        applySystemFont(app);
+    }
 
     // Initialize GUI and core logging
     QString logLevel = parser.value(logLevelOption);

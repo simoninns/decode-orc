@@ -50,6 +50,7 @@ void OrcNodePainter::drawNodeCaption(QPainter *painter, NodeGraphicsObject &ngo)
 
     QFont f = painter->font();
     f.setBold(true);
+    f.setPointSize(f.pointSize() - 1);
 
     // Get just the node size (not bounding rect which includes connection points)
     QSizeF nodeSize = geometry.size(nodeId);

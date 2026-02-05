@@ -246,7 +246,7 @@ QVariant OrcGraphModel::nodeData(NodeId nodeId, NodeRole role) const
                 return QPointF(node_info.x_position, node_info.y_position);
                 
             case NodeRole::Size:
-                return QSize(120, 60);  // Default node size
+                return QSize(140, 80);  // Default node size (+20px total)
                 
             case NodeRole::CaptionVisible:
                 return true;

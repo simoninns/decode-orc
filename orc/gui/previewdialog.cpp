@@ -24,6 +24,8 @@
 #include <QResizeEvent>
 #include <QMenu>
 #include <QSettings>
+#include <QGuiApplication>
+#include <QScreen>
 #include <algorithm>
 
 PreviewDialog::PreviewDialog(QWidget *parent)
@@ -360,9 +362,58 @@ void PreviewDialog::showLineScope(const QString& node_id, int stage_index, uint6
                                           preview_image_width, original_sample_x, original_image_y, preview_mode,
                                           y_samples, c_samples);
         
+        const bool was_visible = line_scope_dialog_->isVisible();
         // Only show if not already visible to avoid position resets
-        if (!line_scope_dialog_->isVisible()) {
+        if (!was_visible) {
+            // Position line scope beside preview if possible
+            const int margin = 12;
+            const QRect preview_geom = frameGeometry();
+            QSize scope_size = line_scope_dialog_->size();
+            const QSize hint_size = line_scope_dialog_->sizeHint();
+            if (hint_size.isValid()) {
+                scope_size = hint_size;
+            }
+
+            QScreen* screen = this->screen();
+            if (!screen) {
+                screen = QGuiApplication::primaryScreen();
+            }
+            QRect screen_geom = screen ? screen->availableGeometry() : QRect();
+
+            int target_x = preview_geom.right() + margin;
+            int target_y = preview_geom.top();
+
+            auto clamp = [](int value, int min_v, int max_v) {
+                return std::max(min_v, std::min(value, max_v));
+            };
+
+            if (screen) {
+                const int screen_left = screen_geom.left();
+                const int screen_top = screen_geom.top();
+                const int screen_right = screen_geom.left() + screen_geom.width() - scope_size.width();
+                const int screen_bottom = screen_geom.top() + screen_geom.height() - scope_size.height();
+
+                const int right_x = preview_geom.right() + margin;
+                const int left_x = preview_geom.left() - margin - scope_size.width();
+
+                if (right_x <= screen_right) {
+                    target_x = right_x;
+                } else if (left_x >= screen_left) {
+                    target_x = left_x;
+                } else {
+                    target_x = clamp(preview_geom.right() - scope_size.width(), screen_left, screen_right);
+                }
+
+                target_y = clamp(target_y, screen_top, screen_bottom);
+            }
+
+            line_scope_dialog_->move(target_x, target_y);
             line_scope_dialog_->show();
+        }
+
+        // Only raise when first shown to avoid stealing focus on updates
+        if (!was_visible) {
+            line_scope_dialog_->raise();
         }
     }
 }

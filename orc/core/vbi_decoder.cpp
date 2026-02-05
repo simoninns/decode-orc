@@ -104,15 +104,26 @@ VBIFieldInfo VBIDecoder::parse_vbi_data(
     auto side_opt = observation_context.get(field_id, "vbi", "programme_status_is_side_1");
     auto teletext_opt = observation_context.get(field_id, "vbi", "programme_status_has_teletext");
     auto digital_opt = observation_context.get(field_id, "vbi", "programme_status_is_digital");
+    auto sound_opt = observation_context.get(field_id, "vbi", "programme_status_sound_mode");
+    auto fm_opt = observation_context.get(field_id, "vbi", "programme_status_is_fm_multiplex");
+    auto dump_opt = observation_context.get(field_id, "vbi", "programme_status_is_programme_dump");
     auto parity_opt = observation_context.get(field_id, "vbi", "programme_status_parity_valid");
     
-    if (cx_opt || size_opt || side_opt || teletext_opt || digital_opt || parity_opt) {
+    if (cx_opt || size_opt || side_opt || teletext_opt || digital_opt || sound_opt || fm_opt || dump_opt || parity_opt) {
         ProgrammeStatus prog_status;
         if (cx_opt) prog_status.cx_enabled = std::get<int32_t>(*cx_opt) != 0;
         if (size_opt) prog_status.is_12_inch = std::get<int32_t>(*size_opt) != 0;
         if (side_opt) prog_status.is_side_1 = std::get<int32_t>(*side_opt) != 0;
         if (teletext_opt) prog_status.has_teletext = std::get<int32_t>(*teletext_opt) != 0;
         if (digital_opt) prog_status.is_digital = std::get<int32_t>(*digital_opt) != 0;
+        if (sound_opt) {
+            int32_t sound_val = std::get<int32_t>(*sound_opt);
+            if (sound_val >= 0 && sound_val <= static_cast<int32_t>(VbiSoundMode::FUTURE_USE)) {
+                prog_status.sound_mode = static_cast<VbiSoundMode>(sound_val);
+            }
+        }
+        if (fm_opt) prog_status.is_fm_multiplex = std::get<int32_t>(*fm_opt) != 0;
+        if (dump_opt) prog_status.is_programme_dump = std::get<int32_t>(*dump_opt) != 0;
         if (parity_opt) prog_status.parity_valid = std::get<int32_t>(*parity_opt) != 0;
         info.programme_status = prog_status;
     }
@@ -133,6 +144,12 @@ VBIFieldInfo VBIDecoder::parse_vbi_data(
             }
         }
         info.amendment2_status = am2_status;
+    }
+
+    // Try to get user code
+    auto user_code_opt = observation_context.get(field_id, "vbi", "user_code");
+    if (user_code_opt && std::holds_alternative<std::string>(*user_code_opt)) {
+        info.user_code = std::get<std::string>(*user_code_opt);
     }
     
     ORC_LOG_DEBUG("VBIDecoder: Parsed VBI for field {} - lines: {:#08x}, {:#08x}, {:#08x}",

@@ -880,21 +880,12 @@ void StackerStage::stack_field_yc(
     size_t total_diff_dod_recoveries = 0;
     size_t total_stacked_pixels = 0;
     
-    // Stack luma and chroma independently using the same dropout logic
+    // Stack luma and chroma with channel-consistent corrections
     if (num_threads == 1) {
         // Single-threaded path
-        process_lines_range(0, height, width, all_luma_fields, field_valid, all_dropouts,
-                          sources.size(), *video_params, output_luma, output_dropouts,
-                          total_dropouts, total_diff_dod_recoveries, total_stacked_pixels);
-        
-        // Stack chroma (reuse dropout map)
-        std::vector<DropoutRegion> chroma_dropouts;  // Will be discarded
-        size_t chroma_total_dropouts = 0;
-        size_t chroma_total_recoveries = 0;
-        size_t chroma_total_stacked = 0;
-        process_lines_range(0, height, width, all_chroma_fields, field_valid, all_dropouts,
-                          sources.size(), *video_params, output_chroma, chroma_dropouts,
-                          chroma_total_dropouts, chroma_total_recoveries, chroma_total_stacked);
+        process_lines_range_yc(0, height, width, all_luma_fields, all_chroma_fields, field_valid,
+                             all_dropouts, sources.size(), *video_params, output_luma, output_chroma,
+                             output_dropouts, total_dropouts, total_diff_dod_recoveries, total_stacked_pixels);
     } else {
         // Multi-threaded path
         std::vector<std::thread> threads;
@@ -905,59 +896,30 @@ void StackerStage::stack_field_yc(
         
         size_t lines_per_thread = (height + num_threads - 1) / num_threads;
         
-        // Launch worker threads for luma
         for (size_t t = 0; t < num_threads; ++t) {
             size_t start_line = t * lines_per_thread;
             size_t end_line = std::min(start_line + lines_per_thread, height);
             
             if (start_line >= height) break;
             
-            threads.emplace_back([this, start_line, end_line, width, &all_luma_fields, &field_valid,
-                                 &all_dropouts, num_sources = sources.size(), &video_params,
-                                 &output_luma, &thread_dropouts, &thread_total_dropouts,
+            threads.emplace_back([this, start_line, end_line, width, &all_luma_fields, &all_chroma_fields,
+                                 &field_valid, &all_dropouts, num_sources = sources.size(), &video_params,
+                                 &output_luma, &output_chroma, &thread_dropouts, &thread_total_dropouts,
                                  &thread_total_recoveries, &thread_total_stacked, t]() {
-                process_lines_range(start_line, end_line, width, all_luma_fields, field_valid,
-                                  all_dropouts, num_sources, *video_params, output_luma,
-                                  thread_dropouts[t], thread_total_dropouts[t],
-                                  thread_total_recoveries[t], thread_total_stacked[t]);
+                process_lines_range_yc(start_line, end_line, width, all_luma_fields, all_chroma_fields,
+                                     field_valid, all_dropouts, num_sources, *video_params,
+                                     output_luma, output_chroma, thread_dropouts[t],
+                                     thread_total_dropouts[t], thread_total_recoveries[t],
+                                     thread_total_stacked[t]);
             });
         }
         
-        // Wait for luma threads
-        for (auto& thread : threads) {
-            thread.join();
-        }
-        threads.clear();
-        
-        // Launch worker threads for chroma
-        std::vector<std::vector<DropoutRegion>> chroma_thread_dropouts(num_threads);  // Will be discarded
-        std::vector<size_t> chroma_thread_total_dropouts(num_threads, 0);
-        std::vector<size_t> chroma_thread_total_recoveries(num_threads, 0);
-        std::vector<size_t> chroma_thread_total_stacked(num_threads, 0);
-        
-        for (size_t t = 0; t < num_threads; ++t) {
-            size_t start_line = t * lines_per_thread;
-            size_t end_line = std::min(start_line + lines_per_thread, height);
-            
-            if (start_line >= height) break;
-            
-            threads.emplace_back([this, start_line, end_line, width, &all_chroma_fields, &field_valid,
-                                 &all_dropouts, num_sources = sources.size(), &video_params,
-                                 &output_chroma, &chroma_thread_dropouts, &chroma_thread_total_dropouts,
-                                 &chroma_thread_total_recoveries, &chroma_thread_total_stacked, t]() {
-                process_lines_range(start_line, end_line, width, all_chroma_fields, field_valid,
-                                  all_dropouts, num_sources, *video_params, output_chroma,
-                                  chroma_thread_dropouts[t], chroma_thread_total_dropouts[t],
-                                  chroma_thread_total_recoveries[t], chroma_thread_total_stacked[t]);
-            });
-        }
-        
-        // Wait for chroma threads
+        // Wait for all threads
         for (auto& thread : threads) {
             thread.join();
         }
         
-        // Merge luma thread results
+        // Merge thread results
         for (size_t t = 0; t < num_threads; ++t) {
             output_dropouts.insert(output_dropouts.end(),
                                  thread_dropouts[t].begin(),
@@ -1095,6 +1057,182 @@ void StackerStage::process_lines_range(
         // Trace logging per line
         if (line_dropouts > 0 || line_recoveries > 0) {
             ORC_LOG_TRACE("StackerStage: Line {}: stacked={}, dropouts={}, diff_dod_recoveries={}",
+                         y, line_stacked, line_dropouts, line_recoveries);
+        }
+    }
+}
+
+void StackerStage::process_lines_range_yc(
+    size_t start_line,
+    size_t end_line,
+    size_t width,
+    const std::vector<std::vector<uint16_t>>& all_luma_fields,
+    const std::vector<std::vector<uint16_t>>& all_chroma_fields,
+    const std::vector<bool>& field_valid,
+    const std::vector<std::vector<DropoutRegion>>& all_dropouts,
+    size_t num_sources,
+    const SourceParameters& video_params,
+    std::vector<uint16_t>& output_luma,
+    std::vector<uint16_t>& output_chroma,
+    std::vector<DropoutRegion>& output_dropouts,
+    size_t& total_dropouts,
+    size_t& total_diff_dod_recoveries,
+    size_t& total_stacked_pixels) const
+{
+    for (size_t y = start_line; y < end_line; ++y) {
+        size_t line_dropouts = 0;
+        size_t line_recoveries = 0;
+        size_t line_stacked = 0;
+        
+        DropoutRegion current_dropout{};
+        current_dropout.line = static_cast<uint32_t>(y);
+        current_dropout.start_sample = 0;
+        current_dropout.end_sample = 0;
+        bool in_dropout = false;
+        
+        for (size_t x = 0; x < width; ++x) {
+            std::vector<uint16_t> luma_values;
+            std::vector<uint16_t> chroma_values;
+            std::vector<uint16_t> luma_dropout_values;
+            std::vector<uint16_t> chroma_dropout_values;
+            std::vector<bool> is_dropout(num_sources);
+            
+            // Collect values from all sources for this field
+            for (size_t src_idx = 0; src_idx < num_sources; ++src_idx) {
+                if (!field_valid[src_idx]) {
+                    is_dropout[src_idx] = true;
+                    continue;
+                }
+                
+                size_t pixel_offset = y * width + x;
+                if (pixel_offset >= all_luma_fields[src_idx].size()) {
+                    is_dropout[src_idx] = true;
+                    continue;
+                }
+                
+                uint16_t luma_value = all_luma_fields[src_idx][pixel_offset];
+                bool chroma_available = pixel_offset < all_chroma_fields[src_idx].size();
+                uint16_t chroma_value = chroma_available
+                    ? all_chroma_fields[src_idx][pixel_offset]
+                    : video_params.black_16b_ire;
+                
+                bool pixel_is_dropout = false;
+                for (const auto& region : all_dropouts[src_idx]) {
+                    if (y == region.line && x >= region.start_sample && x < region.end_sample) {
+                        pixel_is_dropout = true;
+                        break;
+                    }
+                }
+                
+                is_dropout[src_idx] = pixel_is_dropout;
+                
+                if (!pixel_is_dropout) {
+                    luma_values.push_back(luma_value);
+                    chroma_values.push_back(chroma_value);
+                } else if (!m_no_diff_dod) {
+                    if (luma_value > 0) {
+                        luma_dropout_values.push_back(luma_value);
+                    }
+                    if (chroma_available && chroma_value > 0) {
+                        chroma_dropout_values.push_back(chroma_value);
+                    }
+                }
+            }
+            
+            bool all_dropouts_flag = std::all_of(is_dropout.begin(), is_dropout.end(),
+                                           [](bool b) { return b; });
+            bool any_dropout_flag = std::any_of(is_dropout.begin(), is_dropout.end(),
+                                           [](bool b) { return b; });
+            
+            // Apply diff_dod only when ALL sources have dropouts
+            if (all_dropouts_flag && num_sources >= 3 && !m_no_diff_dod && !luma_dropout_values.empty()) {
+                size_t before_count = luma_dropout_values.size();
+                luma_values = diff_dod(luma_dropout_values, video_params);
+                chroma_values = diff_dod(chroma_dropout_values, video_params);
+                if (!luma_values.empty() && luma_values.size() < before_count) {
+                    line_recoveries++;
+                    total_diff_dod_recoveries++;
+                }
+            }
+            
+            uint16_t stacked_luma = video_params.black_16b_ire;
+            uint16_t stacked_chroma = video_params.black_16b_ire;
+            bool is_output_dropout = false;
+            
+            if (luma_values.empty()) {
+                // No valid values - use black level
+                is_output_dropout = true;
+            } else if (all_dropouts_flag) {
+                // All sources were dropouts; use diff_dod results per channel
+                std::vector<uint16_t> dummy;
+                std::vector<bool> dropout_flags(5, false);
+                dropout_flags[0] = true;
+                stacked_luma = stack_mode(luma_values, dummy, dummy, dummy, dummy, dropout_flags);
+                if (!chroma_values.empty()) {
+                    stacked_chroma = stack_mode(chroma_values, dummy, dummy, dummy, dummy, dropout_flags);
+                }
+            } else if (any_dropout_flag) {
+                // Dropout correction: pick ONE source index based on luma, apply to both channels
+                std::vector<uint16_t> dummy;
+                std::vector<bool> dropout_flags(5, false);
+                dropout_flags[0] = false;
+                int32_t target = stack_mode(luma_values, dummy, dummy, dummy, dummy, dropout_flags);
+                
+                // Find source value closest to target (using luma)
+                size_t best_idx = 0;
+                int32_t min_diff = std::abs(static_cast<int32_t>(luma_values[0]) - target);
+                for (size_t i = 1; i < luma_values.size(); ++i) {
+                    int32_t diff = std::abs(static_cast<int32_t>(luma_values[i]) - target);
+                    if (diff < min_diff) {
+                        min_diff = diff;
+                        best_idx = i;
+                    }
+                }
+                
+                stacked_luma = luma_values[best_idx];
+                if (!chroma_values.empty()) {
+                    stacked_chroma = chroma_values[best_idx];
+                }
+            } else {
+                // No dropouts - stack channels independently (existing behavior)
+                std::vector<uint16_t> dummy;
+                std::vector<bool> dropout_flags(5, false);
+                dropout_flags[0] = false;
+                stacked_luma = stack_mode(luma_values, dummy, dummy, dummy, dummy, dropout_flags);
+                if (!chroma_values.empty()) {
+                    stacked_chroma = stack_mode(chroma_values, dummy, dummy, dummy, dummy, dropout_flags);
+                }
+            }
+            
+            if (is_output_dropout) {
+                line_dropouts++;
+                total_dropouts++;
+                
+                if (!in_dropout) {
+                    current_dropout.start_sample = static_cast<uint32_t>(x);
+                    in_dropout = true;
+                }
+                current_dropout.end_sample = static_cast<uint32_t>(x + 1);
+            } else {
+                line_stacked++;
+                total_stacked_pixels++;
+                
+                if (in_dropout && current_dropout.start_sample < current_dropout.end_sample) {
+                    output_dropouts.push_back(current_dropout);
+                    in_dropout = false;
+                }
+            }
+            
+            output_luma[y * width + x] = stacked_luma;
+            output_chroma[y * width + x] = stacked_chroma;
+        }
+        
+        if (in_dropout && current_dropout.start_sample < current_dropout.end_sample) {
+            output_dropouts.push_back(current_dropout);
+        }
+        
+        if (line_dropouts > 0 || line_recoveries > 0) {
+            ORC_LOG_TRACE("StackerStage: YC Line {}: stacked={}, dropouts={}, diff_dod_recoveries={}",
                          y, line_stacked, line_dropouts, line_recoveries);
         }
     }

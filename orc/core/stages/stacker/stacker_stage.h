@@ -309,6 +309,29 @@ private:
         size_t& total_dropouts,
         size_t& total_diff_dod_recoveries,
         size_t& total_stacked_pixels) const;
+
+    /**
+     * @brief Process a range of lines for YC sources with channel-consistent corrections
+     *
+     * Ensures that when dropout corrections are needed, both Y and C are sourced
+     * from the same input field/line while using channel-appropriate data.
+     */
+    void process_lines_range_yc(
+        size_t start_line,
+        size_t end_line,
+        size_t width,
+        const std::vector<std::vector<uint16_t>>& all_luma_fields,
+        const std::vector<std::vector<uint16_t>>& all_chroma_fields,
+        const std::vector<bool>& field_valid,
+        const std::vector<std::vector<DropoutRegion>>& all_dropouts,
+        size_t num_sources,
+        const SourceParameters& video_params,
+        std::vector<uint16_t>& output_luma,
+        std::vector<uint16_t>& output_chroma,
+        std::vector<DropoutRegion>& output_dropouts,
+        size_t& total_dropouts,
+        size_t& total_diff_dod_recoveries,
+        size_t& total_stacked_pixels) const;
     
     /**
      * @brief Calculate mean of values

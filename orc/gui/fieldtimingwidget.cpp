@@ -109,6 +109,16 @@ FieldTimingWidget::FieldTimingWidget(QWidget *parent)
     setMouseTracking(true);
 }
 
+void FieldTimingWidget::setChannelMode(ChannelMode mode)
+{
+    if (channel_mode_ == mode) {
+        return;
+    }
+    channel_mode_ = mode;
+    updateScrollBar();
+    update();
+}
+
 void FieldTimingWidget::setFieldData(const std::vector<uint16_t>& samples,
                                     const std::vector<uint16_t>& samples_2,
                                     const std::vector<uint16_t>& y_samples,
@@ -188,7 +198,9 @@ int FieldTimingWidget::getCenterSample() const
         field1_samples_.size(),
         field2_samples_.size(),
         y1_samples_.size(),
-        y2_samples_.size()
+        y2_samples_.size(),
+        c1_samples_.size(),
+        c2_samples_.size()
     });
     
     if (total_samples == 0) {
@@ -261,7 +273,9 @@ double FieldTimingWidget::getBasePixelsPerSample() const
         field1_samples_.size(),
         field2_samples_.size(),
         y1_samples_.size(),
-        y2_samples_.size()
+        y2_samples_.size(),
+        c1_samples_.size(),
+        c2_samples_.size()
     });
     
     if (total_samples == 0) {
@@ -281,7 +295,9 @@ void FieldTimingWidget::updateScrollBar()
         field1_samples_.size(),
         field2_samples_.size(),
         y1_samples_.size(),
-        y2_samples_.size()
+        y2_samples_.size(),
+        c1_samples_.size(),
+        c2_samples_.size()
     });
     
     if (total_samples == 0) {
@@ -595,27 +611,29 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
     
     // Determine which samples to draw and their colors
     // Priority: if Y/C samples exist, use those; otherwise use composite
-    bool has_yc = !y1_samples_.empty() || !y2_samples_.empty();
+    bool has_yc = !y1_samples_.empty() || !y2_samples_.empty() || !c1_samples_.empty() || !c2_samples_.empty();
     bool has_two_fields = !field2_samples_.empty() || !y2_samples_.empty();
     
     if (has_yc) {
         // Draw Y and C channels separately
+        const bool show_y = (channel_mode_ == ChannelMode::YPlusC) || (channel_mode_ == ChannelMode::YOnly);
+        const bool show_c = (channel_mode_ == ChannelMode::YPlusC) || (channel_mode_ == ChannelMode::COnly);
         const QColor y1_color = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
         const QColor c1_color = is_dark_theme ? QColor(100, 150, 255) : QColor(0, 80, 200);
         const QColor y2_color = is_dark_theme ? QColor(255, 255, 180) : QColor(230, 210, 40);
         const QColor c2_color = is_dark_theme ? QColor(160, 190, 255) : QColor(80, 120, 220);
 
-        if (!y1_samples_.empty()) {
+        if (show_y && !y1_samples_.empty()) {
             drawSamples(painter, graph_area, y1_samples_, y1_color, 0);
         }
-        if (!c1_samples_.empty()) {
+        if (show_c && !c1_samples_.empty()) {
             drawSamples(painter, graph_area, c1_samples_, c1_color, 0);
         }
         if (has_two_fields) {
-            if (!y2_samples_.empty()) {
+            if (show_y && !y2_samples_.empty()) {
                 drawSamples(painter, graph_area, y2_samples_, y2_color, 0);
             }
-            if (!c2_samples_.empty()) {
+            if (show_c && !c2_samples_.empty()) {
                 drawSamples(painter, graph_area, c2_samples_, c2_color, 0);
             }
         }

@@ -29,6 +29,12 @@ class FieldTimingWidget : public QWidget
     Q_OBJECT
 
 public:
+    enum class ChannelMode {
+        YPlusC = 0,
+        YOnly = 1,
+        COnly = 2
+    };
+
     explicit FieldTimingWidget(QWidget *parent = nullptr);
     
     /**
@@ -50,6 +56,11 @@ public:
                      const std::vector<uint16_t>& c_samples_2 = {},
                      const std::optional<orc::presenters::VideoParametersView>& video_params = std::nullopt,
                      const std::optional<int>& marker_sample = std::nullopt);
+
+    /**
+     * @brief Set the channel display mode for YC sources
+     */
+    void setChannelMode(ChannelMode mode);
     
     /**
      * @brief Get the horizontal scroll bar
@@ -122,6 +133,7 @@ private:
     // Video parameters for mV conversion
     std::optional<orc::presenters::VideoParametersView> video_params_;
     std::optional<int> marker_sample_;
+    ChannelMode channel_mode_{ChannelMode::YPlusC};
     
     // Display settings
     static constexpr int MARGIN = 40;

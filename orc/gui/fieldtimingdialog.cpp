@@ -18,6 +18,7 @@
 #include <QSlider>
 #include <QSettings>
 #include <QResizeEvent>
+#include <QComboBox>
 
 FieldTimingDialog::FieldTimingDialog(QWidget *parent)
     : QDialog(parent)
@@ -101,6 +102,23 @@ void FieldTimingDialog::setupUI()
         timing_widget_->scrollToLine(line_spinbox_->value());
     });
     control_layout->addWidget(jump_line_button_);
+
+    control_layout->addSpacing(20);
+
+    signal_label_ = new QLabel("Signal:");
+    signal_label_->setVisible(false);
+    control_layout->addWidget(signal_label_);
+
+    signal_combo_ = new QComboBox();
+    signal_combo_->addItem("Y+C");
+    signal_combo_->addItem("Y");
+    signal_combo_->addItem("C");
+    signal_combo_->setVisible(false);
+    connect(signal_combo_, &QComboBox::currentIndexChanged, [this](int index) {
+        current_signal_index_ = index;
+        timing_widget_->setChannelMode(static_cast<FieldTimingWidget::ChannelMode>(index));
+    });
+    control_layout->addWidget(signal_combo_);
     
     control_layout->addStretch();
     
@@ -205,6 +223,16 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
     // Update widget data
     timing_widget_->setFieldData(samples, samples_2, y_samples, c_samples, 
                                 y_samples_2, c_samples_2, video_params, marker_sample);
+
+    const bool is_yc_source = !y_samples.empty() || !c_samples.empty() || !y_samples_2.empty() || !c_samples_2.empty();
+    signal_label_->setVisible(is_yc_source);
+    signal_combo_->setVisible(is_yc_source);
+    if (is_yc_source) {
+        signal_combo_->setCurrentIndex(current_signal_index_);
+        timing_widget_->setChannelMode(static_cast<FieldTimingWidget::ChannelMode>(current_signal_index_));
+    } else {
+        timing_widget_->setChannelMode(FieldTimingWidget::ChannelMode::YPlusC);
+    }
     
     // Enable/disable jump button based on whether marker is present
     jump_button_->setEnabled(marker_sample.has_value());

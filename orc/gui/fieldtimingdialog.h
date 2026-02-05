@@ -22,6 +22,7 @@ class QPushButton;
 class QSpinBox;
 class QSlider;
 class QLabel;
+class QComboBox;
 
 /**
  * @brief Dialog for viewing field samples as a timing graph
@@ -96,6 +97,8 @@ private:
     QPushButton* set_crosshairs_button_;
     QSpinBox* line_spinbox_;
     QPushButton* jump_line_button_;
+    QLabel* signal_label_;
+    QComboBox* signal_combo_;
     QSlider* zoom_slider_;
     QLabel* zoom_value_label_;
     QString current_node_id_;
@@ -103,6 +106,7 @@ private:
     std::optional<uint64_t> current_field_index_2_;
     int current_first_field_height_;
     int current_second_field_height_;
+    int current_signal_index_{0};
 };
 
 #endif // FIELDTIMINGDIALOG_H

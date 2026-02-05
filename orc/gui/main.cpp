@@ -387,18 +387,22 @@ int main(int argc, char *argv[])
 
     // Splash screen
     QPixmap logoPixmap(":/orc-gui/decode-orc_logotype-1024x286.png");
-    QPixmap splashPixmap(logoPixmap.width(), logoPixmap.height() + 60);
+    QPixmap logoPixmapScaled = logoPixmap.scaled(512,
+                                                 142,
+                                                 Qt::KeepAspectRatio,
+                                                 Qt::SmoothTransformation);
+    QPixmap splashPixmap(logoPixmapScaled.width(), logoPixmapScaled.height() + 60);
     splashPixmap.fill(Qt::transparent);
 
     QPainter painter(&splashPixmap);
-    painter.drawPixmap(0, 0, logoPixmap);
+    painter.drawPixmap(0, 0, logoPixmapScaled);
     
     QFont copyrightFont = painter.font();
     copyrightFont.setPointSize(copyrightFont.pointSize() * 2);
     copyrightFont.setBold(false);
     painter.setFont(copyrightFont);
     painter.setPen(Qt::white);
-    QRect copyrightRect(0, logoPixmap.height() + 10, splashPixmap.width(), 40);
+    QRect copyrightRect(0, logoPixmapScaled.height() + 10, splashPixmap.width(), 40);
     painter.drawText(copyrightRect, Qt::AlignCenter, "(c) 2026 Simon Inns");
     painter.end();
 

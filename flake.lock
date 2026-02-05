@@ -8,11 +8,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1770231780,
-        "narHash": "sha256-y9qxsj8qa90XG8CipZiYVOH+K6Aa3GA+W9FWoVPLAcI=",
+        "lastModified": 1770278753,
+        "narHash": "sha256-Bi1WhC/fk/2CgH20V6Ap3AmXMpqFEu2MIy5FVzHTAZI=",
         "owner": "simoninns",
         "repo": "encode-orc",
-        "rev": "53110efe6b34a0b1a984656d4ce17602afedddd3",
+        "rev": "50df595d8fb4b17eafec7c836b3b2bc79b1730d1",
         "type": "github"
       },
       "original": {

@@ -15,6 +15,7 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <array>
 
 namespace orc {
 
@@ -44,20 +45,25 @@ void WhiteSNRObserver::process_field(
         double length_us;
     };
     
-    std::vector<WhiteConfig> configs;
+    static const std::array<WhiteConfig, 1> pal_configs{{
+        {19, 12.0, 8.0}  // Line 19, start 12µs, length 8µs
+    }};
+    static const std::array<WhiteConfig, 3> ntsc_configs{{
+        {20, 14.0, 12.0}, // Line 20, start 14µs, length 12µs
+        {20, 52.0, 8.0},  // Line 20, start 52µs, length 8µs
+        {13, 13.0, 15.0}  // Line 13, start 13µs, length 15µs
+    }};
+
+    const WhiteConfig* configs = nullptr;
+    size_t configs_size = 0;
     if (format == VideoFormat::PAL) {
-        // PAL configurations (from ld-process-vits)
-        configs = {
-            {19, 12.0, 8.0}  // Line 19, start 12µs, length 8µs
-        };
+        configs = pal_configs.data();
+        configs_size = pal_configs.size();
     } else {
         // NTSC: try primary VITS locations, then one-line offset to cover field-parity half-line differences
         // NTSC configurations (from ld-process-vits); same lines for both fields (field-local numbering)
-        configs = {
-            {20, 14.0, 12.0}, // Line 20, start 14µs, length 12µs
-            {20, 52.0, 8.0},  // Line 20, start 52µs, length 8µs
-            {13, 13.0, 15.0}  // Line 13, start 13µs, length 15µs
-        };
+        configs = ntsc_configs.data();
+        configs_size = ntsc_configs.size();
     }
     
     // Validation range for white level (90-110 IRE)
@@ -65,7 +71,8 @@ void WhiteSNRObserver::process_field(
     double white_ire_max = 110.0;
     
     // Try each configuration until we find valid white flag
-    for (const auto& config : configs) {
+    for (size_t i = 0; i < configs_size; ++i) {
+        const auto& config = configs[i];
         auto white_slice = get_line_slice_ire(representation, field_id,
                                               config.line, config.start_us, config.length_us);
         

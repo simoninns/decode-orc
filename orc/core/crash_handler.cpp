@@ -483,13 +483,13 @@ static void crash_signal_handler(int sig, siginfo_t* info, void* context) {
         const char* msg4 = "Please report this issue at:\n";
         const char* msg5 = "https://github.com/simoninns/decode-orc/issues\n\n";
         
-        write(STDERR_FILENO, msg1, strlen(msg1));
-        write(STDERR_FILENO, msg2, strlen(msg2));
-        write(STDERR_FILENO, bundle_path.c_str(), bundle_path.length());
-        write(STDERR_FILENO, msg3, strlen(msg3));
+        if (write(STDERR_FILENO, msg1, strlen(msg1)) < 0) {}
+        if (write(STDERR_FILENO, msg2, strlen(msg2)) < 0) {}
+        if (write(STDERR_FILENO, bundle_path.c_str(), bundle_path.length()) < 0) {}
+        if (write(STDERR_FILENO, msg3, strlen(msg3)) < 0) {}
         if (g_crash_config.auto_upload_info) {
-            write(STDERR_FILENO, msg4, strlen(msg4));
-            write(STDERR_FILENO, msg5, strlen(msg5));
+            if (write(STDERR_FILENO, msg4, strlen(msg4)) < 0) {}
+            if (write(STDERR_FILENO, msg5, strlen(msg5)) < 0) {}
         }
     }
     

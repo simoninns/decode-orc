@@ -101,3 +101,4 @@ result-*
 
 # Nix-injected external dependency
 external/encode-orc
+crash_bundle*

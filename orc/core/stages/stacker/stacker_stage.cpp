@@ -187,7 +187,55 @@ std::vector<uint16_t> StackedVideoFieldRepresentation::get_field(FieldID id) con
 }
 
 std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(FieldID id) const {
-    // First check if already cached (fast path with minimal lock time)
+    if (has_separate_channels()) {
+        // YC mode: ensure luma, chroma, and dropout caches are used
+        {
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+            if (stacked_luma_fields_.contains(id) &&
+                stacked_chroma_fields_.contains(id) &&
+                stacked_dropouts_.contains(id)) {
+                const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
+                if (cached_dropouts) {
+                    return *cached_dropouts;
+                }
+            }
+        }
+
+        // Not cached - stack the YC field WITHOUT holding the lock (slow path)
+        std::vector<uint16_t> stacked_luma;
+        std::vector<uint16_t> stacked_chroma;
+        std::vector<DropoutRegion> stacked_dropouts;
+
+        ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking YC field {} for dropout hints (NOT fully cached)", id.value());
+        stage_->stack_field_yc(id, sources_, stacked_luma, stacked_chroma, stacked_dropouts);
+
+        // Re-acquire lock and cache the result
+        {
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+
+            // Check again if another thread already stacked it while we were computing
+            if (stacked_luma_fields_.contains(id) &&
+                stacked_chroma_fields_.contains(id) &&
+                stacked_dropouts_.contains(id)) {
+                const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
+                if (cached_dropouts) {
+                    return *cached_dropouts;
+                }
+            }
+
+            // Store our result in cache
+            stacked_luma_fields_.put(id, std::move(stacked_luma));
+            stacked_chroma_fields_.put(id, std::move(stacked_chroma));
+            stacked_dropouts_.put(id, stacked_dropouts);
+
+            ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions",
+                          id.value(), stacked_dropouts.size());
+
+            return stacked_dropouts;
+        }
+    }
+
+    // Composite mode
     {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         if (stacked_fields_.contains(id) && stacked_dropouts_.contains(id)) {
@@ -197,18 +245,18 @@ std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(Fi
             }
         }
     }
-    
+
     // Not cached - stack the field WITHOUT holding the lock (slow path)
     std::vector<uint16_t> stacked_samples;
     std::vector<DropoutRegion> stacked_dropouts;
-    
+
     ORC_LOG_DEBUG("StackedVideoFieldRepresentation: stacking field {} for dropout hints (NOT fully cached)", id.value());
     stage_->stack_field(id, sources_, stacked_samples, stacked_dropouts);
-    
+
     // Re-acquire lock and cache the result
     {
         std::lock_guard<std::mutex> lock(cache_mutex_);
-        
+
         // Check again if another thread already stacked it while we were computing
         if (stacked_fields_.contains(id) && stacked_dropouts_.contains(id)) {
             // Another thread beat us to it - return their result and discard ours
@@ -217,14 +265,14 @@ std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(Fi
                 return *cached_dropouts;
             }
         }
-        
+
         // Store our result in cache
         stacked_fields_.put(id, std::move(stacked_samples));
         stacked_dropouts_.put(id, stacked_dropouts);
-        
-        ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions", 
+
+        ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions",
                       id.value(), stacked_dropouts.size());
-        
+
         return stacked_dropouts;
     }
 }

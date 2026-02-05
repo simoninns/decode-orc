@@ -33,7 +33,8 @@ LineScopeDialog::LineScopeDialog(QWidget *parent)
     setWindowTitle("Line Scope");
     
     // Use Qt::Window flag to allow independent positioning
-    setWindowFlags(Qt::Window);
+    // Match preview dialog's always-on-top behavior to avoid being obscured
+    setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint);
     
     // Don't destroy on close, just hide
     setAttribute(Qt::WA_DeleteOnClose, false);

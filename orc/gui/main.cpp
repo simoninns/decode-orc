@@ -345,6 +345,10 @@ int main(int argc, char *argv[])
     QSplashScreen splash(splashPixmap, Qt::WindowStaysOnTopHint | Qt::FramelessWindowHint);
     splash.show();
     app.processEvents();
+    const QRect windowFrame = window.frameGeometry();
+    const QPoint centeredPos = windowFrame.center() - QPoint(splash.width() / 2, splash.height() / 2);
+    splash.move(centeredPos);
+    app.processEvents();
     ORC_LOG_DEBUG("Splash screen displayed");
     QTimer::singleShot(3000, [&splash]() {
         splash.close();

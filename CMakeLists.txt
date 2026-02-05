@@ -16,7 +16,10 @@ endif()
 enable_testing()
 
 # Add external dependencies (submodules)
-add_subdirectory(external/encode-orc)
+option(BUILD_ENCODE_ORC "Build encode-orc submodule" OFF)
+if(BUILD_ENCODE_ORC)
+    add_subdirectory(external/encode-orc)
+endif()
 
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)

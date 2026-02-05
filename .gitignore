@@ -44,9 +44,6 @@
 build/
 */build/
 
-# Nix-injected external dependency
-external/encode-orc/
-
 # Encode test outputs
 encode-output/
 
@@ -101,3 +98,6 @@ result
 result-*
 .direnv/
 .envrc.cache
+
+# Nix-injected external dependency
+external/encode-orc

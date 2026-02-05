@@ -35,7 +35,8 @@ PreviewDialog::PreviewDialog(QWidget *parent)
     setWindowTitle("Field/Frame Preview");
     
     // Use Qt::Window flag to allow independent positioning (like ld-analyse dialogs)
-    setWindowFlags(Qt::Window);
+    // Keep the dialog in front of the main window
+    setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint);
     
     // Don't destroy on close, just hide
     setAttribute(Qt::WA_DeleteOnClose, false);
@@ -359,8 +360,10 @@ void PreviewDialog::showLineScope(const QString& node_id, int stage_index, uint6
                                           preview_image_width, original_sample_x, original_image_y, preview_mode,
                                           y_samples, c_samples);
         
-        // Just show the dialog - Qt will remember its position
-        line_scope_dialog_->show();
+        // Only show if not already visible to avoid position resets
+        if (!line_scope_dialog_->isVisible()) {
+            line_scope_dialog_->show();
+        }
     }
 }
 void PreviewDialog::notifyFrameChanged()

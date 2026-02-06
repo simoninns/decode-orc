@@ -12,6 +12,7 @@
 #include <QDoubleSpinBox>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QGroupBox>
 #include <string>
 #include <memory>
 #include <map>
@@ -22,6 +23,7 @@ namespace orc::presenters {
     class AnalysisPresenter;
     class FieldCorruptionPresenter;
     class DiscMapperPresenter;
+    class FieldMapRangePresenter;
     class SourceAlignmentPresenter;
     class MaskLinePresenter;
     class FFmpegPresetPresenter;
@@ -69,12 +71,17 @@ private:
     QWidget* createParameterWidget(const std::string& name, const orc::ParameterDescriptor& param);
     void collectParameters();
     void displayResults(const orc::AnalysisResult& result);
+    void setupFieldMapRangeWidgets();
+    void syncTimecodeFromPicture(bool is_start);
+    void syncPictureFromTimecode(bool is_start);
+    int timecodeFps() const;
 
     std::string tool_id_;
     orc::AnalysisToolInfo tool_info_;
     orc::presenters::AnalysisPresenter* presenter_;  // Not owned
     orc::presenters::FieldCorruptionPresenter* field_corruption_presenter_;  // Owned (if used)
     orc::presenters::DiscMapperPresenter* disc_mapper_presenter_;  // Owned (if used)
+    orc::presenters::FieldMapRangePresenter* field_map_range_presenter_;  // Owned (if used)
     orc::presenters::SourceAlignmentPresenter* source_alignment_presenter_;  // Owned (if used)
     orc::presenters::MaskLinePresenter* mask_line_presenter_;  // Owned (if used)
     orc::presenters::FFmpegPresetPresenter* ffmpeg_preset_presenter_;  // Owned (if used)
@@ -83,6 +90,20 @@ private:
     orc::NodeID node_id_;
     orc::AnalysisResult last_result_;
     std::vector<orc::ParameterDescriptor> parameter_descriptors_;
+
+    // Field map range custom controls
+    bool field_map_range_sync_in_progress_ = false;
+    int field_map_range_fps_ = 30;
+    QSpinBox* picture_start_spin_ = nullptr;
+    QSpinBox* picture_end_spin_ = nullptr;
+    QSpinBox* tc_start_hours_ = nullptr;
+    QSpinBox* tc_start_minutes_ = nullptr;
+    QSpinBox* tc_start_seconds_ = nullptr;
+    QSpinBox* tc_start_pictures_ = nullptr;
+    QSpinBox* tc_end_hours_ = nullptr;
+    QSpinBox* tc_end_minutes_ = nullptr;
+    QSpinBox* tc_end_seconds_ = nullptr;
+    QSpinBox* tc_end_pictures_ = nullptr;
 
     // UI widgets
     QLabel* descriptionLabel_;

@@ -248,7 +248,10 @@ std::string ProjectPresenter::getProjectPath() const
 
 std::string ProjectPresenter::getProjectName() const
 {
-    return project_.get()->get_name();
+    if (!getProject()) {
+        return "";
+    }
+    return getProject()->get_name();
 }
 
 void ProjectPresenter::setProjectName(const std::string& name)
@@ -259,7 +262,10 @@ void ProjectPresenter::setProjectName(const std::string& name)
 
 std::string ProjectPresenter::getProjectDescription() const
 {
-    return project_.get()->get_description();
+    if (!getProject()) {
+        return "";
+    }
+    return getProject()->get_description();
 }
 
 void ProjectPresenter::setProjectDescription(const std::string& description)
@@ -270,7 +276,10 @@ void ProjectPresenter::setProjectDescription(const std::string& description)
 
 VideoFormat ProjectPresenter::getVideoFormat() const
 {
-    return fromVideoSystem(project_.get()->get_video_format());
+    if (!getProject()) {
+        return VideoFormat::Unknown;
+    }
+    return fromVideoSystem(getProject()->get_video_format());
 }
 
 void ProjectPresenter::setVideoFormat(VideoFormat format)
@@ -281,7 +290,10 @@ void ProjectPresenter::setVideoFormat(VideoFormat format)
 
 SourceType ProjectPresenter::getSourceType() const
 {
-    return fromSourceType(project_.get()->get_source_format());
+    if (!getProject()) {
+        return SourceType::Unknown;
+    }
+    return fromSourceType(getProject()->get_source_format());
 }
 
 void ProjectPresenter::setSourceType(SourceType source)
@@ -405,9 +417,9 @@ NodeID ProjectPresenter::getFirstNode() const
 
 bool ProjectPresenter::hasNode(NodeID node_id) const
 {
-    if (!project_.get()) return false;
+    if (!getProject()) return false;
     
-    const auto& nodes = project_.get()->get_nodes();
+    const auto& nodes = getProject()->get_nodes();
     auto it = std::find_if(nodes.begin(), nodes.end(),
         [node_id](const auto& node) { return node.node_id == node_id; });
     
@@ -417,8 +429,10 @@ bool ProjectPresenter::hasNode(NodeID node_id) const
 std::vector<EdgeInfo> ProjectPresenter::getEdges() const
 {
     std::vector<EdgeInfo> result;
-    
-    for (const auto& edge : project_.get()->get_edges()) {
+    if (!getProject()) {
+        return result;
+    }
+    for (const auto& edge : getProject()->get_edges()) {
         EdgeInfo info;
         info.source_node = edge.source_node_id;
         info.target_node = edge.target_node_id;
@@ -430,7 +444,10 @@ std::vector<EdgeInfo> ProjectPresenter::getEdges() const
 
 NodeInfo ProjectPresenter::getNodeInfo(orc::NodeID node_id) const
 {
-    for (const auto& node : project_.get()->get_nodes()) {
+    if (!getProject()) {
+        throw std::runtime_error("Project not available");
+    }
+    for (const auto& node : getProject()->get_nodes()) {
         if (node.node_id == node_id) {
             orc::NodeCapabilities caps = orc::project_io::get_node_capabilities(*getProject(), node_id);
             

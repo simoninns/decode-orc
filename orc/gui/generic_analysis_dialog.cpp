@@ -2,6 +2,8 @@
 #include "presenters/include/analysis_presenter.h"
 #include "presenters/include/field_corruption_presenter.h"
 #include "presenters/include/disc_mapper_presenter.h"
+#include "presenters/include/field_map_range_presenter.h"
+#include "presenters/include/project_presenter.h"
 #include "presenters/include/source_alignment_presenter.h"
 #include "presenters/include/mask_line_presenter.h"
 #include "presenters/include/ffmpeg_preset_presenter.h"
@@ -16,6 +18,7 @@ namespace orc {
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QMessageBox>
+#include <QHBoxLayout>
 #include <limits>
 #include <algorithm>
 #include <map>
@@ -30,9 +33,10 @@ GenericAnalysisDialog::GenericAnalysisDialog(
     const orc::NodeID& node_id,
     void* project,
     QWidget* parent)
-    : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
+        : QDialog(parent), tool_id_(tool_id), tool_info_(tool_info), 
             presenter_(presenter), field_corruption_presenter_(nullptr),
-            disc_mapper_presenter_(nullptr), source_alignment_presenter_(nullptr),
+            disc_mapper_presenter_(nullptr), field_map_range_presenter_(nullptr),
+            source_alignment_presenter_(nullptr),
             mask_line_presenter_(nullptr), ffmpeg_preset_presenter_(nullptr),
             dropout_editor_presenter_(nullptr),
       project_(project), node_id_(node_id) {
@@ -43,6 +47,9 @@ GenericAnalysisDialog::GenericAnalysisDialog(
             static_cast<orc::Project*>(project_));
         } else if (tool_id_ == "field_mapping" || tool_id_ == "disc_mapper") {
                 disc_mapper_presenter_ = new orc::presenters::DiscMapperPresenter(
+            static_cast<orc::Project*>(project_));
+    } else if (tool_id_ == "field_map_range") {
+        field_map_range_presenter_ = new orc::presenters::FieldMapRangePresenter(
             static_cast<orc::Project*>(project_));
     } else if (tool_id_ == "source_alignment") {
         source_alignment_presenter_ = new orc::presenters::SourceAlignmentPresenter(
@@ -68,6 +75,7 @@ GenericAnalysisDialog::~GenericAnalysisDialog() {
     delete presenter_;
     delete field_corruption_presenter_;
     delete disc_mapper_presenter_;
+    delete field_map_range_presenter_;
     delete source_alignment_presenter_;
     delete mask_line_presenter_;
     delete ffmpeg_preset_presenter_;
@@ -133,6 +141,11 @@ void GenericAnalysisDialog::setupUI() {
 }
 
 void GenericAnalysisDialog::populateParameters() {
+    if (tool_id_ == "field_map_range") {
+        setupFieldMapRangeWidgets();
+        return;
+    }
+
     // Get parameters from presenter
     orc::AnalysisSourceType source_type = orc::AnalysisSourceType::LaserDisc;
     parameter_descriptors_ = presenter_->getToolParameters(tool_id_, source_type);
@@ -259,35 +272,42 @@ void GenericAnalysisDialog::runAnalysis() {
     
     // Prepare parameters
     std::map<std::string, orc::ParameterValue> parameters;
-    for (const auto& pw : parameterWidgets_) {
-        switch (pw.type) {
-            case orc::ParameterType::BOOL: {
-                auto* cb = qobject_cast<QCheckBox*>(pw.widget);
-                if (cb) parameters[pw.name] = cb->isChecked();
-                break;
-            }
-            case orc::ParameterType::INT32: {
-                auto* spin = qobject_cast<QSpinBox*>(pw.widget);
-                if (spin) parameters[pw.name] = spin->value();
-                break;
-            }
-            case orc::ParameterType::DOUBLE: {
-                auto* spin = qobject_cast<QDoubleSpinBox*>(pw.widget);
-                if (spin) parameters[pw.name] = spin->value();
-                break;
-            }
-            case orc::ParameterType::STRING: {
-                auto* combo = qobject_cast<QComboBox*>(pw.widget);
-                if (combo) {
-                    parameters[pw.name] = combo->currentText().toStdString();
-                } else {
-                    auto* edit = qobject_cast<QLineEdit*>(pw.widget);
-                    if (edit) parameters[pw.name] = edit->text().toStdString();
+    if (tool_id_ == "field_map_range") {
+        if (picture_start_spin_ && picture_end_spin_) {
+            parameters["startAddress"] = std::to_string(picture_start_spin_->value());
+            parameters["endAddress"] = std::to_string(picture_end_spin_->value());
+        }
+    } else {
+        for (const auto& pw : parameterWidgets_) {
+            switch (pw.type) {
+                case orc::ParameterType::BOOL: {
+                    auto* cb = qobject_cast<QCheckBox*>(pw.widget);
+                    if (cb) parameters[pw.name] = cb->isChecked();
+                    break;
                 }
-                break;
+                case orc::ParameterType::INT32: {
+                    auto* spin = qobject_cast<QSpinBox*>(pw.widget);
+                    if (spin) parameters[pw.name] = spin->value();
+                    break;
+                }
+                case orc::ParameterType::DOUBLE: {
+                    auto* spin = qobject_cast<QDoubleSpinBox*>(pw.widget);
+                    if (spin) parameters[pw.name] = spin->value();
+                    break;
+                }
+                case orc::ParameterType::STRING: {
+                    auto* combo = qobject_cast<QComboBox*>(pw.widget);
+                    if (combo) {
+                        parameters[pw.name] = combo->currentText().toStdString();
+                    } else {
+                        auto* edit = qobject_cast<QLineEdit*>(pw.widget);
+                        if (edit) parameters[pw.name] = edit->text().toStdString();
+                    }
+                    break;
+                }
+                default:
+                    break;
             }
-            default:
-                break;
         }
     }
     
@@ -302,6 +322,8 @@ void GenericAnalysisDialog::runAnalysis() {
     
     if (disc_mapper_presenter_) {
         result = disc_mapper_presenter_->runAnalysis(node_id_, parameters, progress_callback);
+    } else if (field_map_range_presenter_) {
+        result = field_map_range_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else if (field_corruption_presenter_) {
         result = field_corruption_presenter_->runAnalysis(node_id_, parameters, progress_callback);
     } else if (source_alignment_presenter_) {
@@ -363,6 +385,8 @@ void GenericAnalysisDialog::applyResults() {
         applied = field_corruption_presenter_->applyResultToGraph(last_result_, node_id_);
     } else if (disc_mapper_presenter_) {
         applied = disc_mapper_presenter_->applyResultToGraph(last_result_, node_id_);
+    } else if (field_map_range_presenter_) {
+        applied = field_map_range_presenter_->applyResultToGraph(last_result_, node_id_);
     } else if (source_alignment_presenter_) {
         applied = source_alignment_presenter_->applyResultToGraph(last_result_, node_id_);
     }
@@ -381,6 +405,9 @@ void GenericAnalysisDialog::applyResults() {
 }
 
 void GenericAnalysisDialog::updateParameterDependencies() {
+    if (tool_id_ == "field_map_range") {
+        return;
+    }
     // Get current values of all parameters
     std::map<std::string, orc::ParameterValue> current_values;
     for (const auto& pw : parameterWidgets_) {
@@ -448,6 +475,185 @@ void GenericAnalysisDialog::updateParameterDependencies() {
             }
         }
     }
+}
+
+int GenericAnalysisDialog::timecodeFps() const {
+    return field_map_range_fps_ > 0 ? field_map_range_fps_ : 30;
+}
+
+void GenericAnalysisDialog::setupFieldMapRangeWidgets() {
+    parametersLayout_->setContentsMargins(0, 0, 0, 0);
+    parametersLayout_->setHorizontalSpacing(12);
+    parametersLayout_->setVerticalSpacing(8);
+
+    // Determine FPS from project format
+    field_map_range_fps_ = 30;
+    if (project_) {
+        orc::presenters::ProjectPresenter project_presenter(project_);
+        auto format = project_presenter.getVideoFormat();
+        if (format == orc::presenters::VideoFormat::PAL) {
+            field_map_range_fps_ = 25;
+        } else if (format == orc::presenters::VideoFormat::NTSC) {
+            field_map_range_fps_ = 30;
+        }
+    }
+
+    // Picture number controls
+    picture_start_spin_ = new QSpinBox();
+    picture_start_spin_->setMinimum(1);
+    picture_start_spin_->setMaximum(std::numeric_limits<int32_t>::max());
+    picture_start_spin_->setToolTip("Start picture number (1-based)");
+
+    picture_end_spin_ = new QSpinBox();
+    picture_end_spin_->setMinimum(1);
+    picture_end_spin_->setMaximum(std::numeric_limits<int32_t>::max());
+    picture_end_spin_->setToolTip("End picture number (1-based)");
+
+    parametersLayout_->addRow(new QLabel("Picture Number Start:"), picture_start_spin_);
+    parametersLayout_->addRow(new QLabel("Picture Number End:"), picture_end_spin_);
+
+    auto make_timecode_widget = [this](QSpinBox*& hours, QSpinBox*& minutes,
+                                      QSpinBox*& seconds, QSpinBox*& pictures) {
+        auto* container = new QWidget();
+        auto* layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setSpacing(4);
+
+        hours = new QSpinBox();
+        hours->setMinimum(0);
+        hours->setMaximum(999);
+        hours->setToolTip("Hours");
+
+        minutes = new QSpinBox();
+        minutes->setMinimum(0);
+        minutes->setMaximum(59);
+        minutes->setToolTip("Minutes");
+
+        seconds = new QSpinBox();
+        seconds->setMinimum(0);
+        seconds->setMaximum(59);
+        seconds->setToolTip("Seconds");
+
+        pictures = new QSpinBox();
+        pictures->setMinimum(0);
+        pictures->setMaximum(timecodeFps() - 1);
+        pictures->setToolTip("Picture (frame) within second");
+
+        layout->addWidget(hours);
+        layout->addWidget(new QLabel(":"));
+        layout->addWidget(minutes);
+        layout->addWidget(new QLabel(":"));
+        layout->addWidget(seconds);
+        layout->addWidget(new QLabel("."));
+        layout->addWidget(pictures);
+        layout->addStretch();
+
+        return container;
+    };
+
+    auto* tc_start_widget = make_timecode_widget(tc_start_hours_, tc_start_minutes_,
+                                                 tc_start_seconds_, tc_start_pictures_);
+    auto* tc_end_widget = make_timecode_widget(tc_end_hours_, tc_end_minutes_,
+                                               tc_end_seconds_, tc_end_pictures_);
+
+    parametersLayout_->addRow(new QLabel("Timecode Start:"), tc_start_widget);
+    parametersLayout_->addRow(new QLabel("Timecode End:"), tc_end_widget);
+
+    // Initial values
+    picture_start_spin_->setValue(1);
+    picture_end_spin_->setValue(1);
+    syncTimecodeFromPicture(true);
+    syncTimecodeFromPicture(false);
+
+    // Wiring
+    connect(picture_start_spin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { syncTimecodeFromPicture(true); });
+    connect(picture_end_spin_, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, [this](int) { syncTimecodeFromPicture(false); });
+
+    auto timecode_changed = [this](bool is_start) { syncPictureFromTimecode(is_start); };
+    connect(tc_start_hours_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(true); });
+    connect(tc_start_minutes_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(true); });
+    connect(tc_start_seconds_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(true); });
+    connect(tc_start_pictures_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(true); });
+
+    connect(tc_end_hours_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(false); });
+    connect(tc_end_minutes_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(false); });
+    connect(tc_end_seconds_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(false); });
+    connect(tc_end_pictures_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+            [timecode_changed](int) { timecode_changed(false); });
+}
+
+void GenericAnalysisDialog::syncTimecodeFromPicture(bool is_start) {
+    if (field_map_range_sync_in_progress_) {
+        return;
+    }
+    field_map_range_sync_in_progress_ = true;
+
+    QSpinBox* pic_spin = is_start ? picture_start_spin_ : picture_end_spin_;
+    QSpinBox* hours = is_start ? tc_start_hours_ : tc_end_hours_;
+    QSpinBox* minutes = is_start ? tc_start_minutes_ : tc_end_minutes_;
+    QSpinBox* seconds = is_start ? tc_start_seconds_ : tc_end_seconds_;
+    QSpinBox* pictures = is_start ? tc_start_pictures_ : tc_end_pictures_;
+
+    if (pic_spin && hours && minutes && seconds && pictures) {
+        int64_t pn = std::max(1, pic_spin->value());
+        int64_t frame_index = pn - 1;
+        int fps = timecodeFps();
+        int64_t frames_per_hour = static_cast<int64_t>(fps) * 3600;
+        int64_t frames_per_minute = static_cast<int64_t>(fps) * 60;
+
+        int64_t h = frame_index / frames_per_hour;
+        frame_index %= frames_per_hour;
+        int64_t m = frame_index / frames_per_minute;
+        frame_index %= frames_per_minute;
+        int64_t s = frame_index / fps;
+        int64_t p = frame_index % fps;
+
+        hours->setValue(static_cast<int>(h));
+        minutes->setValue(static_cast<int>(m));
+        seconds->setValue(static_cast<int>(s));
+        pictures->setValue(static_cast<int>(p));
+    }
+
+    field_map_range_sync_in_progress_ = false;
+}
+
+void GenericAnalysisDialog::syncPictureFromTimecode(bool is_start) {
+    if (field_map_range_sync_in_progress_) {
+        return;
+    }
+    field_map_range_sync_in_progress_ = true;
+
+    QSpinBox* pic_spin = is_start ? picture_start_spin_ : picture_end_spin_;
+    QSpinBox* hours = is_start ? tc_start_hours_ : tc_end_hours_;
+    QSpinBox* minutes = is_start ? tc_start_minutes_ : tc_end_minutes_;
+    QSpinBox* seconds = is_start ? tc_start_seconds_ : tc_end_seconds_;
+    QSpinBox* pictures = is_start ? tc_start_pictures_ : tc_end_pictures_;
+
+    if (pic_spin && hours && minutes && seconds && pictures) {
+        int fps = timecodeFps();
+        int64_t frame_index =
+            static_cast<int64_t>(hours->value()) * 3600 * fps +
+            static_cast<int64_t>(minutes->value()) * 60 * fps +
+            static_cast<int64_t>(seconds->value()) * fps +
+            static_cast<int64_t>(pictures->value());
+        int64_t pn = frame_index + 1;
+        if (pn < 1) pn = 1;
+        if (pn > std::numeric_limits<int32_t>::max()) {
+            pn = std::numeric_limits<int32_t>::max();
+        }
+        pic_spin->setValue(static_cast<int>(pn));
+    }
+
+    field_map_range_sync_in_progress_ = false;
 }
 
 } // namespace gui

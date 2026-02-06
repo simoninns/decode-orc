@@ -195,6 +195,11 @@ public:
      * @brief Check if project has been modified since last save
      */
     bool isModified() const;
+
+    /**
+     * @brief Clear modified state (treat current project as unmodified)
+     */
+    void clearModifiedFlag();
     
     /**
      * @brief Get project file path

@@ -87,6 +87,9 @@ ProjectPresenter::ProjectPresenter()
     , is_modified_(false)
     , dag_(nullptr)
 {
+    if (project_) {
+        project_->clear_modified_flag();
+    }
     ORC_LOG_DEBUG("ProjectPresenter default constructor: project = {}", static_cast<void*>(project_.get()));
 }
 
@@ -224,7 +227,18 @@ void ProjectPresenter::clearProject()
 
 bool ProjectPresenter::isModified() const
 {
-    return is_modified_;
+    if (!project_) {
+        return is_modified_;
+    }
+    return is_modified_ || project_->has_unsaved_changes();
+}
+
+void ProjectPresenter::clearModifiedFlag()
+{
+    is_modified_ = false;
+    if (project_) {
+        project_->clear_modified_flag();
+    }
 }
 
 std::string ProjectPresenter::getProjectPath() const

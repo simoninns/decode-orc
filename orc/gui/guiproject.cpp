@@ -55,6 +55,9 @@ bool GUIProject::newEmptyProject(const QString& project_name, orc::presenters::V
         presenter_->setProjectName(project_name.toStdString());
         presenter_->setVideoFormat(video_format);
         presenter_->setSourceType(source_format);
+
+        // New blank project should start unmodified
+        presenter_->clearModifiedFlag();
         
         return true;
     } catch (const std::exception& e) {

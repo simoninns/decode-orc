@@ -84,6 +84,10 @@ dag:
       user_label: Source Align
       x: 275
       y: 50
+      parameters:
+        alignmentMap:
+          type: string
+          value: 1+6, 2+4, 3+2, 4+0
     - id: 6
       stage: ffmpeg_video_sink
       node_type: SINK

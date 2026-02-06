@@ -84,6 +84,13 @@ dag:
       user_label: Source Align
       x: 275
       y: 50
+      parameters:
+        alignmentMap:
+          type: string
+          value: ""
+        enforceFieldOrder:
+          type: bool
+          value: true
     - id: 6
       stage: ffmpeg_video_sink
       node_type: SINK
@@ -98,6 +105,25 @@ dag:
       user_label: Stacker
       x: 500
       y: 50
+      parameters:
+        audio_stacking:
+          type: string
+          value: Mean
+        efm_stacking:
+          type: string
+          value: Mean
+        mode:
+          type: string
+          value: Auto
+        no_diff_dod:
+          type: bool
+          value: false
+        passthrough:
+          type: bool
+          value: false
+        smart_threshold:
+          type: int32
+          value: 15
   edges:
     - from: 1
       to: 5

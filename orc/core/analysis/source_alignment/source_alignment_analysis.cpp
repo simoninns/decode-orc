@@ -79,10 +79,10 @@ static int32_t get_frame_number_from_vbi(
     }
     
     // Check for CLV timecode (need to query all components)
-    auto hours_opt = observation_context.get(field_id, "vbi", "clv_hours");
-    auto minutes_opt = observation_context.get(field_id, "vbi", "clv_minutes");
-    auto seconds_opt = observation_context.get(field_id, "vbi", "clv_seconds");
-    auto picture_opt = observation_context.get(field_id, "vbi", "clv_picture_number");
+    auto hours_opt = observation_context.get(field_id, "vbi", "clv_timecode_hours");
+    auto minutes_opt = observation_context.get(field_id, "vbi", "clv_timecode_minutes");
+    auto seconds_opt = observation_context.get(field_id, "vbi", "clv_timecode_seconds");
+    auto picture_opt = observation_context.get(field_id, "vbi", "clv_timecode_picture");
     
     if (hours_opt && minutes_opt && seconds_opt && picture_opt) {
         if (std::holds_alternative<int32_t>(*hours_opt) &&

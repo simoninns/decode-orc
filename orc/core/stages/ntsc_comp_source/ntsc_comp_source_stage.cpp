@@ -111,8 +111,10 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
                     video_params->field_width, 
                     video_params->field_height);
         
-        // Check decoder
-        if (video_params->decoder != "ld-decode" && video_params->decoder != "encode-orc") {
+        // Check decoder - accept ld-decode or anything starting with encode-orc
+        bool is_valid_decoder = (video_params->decoder == "ld-decode") ||
+                               (video_params->decoder.rfind("encode-orc", 0) == 0);
+        if (!is_valid_decoder) {
             throw std::runtime_error(
                 "TBC file was not created by ld-decode or encode-orc (decoder: " + 
                 video_params->decoder + "). Use the appropriate source type."

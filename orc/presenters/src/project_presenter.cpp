@@ -854,7 +854,8 @@ bool ProjectPresenter::setNodeParameters(NodeID node_id, const std::map<std::str
         dag_.reset();
         
         return true;
-    } catch (const std::exception&) {
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("Failed to set node parameters for node {}: {}", node_id.to_string(), e.what());
         return false;
     }
 }

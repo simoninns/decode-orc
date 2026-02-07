@@ -380,8 +380,22 @@ int main(int argc, char *argv[])
     } else {
         const QStringList args = parser.positionalArguments();
         if (!args.isEmpty()) {
-            ORC_LOG_INFO("Opening project from command line: {}", args.first().toStdString());
-            window.openProject(args.first());
+            QString filePath = args.first();
+            // Auto-detect file type by extension
+            if (filePath.endsWith(".tbc", Qt::CaseInsensitive) ||
+                filePath.endsWith(".tbcc", Qt::CaseInsensitive) ||
+                filePath.endsWith(".tbcy", Qt::CaseInsensitive)) {
+                ORC_LOG_INFO("Creating quick project from TBC file: {}", filePath.toStdString());
+                window.quickProject(filePath);
+            } else if (filePath.endsWith(".orcprj", Qt::CaseInsensitive)) {
+                ORC_LOG_INFO("Opening project from command line: {}", filePath.toStdString());
+                window.openProject(filePath);
+            } else {
+                // Unknown file type - try opening as project (old behavior)
+                ORC_LOG_WARN("Unknown file extension for '{}', attempting to open as project file", 
+                            filePath.toStdString());
+                window.openProject(filePath);
+            }
         }
     }
 

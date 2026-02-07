@@ -1210,14 +1210,12 @@ void MainWindow::quickProject(const QString& filename)
     }
     
     // Set parameters on the source stage using presenter
-    try {
-        project_.presenter()->setNodeParameters(source_node_id, source_params);
-        ORC_LOG_INFO("Source stage parameters set successfully");
-    } catch (const std::exception& e) {
+    if (!project_.presenter()->setNodeParameters(source_node_id, source_params)) {
         QMessageBox::critical(this, "Error", 
-            QString("Failed to set parameters on source stage: %1").arg(e.what()));
+            "Failed to set parameters on source stage. Check that the file paths are valid.");
         return;
     }
+    ORC_LOG_INFO("Source stage parameters set successfully");
     
     // Connect source to sink
     ORC_LOG_INFO("Connecting source stage to sink stage");

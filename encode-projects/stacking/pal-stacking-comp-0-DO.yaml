@@ -2,7 +2,7 @@ name: "PAL Stacking Composite DO 0"
 description: "PAL LaserDisc composite with dropouts only for stacking testing - Disc 0"
 
 output:
-  filename: "encode-output/stacking/pal-stacking-comp-0-do"
+  filename: "../../encode-output/stacking/pal-stacking-comp-0-do"
   format: "pal-composite"
 
 laserdisc:
@@ -50,7 +50,7 @@ sections:
     duration: 10
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+      file: "../../external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
     biphase-vbi:
       disc_area: "programme-area"
       picture_start: 1
@@ -59,13 +59,13 @@ sections:
     duration: 10
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_CHROMA_RAMP.raw"
+      file: "../../external/encode-orc/testcard-images/pal-raw/625_50_CHROMA_RAMP.raw"
       disc_area: "programme-area"
   
   - name: "Test Content"
     duration: 30
     source:
       type: "mp4-file"
-      file: "external/encode-orc/testcard-images/pal-mp4/pal-ice-skating.mp4"
+      file: "../../external/encode-orc/testcard-images/pal-mp4/pal-ice-skating.mp4"
     biphase-vbi:
       disc_area: "programme-area"

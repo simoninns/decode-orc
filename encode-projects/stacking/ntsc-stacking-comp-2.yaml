@@ -2,7 +2,7 @@ name: "NTSC Stacking Composite 2"
 description: "NTSC LaserDisc composite with noise only for stacking testing - Disc 2"
 
 output:
-  filename: "encode-output/stacking/ntsc-stacking-comp-2"
+  filename: "../../encode-output/stacking/ntsc-stacking-comp-2"
   format: "ntsc-composite"
 
 laserdisc:
@@ -49,7 +49,7 @@ sections:
     duration: 10
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/ntsc-raw/525_5994_75_BARS.raw"
+      file: "../../external/encode-orc/testcard-images/ntsc-raw/525_5994_75_BARS.raw"
     biphase-vbi:
       disc_area: "programme-area"
       picture_start: 1
@@ -58,7 +58,7 @@ sections:
     duration: 10
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/ntsc-raw/525_5994_CHROMA_RAMP.raw"
+      file: "../../external/encode-orc/testcard-images/ntsc-raw/525_5994_CHROMA_RAMP.raw"
     biphase-vbi:
       disc_area: "programme-area"
   
@@ -66,6 +66,6 @@ sections:
     duration: 30
     source:
       type: "mp4-file"
-      file: "external/encode-orc/testcard-images/ntsc-mp4/ntsc-ice-skating.mp4"
+      file: "../../external/encode-orc/testcard-images/ntsc-mp4/ntsc-ice-skating.mp4"
     biphase-vbi:
       disc_area: "programme-area"

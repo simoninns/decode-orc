@@ -2,7 +2,7 @@ name: "Source Alignment PAL CAV 3-22"
 description: "PAL CAV with picture numbers 3-22 for source alignment"
 
 output:
-  filename: "encode-output/source-alignment/pal-cav-3-22"
+  filename: "../../encode-output/source-alignment/pal-cav-3-22"
   format: "pal-composite"
 
 laserdisc:
@@ -41,7 +41,7 @@ sections:
     duration: 20
     source:
       type: "mp4-file"
-      file: "external/encode-orc/testcard-images/pal-mp4/pal-ice-skating.mp4"
+      file: "../../external/encode-orc/testcard-images/pal-mp4/pal-ice-skating.mp4"
       start_frame: 2
     biphase-vbi:
       disc_area: "programme-area"

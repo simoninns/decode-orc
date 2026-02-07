@@ -2,7 +2,7 @@ name: "PAL-CAV with 25 dB SNR"
 description: "PAL LaserDisc with CAV picture numbering (IEC 60857-1986)"
 
 output:
-  filename: "encode-output/generic/pal-cav-snr-25"
+  filename: "../../encode-output/generic/pal-cav-snr-25"
   format: "pal-composite"
 
 laserdisc:
@@ -48,7 +48,7 @@ sections:
     duration: 1
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+      file: "../../external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
     biphase-vbi:
       disc_area: "lead-in"
   
@@ -56,7 +56,7 @@ sections:
     duration: 20
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+      file: "../../external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
     biphase-vbi:
       disc_area: "programme-area"
       picture_start: 1
@@ -65,6 +65,6 @@ sections:
     duration: 1
     source:
       type: "yuv422-image"
-      file: "external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+      file: "../../external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
     biphase-vbi:
       disc_area: "lead-out"

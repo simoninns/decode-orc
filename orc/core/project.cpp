@@ -126,18 +126,112 @@ NodeType string_to_node_type(const std::string& str) {
     // Default to TRANSFORM for unknown types (backward compatibility)
     return NodeType::TRANSFORM;
 }
+
+// Path resolution utilities
+// Expand ${PROJECT_ROOT} variable in a path string
+std::string expand_project_root_variable(const std::string& path, const std::string& project_root) {
+    const std::string variable = "${PROJECT_ROOT}";
+    std::string result = path;
+    size_t pos = 0;
+    while ((pos = result.find(variable, pos)) != std::string::npos) {
+        result.replace(pos, variable.length(), project_root);
+        pos += project_root.length();
+    }
+    return result;
+}
+
+// Resolve a path relative to the project root
+// - If path is absolute, return it unchanged
+// - If path is relative, resolve it relative to project_root
+// - Supports ${PROJECT_ROOT} variable expansion
+std::string resolve_path(const std::string& path, const std::string& project_root) {
+    if (path.empty()) {
+        return path;
+    }
+    
+    // First expand any ${PROJECT_ROOT} variables
+    std::string expanded = expand_project_root_variable(path, project_root);
+    
+    // Create a filesystem path
+    std::filesystem::path p(expanded);
+    
+    // If already absolute, return normalized version
+    if (p.is_absolute()) {
+        try {
+            return std::filesystem::weakly_canonical(p).string();
+        } catch (const std::filesystem::filesystem_error&) {
+            // If canonicalization fails (e.g., path doesn't exist yet), return as-is
+            return p.string();
+        }
+    }
+    
+    // Resolve relative to project root
+    std::filesystem::path resolved = std::filesystem::path(project_root) / p;
+    try {
+        return std::filesystem::weakly_canonical(resolved).string();
+    } catch (const std::filesystem::filesystem_error&) {
+        // If canonicalization fails (e.g., path doesn't exist yet), return the combined path
+        return resolved.string();
+    }
+}
+
+// Make a path relative to the project root for saving
+// - If path is under project_root, return relative path
+// - Otherwise, return absolute path
+std::string make_path_relative(const std::string& path, const std::string& project_root) {
+    if (path.empty()) {
+        return path;
+    }
+    
+    try {
+        std::filesystem::path abs_path = std::filesystem::weakly_canonical(path);
+        std::filesystem::path root_path = std::filesystem::weakly_canonical(project_root);
+        
+        // Try to make relative
+        auto rel = std::filesystem::relative(abs_path, root_path);
+        
+        // If the relative path doesn't go up (no ..), use it
+        std::string rel_str = rel.string();
+        if (rel_str.find("..") == 0) {
+            // Path is outside project root, use absolute
+            return abs_path.string();
+        }
+        
+        return rel_str;
+    } catch (const std::filesystem::filesystem_error&) {
+        // If canonicalization fails, return path as-is
+        return path;
+    }
+}
+
 } // anonymous namespace
 
 Project load_project(const std::string& filename) {
+    // Resolve the YAML file path to absolute and determine project root
+    std::filesystem::path yaml_path;
+    try {
+        yaml_path = std::filesystem::weakly_canonical(filename);
+    } catch (const std::filesystem::filesystem_error& e) {
+        throw std::runtime_error("Failed to resolve project file path '" + filename + "': " + e.what());
+    }
+    
+    std::string project_root = yaml_path.parent_path().string();
+    
+    ORC_LOG_DEBUG("Loading project from: {}", yaml_path.string());
+    ORC_LOG_DEBUG("Project root directory: {}", project_root);
+    
     YAML::Node root;
     
     try {
-        root = YAML::LoadFile(filename);
+        root = YAML::LoadFile(yaml_path.string());
     } catch (const YAML::Exception& e) {
         throw std::runtime_error("Failed to parse YAML file '" + filename + "': " + e.what());
     }
     
     Project project;
+    
+    // Store project root for path resolution
+    project.project_root_ = project_root;
     
     // Validate project section exists
     if (!root["project"]) {
@@ -219,7 +313,22 @@ Project load_project(const std::string& filename) {
                     } else if (type == "bool") {
                         node.parameters[param_name] = param_map["value"].as<bool>();
                     } else {
-                        node.parameters[param_name] = param_map["value"].as<std::string>();
+                        // String parameter - check if it's a file path and resolve it
+                        std::string value = param_map["value"].as<std::string>();
+                        
+                        // File path parameters end with "_path" or have type "file_path"
+                        bool is_file_path = (type == "file_path" || 
+                                           param_name.find("_path") != std::string::npos ||
+                                           param_name == "output_path" ||
+                                           param_name == "input_path");
+                        
+                        if (is_file_path && !value.empty()) {
+                            std::string original_path = value;
+                            value = resolve_path(value, project_root);
+                            ORC_LOG_DEBUG("  Resolved path '{}' -> '{}'", original_path, value);
+                        }
+                        
+                        node.parameters[param_name] = value;
                     }
                 }
             }
@@ -299,6 +408,15 @@ Project load_project(const std::string& filename) {
 }
 
 void save_project(const Project& project, const std::string& filename) {
+    // Determine project root from the save location
+    std::filesystem::path save_path;
+    try {
+        save_path = std::filesystem::absolute(filename);
+    } catch (const std::filesystem::filesystem_error& e) {
+        throw std::runtime_error("Failed to resolve save path '" + filename + "': " + e.what());
+    }
+    std::string save_project_root = save_path.parent_path().string();
+    
     YAML::Emitter out;
     out << YAML::BeginMap;
     
@@ -366,8 +484,19 @@ void save_project(const Project& project, const std::string& filename) {
                     out << YAML::Key << "type" << YAML::Value << "bool";
                     out << YAML::Key << "value" << YAML::Value << std::get<bool>(param_value);
                 } else if (std::holds_alternative<std::string>(param_value)) {
+                    std::string value = std::get<std::string>(param_value);
+                    
+                    // File path parameters - convert to relative if possible
+                    bool is_file_path = (param_name.find("_path") != std::string::npos ||
+                                       param_name == "output_path" ||
+                                       param_name == "input_path");
+                    
+                    if (is_file_path && !value.empty() && !save_project_root.empty()) {
+                        value = make_path_relative(value, save_project_root);
+                    }
+                    
                     out << YAML::Key << "type" << YAML::Value << "string";
-                    out << YAML::Key << "value" << YAML::Value << std::get<std::string>(param_value);
+                    out << YAML::Key << "value" << YAML::Value << value;
                 }
                 out << YAML::EndMap;
             }

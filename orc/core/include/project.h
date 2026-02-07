@@ -178,6 +178,7 @@ public:
     SourceType get_source_format() const { return source_format_; }
     const std::vector<ProjectDAGNode>& get_nodes() const { return nodes_; }
     const std::vector<ProjectDAGEdge>& get_edges() const { return edges_; }
+    const std::string& get_project_root() const { return project_root_; }
     
     // Modification tracking
     void clear_modified_flag() const { is_modified_ = false; }
@@ -200,6 +201,7 @@ private:
     std::string name_;
     std::string description_;
     std::string version_;
+    std::string project_root_;  // Absolute path to directory containing the YAML file
     VideoSystem video_format_ = VideoSystem::Unknown;  // NTSC or PAL
     SourceType source_format_ = SourceType::Unknown;   // Composite or YC
     std::vector<ProjectDAGNode> nodes_;

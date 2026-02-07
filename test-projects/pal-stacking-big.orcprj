@@ -1,0 +1,130 @@
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: PAL Stacking Composite
+  description: A PAL project to test stacking
+  version: 1.0
+  video_format: PAL
+  source_format: Composite
+dag:
+  nodes:
+    - id: 1
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 50
+      parameters:
+        efm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you1.efm
+        input_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you1.tbc
+        pcm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you1.pcm
+    - id: 2
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 175
+      parameters:
+        efm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you2.efm
+        input_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you2.tbc
+        pcm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you2.pcm
+    - id: 3
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 300
+      parameters:
+        efm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you3.efm
+        input_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you3.tbc
+        pcm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you3.pcm
+    - id: 4
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 425
+      parameters:
+        efm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you4.efm
+        input_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you4.tbc
+        pcm_path:
+          type: string
+          value: ../../../raid/decodes/un_you_20251231/un_and_you4.pcm
+    - id: 5
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 500
+      y: 50
+    - id: 9
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 725
+      y: 50
+      parameters:
+        max_frames:
+          type: uint32
+          value: 0
+        mode:
+          type: string
+          value: both
+        output_path:
+          type: string
+          value: ../../../tmp/testsnr.csv
+        write_csv:
+          type: bool
+          value: true
+    - id: 10
+      stage: source_align
+      node_type: COMPLEX
+      display_name: Source Align
+      user_label: Source Align
+      x: 275
+      y: 50
+      parameters:
+        alignmentMap:
+          type: string
+          value: 1+2, 2+2, 3+2, 4+2
+  edges:
+    - from: 5
+      to: 9
+    - from: 1
+      to: 10
+    - from: 2
+      to: 10
+    - from: 3
+      to: 10
+    - from: 4
+      to: 10
+    - from: 10
+      to: 5

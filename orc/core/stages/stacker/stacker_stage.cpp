@@ -1362,21 +1362,26 @@ uint16_t StackerStage::stack_mode(
 
 uint16_t StackerStage::median(std::vector<uint16_t> values) const
 {
-    if (values.empty()) {
-        return 0;
+    const size_t n = values.size();
+    if (n == 0) return 0;
+    if (n == 1) return values[0];
+    
+    // Simple insertion sort - very fast for small arrays (< 16 sources)
+    for (size_t i = 1; i < n; i++) {
+        uint16_t key = values[i];
+        size_t j = i;
+        while (j > 0 && values[j-1] > key) {
+            values[j] = values[j-1];
+            j--;
+        }
+        values[j] = key;
     }
     
-    const size_t n = values.size();
-    
+    // Return median
     if (n % 2 == 0) {
-        // Even number of elements
-        std::nth_element(values.begin(), values.begin() + n / 2, values.end());
-        std::nth_element(values.begin(), values.begin() + (n - 1) / 2, values.end());
-        return static_cast<uint16_t>((values[(n - 1) / 2] + values[n / 2]) / 2.0);
+        return static_cast<uint16_t>((static_cast<uint32_t>(values[n/2-1]) + values[n/2]) / 2);
     } else {
-        // Odd number of elements
-        std::nth_element(values.begin(), values.begin() + n / 2, values.end());
-        return values[n / 2];
+        return values[n/2];
     }
 }
 

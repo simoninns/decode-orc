@@ -127,83 +127,6 @@ NodeType string_to_node_type(const std::string& str) {
     return NodeType::TRANSFORM;
 }
 
-// Path resolution utilities
-// Expand ${PROJECT_ROOT} variable in a path string
-std::string expand_project_root_variable(const std::string& path, const std::string& project_root) {
-    const std::string variable = "${PROJECT_ROOT}";
-    std::string result = path;
-    size_t pos = 0;
-    while ((pos = result.find(variable, pos)) != std::string::npos) {
-        result.replace(pos, variable.length(), project_root);
-        pos += project_root.length();
-    }
-    return result;
-}
-
-// Resolve a path relative to the project root
-// - If path is absolute, return it unchanged
-// - If path is relative, resolve it relative to project_root
-// - Supports ${PROJECT_ROOT} variable expansion
-std::string resolve_path(const std::string& path, const std::string& project_root) {
-    if (path.empty()) {
-        return path;
-    }
-    
-    // First expand any ${PROJECT_ROOT} variables
-    std::string expanded = expand_project_root_variable(path, project_root);
-    
-    // Create a filesystem path
-    std::filesystem::path p(expanded);
-    
-    // If already absolute, return normalized version
-    if (p.is_absolute()) {
-        try {
-            return std::filesystem::weakly_canonical(p).string();
-        } catch (const std::filesystem::filesystem_error&) {
-            // If canonicalization fails (e.g., path doesn't exist yet), return as-is
-            return p.string();
-        }
-    }
-    
-    // Resolve relative to project root
-    std::filesystem::path resolved = std::filesystem::path(project_root) / p;
-    try {
-        return std::filesystem::weakly_canonical(resolved).string();
-    } catch (const std::filesystem::filesystem_error&) {
-        // If canonicalization fails (e.g., path doesn't exist yet), return the combined path
-        return resolved.string();
-    }
-}
-
-// Make a path relative to the project root for saving
-// - If path is under project_root, return relative path
-// - Otherwise, return absolute path
-std::string make_path_relative(const std::string& path, const std::string& project_root) {
-    if (path.empty()) {
-        return path;
-    }
-    
-    try {
-        std::filesystem::path abs_path = std::filesystem::weakly_canonical(path);
-        std::filesystem::path root_path = std::filesystem::weakly_canonical(project_root);
-        
-        // Try to make relative
-        auto rel = std::filesystem::relative(abs_path, root_path);
-        
-        // If the relative path doesn't go up (no ..), use it
-        std::string rel_str = rel.string();
-        if (rel_str.find("..") == 0) {
-            // Path is outside project root, use absolute
-            return abs_path.string();
-        }
-        
-        return rel_str;
-    } catch (const std::filesystem::filesystem_error&) {
-        // If canonicalization fails, return path as-is
-        return path;
-    }
-}
-
 } // anonymous namespace
 
 Project load_project(const std::string& filename) {
@@ -313,21 +236,8 @@ Project load_project(const std::string& filename) {
                     } else if (type == "bool") {
                         node.parameters[param_name] = param_map["value"].as<bool>();
                     } else {
-                        // String parameter - check if it's a file path and resolve it
+                        // String parameter - store as-is to preserve original format (relative/absolute/${PROJECT_ROOT})
                         std::string value = param_map["value"].as<std::string>();
-                        
-                        // File path parameters end with "_path" or have type "file_path"
-                        bool is_file_path = (type == "file_path" || 
-                                           param_name.find("_path") != std::string::npos ||
-                                           param_name == "output_path" ||
-                                           param_name == "input_path");
-                        
-                        if (is_file_path && !value.empty()) {
-                            std::string original_path = value;
-                            value = resolve_path(value, project_root);
-                            ORC_LOG_DEBUG("  Resolved path '{}' -> '{}'", original_path, value);
-                        }
-                        
                         node.parameters[param_name] = value;
                     }
                 }
@@ -486,15 +396,8 @@ void save_project(const Project& project, const std::string& filename) {
                 } else if (std::holds_alternative<std::string>(param_value)) {
                     std::string value = std::get<std::string>(param_value);
                     
-                    // File path parameters - convert to relative if possible
-                    bool is_file_path = (param_name.find("_path") != std::string::npos ||
-                                       param_name == "output_path" ||
-                                       param_name == "input_path");
-                    
-                    if (is_file_path && !value.empty() && !save_project_root.empty()) {
-                        value = make_path_relative(value, save_project_root);
-                    }
-                    
+                    // Save string parameters as-is to preserve their original format
+                    // (relative paths, absolute paths, or ${PROJECT_ROOT} variables)
                     out << YAML::Key << "type" << YAML::Value << "string";
                     out << YAML::Key << "value" << YAML::Value << value;
                 }

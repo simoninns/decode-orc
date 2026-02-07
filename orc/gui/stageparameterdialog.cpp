@@ -22,10 +22,12 @@ StageParameterDialog::StageParameterDialog(
     const std::string& stage_name,
     const std::vector<orc::ParameterDescriptor>& descriptors,
     const std::map<std::string, orc::ParameterValue>& current_values,
+    const QString& project_path,
     QWidget* parent)
     : QDialog(parent)
     , stage_name_(stage_name)
     , descriptors_(descriptors)
+    , project_path_(project_path)
 {
     setWindowTitle(QString("%1 Parameters").arg(QString::fromStdString(stage_name)));
     setMinimumWidth(400);
@@ -250,7 +252,13 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                     }
                     
                     if (!file.isEmpty()) {
-                        edit->setText(file);
+                        // Convert to relative path if we have a project path
+                        QString path_to_store = file;
+                        if (!project_path_.isEmpty()) {
+                            QDir project_dir(QFileInfo(project_path_).absolutePath());
+                            path_to_store = project_dir.relativeFilePath(file);
+                        }
+                        edit->setText(path_to_store);
                         // Save directory for this source type
                         settings.setValue(settings_key, QFileInfo(file).absolutePath());
                     }

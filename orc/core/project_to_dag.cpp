@@ -16,12 +16,53 @@
 #include "observation_context.h"
 #include <algorithm>
 #include <sstream>
+#include <filesystem>
 
 namespace orc {
+
+// Helper function to resolve paths relative to project root
+// Matches the resolve_path function in project.cpp
+static std::string resolve_path_for_execution(const std::string& path, const std::string& project_root) {
+    if (path.empty() || project_root.empty()) {
+        return path;
+    }
+    
+    // First expand any ${PROJECT_ROOT} variables
+    const std::string variable = "${PROJECT_ROOT}";
+    std::string expanded = path;
+    size_t pos = 0;
+    while ((pos = expanded.find(variable, pos)) != std::string::npos) {
+        expanded.replace(pos, variable.length(), project_root);
+        pos += project_root.length();
+    }
+    
+    // Create a filesystem path
+    std::filesystem::path p(expanded);
+    
+    // If already absolute, return normalized version
+    if (p.is_absolute()) {
+        try {
+            return std::filesystem::weakly_canonical(p).string();
+        } catch (const std::filesystem::filesystem_error&) {
+            return p.string();
+        }
+    }
+    
+    // Resolve relative to project root
+    std::filesystem::path resolved = std::filesystem::path(project_root) / p;
+    try {
+        return std::filesystem::weakly_canonical(resolved).string();
+    } catch (const std::filesystem::filesystem_error&) {
+        return resolved.string();
+    }
+}
 
 std::shared_ptr<DAG> project_to_dag(const Project& project) {
     auto dag = std::make_shared<DAG>();
     auto& registry = StageRegistry::instance();
+    
+    // Get project root for path resolution
+    const std::string& project_root = project.get_project_root();
     
     // Convert each ProjectDAGNode to a DAGNode
     // All nodes are uniform now - SOURCE nodes just use TBCSourceStage
@@ -43,9 +84,32 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         ORC_LOG_DEBUG("Node '{}': Converting from project (stage: {}, {} parameters)",
                       proj_node.node_id, proj_node.stage_name, proj_node.parameters.size());
         
-        // Copy parameters directly (already strongly typed)
+        // Copy and resolve parameters
         dag_node.parameters = proj_node.parameters;
-        for (const auto& [key, value] : proj_node.parameters) {
+        
+        // Resolve file paths relative to project root
+        for (auto& [param_name, param_value] : dag_node.parameters) {
+            if (std::holds_alternative<std::string>(param_value)) {
+                // Check if this is a file path parameter
+                bool is_file_path = (param_name.find("_path") != std::string::npos ||
+                                   param_name == "output_path" ||
+                                   param_name == "input_path");
+                
+                if (is_file_path) {
+                    std::string path = std::get<std::string>(param_value);
+                    if (!path.empty()) {
+                        std::string resolved = resolve_path_for_execution(path, project_root);
+                        if (resolved != path) {
+                            ORC_LOG_DEBUG("Node '{}':   Resolved path '{}' -> '{}'", 
+                                        proj_node.node_id, path, resolved);
+                        }
+                        param_value = resolved;
+                    }
+                }
+            }
+        }
+        
+        for (const auto& [key, value] : dag_node.parameters) {
             std::visit([&proj_node, key_ref = std::cref(key)](const auto& v) {
                 ORC_LOG_DEBUG("Node '{}':   param '{}' = {}", proj_node.node_id, key_ref.get(), v);
             }, value);

@@ -1898,7 +1898,8 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     }
     
     // Show parameter dialog
-    StageParameterDialog dialog(display_name, param_descriptors, current_values, this);
+    StageParameterDialog dialog(display_name, param_descriptors, current_values, 
+                               project_.projectPath(), this);
     
     if (dialog.exec() == QDialog::Accepted) {
         auto new_values = dialog.get_values();
@@ -2804,7 +2805,7 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, cons
         }
         
         // Create and show the preset dialog
-        FFmpegPresetDialog dialog(this);
+        FFmpegPresetDialog dialog(project_.projectPath(), this);
         
         // Load current parameters from presenter
         auto current_params = project_.presenter()->getNodeParameters(node_id);

@@ -21,9 +21,10 @@
 #include <set>
 #include <map>
 
-FFmpegPresetDialog::FFmpegPresetDialog(QWidget *parent)
+FFmpegPresetDialog::FFmpegPresetDialog(const QString& project_path, QWidget *parent)
     : ConfigDialogBase("FFmpeg Export Preset Configuration", parent),
-      updating_ui_(false)
+      updating_ui_(false),
+      project_path_(project_path)
 {
     // Increase minimum height to accommodate all sections
     setMinimumHeight(800);
@@ -671,6 +672,12 @@ void FFmpegPresetDialog::on_browse_filename_clicked()
     );
     
     if (!selected_file.isEmpty()) {
-        filename_edit_->setText(selected_file);
+        // Convert to relative path if we have a project path
+        QString path_to_store = selected_file;
+        if (!project_path_.isEmpty()) {
+            QDir project_dir(QFileInfo(project_path_).absolutePath());
+            path_to_store = project_dir.relativeFilePath(selected_file);
+        }
+        filename_edit_->setText(path_to_store);
     }
 }

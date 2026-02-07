@@ -42,12 +42,14 @@ public:
      * @param stage_name Name of the stage being edited
      * @param descriptors Parameter descriptors from the stage
      * @param current_values Current parameter values
+     * @param project_path Path to the project file (for relative path conversion)
      * @param parent Parent widget
      */
     explicit StageParameterDialog(
         const std::string& stage_name,
         const std::vector<orc::ParameterDescriptor>& descriptors,
         const std::map<std::string, orc::ParameterValue>& current_values,
+        const QString& project_path = QString(),
         QWidget* parent = nullptr);
     
     /**
@@ -67,6 +69,7 @@ private:
     QPushButton* reset_button_;
     
     std::string stage_name_;  // Stage name for QSettings keys
+    QString project_path_;  // Project file path for relative path conversion
     
     // Parameter descriptors (keep for validation and defaults)
     std::vector<orc::ParameterDescriptor> descriptors_;

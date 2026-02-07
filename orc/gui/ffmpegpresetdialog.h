@@ -40,7 +40,7 @@ class FFmpegPresetDialog : public ConfigDialogBase
     Q_OBJECT
 
 public:
-    explicit FFmpegPresetDialog(QWidget *parent = nullptr);
+    explicit FFmpegPresetDialog(const QString& project_path = QString(), QWidget *parent = nullptr);
     ~FFmpegPresetDialog() override = default;
 
 protected:
@@ -106,6 +106,7 @@ private:
     
     // State tracking
     bool updating_ui_;  // Flag to prevent recursive updates
+    QString project_path_;  // Project file path for relative path conversion
 };
 
 #endif // FFMPEGPRESETDIALOG_H

@@ -11,6 +11,7 @@
 #include "command_process.h"
 #include "logging.h"
 #include "crash_handler.h"
+#include "project_presenter.h"
 
 #include <iostream>
 #include <sstream>
@@ -122,8 +123,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Initialize logging
-    orc::init_app_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
+    // Initialize logging - both app logger and core logger
+    orc::init_app_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file, "cli");
+    orc::presenters::initCoreLogging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
     
     // Initialize crash handler
     CrashHandlerConfig crash_config;

@@ -419,12 +419,12 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
             offsets[idx] = FieldID(offset_val);
         }
         
-        ORC_LOG_INFO("Using manual alignment map: {}", alignment_map_);
+        ORC_LOG_DEBUG("Using manual alignment map: {}", alignment_map_);
         for (size_t i = 0; i < offsets.size(); ++i) {
             if (offsets[i].is_valid()) {
-                ORC_LOG_INFO("  Input {}: offset = {}", i + 1, offsets[i].value());
+                ORC_LOG_DEBUG("  Input {}: offset = {}", i + 1, offsets[i].value());
             } else {
-                ORC_LOG_INFO("  Input {}: EXCLUDED", i + 1);
+                ORC_LOG_DEBUG("  Input {}: EXCLUDED", i + 1);
             }
         }
     } else {

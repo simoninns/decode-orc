@@ -299,7 +299,7 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
                 int32_t bin_frame_number = static_cast<int32_t>((last_fid.value() / 2) + 1);
                 current_bin.frame_number = bin_frame_number;
                 current_bin.has_data = true;
-                ORC_LOG_INFO("SNRAnalysisSink: Bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: white_snr={:.2f}dB ({} fields), black_psnr={:.2f}dB ({} fields)",
+                ORC_LOG_DEBUG("SNRAnalysisSink: Bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: white_snr={:.2f}dB ({} fields), black_psnr={:.2f}dB ({} fields)",
                               frame_stats_.size(), 
                               first_field_in_bin, last_field_in_bin,
                               range.start.value() + first_field_in_bin, range.start.value() + last_field_in_bin,
@@ -333,7 +333,7 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
         int32_t bin_frame_number = static_cast<int32_t>((last_fid.value() / 2) + 1);
         current_bin.frame_number = bin_frame_number;
         current_bin.has_data = true;
-        ORC_LOG_INFO("SNRAnalysisSink: Final bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: white_snr={:.2f}dB ({} fields), black_psnr={:.2f}dB ({} fields)",
+        ORC_LOG_DEBUG("SNRAnalysisSink: Final bucket {} - field indices {}-{}, field IDs {}-{}, frame {}: white_snr={:.2f}dB ({} fields), black_psnr={:.2f}dB ({} fields)",
                       frame_stats_.size(), 
                       first_field_in_bin, last_field_in_bin,
                       range.start.value() + first_field_in_bin, range.start.value() + last_field_in_bin,

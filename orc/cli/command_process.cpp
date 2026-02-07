@@ -49,15 +49,13 @@ int process_command(const ProcessOptions& options) {
     ORC_LOG_DEBUG("Project contains {} nodes and {} edges", nodes.size(), edges.size());
     
     // Set up progress callback for console output
-    std::string last_message;
     size_t last_percent = 0;
-    auto progress_callback = [&last_message, &last_percent](size_t current, size_t total, const std::string& message) {
+    auto progress_callback = [&last_percent](size_t current, size_t total, const std::string& message) {
         if (total > 0) {
             size_t percent = (current * 100) / total;
-            // Only log on message change or significant progress change
-            if (message != last_message || percent >= last_percent + 5) {
-                std::cout << "[Progress: " << percent << "%] " << message << std::endl;
-                last_message = message;
+            // Only log on significant progress change (every 5%)
+            if (percent >= last_percent + 5 || current == total) {
+                ORC_LOG_INFO("[Progress: {}%] {}", percent, message);
                 last_percent = percent;
             }
         }

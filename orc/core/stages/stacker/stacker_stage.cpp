@@ -670,7 +670,7 @@ StackerStage::process(
         return sources[0];
     }
     
-    ORC_LOG_INFO("StackerStage::process - Creating StackedVideoFieldRepresentation for {} sources", sources.size());
+    ORC_LOG_DEBUG("StackerStage::process - Creating StackedVideoFieldRepresentation for {} sources", sources.size());
     
     // Create stacked representation - will build frame alignment and process fields on-demand
     auto stacked = std::make_shared<StackedVideoFieldRepresentation>(

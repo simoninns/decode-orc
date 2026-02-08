@@ -353,80 +353,165 @@ AnalysisResult FieldMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
     }
     
     if (progress) {
-        progress->setStatus("Extracting VBI data from fields...");
+        progress->setStatus("Finding first valid VBI to establish baseline...");
         progress->setProgress(10);
     }
     
+    // Extract VBI on-demand, not all at once
     BiphaseObserver biphase_observer;
     auto& obs_context = executor.get_observation_context();
     
+    // Helper function to extract VBI for a field on-demand
+    auto extract_vbi_if_needed = [&](FieldID fid) {
+        // Check if we've already extracted VBI for this field
+        auto existing = obs_context.get(fid, "vbi", "picture_number");
+        if (!existing) {
+            // Extract VBI for this field only
+            biphase_observer.process_field(*source, fid, obs_context);
+        }
+    };
+    
+    // Find the first valid VBI picture number/timecode to establish a baseline
+    std::optional<int32_t> first_picture_number;
+    FieldID first_valid_field;
+    
     for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
-        biphase_observer.process_field(*source, fid, obs_context);
+        extract_vbi_if_needed(fid);
+        auto pn_opt = get_picture_number_from_vbi(obs_context, fid, is_pal);
+        if (pn_opt) {
+            first_picture_number = *pn_opt;
+            first_valid_field = fid;
+            ORC_LOG_DEBUG("First valid VBI at field {}: picture number {}", fid.value(), *pn_opt);
+            break;
+        }
+    }
+    
+    if (!first_picture_number) {
+        result.status = AnalysisResult::Failed;
+        result.summary = "No valid VBI data found in source. Cannot locate picture numbers/timecodes.";
+        return result;
     }
     
     if (progress) {
-        progress->setStatus("Scanning for start/end frames...");
-        progress->setProgress(30);
+        progress->setStatus("Analyzing picture-to-field mapping...");
+        progress->setProgress(20);
     }
     
-    bool start_found = false;
-    bool end_found = false;
-    FieldID start_field;
-    FieldID end_field;
+    // Sample multiple points to determine the actual picture-to-field ratio
+    // This handles gaps, missing fields, and non-uniform spacing
+    std::vector<std::pair<int64_t, int32_t>> samples; // (field_id, picture_number)
+    samples.push_back({first_valid_field.value(), first_picture_number.value()});
     
-    size_t total_fields = field_range.size();
-    size_t processed_fields = 0;
-    bool end_same_as_start = (start_addr.picture_number == end_addr.picture_number);
-    bool end_frame_active = false;
+    // Sample up to 10 more points spread across the source
+    const size_t max_samples = 11;
+    size_t sample_interval = std::max<size_t>(1, field_range.size() / (max_samples * 10));
     
-    for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
-        auto pn_opt = get_picture_number_from_vbi(obs_context, fid, is_pal);
-        processed_fields++;
+    for (size_t i = 1; i < max_samples && samples.size() < max_samples; i++) {
+        uint64_t sample_field = first_valid_field.value() + (i * sample_interval);
+        if (sample_field >= field_range.end.value()) break;
         
-        if (!pn_opt) {
-            continue;
+        extract_vbi_if_needed(FieldID(sample_field));
+        auto pn_opt = get_picture_number_from_vbi(obs_context, FieldID(sample_field), is_pal);
+        if (pn_opt) {
+            samples.push_back({sample_field, *pn_opt});
+        }
+    }
+    
+    // Calculate average fields-per-picture from samples
+    double avg_fields_per_picture = 2.0; // default fallback
+    if (samples.size() > 1) {
+        int64_t total_field_delta = 0;
+        int64_t total_picture_delta = 0;
+        for (size_t i = 1; i < samples.size(); i++) {
+            int64_t field_delta = samples[i].first - samples[i-1].first;
+            int64_t picture_delta = samples[i].second - samples[i-1].second;
+            if (picture_delta > 0 && field_delta > 0) {
+                total_field_delta += field_delta;
+                total_picture_delta += picture_delta;
+            }
+        }
+        if (total_picture_delta > 0) {
+            avg_fields_per_picture = static_cast<double>(total_field_delta) / static_cast<double>(total_picture_delta);
+        }
+    }
+    
+    ORC_LOG_DEBUG("Sampled {} points, calculated avg fields per picture: {:.2f}", samples.size(), avg_fields_per_picture);
+    
+    // Predict the approximate field positions based on picture number offsets and measured ratio
+    int64_t start_picture_offset = start_addr.picture_number - first_picture_number.value();
+    int64_t end_picture_offset = end_addr.picture_number - first_picture_number.value();
+    
+    int64_t predicted_start_field = first_valid_field.value() + 
+                                    static_cast<int64_t>(start_picture_offset * avg_fields_per_picture);
+    int64_t predicted_end_field = first_valid_field.value() + 
+                                  static_cast<int64_t>(end_picture_offset * avg_fields_per_picture);
+    
+    // Clamp to valid range
+    predicted_start_field = std::max<int64_t>(field_range.start.value(), 
+                                              std::min<int64_t>(predicted_start_field, field_range.end.value() - 1));
+    predicted_end_field = std::max<int64_t>(field_range.start.value(), 
+                                            std::min<int64_t>(predicted_end_field, field_range.end.value() - 1));
+    
+    ORC_LOG_DEBUG("Predicted start field: {} (picture {}), predicted end field: {} (picture {})",
+                  predicted_start_field, start_addr.picture_number,
+                  predicted_end_field, end_addr.picture_number);
+    
+    if (progress) {
+        progress->setStatus("Jumping to predicted start position...");
+        progress->setProgress(40);
+    }
+    
+    // Jump directly to predicted position and search locally
+    bool start_found = false;
+    FieldID start_field;
+    
+    // First check the predicted location
+    int64_t search_radius = 5000; // Search ±5000 fields from prediction
+    int64_t start_search_begin = std::max<int64_t>(field_range.start.value(), 
+                                                    predicted_start_field - search_radius);
+    int64_t start_search_end = std::min<int64_t>(field_range.end.value(), 
+                                                  predicted_start_field + search_radius);
+    
+    ORC_LOG_DEBUG("Searching for start picture {} in field range {}-{} (predicted: {})",
+                  start_addr.picture_number, start_search_begin, start_search_end, predicted_start_field);
+    
+    // Search in the predicted window
+    for (int64_t fid_val = start_search_begin; fid_val < start_search_end; fid_val++) {
+        extract_vbi_if_needed(FieldID(fid_val));
+        auto pn_opt = get_picture_number_from_vbi(obs_context, FieldID(fid_val), is_pal);
+        if (pn_opt && *pn_opt == start_addr.picture_number) {
+            start_found = true;
+            start_field = FieldID(fid_val);
+            ORC_LOG_DEBUG("Start position found at field {}: picture number {}", fid_val, *pn_opt);
+            break;
+        }
+    }
+    
+    // If not found, fall back to full search from beginning
+    if (!start_found) {
+        ORC_LOG_WARN("Start not found in predicted range, falling back to full scan");
+        if (progress) {
+            progress->setStatus("Start not in predicted range, scanning from beginning...");
         }
         
-        int32_t pn = *pn_opt;
-        
-        if (!start_found) {
-            if (pn == start_addr.picture_number) {
+        for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
+            extract_vbi_if_needed(fid);
+            auto pn_opt = get_picture_number_from_vbi(obs_context, fid, is_pal);
+            if (pn_opt && *pn_opt == start_addr.picture_number) {
                 start_found = true;
                 start_field = fid;
-                if (end_same_as_start) {
-                    end_found = true;
-                    end_field = fid;
-                    end_frame_active = true;
-                }
+                ORC_LOG_DEBUG("Start position found at field {} (full scan): picture number {}", fid.value(), *pn_opt);
+                break;
             }
-        } else {
-            if (end_same_as_start) {
-                if (pn == start_addr.picture_number) {
-                    end_field = fid;
-                } else if (end_found && end_frame_active) {
-                    break;
+            
+            // Progress update every 5000 fields
+            if (progress && (fid.value() % 5000 == 0)) {
+                progress->setProgress(50 + static_cast<int>(15.0 * fid.value() / field_range.size()));
+                if (progress->isCancelled()) {
+                    AnalysisResult result;
+                    result.status = AnalysisResult::Cancelled;
+                    return result;
                 }
-            } else {
-                if (!end_found && pn == end_addr.picture_number) {
-                    end_found = true;
-                    end_field = fid;
-                    end_frame_active = true;
-                } else if (end_found && end_frame_active) {
-                    if (pn == end_addr.picture_number) {
-                        end_field = fid;
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-        
-        if (progress && (processed_fields % 5000 == 0)) {
-            int progress_value = 30 + static_cast<int>(60.0 * processed_fields / std::max<size_t>(1, total_fields));
-            progress->setProgress(std::min(progress_value, 90));
-            if (progress->isCancelled()) {
-                result.status = AnalysisResult::Cancelled;
-                return result;
             }
         }
     }
@@ -435,6 +520,106 @@ AnalysisResult FieldMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
         result.status = AnalysisResult::Failed;
         result.summary = "Start address not found in source.";
         return result;
+    }
+    
+    if (progress) {
+        progress->setStatus("Searching for end position...");
+        progress->setProgress(70);
+        if (progress->isCancelled()) {
+            result.status = AnalysisResult::Cancelled;
+            return result;
+        }
+    }
+    
+    // Search for end position
+    bool end_found = false;
+    FieldID end_field;
+    bool end_same_as_start = (start_addr.picture_number == end_addr.picture_number);
+    
+    if (end_same_as_start) {
+        // Special case: find last field of same picture
+        end_field = start_field;
+        end_found = true;
+        
+        for (FieldID fid = FieldID(start_field.value() + 1); fid < field_range.end; fid = FieldID(fid.value() + 1)) {
+            extract_vbi_if_needed(fid);
+            auto pn_opt = get_picture_number_from_vbi(obs_context, fid, is_pal);
+            if (pn_opt && *pn_opt == start_addr.picture_number) {
+                end_field = fid;
+            } else if (pn_opt && *pn_opt != start_addr.picture_number) {
+                break;
+            }
+        }
+        ORC_LOG_DEBUG("End position (same as start) at field {}: picture number {}", 
+                      end_field.value(), start_addr.picture_number);
+    } else {
+        // Search near predicted end position
+        int64_t end_search_begin = std::max<int64_t>(start_field.value(), 
+                                                      predicted_end_field - search_radius);
+        int64_t end_search_end = std::min<int64_t>(field_range.end.value(), 
+                                                    predicted_end_field + search_radius);
+        
+        ORC_LOG_DEBUG("Searching for end picture {} in field range {}-{} (predicted: {})",
+                      end_addr.picture_number, end_search_begin, end_search_end, predicted_end_field);
+        
+        // Search for last field with the end picture number
+        std::optional<int64_t> last_matching_field;
+        for (int64_t fid_val = end_search_begin; fid_val < end_search_end; fid_val++) {
+            extract_vbi_if_needed(FieldID(fid_val));
+            auto pn_opt = get_picture_number_from_vbi(obs_context, FieldID(fid_val), is_pal);
+            if (pn_opt && *pn_opt == end_addr.picture_number) {
+                last_matching_field = fid_val;
+            }
+        }
+        
+        if (last_matching_field) {
+            end_found = true;
+            end_field = FieldID(*last_matching_field);
+            ORC_LOG_DEBUG("End position found at field {}: picture number {}", *last_matching_field, end_addr.picture_number);
+        }
+        
+        // Fallback to full scan from start if not found
+        if (!end_found) {
+            ORC_LOG_WARN("End not found in predicted range, falling back to scan from start position");
+            if (progress) {
+                progress->setStatus("End not in predicted range, scanning from start...");
+            }
+            
+            for (FieldID fid = FieldID(start_field.value() + 1); fid < field_range.end; fid = FieldID(fid.value() + 1)) {
+                extract_vbi_if_needed(fid);
+                auto pn_opt = get_picture_number_from_vbi(obs_context, fid, is_pal);
+                if (pn_opt && *pn_opt == end_addr.picture_number) {
+                    end_found = true;
+                    end_field = fid;
+                } else if (end_found && pn_opt && *pn_opt != end_addr.picture_number) {
+                    break;
+                }
+                
+                // Progress update every 5000 fields
+                if (progress && (fid.value() % 5000 == 0)) {
+                    int64_t fields_from_start = fid.value() - start_field.value();
+                    int64_t total_to_scan = field_range.end.value() - start_field.value();
+                    progress->setProgress(70 + static_cast<int>(20.0 * fields_from_start / std::max<int64_t>(1, total_to_scan)));
+                    if (progress->isCancelled()) {
+                        result.status = AnalysisResult::Cancelled;
+                        return result;
+                    }
+                }
+            }
+            
+            if (end_found) {
+                ORC_LOG_DEBUG("End position found at field {} (full scan): picture number {}", 
+                              end_field.value(), end_addr.picture_number);
+            }
+        }
+    }
+    
+    if (progress) {
+        progress->setProgress(90);
+        if (progress->isCancelled()) {
+            result.status = AnalysisResult::Cancelled;
+            return result;
+        }
     }
     
     if (!end_found) {

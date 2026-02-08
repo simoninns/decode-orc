@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QGroupBox>
+#include <QThread>
 #include <string>
 #include <memory>
 #include <map>
@@ -62,14 +63,18 @@ signals:
 
 private slots:
     void runAnalysis();
+    void cancelAnalysis();
     void applyResults();
     void updateParameterDependencies();
+    void onAnalysisComplete();
+    void onAnalysisProgress(int percentage, QString status);
 
 private:
     void setupUI();
     void populateParameters();
     QWidget* createParameterWidget(const std::string& name, const orc::ParameterDescriptor& param);
     void collectParameters();
+    void closeEvent(QCloseEvent* event) override;
     void displayResults(const orc::AnalysisResult& result);
     void setupFieldMapRangeWidgets();
     void syncTimecodeFromPicture(bool is_start);
@@ -111,6 +116,7 @@ private:
     QProgressBar* progressBar_;
     QTextEdit* reportText_;
     QPushButton* runButton_;
+    QPushButton* cancelButton_;
     QPushButton* applyButton_;
     QPushButton* closeButton_;
     QFormLayout* parametersLayout_;
@@ -123,6 +129,10 @@ private:
         QLabel* label = nullptr;
     };
     std::vector<ParameterWidget> parameterWidgets_;
+    
+    // Worker thread for async analysis
+    class AnalysisWorker;
+    AnalysisWorker* worker_ = nullptr;
 };
 
 } // namespace gui

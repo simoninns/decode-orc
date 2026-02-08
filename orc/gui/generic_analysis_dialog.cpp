@@ -18,13 +18,91 @@ namespace orc {
 #include <QHBoxLayout>
 #include <QGroupBox>
 #include <QMessageBox>
-#include <QHBoxLayout>
+#include <QCloseEvent>
 #include <limits>
 #include <algorithm>
 #include <map>
 
 namespace orc {
 namespace gui {
+
+/**
+ * @brief Worker thread for running analysis asynchronously
+ */
+class GenericAnalysisDialog::AnalysisWorker : public QThread {
+    Q_OBJECT
+
+public:
+    AnalysisWorker(
+        const std::string& tool_id,
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> parameters,
+        orc::presenters::FieldCorruptionPresenter* field_corruption_presenter,
+        orc::presenters::DiscMapperPresenter* disc_mapper_presenter,
+        orc::presenters::FieldMapRangePresenter* field_map_range_presenter,
+        orc::presenters::SourceAlignmentPresenter* source_alignment_presenter,
+        orc::presenters::MaskLinePresenter* mask_line_presenter,
+        orc::presenters::FFmpegPresetPresenter* ffmpeg_preset_presenter,
+        orc::presenters::DropoutEditorPresenter* dropout_editor_presenter)
+        : tool_id_(tool_id)
+        , node_id_(node_id)
+        , parameters_(std::move(parameters))
+        , field_corruption_presenter_(field_corruption_presenter)
+        , disc_mapper_presenter_(disc_mapper_presenter)
+        , field_map_range_presenter_(field_map_range_presenter)
+        , source_alignment_presenter_(source_alignment_presenter)
+        , mask_line_presenter_(mask_line_presenter)
+        , ffmpeg_preset_presenter_(ffmpeg_preset_presenter)
+        , dropout_editor_presenter_(dropout_editor_presenter)
+    {}
+
+    orc::AnalysisResult getResult() const { return result_; }
+
+signals:
+    void progressUpdate(int percentage, QString status);
+
+protected:
+    void run() override {
+        // Progress callback to update UI (must use queued signal for thread safety)
+        auto progress_callback = [this](int percentage, const std::string& status) {
+            emit progressUpdate(percentage, QString::fromStdString(status));
+        };
+        
+        // Run analysis using specialized presenter
+        if (disc_mapper_presenter_) {
+            result_ = disc_mapper_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else if (field_map_range_presenter_) {
+            result_ = field_map_range_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else if (field_corruption_presenter_) {
+            result_ = field_corruption_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else if (source_alignment_presenter_) {
+            result_ = source_alignment_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else if (mask_line_presenter_) {
+            result_ = mask_line_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else if (ffmpeg_preset_presenter_) {
+            result_ = ffmpeg_preset_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else if (dropout_editor_presenter_) {
+            result_ = dropout_editor_presenter_->runAnalysis(node_id_, parameters_, progress_callback);
+        } else {
+            // Unknown tool
+            result_.status = orc::AnalysisResult::Status::Failed;
+            result_.summary = "No specialized presenter available for tool: " + tool_id_;
+        }
+    }
+
+private:
+    std::string tool_id_;
+    orc::NodeID node_id_;
+    std::map<std::string, orc::ParameterValue> parameters_;
+    orc::presenters::FieldCorruptionPresenter* field_corruption_presenter_;
+    orc::presenters::DiscMapperPresenter* disc_mapper_presenter_;
+    orc::presenters::FieldMapRangePresenter* field_map_range_presenter_;
+    orc::presenters::SourceAlignmentPresenter* source_alignment_presenter_;
+    orc::presenters::MaskLinePresenter* mask_line_presenter_;
+    orc::presenters::FFmpegPresetPresenter* ffmpeg_preset_presenter_;
+    orc::presenters::DropoutEditorPresenter* dropout_editor_presenter_;
+    orc::AnalysisResult result_;
+};
 
 GenericAnalysisDialog::GenericAnalysisDialog(
     const std::string& tool_id,
@@ -72,6 +150,12 @@ GenericAnalysisDialog::GenericAnalysisDialog(
 }
 
 GenericAnalysisDialog::~GenericAnalysisDialog() {
+    // Clean up worker thread
+    if (worker_) {
+        worker_->wait();
+        delete worker_;
+    }
+    
     delete presenter_;
     delete field_corruption_presenter_;
     delete disc_mapper_presenter_;
@@ -122,12 +206,15 @@ void GenericAnalysisDialog::setupUI() {
     // Buttons
     auto* buttonLayout = new QHBoxLayout();
     runButton_ = new QPushButton("Run Analysis");
+    cancelButton_ = new QPushButton("Cancel");
     applyButton_ = new QPushButton("Apply to Stage");
     closeButton_ = new QPushButton("OK");
     
+    cancelButton_->setEnabled(false);
     applyButton_->setEnabled(false);
     
     buttonLayout->addWidget(runButton_);
+    buttonLayout->addWidget(cancelButton_);
     buttonLayout->addWidget(applyButton_);
     buttonLayout->addStretch();
     buttonLayout->addWidget(closeButton_);
@@ -136,6 +223,7 @@ void GenericAnalysisDialog::setupUI() {
     
     // Connections
     connect(runButton_, &QPushButton::clicked, this, &GenericAnalysisDialog::runAnalysis);
+    connect(cancelButton_, &QPushButton::clicked, this, &GenericAnalysisDialog::cancelAnalysis);
     connect(applyButton_, &QPushButton::clicked, this, &GenericAnalysisDialog::applyResults);
     connect(closeButton_, &QPushButton::clicked, this, &QDialog::accept);
 }
@@ -265,7 +353,9 @@ void GenericAnalysisDialog::runAnalysis() {
     collectParameters();
     
     runButton_->setEnabled(false);
+    cancelButton_->setEnabled(true);
     applyButton_->setEnabled(false);
+    closeButton_->setEnabled(false);
     reportText_->clear();
     statusLabel_->setText("Running analysis...");
     progressBar_->setValue(0);
@@ -311,46 +401,120 @@ void GenericAnalysisDialog::runAnalysis() {
         }
     }
     
-    // Progress callback to update UI for specialized presenter
-    auto progress_callback = [this](int percentage, const std::string& status) {
-        statusLabel_->setText(QString::fromStdString(status));
-        progressBar_->setValue(percentage);
-    };
-    
-    // Run analysis using specialized presenter
-    orc::AnalysisResult result;
-    
-    if (disc_mapper_presenter_) {
-        result = disc_mapper_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else if (field_map_range_presenter_) {
-        result = field_map_range_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else if (field_corruption_presenter_) {
-        result = field_corruption_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else if (source_alignment_presenter_) {
-        result = source_alignment_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else if (mask_line_presenter_) {
-        result = mask_line_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else if (ffmpeg_preset_presenter_) {
-        result = ffmpeg_preset_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else if (dropout_editor_presenter_) {
-        result = dropout_editor_presenter_->runAnalysis(node_id_, parameters, progress_callback);
-    } else {
-        // Unknown tool - should not happen if all tools have specialized presenters
-        result.status = orc::AnalysisResult::Status::Failed;
-        result.summary = "No specialized presenter available for tool: " + tool_id_;
+    // Clean up old worker if it exists
+    if (worker_) {
+        worker_->wait();
+        delete worker_;
+        worker_ = nullptr;
     }
     
-    last_result_ = result;
-    displayResults(result);
+    // Create and start worker thread
+    worker_ = new AnalysisWorker(
+        tool_id_,
+        node_id_,
+        parameters,
+        field_corruption_presenter_,
+        disc_mapper_presenter_,
+        field_map_range_presenter_,
+        source_alignment_presenter_,
+        mask_line_presenter_,
+        ffmpeg_preset_presenter_,
+        dropout_editor_presenter_
+    );
     
+    // Connect signals for progress updates and completion
+    connect(worker_, &AnalysisWorker::progressUpdate, this, &GenericAnalysisDialog::onAnalysisProgress, Qt::QueuedConnection);
+    connect(worker_, &AnalysisWorker::finished, this, &GenericAnalysisDialog::onAnalysisComplete, Qt::QueuedConnection);
+    
+    // Start the worker thread
+    worker_->start();
+}
+
+void GenericAnalysisDialog::onAnalysisProgress(int percentage, QString status) {
+    statusLabel_->setText(status);
+    progressBar_->setValue(percentage);
+}
+
+void GenericAnalysisDialog::onAnalysisComplete() {
+    if (!worker_) {
+        return;
+    }
+    
+    // Get result from worker
+    last_result_ = worker_->getResult();
+    
+    // Display results
+    displayResults(last_result_);
+    
+    // Re-enable buttons
     runButton_->setEnabled(true);
-    if (result.status == orc::AnalysisResult::Status::Success) {
+    cancelButton_->setEnabled(false);
+    closeButton_->setEnabled(true);
+    if (last_result_.status == orc::AnalysisResult::Status::Success) {
         applyButton_->setEnabled(true);
         statusLabel_->setText("Analysis complete");
         progressBar_->setValue(100);
     } else {
         statusLabel_->setText("Analysis failed");
         progressBar_->setValue(0);
+    }
+}
+
+void GenericAnalysisDialog::cancelAnalysis() {
+    if (worker_ && worker_->isRunning()) {
+        statusLabel_->setText("Cancelling analysis...");
+        
+        // Disconnect the finished signal to prevent onAnalysisComplete from firing
+        disconnect(worker_, &AnalysisWorker::finished, this, &GenericAnalysisDialog::onAnalysisComplete);
+        
+        // Request the worker to terminate
+        worker_->requestInterruption();
+        // Wait for the thread to finish (with timeout)
+        if (!worker_->wait(5000)) {
+            // If it doesn't finish in 5 seconds, force terminate
+            worker_->terminate();
+            worker_->wait();
+        }
+        
+        // Create a cancelled result
+        last_result_.status = orc::AnalysisResult::Status::Cancelled;
+        last_result_.summary = "Analysis was cancelled by user.";
+        
+        // Display the cancelled result
+        displayResults(last_result_);
+        
+        statusLabel_->setText("Analysis cancelled");
+        runButton_->setEnabled(true);
+        cancelButton_->setEnabled(false);
+        closeButton_->setEnabled(true);
+        progressBar_->setValue(0);
+    }
+}
+
+void GenericAnalysisDialog::closeEvent(QCloseEvent* event) {
+    // If analysis is running, ask user to confirm or cancel it
+    if (worker_ && worker_->isRunning()) {
+        auto reply = QMessageBox::question(
+            this,
+            "Analysis Running",
+            "Analysis is still running. Do you want to cancel it and close?",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No
+        );
+        
+        if (reply == QMessageBox::Yes) {
+            // Cancel the analysis
+            worker_->requestInterruption();
+            if (!worker_->wait(5000)) {
+                worker_->terminate();
+                worker_->wait();
+            }
+            event->accept();
+        } else {
+            event->ignore();
+        }
+    } else {
+        event->accept();
     }
 }
 
@@ -658,3 +822,6 @@ void GenericAnalysisDialog::syncPictureFromTimecode(bool is_start) {
 
 } // namespace gui
 } // namespace orc
+
+// Include moc file for nested Q_OBJECT class
+#include "generic_analysis_dialog.moc"

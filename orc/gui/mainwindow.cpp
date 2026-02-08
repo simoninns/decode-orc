@@ -4038,7 +4038,10 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
     // Use the stored original image_x to avoid rounding errors from reverse-mapping
     int original_sample_x = last_line_scope_image_x_;
     
-    ORC_LOG_DEBUG("Using original_sample_x={} from last request", original_sample_x);
+    // Convert preview-space coordinate to sample index for the marker position
+    // The core returns sample_x which is clamped to the actual samples array
+    // We should use the core's clamped value as the sample index
+    int sample_index = sample_x;
     
     // Calculate image_y from field/line using orc-core
     int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
@@ -4068,7 +4071,7 @@ void MainWindow::onLineSamplesReady(uint64_t request_id, uint64_t field_index, i
         }
     }
     
-    preview_dialog_->showLineScope(node_id_str, stage_index, field_index, line_number_1based, sample_x, samples, view_params, 
+    preview_dialog_->showLineScope(node_id_str, stage_index, field_index, line_number_1based, sample_index, samples, view_params, 
                                    preview_image_width, original_sample_x, calculated_image_y, current_output_type_,
                                    y_samples, c_samples);
     
@@ -4109,6 +4112,10 @@ void MainWindow::requestLineSamplesForNavigation(uint64_t field_index, int line_
     // Update stored field/line BEFORE requesting so they're available when samples arrive
     last_line_scope_field_index_ = field_index;
     last_line_scope_line_number_ = line_number;
+    
+    // CRITICAL: Update last_line_scope_image_x_ so it's preserved for the response
+    // This ensures the marker position is maintained across navigation
+    last_line_scope_image_x_ = sample_x;
     
     ORC_LOG_DEBUG("requestLineSamplesForNavigation: mode={}, field={}, line={}, sample_x={}, width={}", 
                   static_cast<int>(current_output_type_), field_index, line_number, sample_x, preview_image_width);
@@ -4339,10 +4346,10 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
         return;
     }
     
-    // NOTE: Do NOT modify last_line_scope_image_x_ here!
-    // It was set in onLineScopeRequested() as the visual image coordinate where the user clicked.
-    // We need to preserve it so the cross-hairs stay in the same visual position when samples refresh.
-    // The sample_x parameter here is in field coordinates (0-909), not image coordinates.
+    // CRITICAL: Store sample_x in last_line_scope_image_x_ immediately
+    // This ensures it's available for async frame navigation responses
+    // The sample_x parameter is in preview-space/image coordinates
+    last_line_scope_image_x_ = sample_x;
     
     // Get the image size to determine bounds
     int image_height = preview_dialog_->previewWidget()->originalImageSize().height();

@@ -107,6 +107,7 @@ private:
     void setupUI();
     void updateSampleMarker(int sample_x);
     void updatePlotData();  // Redraw plot based on current channel selection
+    void updateOriginalSampleXFromSampleIndex(int sample_index);  // Helper to update original_sample_x_ from sample index
     
     PlotWidget* plot_widget_;
     PlotSeries* line_series_;

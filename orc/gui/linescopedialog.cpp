@@ -266,7 +266,26 @@ void LineScopeDialog::setLineSamples(const QString& node_id, int stage_index, ui
     updatePlotData();
     
     // Add click position marker (green)
-    updateSampleMarker(sample_x);
+    // Clamp sample_x to valid range for the new line's samples
+    int clamped_sample_x = sample_x;
+    int max_sample_index = static_cast<int>(samples.size()) - 1;
+    if (is_yc_source_ && !y_samples.empty()) {
+        max_sample_index = static_cast<int>(y_samples.size()) - 1;
+    }
+    if (max_sample_index >= 0) {
+        clamped_sample_x = qBound(0, sample_x, max_sample_index);
+    }
+    
+    // Update current_sample_x_ before calling updateSampleMarker to ensure it's always set
+    current_sample_x_ = clamped_sample_x;
+    
+    // Note: original_sample_x_ is already correctly set from the parameter at line 149
+    // We should NOT recalculate it here because:
+    // 1. MainWindow already provides the correct preview-space coordinate
+    // 2. Converting sample_index back to preview-space introduces rounding errors
+    // 3. The helper updateOriginalSampleXFromSampleIndex is only for when user clicks the plot
+    
+    updateSampleMarker(clamped_sample_x);
     
     plot_widget_->replot();
 }
@@ -586,6 +605,9 @@ void LineScopeDialog::updatePlotData()
     // Clear existing markers
     plot_widget_->clearMarkers();
     
+    // Nullify sample marker pointer since clearMarkers() deleted it
+    sample_marker_ = nullptr;
+    
     // Add region markers if we have video parameters
     if (current_video_params_.has_value()) {
         const auto& vp = current_video_params_.value();
@@ -801,6 +823,22 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
     plot_widget_->replot();
 }
 
+void LineScopeDialog::updateOriginalSampleXFromSampleIndex(int sample_index)
+{
+    // Convert sample index (field-space) to preview-space coordinate
+    // This maintains the relationship between the marker position and the preview image
+    
+    // Determine which samples to use for the conversion
+    size_t sample_count = current_samples_.size();
+    if (is_yc_source_ && !current_y_samples_.empty()) {
+        sample_count = current_y_samples_.size();
+    }
+    
+    if (preview_image_width_ > 0 && sample_count > 0) {
+        original_sample_x_ = (sample_index * preview_image_width_) / static_cast<int>(sample_count);
+    }
+}
+
 void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
 {
     // Convert X coordinate from microseconds to sample position
@@ -835,6 +873,9 @@ void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
     // Update marker and info
     updateSampleMarker(new_sample_x);
     
+    // Update original_sample_x_ to reflect the new marker position in preview-space
+    updateOriginalSampleXFromSampleIndex(new_sample_x);
+    
     // Emit signal to update cross-hairs in preview
     emit sampleMarkerMoved(new_sample_x);
 }
@@ -847,7 +888,7 @@ void LineScopeDialog::onLineUp()
     if (!has_any_samples) return;
     
     // Request previous line (direction = -1)
-    // Use the original preview-space coordinate to avoid rounding errors
+    // Use original_sample_x_ which is maintained in preview-space coordinates
     emit lineNavigationRequested(-1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
 }
 
@@ -859,7 +900,7 @@ void LineScopeDialog::onLineDown()
     if (!has_any_samples) return;
     
     // Request next line (direction = +1)
-    // Use the original preview-space coordinate to avoid rounding errors
+    // Use original_sample_x_ which is maintained in preview-space coordinates
     emit lineNavigationRequested(+1, current_field_index_, current_line_number_, original_sample_x_, preview_image_width_);
 }
 

@@ -776,14 +776,29 @@ PreviewImage PreviewRenderer::render_frame(
     // Weave fields together
     // If first_field_first: field_a on even lines, field_b on odd lines
     // If !first_field_first: field_b on even lines, field_a on odd lines
+    //
+    // Note: Fields can have asymmetric heights (e.g., NTSC: 262 + 263 = 525 lines).
+    // The last line(s) of the frame come from whichever field is longer.
     
     for (size_t frame_y = 0; frame_y < image.height; ++frame_y) {
         bool use_field_a = first_field_first ? (frame_y % 2 == 0) : (frame_y % 2 != 0);
-        const auto& field_data = use_field_a ? field_a_data : field_b_data;
+        size_t field_height = use_field_a ? desc_a.height : desc_b.height;
         
         // Calculate which line within the field this corresponds to
-        // Each field line appears twice in the frame (at positions frame_y where frame_y % 2 matches the field)
         size_t field_y = frame_y / 2;
+        
+        // Handle asymmetric field heights: if we've exhausted one field's lines,
+        // the remaining frame lines come from the longer field
+        if (field_y >= field_height) {
+            // This frame line exceeds the current field's height
+            // Switch to the other field and use its remaining lines
+            use_field_a = !use_field_a;
+            field_height = use_field_a ? desc_a.height : desc_b.height;
+            // The field_y for the longer field continues from where the shorter field ended
+            // No recalculation needed as field_y is already correct
+        }
+        
+        const auto& field_data = use_field_a ? field_a_data : field_b_data;
         size_t field_offset = field_y * image.width;
         size_t rgb_offset = frame_y * image.width * 3;
         

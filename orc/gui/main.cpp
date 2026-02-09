@@ -258,6 +258,7 @@ int main(int argc, char *argv[])
     app.setApplicationName("orc-gui");
     app.setApplicationVersion(ORC_VERSION);
     app.setOrganizationName("domesday86");
+    app.setDesktopFileName("io.github.simoninns.decode-orc");
     app.setWindowIcon(QIcon(":/orc-gui/icon.png"));
 
     // Command line parser

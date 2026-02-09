@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Decode Orc
+GenericName=LaserDisc Workflow Orchestrator
+Comment=Orchestration and processing framework for LaserDisc and tape decoding workflows
+Exec=orc-gui
+Icon=io.github.simoninns.decode-orc
+Terminal=false
+Categories=AudioVideo;Video;
+Keywords=laserdisc;video;decode;tbc;processing;
+StartupNotify=true

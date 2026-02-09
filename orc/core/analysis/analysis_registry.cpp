@@ -1,10 +1,8 @@
 #include "analysis_registry.h"
+#include "analysis_init.h"
 #include "logging.h"
 
 namespace orc {
-
-// Forward declaration of force linking function
-void force_analysis_tool_linking();
 
 AnalysisRegistry& AnalysisRegistry::instance() {
     static AnalysisRegistry instance;

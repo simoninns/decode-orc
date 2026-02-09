@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 #
 # Test runner script for encode-orc YAML projects for decode-orc testing
 # Runs all encode-project YAML files and outputs TBC files to encode-output directory

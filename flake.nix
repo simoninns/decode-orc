@@ -165,6 +165,19 @@
           decode-orc = decode-orc;
         };
 
+        # Apps that can be run with `nix run`
+        apps = {
+          default = apps.orc-gui;
+          orc-gui = {
+            type = "app";
+            program = "${decode-orc}/bin/orc-gui";
+          };
+          orc-cli = {
+            type = "app";
+            program = "${decode-orc}/bin/orc-cli";
+          };
+        };
+
         # Development shell with all dependencies for `nix develop`
         devShells.default = pkgs.mkShell {
           inputsFrom = [ decode-orc ];

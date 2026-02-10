@@ -1,0 +1,48 @@
+name: "Source Alignment PAL CAV 1-20"
+description: "PAL CAV with picture numbers 1-20 for source alignment"
+
+output:
+  filename: "${ENCODE_ORC_OUTPUT_ROOT}/source-alignment/pal-cav-1-20"
+  format: "pal-composite"
+
+laserdisc:
+  mode: "cav"
+
+pipeline:
+  preprocessing:
+    filters:
+      chroma:
+        enabled: true
+  
+  metadata:
+    generators:
+      - type: "biphase-vbi"
+        enabled: true
+        lines: [16, 17, 18, 328, 329, 330]
+        format: "picture-number"
+      
+      - type: "vits-pal"
+        enabled: true
+        signals:
+          - line: 13
+            signal: "multiburst"
+          - line: 19
+            signal: "uk-national"
+          - line: 325
+            signal: "itu-combination"
+          - line: 331
+            signal: "itu-composite"
+      
+      - type: "color-burst"
+        enabled: true
+
+sections:
+  - name: "Test Content"
+    duration: 20
+    source:
+      type: "mp4-file"
+      file: "${ENCODE_ORC_ASSETS}/pal-mp4/pal-ice-skating.mp4"
+      start_frame: 0
+    biphase-vbi:
+      disc_area: "programme-area"
+      picture_start: 1

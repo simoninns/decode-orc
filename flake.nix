@@ -1,6 +1,7 @@
 {
-  description = "decode-orc - LaserDisc and tape decoding orchestration framework";
+  description = "Decode-Orc - LaserDisc and tape decoding orchestration framework";
 
+  # Upstream dependencies for the flake
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
@@ -8,15 +9,13 @@
       url = "github:paceholder/nodeeditor";
       flake = false;
     };
-    encode-orc = {
-      url = "github:simoninns/encode-orc";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, qtnodes, encode-orc }:
+  # Build outputs for each supported system
+  outputs = { self, nixpkgs, flake-utils, qtnodes }:
     flake-utils.lib.eachDefaultSystem (system:
       let
+        # Import Nixpkgs for this system
         pkgs = import nixpkgs {
           inherit system;
           config = {
@@ -41,7 +40,7 @@
 
         version = builtins.replaceStrings ["\n" "/" " "] ["" "-" "-"] rawVersion;
 
-        # Build QtNodes as a separate package
+        # Build QtNodes as a separate package (no external package needed)
         qtNodes = pkgs.stdenv.mkDerivation {
           pname = "qtnodes";
           version = "3.0.0";
@@ -75,7 +74,7 @@
           };
         };
 
-        # Build the decode-orc package
+        # Build the decode-orc package (primary output)
         decode-orc = pkgs.stdenv.mkDerivation {
           pname = "decode-orc";
           version = version;
@@ -116,7 +115,7 @@
             "-DBUILD_TESTS=ON"
             "-DBUILD_GUI=ON"
             "-DBUILD_DOCS=OFF"
-            "-DBUILD_ENCODE_ORC=ON"
+            "-DBUILD_ENCODE_ORC=OFF"
             # Tell CMake where to find QtNodes
             "-DQtNodes_DIR=${qtNodes}/lib/cmake/QtNodes"
             # Pass git version to CMake since .git dir isn't available in Nix builds
@@ -125,21 +124,10 @@
             "-DCMAKE_CXX_FLAGS=-DNODE_EDITOR_STATIC"
           ];
 
+          # Patch scripts for Nix sandbox compatibility
           postPatch = ''
-            # Copy encode-orc source into expected location (if not already present)
-            ENCODE_ORC_SRC="${encode-orc}"
-            ENCODE_ORC_DST="external/encode-orc"
-            if [ -e "$ENCODE_ORC_DST" ] && [ "$(readlink -f "$ENCODE_ORC_DST")" = "$(readlink -f "$ENCODE_ORC_SRC")" ]; then
-              echo "encode-orc already present; skipping copy"
-            else
-              rm -rf "$ENCODE_ORC_DST"
-              mkdir -p "$ENCODE_ORC_DST"
-              cp -r "$ENCODE_ORC_SRC"/. "$ENCODE_ORC_DST"/
-              chmod -R u+w "$ENCODE_ORC_DST"
-            fi
-
             # Patch shell script shebangs to use Nix bash
-            patchShebangs scripts/check_mvp_architecture.sh
+            patchShebangs cmake/check_mvp_architecture.sh
             patchShebangs encode-tests.sh || true
           '';
 
@@ -161,7 +149,7 @@
           '';
 
           meta = with pkgs.lib; {
-            description = "Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows";
+            description = "Decode-Orc - LaserDisc and tape decoding orchestration framework";
             homepage = "https://github.com/simoninns/decode-orc";
             license = licenses.gpl3Plus;
             platforms = platforms.linux ++ platforms.darwin;
@@ -169,74 +157,31 @@
           };
         };
 
-        # Note: Flatpak building is handled by the CI/CD pipeline using flatpak-builder
-        # This is more reliable than trying to build flatpaks in pure nix environments
-        # See: .github/workflows/build-flatpak.yml for flatpak build instructions
-
-        # macOS DMG bundle (macOS only) - only defined when building on macOS
-        dmg = if pkgs.stdenv.isDarwin then
-          pkgs.stdenv.mkDerivation {
-            pname = "decode-orc-dmg";
-            version = builtins.replaceStrings ["\n"] [""] version;
-
-            src = self;
-
-            nativeBuildInputs = with pkgs; [
-              create-dmg
-              darwin.DarwinTools  # Provides sw_vers needed by create-dmg
-            ];
-
-            buildInputs = [ decode-orc ];
-
-            buildPhase = ''
-              mkdir -p dmg-contents
-              
-              # Copy the .app bundle if it exists, otherwise copy binaries
-              if [ -d ${decode-orc}/orc-gui.app ]; then
-                cp -r ${decode-orc}/orc-gui.app dmg-contents/
-              else
-                mkdir -p dmg-contents/bin
-                cp -r ${decode-orc}/bin/* dmg-contents/bin/
-              fi
-              
-              # Create DMG
-              create-dmg \
-                --volname "Decode Orc" \
-                --window-size 500 320 \
-                decode-orc.dmg \
-                dmg-contents
-            '';
-
-            installPhase = ''
-              mkdir -p $out
-              cp decode-orc.dmg $out/
-            '';
-
-            meta = with pkgs.lib; {
-              description = "macOS DMG of Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows";
-              homepage = "https://github.com/simoninns/decode-orc";
-              license = licenses.gpl3Plus;
-              platforms = platforms.darwin;
-              maintainers = [ ];
-            };
-          }
-        else
-          null;  # DMG not available on non-macOS systems
-
       in
       {
-        formatter = pkgs.nixfmt-rfc-style;
-
-        # The package that can be built with `nix build`
+        # Packages that can be built with `nix build`
         packages = {
           default = decode-orc;
           decode-orc = decode-orc;
-        } // pkgs.lib.optionalAttrs pkgs.stdenv.isDarwin {
-          dmg = dmg;
-          decode-orc-dmg = dmg;  # Alias for clarity
         };
 
-        # Development shell with all dependencies
+        # Apps that can be run with `nix run`
+        apps = {
+          default = {
+            type = "app";
+            program = "${decode-orc}/bin/orc-gui";
+          };
+          orc-gui = {
+            type = "app";
+            program = "${decode-orc}/bin/orc-gui";
+          };
+          orc-cli = {
+            type = "app";
+            program = "${decode-orc}/bin/orc-cli";
+          };
+        };
+
+        # Development shell with all dependencies for `nix develop`
         devShells.default = pkgs.mkShell {
           inputsFrom = [ decode-orc ];
 
@@ -277,33 +222,6 @@
           QT_QPA_PLATFORM = "xcb"; # For Linux
         };
 
-        # Apps that can be run with `nix run`
-        apps.default = {
-          type = "app";
-          program = "${decode-orc}/bin/orc-gui";
-          meta = with pkgs.lib; {
-            description = "Decode Orc GUI";
-            license = licenses.gpl3Plus;
-          };
-        };
-
-        apps.orc-gui = {
-          type = "app";
-          program = "${decode-orc}/bin/orc-gui";
-          meta = with pkgs.lib; {
-            description = "Decode Orc GUI";
-            license = licenses.gpl3Plus;
-          };
-        };
-
-        apps.orc-cli = {
-          type = "app";
-          program = "${decode-orc}/bin/orc-cli";
-          meta = with pkgs.lib; {
-            description = "Decode Orc CLI";
-            license = licenses.gpl3Plus;
-          };
-        };
       }
     );
 }

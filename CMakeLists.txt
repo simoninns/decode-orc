@@ -15,17 +15,11 @@ endif()
 # Enable testing so we can register architecture checks with CTest
 enable_testing()
 
-# Add external dependencies (submodules)
-option(BUILD_ENCODE_ORC "Build encode-orc submodule" OFF)
-if(BUILD_ENCODE_ORC)
-    add_subdirectory(external/encode-orc)
-endif()
-
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)
 
 # MVP architecture validation (run via: ctest -R MVPArchitectureCheck)
 add_test(
     NAME MVPArchitectureCheck
-    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_mvp_architecture.sh
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_mvp_architecture.sh
 )

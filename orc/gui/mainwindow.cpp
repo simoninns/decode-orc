@@ -3438,12 +3438,22 @@ void MainWindow::onSetCrosshairsFromFieldTiming()
     }
     
     const int fw = video_params->field_width;
-    const int fh = video_params->field_height;
+    
+    // Get the actual field heights from the dialog (these come from VFR descriptors)
+    // This is important for PAL where first field = 312 lines, second field = 313 lines
+    const int first_fh = field_timing_dialog->firstFieldHeight();
+    const int second_fh = field_timing_dialog->secondFieldHeight();
+    
+    if (first_fh == 0 || fw == 0) {
+        ORC_LOG_WARN("Invalid field dimensions");
+        return;
+    }
     
     // Determine which field the sample is in
-    int samples_per_field = fw * fh;
+    int samples_per_first_field = fw * first_fh;
     uint64_t field_offset = 0;
     int sample_in_field = center_sample;
+    int field_height_for_sample = first_fh;
     
     // Check if we're showing two fields (frame mode)
     if (current_output_type_ == orc::PreviewOutputType::Frame ||
@@ -3454,26 +3464,29 @@ void MainWindow::onSetCrosshairsFromFieldTiming()
         uint64_t field1 = frame_index * 2;
         uint64_t field2 = frame_index * 2 + 1;
         
-        if (center_sample >= samples_per_field) {
+        if (center_sample >= samples_per_first_field) {
             // In second field
             field_offset = field2;
-            sample_in_field = center_sample - samples_per_field;
+            sample_in_field = center_sample - samples_per_first_field;
+            field_height_for_sample = second_fh > 0 ? second_fh : first_fh;
         } else {
             // In first field
             field_offset = field1;
             sample_in_field = center_sample;
+            field_height_for_sample = first_fh;
         }
     } else {
         // Single field mode
         field_offset = preview_dialog_->previewSlider()->value();
+        field_height_for_sample = first_fh;
     }
     
     // Convert sample position to line and x
     int line_number = sample_in_field / fw;
     int sample_x = sample_in_field % fw;
     
-    // Clamp to valid range
-    if (line_number >= fh) line_number = fh - 1;
+    // Clamp to valid range using the actual field height for this specific field
+    if (line_number >= field_height_for_sample) line_number = field_height_for_sample - 1;
     if (sample_x >= fw) sample_x = fw - 1;
     
     ORC_LOG_DEBUG("Setting crosshairs from field timing: center_sample={}, field={}, line={}, x={}",

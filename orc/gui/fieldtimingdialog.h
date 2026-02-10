@@ -78,6 +78,26 @@ public:
      */
     FieldTimingWidget* timingWidget() const { return timing_widget_; }
 
+    /**
+     * @brief Get the current field index being displayed
+     */
+    uint64_t currentFieldIndex() const { return current_field_index_; }
+
+    /**
+     * @brief Get the current second field index (if showing frame mode)
+     */
+    std::optional<uint64_t> currentFieldIndex2() const { return current_field_index_2_; }
+
+    /**
+     * @brief Get the actual height of the first field from VFR descriptor
+     */
+    int firstFieldHeight() const { return current_first_field_height_; }
+
+    /**
+     * @brief Get the actual height of the second field from VFR descriptor (0 if single field)
+     */
+    int secondFieldHeight() const { return current_second_field_height_; }
+
 Q_SIGNALS:
     /**
      * @brief Emitted when user requests to refresh data for current position

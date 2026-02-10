@@ -2,7 +2,7 @@ name: "Source Alignment NTSC CLV 00:00:00.00"
 description: "NTSC CLV with timecode starting 00:00:00.00 for source alignment"
 
 output:
-  filename: "../../encode-output/source-alignment/ntsc-clv-tc-00000000"
+  filename: "${ENCODE_ORC_OUTPUT_ROOT}/source-alignment/ntsc-clv-tc-00000000"
   format: "ntsc-composite"
 
 laserdisc:
@@ -41,7 +41,7 @@ sections:
     duration: 20
     source:
       type: "mp4-file"
-      file: "../../../external/encode-orc/testcard-images/ntsc-mp4/ntsc-ice-skating.mp4"
+      file: "${ENCODE_ORC_ASSETS}/ntsc-mp4/ntsc-ice-skating.mp4"
       start_frame: 0
     biphase-vbi:
       disc_area: "programme-area"

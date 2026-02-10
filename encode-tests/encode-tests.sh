@@ -29,13 +29,23 @@ if [ -z "$ENCODE_ORC" ]; then
     exit 1
 fi
 
-# Verify test assets location
-ENCODE_ORC_ASSETS_DIR="$PROJECT_ROOT/external/encode-orc/testcard-images"
-if [ ! -d "$ENCODE_ORC_ASSETS_DIR" ]; then
-    echo -e "${RED}Error: encode-orc test assets not found.${NC}"
-    echo -e "${YELLOW}Expected at: $ENCODE_ORC_ASSETS_DIR${NC}"
-    exit 1
+# Set up ENCODE_ORC_ASSETS environment variable
+# First check if already set in environment
+if [ -z "$ENCODE_ORC_ASSETS" ]; then
+    # Try local fallback location for development environments
+    LOCAL_ASSETS_DIR="$PROJECT_ROOT/external/encode-orc/testcard-images"
+    if [ -d "$LOCAL_ASSETS_DIR" ]; then
+        export ENCODE_ORC_ASSETS="$LOCAL_ASSETS_DIR"
+    else
+        # If not set and local fallback doesn't exist, encode-orc will use its default
+        # (typically set by nix installation or system configuration)
+        echo -e "${YELLOW}Note: ENCODE_ORC_ASSETS not set and no local fallback found.${NC}"
+        echo -e "${YELLOW}encode-orc will use its configured asset location.${NC}"
+    fi
 fi
+
+# Set up ENCODE_ORC_OUTPUT_ROOT for test output
+export ENCODE_ORC_OUTPUT_ROOT="$ENCODE_OUTPUT_DIR"
 
 # Create output directory if it doesn't exist
 mkdir -p "$ENCODE_OUTPUT_DIR"
@@ -83,37 +93,11 @@ for yaml_file in "${yaml_files[@]}"; do
         
         echo -n "Test $total_tests: $display_name ... "
         
-        # Extract output filename from YAML to create directory structure
-        output_file=$(grep "filename:" "$yaml_file" | head -1 | sed 's/.*filename:[[:space:]]*"\([^"]*\)".*/\1/')
-        if [ -n "$output_file" ]; then
-            # Create output directory structure
-            yaml_dir=$(dirname "$yaml_file")
-            output_dir=$(dirname "$(realpath -m "$yaml_dir/$output_file")")
-            mkdir -p "$output_dir"
-        fi
-        
         # Run encode-orc with YAML file from project root
         cd "$PROJECT_ROOT"
         if "$ENCODE_ORC" "$yaml_file" > /dev/null 2>&1; then
             echo -e "${GREEN}PASSED${NC}"
             passed_tests=$((passed_tests + 1))
-            
-            if [ -n "$output_file" ]; then
-                # Check for both .tbc and .tbc.json files
-                output_path="$(realpath -m "$yaml_dir/$output_file")"
-                tbc_file="${output_path}.tbc"
-                json_file="${output_path}.tbc.json"
-                
-                if [ -f "$tbc_file" ]; then
-                    file_size=$(stat -c%s "$tbc_file" 2>/dev/null || stat -f%z "$tbc_file" 2>/dev/null)
-                    size_human=$(numfmt --to=iec-i --suffix=B "$file_size" 2>/dev/null || echo "$file_size bytes")
-                    echo "  ├─ TBC: ${output_file}.tbc ($size_human)"
-                fi
-                
-                if [ -f "$json_file" ]; then
-                    echo "  └─ Metadata: ${output_file}.tbc.json"
-                fi
-            fi
         else
             echo -e "${RED}FAILED${NC}"
             failed_tests=$((failed_tests + 1))

@@ -2,7 +2,7 @@ name: "PAL Vectorscope Test"
 description: "PAL 75% and SMPTE Colour Bars for Vectorscope Calibration"
 
 output:
-  filename: "../../encode-output/vectorscope/pal-vectorscope-test"
+  filename: "${ENCODE_ORC_OUTPUT_ROOT}/vectorscope/pal-vectorscope-test"
   format: "pal-composite"
 
 pipeline:
@@ -21,16 +21,16 @@ sections:
     duration: 6
     source:
       type: "yuv422-image"
-      file: "../../../external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+      file: "${ENCODE_ORC_ASSETS}/pal-raw/625_50_75_BARS.raw"
 
   - name: "100% Colour Bars"
     duration: 6
     source:
       type: "yuv422-image"
-      file: "../../../external/encode-orc/testcard-images/pal-raw/625_50_100_BARS.raw"
+      file: "${ENCODE_ORC_ASSETS}/pal-raw/625_50_100_BARS.raw"
 
   - name: "SMPTE Colour Bars"
     duration: 6
     source:
       type: "yuv422-image"
-      file: "../../../external/encode-orc/testcard-images/pal-raw/625_50_SMPTE_BARS.raw"
+      file: "${ENCODE_ORC_ASSETS}/pal-raw/625_50_SMPTE_BARS.raw"

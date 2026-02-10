@@ -45,7 +45,7 @@ build/
 */build/
 
 # Encode test outputs
-encode-output/
+encode-tests/encode-output/
 
 # Doxygen generated documentation
 docs/html/

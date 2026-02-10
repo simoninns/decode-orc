@@ -67,22 +67,11 @@ configure_file(
 option(BUILD_TESTS "Build unit tests" ON)
 option(BUILD_GUI "Build Qt6 GUI applications" ON)
 option(BUILD_DOCS "Build Doxygen documentation" OFF)
-option(BUILD_ENCODE_ORC "Build encode-orc CLI (external)" ON)
 
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-
-# Optional: build encode-orc from the external submodule (needed for installers)
-if(BUILD_ENCODE_ORC AND NOT TARGET encode-orc)
-    set(ENCODE_ORC_DIR "${ORC_REPO_ROOT}/external/encode-orc")
-    if(EXISTS "${ENCODE_ORC_DIR}/CMakeLists.txt")
-        add_subdirectory("${ENCODE_ORC_DIR}" "${CMAKE_BINARY_DIR}/external/encode-orc")
-    else()
-        message(WARNING "encode-orc submodule not found at ${ENCODE_ORC_DIR}")
-    endif()
-endif()
 
 # Include MVP enforcement utilities
 include(${CMAKE_SOURCE_DIR}/cmake/MVPEnforcement.cmake)

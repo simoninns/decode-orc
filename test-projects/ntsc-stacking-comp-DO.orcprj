@@ -22,7 +22,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/stacking/ntsc-stacking-comp-0-do.tbc
+          value: ../encode-tests/encode-output/stacking/ntsc-stacking-comp-0-do.tbc
         pcm_path:
           type: string
           value: ""
@@ -39,7 +39,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/stacking/ntsc-stacking-comp-1-do.tbc
+          value: ../encode-tests/encode-output/stacking/ntsc-stacking-comp-1-do.tbc
         pcm_path:
           type: string
           value: ""
@@ -56,7 +56,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/stacking/ntsc-stacking-comp-2-do.tbc
+          value: ../encode-tests/encode-output/stacking/ntsc-stacking-comp-2-do.tbc
         pcm_path:
           type: string
           value: ""
@@ -73,7 +73,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/stacking/ntsc-stacking-comp-3-do.tbc
+          value: ../encode-tests/encode-output/stacking/ntsc-stacking-comp-3-do.tbc
         pcm_path:
           type: string
           value: ""

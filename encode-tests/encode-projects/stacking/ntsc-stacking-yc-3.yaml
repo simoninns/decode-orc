@@ -1,0 +1,71 @@
+name: "NTSC Stacking Y/C 3"
+description: "NTSC LaserDisc Y/C with noise only for stacking testing - Disc 3"
+
+output:
+  filename: "../../encode-output/stacking/ntsc-stacking-yc-3"
+  format: "ntsc-yc"
+
+laserdisc:
+  mode: "cav"
+
+pipeline:
+  preprocessing:
+    filters:
+      chroma:
+        enabled: true
+  
+  metadata:
+    generators:
+      - type: "biphase-vbi"
+        enabled: true
+        lines: [16, 17, 18, 278, 279, 280]
+        format: "picture-number"
+      
+      - type: "vits-ntsc"
+        enabled: true
+        signals:
+          - line: 13
+            signal: "ntc7-composite"
+          - line: 19
+            signal: "vir"
+          - line: 275
+            signal: "ntc7-combination"
+          - line: 281
+            signal: "vir"
+          
+      
+      - type: "color-burst"
+        enabled: true
+
+  effects:
+    # Gaussian noise to simulate disc degradation
+    - type: "noise"
+      enabled: true
+      snr_db: 20.0  # Signal-to-noise ratio in dB
+      seed: 23      # For reproducible results
+
+sections:
+  - name: "Test Content"
+    duration: 10
+    source:
+      type: "yuv422-image"
+      file: "../../../external/encode-orc/testcard-images/ntsc-raw/525_5994_75_BARS.raw"
+    biphase-vbi:
+      disc_area: "programme-area"
+      picture_start: 1
+  
+  - name: "Test Content"
+    duration: 10
+    source:
+      type: "yuv422-image"
+      file: "../../../external/encode-orc/testcard-images/ntsc-raw/525_5994_CHROMA_RAMP.raw"
+    biphase-vbi:
+      disc_area: "programme-area"
+  
+  - name: "Test Content"
+    duration: 30
+    source:
+      type: "mp4-file"
+      file: "../../../external/encode-orc/testcard-images/ntsc-mp4/ntsc-ice-skating.mp4"
+    biphase-vbi:
+      disc_area: "programme-area"

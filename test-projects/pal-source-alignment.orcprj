@@ -22,7 +22,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/source-alignment/pal-cav-1-20.tbc
+          value: ../encode-tests/encode-output/source-alignment/pal-cav-1-20.tbc
         pcm_path:
           type: string
           value: ""
@@ -39,7 +39,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/source-alignment/pal-cav-2-21.tbc
+          value: ../encode-tests/encode-output/source-alignment/pal-cav-2-21.tbc
         pcm_path:
           type: string
           value: ""
@@ -56,7 +56,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/source-alignment/pal-cav-3-22.tbc
+          value: ../encode-tests/encode-output/source-alignment/pal-cav-3-22.tbc
         pcm_path:
           type: string
           value: ""
@@ -73,7 +73,7 @@ dag:
           value: ""
         input_path:
           type: string
-          value: ../encode-output/source-alignment/pal-cav-4-23.tbc
+          value: ../encode-tests/encode-output/source-alignment/pal-cav-4-23.tbc
         pcm_path:
           type: string
           value: ""

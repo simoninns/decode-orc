@@ -1,0 +1,49 @@
+name: "Source Alignment NTSC CLV 00:00:00.00"
+description: "NTSC CLV with timecode starting 00:00:00.00 for source alignment"
+
+output:
+  filename: "../../encode-output/source-alignment/ntsc-clv-tc-00000000"
+  format: "ntsc-composite"
+
+laserdisc:
+  mode: "clv"
+
+pipeline:
+  preprocessing:
+    filters:
+      chroma:
+        enabled: true
+  
+  metadata:
+    generators:
+      - type: "biphase-vbi"
+        enabled: true
+        lines: [16, 17, 18, 278, 279, 280]
+        format: "timecode"
+      
+      - type: "vits-ntsc"
+        enabled: true
+        signals:
+          - line: 13
+            signal: "ntc7-composite"
+          - line: 19
+            signal: "vir"
+          - line: 275
+            signal: "ntc7-combination"
+          - line: 281
+            signal: "vir"
+      
+      - type: "color-burst"
+        enabled: true
+
+sections:
+  - name: "Test Content"
+    duration: 20
+    source:
+      type: "mp4-file"
+      file: "../../../external/encode-orc/testcard-images/ntsc-mp4/ntsc-ice-skating.mp4"
+      start_frame: 0
+    biphase-vbi:
+      disc_area: "programme-area"
+      chapter: 1
+      timecode_start: "00:00:00.00"

@@ -1,0 +1,36 @@
+name: "PAL Vectorscope Test"
+description: "PAL 75% and SMPTE Colour Bars for Vectorscope Calibration"
+
+output:
+  filename: "../../encode-output/vectorscope/pal-vectorscope-test"
+  format: "pal-composite"
+
+pipeline:
+  preprocessing:
+    filters:
+      chroma:
+        enabled: true
+  
+  metadata:
+    generators:      
+      - type: "color-burst"
+        enabled: true
+
+sections:
+  - name: "75% Colour Bars"
+    duration: 6
+    source:
+      type: "yuv422-image"
+      file: "../../../external/encode-orc/testcard-images/pal-raw/625_50_75_BARS.raw"
+
+  - name: "100% Colour Bars"
+    duration: 6
+    source:
+      type: "yuv422-image"
+      file: "../../../external/encode-orc/testcard-images/pal-raw/625_50_100_BARS.raw"
+
+  - name: "SMPTE Colour Bars"
+    duration: 6
+    source:
+      type: "yuv422-image"
+      file: "../../../external/encode-orc/testcard-images/pal-raw/625_50_SMPTE_BARS.raw"

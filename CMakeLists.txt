@@ -15,12 +15,6 @@ endif()
 # Enable testing so we can register architecture checks with CTest
 enable_testing()
 
-# Add external dependencies (submodules)
-option(BUILD_ENCODE_ORC "Build encode-orc submodule" OFF)
-if(BUILD_ENCODE_ORC)
-    add_subdirectory(external/encode-orc)
-endif()
-
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)
 

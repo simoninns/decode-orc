@@ -1,4 +1,1 @@
-[submodule "docs-user"]
-	path = docs
-	url = https://github.com/simoninns/decode-orc-docs
 [submodule "external/qtnodes"]

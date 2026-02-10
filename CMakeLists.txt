@@ -21,5 +21,5 @@ add_subdirectory(orc)
 # MVP architecture validation (run via: ctest -R MVPArchitectureCheck)
 add_test(
     NAME MVPArchitectureCheck
-    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_mvp_architecture.sh
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_mvp_architecture.sh
 )

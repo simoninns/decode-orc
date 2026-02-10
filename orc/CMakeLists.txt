@@ -129,9 +129,9 @@ endif()
 # =============================================================================
 # Add custom target to check MVP violations
 # Run with: cmake --build build --target check-mvp
-# Or manually: ./check_mvp_architecture.sh
+# Or manually: ./cmake/check_mvp_architecture.sh
 add_custom_target(check-mvp
-    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_mvp_architecture.sh
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_mvp_architecture.sh
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Validating MVP architecture boundaries..."
     VERBATIM
@@ -139,7 +139,7 @@ add_custom_target(check-mvp
 
 # Fast check without compiler tests (for CI/quick validation)
 add_custom_target(check-mvp-fast
-    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/check_mvp_architecture.sh --skip-compiler-tests
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_mvp_architecture.sh --skip-compiler-tests
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Quick MVP validation (skip compiler tests)..."
     VERBATIM

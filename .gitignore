@@ -99,6 +99,5 @@ result-*
 .direnv/
 .envrc.cache
 
-# Nix-injected external dependency
-external/encode-orc
+# Crash bundles
 crash_bundle*

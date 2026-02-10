@@ -1,6 +1,7 @@
 {
-  description = "decode-orc - LaserDisc and tape decoding orchestration framework";
+  description = "Decode-Orc - LaserDisc and tape decoding orchestration framework";
 
+  # Upstream dependencies for the flake
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
@@ -10,9 +11,11 @@
     };
   };
 
+  # Build outputs for each supported system
   outputs = { self, nixpkgs, flake-utils, qtnodes }:
     flake-utils.lib.eachDefaultSystem (system:
       let
+        # Import Nixpkgs for this system
         pkgs = import nixpkgs {
           inherit system;
           config = {
@@ -37,7 +40,7 @@
 
         version = builtins.replaceStrings ["\n" "/" " "] ["" "-" "-"] rawVersion;
 
-        # Build QtNodes as a separate package
+        # Build QtNodes as a separate package (no external package needed)
         qtNodes = pkgs.stdenv.mkDerivation {
           pname = "qtnodes";
           version = "3.0.0";
@@ -71,7 +74,7 @@
           };
         };
 
-        # Build the decode-orc package
+        # Build the decode-orc package (primary output)
         decode-orc = pkgs.stdenv.mkDerivation {
           pname = "decode-orc";
           version = version;
@@ -121,9 +124,10 @@
             "-DCMAKE_CXX_FLAGS=-DNODE_EDITOR_STATIC"
           ];
 
+          # Patch scripts for Nix sandbox compatibility
           postPatch = ''
             # Patch shell script shebangs to use Nix bash
-            patchShebangs scripts/check_mvp_architecture.sh
+            patchShebangs cmake/check_mvp_architecture.sh
             patchShebangs encode-tests.sh || true
           '';
 
@@ -145,7 +149,7 @@
           '';
 
           meta = with pkgs.lib; {
-            description = "Cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows";
+            description = "Decode-Orc - LaserDisc and tape decoding orchestration framework";
             homepage = "https://github.com/simoninns/decode-orc";
             license = licenses.gpl3Plus;
             platforms = platforms.linux ++ platforms.darwin;
@@ -153,19 +157,15 @@
           };
         };
 
-        # Note: Flatpak building is handled by the CI/CD pipeline using flatpak-builder
-        # This is more reliable than trying to build flatpaks in pure nix environments
-        # See: .github/workflows/build-flatpak.yml for flatpak build instructions
-
       in
       {
-        # The package that can be built with `nix build`
+        # Packages that can be built with `nix build`
         packages = {
           default = decode-orc;
           decode-orc = decode-orc;
         };
 
-        # Development shell with all dependencies
+        # Development shell with all dependencies for `nix develop`
         devShells.default = pkgs.mkShell {
           inputsFrom = [ decode-orc ];
 

@@ -1,26 +1,5 @@
 {
   "nodes": {
-    "encode-orc": {
-      "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1770472571,
-        "narHash": "sha256-B0nACmRex3imhHZc2kxQMASxlnSS6i63msY8yjGy02g=",
-        "owner": "simoninns",
-        "repo": "encode-orc",
-        "rev": "071db9cd16fdc0dfa48ffe9858f9d26ca6ce36df",
-        "type": "github"
-      },
-      "original": {
-        "owner": "simoninns",
-        "repo": "encode-orc",
-        "type": "github"
-      }
-    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -91,7 +70,6 @@
     },
     "root": {
       "inputs": {
-        "encode-orc": "encode-orc",
         "flake-utils": "flake-utils_2",
         "nixpkgs": "nixpkgs",
         "qtnodes": "qtnodes"

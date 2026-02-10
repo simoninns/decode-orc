@@ -167,7 +167,10 @@
 
         # Apps that can be run with `nix run`
         apps = {
-          default = apps.orc-gui;
+          default = {
+            type = "app";
+            program = "${decode-orc}/bin/orc-gui";
+          };
           orc-gui = {
             type = "app";
             program = "${decode-orc}/bin/orc-gui";

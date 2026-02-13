@@ -90,6 +90,12 @@
             qt6.wrapQtAppsHook
           ];
 
+          qtWrapperArgs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            "--set"
+            "QT_QPA_PLATFORM"
+            "cocoa"
+          ];
+
           buildInputs = with pkgs; [
             # Core dependencies from vcpkg.json
             spdlog
@@ -219,7 +225,7 @@
 
           # Environment variables
           CMAKE_EXPORT_COMPILE_COMMANDS = 1;
-          QT_QPA_PLATFORM = "xcb"; # For Linux
+          QT_QPA_PLATFORM = pkgs.lib.optionalString pkgs.stdenv.isLinux "xcb"; # For Linux
         };
 
       }

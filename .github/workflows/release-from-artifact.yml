@@ -1,0 +1,31 @@
+name: Publish Release From Artifact
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Name of the artifact to publish
+        required: false
+        default: decode-orc-macos-dmg
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download packaged artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: release-artifacts
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*.dmg
+          generate_release_notes: true

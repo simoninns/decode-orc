@@ -93,7 +93,7 @@ add_subdirectory(cli)
 
 # GUI (optional)
 if(BUILD_GUI)
-    # Try to find QtNodes first (e.g., when building in Flatpak)
+    # Try to find QtNodes first
     find_package(QtNodes QUIET)
 
     if(NOT QtNodes_FOUND)
@@ -152,30 +152,6 @@ if(BUILD_GUI)
 endif()
 add_dependencies(orc-cli check-mvp-fast)
 
-# Doxygen documentation (optional)
-if(BUILD_DOCS)
-    find_package(Doxygen)
-    if(DOXYGEN_FOUND)
-        # Set the Doxyfile location (assuming it's in the project root)
-        set(DOXYFILE_IN ${CMAKE_SOURCE_DIR}/Doxyfile)
-        
-        if(EXISTS ${DOXYFILE_IN})
-            # Add a custom target to run Doxygen
-            add_custom_target(docs
-                COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYFILE_IN}
-                WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-                COMMENT "Generating API documentation with Doxygen"
-                VERBATIM
-            )
-            message(STATUS "Doxygen documentation target 'docs' configured")
-        else()
-            message(WARNING "Doxyfile not found at ${DOXYFILE_IN}")
-        endif()
-    else()
-        message(WARNING "Doxygen not found - documentation will not be built")
-    endif()
-endif()
-
 # CPack configuration for installer generation
 set(CPACK_PACKAGE_NAME "Decode Orc")
 set(CPACK_PACKAGE_VENDOR "Simon Inns")
@@ -185,46 +161,15 @@ set(CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}")
 set(CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}")
 set(CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "DecodeOrc")
-set(CPACK_PACKAGE_EXECUTABLES "orc-gui;Decode Orc GUI" "orc-cli;Decode Orc CLI")
 
-# License and readme
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 set(CPACK_RESOURCE_FILE_README "${CMAKE_SOURCE_DIR}/README.md")
 
-# WiX specific settings for MSI generation on Windows
-if(WIN32)
-    set(CPACK_GENERATOR "WIX")
-    set(CPACK_WIX_UPGRADE_GUID "8A4B5C6D-7E8F-9A0B-1C2D-3E4F5A6B7C8D")
-    set(CPACK_WIX_PRODUCT_GUID "*") # Generate new GUID for each version
-    # Ensure MSI filename uses the project version (not the default 0.1.0)
-    set(CPACK_PACKAGE_FILE_NAME "Decode.Orc-${PROJECT_VERSION}-win64")
-    # WiX requires a .ico file for the product icon. Use generated icon if available.
-    if(EXISTS "${CMAKE_BINARY_DIR}/orc/gui/icons/orc-gui.ico")
-        set(CPACK_WIX_PRODUCT_ICON "${CMAKE_BINARY_DIR}/orc/gui/icons/orc-gui.ico")
-    elseif(EXISTS "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.ico")
-        set(CPACK_WIX_PRODUCT_ICON "${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.ico")
-    endif()
-    set(CPACK_WIX_LICENSE_RTF "${CMAKE_BINARY_DIR}/LICENSE.rtf")
-    
-    # Optional: Custom WiX UI images (only if they exist)
-    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/wix-banner.bmp")
-        set(CPACK_WIX_UI_BANNER "${CMAKE_SOURCE_DIR}/assets/wix-banner.bmp")
-    endif()
-    if(EXISTS "${CMAKE_SOURCE_DIR}/assets/wix-dialog.bmp")
-        set(CPACK_WIX_UI_DIALOG "${CMAKE_SOURCE_DIR}/assets/wix-dialog.bmp")
-    endif()
-    
-    set(CPACK_WIX_PROGRAM_MENU_FOLDER "Decode Orc")
-    
-    # Create start menu shortcuts
-    set(CPACK_PACKAGE_EXECUTABLES "orc-gui;Decode Orc")
-    
-    # Add to Programs and Features
-    set(CPACK_WIX_PROPERTY_ARPURLINFOABOUT "https://github.com/simoninns/decode-orc")
-    set(CPACK_WIX_PROPERTY_ARPHELPLINK "https://simoninns.github.io/decode-orc-docs/")
-    
-    # Generate RTF license from plain text LICENSE file
-    # This will be done in the GitHub Actions workflow
+if(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+    set(CPACK_PACKAGE_FILE_NAME "Decode-Orc-${PROJECT_VERSION}-macos")
+    set(CPACK_DMG_VOLUME_NAME "Decode Orc ${PROJECT_VERSION}")
 endif()
 
 include(CPack)
+

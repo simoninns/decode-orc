@@ -22,6 +22,7 @@ NC='\033[0m' # No Color
 
 TOTAL_VIOLATIONS=0
 SKIP_COMPILER_TESTS=0
+COMPILER="${CXX:-c++}"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -139,6 +140,13 @@ fi
 # CHECK 3: Compiler Enforcement Tests
 # =============================================================================
 if [[ $SKIP_COMPILER_TESTS -eq 0 ]]; then
+    if ! command -v "$COMPILER" &> /dev/null; then
+        echo -e "MVP check 3: Compiler Enforcement (Compile guards prevent direct includes) - Skipped (no C++ compiler found: $COMPILER)"
+        SKIP_COMPILER_TESTS=1
+    fi
+fi
+
+if [[ $SKIP_COMPILER_TESTS -eq 0 ]]; then
     
     COMPILER_FAILURES=0
     
@@ -148,7 +156,7 @@ if [[ $SKIP_COMPILER_TESTS -eq 0 ]]; then
 void test_function() {}
 EOF
     
-    if ! g++ -c /tmp/test_mvp_violation.cpp \
+    if ! "$COMPILER" -c /tmp/test_mvp_violation.cpp \
         -I orc/core/include \
         -I orc/common/include \
         -DORC_GUI_BUILD \
@@ -162,7 +170,7 @@ EOF
 void test_function() {}
 EOF
     
-    if ! g++ -c /tmp/test_mvp_violation2.cpp \
+    if ! "$COMPILER" -c /tmp/test_mvp_violation2.cpp \
         -I orc/core/include \
         -I orc/common/include \
         -I orc/view-types \
@@ -189,7 +197,7 @@ EOF
         fi
     fi
     
-    if ! g++ -c /tmp/test_mvp_valid.cpp \
+    if ! "$COMPILER" -c /tmp/test_mvp_valid.cpp \
         -I orc/view-types \
         -I orc/common/include \
         $SPDLOG_INCLUDES \

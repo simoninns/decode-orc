@@ -26,7 +26,7 @@ generate_platform_icons(
 # GUI Application Sources
 # =============================================================================
 
-add_executable(orc-gui WIN32 MACOSX_BUNDLE
+add_executable(orc-gui MACOSX_BUNDLE
     main.cpp
     mainwindow.cpp
     mainwindow.h
@@ -211,16 +211,6 @@ target_include_directories(orc-gui PRIVATE
     ${CMAKE_BINARY_DIR}/generated
 )
 
-# Platform-specific icon configuration
-if(WIN32 AND WINDOWS_ICON_FILE)
-    # Create Windows resource file for icon
-    set(RC_FILE "${CMAKE_CURRENT_BINARY_DIR}/orc-gui.rc")
-    file(WRITE ${RC_FILE} "IDI_ICON1 ICON \"${WINDOWS_ICON_FILE}\"\n")
-    target_sources(orc-gui PRIVATE ${RC_FILE})
-    add_custom_target(generate_windows_icon DEPENDS ${WINDOWS_ICON_FILE})
-    add_dependencies(orc-gui generate_windows_icon)
-endif()
-
 if(APPLE)
     # Configure the custom Info.plist from template
     configure_file(
@@ -260,44 +250,21 @@ install(TARGETS orc-gui
     RUNTIME DESTINATION bin COMPONENT Runtime
 )
 
-# On Windows, install Qt runtime dependencies and vcpkg DLLs
-if(WIN32)
-    # Get the Qt bin directory
-    get_target_property(QT_QMAKE_EXECUTABLE Qt6::qmake IMPORTED_LOCATION)
-    get_filename_component(QT_BIN_DIR "${QT_QMAKE_EXECUTABLE}" DIRECTORY)
-    
-    # Find windeployqt
-    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS "${QT_BIN_DIR}")
-    
-    if(NOT WINDEPLOYQT_EXECUTABLE)
-        message(WARNING "windeployqt not found - Qt runtime dependencies will not be automatically deployed")
+# Linux desktop integration files
+if(UNIX AND NOT APPLE)
+    install(FILES io.github.simoninns.decode-orc.desktop
+        DESTINATION share/applications
+    )
+
+    install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png
+        DESTINATION share/icons/hicolor/256x256/apps
+        RENAME io.github.simoninns.decode-orc.png
+    )
+
+    if(EXISTS ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg)
+        install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg
+            DESTINATION share/icons/hicolor/scalable/apps
+            RENAME io.github.simoninns.decode-orc.svg
+        )
     endif()
-    
-    # Install script to run windeployqt and copy vcpkg DLLs during installation
-    # Configure the install script with necessary variables
-    configure_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/windows-install-runtime.cmake.in"
-        "${CMAKE_CURRENT_BINARY_DIR}/windows-install-runtime.cmake"
-        @ONLY
-    )
-    install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/windows-install-runtime.cmake" COMPONENT Runtime)
-endif()
-
-# Install desktop file
-install(FILES io.github.simoninns.decode-orc.desktop
-    DESTINATION share/applications
-)
-
-# Install application icon
-install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon-256.png
-    DESTINATION share/icons/hicolor/256x256/apps
-    RENAME io.github.simoninns.decode-orc.png
-)
-
-# Install SVG icon for scalability
-if(EXISTS ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg)
-    install(FILES ${CMAKE_SOURCE_DIR}/assets/orc-gui-icon.svg
-        DESTINATION share/icons/hicolor/scalable/apps
-        RENAME io.github.simoninns.decode-orc.svg
-    )
 endif()

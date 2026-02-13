@@ -1,0 +1,202 @@
+name: Package macOS DMG
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Name of the uploaded DMG artifact
+        required: false
+        default: decode-orc-macos-dmg
+        type: string
+      retention_days:
+        description: Artifact retention in days
+        required: false
+        default: 30
+        type: number
+
+jobs:
+  package:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ensure QtNodes source is present
+        shell: bash
+        run: |
+          if [[ ! -f external/qtnodes/CMakeLists.txt ]]; then
+            echo "QtNodes submodule not present in checkout; cloning fallback source..."
+            mkdir -p external
+            git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
+          fi
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="git-${GITHUB_SHA:0:7}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          brew update
+          DEPS=(cmake ninja pkg-config qt@6 spdlog yaml-cpp sqlite libpng fftw ffmpeg dylibbundler)
+          MISSING=()
+
+          for dep in "${DEPS[@]}"; do
+            if ! brew list --versions "$dep" >/dev/null 2>&1; then
+              MISSING+=("$dep")
+            fi
+          done
+
+          if [[ "${#MISSING[@]}" -gt 0 ]]; then
+            brew install "${MISSING[@]}"
+          else
+            echo "All Homebrew dependencies already installed"
+          fi
+
+          echo "$(brew --prefix qt@6)/bin" >> "$GITHUB_PATH"
+
+      - name: Configure and build decode-orc
+        shell: bash
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DBUILD_DOCS=OFF \
+            -DBUILD_ENCODE_ORC=OFF \
+            -DPROJECT_VERSION_OVERRIDE=${{ steps.version.outputs.version }}
+          cmake --build build -j
+
+      - name: Install to staging root
+        shell: bash
+        run: |
+          rm -rf package-root
+          cmake --install build --prefix "$PWD/package-root" --component Runtime
+
+      - name: Bundle runtime dependencies into staged app
+        shell: bash
+        run: |
+          APP_BUNDLE="$PWD/package-root/orc-gui.app"
+          macdeployqt "$APP_BUNDLE" -always-overwrite -executable="$APP_BUNDLE/Contents/MacOS/orc-cli"
+          dylibbundler -b \
+            -x "$APP_BUNDLE/Contents/MacOS/orc-gui" \
+            -x "$APP_BUNDLE/Contents/MacOS/orc-cli" \
+            -d "$APP_BUNDLE/Contents/Frameworks" \
+            -p "@executable_path/../Frameworks"
+
+      - name: Re-sign staged app bundle
+        shell: bash
+        run: |
+          APP_BUNDLE="$PWD/package-root/orc-gui.app"
+          codesign --force --deep --sign - --timestamp=none "$APP_BUNDLE"
+          codesign --verify --deep --strict "$APP_BUNDLE"
+
+      - name: Verify standalone app bundle
+        shell: bash
+        run: |
+          APP_BUNDLE="$PWD/package-root/orc-gui.app"
+          if [[ ! -d "$APP_BUNDLE" ]]; then
+            echo "App bundle not found in staging root" >&2
+            exit 1
+          fi
+
+          CHECK_TARGETS=()
+          while IFS= read -r target; do
+            [[ -z "$target" ]] && continue
+            CHECK_TARGETS+=("$target")
+          done < <(
+            {
+              echo "$APP_BUNDLE/Contents/MacOS/orc-gui"
+              echo "$APP_BUNDLE/Contents/MacOS/orc-cli"
+              find "$APP_BUNDLE/Contents/Frameworks" -type f -name "*.dylib" 2>/dev/null || true
+            }
+          )
+
+          FAIL=0
+          for target in "${CHECK_TARGETS[@]}"; do
+            [[ -f "$target" ]] || continue
+            target_basename="$(basename "$target")"
+            while IFS= read -r dep; do
+              [[ -z "$dep" ]] && continue
+              dep_basename="$(basename "$dep")"
+              if [[ "$dep_basename" == "$target_basename" ]]; then
+                continue
+              fi
+              case "$dep" in
+                /System/*|/usr/lib/*|@rpath/*|@loader_path/*|@executable_path/*)
+                  ;;
+                /opt/homebrew/*|/usr/local/*|/nix/store/*)
+                  echo "External dependency found in $target: $dep" >&2
+                  FAIL=1
+                  ;;
+                *)
+                  echo "Unexpected absolute dependency in $target: $dep" >&2
+                  FAIL=1
+                  ;;
+              esac
+            done < <(otool -L "$target" | tail -n +2 | awk '{print $1}')
+          done
+
+          if [[ "$FAIL" -ne 0 ]]; then
+            echo "Standalone verification failed" >&2
+            exit 1
+          fi
+
+      - name: Create DMG from staged app
+        shell: bash
+        run: |
+          APP_BUNDLE="$PWD/package-root/orc-gui.app"
+          if [[ ! -d "$APP_BUNDLE" ]]; then
+            echo "Staged app bundle missing: $APP_BUNDLE" >&2
+            exit 1
+          fi
+
+          DMG_NAME="Decode-Orc-${{ steps.version.outputs.version }}-macos.dmg"
+          rm -rf dmg-root
+          mkdir -p dmg-root dist
+          cp -R "$APP_BUNDLE" dmg-root/
+          ln -s /Applications dmg-root/Applications
+
+          hdiutil create \
+            -volname "Decode Orc ${{ steps.version.outputs.version }}" \
+            -srcfolder dmg-root \
+            -ov \
+            -format UDZO \
+            "dist/$DMG_NAME"
+
+          hdiutil verify "dist/$DMG_NAME"
+
+      - name: Collect DMG artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          DMG_FILES=()
+          while IFS= read -r dmg; do
+            [[ -z "$dmg" ]] && continue
+            DMG_FILES+=("$dmg")
+          done < <(find dist -type f \( -name "*.dmg" -o -name "*.DMG" \))
+
+          if [[ "${#DMG_FILES[@]}" -eq 0 ]]; then
+            echo "No DMG files were generated" >&2
+            echo "Searched from: $PWD" >&2
+            find dist -maxdepth 3 -type f | sed -n '1,200p' >&2 || true
+            exit 1
+          fi
+          ls -lh dist/*.dmg
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: dist/*.dmg
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

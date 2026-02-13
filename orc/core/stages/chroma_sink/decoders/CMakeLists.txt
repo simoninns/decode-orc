@@ -36,11 +36,6 @@ set_target_properties(orc_chroma_decoders PROPERTIES
     CXX_STANDARD_REQUIRED ON
 )
 
-# Define M_PI for MSVC (must be defined before <cmath> is included)
-if(MSVC)
-    target_compile_definitions(orc_chroma_decoders PRIVATE _USE_MATH_DEFINES)
-endif()
-
 # Link FFTW3 (required by transformpal2d.cpp and transformpal3d.cpp)
 # Try pkg-config first (more reliable across platforms), then CONFIG mode
 find_package(PkgConfig QUIET)

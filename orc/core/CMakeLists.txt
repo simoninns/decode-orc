@@ -168,21 +168,16 @@ target_include_directories(orc-core PRIVATE
 # Link against common types
 target_link_libraries(orc-core PUBLIC orc-common)
 
-# Compiler-specific warning flags
-if(MSVC)
-    target_compile_options(orc-core PRIVATE /W4)
-else()
-    target_compile_options(orc-core PRIVATE
-        -Wall -Wextra -Wpedantic
-        $<$<CONFIG:Debug>:-g -O0>
-        $<$<CONFIG:Release>:-O3>
-    )
-endif()
+# Warning flags
+target_compile_options(orc-core PRIVATE
+    -Wall -Wextra -Wpedantic
+    $<$<CONFIG:Debug>:-g -O0>
+    $<$<CONFIG:Release>:-O3>
+)
 
 # Enable debug/trace logging at compile time
 target_compile_definitions(orc-core PRIVATE 
     SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE
-    $<$<PLATFORM_ID:Windows>:_USE_MATH_DEFINES>
 )
 
 # Find and link SQLite3
@@ -210,131 +205,42 @@ add_subdirectory(stages/chroma_sink/decoders)
 target_link_libraries(orc-core PRIVATE orc_chroma_decoders)
 
 # Find and link FFmpeg libraries (for MP4 output)
-if(WIN32)
-    # On Windows, try to find FFmpeg manually first, fall back to pkg-config
-    # This handles Chocolatey FFmpeg installations better
-    if(DEFINED ENV{FFMPEG_ROOT})
-        set(FFMPEG_ROOT $ENV{FFMPEG_ROOT})
-    endif()
-    
-    # Try to find FFmpeg headers and libraries manually
-    find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h
-        HINTS ${FFMPEG_ROOT}/include ${CMAKE_PREFIX_PATH}/include
-        PATH_SUFFIXES include
-    )
-    
-    find_library(AVCODEC_LIBRARY
-        NAMES avcodec libavcodec
-        HINTS ${FFMPEG_ROOT}/lib ${CMAKE_PREFIX_PATH}/lib ${FFMPEG_ROOT}/bin
-        PATH_SUFFIXES lib bin
-    )
-    
-    find_library(AVFORMAT_LIBRARY
-        NAMES avformat libavformat
-        HINTS ${FFMPEG_ROOT}/lib ${CMAKE_PREFIX_PATH}/lib ${FFMPEG_ROOT}/bin
-        PATH_SUFFIXES lib bin
-    )
-    
-    find_library(AVUTIL_LIBRARY
-        NAMES avutil libavutil
-        HINTS ${FFMPEG_ROOT}/lib ${CMAKE_PREFIX_PATH}/lib ${FFMPEG_ROOT}/bin
-        PATH_SUFFIXES lib bin
-    )
-    
-    find_library(SWSCALE_LIBRARY
-        NAMES swscale libswscale
-        HINTS ${FFMPEG_ROOT}/lib ${CMAKE_PREFIX_PATH}/lib ${FFMPEG_ROOT}/bin
-        PATH_SUFFIXES lib bin
-    )
-    
-    if(AVCODEC_INCLUDE_DIR AND AVCODEC_LIBRARY AND AVFORMAT_LIBRARY AND AVUTIL_LIBRARY AND SWSCALE_LIBRARY)
-        # Create imported targets manually
-        add_library(FFMPEG::avcodec UNKNOWN IMPORTED)
-        set_target_properties(FFMPEG::avcodec PROPERTIES
-            IMPORTED_LOCATION "${AVCODEC_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${AVCODEC_INCLUDE_DIR}"
-        )
-        
-        add_library(FFMPEG::avformat UNKNOWN IMPORTED)
-        set_target_properties(FFMPEG::avformat PROPERTIES
-            IMPORTED_LOCATION "${AVFORMAT_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${AVCODEC_INCLUDE_DIR}"
-        )
-        
-        add_library(FFMPEG::avutil UNKNOWN IMPORTED)
-        set_target_properties(FFMPEG::avutil PROPERTIES
-            IMPORTED_LOCATION "${AVUTIL_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${AVCODEC_INCLUDE_DIR}"
-        )
-        
-        add_library(FFMPEG::swscale UNKNOWN IMPORTED)
-        set_target_properties(FFMPEG::swscale PROPERTIES
-            IMPORTED_LOCATION "${SWSCALE_LIBRARY}"
-            INTERFACE_INCLUDE_DIRECTORIES "${AVCODEC_INCLUDE_DIR}"
-        )
-        
-        set(FFMPEG_FOUND TRUE)
-        message(STATUS "Found FFmpeg (manual discovery)")
-        message(STATUS "  avcodec: ${AVCODEC_LIBRARY}")
-        message(STATUS "  avformat: ${AVFORMAT_LIBRARY}")
-        message(STATUS "  avutil: ${AVUTIL_LIBRARY}")
-        message(STATUS "  swscale: ${SWSCALE_LIBRARY}")
-    else()
-        set(FFMPEG_FOUND FALSE)
-    endif()
-endif()
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
+    libavcodec
+    libavformat
+    libavutil
+    libswscale
+)
 
-# Use pkg-config for FFmpeg on non-Windows platforms
-if(NOT WIN32)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET
-        libavcodec
-        libavformat
-        libavutil
-        libswscale
-    )
-
-    # Create aggregate PkgConfig::FFMPEG target if it doesn't exist
-    # (pkg_check_modules may create individual targets like PkgConfig::libavcodec)
-    if(NOT TARGET PkgConfig::FFMPEG)
-        add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
-        set(_ffmpeg_pc_libs "")
-        foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
-            if(TARGET PkgConfig::${_ffmpeg_pc_target})
-                list(APPEND _ffmpeg_pc_libs PkgConfig::${_ffmpeg_pc_target})
-            endif()
-        endforeach()
-
-        if(_ffmpeg_pc_libs)
-            set_target_properties(PkgConfig::FFMPEG PROPERTIES
-                INTERFACE_LINK_LIBRARIES "${_ffmpeg_pc_libs}"
-            )
-        else()
-            set_target_properties(PkgConfig::FFMPEG PROPERTIES
-                INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIRS}"
-                INTERFACE_LINK_LIBRARIES "${FFMPEG_LIBRARIES}"
-            )
-            if(FFMPEG_LIBRARY_DIRS)
-                set_property(TARGET PkgConfig::FFMPEG PROPERTY
-                    INTERFACE_LINK_DIRECTORIES "${FFMPEG_LIBRARY_DIRS}"
-                )
-            endif()
+# Create aggregate PkgConfig::FFMPEG target if it doesn't exist
+# (pkg_check_modules may create individual targets like PkgConfig::libavcodec)
+if(NOT TARGET PkgConfig::FFMPEG)
+    add_library(PkgConfig::FFMPEG INTERFACE IMPORTED)
+    set(_ffmpeg_pc_libs "")
+    foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
+        if(TARGET PkgConfig::${_ffmpeg_pc_target})
+            list(APPEND _ffmpeg_pc_libs PkgConfig::${_ffmpeg_pc_target})
         endif()
-        unset(_ffmpeg_pc_libs)
+    endforeach()
+
+    if(_ffmpeg_pc_libs)
+        set_target_properties(PkgConfig::FFMPEG PROPERTIES
+            INTERFACE_LINK_LIBRARIES "${_ffmpeg_pc_libs}"
+        )
+    else()
+        set_target_properties(PkgConfig::FFMPEG PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${FFMPEG_LIBRARIES}"
+        )
+        if(FFMPEG_LIBRARY_DIRS)
+            set_property(TARGET PkgConfig::FFMPEG PROPERTY
+                INTERFACE_LINK_DIRECTORIES "${FFMPEG_LIBRARY_DIRS}"
+            )
+        endif()
     endif()
+    unset(_ffmpeg_pc_libs)
 endif()
 
-# Link FFmpeg (mirror encode-orc scheme)
 target_compile_definitions(orc-core PUBLIC HAVE_FFMPEG)
-if(WIN32 AND FFMPEG_FOUND AND TARGET FFMPEG::avcodec)
-    # Using manual FFmpeg discovery on Windows
-    target_link_libraries(orc-core PUBLIC
-        FFMPEG::avcodec
-        FFMPEG::avformat
-        FFMPEG::avutil
-        FFMPEG::swscale
-    )
-else()
-    # Using pkg-config FFmpeg
-    target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)
-endif()
+target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)

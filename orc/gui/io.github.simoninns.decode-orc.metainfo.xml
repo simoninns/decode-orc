@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.simoninns.decode-orc</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Decode Orc</name>
+  <summary>LaserDisc Workflow Orchestrator</summary>
+  <description>
+    <p>
+      Decode Orc is an orchestration and processing framework for LaserDisc and tape decoding workflows.
+      It provides a node-based visual interface for building complex video processing pipelines.
+    </p>
+    <p>
+      Features include:
+    </p>
+    <ul>
+      <li>Visual node-based workflow editor</li>
+      <li>Support for TBC (Time Base Corrected) video files</li>
+      <li>Field-based video processing</li>
+      <li>Dropout correction and stacking</li>
+      <li>VBI and EIA-608 closed caption decoding</li>
+      <li>Source alignment for multi-source workflows</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.simoninns.decode-orc.desktop</launchable>
+  <provides>
+    <binary>orc-gui</binary>
+    <binary>orc-cli</binary>
+  </provides>
+  <url type="homepage">https://github.com/simoninns/decode-orc</url>
+  <url type="bugtracker">https://github.com/simoninns/decode-orc/issues</url>
+  <developer_name>Simon Inns</developer_name>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+  </categories>
+  <keywords>
+    <keyword>laserdisc</keyword>
+    <keyword>video</keyword>
+    <keyword>decode</keyword>
+    <keyword>tbc</keyword>
+    <keyword>processing</keyword>
+  </keywords>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Main workflow editor interface</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-02-14">
+      <description>
+        <p>Initial release</p>
+      </description>
+    </release>
+  </releases>
+</component>

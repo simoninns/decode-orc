@@ -267,4 +267,8 @@ if(UNIX AND NOT APPLE)
             RENAME io.github.simoninns.decode-orc.svg
         )
     endif()
+
+    install(FILES io.github.simoninns.decode-orc.metainfo.xml
+        DESTINATION share/metainfo
+    )
 endif()

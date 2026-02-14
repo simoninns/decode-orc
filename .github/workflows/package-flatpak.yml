@@ -1,0 +1,167 @@
+name: Package Linux Flatpak
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Name of the uploaded Flatpak artifact
+        required: false
+        default: decode-orc-linux-flatpak
+        type: string
+      retention_days:
+        description: Artifact retention in days
+        required: false
+        default: 30
+        type: number
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Resolve package version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            version="${GITHUB_REF_NAME}"
+          else
+            version="git-${GITHUB_SHA:0:7}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Flatpak build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+
+      - name: Cache Flatpak builder
+        uses: actions/cache@v4
+        with:
+          path: .flatpak-builder
+          key: flatpak-builder-${{ hashFiles('io.github.simoninns.decode-orc.yml') }}
+          restore-keys: |
+            flatpak-builder-
+
+      - name: Validate Flatpak manifest
+        shell: bash
+        run: |
+          if [[ ! -f io.github.simoninns.decode-orc.yml ]]; then
+            echo "Flatpak manifest not found" >&2
+            exit 1
+          fi
+          
+          # Basic YAML syntax check
+          python3 -c "import yaml; yaml.safe_load(open('io.github.simoninns.decode-orc.yml'))" || {
+            echo "Flatpak manifest has invalid YAML syntax" >&2
+            exit 1
+          }
+
+      - name: Update Flatpak manifest version
+        shell: bash
+        run: |
+          # Update the metainfo.xml with current version
+          VERSION="${{ steps.version.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+          
+          if [[ -f orc/gui/io.github.simoninns.decode-orc.metainfo.xml ]]; then
+            sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\">|<release version=\"${VERSION}\" date=\"${DATE}\">|" \
+              orc/gui/io.github.simoninns.decode-orc.metainfo.xml
+          fi
+
+      - name: Build Flatpak
+        shell: bash
+        run: |
+          mkdir -p flatpak-build flatpak-repo
+          
+          flatpak-builder \
+            --repo=flatpak-repo \
+            --force-clean \
+            --ccache \
+            --install-deps-from=flathub \
+            --default-branch=stable \
+            flatpak-build \
+            io.github.simoninns.decode-orc.yml
+
+      - name: Export Flatpak bundle
+        shell: bash
+        run: |
+          mkdir -p dist
+          BUNDLE_NAME="Decode-Orc-${{ steps.version.outputs.version }}-linux.flatpak"
+          
+          flatpak build-bundle \
+            flatpak-repo \
+            "dist/${BUNDLE_NAME}" \
+            io.github.simoninns.decode-orc \
+            stable
+
+      - name: Verify Flatpak bundle
+        shell: bash
+        run: |
+          BUNDLE_FILE="dist/Decode-Orc-${{ steps.version.outputs.version }}-linux.flatpak"
+          
+          if [[ ! -f "$BUNDLE_FILE" ]]; then
+            echo "Flatpak bundle not found: $BUNDLE_FILE" >&2
+            exit 1
+          fi
+          
+          # Verify bundle has reasonable size (at least 10MB)
+          SIZE=$(stat -c%s "$BUNDLE_FILE")
+          if [[ $SIZE -lt 10485760 ]]; then
+            echo "Flatpak bundle too small: $SIZE bytes" >&2
+            exit 1
+          fi
+          
+          ls -lh "$BUNDLE_FILE"
+
+      - name: Test install Flatpak bundle
+        shell: bash
+        run: |
+          BUNDLE_FILE="dist/Decode-Orc-${{ steps.version.outputs.version }}-linux.flatpak"
+          
+          # Install to user repo
+          flatpak install --user -y "$BUNDLE_FILE"
+          
+          # Verify installation
+          flatpak list --user | grep -q io.github.simoninns.decode-orc || {
+            echo "Flatpak installation verification failed" >&2
+            exit 1
+          }
+          
+          # Check that binaries are accessible
+          flatpak run --command=sh io.github.simoninns.decode-orc -c "which orc-gui && which orc-cli" || {
+            echo "Flatpak binaries not found in app" >&2
+            exit 1
+          }
+          
+          # Uninstall after test
+          flatpak uninstall --user -y io.github.simoninns.decode-orc
+
+      - name: Collect Flatpak artifact
+        shell: bash
+        run: |
+          shopt -s nullglob
+          bundles=(dist/*.flatpak)
+          if [[ ${#bundles[@]} -eq 0 ]]; then
+            echo "No Flatpak bundle was generated" >&2
+            echo "Searched from: $PWD" >&2
+            find dist -maxdepth 3 -type f | sed -n '1,200p' >&2 || true
+            exit 1
+          fi
+          ls -lh dist/*.flatpak
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: dist/*.flatpak
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

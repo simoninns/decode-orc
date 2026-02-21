@@ -9,6 +9,7 @@
  ******************************************************************************/
 
 #include "plotwidget.h"
+#include "theme_color_tokens.h"
 #include <QDebug>
 #include <QtMath>
 #include <QApplication>
@@ -46,7 +47,8 @@ PlotWidget::PlotWidget(QWidget *parent)
     , m_legendEnabled(false)
     , m_zoomEnabled(true)
     , m_panEnabled(true)
-    , m_canvasBackground(Qt::white)
+    , m_canvasBackground()
+    , m_usePaletteCanvasBackground(true)
     , m_isDragging(false)
     , m_noDataTextItem(nullptr)
 {
@@ -277,11 +279,7 @@ void PlotWidget::showNoDataMessage(const QString &message)
     font.setPointSize(14);
     m_noDataTextItem->setFont(font);
     
-    if (isDarkTheme()) {
-        m_noDataTextItem->setDefaultTextColor(Qt::lightGray);
-    } else {
-        m_noDataTextItem->setDefaultTextColor(Qt::darkGray);
-    }
+    m_noDataTextItem->setDefaultTextColor(theme_tokens::mutedText(QApplication::palette()));
     
     // Center the text in the plot area
     QRectF textRect = m_noDataTextItem->boundingRect();
@@ -328,6 +326,7 @@ void PlotWidget::resetZoom()
 
 void PlotWidget::setCanvasBackground(const QColor &color)
 {
+    m_usePaletteCanvasBackground = false;
     m_canvasBackground = color;
     m_scene->setBackgroundBrush(QBrush(color));
 }
@@ -354,10 +353,13 @@ void PlotWidget::updateTheme()
     // Use the static utility function
     m_isDarkTheme = isDarkTheme();
     
-    // Auto-set appropriate canvas background if not explicitly set
-    if (m_canvasBackground == Qt::white || m_canvasBackground == QColor(42, 42, 42)) {
-        QColor newBackground = m_isDarkTheme ? QColor(42, 42, 42) : Qt::white;
-        setCanvasBackground(newBackground);
+    if (m_usePaletteCanvasBackground) {
+        m_canvasBackground = QApplication::palette().color(QPalette::Base);
+        m_scene->setBackgroundBrush(QBrush(m_canvasBackground));
+    }
+
+    if (m_noDataTextItem) {
+        m_noDataTextItem->setDefaultTextColor(theme_tokens::mutedText(QApplication::palette()));
     }
     
     // Update all plot elements for the new theme
@@ -675,6 +677,7 @@ void PlotSeries::updatePath(const QRectF &plotRect, const QRectF &dataRect)
 PlotGrid::PlotGrid(PlotWidget *parent)
     : QGraphicsItem()
     , m_pen(QPen(Qt::gray, 0.5))
+    , m_usePalettePen(true)
     , m_enabled(true)
     , m_isDarkTheme(false)
     , m_xMin(0), m_xMax(100), m_yMin(0), m_yMax(100)
@@ -691,6 +694,7 @@ PlotGrid::PlotGrid(PlotWidget *parent)
 
 void PlotGrid::setPen(const QPen &pen)
 {
+    m_usePalettePen = false;
     m_pen = pen;
     update();
 }
@@ -712,8 +716,12 @@ void PlotGrid::paint(QPainter *painter, const QStyleOptionGraphicsItem *option, 
     Q_UNUSED(widget)
     
     if (!m_enabled) return;
-    
-    painter->setPen(m_pen);
+
+    if (m_usePalettePen) {
+        painter->setPen(QPen(theme_tokens::gridLine(QApplication::palette()), 0.5));
+    } else {
+        painter->setPen(m_pen);
+    }
     
     // Draw vertical grid lines
     if (m_xUseCustomTicks && m_xTickStep > 0) {
@@ -966,10 +974,14 @@ void PlotLegend::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
     Q_UNUSED(widget)
     
     if (!m_enabled || m_series.isEmpty()) return;
+
+    const QPalette palette = QApplication::palette();
     
     // Draw legend background
-    painter->fillRect(m_boundingRect, QColor(255, 255, 255, 200));
-    painter->setPen(QPen(Qt::black, 1.0));
+    QColor legend_background = palette.color(QPalette::Window);
+    legend_background.setAlpha(220);
+    painter->fillRect(m_boundingRect, legend_background);
+    painter->setPen(QPen(palette.color(QPalette::Mid), 1.0));
     painter->drawRect(m_boundingRect);
     
     QFont font;
@@ -986,7 +998,7 @@ void PlotLegend::paint(QPainter *painter, const QStyleOptionGraphicsItem *option
                              QPointF(m_boundingRect.left() + 25, y + fm.height()/2));
             
             // Draw text
-            painter->setPen(QPen(Qt::black));
+            painter->setPen(QPen(palette.color(QPalette::WindowText)));
             painter->drawText(QPointF(m_boundingRect.left() + 30, y + fm.ascent()), series->title());
             
             y += fm.height() + 2;
@@ -1057,8 +1069,7 @@ void PlotAxisLabels::paint(QPainter *painter, const QStyleOptionGraphicsItem *op
     Q_UNUSED(option)
     Q_UNUSED(widget)
     
-    // Determine appropriate text color based on theme
-    QColor axisColor = m_isDarkTheme ? Qt::white : Qt::black;
+    QColor axisColor = QApplication::palette().color(QPalette::WindowText);
     
     painter->setPen(QPen(axisColor));
     QFont font = painter->font();

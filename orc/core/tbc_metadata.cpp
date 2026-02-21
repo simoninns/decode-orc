@@ -443,7 +443,7 @@ std::optional<VbiData> TBCMetadataReader::read_vbi(FieldID field_id) {
     }
 
     sqlite3_bind_int(stmt, 1, impl_->capture_id);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
 
     VbiData vbi;
     vbi.in_use = false;
@@ -522,7 +522,7 @@ std::optional<ClosedCaptionData> TBCMetadataReader::read_closed_caption(FieldID 
     }
     
     sqlite3_bind_int(stmt, 1, impl_->capture_id);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
     
     ClosedCaptionData cc;
     cc.in_use = false;

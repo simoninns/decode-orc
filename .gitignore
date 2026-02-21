@@ -43,6 +43,13 @@
 # Build directories
 build/
 */build/
+build-*/
+
+# Local Windows build/dependency directories
+vcpkg/
+vcpkg-buildtrees-alt/
+external/qtnodes/
+.vs/
 
 # Encode test outputs
 encode-tests/encode-output/

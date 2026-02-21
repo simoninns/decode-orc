@@ -27,6 +27,7 @@ public:
 protected:
     void wheelEvent(QWheelEvent *event) override;
     void showEvent(QShowEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
 private slots:
     void onDeleteSelectedObjects() override;

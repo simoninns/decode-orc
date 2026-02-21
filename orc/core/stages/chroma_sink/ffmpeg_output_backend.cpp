@@ -18,6 +18,7 @@
 #include "closed_caption_observer.h"
 #include "eia608_decoder.h"
 #include <algorithm>
+#include <limits>
 #include <cstring>
 #include <thread>
 
@@ -1419,7 +1420,10 @@ bool FFmpegOutputBackend::encodeClosedCaptionsForFrame()
         }
         
         size_t packet_size = 2 + text_len;
-        av_new_packet(pkt, packet_size);
+        int packet_size_int = packet_size > static_cast<size_t>(std::numeric_limits<int>::max())
+            ? std::numeric_limits<int>::max()
+            : static_cast<int>(packet_size);
+        av_new_packet(pkt, packet_size_int);
         
         // Write length prefix (big-endian uint16)
         pkt->data[0] = (text_len >> 8) & 0xFF;

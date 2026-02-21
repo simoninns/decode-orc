@@ -11,15 +11,15 @@
 #include "logging.h"
 #include "crash_handler.h"
 #include "version.h"
+#include "plotwidget.h"
 #include "project_presenter.h"  // For initCoreLogging
+#include "theme_manager.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
 #include <QPalette>
 #include <QStyleHints>
 #include <QStyle>
-#include <QProcess>
-#include <QRegularExpression>
 #include <QSplashScreen>
 #include <QPixmap>
 #include <QTimer>
@@ -112,78 +112,6 @@ void reset_gui_logger() {
 
 } // namespace orc
 
-static QString getGSettingsValue(const QString& schema, const QString& key)
-{
-    QProcess process;
-    process.start("gsettings", QStringList() << "get" << schema << key);
-    process.waitForFinished(1000);
-
-    if (process.exitCode() == 0) {
-        QString output = process.readAllStandardOutput().trimmed();
-        return output.remove('\'');
-    }
-
-    return QString();
-}
-
-// Check if GNOME is using dark theme
-bool isGNOMEDarkTheme()
-{
-    QString colorScheme = getGSettingsValue("org.gnome.desktop.interface", "color-scheme");
-    if (!colorScheme.isEmpty()) {
-        if (colorScheme.contains("dark", Qt::CaseInsensitive)) {
-            return true;
-        }
-        if (colorScheme.contains("light", Qt::CaseInsensitive)) {
-            return false;
-        }
-    }
-
-    // Fallback: try gtk-theme setting
-    QString gtkTheme = getGSettingsValue("org.gnome.desktop.interface", "gtk-theme");
-    if (!gtkTheme.isEmpty() && gtkTheme.contains("dark", Qt::CaseInsensitive)) {
-        return true;
-    }
-    
-    return false;
-}
-
-// Apply system font settings (GNOME) if available
-void applySystemFont(QApplication& app)
-{
-    QFont baseFont = app.font();
-
-    QString fontName = getGSettingsValue("org.gnome.desktop.interface", "font-name");
-    if (!fontName.isEmpty()) {
-        QRegularExpression re(R"(^\s*(.+?)\s+(\d+(?:\.\d+)?)\s*$)");
-        QRegularExpressionMatch match = re.match(fontName);
-        if (match.hasMatch()) {
-            QString family = match.captured(1).trimmed();
-            double size = match.captured(2).toDouble();
-            if (!family.isEmpty()) {
-                baseFont.setFamily(family);
-            }
-            if (size > 0.0) {
-                baseFont.setPointSizeF(size);
-            }
-        } else {
-            baseFont.setFamily(fontName.trimmed());
-        }
-    }
-
-    QString scaleStr = getGSettingsValue("org.gnome.desktop.interface", "text-scaling-factor");
-    bool ok = false;
-    double scale = scaleStr.toDouble(&ok);
-    if (ok && scale > 0.0) {
-        double pointSize = baseFont.pointSizeF();
-        if (pointSize > 0.0) {
-            baseFont.setPointSizeF(pointSize * scale);
-        }
-    }
-
-    app.setFont(baseFont);
-}
-
 // Apply dark or light palette to the application
 void applySystemTheme(QApplication& app, bool isDark)
 {
@@ -221,8 +149,30 @@ void applySystemTheme(QApplication& app, bool isDark)
         
         app.setPalette(darkPalette);
     } else {
-        // Light theme - use default Qt palette
-        app.setPalette(app.style()->standardPalette());
+        // Light theme: use Qt style palette
+        QPalette lightPalette = app.style()->standardPalette();
+        app.setPalette(lightPalette);
+    }
+
+    app.setStyleSheet(
+        "QMenuBar { background-color: palette(window); color: palette(window-text); }"
+        "QMenuBar::item:selected { background-color: palette(highlight); color: palette(highlighted-text); }"
+        "QMenu { background-color: palette(window); color: palette(window-text); }"
+        "QMenu::item:selected { background-color: palette(highlight); color: palette(highlighted-text); }"
+    );
+}
+
+void applyResolvedTheme(QApplication& app, const ThemeManager::Resolution& resolution)
+{
+    app.setProperty("isDarkTheme", resolution.isDark);
+    app.setProperty("themeMode", ThemeManager::modeToString(resolution.mode));
+    applySystemTheme(app, resolution.isDark);
+
+    const auto widgets = app.allWidgets();
+    for (QWidget *widget : widgets) {
+        if (auto *plotWidget = qobject_cast<PlotWidget*>(widget)) {
+            plotWidget->updateTheme();
+        }
     }
 }
 
@@ -298,25 +248,6 @@ int main(int argc, char *argv[])
     parser.addPositionalArgument("project", "Project file to open (optional)");
     parser.process(app);
 
-    // Apply system theme (optionally overridden by CLI)
-    QString themeMode = parser.value(themeOption).trimmed().toLower();
-    bool isDark = isGNOMEDarkTheme();
-    if (themeMode == "dark") {
-        isDark = true;
-        app.setProperty("isDarkTheme", true);
-    } else if (themeMode == "light") {
-        isDark = false;
-        app.setProperty("isDarkTheme", false);
-    } else if (themeMode == "auto") {
-        // Use system detection, no explicit override
-    } else {
-        std::cerr << "Unknown theme '" << themeMode.toStdString() << "', using auto" << std::endl;
-    }
-    applySystemTheme(app, isDark);
-    if (!qEnvironmentVariableIsSet("QT_QPA_PLATFORMTHEME")) {
-        applySystemFont(app);
-    }
-
     // Initialize GUI and core logging
     QString logLevel = parser.value(logLevelOption);
     QString sharedLogFile = parser.value(sharedLogFileOption);
@@ -335,7 +266,44 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(qtMessageHandler);
 
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
-    ORC_LOG_DEBUG("GNOME theme detected: {}", isDark ? "dark" : "light");
+
+    ThemeManager themeManager(parser.value(themeOption));
+    if (themeManager.hadInvalidMode()) {
+        ORC_LOG_WARN("Unknown --theme value '{}', falling back to auto",
+                     themeManager.invalidMode().toStdString());
+    }
+
+    ThemeManager::Resolution resolution = themeManager.resolve(app);
+    applyResolvedTheme(app, resolution);
+
+    ORC_LOG_INFO("Theme mode '{}' resolved to '{}' via {}",
+                 themeManager.modeName().toStdString(),
+                 ThemeManager::colorSchemeToString(resolution.scheme).toStdString(),
+                 resolution.source.toStdString());
+    if (resolution.usedPaletteFallback) {
+        ORC_LOG_WARN("Theme auto-detection fell back to palette heuristic because Qt reported unknown color scheme");
+    }
+
+    if (themeManager.shouldTrackSystemChanges() && app.styleHints()) {
+        QObject::connect(app.styleHints(),
+                         &QStyleHints::colorSchemeChanged,
+                         &app,
+                         [&app, &themeManager](Qt::ColorScheme newScheme) {
+            ThemeManager::Resolution updatedResolution = themeManager.resolve(app);
+            applyResolvedTheme(app, updatedResolution);
+            ORC_LOG_INFO("OS color scheme changed to '{}'; applied '{}' via {}",
+                         ThemeManager::colorSchemeToString(newScheme).toStdString(),
+                         ThemeManager::colorSchemeToString(updatedResolution.scheme).toStdString(),
+                         updatedResolution.source.toStdString());
+            if (updatedResolution.usedPaletteFallback) {
+                ORC_LOG_WARN("Runtime theme update used palette fallback because Qt reported unknown color scheme");
+            }
+        });
+
+        ORC_LOG_DEBUG("Runtime OS theme tracking enabled (auto mode)");
+    } else {
+        ORC_LOG_DEBUG("Runtime OS theme tracking disabled (forced theme mode)");
+    }
 
     // Initialize crash handler
     orc::CrashHandlerConfig crash_config;
@@ -348,7 +316,6 @@ int main(int argc, char *argv[])
     }
     if (!crashDir.isEmpty()) {
         crashDir += "/decode-orc-crashes";
-        fs::create_directories(crashDir.toStdString());
         crash_config.output_directory = crashDir.toStdString();
     } else {
         crash_config.output_directory = fs::current_path().string();
@@ -356,6 +323,7 @@ int main(int argc, char *argv[])
 
     crash_config.enable_coredump = true;
     crash_config.auto_upload_info = true;
+    crash_config.primary_log_file = sharedLogFile.toStdString();
     crash_config.custom_info_callback = []() -> std::string {
         std::ostringstream info;
         info << "Working directory: " << fs::current_path().string() << "\n";

@@ -629,8 +629,8 @@ PreviewImage PreviewRenderer::render_field(
         }
         
         // Initialize image
-        image.width = desc.width;
-        image.height = desc.height;
+        image.width = static_cast<uint32_t>(desc.width);
+        image.height = static_cast<uint32_t>(desc.height);
         image.rgb_data.resize(image.width * image.height * 3);
         
         // Convert 16-bit RGB to 8-bit RGB
@@ -664,8 +664,8 @@ PreviewImage PreviewRenderer::render_field(
     double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
     
     // Initialize image
-    image.width = desc.width;
-    image.height = desc.height;
+    image.width = static_cast<uint32_t>(desc.width);
+    image.height = static_cast<uint32_t>(desc.height);
     image.rgb_data.resize(image.width * image.height * 3);
     
     // Convert 16-bit samples to 8-bit RGB grayscale
@@ -729,8 +729,8 @@ PreviewImage PreviewRenderer::render_frame(
         }
         
         // Initialize image
-        image.width = desc.width;
-        image.height = desc.height;
+        image.width = static_cast<uint32_t>(desc.width);
+        image.height = static_cast<uint32_t>(desc.height);
         image.rgb_data.resize(image.width * image.height * 3);
         
         ORC_LOG_DEBUG("render_frame: Converting RGB frame {}x{}, {} bytes", 
@@ -769,8 +769,8 @@ PreviewImage PreviewRenderer::render_frame(
     double whiteIRE = video_params ? video_params->white_16b_ire : 65535.0;
     
     // Frame height is sum of both field heights (they can differ, e.g., NTSC: 262 + 263 = 525)
-    image.width = desc_a.width;
-    image.height = desc_a.height + desc_b.height;
+    image.width = static_cast<uint32_t>(desc_a.width);
+    image.height = static_cast<uint32_t>(desc_a.height + desc_b.height);
     image.rgb_data.resize(image.width * image.height * 3);
     
     // Weave fields together
@@ -877,8 +877,8 @@ PreviewImage PreviewRenderer::render_split_frame(
     
     // Split frame: stack fields vertically
     // Top half is field_a, bottom half is field_b
-    image.width = desc_a.width;
-    image.height = desc_a.height + desc_b.height;  // Sum of field heights (can differ)
+    image.width = static_cast<uint32_t>(desc_a.width);
+    image.height = static_cast<uint32_t>(desc_a.height + desc_b.height);  // Sum of field heights (can differ)
     image.rgb_data.resize(image.width * image.height * 3);
     
     // Copy field_a to top half
@@ -929,7 +929,7 @@ PreviewImage PreviewRenderer::render_split_frame(
     
     // Field B dropouts go in bottom half (offset line numbers by field_a height)
     for (auto& region : dropouts_b) {
-        region.line += desc_a.height;
+        region.line += static_cast<uint32_t>(desc_a.height);
         image.dropout_regions.push_back(region);
     }
     
@@ -975,7 +975,14 @@ bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& fil
         return false;
     }
     
-    FILE* fp = fopen(filename.c_str(), "wb");
+    FILE* fp = nullptr;
+#ifdef _WIN32
+    if (fopen_s(&fp, filename.c_str(), "wb") != 0) {
+        fp = nullptr;
+    }
+#else
+    fp = fopen(filename.c_str(), "wb");
+#endif
     if (!fp) {
         ORC_LOG_ERROR("Failed to open file for writing: {}", filename);
         return false;
@@ -998,12 +1005,19 @@ bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& fil
     }
     
     // Error handling
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4611)
+#endif
     if (setjmp(png_jmpbuf(png))) {
         png_destroy_write_struct(&png, &info);
         fclose(fp);
         ORC_LOG_ERROR("PNG write error");
         return false;
     }
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
     
     png_init_io(png, fp);
     

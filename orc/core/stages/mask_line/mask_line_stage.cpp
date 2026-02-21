@@ -63,7 +63,7 @@ void MaskedLineRepresentation::parse_line_spec(const std::string& line_spec) {
         
         size_t colon_pos = token.find(':');
         if (colon_pos != std::string::npos && colon_pos > 0) {
-            char prefix = std::toupper(token[0]);
+            char prefix = static_cast<char>(std::toupper(static_cast<unsigned char>(token[0])));
             if (prefix == 'F' || prefix == 'S' || prefix == 'A') {
                 parity = prefix;
                 range_str = token.substr(colon_pos + 1);
@@ -113,8 +113,8 @@ uint16_t MaskedLineRepresentation::ire_to_sample(double ire) const {
     
     // Convert IRE to 16-bit sample using video parameters
     // black_16b_ire corresponds to 0 IRE, white_16b_ire corresponds to 100 IRE
-    uint16_t black_level = video_params->black_16b_ire;
-    uint16_t white_level = video_params->white_16b_ire;
+    uint16_t black_level = static_cast<uint16_t>(video_params->black_16b_ire);
+    uint16_t white_level = static_cast<uint16_t>(video_params->white_16b_ire);
     
     // Linear interpolation
     double sample = black_level + (ire / 100.0) * (white_level - black_level);

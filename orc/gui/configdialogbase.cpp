@@ -127,7 +127,15 @@ void ConfigDialogBase::add_info_label(QFormLayout* layout, const QString& text)
     auto* label = new QLabel(text, this);
     label->setWordWrap(true);
     label->setTextFormat(Qt::RichText);
-    label->setStyleSheet("QLabel { color: #666; font-style: italic; }");
+
+    QFont label_font = label->font();
+    label_font.setItalic(true);
+    label->setFont(label_font);
+
+    QPalette label_palette = label->palette();
+    label_palette.setColor(QPalette::WindowText, label_palette.color(QPalette::Disabled, QPalette::WindowText));
+    label->setPalette(label_palette);
+
     layout->addRow(label);
 }
 

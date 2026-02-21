@@ -334,7 +334,7 @@ bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
                 if (data0 > 0 || data1 > 0) {
                     if (!caption_in_progress) {
                         // Start of new caption
-                        std::string timestamp = generate_timestamp(field_id.value(), format);
+                        std::string timestamp = generate_timestamp(static_cast<int32_t>(field_id.value()), format);
                         file << "\n\n" << timestamp << "\t";
                         
                         debug_caption = "Caption at " + timestamp + " : [";

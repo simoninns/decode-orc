@@ -132,6 +132,7 @@ int main(int argc, char* argv[]) {
     crash_config.application_name = "orc-cli";
     crash_config.version = ORC_VERSION;
     crash_config.output_directory = fs::current_path().string();
+    crash_config.primary_log_file = log_file;
     crash_config.enable_coredump = true;
     crash_config.auto_upload_info = true;
     

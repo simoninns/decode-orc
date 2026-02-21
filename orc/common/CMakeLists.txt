@@ -21,6 +21,10 @@ target_include_directories(orc-common PUBLIC
 find_package(spdlog REQUIRED)
 target_link_libraries(orc-common PUBLIC spdlog::spdlog)
 
+if(WIN32)
+    target_link_libraries(orc-common PRIVATE dbghelp)
+endif()
+
 # Install headers
 install(DIRECTORY include/
     DESTINATION include/orc/common

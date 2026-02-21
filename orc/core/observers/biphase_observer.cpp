@@ -508,7 +508,7 @@ void BiphaseObserver::process_field(
     const auto& video_params = video_params_opt.value();
     
     // Calculate IRE zero-crossing point (midpoint between black and white)
-    uint16_t zero_crossing = (video_params.white_16b_ire + video_params.black_16b_ire) / 2;
+    uint16_t zero_crossing = static_cast<uint16_t>((video_params.white_16b_ire + video_params.black_16b_ire) / 2);
     size_t active_start = video_params.active_video_start;
     double sample_rate = static_cast<double>(video_params.sample_rate);
     

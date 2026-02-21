@@ -133,8 +133,8 @@ PreviewImage render_field_preview(
         return result;
     }
     
-    result.width = descriptor->width;
-    result.height = descriptor->height;
+    result.width = static_cast<uint32_t>(descriptor->width);
+    result.height = static_cast<uint32_t>(descriptor->height);
     result.rgb_data.resize(result.width * result.height * 3);
     
     // Calculate scaling parameters (fixed-point integer math)
@@ -197,8 +197,8 @@ PreviewImage render_split_preview(
         return result;
     }
     
-    result.width = desc_first->width;
-    result.height = desc_first->height + desc_second->height;
+    result.width = static_cast<uint32_t>(desc_first->width);
+    result.height = static_cast<uint32_t>(desc_first->height + desc_second->height);
     result.rgb_data.resize(result.width * result.height * 3);
     
     // Calculate scaling parameters (fixed-point integer math)
@@ -230,7 +230,7 @@ PreviewImage render_split_preview(
     
     // Render first field on top, second field on bottom
     render_field(first_field, 0);
-    render_field(second_field, desc_first->height);
+    render_field(second_field, static_cast<uint32_t>(desc_first->height));
     
     // Extract dropout regions from both fields for split view
     auto dropouts_first = representation->get_dropout_hints(first_field);
@@ -244,7 +244,7 @@ PreviewImage render_split_preview(
     
     // Second field dropouts go in bottom half (offset line numbers by first field height)
     for (auto& region : dropouts_second) {
-        region.line += desc_first->height;
+        region.line += static_cast<uint32_t>(desc_first->height);
         result.dropout_regions.push_back(region);
     }
     
@@ -290,8 +290,8 @@ PreviewImage render_frame_preview(
         return result;
     }
     
-    result.width = desc_first->width;
-    result.height = desc_first->height + desc_second->height;
+    result.width = static_cast<uint32_t>(desc_first->width);
+    result.height = static_cast<uint32_t>(desc_first->height + desc_second->height);
     result.rgb_data.resize(result.width * result.height * 3);
     
     // Calculate scaling parameters
@@ -504,8 +504,8 @@ static PreviewImage render_split_preview_with_channel(
         return result;
     }
     
-    result.width = desc_first->width;
-    result.height = desc_first->height + desc_second->height;
+    result.width = static_cast<uint32_t>(desc_first->width);
+    result.height = static_cast<uint32_t>(desc_first->height + desc_second->height);
     result.rgb_data.resize(result.width * result.height * 3);
     
     // Get field data for the selected channel
@@ -562,7 +562,7 @@ static PreviewImage render_split_preview_with_channel(
                 gray = static_cast<uint8_t>(sample * raw_scale);
             }
             
-            size_t offset = ((y + desc_first->height) * result.width + x) * 3;
+            size_t offset = ((y + static_cast<uint32_t>(desc_first->height)) * result.width + x) * 3;
             result.rgb_data[offset + 0] = gray;
             result.rgb_data[offset + 1] = gray;
             result.rgb_data[offset + 2] = gray;
@@ -575,7 +575,7 @@ static PreviewImage render_split_preview_with_channel(
     
     result.dropout_regions = dropouts_first;
     for (auto& region : dropouts_second) {
-        region.line += desc_first->height;
+        region.line += static_cast<uint32_t>(desc_first->height);
         result.dropout_regions.push_back(region);
     }
     
@@ -620,8 +620,8 @@ static PreviewImage render_frame_preview_with_channel(
         return result;
     }
     
-    result.width = desc_first->width;
-    result.height = desc_first->height + desc_second->height;
+    result.width = static_cast<uint32_t>(desc_first->width);
+    result.height = static_cast<uint32_t>(desc_first->height + desc_second->height);
     result.rgb_data.resize(result.width * result.height * 3);
     
     // Get field data for the selected channel
@@ -654,7 +654,7 @@ static PreviewImage render_frame_preview_with_channel(
         
         const auto& field_data = use_first_field ? first_data : second_data;
         uint32_t field_line = y / 2;
-        uint32_t field_width = use_first_field ? desc_first->width : desc_second->width;
+        size_t field_width = use_first_field ? desc_first->width : desc_second->width;
         
         for (uint32_t x = 0; x < result.width; ++x) {
             size_t sample_idx = field_line * field_width + x;

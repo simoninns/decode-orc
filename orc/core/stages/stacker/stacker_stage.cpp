@@ -1068,7 +1068,7 @@ void StackerStage::process_lines_range(
             uint16_t stacked_value;
             if (values.empty()) {
                 // No valid values - use black level
-                stacked_value = video_params.black_16b_ire;
+                stacked_value = static_cast<uint16_t>(video_params.black_16b_ire);
                 line_dropouts++;
                 total_dropouts++;
                 
@@ -1162,7 +1162,7 @@ void StackerStage::process_lines_range_yc(
                 bool chroma_available = pixel_offset < all_chroma_fields[src_idx].size();
                 uint16_t chroma_value = chroma_available
                     ? all_chroma_fields[src_idx][pixel_offset]
-                    : video_params.black_16b_ire;
+                    : static_cast<uint16_t>(video_params.black_16b_ire);
                 
                 bool pixel_is_dropout = false;
                 for (const auto& region : all_dropouts[src_idx]) {
@@ -1203,8 +1203,8 @@ void StackerStage::process_lines_range_yc(
                 }
             }
             
-            uint16_t stacked_luma = video_params.black_16b_ire;
-            uint16_t stacked_chroma = video_params.black_16b_ire;
+            uint16_t stacked_luma = static_cast<uint16_t>(video_params.black_16b_ire);
+            uint16_t stacked_chroma = static_cast<uint16_t>(video_params.black_16b_ire);
             bool is_output_dropout = false;
             
             if (luma_values.empty()) {
@@ -1343,7 +1343,7 @@ uint16_t StackerStage::stack_mode(
             }
             
             if (count == 0) {
-                return med;
+                return static_cast<uint16_t>(std::clamp(med, 0, 65535));
             }
             return static_cast<uint16_t>(sum / count);
         }
@@ -1597,16 +1597,16 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
                 if (m_mode != old_mode) {
                     any_changed = true;
                 }
-            } else if (auto* val = std::get_if<int32_t>(&value)) {
+            } else if (auto* mode_value = std::get_if<int32_t>(&value)) {
                 // Support legacy integer values
-                if (*val < -1 || *val > 4) {
-                    ORC_LOG_WARN("StackerStage: Invalid mode value {} (must be -1 to 4)", *val);
+                if (*mode_value < -1 || *mode_value > 4) {
+                    ORC_LOG_WARN("StackerStage: Invalid mode value {} (must be -1 to 4)", *mode_value);
                     return false;
                 }
-                if (m_mode != *val) {
+                if (m_mode != *mode_value) {
                     any_changed = true;
                 }
-                m_mode = *val;
+                m_mode = *mode_value;
             } else {
                 return false;
             }

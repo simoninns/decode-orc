@@ -12,12 +12,14 @@
 #include <cstring>
 #include <stdexcept>
 #include <algorithm>
+#include <limits>
 
 #ifdef _WIN32
     #include <io.h>
     #include <sys/types.h>
     #include <sys/stat.h>
     #include <fcntl.h>
+    #include <share.h>
     #include <mutex>
     // Define POSIX type for Windows if not already defined
     #ifndef _SSIZE_T_DEFINED
@@ -65,7 +67,9 @@ bool TBCReader::open(const std::string& filename, size_t field_length, size_t li
     
     // Open file with POSIX API (thread-safe for pread)
 #ifdef _WIN32
-    fd_ = _open(filename.c_str(), _O_RDONLY | _O_BINARY);
+    if (_sopen_s(&fd_, filename.c_str(), _O_RDONLY | _O_BINARY, _SH_DENYNO, 0) != 0) {
+        fd_ = -1;
+    }
 #else
     fd_ = ::open(filename.c_str(), O_RDONLY);
 #endif
@@ -136,11 +140,18 @@ std::vector<TBCReader::sample_type> TBCReader::read_field(FieldID field_id) {
     // Allocate buffer for field data
     auto field_data = std::make_shared<std::vector<sample_type>>(field_length_);
     
-    // Calculate file position
-    off_t position = static_cast<off_t>(field_index * field_byte_length_);
-    
+    // Calculate file position using 64-bit arithmetic to avoid overflow on large files
+    uint64_t position_u64 = static_cast<uint64_t>(field_index) * static_cast<uint64_t>(field_byte_length_);
+
     // Use pread for thread-safe reading (no seek needed, atomic operation)
-    ssize_t bytes_read = pread(fd_, field_data->data(), field_byte_length_, position);
+#ifdef _WIN32
+    ssize_t bytes_read = pread(fd_, field_data->data(), field_byte_length_, static_cast<__int64>(position_u64));
+#else
+    if (position_u64 > static_cast<uint64_t>(std::numeric_limits<off_t>::max())) {
+        throw std::out_of_range("Field byte offset exceeds platform file offset range");
+    }
+    ssize_t bytes_read = pread(fd_, field_data->data(), field_byte_length_, static_cast<off_t>(position_u64));
+#endif
     
     if (bytes_read < 0) {
         throw std::runtime_error("Failed to read field from file: " + filename_);

@@ -170,9 +170,12 @@ target_link_libraries(orc-core PUBLIC orc-common)
 
 # Warning flags
 target_compile_options(orc-core PRIVATE
-    -Wall -Wextra -Wpedantic
-    $<$<CONFIG:Debug>:-g -O0>
-    $<$<CONFIG:Release>:-O3>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/Od /Zi>
+    $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Debug>>:-g -O0>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Release>>:-O3>
 )
 
 # Enable debug/trace logging at compile time
@@ -195,6 +198,10 @@ target_link_libraries(orc-core PUBLIC yaml-cpp::yaml-cpp)
 # Find and link spdlog
 find_package(spdlog REQUIRED)
 target_link_libraries(orc-core PUBLIC spdlog::spdlog)
+
+if(WIN32)
+    target_link_libraries(orc-core PRIVATE dbghelp)
+endif()
 
 # Find and link libpng
 find_package(PNG REQUIRED)

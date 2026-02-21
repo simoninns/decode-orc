@@ -20,6 +20,15 @@
 #include <iostream>
 #include <filesystem>
 #include <vector>
+#include <exception>
+#include <algorithm>
+#include <array>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#include <dbghelp.h>
+#endif
 
 // Unix/POSIX-specific headers (not available on Windows)
 #ifndef _WIN32
@@ -28,8 +37,11 @@
 #include <sys/resource.h>
 #endif
 
-#ifdef __linux__
+#if defined(__linux__) || defined(__APPLE__)
 #include <execinfo.h>
+#endif
+
+#ifdef __linux__
 #include <sys/sysinfo.h>
 #endif
 
@@ -43,7 +55,22 @@ static std::string g_last_crash_bundle;
 static bool g_crash_handler_initialized = false;
 #ifndef _WIN32
 static struct sigaction g_old_sigactions[32];
+#else
+static LPTOP_LEVEL_EXCEPTION_FILTER g_previous_exception_filter = nullptr;
+static std::terminate_handler g_previous_terminate_handler = nullptr;
 #endif
+
+static bool ensure_output_directory_exists() {
+    try {
+        if (g_crash_config.output_directory.empty()) {
+            g_crash_config.output_directory = fs::current_path().string();
+        }
+        fs::create_directories(g_crash_config.output_directory);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
 
 /**
  * @brief Get current timestamp as formatted string
@@ -116,11 +143,15 @@ static std::string get_system_info() {
  * @return Multi-line string with stack backtrace
  * @private
  */
-static std::string get_backtrace() {
+static std::string get_backtrace(
+#ifdef _WIN32
+    EXCEPTION_POINTERS* exception_pointers = nullptr
+#endif
+) {
     std::ostringstream trace;
     trace << "=== Stack Backtrace ===\n\n";
     
-#ifdef __linux__
+#ifndef _WIN32
     void* buffer[256];
     int nptrs = backtrace(buffer, 256);
     char** strings = backtrace_symbols(buffer, nptrs);
@@ -141,10 +172,114 @@ static std::string get_backtrace() {
         trace << "Unable to obtain backtrace\n";
     }
 #else
-    trace << "Backtrace not available on this platform\n";
+    HANDLE process = GetCurrentProcess();
+    HANDLE thread = GetCurrentThread();
+
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+    const bool symbols_ready = (SymInitialize(process, nullptr, TRUE) == TRUE);
+
+    if (!symbols_ready) {
+        trace << "Unable to initialize symbol handler (dbghelp)\n";
+        trace << "GetLastError: " << GetLastError() << "\n";
+        trace << "\n";
+        return trace.str();
+    }
+
+    CONTEXT context{};
+    if (exception_pointers != nullptr && exception_pointers->ContextRecord != nullptr) {
+        context = *exception_pointers->ContextRecord;
+    } else {
+        RtlCaptureContext(&context);
+    }
+
+    STACKFRAME64 frame{};
+    DWORD machine_type = 0;
+
+#if defined(_M_X64)
+    machine_type = IMAGE_FILE_MACHINE_AMD64;
+    frame.AddrPC.Offset = context.Rip;
+    frame.AddrFrame.Offset = context.Rbp;
+    frame.AddrStack.Offset = context.Rsp;
+#elif defined(_M_IX86)
+    machine_type = IMAGE_FILE_MACHINE_I386;
+    frame.AddrPC.Offset = context.Eip;
+    frame.AddrFrame.Offset = context.Ebp;
+    frame.AddrStack.Offset = context.Esp;
+#elif defined(_M_ARM64)
+    machine_type = IMAGE_FILE_MACHINE_ARM64;
+    frame.AddrPC.Offset = context.Pc;
+    frame.AddrFrame.Offset = context.Fp;
+    frame.AddrStack.Offset = context.Sp;
+#else
+    trace << "Backtrace not supported on this Windows architecture\n\n";
+    SymCleanup(process);
+    return trace.str();
 #endif
-    
+
+    frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Mode = AddrModeFlat;
+
+    constexpr size_t kMaxFrames = 128;
+    size_t frame_index = 0;
+
+    while (frame_index < kMaxFrames) {
+        BOOL walk_ok = StackWalk64(machine_type,
+                                   process,
+                                   thread,
+                                   &frame,
+                                   &context,
+                                   nullptr,
+                                   SymFunctionTableAccess64,
+                                   SymGetModuleBase64,
+                                   nullptr);
+
+        if (walk_ok == FALSE || frame.AddrPC.Offset == 0) {
+            break;
+        }
+
+        DWORD64 address = frame.AddrPC.Offset;
+
+        std::array<char, sizeof(SYMBOL_INFO) + MAX_SYM_NAME> symbol_storage{};
+        auto* symbol = reinterpret_cast<SYMBOL_INFO*>(symbol_storage.data());
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        symbol->MaxNameLen = MAX_SYM_NAME;
+
+        DWORD64 displacement = 0;
+        bool resolved_symbol = (SymFromAddr(process, address, &displacement, symbol) == TRUE);
+
+        IMAGEHLP_LINE64 source_line{};
+        source_line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+        DWORD source_displacement = 0;
+        bool resolved_line =
+            (SymGetLineFromAddr64(process, address, &source_displacement, &source_line) == TRUE);
+
+        trace << "#" << std::setw(2) << frame_index << " 0x" << std::hex << std::uppercase
+              << address << std::dec;
+
+        if (resolved_symbol) {
+            trace << " " << symbol->Name;
+            if (displacement > 0) {
+                trace << " +0x" << std::hex << displacement << std::dec;
+            }
+        }
+
+        if (resolved_line && source_line.FileName != nullptr) {
+            trace << " (" << source_line.FileName << ":" << source_line.LineNumber << ")";
+        }
+
+        trace << "\n";
+        ++frame_index;
+    }
+
+    if (frame_index == 0) {
+        trace << "No stack frames captured\n";
+    }
+
     trace << "\n";
+    SymCleanup(process);
+#endif
+
     return trace.str();
 }
 
@@ -175,7 +310,13 @@ static std::string get_signal_name(int sig) {
  * @return Complete crash report as formatted string
  * @private
  */
-static std::string create_crash_info(int signal_num, const std::string& custom_message = "") {
+static std::string create_crash_info(
+    int signal_num,
+    const std::string& custom_message = ""
+#ifdef _WIN32
+    , EXCEPTION_POINTERS* exception_pointers = nullptr
+#endif
+) {
     std::ostringstream info;
     
     info << "=== Crash Report ===\n\n";
@@ -193,7 +334,11 @@ static std::string create_crash_info(int signal_num, const std::string& custom_m
     
     info << "\n";
     info << get_system_info();
+#ifdef _WIN32
+    info << get_backtrace(exception_pointers);
+#else
     info << get_backtrace();
+#endif
     
     // Custom application info
     if (g_crash_config.custom_info_callback) {
@@ -238,6 +383,53 @@ static std::string find_coredump() {
 }
 
 /**
+ * @brief Collect log files to include in crash bundle
+ * @return List of unique log file paths
+ * @private
+ */
+static std::vector<std::string> collect_log_files() {
+    std::vector<std::string> log_files;
+
+    auto add_file_if_present = [&log_files](const fs::path& file_path,
+                                            bool require_log_extension) {
+        if (file_path.empty()) {
+            return;
+        }
+
+        try {
+            if (!fs::exists(file_path) || !fs::is_regular_file(file_path)) {
+                return;
+            }
+
+            if (require_log_extension && file_path.extension() != ".log") {
+                return;
+            }
+
+            std::string normalized = file_path.lexically_normal().string();
+            if (std::find(log_files.begin(), log_files.end(), normalized) == log_files.end()) {
+                log_files.push_back(normalized);
+            }
+        } catch (...) {
+            // Continue even if file checks fail
+        }
+    };
+
+    try {
+        for (const auto& entry : fs::directory_iterator(g_crash_config.output_directory)) {
+            add_file_if_present(entry.path(), true);
+        }
+    } catch (...) {
+        // Continue even if directory listing fails
+    }
+
+    if (!g_crash_config.primary_log_file.empty()) {
+        add_file_if_present(fs::path(g_crash_config.primary_log_file), false);
+    }
+
+    return log_files;
+}
+
+/**
  * @brief Create a ZIP file containing crash diagnostic information
  * @param crash_info_content The formatted crash report text
  * @param coredump_path Path to coredump file (empty if none)
@@ -248,6 +440,10 @@ static std::string find_coredump() {
 static std::string create_bundle_zip(const std::string& crash_info_content, 
                                      const std::string& coredump_path,
                                      const std::vector<std::string>& log_files) {
+
+    if (!ensure_output_directory_exists()) {
+        return "";
+    }
     
     std::string timestamp = get_timestamp();
     std::string bundle_dir = g_crash_config.output_directory + "/crash_bundle_" + timestamp;
@@ -335,15 +531,36 @@ static std::string create_bundle_zip(const std::string& crash_info_content,
                                  " && zip -r -q crash_bundle_" + timestamp + ".zip crash_bundle_" + timestamp;
 #endif
         int result = system(zip_command.c_str());
-        
-        // Clean up temporary directory
-        fs::remove_all(bundle_dir);
-        
+
         if (result == 0 && fs::exists(bundle_zip)) {
+            // Clean up temporary directory only when ZIP was created successfully
+            fs::remove_all(bundle_dir);
             return bundle_zip;
         }
+
+        // ZIP failed; preserve uncompressed bundle directory as reliable fallback
+        std::ofstream zip_failure_note(bundle_dir + "/ZIP_FAILURE.txt");
+        if (zip_failure_note.is_open()) {
+            zip_failure_note << "Failed to create ZIP archive from crash bundle directory.\n";
+            zip_failure_note << "The uncompressed bundle directory contains complete diagnostics.\n";
+            zip_failure_note << "Attempted ZIP output path: " << bundle_zip << "\n";
+            zip_failure_note << "System command exit code: " << result << "\n";
+            zip_failure_note.close();
+        }
+        return bundle_dir;
     } catch (const std::exception& e) {
-        // If ZIP creation fails, at least save the crash info
+        // If an exception occurs and bundle directory exists, preserve it as fallback
+        if (fs::exists(bundle_dir)) {
+            std::ofstream exception_note(bundle_dir + "/ZIP_EXCEPTION.txt");
+            if (exception_note.is_open()) {
+                exception_note << "Exception while creating ZIP archive: " << e.what() << "\n";
+                exception_note << "The uncompressed bundle directory contains complete diagnostics.\n";
+                exception_note.close();
+            }
+            return bundle_dir;
+        }
+
+        // Last-resort fallback: save crash info only
         std::string fallback_path = g_crash_config.output_directory + "/crash_info_" + timestamp + ".txt";
         std::ofstream fallback(fallback_path);
         fallback << crash_info_content;
@@ -353,6 +570,128 @@ static std::string create_bundle_zip(const std::string& crash_info_content,
     
     return "";
 }
+
+#ifdef _WIN32
+static std::string create_windows_minidump(EXCEPTION_POINTERS* exception_pointers) {
+    if (!ensure_output_directory_exists()) {
+        return "";
+    }
+
+    std::string timestamp = get_timestamp();
+    std::string minidump_path = g_crash_config.output_directory + "/minidump_" + timestamp + ".dmp";
+
+    HANDLE dump_file = CreateFileA(minidump_path.c_str(),
+                                   GENERIC_WRITE,
+                                   FILE_SHARE_READ,
+                                   nullptr,
+                                   CREATE_ALWAYS,
+                                   FILE_ATTRIBUTE_NORMAL,
+                                   nullptr);
+    if (dump_file == INVALID_HANDLE_VALUE) {
+        return "";
+    }
+
+    MINIDUMP_EXCEPTION_INFORMATION exception_info{};
+    MINIDUMP_EXCEPTION_INFORMATION* exception_info_ptr = nullptr;
+    if (exception_pointers != nullptr) {
+        exception_info.ThreadId = GetCurrentThreadId();
+        exception_info.ExceptionPointers = exception_pointers;
+        exception_info.ClientPointers = FALSE;
+        exception_info_ptr = &exception_info;
+    }
+
+    const MINIDUMP_TYPE dump_type = static_cast<MINIDUMP_TYPE>(
+        MiniDumpWithIndirectlyReferencedMemory |
+        MiniDumpWithThreadInfo |
+        MiniDumpWithDataSegs
+    );
+
+    const BOOL write_result = MiniDumpWriteDump(GetCurrentProcess(),
+                                                GetCurrentProcessId(),
+                                                dump_file,
+                                                dump_type,
+                                                exception_info_ptr,
+                                                nullptr,
+                                                nullptr);
+
+    CloseHandle(dump_file);
+
+    if (write_result == FALSE) {
+        fs::remove(minidump_path);
+        return "";
+    }
+
+    return minidump_path;
+}
+
+static std::string create_windows_crash_bundle(const std::string& error_message,
+                                               EXCEPTION_POINTERS* exception_pointers) {
+    std::string crash_info = create_crash_info(0, error_message, exception_pointers);
+    std::string minidump_path = create_windows_minidump(exception_pointers);
+
+    std::vector<std::string> log_files = collect_log_files();
+
+    std::string bundle_path = create_bundle_zip(crash_info, minidump_path, log_files);
+    g_last_crash_bundle = bundle_path;
+    return bundle_path;
+}
+
+static LONG WINAPI crash_exception_handler(EXCEPTION_POINTERS* exception_pointers) {
+    static volatile LONG handling_crash = 0;
+    if (InterlockedExchange(&handling_crash, 1) != 0) {
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+
+    std::ostringstream message;
+    message << "Unhandled Windows exception";
+    if (exception_pointers != nullptr && exception_pointers->ExceptionRecord != nullptr) {
+        message << " (code=0x" << std::hex << std::uppercase
+                << exception_pointers->ExceptionRecord->ExceptionCode << std::dec << ")";
+    }
+
+    auto logger = get_app_logger();
+    if (logger) {
+        logger->critical("CRASH DETECTED: {}", message.str());
+        logger->flush();
+    }
+
+    create_windows_crash_bundle(message.str(), exception_pointers);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
+static void crash_terminate_handler() {
+    static bool handling_terminate = false;
+    if (handling_terminate) {
+        std::_Exit(1);
+    }
+    handling_terminate = true;
+
+    std::string message = "std::terminate called";
+    try {
+        std::exception_ptr current_exception = std::current_exception();
+        if (current_exception) {
+            std::rethrow_exception(current_exception);
+        }
+    } catch (const std::exception& exception) {
+        message += std::string(": ") + exception.what();
+    } catch (...) {
+        message += " (non-std exception)";
+    }
+
+    auto logger = get_app_logger();
+    if (logger) {
+        logger->critical("CRASH DETECTED: {}", message);
+        logger->flush();
+    }
+
+    create_windows_crash_bundle(message, nullptr);
+
+    if (g_previous_terminate_handler) {
+        g_previous_terminate_handler();
+    }
+    std::abort();
+}
+#endif
 
 /**
  * @brief Signal handler for crashes
@@ -386,12 +725,7 @@ static void crash_signal_handler(int sig, siginfo_t* info, void* context) {
     std::string coredump_path = find_coredump();
     
     // Try to find log files
-    std::vector<std::string> log_files;
-    for (const auto& entry : fs::directory_iterator(g_crash_config.output_directory)) {
-        if (entry.path().extension() == ".log") {
-            log_files.push_back(entry.path().string());
-        }
-    }
+    std::vector<std::string> log_files = collect_log_files();
     
     std::string bundle_path = create_bundle_zip(crash_info, coredump_path, log_files);
     g_last_crash_bundle = bundle_path;
@@ -437,13 +771,6 @@ bool init_crash_handler(const CrashHandlerConfig& config) {
         g_crash_config.output_directory = fs::current_path().string();
     }
     
-    // Ensure output directory exists
-    try {
-        fs::create_directories(g_crash_config.output_directory);
-    } catch (...) {
-        return false;
-    }
-    
 #ifndef _WIN32
 #ifdef __linux__
     // Enable core dumps (Linux only)
@@ -466,6 +793,9 @@ bool init_crash_handler(const CrashHandlerConfig& config) {
     for (int sig : signals) {
         sigaction(sig, &sa, &g_old_sigactions[sig]);
     }
+#else
+    g_previous_exception_filter = SetUnhandledExceptionFilter(crash_exception_handler);
+    g_previous_terminate_handler = std::set_terminate(crash_terminate_handler);
 #endif
     
     g_crash_handler_initialized = true;
@@ -476,7 +806,7 @@ bool init_crash_handler(const CrashHandlerConfig& config) {
         logger->debug("Crash handler initialized - bundles will be saved to: {}", 
                      g_crash_config.output_directory);
 #else
-        logger->debug("Crash handler initialized (limited Windows support) - bundles will be saved to: {}", 
+    logger->debug("Crash handler initialized - bundles will be saved to: {}", 
                      g_crash_config.output_directory);
 #endif
     }
@@ -492,16 +822,7 @@ std::string create_crash_bundle(const std::string& error_message) {
     std::string crash_info = create_crash_info(0, error_message);
     std::string coredump_path = find_coredump();
     
-    std::vector<std::string> log_files;
-    try {
-        for (const auto& entry : fs::directory_iterator(g_crash_config.output_directory)) {
-            if (entry.path().extension() == ".log") {
-                log_files.push_back(entry.path().string());
-            }
-        }
-    } catch (...) {
-        // Continue even if directory listing fails
-    }
+    std::vector<std::string> log_files = collect_log_files();
     
     std::string bundle_path = create_bundle_zip(crash_info, coredump_path, log_files);
     g_last_crash_bundle = bundle_path;
@@ -520,6 +841,11 @@ void cleanup_crash_handler() {
     for (int sig : signals) {
         sigaction(sig, &g_old_sigactions[sig], nullptr);
     }
+#else
+    SetUnhandledExceptionFilter(g_previous_exception_filter);
+    std::set_terminate(g_previous_terminate_handler);
+    g_previous_exception_filter = nullptr;
+    g_previous_terminate_handler = nullptr;
 #endif
     
     g_crash_handler_initialized = false;

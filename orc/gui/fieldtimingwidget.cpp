@@ -9,9 +9,11 @@
 
 #include "fieldtimingwidget.h"
 #include "plotwidget.h"
+#include "theme_color_tokens.h"
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
+#include <QApplication>
 #include <QPalette>
 #include <QVBoxLayout>
 #include <QWheelEvent>
@@ -401,13 +403,14 @@ void FieldTimingWidget::mouseReleaseEvent(QMouseEvent *event)
 
 void FieldTimingWidget::paintEvent(QPaintEvent *event)
 {
+    Q_UNUSED(event)
+
     QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     
     // Fill background
-    const bool is_dark_theme = PlotWidget::isDarkTheme();
-    const QColor background_color = is_dark_theme ? QColor(42, 42, 42) : Qt::white;
-    painter.fillRect(rect(), background_color);
+    const QPalette palette = this->palette();
+    painter.fillRect(rect(), palette.color(QPalette::Base));
     
     // Define graph area (leave room for margins and scroll bar)
     // Add extra left margin for Y-axis labels
@@ -420,7 +423,7 @@ void FieldTimingWidget::paintEvent(QPaintEvent *event)
     if (field1_samples_.empty() && field2_samples_.empty() && 
         y1_samples_.empty() && y2_samples_.empty()) {
         // No data to display
-        painter.setPen(is_dark_theme ? Qt::lightGray : Qt::darkGray);
+        painter.setPen(theme_tokens::mutedText(palette));
         painter.drawText(rect(), Qt::AlignCenter, "No field data available");
         return;
     }
@@ -431,10 +434,11 @@ void FieldTimingWidget::paintEvent(QPaintEvent *event)
 void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
 {
     const bool is_dark_theme = PlotWidget::isDarkTheme();
-    const QColor axis_color = is_dark_theme ? Qt::white : Qt::black;
-    const QColor grid_color = Qt::gray;
+    const QPalette palette = this->palette();
+    const QColor axis_color = palette.color(QPalette::WindowText);
+    const QColor grid_color = theme_tokens::gridLine(palette);
     const QColor label_color = axis_color;
-    const QColor marker_yellow = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
+    const QColor marker_yellow = theme_tokens::plotColor(theme_tokens::PlotColorToken::FieldBoundary, is_dark_theme);
 
     // Draw graph border
     painter.setPen(axis_color);
@@ -515,17 +519,17 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
         if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
             // Blanking level - convert the blanking_ire sample value to mV
             double blanking_mv = convertSampleToMV(vp.blanking_ire);
-            drawLevelLine(blanking_mv, is_dark_theme ? QColor(120, 120, 120) : Qt::darkGray, Qt::DashLine);
+            drawLevelLine(blanking_mv, theme_tokens::neutralLine(palette, 0.35), Qt::DashLine);
             
             // Black level (if different from blanking)
             if (vp.black_ire >= 0 && vp.black_ire != vp.blanking_ire) {
                 double black_mv = convertSampleToMV(vp.black_ire);
-                drawLevelLine(black_mv, is_dark_theme ? QColor(150, 150, 150) : Qt::gray, Qt::DashDotLine);
+                drawLevelLine(black_mv, theme_tokens::neutralLine(palette, 0.5), Qt::DashDotLine);
             }
             
             // White level
             double white_mv = convertSampleToMV(vp.white_ire);
-            drawLevelLine(white_mv, is_dark_theme ? QColor(200, 200, 200) : Qt::lightGray, Qt::DashLine);
+            drawLevelLine(white_mv, theme_tokens::neutralLine(palette, 0.7), Qt::DashLine);
         }
     }
     
@@ -600,7 +604,7 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
         int sample_pos = marker_sample_.value();
         if (sample_pos >= start_sample && sample_pos <= end_sample) {
             int x = graph_area.left() + static_cast<int>((sample_pos - start_sample) * effective_pixels_per_sample);
-            painter.setPen(QPen(QColor(0, 255, 0), 2, Qt::SolidLine));
+            painter.setPen(QPen(theme_tokens::plotColor(theme_tokens::PlotColorToken::MarkerSelection, is_dark_theme), 2, Qt::SolidLine));
             painter.drawLine(x, graph_area.top(), x, graph_area.bottom());
         }
     }
@@ -618,10 +622,10 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
         // Draw Y and C channels separately
         const bool show_y = (channel_mode_ == ChannelMode::YPlusC) || (channel_mode_ == ChannelMode::YOnly);
         const bool show_c = (channel_mode_ == ChannelMode::YPlusC) || (channel_mode_ == ChannelMode::COnly);
-        const QColor y1_color = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
-        const QColor c1_color = is_dark_theme ? QColor(100, 150, 255) : QColor(0, 80, 200);
-        const QColor y2_color = is_dark_theme ? QColor(255, 255, 180) : QColor(230, 210, 40);
-        const QColor c2_color = is_dark_theme ? QColor(160, 190, 255) : QColor(80, 120, 220);
+        const QColor y1_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaPrimary, is_dark_theme);
+        const QColor c1_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaPrimary, is_dark_theme);
+        const QColor y2_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaSecondary, is_dark_theme);
+        const QColor c2_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaSecondary, is_dark_theme);
 
         if (show_y && !y1_samples_.empty()) {
             drawSamples(painter, graph_area, y1_samples_, y1_color, 0);
@@ -639,8 +643,8 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
         }
     } else {
         // Draw composite samples
-        const QColor field1_color = is_dark_theme ? QColor(100, 200, 255) : QColor(0, 100, 200);
-        const QColor field2_color = is_dark_theme ? QColor(255, 255, 100) : QColor(200, 180, 0);
+        const QColor field1_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositePrimary, is_dark_theme);
+        const QColor field2_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositeSecondary, is_dark_theme);
         if (!field1_samples_.empty()) {
             drawSamples(painter, graph_area, field1_samples_, field1_color, 0);
         }

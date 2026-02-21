@@ -1,0 +1,346 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "dev-debug",
+      "displayName": "Dev Debug (Cross-platform)",
+      "description": "Cross-platform developer preset using Ninja Multi-Config (Debug)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "BUILD_GUI": "ON"
+      }
+    },
+    {
+      "name": "dev-release",
+      "displayName": "Dev Release (Cross-platform)",
+      "description": "Cross-platform developer preset using Ninja Multi-Config (Release)",
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "BUILD_GUI": "ON",
+        "BUILD_TESTS": "OFF",
+        "BUILD_DOCS": "OFF"
+      }
+    },
+    {
+      "name": "unix-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+      }
+    },
+    {
+      "name": "linux-base",
+      "hidden": true,
+      "inherits": "unix-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-gui-debug",
+      "displayName": "Linux GUI Debug",
+      "description": "Build orc-gui + orc-cli with Ninja (Debug)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-cli-debug",
+      "displayName": "Linux CLI Debug",
+      "description": "Build orc-cli without GUI with Ninja (Debug)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-gui-release",
+      "displayName": "Linux GUI Release",
+      "description": "Build orc-gui + orc-cli with Ninja (Release)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "BUILD_TESTS": "OFF",
+        "BUILD_DOCS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-cli-release",
+      "displayName": "Linux CLI Release",
+      "description": "Build orc-cli without GUI with Ninja (Release)",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-base",
+      "hidden": true,
+      "inherits": "unix-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "macos-gui-debug",
+      "displayName": "macOS GUI Debug",
+      "description": "Build orc-gui + orc-cli with Ninja (Debug)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos-cli-debug",
+      "displayName": "macOS CLI Debug",
+      "description": "Build orc-cli without GUI with Ninja (Debug)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos-gui-release",
+      "displayName": "macOS GUI Release",
+      "description": "Build orc-gui + orc-cli with Ninja (Release)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "BUILD_TESTS": "OFF",
+        "BUILD_DOCS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-cli-release",
+      "displayName": "macOS CLI Release",
+      "description": "Build orc-cli without GUI with Ninja (Release)",
+      "inherits": "macos-base",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "BASH_EXECUTABLE": "C:/Program Files/Git/bin/bash.exe"
+      }
+    },
+    {
+      "name": "windows-gui-debug",
+      "displayName": "Windows GUI Debug",
+      "description": "Build orc-gui + orc-cli with Visual Studio 2022 (Debug)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-cli-debug",
+      "displayName": "Windows CLI Debug",
+      "description": "Build orc-cli without GUI with Visual Studio 2022 (Debug)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-gui-release",
+      "displayName": "Windows GUI Release",
+      "description": "Build orc-gui + orc-cli with Visual Studio 2022 (Release)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "BUILD_TESTS": "OFF",
+        "BUILD_DOCS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-cli-release",
+      "displayName": "Windows CLI Release",
+      "description": "Build orc-cli without GUI with Visual Studio 2022 (Release)",
+      "inherits": "windows-base",
+      "cacheVariables": {
+        "BUILD_GUI": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-dev-debug",
+      "displayName": "Build Dev Debug",
+      "configurePreset": "dev-debug",
+      "configuration": "Debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-dev-release",
+      "displayName": "Build Dev Release",
+      "configurePreset": "dev-release",
+      "configuration": "Release",
+      "jobs": 0
+    },
+    {
+      "name": "build-linux-gui-debug",
+      "displayName": "Build Linux GUI Debug",
+      "configurePreset": "linux-gui-debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-linux-cli-debug",
+      "displayName": "Build Linux CLI Debug",
+      "configurePreset": "linux-cli-debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-linux-gui-release",
+      "displayName": "Build Linux GUI Release",
+      "configurePreset": "linux-gui-release",
+      "jobs": 0
+    },
+    {
+      "name": "build-linux-cli-release",
+      "displayName": "Build Linux CLI Release",
+      "configurePreset": "linux-cli-release",
+      "jobs": 0
+    },
+    {
+      "name": "build-macos-gui-debug",
+      "displayName": "Build macOS GUI Debug",
+      "configurePreset": "macos-gui-debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-macos-cli-debug",
+      "displayName": "Build macOS CLI Debug",
+      "configurePreset": "macos-cli-debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-macos-gui-release",
+      "displayName": "Build macOS GUI Release",
+      "configurePreset": "macos-gui-release",
+      "jobs": 0
+    },
+    {
+      "name": "build-macos-cli-release",
+      "displayName": "Build macOS CLI Release",
+      "configurePreset": "macos-cli-release",
+      "jobs": 0
+    },
+    {
+      "name": "build-windows-gui-debug",
+      "displayName": "Build Windows GUI Debug",
+      "configurePreset": "windows-gui-debug",
+      "configuration": "Debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-windows-cli-debug",
+      "displayName": "Build Windows CLI Debug",
+      "configurePreset": "windows-cli-debug",
+      "configuration": "Debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-windows-gui-release",
+      "displayName": "Build Windows GUI Release",
+      "configurePreset": "windows-gui-release",
+      "configuration": "Release",
+      "jobs": 0
+    },
+    {
+      "name": "build-windows-cli-release",
+      "displayName": "Build Windows CLI Release",
+      "configurePreset": "windows-cli-release",
+      "configuration": "Release",
+      "jobs": 0
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "test-dev-debug",
+      "configurePreset": "dev-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-linux-gui-debug",
+      "configurePreset": "linux-gui-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-linux-cli-debug",
+      "configurePreset": "linux-cli-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-macos-gui-debug",
+      "configurePreset": "macos-gui-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-macos-cli-debug",
+      "configurePreset": "macos-cli-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-windows-gui-debug",
+      "configurePreset": "windows-gui-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-windows-cli-debug",
+      "configurePreset": "windows-cli-debug",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

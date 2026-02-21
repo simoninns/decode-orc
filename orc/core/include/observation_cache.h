@@ -131,7 +131,7 @@ private:
     struct CacheKeyHash {
         std::size_t operator()(const CacheKey& key) const {
             std::size_t h1 = std::hash<NodeID>{}(key.node_id);
-            std::size_t h2 = std::hash<int32_t>{}(key.field_id.value());
+            std::size_t h2 = std::hash<FieldID::value_type>{}(key.field_id.value());
             return h1 ^ (h2 << 1);
         }
     };

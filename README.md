@@ -1,12 +1,15 @@
 # Decode Orc
 
-**decode-orc** is a cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows.
+**Decode-Orc** is a cross-platform orchestration and processing framework for LaserDisc and tape decoding workflows.
 
 ![](assets/decode-orc_logotype-1024x286.png)
 
 It aims to brings structure and consistency to complex decoding processes, making them easier to run, repeat, and understand.
 
-`decode-orc` is a direct replacement for the existing ld-decode-tools, coordinating each step of the process and keeping track of inputs, outputs, and results.
+> [!IMPORTANT]
+> [Click here for the documentation](https://simoninns.github.io/decode-orc-docs/index.html)
+
+`Decode-Orc` is a direct replacement for the existing ld-decode-tools, coordinating each step of the process and keeping track of inputs, outputs, and results.
 
 The project aims to:
 - Make advanced LaserDisc and tape workflows (from TBC to end-user video) easier to manage
@@ -21,13 +24,9 @@ Both a graphical interface (orc-gui) and command-line interface (orc-cli) are im
 
 The user documentation is available via [Github Pages](https://simoninns.github.io/decode-orc-docs/index.html)
 
-## Technical documentation
-
-The technical documentation is available via [Doxygen](https://simoninns.github.io/decode-orc/index.html)
-
 # Installation
 
-The Decode Orc project provides ready-to-install packages for Mac OS (DMG).
+The Decode-Orc project provides ready-to-install packages for Mac OS (DMG).
 
 The release packages can be found in the [release section](https://github.com/simoninns/decode-orc/releases) of the Github repository.
 
@@ -78,7 +77,7 @@ This information is invaluable for diagnosing and fixing crashes quickly.
 
 # Credits
 
-Decode Orc was designed and written by Simon Inns.  Decode Orc's development heavily relied on the original GPLv3 ld-decode-tools which contained many contributions from others.
+Decode-Orc was designed and written by Simon Inns.  Decode-Orc's development heavily relied on the original GPLv3 ld-decode-tools which contained many contributions from others.
 
 - Simon Inns (2018-2025) - Extensive work across all tools
 - Adam Sampson (2019-2023) - Significant contributions to core libraries, chroma decoder and tools

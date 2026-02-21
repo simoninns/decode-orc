@@ -60,6 +60,22 @@
       }
     },
     {
+      "name": "linux-local-gui-debug",
+      "displayName": "Linux Local GUI Debug (No vcpkg)",
+      "description": "Build orc-gui + orc-cli with Ninja (Debug) using system dependencies",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
       "name": "linux-cli-debug",
       "displayName": "Linux CLI Debug",
       "description": "Build orc-cli without GUI with Ninja (Debug)",
@@ -219,6 +235,12 @@
       "jobs": 0
     },
     {
+      "name": "build-linux-local-gui-debug",
+      "displayName": "Build Linux Local GUI Debug",
+      "configurePreset": "linux-local-gui-debug",
+      "jobs": 0
+    },
+    {
       "name": "build-linux-cli-debug",
       "displayName": "Build Linux CLI Debug",
       "configurePreset": "linux-cli-debug",
@@ -301,6 +323,13 @@
     {
       "name": "test-linux-gui-debug",
       "configurePreset": "linux-gui-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "test-linux-local-gui-debug",
+      "configurePreset": "linux-local-gui-debug",
       "output": {
         "outputOnFailure": true
       }

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "decode-orc",
+  "version-string": "1.0.0",
+  "description": "Advanced video decoding and processing application",
+  "builtin-baseline": "e5a1490e1409d175932ef6014519e9ae149ddb7c",
+  "dependencies": [
+    "qtbase",
+    "spdlog",
+    "yaml-cpp",
+    "sqlite3",
+    "libpng",
+    "fftw3",
+    {
+      "name": "ffmpeg",
+      "features": [
+        "openh264"
+      ]
+    },
+    "pkgconf"
+  ]
+}

@@ -89,6 +89,9 @@ add_executable(orc-gui MACOSX_BUNDLE
     # Plot widget
     plotwidget.cpp
     plotwidget.h
+    theme_color_tokens.h
+    theme_manager.cpp
+    theme_manager.h
     
     # Analysis dialog base class
     analysisdialogbase.cpp
@@ -242,6 +245,60 @@ if(APPLE)
         add_custom_target(generate_macos_icon DEPENDS ${MACOS_ICON_FILE})
         add_dependencies(orc-gui generate_macos_icon)
     endif()
+endif()
+
+if(WIN32)
+    set(_qt_deploy_hints)
+    if(DEFINED VCPKG_INSTALLED_DIR)
+        if(DEFINED VCPKG_TARGET_TRIPLET)
+            list(APPEND _qt_deploy_hints
+                "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/Qt6/bin"
+                "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/Qt/bin"
+            )
+        endif()
+        list(APPEND _qt_deploy_hints
+            "${VCPKG_INSTALLED_DIR}/x64-windows/tools/Qt6/bin"
+            "${VCPKG_INSTALLED_DIR}/x64-windows/tools/Qt/bin"
+        )
+    endif()
+
+    find_program(WINDEPLOYQT_EXECUTABLE
+        NAMES windeployqt
+        HINTS ${_qt_deploy_hints}
+    )
+
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET orc-gui POST_BUILD
+            COMMAND "${CMAKE_COMMAND}"
+                "-DWINDEPLOYQT_EXECUTABLE=${WINDEPLOYQT_EXECUTABLE}"
+                "-DWINDEPLOYQT_CONFIG=$<IF:$<CONFIG:Debug>,debug,release>"
+                "-DWINDEPLOYQT_TARGET=$<TARGET_FILE:orc-gui>"
+                -P "${CMAKE_SOURCE_DIR}/cmake/RunWindeployqtSafe.cmake"
+            COMMENT "Deploying Qt runtime dependencies for orc-gui"
+            VERBATIM
+        )
+    else()
+        message(WARNING "windeployqt not found; orc-gui may fail at runtime due to missing Qt plugins")
+    endif()
+
+    # Windows-specific executable properties
+    if(WINDOWS_ICON_FILE)
+        # Create a Windows resource file to embed the icon
+        set(WINDOWS_RC_FILE "${CMAKE_CURRENT_BINARY_DIR}/orc-gui.rc")
+        file(WRITE ${WINDOWS_RC_FILE}
+            "IDI_ICON1 ICON \"${WINDOWS_ICON_FILE}\"\n"
+        )
+        target_sources(orc-gui PRIVATE ${WINDOWS_RC_FILE})
+        
+        add_custom_target(generate_windows_icon DEPENDS ${WINDOWS_ICON_FILE})
+        add_dependencies(orc-gui generate_windows_icon)
+    endif()
+    
+    # Set Windows executable properties
+    set_target_properties(orc-gui PROPERTIES
+        WIN32_EXECUTABLE TRUE
+        OUTPUT_NAME "orc-gui"
+    )
 endif()
 
 # Install target

@@ -20,6 +20,8 @@
 #include <QMessageBox>
 #include <QWheelEvent>
 #include <QShowEvent>
+#include <QContextMenuEvent>
+#include <QMenu>
 #include <cmath>
 
 using orc::NodeID;
@@ -79,6 +81,25 @@ void OrcGraphicsView::wheelEvent(QWheelEvent *event)
     }
     
     event->accept();
+}
+
+void OrcGraphicsView::contextMenuEvent(QContextMenuEvent* event)
+{
+    if (itemAt(event->pos())) {
+        QtNodes::GraphicsView::contextMenuEvent(event);
+        return;
+    }
+
+    auto* orc_scene = dynamic_cast<OrcGraphicsScene*>(scene());
+    if (!orc_scene) {
+        return;
+    }
+
+    const auto scene_pos = mapToScene(event->pos());
+    QMenu* menu = orc_scene->createSceneMenu(scene_pos);
+    if (menu) {
+        menu->popup(event->globalPos());
+    }
 }
 
 void OrcGraphicsView::onDeleteSelectedObjects()

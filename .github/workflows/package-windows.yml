@@ -1,0 +1,586 @@
+name: Package Windows MSI
+
+on:
+  workflow_call:
+    inputs:
+      artifact_name:
+        description: Name of the uploaded MSI artifact
+        required: false
+        default: decode-orc-windows-msi
+        type: string
+      retention_days:
+        description: Artifact retention in days
+        required: false
+        default: 30
+        type: number
+
+jobs:
+  package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Ensure QtNodes source is present
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "external/qtnodes/CMakeLists.txt")) {
+            Write-Host "QtNodes submodule not present in checkout; cloning fallback source..."
+            New-Item -ItemType Directory -Force -Path external
+            git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
+          }
+
+      - name: Resolve package version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like "refs/tags/*") {
+            $version = $env:GITHUB_REF_NAME
+          } else {
+            $version = "git-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          Write-Host "Installing WiX Toolset v3..."
+          choco install wixtoolset -y
+          echo "C:\Program Files (x86)\WiX Toolset v3.11\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          
+          # Also install ImageMagick for icon conversion
+          choco install imagemagick -y
+          
+          # Install Ninja for faster builds
+          Write-Host "Installing Ninja build tool..."
+          choco install ninja -y
+          # Explicitly add Ninja to PATH
+          $ninjaPath = "C:\ProgramData\chocolatey\bin"
+          if (Test-Path $ninjaPath) {
+            echo $ninjaPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+            Write-Host "Ninja installed and added to PATH at: $ninjaPath"
+          }
+          
+          # Verify ninja is accessible
+          $ninjaExe = Get-Command ninja -ErrorAction SilentlyContinue
+          if ($ninjaExe) {
+            Write-Host "Ninja found at: $($ninjaExe.Source)"
+            & ninja --version
+          } else {
+            Write-Warning "Ninja not found in PATH after installation"
+          }
+
+      - name: Setup vcpkg
+        shell: pwsh
+        run: |
+          Write-Host "Cloning vcpkg at baseline commit..."
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          # Checkout the specific baseline commit from vcpkg.json for reproducibility
+          git checkout e5a1490e1409d175932ef6014519e9ae149ddb7c
+          .\bootstrap-vcpkg.bat
+          cd ..
+          
+          $vcpkgRoot = "$PWD\vcpkg"
+          echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+          
+          # CRITICAL: Enable binary caching to download pre-built packages
+          # This reduces build time from hours to minutes for Qt, FFmpeg, etc.
+          # Order matters: GitHub Actions cache first, then Azure blob cache (read-only)
+          echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite;default,readwrite" >> $env:GITHUB_ENV
+          
+          Write-Host "vcpkg setup complete with binary caching enabled"
+
+      - name: Export GitHub Actions cache for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\vcpkg\archives
+            vcpkg\buildtrees
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-baseline-e5a1490
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-
+            vcpkg-bin-${{ runner.os }}-
+
+      - name: Install dependencies via vcpkg (manifest mode)
+        shell: pwsh
+        env:
+          VCPKG_MAX_CONCURRENCY: 8
+        run: |
+          # Manifest mode automatically reads vcpkg.json and uses binary cache
+          # Pre-built binaries will be downloaded from cache instead of compiling
+          cd vcpkg
+          .\vcpkg.exe install --triplet x64-windows --x-manifest-root=.. --x-install-root=..\vcpkg_installed
+          
+          Write-Host "Dependencies installed. Checking for binary cache hits..."
+          # Binary cache hits mean packages were downloaded, not compiled
+
+      - name: Configure and build decode-orc
+        shell: pwsh
+        run: |
+          # Ensure ImageMagick is in path for icon generation
+          $env:PATH = "C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;$env:PATH"
+          
+          # Add Ninja to PATH (from choco install)
+          $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
+          
+          # Setup MSVC environment
+          $vsPath = &"${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          
+          # Use the same preset flow as local Windows builds (GUI release)
+          $configurePreset = "windows-gui-release"
+          $buildPreset = "build-windows-gui-release"
+
+          cmake --preset $configurePreset `
+            -DPROJECT_VERSION_OVERRIDE=${{ steps.version.outputs.version }} `
+            -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed"
+          cmake --build --preset $buildPreset
+
+          # Ensure GUI binary is built (required for MSI packaging)
+          $guiBuilt = Get-ChildItem -Path "build/windows-gui-release/bin" -Recurse -Filter "orc-gui.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $guiBuilt) {
+            Write-Error "orc-gui.exe was not produced by preset build"
+            exit 1
+          }
+          Write-Host "Built GUI executable: $($guiBuilt.FullName)"
+
+      - name: Install to staging root
+        shell: pwsh
+        run: |
+          if (Test-Path package-root) {
+            Remove-Item -Recurse -Force package-root
+          }
+          cmake --install "build/windows-gui-release" --prefix "$PWD/package-root" --component Runtime --config Release
+
+      - name: Bundle Qt dependencies
+        shell: pwsh
+        run: |
+          # Find Qt tools directory in vcpkg_installed
+          $qtToolsPath = Get-ChildItem -Path "vcpkg_installed/x64-windows/tools" -Directory -Filter "Qt6" -ErrorAction SilentlyContinue
+          if (-not $qtToolsPath) {
+            $qtToolsPath = Get-ChildItem -Path "vcpkg_installed/x64-windows/tools" -Directory -Filter "Qt*" -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          
+          if ($qtToolsPath) {
+            $qtBinPath = Join-Path $qtToolsPath.FullName "bin"
+            if (Test-Path $qtBinPath) {
+              $env:PATH = "$qtBinPath;$env:PATH"
+              Write-Host "Found Qt tools at: $qtBinPath"
+            }
+          }
+          
+          # Fallback: look for windeployqt in vcpkg_installed
+          $windeployqt = Get-Command windeployqt -ErrorAction SilentlyContinue
+          if (-not $windeployqt) {
+            Write-Host "windeployqt not found in PATH, searching vcpkg_installed..."
+            $windeployqtPath = Get-ChildItem -Path "vcpkg_installed" -Recurse -Filter "windeployqt.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($windeployqtPath) {
+              $env:PATH = "$($windeployqtPath.Directory.FullName);$env:PATH"
+              Write-Host "Found windeployqt at: $($windeployqtPath.FullName)"
+            }
+          }
+          
+          $guiExe = Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1
+          if ($guiExe) {
+            Write-Host "Running windeployqt on $($guiExe.FullName)"
+            & windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw $guiExe.FullName
+          } else {
+            Write-Error "orc-gui.exe not found in package-root"
+            exit 1
+          }
+
+      - name: Copy runtime dependencies
+        shell: pwsh
+        run: |
+          $vcpkgBin = "vcpkg_installed/x64-windows/bin"
+          $targetBin = (Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
+          
+          # Copy non-Qt DLLs from vcpkg (FFmpeg, yaml-cpp, spdlog, fftw3, libpng, sqlite3)
+          # Note: windeployqt handles Qt libraries; this step handles all other dependencies
+          if (Test-Path $vcpkgBin) {
+            $dlls = Get-ChildItem -Path $vcpkgBin -Filter "*.dll"
+            foreach ($dll in $dlls) {
+              $targetPath = Join-Path $targetBin $dll.Name
+              if (-not (Test-Path $targetPath)) {
+                Copy-Item $dll.FullName $targetPath -Force
+                Write-Host "Copied $($dll.Name)"
+              }
+            }
+          } else {
+            Write-Warning "vcpkg bin directory not found at $vcpkgBin"
+          }
+
+      - name: Convert PNG icon to ICO for WiX
+        shell: pwsh
+        run: |
+          # Ensure build icons directory exists
+          New-Item -ItemType Directory -Force -Path "build/icons"
+          
+          # Convert PNG to ICO using ImageMagick
+          if (Test-Path "assets/orc-gui-icon-256.png") {
+            Write-Host "Converting PNG icon to ICO format..."
+            & magick convert "assets/orc-gui-icon-256.png" `
+              -define icon:auto-resize=256,128,96,64,48,32,16 `
+              "build/icons/orc-gui.ico"
+            
+            if (Test-Path "build/icons/orc-gui.ico") {
+              Write-Host "Icon converted successfully to build/icons/orc-gui.ico"
+              Get-Item "build/icons/orc-gui.ico" | ForEach-Object {
+                Write-Host "  Size: $([math]::Round($_.Length / 1KB, 2)) KB"
+              }
+            } else {
+              Write-Error "Failed to convert icon to ICO"
+              exit 1
+            }
+          } else {
+            Write-Error "Source PNG icon not found at assets/orc-gui-icon-256.png"
+            exit 1
+          }
+
+      - name: Prepare WiX installer configuration
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          # WiX requires version in x.x.x.x format
+          if ($version -match '^(\d+)\.(\d+)\.(\d+)$') {
+            $wixVersion = $version
+          } elseif ($version -match '^v?(\d+)\.(\d+)\.(\d+)$') {
+            $wixVersion = $Matches[1] + "." + $Matches[2] + "." + $Matches[3]
+          } else {
+            # Default version for non-standard versions
+            $wixVersion = "1.0.0"
+          }
+          
+          # Icon should now exist from conversion step
+          $iconFile = "build/icons/orc-gui.ico"
+          if (-not (Test-Path $iconFile)) {
+            Write-Error "Icon file not found at $iconFile after conversion"
+            exit 1
+          }
+          
+          echo "wixVersion=$wixVersion" >> $env:GITHUB_OUTPUT
+          echo "iconFile=$iconFile" >> $env:GITHUB_OUTPUT
+          
+          # Create WiX UI images from logotype
+          New-Item -ItemType Directory -Force -Path "wix/images"
+          New-Item -ItemType Directory -Force -Path "wix"
+
+          # Generate GPL v3 license RTF for WiX license dialog
+          if (Test-Path "LICENSE") {
+            $licenseText = Get-Content "LICENSE" -Raw
+            # Escape RTF special characters: backslash first, then braces
+            $rtfEscaped = $licenseText.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
+            # Convert line breaks to RTF paragraph breaks
+            $rtfBody = $rtfEscaped -replace "`r`n|`n|`r", '\par '
+            $rtfContent = "{\rtf1\ansi\deff0{\fonttbl{\f0 Courier New;}}{\colortbl;\red0\green0\blue0;}\f0\fs20 $rtfBody }"
+            $licenseRtf = "wix/license-gplv3.rtf"
+            $rtfContent | Out-File -FilePath $licenseRtf -Encoding ascii
+            Write-Host "Generated GPL v3 license RTF at $licenseRtf"
+            echo "licenseRtf=$licenseRtf" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "LICENSE file not found in repository root"
+            exit 1
+          }
+          
+          # Build both WiX images from the same decode-orc logotype so all dialogs are consistent.
+          # Keep aspect ratio (no distortion) and right-align on a white canvas.
+          if (Test-Path "assets/decode-orc_logotype-1024x286.png") {
+            & magick convert "assets/decode-orc_logotype-1024x286.png" `
+              -resize x44 `
+              -background white `
+              -gravity east `
+              -extent 481x58 `
+              -gravity west `
+              -extent 493x58 `
+              "wix/images/banner.bmp"
+            Write-Host "Created WiX banner from logo"
+
+            & magick convert "assets/decode-orc_logotype-1024x286.png" `
+              -resize x44 `
+              -background white `
+              -gravity east `
+              -extent 481x312 `
+              -gravity west `
+              -extent 493x312 `
+              "wix/images/dialog.bmp"
+            Write-Host "Created WiX dialog bitmap from logo"
+          } else {
+            Write-Error "Logotype source not found at assets/decode-orc_logotype-1024x286.png"
+            exit 1
+          }
+        id: wix_prep
+
+      - name: Generate WiX source file
+        shell: pwsh
+        run: |
+          $installDir = Resolve-Path "package-root"
+          $binDir = (Get-ChildItem -Path $installDir -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
+          
+          # Find icon file - prefer .ico, fallback to .png
+          $iconPath = "assets/orc-gui-icon-256.png"
+          $generatedIcon = Get-ChildItem -Path "build" -Recurse -Filter "orc-gui.ico" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($generatedIcon) {
+            $iconPath = Resolve-Path $generatedIcon.FullName
+            Write-Host "Using generated icon: $iconPath"
+          } else {
+            $iconPath = Resolve-Path $iconPath
+            Write-Host "Using PNG icon: $iconPath (Warning: WiX prefers .ico files)"
+          }
+          
+          # Add custom banner and dialog images if they exist
+          $bannerBitmap = ""
+          $dialogBitmap = ""
+          if (Test-Path "wix/images/banner.bmp") {
+            $bannerPath = Resolve-Path "wix/images/banner.bmp"
+            $bannerBitmap = "    <WixVariable Id=`"WixUIBannerBmp`" Value=`"$bannerPath`" />"
+          }
+          if (Test-Path "wix/images/dialog.bmp") {
+            $dialogPath = Resolve-Path "wix/images/dialog.bmp"
+            $dialogBitmap = "    <WixVariable Id=`"WixUIDialogBmp`" Value=`"$dialogPath`" />"
+          }
+          
+          New-Item -ItemType Directory -Force -Path "wix"
+          
+          # Create WiX source file
+          $wixFile = "wix/product.wxs"
+          @'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" 
+                     Name="Decode-Orc" 
+                     Language="1033" 
+                     Version="${{ steps.wix_prep.outputs.wixVersion }}" 
+                     Manufacturer="Simon Inns" 
+                     UpgradeCode="A8B7C6D5-E4F3-4C2B-A1B2-123456789ABC">
+              
+              <Package InstallerVersion="405" 
+                       Compressed="yes" 
+                       InstallScope="perMachine" 
+                       Description="Decode-Orc - Advanced video decoding and processing"
+                       Comments="Decode-Orc installer" 
+                       Manufacturer="Simon Inns" />
+              
+              <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+              <MediaTemplate EmbedCab="yes" />
+              
+              <Icon Id="ProductIcon" SourceFile="ICON_PATH_PLACEHOLDER" />
+              <Icon Id="OrcGuiShortcutIcon" SourceFile="ICON_PATH_PLACEHOLDER" />
+              <Property Id="ARPPRODUCTICON" Value="ProductIcon" />
+              
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFiles64Folder">
+                  <Directory Id="INSTALLFOLDER" Name="Decode-Orc">
+                    <Directory Id="BinFolder" Name="bin" />
+                  </Directory>
+                </Directory>
+                
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="ApplicationProgramsFolder" Name="Decode-Orc" />
+                </Directory>
+                
+                <Directory Id="DesktopFolder" Name="Desktop" />
+              </Directory>
+              
+              <DirectoryRef Id="BinFolder">
+                <Component Id="MainExecutable" Guid="11223344-5566-7788-99AA-BBCCDDEEFF00">
+                  <File Id="OrcGuiExe" Source="$(var.SourceDir)\orc-gui.exe" KeyPath="yes" />
+                </Component>
+                
+                <Component Id="CliExecutable" Guid="AABBCCDD-EEFF-0011-2233-445566778899">
+                  <File Id="OrcCliExe" Source="$(var.SourceDir)\orc-cli.exe" KeyPath="yes" />
+                </Component>
+              </DirectoryRef>
+              
+              <DirectoryRef Id="ApplicationProgramsFolder">
+                <Component Id="StartMenuShortcutComponent" Guid="99887766-5544-3322-1100-FFEEDDCCBBAA">
+                  <Shortcut Id="StartMenuShortcut"
+                            Name="Decode-Orc"
+                            Description="Advanced video decoding and processing"
+                            Target="[BinFolder]orc-gui.exe"
+                            WorkingDirectory="BinFolder"
+                            Advertise="no"
+                            Icon="OrcGuiShortcutIcon"
+                            IconIndex="0" />
+                  <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+                  <RegistryValue Root="HKCU" 
+                                 Key="Software\DecodeORC\Shortcuts" 
+                                 Name="StartMenu" 
+                                 Type="integer" 
+                                 Value="1" 
+                                 KeyPath="yes" />
+                </Component>
+              </DirectoryRef>
+
+              <DirectoryRef Id="DesktopFolder">
+                <Component Id="DesktopShortcutComponent" Guid="77665544-3322-1100-AABB-CCDDEEFF0099">
+                  <Shortcut Id="DesktopShortcut"
+                            Name="Decode-Orc"
+                            Description="Advanced video decoding and processing"
+                            Target="[BinFolder]orc-gui.exe"
+                            WorkingDirectory="BinFolder"
+                            Advertise="no"
+                            Icon="OrcGuiShortcutIcon"
+                            IconIndex="0" />
+                  <RegistryValue Root="HKCU"
+                                 Key="Software\DecodeORC\Shortcuts"
+                                 Name="Desktop"
+                                 Type="integer"
+                                 Value="1"
+                                 KeyPath="yes" />
+                </Component>
+              </DirectoryRef>
+              
+              <Feature Id="ProductFeature" Title="Decode-Orc" Level="1">
+                <ComponentRef Id="MainExecutable" />
+                <ComponentRef Id="CliExecutable" />
+                <ComponentRef Id="StartMenuShortcutComponent" />
+                <ComponentRef Id="DesktopShortcutComponent" />
+                <ComponentGroupRef Id="AllDependencies" />
+              </Feature>
+              
+              <UI>
+                <UIRef Id="WixUI_InstallDir" />
+              </UI>
+              
+              <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+              <WixVariable Id="WixUILicenseRtf" Value="LICENSE_RTF_PLACEHOLDER" />
+              
+              BANNER_PLACEHOLDER
+              DIALOG_PLACEHOLDER
+            </Product>
+          </Wix>
+          '@ | Out-File -FilePath $wixFile -Encoding utf8
+          
+          # Replace placeholders
+          $content = Get-Content $wixFile -Raw
+          $content = $content -replace 'ICON_PATH_PLACEHOLDER', $iconPath
+          $licenseRtfPath = Resolve-Path "${{ steps.wix_prep.outputs.licenseRtf }}"
+          $content = $content -replace 'LICENSE_RTF_PLACEHOLDER', $licenseRtfPath
+          if ($bannerBitmap) {
+            $content = $content -replace 'BANNER_PLACEHOLDER', $bannerBitmap
+          } else {
+            $content = $content -replace '\s*BANNER_PLACEHOLDER', ''
+          }
+          if ($dialogBitmap) {
+            $content = $content -replace 'DIALOG_PLACEHOLDER', $dialogBitmap
+          } else {
+            $content = $content -replace '\s*DIALOG_PLACEHOLDER', ''
+          }
+          $content | Out-File -FilePath $wixFile -Encoding utf8
+          Write-Host "Generated WiX source file"
+
+      - name: Harvest dependencies with Heat
+        shell: pwsh
+        run: |
+          $binDir = (Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
+          New-Item -ItemType Directory -Force -Path "wix" | Out-Null
+          
+          # Harvest all files in bin directory
+          & heat dir "$binDir" `
+            -cg AllDependencies `
+            -gg -sfrag -srd -sreg `
+            -dr BinFolder `
+            -var var.SourceDir `
+            -out wix/dependencies-raw.wxs
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Heat harvesting failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+          
+          # Post-process: Remove executable components from harvested dependencies
+          # (they're already explicitly defined in product.wxs)
+          [xml]$xmlDoc = Get-Content "wix/dependencies-raw.wxs"
+          $ns = New-Object System.Xml.XmlNamespaceManager($xmlDoc.NameTable)
+          $ns.AddNamespace("wix", "http://schemas.microsoft.com/wix/2006/wi")
+          
+          # Find Component nodes that contain orc-gui.exe or orc-cli.exe and collect their IDs
+          $componentsToRemove = $xmlDoc.SelectNodes("//wix:Component[wix:File[contains(@Source, 'orc-gui.exe') or contains(@Source, 'orc-cli.exe')]]", $ns)
+          $componentIdsToRemove = @()
+          
+          foreach ($component in $componentsToRemove) {
+            $componentId = $component.GetAttribute("Id")
+            $componentIdsToRemove += $componentId
+            Write-Host "Removing duplicate component for: $($component.SelectSingleNode('wix:File/@Source', $ns).Value) (ID: $componentId)"
+            $component.ParentNode.RemoveChild($component) | Out-Null
+          }
+          
+          # Also remove ComponentRef elements that reference the removed components
+          foreach ($componentId in $componentIdsToRemove) {
+            $componentRefs = $xmlDoc.SelectNodes("//wix:ComponentRef[@Id='$componentId']", $ns)
+            foreach ($ref in $componentRefs) {
+              Write-Host "Removing ComponentRef to: $componentId"
+              $ref.ParentNode.RemoveChild($ref) | Out-Null
+            }
+          }
+          
+          # Save cleaned dependencies
+          $xmlDoc.Save("wix/dependencies.wxs")
+          Remove-Item "wix/dependencies-raw.wxs" -Force
+          
+          Write-Host "Harvested dependencies from $binDir (executables excluded)"
+
+      - name: Compile WiX objects
+        shell: pwsh
+        run: |
+          $binDir = (Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
+          
+          & candle -arch x64 `
+            -dSourceDir="$binDir" `
+            -out wix\ `
+            wix/product.wxs
+          
+          if (Test-Path "wix/dependencies.wxs") {
+            & candle -arch x64 `
+              -dSourceDir="$binDir" `
+              -out wix\ `
+              wix/dependencies.wxs
+          }
+
+      - name: Link MSI package
+        shell: pwsh
+        run: |
+          $wixObjs = Get-ChildItem -Path "wix" -Filter "*.wixobj"
+          $objArgs = $wixObjs | ForEach-Object { $_.FullName }
+          
+          $msiName = "Decode-Orc-${{ steps.version.outputs.version }}-windows-x64.msi"
+          New-Item -ItemType Directory -Force -Path "dist"
+          
+          & light -ext WixUIExtension `
+            -out "dist/$msiName" `
+            @objArgs
+
+      - name: Verify MSI was created
+        shell: pwsh
+        run: |
+          $msiFiles = Get-ChildItem -Path "dist" -Filter "*.msi"
+          if ($msiFiles.Count -eq 0) {
+            Write-Error "No MSI files were generated"
+            Get-ChildItem -Path "dist" -Recurse | Select-Object -First 50
+            exit 1
+          }
+          
+          Write-Host "Generated MSI packages:"
+          $msiFiles | ForEach-Object {
+            Write-Host "  $($_.Name) ($([math]::Round($_.Length / 1MB, 2)) MB)"
+          }
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: dist/*.msi
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention_days }}

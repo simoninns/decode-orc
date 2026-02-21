@@ -15,6 +15,7 @@
 #include <stdexcept>
 #include <fstream>
 #include <cstring>
+#include <limits>
 
 namespace orc {
 
@@ -181,8 +182,11 @@ bool AudioSinkStage::trigger(
             const uint32_t sample_rate = 44100;
             const uint16_t num_channels = 2;  // Stereo
             const uint16_t bits_per_sample = 16;
+            const uint32_t wav_samples = total_samples > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max())
+                ? std::numeric_limits<uint32_t>::max()
+                : static_cast<uint32_t>(total_samples);
             
-            if (!write_wav_header(header_out, total_samples, sample_rate, num_channels, bits_per_sample)) {
+            if (!write_wav_header(header_out, wav_samples, sample_rate, num_channels, bits_per_sample)) {
                 throw std::runtime_error("Failed to write WAV header");
             }
             header_out.close();

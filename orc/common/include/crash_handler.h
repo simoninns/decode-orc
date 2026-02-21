@@ -18,6 +18,7 @@ struct CrashHandlerConfig {
     std::string application_name;
     std::string version;
     std::string output_directory;
+    std::string primary_log_file;
     bool enable_coredump{false};
     bool auto_upload_info{false};
     std::function<std::string()> custom_info_callback;

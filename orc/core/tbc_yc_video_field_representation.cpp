@@ -392,8 +392,13 @@ std::shared_ptr<TBCYCVideoFieldRepresentation> create_tbc_yc_representation(
     
     const auto& params = *video_params_opt;
     
-    // Calculate field length
-    size_t field_length = params.field_width * params.field_height;
+    // Calculate padded field length used in TBC files (parity-aware via video system)
+    const size_t padded_field_height = calculate_padded_field_height(params.system);
+    if (padded_field_height == 0) {
+        ORC_LOG_ERROR("Unsupported or unknown video system in metadata: {}", metadata_filename);
+        return nullptr;
+    }
+    size_t field_length = static_cast<size_t>(params.field_width) * padded_field_height;
     
     // Open Y (luma) file
     ORC_LOG_DEBUG("Opening Y (luma) file: {}", y_filename);

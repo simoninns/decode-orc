@@ -20,6 +20,7 @@
 #include <QGraphicsView>
 #include <QMessageBox>
 #include <QInputDialog>
+#include <QTimer>
 #include <algorithm>
 
 using orc::NodeID;
@@ -106,29 +107,9 @@ void OrcGraphicsScene::onSelectionChanged()
         }
     }
 
-    if (last_selected_node_id_ == QtNodes::InvalidNodeId) {
-        return;
-    }
-
-    // If selection cleared by clicking the background, restore the last selection
-    bool has_last_node = false;
-    const auto items_list = items();
-    for (auto* item : items_list) {
-        auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
-        if (node_graphics && node_graphics->nodeId() == last_selected_node_id_) {
-            has_last_node = true;
-            break;
-        }
-    }
-
-    if (!has_last_node) {
-        last_selected_node_id_ = QtNodes::InvalidNodeId;
-        return;
-    }
-
-    restoring_selection_ = true;
-    selectNode(last_selected_node_id_);
-    restoring_selection_ = false;
+    // Selection was cleared; avoid restoring selection here to prevent
+    // re-entrant item selection changes during mouse event processing.
+    last_selected_node_id_ = QtNodes::InvalidNodeId;
 }
 
 QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
@@ -206,11 +187,14 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
                 QString tooltip = QString::fromStdString(type_info->description);
                 
                 auto* action = parent_menu->addAction(display_name, [this, scenePos, stage_name = type_info->stage_name]() {
-                    // Add node at clicked position
-                    QtNodes::NodeId nodeId = graph_model_.addNode(QString::fromStdString(stage_name));
-                    if (nodeId != QtNodes::InvalidNodeId) {
-                        graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Position, scenePos);
-                    }
+                    // Defer graph mutation until after popup menu processing completes
+                    // to avoid re-entrant scene/model updates during mouse event handling.
+                    QTimer::singleShot(0, this, [this, scenePos, stage_name]() {
+                        QtNodes::NodeId nodeId = graph_model_.addNode(QString::fromStdString(stage_name));
+                        if (nodeId != QtNodes::InvalidNodeId) {
+                            graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Position, scenePos);
+                        }
+                    });
                 });
                 action->setToolTip(tooltip);
             }
@@ -241,7 +225,7 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
         }
     }
     
-    menu->setAttribute(Qt::WA_DeleteOnClose);
+    QObject::connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
     return menu;
 }
 
@@ -282,25 +266,29 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
         // Rename Stage action - always available
         auto* rename_action = menu->addAction("Rename Stage...");
         connect(rename_action, &QAction::triggered, [this, nodeId, node_label]() {
-            // Prompt for new name
-            bool ok;
-            QString new_label = QInputDialog::getText(
-                nullptr,
-                "Rename Stage",
-                "Enter new name for stage:",
-                QLineEdit::Normal,
-                node_label,
-                &ok
-            );
-            if (ok && !new_label.isEmpty()) {
-                graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Caption, new_label);
-            }
+            QTimer::singleShot(0, this, [this, nodeId, node_label]() {
+                // Prompt for new name
+                bool ok;
+                QString new_label = QInputDialog::getText(
+                    nullptr,
+                    "Rename Stage",
+                    "Enter new name for stage:",
+                    QLineEdit::Normal,
+                    node_label,
+                    &ok
+                );
+                if (ok && !new_label.isEmpty()) {
+                    graph_model_.setNodeData(nodeId, QtNodes::NodeRole::Caption, new_label);
+                }
+            });
         });
         
         // Edit Parameters action - always available
         auto* edit_params_action = menu->addAction("Edit Parameters...");
         connect(edit_params_action, &QAction::triggered, [this, orc_node_id]() {
-            Q_EMIT editParametersRequested(orc_node_id);
+            QTimer::singleShot(0, this, [this, orc_node_id]() {
+                Q_EMIT editParametersRequested(orc_node_id);
+            });
         });
         
         menu->addSeparator();
@@ -312,7 +300,9 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
             trigger_action->setToolTip(QString::fromStdString(node_info.trigger_reason));
         }
         connect(trigger_action, &QAction::triggered, [this, orc_node_id]() {
-            Q_EMIT triggerStageRequested(orc_node_id);
+            QTimer::singleShot(0, this, [this, orc_node_id]() {
+                Q_EMIT triggerStageRequested(orc_node_id);
+            });
         });
         
         // Inspect Stage action
@@ -322,7 +312,9 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
             inspect_action->setToolTip(QString::fromStdString(node_info.inspect_reason));
         }
         connect(inspect_action, &QAction::triggered, [this, orc_node_id]() {
-            Q_EMIT inspectStageRequested(orc_node_id);
+            QTimer::singleShot(0, this, [this, orc_node_id]() {
+                Q_EMIT inspectStageRequested(orc_node_id);
+            });
         });
         
         menu->addSeparator();
@@ -347,7 +339,11 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
                 
                 // Pass tool_info to signal instead of raw pointer
                 connect(tool_action, &QAction::triggered, [this, tool_info, orc_node_id, stage_name = node_info.stage_name]() {
-                    Q_EMIT runAnalysisRequested(tool_info, orc_node_id, stage_name);
+                    // Defer dialog/tool launch until after popup menu processing completes
+                    // to avoid re-entrant popup/mouse-event handling crashes in Qt.
+                    QTimer::singleShot(0, this, [this, tool_info, orc_node_id, stage_name]() {
+                        Q_EMIT runAnalysisRequested(tool_info, orc_node_id, stage_name);
+                    });
                 });
             }
         }
@@ -361,10 +357,12 @@ void OrcGraphicsScene::onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const p
             delete_action->setToolTip(QString::fromStdString(node_info.remove_reason));
         }
         connect(delete_action, &QAction::triggered, [this, nodeId]() {
-            graph_model_.deleteNode(nodeId);
+            QTimer::singleShot(0, this, [this, nodeId]() {
+                graph_model_.deleteNode(nodeId);
+            });
         });
         
-        menu->setAttribute(Qt::WA_DeleteOnClose);
+        QObject::connect(menu, &QMenu::aboutToHide, menu, &QObject::deleteLater);
         
         // Convert scene position to screen position
         if (!views().isEmpty()) {

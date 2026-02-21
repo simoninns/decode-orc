@@ -281,7 +281,7 @@ bool TBCMetadataWriter::write_video_parameters(const SourceParameters& params) {
         return false;
     }
     
-    capture_id_ = sqlite3_last_insert_rowid(impl_->db);
+    capture_id_ = static_cast<int>(sqlite3_last_insert_rowid(impl_->db));
     impl_->capture_id = capture_id_;
     return true;
 }
@@ -299,7 +299,7 @@ bool TBCMetadataWriter::write_pcm_audio_parameters(const PcmAudioParameters& par
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 1, capture_id_);
     sqlite3_bind_int(stmt, 2, params.bits);
     sqlite3_bind_int(stmt, 3, params.is_signed ? 1 : 0);
     sqlite3_bind_int(stmt, 4, params.is_little_endian ? 1 : 0);
@@ -331,7 +331,7 @@ bool TBCMetadataWriter::write_field_metadata(const FieldMetadata& field) {
     // field_id is 0-based in database (seq_no - 1)
     int field_id = field.seq_no - 1;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 1, capture_id_);
     sqlite3_bind_int(stmt, 2, field_id);
     
     // Only write fields that have values (from hints/observers)
@@ -433,8 +433,8 @@ bool TBCMetadataWriter::update_field_median_burst_ire(FieldID field_id, double m
     if (rc != SQLITE_OK) return false;
     
     sqlite3_bind_double(stmt, 1, median_burst_ire);
-    sqlite3_bind_int(stmt, 2, capture_id_);
-    sqlite3_bind_int(stmt, 3, field_id.value());
+    sqlite3_bind_int64(stmt, 2, capture_id_);
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(field_id.value()));
     
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -452,8 +452,8 @@ bool TBCMetadataWriter::update_field_phase_id(FieldID field_id, int32_t field_ph
     if (rc != SQLITE_OK) return false;
     
     sqlite3_bind_int(stmt, 1, field_phase_id);
-    sqlite3_bind_int(stmt, 2, capture_id_);
-    sqlite3_bind_int(stmt, 3, field_id.value());
+    sqlite3_bind_int64(stmt, 2, capture_id_);
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(field_id.value()));
     
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -471,8 +471,8 @@ bool TBCMetadataWriter::update_field_is_first_field(FieldID field_id, bool is_fi
     if (rc != SQLITE_OK) return false;
     
     sqlite3_bind_int(stmt, 1, is_first_field ? 1 : 0);
-    sqlite3_bind_int(stmt, 2, capture_id_);
-    sqlite3_bind_int(stmt, 3, field_id.value());
+    sqlite3_bind_int64(stmt, 2, capture_id_);
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(field_id.value()));
     
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -489,8 +489,8 @@ bool TBCMetadataWriter::write_vbi(FieldID field_id, const VbiData& vbi) {
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
     sqlite3_bind_int(stmt, 3, vbi.vbi_data[0]);
     sqlite3_bind_int(stmt, 4, vbi.vbi_data[1]);
     sqlite3_bind_int(stmt, 5, vbi.vbi_data[2]);
@@ -513,8 +513,8 @@ bool TBCMetadataWriter::write_vitc(FieldID field_id, const VitcData& vitc) {
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
     for (int i = 0; i < 8; ++i) {
         sqlite3_bind_int(stmt, 3 + i, vitc.vitc_data[i]);
     }
@@ -534,8 +534,8 @@ bool TBCMetadataWriter::write_closed_caption(FieldID field_id, const ClosedCapti
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
     sqlite3_bind_int(stmt, 3, cc.data0);
     sqlite3_bind_int(stmt, 4, cc.data1);
     
@@ -554,8 +554,8 @@ bool TBCMetadataWriter::write_vits_metrics(FieldID field_id, const VitsMetrics& 
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
     sqlite3_bind_double(stmt, 3, metrics.black_psnr);
     sqlite3_bind_double(stmt, 4, metrics.white_snr);
     
@@ -574,8 +574,8 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) return false;
     
-    sqlite3_bind_int(stmt, 1, capture_id_);
-    sqlite3_bind_int(stmt, 2, field_id.value());
+    sqlite3_bind_int64(stmt, 1, capture_id_);
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(field_id.value()));
     // Convert from 0-based (internal) to 1-based (database) line numbering
     sqlite3_bind_int(stmt, 3, dropout.line + 1);
     sqlite3_bind_int(stmt, 4, dropout.start_sample);

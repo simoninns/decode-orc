@@ -189,7 +189,7 @@ bool FFmpegVideoSinkStage::trigger(
                 auto field_range = vfr->field_range();
                 
                 // Run observer on all fields to extract CC data
-                for (uint32_t field_num = field_range.start.value(); 
+                 for (FieldID::value_type field_num = field_range.start.value(); 
                      field_num <= field_range.end.value(); ++field_num) {
                     FieldID field_id(field_num);
                     if (vfr->has_field(field_id)) {

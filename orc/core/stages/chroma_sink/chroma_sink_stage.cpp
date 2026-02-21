@@ -794,7 +794,7 @@ bool ChromaSinkStage::trigger(
     // Calculate how many frames to OUTPUT
     // field_range represents the actual fields to output (already filtered by upstream stages)
     // We output all these frames - lookahead is only for decoder context (extended_range handles that)
-    int32_t numOutputFrames = end_frame - start_frame;
+    int32_t numOutputFrames = static_cast<int32_t>(end_frame - start_frame);
     int32_t numFrames = numOutputFrames;
     
     ORC_LOG_DEBUG("ChromaSink: Will output {} frames from field range {}-{}", 
@@ -989,7 +989,7 @@ bool ChromaSinkStage::trigger(
                 if (fieldInfo.use_blank) {
                     // Create blank field with metadata but black data
                     sf = convertToSourceField(vfr.get(), fieldInfo.field_id);
-                    uint16_t black = videoParams.black_16b_ire;
+                    uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
                     
                     // Handle both composite and YC sources
                     if (sf.is_yc) {
@@ -1025,7 +1025,7 @@ bool ChromaSinkStage::trigger(
                     SourceField blackField;
                     if (!frameFields.empty()) {
                         blackField = frameFields[0];  // Copy structure
-                        uint16_t black = videoParams.black_16b_ire;
+                        uint16_t black = static_cast<uint16_t>(videoParams.black_16b_ire);
                         
                         // Handle both composite and YC sources
                         if (blackField.is_yc) {

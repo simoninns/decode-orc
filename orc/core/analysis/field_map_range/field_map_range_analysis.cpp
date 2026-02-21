@@ -508,9 +508,9 @@ AnalysisResult FieldMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
             if (progress && (fid.value() % 5000 == 0)) {
                 progress->setProgress(50 + static_cast<int>(15.0 * fid.value() / field_range.size()));
                 if (progress->isCancelled()) {
-                    AnalysisResult result;
-                    result.status = AnalysisResult::Cancelled;
-                    return result;
+                    AnalysisResult cancelled_result;
+                    cancelled_result.status = AnalysisResult::Cancelled;
+                    return cancelled_result;
                 }
             }
         }

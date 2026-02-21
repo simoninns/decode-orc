@@ -306,7 +306,7 @@ bool LDSinkStage::write_tbc_and_metadata(
             // Add padding for first field if needed (TBC file format requirement)
             if (is_first_field && actual_lines < padded_lines) {
                 size_t padding_lines = padded_lines - actual_lines;
-                uint16_t blanking_level = video_params->blanking_16b_ire;
+                uint16_t blanking_level = static_cast<uint16_t>(video_params->blanking_16b_ire);
                 
                 ORC_LOG_DEBUG("Adding {} padding lines to first field {} (blanking level {})", 
                               padding_lines, field_id.value(), blanking_level);
@@ -323,7 +323,7 @@ bool LDSinkStage::write_tbc_and_metadata(
             // ===== Write metadata =====
             // Create minimal field record
             FieldMetadata field_meta;
-            field_meta.seq_no = field_id.value() + 1;  // seq_no is 1-based
+            field_meta.seq_no = static_cast<int32_t>(field_id.value() + 1);  // seq_no is 1-based
             
             // Use parity hint (already fetched above for padding logic)
             if (parity_hint.has_value()) {

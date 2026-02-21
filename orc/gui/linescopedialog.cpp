@@ -9,6 +9,7 @@
 
 #include "linescopedialog.h"
 #include "field_frame_presentation.h"
+#include "theme_color_tokens.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
@@ -400,13 +401,9 @@ void LineScopeDialog::updatePlotData()
         
         // Set appropriate colors
         QColor y_color, c_color;
-        if (PlotWidget::isDarkTheme()) {
-            y_color = QColor(255, 255, 100);  // Bright yellow for Y
-            c_color = QColor(100, 150, 255);  // Bright blue for C
-        } else {
-            y_color = QColor(200, 180, 0);  // Dark yellow for Y
-            c_color = QColor(0, 80, 200);  // Dark blue for C
-        }
+        const bool is_dark_theme = PlotWidget::isDarkTheme();
+        y_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaPrimary, is_dark_theme);
+        c_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaPrimary, is_dark_theme);
         
         y_series_->setPen(QPen(y_color, 1));
         c_series_->setPen(QPen(c_color, 1));
@@ -448,21 +445,22 @@ void LineScopeDialog::updatePlotData()
         
         // Set appropriate color based on theme and channel
         QColor line_color;
-        if (PlotWidget::isDarkTheme()) {
+        const bool is_dark_theme = PlotWidget::isDarkTheme();
+        if (is_dark_theme) {
             if (is_yc_source_ && channel_mode == 0) {
-                line_color = QColor(255, 255, 100);  // Bright yellow for Y
+                line_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaPrimary, is_dark_theme);
             } else if (is_yc_source_ && channel_mode == 1) {
-                line_color = QColor(100, 150, 255);  // Bright blue for C
+                line_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaPrimary, is_dark_theme);
             } else {
-                line_color = QColor(100, 200, 255);  // Light blue for composite
+                line_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositePrimary, is_dark_theme);
             }
         } else {
             if (is_yc_source_ && channel_mode == 0) {
-                line_color = QColor(200, 180, 0);  // Dark yellow for Y
+                line_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaPrimary, is_dark_theme);
             } else if (is_yc_source_ && channel_mode == 1) {
-                line_color = QColor(0, 80, 200);  // Dark blue for C
+                line_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaPrimary, is_dark_theme);
             } else {
-                line_color = QColor(0, 100, 200);  // Dark blue for composite
+                line_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositePrimary, is_dark_theme);
             }
         }
         line_series_->setPen(QPen(line_color, 1));
@@ -626,12 +624,12 @@ void LineScopeDialog::updatePlotData()
             auto* cb_start = plot_widget_->addMarker();
             cb_start->setStyle(PlotMarker::VLine);
             cb_start->setPosition(QPointF(cb_start_us, 0));
-            cb_start->setPen(QPen(Qt::cyan, 1, Qt::DashLine));
+            cb_start->setPen(QPen(theme_tokens::plotColor(theme_tokens::PlotColorToken::RegionBurst, PlotWidget::isDarkTheme()), 1, Qt::DashLine));
             
             auto* cb_end = plot_widget_->addMarker();
             cb_end->setStyle(PlotMarker::VLine);
             cb_end->setPosition(QPointF(cb_end_us, 0));
-            cb_end->setPen(QPen(Qt::cyan, 1, Qt::DashLine));
+            cb_end->setPen(QPen(theme_tokens::plotColor(theme_tokens::PlotColorToken::RegionBurst, PlotWidget::isDarkTheme()), 1, Qt::DashLine));
         }
         
         // Active video region (yellow)
@@ -642,12 +640,12 @@ void LineScopeDialog::updatePlotData()
             auto* av_start = plot_widget_->addMarker();
             av_start->setStyle(PlotMarker::VLine);
             av_start->setPosition(QPointF(av_start_us, 0));
-            av_start->setPen(QPen(Qt::yellow, 1, Qt::DashLine));
+            av_start->setPen(QPen(theme_tokens::plotColor(theme_tokens::PlotColorToken::RegionActiveVideo, PlotWidget::isDarkTheme()), 1, Qt::DashLine));
             
             auto* av_end = plot_widget_->addMarker();
             av_end->setStyle(PlotMarker::VLine);
             av_end->setPosition(QPointF(av_end_us, 0));
-            av_end->setPen(QPen(Qt::yellow, 1, Qt::DashLine));
+            av_end->setPen(QPen(theme_tokens::plotColor(theme_tokens::PlotColorToken::RegionActiveVideo, PlotWidget::isDarkTheme()), 1, Qt::DashLine));
         }
         
         // IRE level markers (horizontal lines) in mV
@@ -659,7 +657,7 @@ void LineScopeDialog::updatePlotData()
             auto* ire0 = plot_widget_->addMarker();
             ire0->setStyle(PlotMarker::HLine);
             ire0->setPosition(QPointF(0, 0.0));  // 0 IRE = 0 mV
-            ire0->setPen(QPen(Qt::darkGray, 1, Qt::DashLine));
+            ire0->setPen(QPen(theme_tokens::neutralLine(palette(), 0.35), 1, Qt::DashLine));
             
             // Black level marker (if different from blanking)
             if (vp.black_ire >= 0 && vp.black_ire != vp.blanking_ire) {
@@ -668,25 +666,25 @@ void LineScopeDialog::updatePlotData()
                 auto* black_marker = plot_widget_->addMarker();
                 black_marker->setStyle(PlotMarker::HLine);
                 black_marker->setPosition(QPointF(0, black_mv));
-                black_marker->setPen(QPen(Qt::gray, 1, Qt::DashDotLine));
+                black_marker->setPen(QPen(theme_tokens::neutralLine(palette(), 0.5), 1, Qt::DashDotLine));
             }
             
             // 100 IRE (white level)
             auto* ire100 = plot_widget_->addMarker();
             ire100->setStyle(PlotMarker::HLine);
             ire100->setPosition(QPointF(0, 100.0 * ire_to_mv));  // 100 IRE in mV
-            ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
+            ire100->setPen(QPen(theme_tokens::neutralLine(palette(), 0.7), 1, Qt::DashLine));
         } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
             // Fallback: use black level as reference if blanking not available
             auto* ire0 = plot_widget_->addMarker();
             ire0->setStyle(PlotMarker::HLine);
             ire0->setPosition(QPointF(0, 0.0));  // Reference point
-            ire0->setPen(QPen(Qt::darkGray, 1, Qt::DashLine));
+            ire0->setPen(QPen(theme_tokens::neutralLine(palette(), 0.35), 1, Qt::DashLine));
             
             auto* ire100 = plot_widget_->addMarker();
             ire100->setStyle(PlotMarker::HLine);
             ire100->setPosition(QPointF(0, 100.0 * ire_to_mv));
-            ire100->setPen(QPen(Qt::lightGray, 1, Qt::DashLine));
+            ire100->setPen(QPen(theme_tokens::neutralLine(palette(), 0.7), 1, Qt::DashLine));
         }
     }
 }
@@ -744,7 +742,7 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         sample_marker_ = plot_widget_->addMarker();
         sample_marker_->setStyle(PlotMarker::VLine);
         sample_marker_->setPosition(QPointF(time_us, 0));
-        sample_marker_->setPen(QPen(Qt::green, 2));
+        sample_marker_->setPen(QPen(theme_tokens::plotColor(theme_tokens::PlotColorToken::MarkerSelection, PlotWidget::isDarkTheme()), 2));
         
         // Update sample info display
         uint16_t sample_value = (*samples_for_marker)[sample_x];

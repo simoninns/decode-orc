@@ -108,7 +108,7 @@ bool FmCodeObserver::decode_line(const uint16_t* line_data,
 	uint64_t decoded_bits = 0;
 	int decode_count = 0;
 	size_t last_transition_x = x;
-	bool last_state = fm_data[x];
+	auto last_state = fm_data[x];
     
 	// Decode 40 bits
 	while (x < fm_data.size() && decode_count < 40) {

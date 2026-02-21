@@ -158,6 +158,7 @@ private:
     bool m_zoomEnabled;
     bool m_panEnabled;
     QColor m_canvasBackground;
+    bool m_usePaletteCanvasBackground;
     bool m_isDragging;  // Track if mouse is being dragged
     
 public:
@@ -230,6 +231,7 @@ public:
 
 private:
     QPen m_pen;
+    bool m_usePalettePen;
     bool m_enabled;
     bool m_isDarkTheme;
     QRectF m_plotRect;

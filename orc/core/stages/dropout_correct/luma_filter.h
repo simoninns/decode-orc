@@ -77,7 +77,7 @@ public:
                 
                 // Boundary handling: clamp to edges
                 if (idx < 0) idx = 0;
-                if (idx >= static_cast<int32_t>(width)) idx = width - 1;
+                if (idx >= static_cast<int32_t>(width)) idx = static_cast<int32_t>(width - 1);
                 
                 sum += coeffs_[j] * input[idx];
             }

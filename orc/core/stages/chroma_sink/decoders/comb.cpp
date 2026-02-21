@@ -18,7 +18,13 @@
 #include "firfilter.h"
 
 #include <algorithm>
+
 #include <cmath>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include <memory>
 #include <utility>
 #include <vector>
@@ -319,18 +325,28 @@ inline bool Comb::FrameBuffer::getLinePhase(int32_t lineNumber) const
 void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceField &secondField)
 {
     // Interlace the input fields and place in the frame buffer
-    int32_t fieldLine = 0;
     rawbuffer.clear();
-    for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
-        // Insert first field line
-        auto firstStart = firstField.data.begin() + fieldLine * videoParameters.field_width;
-        auto firstEnd = firstStart + videoParameters.field_width;
-        rawbuffer.insert(rawbuffer.end(), firstStart, firstEnd);
-        // Insert second field line
-        auto secondStart = secondField.data.begin() + fieldLine * videoParameters.field_width;
-        auto secondEnd = secondStart + videoParameters.field_width;
-        rawbuffer.insert(rawbuffer.end(), secondStart, secondEnd);
-        fieldLine++;
+    rawbuffer.reserve(static_cast<size_t>(frameHeight) * static_cast<size_t>(videoParameters.field_width));
+
+    const int32_t firstAvailableLines = static_cast<int32_t>(firstField.data.size() / videoParameters.field_width);
+    const int32_t secondAvailableLines = static_cast<int32_t>(secondField.data.size() / videoParameters.field_width);
+
+    auto appendLineOrBlack = [&](const std::vector<uint16_t> &source, int32_t sourceLine, int32_t availableLines) {
+        if (sourceLine < availableLines) {
+            auto lineStart = source.begin() + static_cast<size_t>(sourceLine) * static_cast<size_t>(videoParameters.field_width);
+            auto lineEnd = lineStart + videoParameters.field_width;
+            rawbuffer.insert(rawbuffer.end(), lineStart, lineEnd);
+        } else {
+            rawbuffer.insert(rawbuffer.end(), videoParameters.field_width, 0);
+        }
+    };
+
+    for (int32_t fieldLine = 0; fieldLine < videoParameters.field_height; fieldLine++) {
+        appendLineOrBlack(firstField.data, fieldLine, firstAvailableLines);
+
+        if ((fieldLine * 2) + 1 < frameHeight) {
+            appendLineOrBlack(secondField.data, fieldLine, secondAvailableLines);
+        }
     }
 
     // Set the phase IDs for the frame
@@ -356,33 +372,53 @@ void Comb::FrameBuffer::loadFields(const SourceField &firstField, const SourceFi
 void Comb::FrameBuffer::loadFieldsYC(const SourceField &firstField, const SourceField &secondField)
 {
     // Interlace the Y fields into luma_buffer
-    int32_t fieldLine = 0;
     luma_buffer.clear();
-    for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
-        // Insert first field Y line
-        auto firstYStart = firstField.luma_data.begin() + fieldLine * videoParameters.field_width;
-        auto firstYEnd = firstYStart + videoParameters.field_width;
-        luma_buffer.insert(luma_buffer.end(), firstYStart, firstYEnd);
-        // Insert second field Y line
-        auto secondYStart = secondField.luma_data.begin() + fieldLine * videoParameters.field_width;
-        auto secondYEnd = secondYStart + videoParameters.field_width;
-        luma_buffer.insert(luma_buffer.end(), secondYStart, secondYEnd);
-        fieldLine++;
+    luma_buffer.reserve(static_cast<size_t>(frameHeight) * static_cast<size_t>(videoParameters.field_width));
+
+    const int32_t firstLumaLines = static_cast<int32_t>(firstField.luma_data.size() / videoParameters.field_width);
+    const int32_t secondLumaLines = static_cast<int32_t>(secondField.luma_data.size() / videoParameters.field_width);
+
+    auto appendLumaLineOrBlack = [&](const std::vector<uint16_t> &source, int32_t sourceLine, int32_t availableLines) {
+        if (sourceLine < availableLines) {
+            auto lineStart = source.begin() + static_cast<size_t>(sourceLine) * static_cast<size_t>(videoParameters.field_width);
+            auto lineEnd = lineStart + videoParameters.field_width;
+            luma_buffer.insert(luma_buffer.end(), lineStart, lineEnd);
+        } else {
+            luma_buffer.insert(luma_buffer.end(), videoParameters.field_width, 0);
+        }
+    };
+
+    for (int32_t fieldLine = 0; fieldLine < videoParameters.field_height; fieldLine++) {
+        appendLumaLineOrBlack(firstField.luma_data, fieldLine, firstLumaLines);
+
+        if ((fieldLine * 2) + 1 < frameHeight) {
+            appendLumaLineOrBlack(secondField.luma_data, fieldLine, secondLumaLines);
+        }
     }
-    
+
     // Interlace the C fields into chroma_buffer
-    fieldLine = 0;
     chroma_buffer.clear();
-    for (int32_t frameLine = 0; frameLine < frameHeight; frameLine += 2) {
-        // Insert first field C line
-        auto firstCStart = firstField.chroma_data.begin() + fieldLine * videoParameters.field_width;
-        auto firstCEnd = firstCStart + videoParameters.field_width;
-        chroma_buffer.insert(chroma_buffer.end(), firstCStart, firstCEnd);
-        // Insert second field C line
-        auto secondCStart = secondField.chroma_data.begin() + fieldLine * videoParameters.field_width;
-        auto secondCEnd = secondCStart + videoParameters.field_width;
-        chroma_buffer.insert(chroma_buffer.end(), secondCStart, secondCEnd);
-        fieldLine++;
+    chroma_buffer.reserve(static_cast<size_t>(frameHeight) * static_cast<size_t>(videoParameters.field_width));
+
+    const int32_t firstChromaLines = static_cast<int32_t>(firstField.chroma_data.size() / videoParameters.field_width);
+    const int32_t secondChromaLines = static_cast<int32_t>(secondField.chroma_data.size() / videoParameters.field_width);
+
+    auto appendChromaLineOrBlack = [&](const std::vector<uint16_t> &source, int32_t sourceLine, int32_t availableLines) {
+        if (sourceLine < availableLines) {
+            auto lineStart = source.begin() + static_cast<size_t>(sourceLine) * static_cast<size_t>(videoParameters.field_width);
+            auto lineEnd = lineStart + videoParameters.field_width;
+            chroma_buffer.insert(chroma_buffer.end(), lineStart, lineEnd);
+        } else {
+            chroma_buffer.insert(chroma_buffer.end(), videoParameters.field_width, 0);
+        }
+    };
+
+    for (int32_t fieldLine = 0; fieldLine < videoParameters.field_height; fieldLine++) {
+        appendChromaLineOrBlack(firstField.chroma_data, fieldLine, firstChromaLines);
+
+        if ((fieldLine * 2) + 1 < frameHeight) {
+            appendChromaLineOrBlack(secondField.chroma_data, fieldLine, secondChromaLines);
+        }
     }
 
     // Set the phase IDs for the frame

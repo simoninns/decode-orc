@@ -8,6 +8,11 @@ on:
         required: false
         default: decode-orc-macos-dmg
         type: string
+      file_glob:
+        description: Glob pattern for release files inside downloaded artifact directory
+        required: false
+        default: release-artifacts/*.dmg
+        type: string
 
 permissions:
   contents: write
@@ -27,5 +32,5 @@ jobs:
       - name: Publish release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release-artifacts/*.dmg
+          files: ${{ inputs.file_glob }}
           generate_release_notes: true

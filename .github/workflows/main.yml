@@ -45,6 +45,7 @@ jobs:
     uses: ./.github/workflows/release-from-artifact.yml
     with:
       artifact_name: decode-orc-macos-dmg
+      file_glob: release-artifacts/*.dmg
     secrets: inherit
 
   release-flatpak:
@@ -56,6 +57,7 @@ jobs:
     uses: ./.github/workflows/release-from-artifact.yml
     with:
       artifact_name: decode-orc-linux-flatpak
+      file_glob: release-artifacts/*.flatpak
     secrets: inherit
 
   release-windows:
@@ -67,4 +69,5 @@ jobs:
     uses: ./.github/workflows/release-from-artifact.yml
     with:
       artifact_name: decode-orc-windows-msi
+      file_glob: release-artifacts/*.msi
     secrets: inherit

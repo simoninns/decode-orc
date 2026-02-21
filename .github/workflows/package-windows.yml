@@ -42,7 +42,15 @@ jobs:
           } else {
             $version = "git-$($env:GITHUB_SHA.Substring(0,7))"
           }
+          # CMake project version override should be numeric dotted version (strip optional leading 'v')
+          if ($version -match '^v?(\d+\.\d+\.\d+)$') {
+            $cmakeVersion = $Matches[1]
+          } else {
+            # Fallback for non-tag builds; keep deterministic semver-ish value
+            $cmakeVersion = "0.0.0"
+          }
           echo "version=$version" >> $env:GITHUB_OUTPUT
+          echo "cmake_version=$cmakeVersion" >> $env:GITHUB_OUTPUT
 
       - name: Install WiX Toolset
         shell: pwsh
@@ -142,9 +150,10 @@ jobs:
           # Use the same preset flow as local Windows builds (GUI release)
           $configurePreset = "windows-gui-release"
           $buildPreset = "build-windows-gui-release"
+          $projectVersion = "${{ steps.version.outputs.cmake_version }}"
 
           cmake --preset $configurePreset `
-            -DPROJECT_VERSION_OVERRIDE=${{ steps.version.outputs.version }} `
+            "-DPROJECT_VERSION_OVERRIDE=$projectVersion" `
             -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed"
           cmake --build --preset $buildPreset
 

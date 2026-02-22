@@ -36,9 +36,8 @@ PreviewDialog::PreviewDialog(QWidget *parent)
     setupUI();
     setWindowTitle("Field/Frame Preview");
     
-    // Use Qt::Window flag to allow independent positioning (like ld-analyse dialogs)
-    // Keep the dialog in front of the main window
-    setWindowFlags(Qt::Window | Qt::WindowStaysOnTopHint);
+    // Use Qt::Window flag to allow independent positioning without forcing z-order
+    setWindowFlags(Qt::Window);
     
     // Don't destroy on close, just hide
     setAttribute(Qt::WA_DeleteOnClose, false);

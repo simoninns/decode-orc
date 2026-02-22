@@ -475,7 +475,7 @@ DropoutCorrectStage::ReplacementLine DropoutCorrectStage::find_replacement_line(
     };
     
     // Helper to check if a source line has overlapping dropouts
-    auto has_overlap = [&source, field_id, &dropout](FieldID check_field, uint32_t check_line) -> bool {
+    auto has_overlap = [&source, &dropout](FieldID check_field, uint32_t check_line) -> bool {
         auto dropouts_in_line = source.get_dropout_hints(check_field);
         for (const auto& d : dropouts_in_line) {
             if (d.line == check_line &&

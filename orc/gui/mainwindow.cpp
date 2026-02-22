@@ -89,6 +89,7 @@ namespace {
         switch (system) {
             case orc::VideoSystem::NTSC: return orc::presenters::VideoFormat::NTSC;
             case orc::VideoSystem::PAL: return orc::presenters::VideoFormat::PAL;
+            case orc::VideoSystem::PAL_M: return orc::presenters::VideoFormat::PAL;
             case orc::VideoSystem::Unknown: return orc::presenters::VideoFormat::Unknown;
         }
         return orc::presenters::VideoFormat::Unknown;
@@ -3546,33 +3547,38 @@ void MainWindow::onFieldTimingDataReady(uint64_t request_id, uint64_t field_inde
     
     // Set the field data and show the dialog
     std::optional<int> marker_sample;
-    if (video_params.has_value() && video_params->field_width > 0 && video_params->field_height > 0 &&
+    if (video_params.has_value() && video_params->field_width > 0 &&
         last_line_scope_field_index_ != std::numeric_limits<uint64_t>::max() &&
         last_line_scope_image_x_ >= 0 && last_line_scope_line_number_ >= 0) {
         const int fw = video_params->field_width;
-        const int fh = video_params->field_height;
+        const int fallback_fh = video_params->field_height;
+        const int first_fh = (first_field_height > 0) ? first_field_height : fallback_fh;
+        const int second_fh = (second_field_height > 0) ? second_field_height : fallback_fh;
         
         ORC_LOG_DEBUG("Field timing marker calculation: last_field={}, last_line={}, last_x={}, field_index={}, field_index_2={}",
                      last_line_scope_field_index_, last_line_scope_line_number_, last_line_scope_image_x_,
                      field_index, field_index_2.has_value() ? field_index_2.value() : 0);
         
-        if (last_line_scope_line_number_ < fh) {
-            int clamped_x = std::max(0, std::min(last_line_scope_image_x_, fw - 1));
-            int local_sample = last_line_scope_line_number_ * fw + clamped_x;
+        int clamped_x = std::max(0, std::min(last_line_scope_image_x_, fw - 1));
 
-            // Determine which field in the timing data this maps to
-            uint64_t f1 = field_index;
-            std::optional<uint64_t> f2 = field_index_2;
-            if (last_line_scope_field_index_ == f1) {
+        // Determine which field in the timing data this maps to
+        uint64_t f1 = field_index;
+        std::optional<uint64_t> f2 = field_index_2;
+        if (last_line_scope_field_index_ == f1) {
+            if (last_line_scope_line_number_ < first_fh) {
+                int local_sample = last_line_scope_line_number_ * fw + clamped_x;
                 marker_sample = local_sample;
                 ORC_LOG_DEBUG("Marker in field 1 at sample {}", local_sample);
-            } else if (f2.has_value() && last_line_scope_field_index_ == f2.value()) {
-                marker_sample = local_sample + fw * fh;  // offset into second field
-                ORC_LOG_DEBUG("Marker in field 2 at sample {} (offset {})", marker_sample.value(), local_sample);
-            } else {
-                ORC_LOG_DEBUG("Marker field {} doesn't match f1={} or f2={}", 
-                            last_line_scope_field_index_, f1, f2.has_value() ? f2.value() : 0);
             }
+        } else if (f2.has_value() && last_line_scope_field_index_ == f2.value()) {
+            if (last_line_scope_line_number_ < second_fh) {
+                int local_sample = last_line_scope_line_number_ * fw + clamped_x;
+                marker_sample = local_sample + fw * first_fh;  // offset by actual first field size
+                ORC_LOG_DEBUG("Marker in field 2 at sample {} (offset {})", marker_sample.value(), local_sample);
+            }
+        } else {
+            ORC_LOG_DEBUG("Marker field {} doesn't match f1={} or f2={}", 
+                        last_line_scope_field_index_, f1, f2.has_value() ? f2.value() : 0);
         }
     }
 

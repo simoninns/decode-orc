@@ -35,6 +35,7 @@ static VideoFormat fromVideoSystem(VideoSystem system) {
     switch (system) {
         case VideoSystem::NTSC: return VideoFormat::NTSC;
         case VideoSystem::PAL: return VideoFormat::PAL;
+        case VideoSystem::PAL_M: return VideoFormat::PAL;
         case VideoSystem::Unknown: return VideoFormat::Unknown;
     }
     return VideoFormat::Unknown;

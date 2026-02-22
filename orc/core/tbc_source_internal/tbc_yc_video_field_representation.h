@@ -159,7 +159,7 @@ private:
     // TBC-specific accessors - private to enforce architectural boundaries
     const SourceParameters& video_parameters() const { return video_params_; }
     std::shared_ptr<TBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
-    std::optional<FieldMetadata> get_field_metadata(FieldID id) const;
+    std::optional<FieldMetadata> get_field_metadata(FieldID id) const override;
     
     // TODO: Observer system refactored - observers now access data via public interface
     

@@ -89,6 +89,7 @@ namespace {
         switch (system) {
             case orc::VideoSystem::NTSC: return orc::presenters::VideoFormat::NTSC;
             case orc::VideoSystem::PAL: return orc::presenters::VideoFormat::PAL;
+            case orc::VideoSystem::PAL_M: return orc::presenters::VideoFormat::PAL;
             case orc::VideoSystem::Unknown: return orc::presenters::VideoFormat::Unknown;
         }
         return orc::presenters::VideoFormat::Unknown;

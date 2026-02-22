@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake: Configure",
+      "label": "Configure (cmake CLI)",
       "type": "shell",
       "command": "cmake",
       "args": ["-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"],
@@ -10,7 +10,7 @@
       "group": { "kind": "build", "isDefault": false }
     },
     {
-      "label": "CMake: Build",
+      "label": "Build (cmake CLI)",
       "type": "shell",
       "command": "cmake --build build -j",
       "args": [],

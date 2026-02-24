@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "core/logging.h"
 #include "decoder_config.h"
 
 #include "dec_tvaluestochannel.h"
@@ -42,10 +43,15 @@
 class UnifiedDecoder {
 public:
     explicit UnifiedDecoder(const DecoderConfig& config);
+
+    using ProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
     
     // Run the complete decode process
     // Returns exit code (0 = success, 1 = error)
     int run();
+
+    void setCancellationCallback(std::function<bool()> callback);
+    void setProgressCallback(ProgressCallback callback);
     
 private:
     DecoderConfig config_;
@@ -102,6 +108,11 @@ private:
     void showDataPipelineStatistics() const;
     std::string deriveAudioLabelsPath() const;
     std::string deriveDataMetadataPath() const;
+    bool isCancellationRequested() const;
+    void emitProgress(size_t current, size_t total, const std::string& message) const;
+
+    std::function<bool()> cancellationCallback_;
+    ProgressCallback progressCallback_;
 };
 
 #endif // UNIFIED_DECODER_H

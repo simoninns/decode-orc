@@ -9,7 +9,7 @@
 
 #include "section_metadata.h"
 #include "hex_utils.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <cstdlib>
 #include <iomanip>
 #include <sstream>

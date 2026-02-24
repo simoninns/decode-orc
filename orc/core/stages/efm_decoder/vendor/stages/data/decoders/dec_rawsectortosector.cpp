@@ -8,7 +8,7 @@
  */
 
 #include "dec_rawsectortosector.h"
-#include "logging.h"
+#include "core/logging.h"
 
 // This table is the CRC32 look-up for the EDC data
 static constexpr uint32_t crc32Lut[256] = {

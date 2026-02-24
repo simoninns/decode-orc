@@ -8,7 +8,7 @@
  */
 
 #include "writer_sector_metadata.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <fmt/format.h>
 
 // This writer class writes metadata about sector data to a file

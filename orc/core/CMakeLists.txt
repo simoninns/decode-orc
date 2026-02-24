@@ -98,6 +98,37 @@ add_library(orc-core STATIC
     stages/efm_sink/efm_sink_stage.cpp
     stages/efm_decoder/efm_decoder_sink_stage.cpp
     stages/efm_decoder/config/efm_decoder_parameter_contract.cpp
+    stages/efm_decoder/vendor/unified_decoder.cpp
+    stages/efm_decoder/vendor/core/audio.cpp
+    stages/efm_decoder/vendor/core/delay_lines.cpp
+    stages/efm_decoder/vendor/core/efm.cpp
+    stages/efm_decoder/vendor/core/frame.cpp
+    stages/efm_decoder/vendor/core/interleave.cpp
+    stages/efm_decoder/vendor/core/inverter.cpp
+    stages/efm_decoder/vendor/core/reedsolomon.cpp
+    stages/efm_decoder/vendor/core/rspc.cpp
+    stages/efm_decoder/vendor/core/section.cpp
+    stages/efm_decoder/vendor/core/section_metadata.cpp
+    stages/efm_decoder/vendor/core/sector.cpp
+    stages/efm_decoder/vendor/core/subcode.cpp
+    stages/efm_decoder/vendor/core/tvalues.cpp
+    stages/efm_decoder/vendor/stages/audio/decoders/dec_audiocorrection.cpp
+    stages/efm_decoder/vendor/stages/audio/decoders/dec_data24toaudio.cpp
+    stages/efm_decoder/vendor/stages/audio/writers/writer_raw.cpp
+    stages/efm_decoder/vendor/stages/audio/writers/writer_wav.cpp
+    stages/efm_decoder/vendor/stages/audio/writers/writer_wav_metadata.cpp
+    stages/efm_decoder/vendor/stages/bridge/dec_f1sectiontodata24section.cpp
+    stages/efm_decoder/vendor/stages/bridge/dec_f2sectiontof1section.cpp
+    stages/efm_decoder/vendor/stages/data/decoders/dec_data24torawsector.cpp
+    stages/efm_decoder/vendor/stages/data/decoders/dec_rawsectortosector.cpp
+    stages/efm_decoder/vendor/stages/data/decoders/dec_sectorcorrection.cpp
+    stages/efm_decoder/vendor/stages/data/writers/writer_sector.cpp
+    stages/efm_decoder/vendor/stages/data/writers/writer_sector_metadata.cpp
+    stages/efm_decoder/vendor/stages/shared/decoders/dec_channeltof3frame.cpp
+    stages/efm_decoder/vendor/stages/shared/decoders/dec_f2sectioncorrection.cpp
+    stages/efm_decoder/vendor/stages/shared/decoders/dec_f3frametof2section.cpp
+    stages/efm_decoder/vendor/stages/shared/decoders/dec_tvaluestochannel.cpp
+    stages/efm_decoder/vendor/stages/shared/readers/reader_data.cpp
     stages/cc_sink/cc_sink_stage.cpp
     stages/video_params/video_params_stage.cpp
     stages/dropout_analysis_sink/dropout_analysis_sink_stage.cpp
@@ -173,6 +204,15 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/audio_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/core
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/audio/decoders
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/audio/writers
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/data/decoders
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/data/writers
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/shared/decoders
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/stages/shared/readers
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/cc_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/video_params
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_analysis_sink

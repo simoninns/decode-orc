@@ -8,7 +8,7 @@
  */
 
 #include "writer_wav.h"
-#include "logging.h"
+#include "core/logging.h"
 
 // This writer class writes audio data to a file in WAV format
 // This is used when the output is stereo audio data

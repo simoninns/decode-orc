@@ -8,7 +8,7 @@
  */
 
 #include "interleave.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <cstdlib>
 
 Interleave::Interleave() { }

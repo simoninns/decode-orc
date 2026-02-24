@@ -89,6 +89,14 @@ public:
         progress_callback_ = callback;
     }
 
+    bool is_trigger_in_progress() const override {
+        return is_processing_.load();
+    }
+
+    void cancel_trigger() override {
+        cancel_requested_.store(true);
+    }
+
 private:
     std::map<std::string, ParameterValue> parameters_;
     std::optional<efm_decoder_config::ParsedParameters> parsed_parameters_;

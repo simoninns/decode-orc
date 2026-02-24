@@ -8,7 +8,7 @@
  */
 
 #include "dec_tvaluestochannel.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <queue>
 #include <stdexcept>
 #include <cmath>

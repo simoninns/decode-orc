@@ -10,7 +10,7 @@
 #include "ezpwd/rs_base"
 #include "ezpwd/rs"
 #include "reedsolomon.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <cstdlib>
 
 // ezpwd C1 ECMA-130 CIRC configuration

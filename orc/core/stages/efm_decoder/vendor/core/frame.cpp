@@ -8,7 +8,7 @@
  */
 
 #include "frame.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <cstdlib>
 #include <cstdio>
 #include "hex_utils.h"

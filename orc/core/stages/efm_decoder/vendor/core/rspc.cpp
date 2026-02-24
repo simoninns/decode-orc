@@ -10,7 +10,7 @@
 #include "ezpwd/rs_base"
 #include "ezpwd/rs"
 #include "rspc.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <cstdlib>
 
 // ECMA-130 Q and P specific CIRC configuration for Reed-Solomon forward error correction

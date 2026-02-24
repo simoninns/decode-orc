@@ -8,7 +8,7 @@
  */
 
 #include "writer_sector.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <iostream>
 
 // This writer class writes raw data to a file directly from the Data24 sections

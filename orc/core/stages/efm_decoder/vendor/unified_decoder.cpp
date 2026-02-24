@@ -12,11 +12,33 @@
 #include <cctype>
 #include <spdlog/spdlog.h>
 
-#include "logging.h"
+#include "core/logging.h"
 
 UnifiedDecoder::UnifiedDecoder(const DecoderConfig& config)
     : config_(config)
 {
+}
+
+void UnifiedDecoder::setCancellationCallback(std::function<bool()> callback)
+{
+    cancellationCallback_ = std::move(callback);
+}
+
+void UnifiedDecoder::setProgressCallback(ProgressCallback callback)
+{
+    progressCallback_ = std::move(callback);
+}
+
+bool UnifiedDecoder::isCancellationRequested() const
+{
+    return cancellationCallback_ && cancellationCallback_();
+}
+
+void UnifiedDecoder::emitProgress(size_t current, size_t total, const std::string& message) const
+{
+    if (progressCallback_) {
+        progressCallback_(current, total, message);
+    }
 }
 
 int UnifiedDecoder::run()
@@ -308,6 +330,12 @@ bool UnifiedDecoder::probeForNoTimecode()
 
     // Process data through probe pipeline until we hit max sections or end of file
     while (!endOfData && probeF2SectionCount < probeMaxSections) {
+        if (isCancellationRequested()) {
+            readerData_.close();
+            LOG_WARN("UnifiedDecoder::probeForNoTimecode(): Cancelled by user");
+            return false;
+        }
+
         std::vector<uint8_t> tValues = readerData_.read(inputReadChunkSize);
         processedSize += static_cast<int64_t>(tValues.size());
 
@@ -391,6 +419,12 @@ bool UnifiedDecoder::runSharedDecodePipeline(const std::function<void(const Data
     bool endOfData = false;
     int64_t data24SectionCount = 0;
     while (!endOfData) {
+        if (isCancellationRequested()) {
+            readerData_.close();
+            LOG_WARN("UnifiedDecoder::runSharedDecodePipeline(): Cancelled by user");
+            return false;
+        }
+
         std::vector<uint8_t> tValues = readerData_.read(inputReadChunkSize);
         processedSize += static_cast<int64_t>(tValues.size());
 
@@ -400,6 +434,8 @@ bool UnifiedDecoder::runSharedDecodePipeline(const std::function<void(const Data
                 LOG_INFO("Progress: {}%", progress);
                 lastProgress = progress;
             }
+
+            emitProgress(static_cast<size_t>(processedSize), static_cast<size_t>(totalSize), "Decoding EFM stream");
         }
 
         if (tValues.empty()) {
@@ -409,6 +445,12 @@ bool UnifiedDecoder::runSharedDecodePipeline(const std::function<void(const Data
         }
 
         processSharedPipeline(onData24Section, traceFrameOutput, data24SectionCount);
+
+        if (isCancellationRequested()) {
+            readerData_.close();
+            LOG_WARN("UnifiedDecoder::runSharedDecodePipeline(): Cancelled by user");
+            return false;
+        }
     }
 
     LOG_INFO("Flushing shared decoding pipelines");
@@ -416,6 +458,12 @@ bool UnifiedDecoder::runSharedDecodePipeline(const std::function<void(const Data
 
     LOG_INFO("Processing final shared pipeline data");
     processSharedPipeline(onData24Section, traceFrameOutput, data24SectionCount);
+
+    if (isCancellationRequested()) {
+        readerData_.close();
+        LOG_WARN("UnifiedDecoder::runSharedDecodePipeline(): Cancelled by user");
+        return false;
+    }
 
     if (!f2SectionCorrection_.isValid()) {
         LOG_WARN("Decoding FAILED");
@@ -453,6 +501,9 @@ void UnifiedDecoder::processSharedPipeline(const std::function<void(const Data24
     auto startTime = std::chrono::high_resolution_clock::now();
 
     while (tValuesToChannel_.isReady()) {
+        if (isCancellationRequested()) {
+            return;
+        }
         const std::vector<uint8_t> channelData = tValuesToChannel_.popFrame();
         channelToF3_.pushFrame(channelData);
     }
@@ -462,6 +513,9 @@ void UnifiedDecoder::processSharedPipeline(const std::function<void(const Data24
 
     startTime = std::chrono::high_resolution_clock::now();
     while (channelToF3_.isReady()) {
+        if (isCancellationRequested()) {
+            return;
+        }
         const F3Frame f3Frame = channelToF3_.popFrame();
         f3FrameToF2Section_.pushFrame(f3Frame);
     }
@@ -471,6 +525,9 @@ void UnifiedDecoder::processSharedPipeline(const std::function<void(const Data24
 
     startTime = std::chrono::high_resolution_clock::now();
     while (f3FrameToF2Section_.isReady()) {
+        if (isCancellationRequested()) {
+            return;
+        }
         const F2Section section = f3FrameToF2Section_.popSection();
         f2SectionCorrection_.pushSection(section);
     }
@@ -479,6 +536,9 @@ void UnifiedDecoder::processSharedPipeline(const std::function<void(const Data24
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
 
     while (f2SectionCorrection_.isReady()) {
+        if (isCancellationRequested()) {
+            return;
+        }
         const F2Section f2Section = f2SectionCorrection_.popSection();
         auto f2Start = std::chrono::high_resolution_clock::now();
         f2SectionToF1Section_.pushSection(f2Section);
@@ -489,6 +549,9 @@ void UnifiedDecoder::processSharedPipeline(const std::function<void(const Data24
 
     startTime = std::chrono::high_resolution_clock::now();
     while (f2SectionToF1Section_.isReady()) {
+        if (isCancellationRequested()) {
+            return;
+        }
         F1Section f1Section = f2SectionToF1Section_.popSection();
         if (traceFrameOutput) {
             f1Section.showData();
@@ -500,6 +563,9 @@ void UnifiedDecoder::processSharedPipeline(const std::function<void(const Data24
         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count();
 
     while (f1SectionToData24Section_.isReady()) {
+        if (isCancellationRequested()) {
+            return;
+        }
         Data24Section data24Section = f1SectionToData24Section_.popSection();
         if (traceFrameOutput) {
             data24Section.showData();

@@ -8,7 +8,7 @@
  */
 
 #include "writer_raw.h"
-#include "logging.h"
+#include "core/logging.h"
 #include <iostream>
 
 // This writer class writes audio data to a file in raw format (no header)

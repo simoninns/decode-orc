@@ -28,6 +28,7 @@ void force_link_RawVideoSinkStage();
 void force_link_FFmpegVideoSinkStage();
 void force_link_AudioSinkStage();
 void force_link_EFMSinkStage();
+void force_link_EFMDecoderSinkStage();
 void force_link_CCSinkStage();
 void force_link_VideoParamsStage();
 void force_link_DropoutAnalysisSinkStage();
@@ -68,6 +69,7 @@ void force_stage_linking() {
     force_link_FFmpegVideoSinkStage();
     force_link_AudioSinkStage();
     force_link_EFMSinkStage();
+    force_link_EFMDecoderSinkStage();
     force_link_CCSinkStage();
     force_link_VideoParamsStage();
     force_link_DropoutAnalysisSinkStage();

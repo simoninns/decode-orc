@@ -1,0 +1,318 @@
+/*
+ * File:        dec_f3frametof2section.cpp
+ * Module:      efm-decoder-f2
+ * Purpose:     EFM T-values to F2 Section decoder
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
+ */
+
+#include "dec_f3frametof2section.h"
+#include "logging.h"
+#include <cmath>
+#include <stdexcept>
+
+F3FrameToF2Section::F3FrameToF2Section() :
+    m_badSyncCounter(0),
+    m_lastSectionMetadata(SectionMetadata()),
+    m_currentState(ExpectingInitialSync),
+    m_inputF3Frames(0),
+    m_presyncDiscardedF3Frames(0),
+    m_goodSync0(0),
+    m_missingSync0(0),
+    m_undershootSync0(0),
+    m_overshootSync0(0),
+    m_discardedF3Frames(0),
+    m_paddedF3Frames(0),
+    m_lostSyncCounter(0)
+{}
+
+void F3FrameToF2Section::pushFrame(const F3Frame &data)
+{
+    m_internalBuffer.push_back(data);
+    m_inputF3Frames++;
+    processStateMachine();
+}
+
+F2Section F3FrameToF2Section::popSection()
+{
+    F2Section section = m_outputBuffer.front();
+    m_outputBuffer.pop();
+    return section;
+}
+
+bool F3FrameToF2Section::isReady() const
+{
+    return !m_outputBuffer.empty();
+}
+
+void F3FrameToF2Section::processStateMachine()
+{
+    if (m_internalBuffer.size() > 1) {
+        switch (m_currentState) {
+        case ExpectingInitialSync:
+            m_currentState = expectingInitialSync();
+            break;
+        case ExpectingSync:
+            m_currentState = expectingSync();
+            break;
+        case HandleValid:
+            m_currentState = handleValid();
+            break;
+        case HandleUndershoot:
+            m_currentState = handleUndershoot();
+            break;
+        case HandleOvershoot:
+            m_currentState = handleOvershoot();
+            break;
+        case LostSync:
+            m_currentState = lostSync();
+            break;
+        }
+    }
+}
+
+F3FrameToF2Section::State F3FrameToF2Section::expectingInitialSync()
+{
+    State nextState = ExpectingInitialSync;
+
+    // Does the internal buffer contain a sync0 frame?
+    // Note: For the initial sync we are only using sync0 frames
+    bool foundSync0 = false;
+    for (size_t i = 0; i < m_internalBuffer.size(); ++i) {
+        if (m_internalBuffer[i].f3FrameType() == F3Frame::Sync0) {
+            m_presyncDiscardedF3Frames += i;
+            // Discard all frames before the sync0 frame
+            m_internalBuffer = std::vector<F3Frame>(m_internalBuffer.begin() + i, m_internalBuffer.end());
+            foundSync0 = true;
+            break;
+        }
+    }
+
+    if (foundSync0) {
+        LOG_DEBUG("F3FrameToF2Section::expectingInitialSync - Found sync0 frame after discarding {} frames", m_presyncDiscardedF3Frames);
+        m_presyncDiscardedF3Frames = 0;
+        nextState = ExpectingSync;
+    } else {
+        m_presyncDiscardedF3Frames += m_internalBuffer.size();
+        m_internalBuffer.clear();
+    }
+
+    return nextState;
+}
+
+F3FrameToF2Section::State F3FrameToF2Section::expectingSync()
+{
+    State nextState = ExpectingSync;
+
+    // Did we receive a sync0 frame?
+    if (m_internalBuffer.back().f3FrameType() == F3Frame::Sync0) {
+        // Extract the section frames and remove them from the internal buffer
+        m_sectionFrames = std::vector<F3Frame>(m_internalBuffer.begin(), m_internalBuffer.end() - 1);
+        m_internalBuffer = std::vector<F3Frame>(m_internalBuffer.end() - 1, m_internalBuffer.end());
+    } else if (m_internalBuffer.back().f3FrameType() == F3Frame::Sync1) {
+        // Is the previous frame a sync0 frame?
+        if (m_internalBuffer.size() > 1 && m_internalBuffer[m_internalBuffer.size() - 2].f3FrameType() == F3Frame::Sync0) {
+            // Keep waiting for a sync0 frame
+            nextState = ExpectingSync;
+            return nextState;
+        } else {
+            // Looks like we got a sync1 frame without a sync0 frame - make the previous
+            // frame sync0 and process
+            m_missingSync0++;
+            m_internalBuffer[m_internalBuffer.size() - 2].setFrameTypeAsSync0();
+
+            // Extract the section frames and remove them from the internal buffer
+            m_sectionFrames = std::vector<F3Frame>(m_internalBuffer.begin(), m_internalBuffer.end() - 2);
+            m_internalBuffer = std::vector<F3Frame>(m_internalBuffer.end() - 2, m_internalBuffer.end() - 1);
+            LOG_DEBUG("F3FrameToF2Section::expectingSync - Got sync1 frame without a sync0 frame - section frame size is {}", m_sectionFrames.size());
+        }
+    } else {
+        // Keep waiting for a sync0 frame
+        nextState = ExpectingSync;
+        return nextState;
+    }
+
+    // Do we have a valid number of frames in the section?
+    // Or do we have overshoot or undershoot?
+    if (m_sectionFrames.size() == 98) {
+        m_goodSync0++;
+        nextState = HandleValid;
+    } else if (m_sectionFrames.size() < 98) {
+        m_undershootSync0++;
+        nextState = HandleUndershoot;
+    } else if (m_sectionFrames.size() > 98) {
+        m_overshootSync0++;
+        nextState = HandleOvershoot;
+    }
+
+    // Have we hit the bad sync limit?
+    if (m_badSyncCounter > 3) {
+        nextState = LostSync;
+    }
+
+    return nextState;
+}
+
+F3FrameToF2Section::State F3FrameToF2Section::handleValid()
+{
+    State nextState = ExpectingSync;
+
+    // Output the section
+    outputSection(false);
+
+    // Reset the bad sync counter
+    m_badSyncCounter = 0;
+
+    nextState = ExpectingSync;
+    return nextState;
+}
+
+F3FrameToF2Section::State F3FrameToF2Section::handleUndershoot()
+{
+    State nextState = HandleUndershoot;
+    m_badSyncCounter++;
+
+    // How much undershoot do we have?
+    int padding = 98 - m_sectionFrames.size();
+
+    if (padding > 4) {
+        LOG_DEBUG("F3FrameToF2Section::handleUndershoot - Undershoot is {} frames; ignoring sync0 frame", padding);
+        // Put the section frames back into the internal buffer
+        m_internalBuffer.insert(m_internalBuffer.begin(), m_sectionFrames.begin(), m_sectionFrames.end());
+        m_sectionFrames.clear();
+        nextState = ExpectingSync;
+    } else {
+        m_paddedF3Frames += padding;
+        LOG_DEBUG("F3FrameToF2Section::handleUndershoot - Padding section with {} frames", padding);
+
+        // If we are padding, we are introducing errors... The CIRC can correct these
+        // provided they are distributed across the section; so the best policy here
+        // is to interleave the padding with the (hopefully) valid section frames
+
+        F3Frame emptyFrame;
+        emptyFrame.setData(std::vector<uint8_t>(32, 0));
+        emptyFrame.setErrorData(std::vector<bool>(32, true));
+        emptyFrame.setPaddedData(std::vector<bool>(32, false));
+        emptyFrame.setFrameTypeAsSubcode(0);
+
+        // The padding is interleaved with the section frames start
+        // at position 4 (to avoid the sync0 and sync1 frames)
+        for (int i = 0; i < padding; ++i) {
+            m_sectionFrames.insert(m_sectionFrames.begin() + 4 + i, emptyFrame);
+        }
+
+        outputSection(true);
+    }
+
+    nextState = ExpectingSync;
+    return nextState;
+}
+
+F3FrameToF2Section::State F3FrameToF2Section::handleOvershoot()
+{
+    State nextState = HandleOvershoot;
+
+    // How many sections worth of data do we have?
+    int frameCount = m_sectionFrames.size() / 98;
+    int remainder = m_sectionFrames.size() % 98;
+    LOG_DEBUG("F3FrameToF2Section::handleOvershoot - Got {} frames, which is {} sections with a remainder of {} frames", m_sectionFrames.size(), frameCount, remainder);
+
+    if (frameCount == 1) {
+        // Delete frames from the start of the section buffer to make it 98 frames
+        m_discardedF3Frames += remainder;
+        m_sectionFrames = std::vector<F3Frame>(m_sectionFrames.begin() + remainder, m_sectionFrames.end());
+        outputSection(true);
+    } else {
+        // Remove any frames that are not part of a complete section from the beginning of the section buffer
+        m_discardedF3Frames += remainder;
+        m_sectionFrames = std::vector<F3Frame>(m_sectionFrames.begin() + remainder, m_sectionFrames.end());
+
+        // Break the section buffer into 98 frame sections and output them
+        std::vector<F3Frame> tempSectionFrames = m_sectionFrames;
+        for (int i = 0; i < frameCount; ++i) {
+            m_sectionFrames = std::vector<F3Frame>(tempSectionFrames.begin(), tempSectionFrames.begin() + 98);
+            tempSectionFrames = std::vector<F3Frame>(tempSectionFrames.begin() + 98, tempSectionFrames.end());
+            outputSection(true);
+        }
+    }
+
+    // Each missed sync is a bad sync
+    m_badSyncCounter += frameCount;
+
+    nextState = ExpectingSync;
+    return nextState;
+}
+
+F3FrameToF2Section::State F3FrameToF2Section::lostSync()
+{
+    State nextState = ExpectingInitialSync;
+    LOG_DEBUG("F3FrameToF2Section::lostSync - Lost section sync");
+    m_lostSyncCounter++;
+    m_badSyncCounter = 0;
+    m_internalBuffer.clear();
+    m_sectionFrames.clear();
+    return nextState;
+}
+
+void F3FrameToF2Section::outputSection(bool showAddress)
+{
+    if (m_sectionFrames.size() != 98) {
+        throw std::runtime_error("F3FrameToF2Section::outputSection - Section size is not 98");
+    }
+
+    Subcode subcode;
+
+    std::vector<uint8_t> subcodeData;
+    for (size_t i = 0; i < 98; ++i) {
+        subcodeData.push_back(m_sectionFrames[i].subcodeByte());
+    }
+    SectionMetadata sectionMetadata = subcode.fromData(subcodeData);
+
+    F2Section f2Section;
+    for (uint32_t index = 0; index < 98; ++index) {
+        F2Frame f2Frame;
+        f2Frame.setData(m_sectionFrames[index].data());
+        f2Frame.setErrorData(m_sectionFrames[index].errorData());
+        f2Section.pushFrame(f2Frame);
+    }
+
+    // There is an edge case where a repaired Q-channel will pass CRC, but the data is still invalid
+    // This is a sanity check for that case
+    if (sectionMetadata.isRepaired()) {
+        // Check the absolute time is within 10 frames of the last section
+        // Compare raw frame values directly to avoid creating invalid SectionTime objects through subtraction
+        int32_t currentFrames = sectionMetadata.absoluteSectionTime().frames();
+        int32_t lastFrames = m_lastSectionMetadata.absoluteSectionTime().frames();
+        int32_t timeDiff = std::abs(currentFrames - lastFrames);
+        if (timeDiff > 10) {
+            LOG_DEBUG("WARNING: F3FrameToF2Section::outputSection - Repaired section has a large time difference from the last section - marking as invalid");
+            sectionMetadata.setValid(false);
+        }
+    }
+
+    f2Section.metadata = sectionMetadata;
+    // Only update last section metadata if this section is valid
+    if (sectionMetadata.isValid()) {
+        m_lastSectionMetadata = sectionMetadata;
+    }
+    m_outputBuffer.push(f2Section);
+
+    if (showAddress) LOG_DEBUG("F3FrameToF2Section::outputSection - Outputting F2 section with address {}", sectionMetadata.absoluteSectionTime().toString());
+}
+
+void F3FrameToF2Section::showStatistics() const
+{
+    LOG_INFO("F3 Frame to F2 Section statistics:");
+    LOG_INFO("  F3 Frames:");
+    LOG_INFO("    Input frames: {}", m_inputF3Frames);
+    LOG_INFO("    Good sync0 frames: {}", m_goodSync0);
+    LOG_INFO("    Missing sync0 frames: {}", m_missingSync0);
+    LOG_INFO("    Undershoot sync0 frames: {}", m_undershootSync0);
+    LOG_INFO("    Overshoot sync0 frames: {}", m_overshootSync0);
+    LOG_INFO("    Lost sync: {}", m_lostSyncCounter);
+    LOG_INFO("  Frame loss:");
+    LOG_INFO("    Presync discarded F3 frames: {}", m_presyncDiscardedF3Frames);
+    LOG_INFO("    Discarded F3 frames: {}", m_discardedF3Frames);
+    LOG_INFO("    Padded F3 frames: {}", m_paddedF3Frames);
+}

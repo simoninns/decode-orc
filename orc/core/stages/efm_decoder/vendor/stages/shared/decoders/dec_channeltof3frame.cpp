@@ -12,6 +12,7 @@
 #include <queue>
 #include <stdexcept>
 #include <cmath>
+#include <sstream>
 
 ChannelToF3Frame::ChannelToF3Frame()
 {
@@ -239,4 +240,22 @@ void ChannelToF3Frame::showStatistics() const
     LOG_INFO("  Subcode symbols:");
     LOG_INFO("    Valid: {}", m_validSubcodeSymbols);
     LOG_INFO("    Invalid: {}", m_invalidSubcodeSymbols);
+}
+
+std::string ChannelToF3Frame::statisticsText() const
+{
+    std::ostringstream output;
+    output << "Channel to F3 Frame statistics:\n";
+    output << "  Channel Frames:\n";
+    output << "    Total: " << (m_goodFrames + m_undershootFrames + m_overshootFrames) << "\n";
+    output << "    Good: " << m_goodFrames << "\n";
+    output << "    Undershoot: " << m_undershootFrames << "\n";
+    output << "    Overshoot: " << m_overshootFrames << "\n";
+    output << "  EFM symbols:\n";
+    output << "    Valid: " << m_validEfmSymbols << "\n";
+    output << "    Invalid: " << m_invalidEfmSymbols << "\n";
+    output << "  Subcode symbols:\n";
+    output << "    Valid: " << m_validSubcodeSymbols << "\n";
+    output << "    Invalid: " << m_invalidSubcodeSymbols;
+    return output.str();
 }

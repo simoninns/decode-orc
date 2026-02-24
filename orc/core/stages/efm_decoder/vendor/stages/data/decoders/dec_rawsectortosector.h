@@ -12,6 +12,7 @@
 
 #include <deque>
 #include <vector>
+#include <string>
 #include "decoders.h"
 #include "sector.h"
 #include "rspc.h"
@@ -25,6 +26,7 @@ public:
     bool isReady() const;
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processQueue();

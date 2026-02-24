@@ -15,6 +15,7 @@
 #include <cmath>
 #include <algorithm>
 #include <fmt/format.h>
+#include <sstream>
 
 F2SectionCorrection::F2SectionCorrection()
     : m_leadinComplete(false),
@@ -643,4 +644,50 @@ void F2SectionCorrection::showStatistics() const
             LOG_INFO("    Duration: N/A");
         }
     }
+}
+
+std::string F2SectionCorrection::statisticsText() const
+{
+    std::ostringstream output;
+    output << "F2 Section Metadata Correction statistics:\n";
+    output << "  F2 Sections:\n";
+    output << "    Total: " << m_totalSections << " (" << (m_totalSections * 98) << " F2)\n";
+    output << "    Corrected: " << m_correctedSections << "\n";
+    output << "    Uncorrectable: " << m_uncorrectableSections << "\n";
+    output << "    Pre-Leadin: " << m_preLeadinSections << "\n";
+    output << "    Missing: " << m_missingSections << "\n";
+    output << "    Padding: " << m_paddingSections << "\n";
+    output << "    Out of order: " << m_outOfOrderSections << "\n";
+
+    output << "  QMode Sections:\n";
+    output << "    QMode 1 (CD Data): " << m_qmode1Sections << "\n";
+    output << "    QMode 2 (Catalogue No.): " << m_qmode2Sections << "\n";
+    output << "    QMode 3 (ISO 3901 ISRC): " << m_qmode3Sections << "\n";
+    output << "    QMode 4 (LD Data): " << m_qmode4Sections << "\n";
+
+    output << "  Absolute Time:\n";
+    output << "    Start time: " << m_absoluteStartTime.toString() << "\n";
+    output << "    End time: " << m_absoluteEndTime.toString() << "\n";
+    if (m_totalSections > 0 && m_absoluteEndTime >= m_absoluteStartTime) {
+        output << "    Duration: " << (m_absoluteEndTime - m_absoluteStartTime).toString() << "\n";
+    } else {
+        output << "    Duration: N/A\n";
+    }
+
+    for (int i = 0; i < m_trackNumbers.size(); i++) {
+        output << "  Track " << static_cast<int>(m_trackNumbers[i]) << ":\n";
+        output << "    Start time: " << m_trackStartTimes[i].toString() << "\n";
+        output << "    End time: " << m_trackEndTimes[i].toString() << "\n";
+        if (m_trackEndTimes[i] >= m_trackStartTimes[i]) {
+            output << "    Duration: " << (m_trackEndTimes[i] - m_trackStartTimes[i]).toString() << "\n";
+        } else {
+            output << "    Duration: N/A\n";
+        }
+    }
+
+    std::string text = output.str();
+    if (!text.empty() && text.back() == '\n') {
+        text.pop_back();
+    }
+    return text;
 }

@@ -10,6 +10,8 @@
 #include "dec_f1sectiontodata24section.h"
 #include <cstdlib>
 #include <utility>
+#include <sstream>
+#include <iomanip>
 
 F1SectionToData24Section::F1SectionToData24Section() :
     m_invalidF1FramesCount(0),
@@ -160,4 +162,52 @@ void F1SectionToData24Section::showStatistics() const
     }
 
     LOG_INFO("    Data loss: {:.3f}%", (m_corruptBytesCount * 100.0) / validBytes);
+}
+
+std::string F1SectionToData24Section::statisticsText() const
+{
+    std::ostringstream output;
+    output << "F1 Section to Data24 Section statistics:\n";
+    output << "  Frames:\n";
+    output << "    Total F1 frames: " << (m_validF1FramesCount + m_invalidF1FramesCount) << "\n";
+    output << "    Error-free F1 frames: " << m_validF1FramesCount << "\n";
+    output << "    F1 frames containing errors: " << m_invalidF1FramesCount << "\n";
+    output << "    Padded F1 frames: " << m_paddedF1FramesCount << "\n";
+    output << "    Unpadded F1 frames: " << m_unpaddedF1FramesCount << "\n";
+
+    output << "  Data:\n";
+    uint32_t validBytes = (m_validF1FramesCount + m_invalidF1FramesCount) * 24;
+    double totalSize = validBytes + m_corruptBytesCount;
+
+    output << std::fixed;
+    if (totalSize < 1024) {
+        output << "    Total bytes: " << (validBytes + m_corruptBytesCount) << "\n";
+        output << "    Valid bytes: " << validBytes << "\n";
+        output << "    Corrupt bytes: " << m_corruptBytesCount << "\n";
+        output << "    Padded bytes: " << m_paddedBytesCount << "\n";
+    } else if (totalSize < 1024 * 1024) {
+        double validKBytes = static_cast<double>(validBytes + m_corruptBytesCount) / 1024.0;
+        double validOnlyKBytes = static_cast<double>(validBytes) / 1024.0;
+        double corruptKBytes = static_cast<double>(m_corruptBytesCount) / 1024.0;
+        double paddedKBytes = static_cast<double>(m_paddedBytesCount) / 1024.0;
+        output << std::setprecision(2);
+        output << "    Total KBytes: " << validKBytes << "\n";
+        output << "    Valid KBytes: " << validOnlyKBytes << "\n";
+        output << "    Corrupt KBytes: " << corruptKBytes << "\n";
+        output << "    Padded KBytes: " << paddedKBytes << "\n";
+    } else {
+        double validMBytes = static_cast<double>(validBytes + m_corruptBytesCount) / (1024.0 * 1024.0);
+        double validOnlyMBytes = static_cast<double>(validBytes) / (1024.0 * 1024.0);
+        double corruptMBytes = static_cast<double>(m_corruptBytesCount) / (1024.0 * 1024.0);
+        double paddedMBytes = static_cast<double>(m_paddedBytesCount) / (1024.0 * 1024.0);
+        output << std::setprecision(2);
+        output << "    Total MBytes: " << validMBytes << "\n";
+        output << "    Valid MBytes: " << validOnlyMBytes << "\n";
+        output << "    Corrupt MBytes: " << corruptMBytes << "\n";
+        output << "    Padded MBytes: " << paddedMBytes << "\n";
+    }
+
+    output << std::setprecision(3);
+    output << "    Data loss: " << ((m_corruptBytesCount * 100.0) / validBytes) << "%";
+    return output.str();
 }

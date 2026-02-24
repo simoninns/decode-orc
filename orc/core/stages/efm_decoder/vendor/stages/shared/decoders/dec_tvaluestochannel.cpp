@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <algorithm>
+#include <sstream>
 
 TvaluesToChannel::TvaluesToChannel()
 {
@@ -468,4 +469,25 @@ void TvaluesToChannel::showStatistics() const
 
     // When we overshoot and split the frame, we are guessing the sync header...
     LOG_INFO("    Guessed: {}", m_channelFrameCount - m_perfectSyncs - m_overshootSyncs - m_undershootSyncs);
+}
+
+std::string TvaluesToChannel::statisticsText() const
+{
+    std::ostringstream output;
+    output << "T-values to Channel Frame statistics:\n";
+    output << "  T-Values:\n";
+    output << "    Consumed: " << m_consumedTValues << "\n";
+    output << "    Discarded: " << m_discardedTValues << "\n";
+    output << "  Channel frames:\n";
+    output << "    Total: " << m_channelFrameCount << "\n";
+    output << "    588 bits: " << m_perfectFrames << "\n";
+    output << "    >588 bits: " << m_longFrames << "\n";
+    output << "    <588 bits: " << m_shortFrames << "\n";
+    output << "  Sync headers:\n";
+    output << "    Good syncs: " << m_perfectSyncs << "\n";
+    output << "    Overshoots: " << m_overshootSyncs << "\n";
+    output << "    Undershoots: " << m_undershootSyncs << "\n";
+    output << "    Guessed: "
+           << (m_channelFrameCount - m_perfectSyncs - m_overshootSyncs - m_undershootSyncs);
+    return output.str();
 }

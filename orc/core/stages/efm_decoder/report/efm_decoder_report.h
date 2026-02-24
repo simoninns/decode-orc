@@ -36,6 +36,8 @@ struct DecodeStatistics {
     int64_t produced_data24_sections{0};
     bool auto_no_timecodes_enabled{false};
     bool no_timecodes_active{false};
+    std::string shared_decode_statistics_text;
+    std::string mode_decode_statistics_text;
 };
 
 struct EFMDecoderRunReport {
@@ -53,9 +55,6 @@ struct EFMDecoderRunReport {
 
     bool write_report{false};
     std::string report_path;
-
-    std::string decoder_log_level{"info"};
-    std::string decoder_log_file;
 
     uint64_t extracted_tvalues{0};
     int decode_exit_code{-1};

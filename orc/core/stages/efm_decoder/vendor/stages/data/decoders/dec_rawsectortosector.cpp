@@ -9,6 +9,7 @@
 
 #include "dec_rawsectortosector.h"
 #include <logging.h>
+#include <sstream>
 
 // This table is the CRC32 look-up for the EDC data
 static constexpr uint32_t crc32Lut[256] = {
@@ -301,4 +302,19 @@ void RawSectorToSector::showStatistics() const
     LOG_INFO("    Mode 1 sectors: {}", m_mode1Sectors);
     LOG_INFO("    Mode 2 sectors: {}", m_mode2Sectors);
     LOG_INFO("    Invalid mode sectors: {}", m_invalidModeSectors);
+}
+
+std::string RawSectorToSector::statisticsText() const
+{
+    std::ostringstream output;
+    output << "Raw Sector to Sector (RSPC error-correction):\n";
+    output << "  Valid sectors: " << (m_validSectors + m_correctedSectors)
+           << " (corrected: " << m_correctedSectors << ")\n";
+    output << "  Invalid sectors: " << m_invalidSectors << "\n";
+    output << "  Sector metadata:\n";
+    output << "    Mode 0 sectors: " << m_mode0Sectors << "\n";
+    output << "    Mode 1 sectors: " << m_mode1Sectors << "\n";
+    output << "    Mode 2 sectors: " << m_mode2Sectors << "\n";
+    output << "    Invalid mode sectors: " << m_invalidModeSectors;
+    return output.str();
 }

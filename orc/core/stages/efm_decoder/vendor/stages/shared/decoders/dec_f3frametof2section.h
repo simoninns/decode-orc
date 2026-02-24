@@ -13,6 +13,7 @@
 #include <vector>
 #include <queue>
 #include <cstdint>
+#include <string>
 #include "decoders.h"
 #include "section.h"
 #include "subcode.h"
@@ -26,6 +27,7 @@ public:
     bool isReady() const;
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processStateMachine();

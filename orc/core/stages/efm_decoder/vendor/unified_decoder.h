@@ -57,6 +57,8 @@ public:
         int64_t data24SectionCount{0};
         bool autoNoTimecodesEnabled{false};
         bool noTimecodesActive{false};
+        std::string sharedDecodeStatisticsText;
+        std::string modeDecodeStatisticsText;
     };
 
     using ProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
@@ -121,6 +123,7 @@ private:
     void processAudioPipeline();
     void processDataPipeline(bool traceRawSectorOutput);
     void showSharedPipelineStatistics() const;
+    std::string sharedPipelineStatisticsText() const;
     void showAudioPipelineStatistics() const;
     void showDataPipelineStatistics() const;
     std::string deriveAudioLabelsPath() const;

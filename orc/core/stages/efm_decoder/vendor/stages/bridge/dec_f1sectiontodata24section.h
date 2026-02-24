@@ -12,6 +12,7 @@
 
 #include "decoders.h"
 #include "section.h"
+#include <string>
 
 class F1SectionToData24Section : public Decoder
 {
@@ -22,6 +23,7 @@ public:
     bool isReady() const;
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processQueue();

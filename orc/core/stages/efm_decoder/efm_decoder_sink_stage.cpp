@@ -18,70 +18,10 @@
 #include <sstream>
 #include <utility>
 #include <stdexcept>
-#include <algorithm>
-#include <spdlog/sinks/basic_file_sink.h>
 
 namespace orc {
 
 namespace {
-
-spdlog::level::level_enum parse_spdlog_level(const std::string& level)
-{
-    if (level == "trace") {
-        return spdlog::level::trace;
-    }
-    if (level == "debug") {
-        return spdlog::level::debug;
-    }
-    if (level == "info") {
-        return spdlog::level::info;
-    }
-    if (level == "warn" || level == "warning") {
-        return spdlog::level::warn;
-    }
-    if (level == "error") {
-        return spdlog::level::err;
-    }
-    if (level == "critical") {
-        return spdlog::level::critical;
-    }
-    if (level == "off") {
-        return spdlog::level::off;
-    }
-
-    return spdlog::level::info;
-}
-
-class DecoderLoggingScope {
-public:
-    DecoderLoggingScope(const std::string& level, const std::string& log_file)
-    {
-        logger_ = get_logger();
-        previous_level_ = logger_->level();
-        logger_->set_level(parse_spdlog_level(level));
-
-        if (!log_file.empty()) {
-            file_sink_ = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file, true);
-            logger_->sinks().push_back(file_sink_);
-        }
-    }
-
-    ~DecoderLoggingScope()
-    {
-        if (logger_) {
-            if (file_sink_) {
-                auto& sinks = logger_->sinks();
-                sinks.erase(std::remove(sinks.begin(), sinks.end(), file_sink_), sinks.end());
-            }
-            logger_->set_level(previous_level_);
-        }
-    }
-
-private:
-    std::shared_ptr<spdlog::logger> logger_;
-    spdlog::level::level_enum previous_level_{spdlog::level::info};
-    spdlog::sink_ptr file_sink_;
-};
 
 efm_decoder_report::EFMDecoderRunReport build_run_report_from_parameters(
     const efm_decoder_config::ParsedParameters& parsed)
@@ -101,8 +41,6 @@ efm_decoder_report::EFMDecoderRunReport build_run_report_from_parameters(
     report.write_data_metadata = std::get<bool>(parameters.at("write_data_metadata"));
     report.write_report = parsed.write_report;
     report.report_path = parsed.report_path;
-    report.decoder_log_level = std::get<std::string>(parameters.at("decoder_log_level"));
-    report.decoder_log_file = std::get<std::string>(parameters.at("decoder_log_file"));
 
     return report;
 }
@@ -327,13 +265,7 @@ bool EFMDecoderSinkStage::trigger(
 
         ORC_LOG_INFO("EFMDecoderSink: Starting decode pipeline using {} extracted t-values", written_tvalues);
         const auto decode_start = std::chrono::steady_clock::now();
-        const int decode_exit_code = [&]() {
-            DecoderLoggingScope logging_scope(
-                decoder_config.global.logLevel,
-                decoder_config.global.logFile
-            );
-            return decoder.run();
-        }();
+        const int decode_exit_code = decoder.run();
         const auto decode_end = std::chrono::steady_clock::now();
 
         run_report.decode_exit_code = decode_exit_code;
@@ -353,6 +285,8 @@ bool EFMDecoderSinkStage::trigger(
         run_report.stats.produced_data24_sections = decoder_stats.data24SectionCount;
         run_report.stats.auto_no_timecodes_enabled = decoder_stats.autoNoTimecodesEnabled;
         run_report.stats.no_timecodes_active = decoder_stats.noTimecodesActive;
+        run_report.stats.shared_decode_statistics_text = decoder_stats.sharedDecodeStatisticsText;
+        run_report.stats.mode_decode_statistics_text = decoder_stats.modeDecodeStatisticsText;
 
         if (!temp_input_path.empty()) {
             std::filesystem::remove(temp_input_path);

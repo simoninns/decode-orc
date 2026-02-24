@@ -10,6 +10,8 @@
 #include "unified_decoder.h"
 #include <chrono>
 #include <cctype>
+#include <iomanip>
+#include <sstream>
 #include <spdlog/spdlog.h>
 
 #include <logging.h>
@@ -235,6 +237,11 @@ bool UnifiedDecoder::runAudioBranch()
     }
     showAudioPipelineStatistics();
 
+    runStatistics_.modeDecodeStatisticsText = data24ToAudio_.statisticsText();
+    if (!config_.audio.noAudioConcealment) {
+        runStatistics_.modeDecodeStatisticsText += "\n\n" + audioCorrection_.statisticsText();
+    }
+
     if (writerWav_.isOpen()) {
         writerWav_.close();
     }
@@ -321,6 +328,11 @@ bool UnifiedDecoder::runDataBranch()
     sectorCorrection_.showStatistics();
     LOG_INFO("");
     showDataPipelineStatistics();
+
+    runStatistics_.modeDecodeStatisticsText =
+        data24ToRawSector_.statisticsText() + "\n\n" +
+        rawSectorToSector_.statisticsText() + "\n\n" +
+        sectorCorrection_.statisticsText();
 
     if (writerSector_.isOpen()) {
         writerSector_.close();
@@ -517,6 +529,15 @@ bool UnifiedDecoder::runSharedDecodePipeline(const std::function<void(const Data
     LOG_INFO("");
     showSharedPipelineStatistics();
 
+    runStatistics_.sharedDecodeStatisticsText =
+        tValuesToChannel_.statisticsText() + "\n\n" +
+        channelToF3_.statisticsText() + "\n\n" +
+        f3FrameToF2Section_.statisticsText() + "\n\n" +
+        f2SectionCorrection_.statisticsText() + "\n\n" +
+        f2SectionToF1Section_.statisticsText() + "\n\n" +
+        f1SectionToData24Section_.statisticsText() + "\n\n" +
+        sharedPipelineStatisticsText();
+
     readerData_.close();
 
     LOG_INFO("Shared pipeline produced {} Data24 sections", data24SectionCount);
@@ -628,6 +649,33 @@ void UnifiedDecoder::showSharedPipelineStatistics() const
              totalProcessingTime / 1000000,
              totalProcessingTimeSeconds);
     LOG_INFO("");
+}
+
+std::string UnifiedDecoder::sharedPipelineStatisticsText() const
+{
+    std::ostringstream output;
+    output << std::fixed << std::setprecision(2);
+    output << "Decoder processing summary (shared):\n";
+    output << "  Channel to F3 processing time: " << (sharedPipelineStats_.channelToF3Time / 1000000) << " ms\n";
+    output << "  F3 to F2 section processing time: " << (sharedPipelineStats_.f3ToF2Time / 1000000) << " ms\n";
+    output << "  F2 correction processing time: " << (sharedPipelineStats_.f2CorrectionTime / 1000000) << " ms\n";
+    output << "  F2 to F1 processing time: " << (sharedPipelineStats_.f2SectionToF1SectionTime / 1000000) << " ms\n";
+    output << "  F1 to Data24 processing time: " << (sharedPipelineStats_.f1ToData24Time / 1000000) << " ms\n";
+
+    const int64_t totalProcessingTime =
+        sharedPipelineStats_.channelToF3Time +
+        sharedPipelineStats_.f3ToF2Time +
+        sharedPipelineStats_.f2CorrectionTime +
+        sharedPipelineStats_.f2SectionToF1SectionTime +
+        sharedPipelineStats_.f1ToData24Time;
+    const float totalProcessingTimeSeconds = totalProcessingTime / 1000000000.0f;
+
+    output << "  Total processing time: "
+           << (totalProcessingTime / 1000000)
+           << " ms ("
+           << totalProcessingTimeSeconds
+           << " seconds)";
+    return output.str();
 }
 
 void UnifiedDecoder::processAudioPipeline()

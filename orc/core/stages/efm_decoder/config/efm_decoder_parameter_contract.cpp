@@ -8,6 +8,7 @@
  */
 
 #include "efm_decoder_parameter_contract.h"
+#include <filesystem>
 #include <unordered_set>
 #include <variant>
 #include <utility>
@@ -29,6 +30,36 @@ bool get_bool_param(const std::map<std::string, ParameterValue>& params, const s
 std::string get_string_param(const std::map<std::string, ParameterValue>& params, const std::string& name)
 {
     return std::get<std::string>(params.at(name));
+}
+
+std::string derive_report_path_from_output(const std::string& output_path)
+{
+    std::filesystem::path path(output_path);
+    path.replace_extension(".txt");
+    return path.string();
+}
+
+std::string ensure_output_extension(
+    const std::string& output_path,
+    const std::string& decode_mode,
+    const std::string& audio_output_format)
+{
+    std::filesystem::path path(output_path);
+    if (path.has_extension()) {
+        return path.string();
+    }
+
+    if (decode_mode == "audio") {
+        if (audio_output_format == "raw_pcm") {
+            path.replace_extension(".pcm");
+        } else {
+            path.replace_extension(".wav");
+        }
+    } else {
+        path.replace_extension(".bin");
+    }
+
+    return path.string();
 }
 
 } // namespace
@@ -55,27 +86,6 @@ std::vector<ParameterDescriptor> get_parameter_descriptors()
         desc.description = "Destination file for decoded output (audio or data)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = true;
-        desc.constraints.default_value = std::string("");
-        descriptors.push_back(desc);
-    }
-
-    {
-        ParameterDescriptor desc;
-        desc.name = "decoder_log_level";
-        desc.display_name = "Decoder Log Level";
-        desc.description = "Decoder-internal logging verbosity";
-        desc.type = ParameterType::STRING;
-        desc.constraints.default_value = std::string("info");
-        desc.constraints.allowed_strings = {"trace", "debug", "info", "warn", "error", "critical", "off"};
-        descriptors.push_back(desc);
-    }
-
-    {
-        ParameterDescriptor desc;
-        desc.name = "decoder_log_file";
-        desc.display_name = "Decoder Log File";
-        desc.description = "Optional decoder-specific log file";
-        desc.type = ParameterType::FILE_PATH;
         desc.constraints.default_value = std::string("");
         descriptors.push_back(desc);
     }
@@ -157,18 +167,6 @@ std::vector<ParameterDescriptor> get_parameter_descriptors()
         descriptors.push_back(desc);
     }
 
-    {
-        ParameterDescriptor desc;
-        desc.name = "report_path";
-        desc.display_name = "Report File";
-        desc.description = "Text report destination when report writing is enabled";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.default_value = std::string("");
-        desc.constraints.depends_on = ParameterDependency{"write_report", {"true"}};
-        desc.file_extension_hint = ".txt";
-        descriptors.push_back(desc);
-    }
-
     return descriptors;
 }
 
@@ -192,8 +190,6 @@ bool validate_and_normalize(
     static const std::unordered_set<std::string> known_parameters = {
         "decode_mode",
         "output_path",
-        "decoder_log_level",
-        "decoder_log_file",
         "timecode_mode",
         "audio_output_format",
         "write_audacity_labels",
@@ -205,9 +201,6 @@ bool validate_and_normalize(
     };
 
     static const std::unordered_set<std::string> valid_decode_modes = {"audio", "data"};
-    static const std::unordered_set<std::string> valid_log_levels = {
-        "trace", "debug", "info", "warn", "error", "critical", "off"
-    };
     static const std::unordered_set<std::string> valid_timecode_modes = {
         "auto", "force_no_timecodes", "force_timecodes"
     };
@@ -228,14 +221,6 @@ bool validate_and_normalize(
     }
     if (!std::holds_alternative<std::string>(normalized["output_path"])) {
         error_message = "Parameter output_path must be a file path string";
-        return false;
-    }
-    if (!std::holds_alternative<std::string>(normalized["decoder_log_level"])) {
-        error_message = "Parameter decoder_log_level must be a string";
-        return false;
-    }
-    if (!std::holds_alternative<std::string>(normalized["decoder_log_file"])) {
-        error_message = "Parameter decoder_log_file must be a file path string";
         return false;
     }
     if (!std::holds_alternative<std::string>(normalized["timecode_mode"])) {
@@ -266,14 +251,14 @@ bool validate_and_normalize(
         error_message = "Parameter write_report must be a boolean";
         return false;
     }
-    if (!std::holds_alternative<std::string>(normalized["report_path"])) {
+    if (const auto report_it = normalized.find("report_path"); report_it != normalized.end() &&
+        !std::holds_alternative<std::string>(report_it->second)) {
         error_message = "Parameter report_path must be a file path string";
         return false;
     }
 
     const std::string decode_mode = get_string_param(normalized, "decode_mode");
     const std::string output_path = get_string_param(normalized, "output_path");
-    const std::string decoder_log_level = get_string_param(normalized, "decoder_log_level");
     const std::string timecode_mode = get_string_param(normalized, "timecode_mode");
     const std::string audio_output_format = get_string_param(normalized, "audio_output_format");
     const bool write_audacity_labels = get_bool_param(normalized, "write_audacity_labels");
@@ -281,14 +266,9 @@ bool validate_and_normalize(
     const bool zero_pad_audio = get_bool_param(normalized, "zero_pad_audio");
     const bool write_data_metadata = get_bool_param(normalized, "write_data_metadata");
     const bool write_report = get_bool_param(normalized, "write_report");
-    const std::string report_path = get_string_param(normalized, "report_path");
 
     if (!is_string_in_set(decode_mode, valid_decode_modes)) {
         error_message = "Invalid decode_mode: " + decode_mode + " (expected audio or data)";
-        return false;
-    }
-    if (!is_string_in_set(decoder_log_level, valid_log_levels)) {
-        error_message = "Invalid decoder_log_level: " + decoder_log_level;
         return false;
     }
     if (output_path.empty()) {
@@ -328,10 +308,7 @@ bool validate_and_normalize(
         }
     }
 
-    if (write_report && report_path.empty()) {
-        error_message = "report_path is required when write_report=true";
-        return false;
-    }
+    (void)write_report;
 
     error_message.clear();
     return true;
@@ -352,8 +329,6 @@ bool parse_parameters(
 
     const std::string decode_mode = get_string_param(normalized, "decode_mode");
     const std::string output_path = get_string_param(normalized, "output_path");
-    const std::string decoder_log_level = get_string_param(normalized, "decoder_log_level");
-    const std::string decoder_log_file = get_string_param(normalized, "decoder_log_file");
     const std::string timecode_mode = get_string_param(normalized, "timecode_mode");
     const std::string audio_output_format = get_string_param(normalized, "audio_output_format");
     const bool write_audacity_labels = get_bool_param(normalized, "write_audacity_labels");
@@ -361,9 +336,13 @@ bool parse_parameters(
     const bool zero_pad_audio = get_bool_param(normalized, "zero_pad_audio");
     const bool write_data_metadata = get_bool_param(normalized, "write_data_metadata");
 
-    decoder_config.global.outputPath = output_path;
-    decoder_config.global.logLevel = decoder_log_level;
-    decoder_config.global.logFile = decoder_log_file;
+    const std::string resolved_output_path = ensure_output_extension(
+        output_path,
+        decode_mode,
+        audio_output_format
+    );
+
+    decoder_config.global.outputPath = resolved_output_path;
 
     if (decode_mode == "audio") {
         decoder_config.global.mode = DecoderMode::Audio;
@@ -389,10 +368,11 @@ bool parse_parameters(
 
     decoder_config.data.outputMetadata = write_data_metadata;
 
+    normalized["output_path"] = resolved_output_path;
     parsed.normalized_parameters = std::move(normalized);
     parsed.decoder_config = std::move(decoder_config);
     parsed.write_report = get_bool_param(parsed.normalized_parameters, "write_report");
-    parsed.report_path = get_string_param(parsed.normalized_parameters, "report_path");
+    parsed.report_path = derive_report_path_from_output(resolved_output_path);
 
     error_message.clear();
     return true;

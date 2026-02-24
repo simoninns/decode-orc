@@ -12,6 +12,7 @@
 
 #include "decoders.h"
 #include "section.h"
+#include <string>
 
 class AudioCorrection : public Decoder
 {
@@ -23,6 +24,7 @@ public:
     void flush();
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processQueue();

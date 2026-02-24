@@ -26,6 +26,7 @@ public:
     bool isReady() const;
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processQueue();

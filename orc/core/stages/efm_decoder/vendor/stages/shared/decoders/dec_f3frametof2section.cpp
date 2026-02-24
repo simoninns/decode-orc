@@ -11,6 +11,7 @@
 #include <logging.h>
 #include <cmath>
 #include <stdexcept>
+#include <sstream>
 
 F3FrameToF2Section::F3FrameToF2Section() :
     m_badSyncCounter(0),
@@ -315,4 +316,22 @@ void F3FrameToF2Section::showStatistics() const
     LOG_INFO("    Presync discarded F3 frames: {}", m_presyncDiscardedF3Frames);
     LOG_INFO("    Discarded F3 frames: {}", m_discardedF3Frames);
     LOG_INFO("    Padded F3 frames: {}", m_paddedF3Frames);
+}
+
+std::string F3FrameToF2Section::statisticsText() const
+{
+    std::ostringstream output;
+    output << "F3 Frame to F2 Section statistics:\n";
+    output << "  F3 Frames:\n";
+    output << "    Input frames: " << m_inputF3Frames << "\n";
+    output << "    Good sync0 frames: " << m_goodSync0 << "\n";
+    output << "    Missing sync0 frames: " << m_missingSync0 << "\n";
+    output << "    Undershoot sync0 frames: " << m_undershootSync0 << "\n";
+    output << "    Overshoot sync0 frames: " << m_overshootSync0 << "\n";
+    output << "    Lost sync: " << m_lostSyncCounter << "\n";
+    output << "  Frame loss:\n";
+    output << "    Presync discarded F3 frames: " << m_presyncDiscardedF3Frames << "\n";
+    output << "    Discarded F3 frames: " << m_discardedF3Frames << "\n";
+    output << "    Padded F3 frames: " << m_paddedF3Frames;
+    return output.str();
 }

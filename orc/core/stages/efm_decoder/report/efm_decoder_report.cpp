@@ -62,11 +62,6 @@ StageReport to_stage_report(const EFMDecoderRunReport& report)
     stage_report.items.push_back({"Extraction Time", std::to_string(report.extraction_duration_ms) + " ms"});
     stage_report.items.push_back({"Decode Time", std::to_string(report.decode_duration_ms) + " ms"});
     stage_report.items.push_back({"Total Time", std::to_string(report.total_duration_ms) + " ms"});
-    stage_report.items.push_back({"Decoder Log Level", report.decoder_log_level});
-
-    if (!report.decoder_log_file.empty()) {
-        stage_report.items.push_back({"Decoder Log File", report.decoder_log_file});
-    }
 
     stage_report.items.push_back({"Write Report", bool_text(report.write_report)});
     if (report.write_report) {
@@ -117,8 +112,6 @@ std::string render_text_report(const EFMDecoderRunReport& report)
     output << "Audio Concealment: " << bool_text(report.audio_concealment) << "\n";
     output << "Zero Pad Audio: " << bool_text(report.zero_pad_audio) << "\n";
     output << "Write Data Metadata: " << bool_text(report.write_data_metadata) << "\n";
-    output << "Decoder Log Level: " << report.decoder_log_level << "\n";
-    output << "Decoder Log File: " << (report.decoder_log_file.empty() ? "(none)" : report.decoder_log_file) << "\n";
     output << "Write Report: " << bool_text(report.write_report) << "\n";
     if (report.write_report) {
         output << "Report Path: " << report.report_path << "\n";
@@ -144,6 +137,22 @@ std::string render_text_report(const EFMDecoderRunReport& report)
     output << "Audio - Audio Correction: " << report.stats.audio_correction_ms << " ms\n";
     output << "Data - Data24 to Raw Sector: " << report.stats.data_data24_to_raw_sector_ms << " ms\n";
     output << "Data - Raw Sector to Sector: " << report.stats.data_raw_sector_to_sector_ms << " ms\n";
+
+    output << "\nDetailed Shared Decode Statistics\n";
+    output << "---------------------------------\n";
+    if (!report.stats.shared_decode_statistics_text.empty()) {
+        output << report.stats.shared_decode_statistics_text << "\n";
+    } else {
+        output << "No detailed shared decode statistics captured.\n";
+    }
+
+    output << "\nDetailed Mode Decode Statistics\n";
+    output << "-------------------------------\n";
+    if (!report.stats.mode_decode_statistics_text.empty()) {
+        output << report.stats.mode_decode_statistics_text << "\n";
+    } else {
+        output << "No detailed mode decode statistics captured.\n";
+    }
 
     return output.str();
 }

@@ -11,6 +11,7 @@
 #define DEC_SECTORCORRECTION_H
 
 #include <deque>
+#include <string>
 #include "decoders.h"
 #include "sector.h"
 
@@ -23,6 +24,7 @@ public:
     bool isReady() const;
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processQueue();

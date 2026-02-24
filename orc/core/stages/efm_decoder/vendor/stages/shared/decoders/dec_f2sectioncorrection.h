@@ -14,6 +14,7 @@
 #include <queue>
 #include <vector>
 #include <cstdint>
+#include <string>
 #include "decoders.h"
 #include "section_metadata.h"
 #include "../../../core/timecode_probe.h"
@@ -29,6 +30,7 @@ public:
     void flush();
     void setNoTimecodes(bool noTimecodes);
     void showStatistics() const;
+    std::string statisticsText() const;
     void recordProbeSection(bool isValid, int32_t absoluteFrames) { m_probeStats.recordSection(isValid, absoluteFrames); }
     TimecodeProbeStats getProbeStats() const { return m_probeStats; }
 

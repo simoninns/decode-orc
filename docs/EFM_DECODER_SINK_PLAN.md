@@ -40,8 +40,6 @@ The standalone CLI options should be represented in Orc as follows.
 |---|---|---|---|
 | `--mode <audio|data>` | `decode_mode` | enum string | Values: `audio`, `data`; default `audio`. |
 | positional `<output>` | `output_path` | file path | Required output target from sink. |
-| `--log-level` | `decoder_log_level` | enum string | Optional, defaults to Orc-compatible `info`; intended for decoder-internal verbosity control. |
-| `--log-file <path>` | `decoder_log_file` | file path | Optional extra file logging for decoder internals. |
 
 ### Merged boolean-pair mapping
 
@@ -71,7 +69,7 @@ The standalone CLI options should be represented in Orc as follows.
 | Parameter | Type | Purpose |
 |---|---|---|
 | `write_report` | bool | Enable writing textual decode report to disk. |
-| `report_path` | file path (`.txt`) | Output report file path when `write_report=true`. |
+| *(derived)* | — | Report path is auto-derived from `output_path` by replacing extension with `.txt` when `write_report=true`. |
 
 ---
 
@@ -187,10 +185,10 @@ If direct source import from standalone is required, place imported files under 
 - Structured decode statistics captured from pipeline stages (sync, correction, counts, duration, etc.).
 - `generate_report()` implemented to expose concise inspection data.
 - Text report renderer outputs detailed human-readable report.
-- Optional report file writing via `write_report` + `report_path`.
+- Optional report file writing via `write_report` (report path auto-derived from `output_path` + `.txt`).
 - Logging policy:
   - concise lifecycle info through Orc logs,
-  - decoder detail level controlled by `decoder_log_level`.
+   - decoder stage uses inherited Orc logging (no stage-local log overrides).
 
 ### Exit criteria
 

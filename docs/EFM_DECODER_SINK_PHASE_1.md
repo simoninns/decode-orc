@@ -39,8 +39,6 @@ The complete mapped schema from the plan is now exposed by `get_parameter_descri
 
 - `decode_mode` (`audio` | `data`, default `audio`)
 - `output_path` (required file path)
-- `decoder_log_level` (`trace|debug|info|warn|error|critical|off`, default `info`)
-- `decoder_log_file` (optional file path)
 
 #### Merged boolean-pair mappings
 
@@ -60,7 +58,7 @@ The complete mapped schema from the plan is now exposed by `get_parameter_descri
 #### Orc reporting parameters
 
 - `write_report` (bool, default `false`)
-- `report_path` (optional file path, required when `write_report=true`)
+  - When enabled, report filename is derived from `output_path` with `.txt` extension.
 
 ### 4. Validation and error behavior defined ✓
 
@@ -68,9 +66,8 @@ The complete mapped schema from the plan is now exposed by `get_parameter_descri
 
 - Unknown parameter names are rejected.
 - Type mismatches are rejected with actionable error messages.
-- Invalid enum values are rejected (`decode_mode`, `timecode_mode`, `audio_output_format`, `decoder_log_level`).
+- Invalid enum values are rejected (`decode_mode`, `timecode_mode`, `audio_output_format`).
 - `output_path` is required and must be non-empty.
-- `report_path` is required when `write_report=true`.
 - Mode-specific rule enforcement:
   - `write_data_metadata` rejected in `decode_mode=audio`.
   - Audio-only options rejected in `decode_mode=data` when non-defaults are requested.

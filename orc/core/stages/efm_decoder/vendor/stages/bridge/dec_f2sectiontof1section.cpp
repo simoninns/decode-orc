@@ -12,6 +12,7 @@
 #include <fmt/core.h>
 #include <algorithm>
 #include <cstdlib>
+#include <sstream>
 
 F2SectionToF1Section::F2SectionToF1Section() :
     m_delayLine1({ 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
@@ -250,4 +251,34 @@ void F2SectionToF1Section::showStatistics() const
     LOG_INFO("    Valid C2s: {}", m_circ.validC2s());
     LOG_INFO("    Fixed C2s: {}", m_circ.fixedC2s());
     LOG_INFO("    Error C2s: {}", m_circ.errorC2s());
+}
+
+std::string F2SectionToF1Section::statisticsText() const
+{
+    std::ostringstream output;
+    output << "F2 Section to F1 Section statistics:\n";
+    output << "  Input F2 Frames:\n";
+    output << "    Valid frames: " << m_validInputF2FramesCount << "\n";
+    output << "    Corrupt frames: " << m_invalidInputF2FramesCount
+           << " frames containing " << m_inputByteErrors << " byte errors\n";
+    output << "    Delay line lost frames: " << m_dlLostFramesCount << "\n";
+    output << "    Continuity errors: " << m_continuityErrorCount << "\n";
+
+    output << "  Output F1 Frames (after CIRC):\n";
+    output << "    Valid frames: " << m_validOutputF1FramesCount << "\n";
+    output << "    Invalid frames due to padding: " << m_invalidPaddedF1FramesCount << "\n";
+    output << "    Invalid frames without padding: " << m_invalidNonPaddedF1FramesCount << "\n";
+    output << "    Invalid frames (total): " << m_invalidOutputF1FramesCount << "\n";
+    output << "    Output byte errors: " << m_outputByteErrors << "\n";
+
+    output << "  C1 decoder:\n";
+    output << "    Valid C1s: " << m_circ.validC1s() << "\n";
+    output << "    Fixed C1s: " << m_circ.fixedC1s() << "\n";
+    output << "    Error C1s: " << m_circ.errorC1s() << "\n";
+
+    output << "  C2 decoder:\n";
+    output << "    Valid C2s: " << m_circ.validC2s() << "\n";
+    output << "    Fixed C2s: " << m_circ.fixedC2s() << "\n";
+    output << "    Error C2s: " << m_circ.errorC2s();
+    return output.str();
 }

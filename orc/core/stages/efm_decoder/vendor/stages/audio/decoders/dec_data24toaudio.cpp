@@ -8,6 +8,7 @@
  */
 
 #include "dec_data24toaudio.h"
+#include <sstream>
 
 Data24ToAudio::Data24ToAudio() :
     m_invalidData24FramesCount(0),
@@ -134,4 +135,26 @@ void Data24ToAudio::showStatistics() const
     LOG_INFO("    Start time: {}", m_startTime.toString());
     LOG_INFO("    End time: {}", m_endTime.toString());
     LOG_INFO("    Total time: {}", (m_endTime - m_startTime).toString());
+}
+
+std::string Data24ToAudio::statisticsText() const
+{
+    std::ostringstream output;
+    output << "Data24 to Audio statistics:\n";
+    output << "  Data24 Frames:\n";
+    output << "    Total Frames: " << (m_validData24FramesCount + m_invalidData24FramesCount) << "\n";
+    output << "    Valid Frames: " << m_validData24FramesCount << "\n";
+    output << "    Invalid Frames: " << m_invalidData24FramesCount << "\n";
+    output << "    Invalid Bytes: " << m_invalidByteCount << "\n";
+
+    output << "  Audio Samples:\n";
+    output << "    Total samples: " << (m_validSamplesCount + m_invalidSamplesCount) << "\n";
+    output << "    Valid samples: " << m_validSamplesCount << "\n";
+    output << "    Invalid samples: " << m_invalidSamplesCount << "\n";
+
+    output << "  Section time information:\n";
+    output << "    Start time: " << m_startTime.toString() << "\n";
+    output << "    End time: " << m_endTime.toString() << "\n";
+    output << "    Total time: " << (m_endTime - m_startTime).toString();
+    return output.str();
 }

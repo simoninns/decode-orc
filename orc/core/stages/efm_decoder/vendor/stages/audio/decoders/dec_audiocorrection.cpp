@@ -9,6 +9,7 @@
 
 #include "dec_audiocorrection.h"
 #include <fmt/format.h>
+#include <sstream>
 
 AudioCorrection::AudioCorrection() :
     m_firstSectionFlag(true),
@@ -232,6 +233,17 @@ void AudioCorrection::showStatistics() const
     LOG_INFO("  Valid mono samples: {}", m_validSamplesCount);
     LOG_INFO("  Concealed mono samples: {}", m_concealedSamplesCount);
     LOG_INFO("  Silenced mono samples: {}", m_silencedSamplesCount);
+}
+
+std::string AudioCorrection::statisticsText() const
+{
+    std::ostringstream output;
+    output << "Audio correction statistics:\n";
+    output << "  Total mono samples: " << (m_validSamplesCount + m_concealedSamplesCount + m_silencedSamplesCount) << "\n";
+    output << "  Valid mono samples: " << m_validSamplesCount << "\n";
+    output << "  Concealed mono samples: " << m_concealedSamplesCount << "\n";
+    output << "  Silenced mono samples: " << m_silencedSamplesCount;
+    return output.str();
 }
 
 void AudioCorrection::flush()

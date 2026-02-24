@@ -9,6 +9,7 @@
 
 #include "dec_sectorcorrection.h"
 #include <logging.h>
+#include <sstream>
 
 SectorCorrection::SectorCorrection()
     : m_haveLastSectorInfo(false),
@@ -115,4 +116,15 @@ void SectorCorrection::showStatistics() const
     LOG_INFO("  Missing leading sectors: {}", m_missingLeadingSectors);
     LOG_INFO("  Missing/Gap sectors: {}", m_missingSectors);
     LOG_INFO("  Total sectors: {}", m_goodSectors + m_missingLeadingSectors + m_missingSectors);
+}
+
+std::string SectorCorrection::statisticsText() const
+{
+    std::ostringstream output;
+    output << "Sector gap correction:\n";
+    output << "  Good sectors: " << m_goodSectors << "\n";
+    output << "  Missing leading sectors: " << m_missingLeadingSectors << "\n";
+    output << "  Missing/Gap sectors: " << m_missingSectors << "\n";
+    output << "  Total sectors: " << (m_goodSectors + m_missingLeadingSectors + m_missingSectors);
+    return output.str();
 }

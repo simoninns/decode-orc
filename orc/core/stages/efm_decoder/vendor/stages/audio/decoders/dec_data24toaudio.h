@@ -12,6 +12,7 @@
 
 #include "decoders.h"
 #include "section.h"
+#include <string>
 
 class Data24ToAudio : public Decoder
 {
@@ -22,6 +23,7 @@ public:
     bool isReady() const;
 
     void showStatistics() const;
+    std::string statisticsText() const;
 
 private:
     void processQueue();

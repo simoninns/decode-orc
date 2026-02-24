@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdio>
+#include <sstream>
 #include <utility>
 
 // See https://www.domesday86.com/?page_id=2678#CD_Sector_descrambling
@@ -501,4 +502,18 @@ void Data24ToRawSector::showStatistics() const
 
     LOG_INFO("  Missed sync patterns: {}", m_missedSyncPatternCount);
     LOG_INFO("  Sync lost count: {}", m_syncLostCount);
+}
+
+std::string Data24ToRawSector::statisticsText() const
+{
+    std::ostringstream output;
+    output << "Data24ToRawSector statistics:\n";
+    output << "  Valid sectors: " << m_validSectorCount << "\n";
+    output << "  Discarded bytes: " << m_discardedBytes << "\n";
+    output << "  Discarded padding bytes: " << m_discardedPaddingBytes << "\n";
+    output << "  Good sync patterns: " << m_goodSyncPatternCount << "\n";
+    output << "  Bad sync patterns: " << m_badSyncPatternCount << "\n";
+    output << "  Missed sync patterns: " << m_missedSyncPatternCount << "\n";
+    output << "  Sync lost count: " << m_syncLostCount;
+    return output.str();
 }

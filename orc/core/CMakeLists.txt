@@ -97,6 +97,7 @@ add_library(orc-core STATIC
     stages/audio_sink/audio_sink_stage.cpp
     stages/efm_sink/efm_sink_stage.cpp
     stages/efm_decoder/efm_decoder_sink_stage.cpp
+    stages/efm_decoder/config/efm_decoder_parameter_contract.cpp
     stages/cc_sink/cc_sink_stage.cpp
     stages/video_params/video_params_stage.cpp
     stages/dropout_analysis_sink/dropout_analysis_sink_stage.cpp
@@ -128,6 +129,28 @@ add_library(orc-core STATIC
     stage_registry.cpp
     project_to_dag.cpp
 )
+
+# Optional ezpwd header dependency for EFM decoder integration.
+# EZPWD provides header-only includes such as <ezpwd/rs> and <ezpwd/rs_base>.
+set(EZPWD_INCLUDE_DIR "${EZPWD_INCLUDE_DIR}" CACHE PATH "Path containing ezpwd headers (root that contains ezpwd/rs)")
+
+if(NOT EZPWD_INCLUDE_DIR)
+    find_path(EZPWD_INCLUDE_DIR
+        NAMES ezpwd/rs
+        PATHS
+            "${ORC_REPO_ROOT}/external/ezpwd-reed-solomon/c++"
+            "/usr/local/include"
+            "/usr/include"
+    )
+endif()
+
+if(EZPWD_INCLUDE_DIR)
+    target_include_directories(orc-core PRIVATE "${EZPWD_INCLUDE_DIR}")
+    target_compile_definitions(orc-core PUBLIC ORC_HAVE_EZPWD)
+    message(STATUS "Using ezpwd headers from: ${EZPWD_INCLUDE_DIR}")
+else()
+    message(STATUS "ezpwd headers not found (optional until EFM decoder vendor sources are fully wired)")
+endif()
 
 target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

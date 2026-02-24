@@ -27,6 +27,23 @@ The Orc EFM Decoder Sink stage (`orc/core/stages/efm_decoder/efm_decoder_sink_st
 
 The imported vendor code is consumed as an in-process library; stage code wraps it via clean adapter boundaries (defined in `config/` and `pipeline/` subdirectories).
 
+## Additional Dependency Provenance (ezpwd)
+
+The integrated decoder uses EZPWD Reed-Solomon headers (`<ezpwd/rs_base>` and `<ezpwd/rs>`).
+
+- **Dependency Repository:** https://github.com/pjkundert/ezpwd-reed-solomon
+- **Pinned Commit:** `62a490c`
+- **Integration Model:** Header-only include dependency (no linked binary library)
+- **Nix Flake Pin:** `flake.nix` input `ezpwd` with a derived header package (`ezpwdHeaders`)
+
+Build integration contract:
+
+1. Nix builds pass `-DEZPWD_INCLUDE_DIR=<path>` from the pinned header package.
+2. Core CMake accepts `EZPWD_INCLUDE_DIR` and adds it to `orc-core` include paths.
+3. If `EZPWD_INCLUDE_DIR` is not provided, CMake attempts best-effort local/system path discovery.
+
+This keeps the dependency reproducible under Nix while remaining configurable for non-Nix development environments.
+
 ## Ownership and Maintenance
 
 **Assumption:** Once integrated, the decoder inside decode-orc becomes the **primary/canonical** implementation.

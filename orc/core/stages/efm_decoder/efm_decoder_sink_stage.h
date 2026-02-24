@@ -33,7 +33,8 @@ namespace orc {
  * - Produces audio (WAV/PCM) or data outputs with optional metadata/labels
  * - Generates a textual decode report
  *
- * Phase 0 deliverable: Stage skeleton with parameter schema and trigger registration.
+ * Phase 1 deliverable: Stage integration contract with frozen parameter schema and
+ * validation behavior. Decode execution pipeline remains a later phase.
  */
 class EFMDecoderSinkStage : public DAGStage,
                             public ParameterizedStage,
@@ -44,7 +45,7 @@ public:
 
     // DAGStage interface
     std::string version() const override {
-        return "0.1.0";  // Phase 0 placeholder
+        return "0.2.0";  // Phase 1 contract freeze
     }
     
     NodeTypeInfo get_node_type_info() const override;

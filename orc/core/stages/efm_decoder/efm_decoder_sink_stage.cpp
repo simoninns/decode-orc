@@ -8,6 +8,7 @@
  */
 
 #include "efm_decoder_sink_stage.h"
+#include "config/efm_decoder_parameter_contract.h"
 #include "logging.h"
 #include "stage_parameter.h"
 #include <stage_registry.h>
@@ -21,7 +22,10 @@ ORC_REGISTER_STAGE(EFMDecoderSinkStage)
 // Force linker to include this object file
 void force_link_EFMDecoderSinkStage() {}
 
-EFMDecoderSinkStage::EFMDecoderSinkStage() = default;
+EFMDecoderSinkStage::EFMDecoderSinkStage()
+    : parameters_(efm_decoder_config::default_parameters())
+{
+}
 
 NodeTypeInfo EFMDecoderSinkStage::get_node_type_info() const {
     return NodeTypeInfo{
@@ -41,53 +45,8 @@ std::vector<ParameterDescriptor> EFMDecoderSinkStage::get_parameter_descriptors(
 ) const {
     (void)project_format;
     (void)source_type;
-    
-    std::vector<ParameterDescriptor> descriptors;
-    
-    // Core parameters (Phase 3: implement full validation and defaults)
-    
-    // decode_mode: audio or data
-    {
-        ParameterDescriptor desc;
-        desc.name = "decode_mode";
-        desc.display_name = "Decode Mode";
-        desc.description = "Audio or data decode mode";
-        desc.type = ParameterType::STRING;
-        desc.constraints.default_value = std::string("audio");
-        desc.constraints.allowed_strings = {"audio", "data"};
-        descriptors.push_back(desc);
-    }
-    
-    // output_path: where to write decoded data
-    {
-        ParameterDescriptor desc;
-        desc.name = "output_path";
-        desc.display_name = "Output File";
-        desc.description = "Path to output decoded audio or data file";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.required = true;
-        desc.constraints.default_value = std::string("");
-        // Phase 3: add mode-aware extension hints (.wav/.pcm for audio, .bin for data)
-        descriptors.push_back(desc);
-    }
-    
-    // decoder_log_level: control decoder-internal verbosity
-    {
-        ParameterDescriptor desc;
-        desc.name = "decoder_log_level";
-        desc.display_name = "Decoder Log Level";
-        desc.description = "Verbosity level for decoder-internal logging (info|debug|trace)";
-        desc.type = ParameterType::STRING;
-        desc.constraints.default_value = std::string("info");
-        desc.constraints.allowed_strings = {"info", "debug", "trace"};
-        descriptors.push_back(desc);
-    }
-    
-    // Phase 3: add remaining parameters (timecode_mode, audio_output_format, 
-    // audio_concealment, write_audacity_labels, zero_pad_audio, write_data_metadata,
-    // write_report, report_path, decoder_log_file)
-    
-    return descriptors;
+
+    return efm_decoder_config::get_parameter_descriptors();
 }
 
 std::map<std::string, ParameterValue> EFMDecoderSinkStage::get_parameters() const {
@@ -95,8 +54,15 @@ std::map<std::string, ParameterValue> EFMDecoderSinkStage::get_parameters() cons
 }
 
 bool EFMDecoderSinkStage::set_parameters(const std::map<std::string, ParameterValue>& params) {
-    // Phase 3: implement full validation and mode-aware parameter checking
-    parameters_ = params;
+    std::map<std::string, ParameterValue> normalized;
+    std::string error_message;
+    if (!efm_decoder_config::validate_and_normalize(params, normalized, error_message)) {
+        last_status_ = std::string("Error: ") + error_message;
+        ORC_LOG_ERROR("EFMDecoderSink: {}", error_message);
+        return false;
+    }
+
+    parameters_ = normalized;
     return true;
 }
 
@@ -126,6 +92,12 @@ bool EFMDecoderSinkStage::trigger(
     cancel_requested_.store(false);
     
     try {
+        std::map<std::string, ParameterValue> normalized;
+        std::string error_message;
+        if (!efm_decoder_config::validate_and_normalize(parameters, normalized, error_message)) {
+            throw std::runtime_error(error_message);
+        }
+
         // Phase 4: Implement decode pipeline integration:
         // 1. Validate inputs (check VFR has EFM)
         // 2. Translate parameters to decoder config

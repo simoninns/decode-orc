@@ -9,10 +9,15 @@
       url = "github:paceholder/nodeeditor";
       flake = false;
     };
+    ezpwd = {
+      # Pinned header-only Reed-Solomon implementation used by efm-decoder vendor sources
+      url = "github:pjkundert/ezpwd-reed-solomon/62a490c";
+      flake = false;
+    };
   };
 
   # Build outputs for each supported system
-  outputs = { self, nixpkgs, flake-utils, qtnodes }:
+  outputs = { self, nixpkgs, flake-utils, qtnodes, ezpwd }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # Import Nixpkgs for this system
@@ -74,6 +79,29 @@
           };
         };
 
+        # Header-only ezpwd dependency (provides <ezpwd/rs> and <ezpwd/rs_base>)
+        ezpwdHeaders = pkgs.stdenv.mkDerivation {
+          pname = "ezpwd-reed-solomon-headers";
+          version = "62a490c";
+
+          src = ezpwd;
+          dontConfigure = true;
+          dontBuild = true;
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/include"
+            cp -R c++/ezpwd "$out/include/"
+            runHook postInstall
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Header-only EZPWD Reed-Solomon library";
+            homepage = "https://github.com/pjkundert/ezpwd-reed-solomon";
+            license = licenses.gpl3Plus;
+          };
+        };
+
         # Build the decode-orc package (primary output)
         decode-orc = pkgs.stdenv.mkDerivation {
           pname = "decode-orc";
@@ -113,6 +141,9 @@
 
             # QtNodes built from flake input
             qtNodes
+
+            # Header-only Reed-Solomon implementation required by efm-decoder
+            ezpwdHeaders
           ];
 
           cmakeFlags = [
@@ -128,6 +159,8 @@
             "-DPROJECT_VERSION_OVERRIDE=${version}"
             # Define NODE_EDITOR_STATIC to match QtNodes static build
             "-DCMAKE_CXX_FLAGS=-DNODE_EDITOR_STATIC"
+            # Path containing ezpwd/rs and ezpwd/rs_base
+            "-DEZPWD_INCLUDE_DIR=${ezpwdHeaders}/include"
           ];
 
           # Patch scripts for Nix sandbox compatibility

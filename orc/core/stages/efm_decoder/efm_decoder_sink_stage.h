@@ -15,9 +15,11 @@
 #include <node_type.h>
 #include "video_field_representation.h"
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
+#include "config/efm_decoder_parameter_contract.h"
 #include <map>
 #include <memory>
 #include <atomic>
+#include <optional>
 #include <string>
 
 namespace orc {
@@ -89,6 +91,7 @@ public:
 
 private:
     std::map<std::string, ParameterValue> parameters_;
+    std::optional<efm_decoder_config::ParsedParameters> parsed_parameters_;
     std::atomic<bool> is_processing_{false};
     std::atomic<bool> cancel_requested_{false};
     std::string last_status_;

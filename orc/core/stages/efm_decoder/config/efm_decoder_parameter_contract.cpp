@@ -10,6 +10,7 @@
 #include "efm_decoder_parameter_contract.h"
 #include <unordered_set>
 #include <variant>
+#include <utility>
 
 namespace orc::efm_decoder_config {
 
@@ -335,6 +336,67 @@ bool validate_and_normalize(
         error_message = "report_path is required when write_report=true";
         return false;
     }
+
+    error_message.clear();
+    return true;
+}
+
+bool parse_parameters(
+    const std::map<std::string, ParameterValue>& params,
+    ParsedParameters& parsed,
+    std::string& error_message
+)
+{
+    std::map<std::string, ParameterValue> normalized;
+    if (!validate_and_normalize(params, normalized, error_message)) {
+        return false;
+    }
+
+    DecoderConfig decoder_config;
+
+    const std::string decode_mode = get_string_param(normalized, "decode_mode");
+    const std::string output_path = get_string_param(normalized, "output_path");
+    const std::string log_level = get_string_param(normalized, "decoder_log_level");
+    const std::string log_file = get_string_param(normalized, "decoder_log_file");
+    const std::string timecode_mode = get_string_param(normalized, "timecode_mode");
+    const std::string audio_output_format = get_string_param(normalized, "audio_output_format");
+    const bool write_audacity_labels = get_bool_param(normalized, "write_audacity_labels");
+    const bool audio_concealment = get_bool_param(normalized, "audio_concealment");
+    const bool zero_pad_audio = get_bool_param(normalized, "zero_pad_audio");
+    const bool write_data_metadata = get_bool_param(normalized, "write_data_metadata");
+
+    decoder_config.global.outputPath = output_path;
+    decoder_config.global.logLevel = log_level;
+    decoder_config.global.logFile = log_file;
+
+    if (decode_mode == "audio") {
+        decoder_config.global.mode = DecoderMode::Audio;
+    } else {
+        decoder_config.global.mode = DecoderMode::Data;
+    }
+
+    if (timecode_mode == "auto") {
+        decoder_config.global.noTimecodes = false;
+        decoder_config.global.forceTimecodes = false;
+    } else if (timecode_mode == "force_no_timecodes") {
+        decoder_config.global.noTimecodes = true;
+        decoder_config.global.forceTimecodes = false;
+    } else {
+        decoder_config.global.noTimecodes = false;
+        decoder_config.global.forceTimecodes = true;
+    }
+
+    decoder_config.audio.audacityLabels = write_audacity_labels;
+    decoder_config.audio.noAudioConcealment = !audio_concealment;
+    decoder_config.audio.zeroPad = zero_pad_audio;
+    decoder_config.audio.noWavHeader = (audio_output_format == "raw_pcm");
+
+    decoder_config.data.outputMetadata = write_data_metadata;
+
+    parsed.normalized_parameters = std::move(normalized);
+    parsed.decoder_config = std::move(decoder_config);
+    parsed.write_report = get_bool_param(parsed.normalized_parameters, "write_report");
+    parsed.report_path = get_string_param(parsed.normalized_parameters, "report_path");
 
     error_message.clear();
     return true;

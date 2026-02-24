@@ -8,7 +8,6 @@
  */
 
 #include "efm_decoder_sink_stage.h"
-#include "config/efm_decoder_parameter_contract.h"
 #include "logging.h"
 #include "stage_parameter.h"
 #include <stage_registry.h>
@@ -25,6 +24,11 @@ void force_link_EFMDecoderSinkStage() {}
 EFMDecoderSinkStage::EFMDecoderSinkStage()
     : parameters_(efm_decoder_config::default_parameters())
 {
+    efm_decoder_config::ParsedParameters parsed;
+    std::string error_message;
+    if (efm_decoder_config::parse_parameters(parameters_, parsed, error_message)) {
+        parsed_parameters_ = parsed;
+    }
 }
 
 NodeTypeInfo EFMDecoderSinkStage::get_node_type_info() const {
@@ -54,15 +58,16 @@ std::map<std::string, ParameterValue> EFMDecoderSinkStage::get_parameters() cons
 }
 
 bool EFMDecoderSinkStage::set_parameters(const std::map<std::string, ParameterValue>& params) {
-    std::map<std::string, ParameterValue> normalized;
+    efm_decoder_config::ParsedParameters parsed;
     std::string error_message;
-    if (!efm_decoder_config::validate_and_normalize(params, normalized, error_message)) {
+    if (!efm_decoder_config::parse_parameters(params, parsed, error_message)) {
         last_status_ = std::string("Error: ") + error_message;
         ORC_LOG_ERROR("EFMDecoderSink: {}", error_message);
         return false;
     }
 
-    parameters_ = normalized;
+    parameters_ = parsed.normalized_parameters;
+    parsed_parameters_ = parsed;
     return true;
 }
 
@@ -92,11 +97,13 @@ bool EFMDecoderSinkStage::trigger(
     cancel_requested_.store(false);
     
     try {
-        std::map<std::string, ParameterValue> normalized;
+        efm_decoder_config::ParsedParameters parsed;
         std::string error_message;
-        if (!efm_decoder_config::validate_and_normalize(parameters, normalized, error_message)) {
+        if (!efm_decoder_config::parse_parameters(parameters, parsed, error_message)) {
             throw std::runtime_error(error_message);
         }
+
+        parsed_parameters_ = parsed;
 
         // Phase 4: Implement decode pipeline integration:
         // 1. Validate inputs (check VFR has EFM)
@@ -106,7 +113,8 @@ bool EFMDecoderSinkStage::trigger(
         // 5. Write output files according to mode
         // 6. Generate and optionally persist report
         
-        last_status_ = "Phase 0: Trigger skeleton (placeholder)";
+        const std::string mode = parsed.decoder_config.global.mode == DecoderMode::Audio ? "audio" : "data";
+        last_status_ = "Phase 3: Parameters validated and parsed (mode=" + mode + ")";
         ORC_LOG_INFO("EFMDecoderSink: {}", last_status_);
         is_processing_.store(false);
         return true;

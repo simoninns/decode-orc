@@ -11,11 +11,19 @@
 #define ORC_CORE_EFM_DECODER_PARAMETER_CONTRACT_H
 
 #include "stage_parameter.h"
+#include "../vendor/decoder_config.h"
 #include <map>
 #include <string>
 #include <vector>
 
 namespace orc::efm_decoder_config {
+
+struct ParsedParameters {
+    std::map<std::string, ParameterValue> normalized_parameters;
+    DecoderConfig decoder_config;
+    bool write_report{false};
+    std::string report_path;
+};
 
 std::vector<ParameterDescriptor> get_parameter_descriptors();
 
@@ -24,6 +32,12 @@ std::map<std::string, ParameterValue> default_parameters();
 bool validate_and_normalize(
     const std::map<std::string, ParameterValue>& params,
     std::map<std::string, ParameterValue>& normalized,
+    std::string& error_message
+);
+
+bool parse_parameters(
+    const std::map<std::string, ParameterValue>& params,
+    ParsedParameters& parsed,
     std::string& error_message
 );
 

@@ -11,7 +11,7 @@
 #include <logging.h>
 #include "stage_parameter.h"
 #include "buffered_file_io.h"
-#include "vendor/unified_decoder.h"
+#include "pipeline/unified_decoder.h"
 #include <stage_registry.h>
 #include <filesystem>
 #include <chrono>

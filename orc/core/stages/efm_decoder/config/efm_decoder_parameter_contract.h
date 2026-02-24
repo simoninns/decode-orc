@@ -11,7 +11,7 @@
 #define ORC_CORE_EFM_DECODER_PARAMETER_CONTRACT_H
 
 #include "stage_parameter.h"
-#include "../vendor/decoder_config.h"
+#include "decoder_config.h"
 #include <map>
 #include <string>
 #include <vector>

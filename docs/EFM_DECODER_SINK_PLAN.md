@@ -81,9 +81,8 @@ Under `orc/core/stages/efm-decoder`:
 - `config/` – parameter-to-decoder config mapper + validation.
 - `pipeline/` – decode orchestration wrapper (VFR t-values → decoder pipeline).
 - `report/` – structured stats model + text report renderer/writer.
-- `io/` – helper(s) for temporary/intermediate data handling if needed.
 
-If direct source import from standalone is required, place imported files under a clearly isolated subfolder (e.g., `vendor/`) within this stage tree and wrap them via adapter interfaces.
+If direct source import from standalone is required, place imported files under a clearly scoped stage subfolder (for example `pipeline/` with contracts in `config/`) and wrap them via adapter interfaces.
 
 ---
 

@@ -12,9 +12,9 @@ Phase 0 — Source acquisition and pinning — has been successfully implemented
 - **Source:** https://github.com/simoninns/efm-decoder
 - **Pinned Commit:** `07eb89f9f58f1ef5432fb9cc68a5873f37a45b80`
 - **Bootstrap Date:** 2026-02-24
-- **Artifact Location:** `orc/core/stages/efm_decoder/vendor/`
+- **Artifact Location:** `orc/core/stages/efm_decoder/pipeline/` and `orc/core/stages/efm_decoder/config/`
 
-The standalone decoder source has been imported into the repository tree with vendor isolation. All imported code is now part of decode-orc's primary implementation.
+The standalone decoder source has been imported into the repository tree and organized under stage-local pipeline/config boundaries. All imported code is now part of decode-orc's primary implementation.
 
 ### 2. Provenance Recording ✓
 - **Provenance Document:** [EFM_DECODER_PROVENANCE.md](./EFM_DECODER_PROVENANCE.md)
@@ -26,11 +26,9 @@ The standalone decoder source has been imported into the repository tree with ve
 ### 3. In-Tree Stage Structure ✓
 - **Stage Location:** `orc/core/stages/efm_decoder/`
 - **Folder Layout:**
-  - `vendor/` – Imported decoder code with isolated boundary
+  - `pipeline/` – Imported decoder pipeline implementation and stage internals
   - `config/` – Parameter mapping and validation (Phase 3)
-  - `pipeline/` – Decode orchestration (Phase 4)
   - `report/` – Statistics and report formatting (Phase 5)
-  - `io/` – I/O helpers (Phase 4/5)
   - `efm_decoder_sink_stage.h/.cpp` – Main stage class (Phase 0)
 
 ### 4. Build and Registry Wiring ✓
@@ -56,7 +54,7 @@ The standalone decoder source has been imported into the repository tree with ve
 
 | Criterion | Status | Evidence |
 |-----------|--------|----------|
-| Team can build offline from in-tree sources | ✓ | Build completes successfully; decoder code is under `vendor/` within stage tree |
+| Team can build offline from in-tree sources | ✓ | Build completes successfully; decoder code is in-tree under `pipeline/` + `config/` within stage tree |
 | Imported source provenance is explicit and auditable | ✓ | EFM_DECODER_PROVENANCE.md records commit `07eb89f9f5...` and integration notes |
 | No planned ongoing upstream sync | ✓ | Maintenance notes document ownership transfer; decoder is canonical in decode-orc |
 | No residual `efm-decoder` project copy | ✓ | Bootstrap directory removed; only in-tree stage remains |
@@ -84,7 +82,8 @@ Phase 0 establishes the foundational in-tree structure and provenance only. The 
 **Source Code:**
 - `orc/core/stages/efm_decoder/efm_decoder_sink_stage.h` – Stage header (Phase 0 skeleton)
 - `orc/core/stages/efm_decoder/efm_decoder_sink_stage.cpp` – Stage implementation (Phase 0 skeleton)
-- `orc/core/stages/efm_decoder/vendor/` – Imported decoder code (isolated from stage code)
+- `orc/core/stages/efm_decoder/pipeline/` – Imported decoder pipeline code (stage-local)
+- `orc/core/stages/efm_decoder/config/decoder_config.h` – Imported decoder configuration contract
 
 **Build Configuration:**
 - `orc/core/CMakeLists.txt` – Build wiring (updated for efm_decoder)

@@ -24,12 +24,12 @@ Node metadata remains stable and discoverable through the existing stage registr
 The integration contract is now explicit in code:
 
 - **Preferred path adopted:** in-process integration with a clean adapter boundary.
-- `vendor/` remains isolated for imported standalone decoder code.
+- Imported standalone decoder code is organized under `pipeline/` with config primitives in `config/`.
 - A dedicated config contract layer now mediates stage parameters and mode-aware validation:
   - `orc/core/stages/efm_decoder/config/efm_decoder_parameter_contract.h`
   - `orc/core/stages/efm_decoder/config/efm_decoder_parameter_contract.cpp`
 
-This keeps stage orchestration independent from vendor internals and test-friendly for future phases.
+This keeps stage orchestration independent from imported decoder internals and test-friendly for future phases.
 
 ### 3. Parameter mapping and schema locked ✓
 
@@ -81,7 +81,7 @@ This completes the Phase 1 requirement to define behavior for invalid parameter 
 | Criterion | Status | Evidence |
 |---|---|---|
 | No unresolved parameter semantics | ✓ | Full schema and defaults centralized in `efm_decoder_parameter_contract.cpp` |
-| Clear decision on standalone code consumption | ✓ | In-process integration boundary documented and encoded through `vendor/` + config contract layer |
+| Clear decision on standalone code consumption | ✓ | In-process integration boundary documented and encoded through `pipeline/` + config contract layer |
 
 ---
 

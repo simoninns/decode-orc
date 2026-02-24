@@ -7,15 +7,15 @@ This decoder implementation was bootstrapped from the standalone `efm-decoder` p
 - **Repository:** https://github.com/simoninns/efm-decoder
 - **Bootstrap Commit:** `07eb89f9f58f1ef5432fb9cc68a5873f37a45b80`
 - **Bootstrap Date:** 2026-02-24
-- **Bring-in Method:** One-time in-tree import with vendor isolation
+- **Bring-in Method:** One-time in-tree import, reorganized under stage pipeline/config boundaries
 
 ## Decoder Code Location
 
-All imported decoder code from the standalone project is isolated under:
-- `orc/core/stages/efm_decoder/vendor/core/` – Core decoder pipeline stages (sync, correction, error handling, audio synthesis, etc.)
-- `orc/core/stages/efm_decoder/vendor/decoder_config.h` – Decoder configuration structures
-- `orc/core/stages/efm_decoder/vendor/unified_decoder.h` / `vendor/unified_decoder.cpp` – Unified API wrapper
-- `orc/core/stages/efm_decoder/vendor/LICENSE.efm-decoder` – Original EFM decoder license
+All imported decoder code from the standalone project is organized under the stage folders:
+- `orc/core/stages/efm_decoder/pipeline/core/` – Core decoder pipeline stages (sync, correction, error handling, audio synthesis, etc.)
+- `orc/core/stages/efm_decoder/pipeline/stages/` – Mode-specific decoder stages (shared/audio/data/bridge)
+- `orc/core/stages/efm_decoder/config/decoder_config.h` – Decoder configuration structures
+- `orc/core/stages/efm_decoder/pipeline/unified_decoder.h` / `pipeline/unified_decoder.cpp` – Unified API wrapper
 
 ## Integration Boundary
 
@@ -23,9 +23,9 @@ The Orc EFM Decoder Sink stage (`orc/core/stages/efm_decoder/efm_decoder_sink_st
 1. **Stage interface** – VFR input → decoder pipeline wiring, parameter translation, trigger orchestration
 2. **Config mapper** – Maps Orc parameter semantics to decoder configuration (`config/` subdirectory)
 3. **Report aggregation** – Collects decode stats and formats for output/logging (`report/` subdirectory)
-4. **I/O helpers** – Manages decoder I/O needs (e.g., temporary buffers, stream control; `io/` subdirectory)
+4. **I/O handling** – Managed within stage/pipeline implementation where needed (temporary buffers, stream control)
 
-The imported vendor code is consumed as an in-process library; stage code wraps it via clean adapter boundaries (defined in `config/` and `pipeline/` subdirectories).
+The imported decoder code is consumed as an in-process library; stage code wraps it via clean adapter boundaries (defined in `config/` and `pipeline/` subdirectories).
 
 ## Additional Dependency Provenance (ezpwd)
 

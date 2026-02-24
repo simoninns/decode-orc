@@ -16,7 +16,7 @@
 #include <vector>
 
 #include <logging.h>
-#include "decoder_config.h"
+#include "config/decoder_config.h"
 
 #include "dec_tvaluestochannel.h"
 #include "dec_channeltof3frame.h"

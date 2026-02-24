@@ -18,10 +18,94 @@
 #include <sstream>
 #include <utility>
 #include <stdexcept>
+#include <algorithm>
+#include <spdlog/sinks/basic_file_sink.h>
 
 namespace orc {
 
 namespace {
+
+spdlog::level::level_enum parse_spdlog_level(const std::string& level)
+{
+    if (level == "trace") {
+        return spdlog::level::trace;
+    }
+    if (level == "debug") {
+        return spdlog::level::debug;
+    }
+    if (level == "info") {
+        return spdlog::level::info;
+    }
+    if (level == "warn" || level == "warning") {
+        return spdlog::level::warn;
+    }
+    if (level == "error") {
+        return spdlog::level::err;
+    }
+    if (level == "critical") {
+        return spdlog::level::critical;
+    }
+    if (level == "off") {
+        return spdlog::level::off;
+    }
+
+    return spdlog::level::info;
+}
+
+class DecoderLoggingScope {
+public:
+    DecoderLoggingScope(const std::string& level, const std::string& log_file)
+    {
+        logger_ = get_logger();
+        previous_level_ = logger_->level();
+        logger_->set_level(parse_spdlog_level(level));
+
+        if (!log_file.empty()) {
+            file_sink_ = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_file, true);
+            logger_->sinks().push_back(file_sink_);
+        }
+    }
+
+    ~DecoderLoggingScope()
+    {
+        if (logger_) {
+            if (file_sink_) {
+                auto& sinks = logger_->sinks();
+                sinks.erase(std::remove(sinks.begin(), sinks.end(), file_sink_), sinks.end());
+            }
+            logger_->set_level(previous_level_);
+        }
+    }
+
+private:
+    std::shared_ptr<spdlog::logger> logger_;
+    spdlog::level::level_enum previous_level_{spdlog::level::info};
+    spdlog::sink_ptr file_sink_;
+};
+
+efm_decoder_report::EFMDecoderRunReport build_run_report_from_parameters(
+    const efm_decoder_config::ParsedParameters& parsed)
+{
+    efm_decoder_report::EFMDecoderRunReport report;
+    report.status = efm_decoder_report::RunStatus::Failed;
+    report.status_message = "Decode did not complete";
+
+    const auto& parameters = parsed.normalized_parameters;
+    report.decode_mode = std::get<std::string>(parameters.at("decode_mode"));
+    report.output_path = std::get<std::string>(parameters.at("output_path"));
+    report.timecode_mode = std::get<std::string>(parameters.at("timecode_mode"));
+    report.audio_output_format = std::get<std::string>(parameters.at("audio_output_format"));
+    report.write_audacity_labels = std::get<bool>(parameters.at("write_audacity_labels"));
+    report.audio_concealment = std::get<bool>(parameters.at("audio_concealment"));
+    report.zero_pad_audio = std::get<bool>(parameters.at("zero_pad_audio"));
+    report.write_data_metadata = std::get<bool>(parameters.at("write_data_metadata"));
+    report.write_report = parsed.write_report;
+    report.report_path = parsed.report_path;
+    report.decoder_log_level = std::get<std::string>(parameters.at("decoder_log_level"));
+    report.decoder_log_file = std::get<std::string>(parameters.at("decoder_log_file"));
+
+    return report;
+}
 
 std::string create_temp_efm_path()
 {
@@ -173,6 +257,10 @@ bool EFMDecoderSinkStage::trigger(
     (void)observation_context;
 
     std::string temp_input_path;
+    const auto trigger_start = std::chrono::steady_clock::now();
+    efm_decoder_report::EFMDecoderRunReport run_report;
+    run_report.status = efm_decoder_report::RunStatus::Failed;
+    run_report.status_message = "Decode did not complete";
     
     is_processing_.store(true);
     cancel_requested_.store(false);
@@ -184,6 +272,7 @@ bool EFMDecoderSinkStage::trigger(
             throw std::runtime_error(error_message);
         }
 
+        run_report = build_run_report_from_parameters(parsed);
         parsed_parameters_ = parsed;
 
         if (inputs.empty()) {
@@ -205,6 +294,7 @@ bool EFMDecoderSinkStage::trigger(
 
         temp_input_path = create_temp_efm_path();
         uint64_t written_tvalues = 0;
+        const auto extraction_start = std::chrono::steady_clock::now();
 
         if (!write_efm_input_file(
             *vfr,
@@ -216,6 +306,11 @@ bool EFMDecoderSinkStage::trigger(
         )) {
             throw std::runtime_error(error_message);
         }
+
+        const auto extraction_end = std::chrono::steady_clock::now();
+        run_report.extraction_duration_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(extraction_end - extraction_start).count();
+        run_report.extracted_tvalues = written_tvalues;
 
         DecoderConfig decoder_config = parsed.decoder_config;
         decoder_config.global.inputPath = temp_input_path;
@@ -231,14 +326,54 @@ bool EFMDecoderSinkStage::trigger(
         });
 
         ORC_LOG_INFO("EFMDecoderSink: Starting decode pipeline using {} extracted t-values", written_tvalues);
-        const int decode_exit_code = decoder.run();
+        const auto decode_start = std::chrono::steady_clock::now();
+        const int decode_exit_code = [&]() {
+            DecoderLoggingScope logging_scope(
+                decoder_config.global.logLevel,
+                decoder_config.global.logFile
+            );
+            return decoder.run();
+        }();
+        const auto decode_end = std::chrono::steady_clock::now();
+
+        run_report.decode_exit_code = decode_exit_code;
+        run_report.decode_duration_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(decode_end - decode_start).count();
+
+        const UnifiedDecoder::RunStatistics decoder_stats = decoder.getRunStatistics();
+        run_report.stats.shared_channel_to_f3_ms = decoder_stats.sharedChannelToF3TimeMs;
+        run_report.stats.shared_f3_to_f2_ms = decoder_stats.sharedF3ToF2TimeMs;
+        run_report.stats.shared_f2_correction_ms = decoder_stats.sharedF2CorrectionTimeMs;
+        run_report.stats.shared_f2_to_f1_ms = decoder_stats.sharedF2ToF1TimeMs;
+        run_report.stats.shared_f1_to_data24_ms = decoder_stats.sharedF1ToData24TimeMs;
+        run_report.stats.audio_data24_to_audio_ms = decoder_stats.audioData24ToAudioTimeMs;
+        run_report.stats.audio_correction_ms = decoder_stats.audioCorrectionTimeMs;
+        run_report.stats.data_data24_to_raw_sector_ms = decoder_stats.dataData24ToRawSectorTimeMs;
+        run_report.stats.data_raw_sector_to_sector_ms = decoder_stats.dataRawSectorToSectorTimeMs;
+        run_report.stats.produced_data24_sections = decoder_stats.data24SectionCount;
+        run_report.stats.auto_no_timecodes_enabled = decoder_stats.autoNoTimecodesEnabled;
+        run_report.stats.no_timecodes_active = decoder_stats.noTimecodesActive;
 
         if (!temp_input_path.empty()) {
             std::filesystem::remove(temp_input_path);
         }
 
+        const auto trigger_end = std::chrono::steady_clock::now();
+        run_report.total_duration_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(trigger_end - trigger_start).count();
+
         if (cancel_requested_.load()) {
             last_status_ = "Cancelled by user";
+            run_report.status = efm_decoder_report::RunStatus::Cancelled;
+            run_report.status_message = last_status_;
+
+            std::string report_error;
+            if (!efm_decoder_report::write_text_report(run_report, report_error)) {
+                last_status_ += std::string(" (report write failed: ") + report_error + ")";
+                ORC_LOG_WARN("EFMDecoderSink: {}", last_status_);
+            }
+
+            last_run_report_ = run_report;
             ORC_LOG_WARN("EFMDecoderSink: {}", last_status_);
             is_processing_.store(false);
             return false;
@@ -249,6 +384,19 @@ bool EFMDecoderSinkStage::trigger(
         }
 
         last_status_ = "Success: decode pipeline completed";
+        run_report.status = efm_decoder_report::RunStatus::Success;
+        run_report.status_message = last_status_;
+
+        std::string report_error;
+        if (!efm_decoder_report::write_text_report(run_report, report_error)) {
+            throw std::runtime_error("Failed to write decode report: " + report_error);
+        }
+
+        if (run_report.write_report) {
+            ORC_LOG_INFO("EFMDecoderSink: Decode report written to {}", run_report.report_path);
+        }
+
+        last_run_report_ = run_report;
         ORC_LOG_INFO("EFMDecoderSink: {}", last_status_);
         is_processing_.store(false);
         return true;
@@ -258,6 +406,19 @@ bool EFMDecoderSinkStage::trigger(
             std::filesystem::remove(temp_input_path);
         }
         last_status_ = std::string("Error: ") + e.what();
+        run_report.status = cancel_requested_.load()
+            ? efm_decoder_report::RunStatus::Cancelled
+            : efm_decoder_report::RunStatus::Failed;
+        run_report.status_message = last_status_;
+        run_report.total_duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - trigger_start).count();
+
+        std::string report_error;
+        if (!efm_decoder_report::write_text_report(run_report, report_error)) {
+            ORC_LOG_WARN("EFMDecoderSink: Failed to write decode report: {}", report_error);
+        }
+
+        last_run_report_ = run_report;
         ORC_LOG_ERROR("EFMDecoderSink: {}", last_status_);
         is_processing_.store(false);
         return false;
@@ -266,6 +427,15 @@ bool EFMDecoderSinkStage::trigger(
 
 std::string EFMDecoderSinkStage::get_trigger_status() const {
     return last_status_;
+}
+
+std::optional<StageReport> EFMDecoderSinkStage::generate_report() const {
+    if (last_run_report_.has_value()) {
+        return efm_decoder_report::to_stage_report(last_run_report_.value());
+    }
+
+    efm_decoder_report::EFMDecoderRunReport empty_report;
+    return efm_decoder_report::to_stage_report(empty_report);
 }
 
 } // namespace orc

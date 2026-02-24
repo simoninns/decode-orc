@@ -98,6 +98,7 @@ add_library(orc-core STATIC
     stages/efm_sink/efm_sink_stage.cpp
     stages/efm_decoder/efm_decoder_sink_stage.cpp
     stages/efm_decoder/config/efm_decoder_parameter_contract.cpp
+    stages/efm_decoder/report/efm_decoder_report.cpp
     stages/efm_decoder/vendor/unified_decoder.cpp
     stages/efm_decoder/vendor/core/audio.cpp
     stages/efm_decoder/vendor/core/delay_lines.cpp

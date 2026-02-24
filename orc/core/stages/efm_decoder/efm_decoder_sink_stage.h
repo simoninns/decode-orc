@@ -16,6 +16,7 @@
 #include "video_field_representation.h"
 #include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
 #include "config/efm_decoder_parameter_contract.h"
+#include "report/efm_decoder_report.h"
 #include <map>
 #include <memory>
 #include <atomic>
@@ -76,6 +77,8 @@ public:
     std::map<std::string, ParameterValue> get_parameters() const override;
     bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 
+    std::optional<StageReport> generate_report() const override;
+
     // TriggerableStage interface
     bool trigger(
         const std::vector<ArtifactPtr>& inputs,
@@ -104,6 +107,7 @@ private:
     std::atomic<bool> cancel_requested_{false};
     std::string last_status_;
     TriggerProgressCallback progress_callback_;
+    std::optional<efm_decoder_report::EFMDecoderRunReport> last_run_report_;
 };
 
 } // namespace orc

@@ -44,11 +44,28 @@ class UnifiedDecoder {
 public:
     explicit UnifiedDecoder(const DecoderConfig& config);
 
+    struct RunStatistics {
+        int64_t sharedChannelToF3TimeMs{0};
+        int64_t sharedF3ToF2TimeMs{0};
+        int64_t sharedF2CorrectionTimeMs{0};
+        int64_t sharedF2ToF1TimeMs{0};
+        int64_t sharedF1ToData24TimeMs{0};
+        int64_t audioData24ToAudioTimeMs{0};
+        int64_t audioCorrectionTimeMs{0};
+        int64_t dataData24ToRawSectorTimeMs{0};
+        int64_t dataRawSectorToSectorTimeMs{0};
+        int64_t data24SectionCount{0};
+        bool autoNoTimecodesEnabled{false};
+        bool noTimecodesActive{false};
+    };
+
     using ProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
     
     // Run the complete decode process
     // Returns exit code (0 = success, 1 = error)
     int run();
+
+    RunStatistics getRunStatistics() const;
 
     void setCancellationCallback(std::function<bool()> callback);
     void setProgressCallback(ProgressCallback callback);
@@ -113,6 +130,7 @@ private:
 
     std::function<bool()> cancellationCallback_;
     ProgressCallback progressCallback_;
+    RunStatistics runStatistics_;
 };
 
 #endif // UNIFIED_DECODER_H

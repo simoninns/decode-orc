@@ -43,11 +43,39 @@ void UnifiedDecoder::emitProgress(size_t current, size_t total, const std::strin
 
 int UnifiedDecoder::run()
 {
+    runStatistics_ = RunStatistics{};
+    sharedPipelineStats_ = SharedPipelineStatistics{};
+    audioPipelineStats_ = AudioPipelineStatistics{};
+    dataPipelineStats_ = DataPipelineStatistics{};
+
     if (config_.global.mode == DecoderMode::Audio) {
-        return runAudioBranch() ? 0 : 1;
+        const bool ok = runAudioBranch();
+        runStatistics_.noTimecodesActive = config_.global.noTimecodes;
+        runStatistics_.sharedChannelToF3TimeMs = sharedPipelineStats_.channelToF3Time / 1000000;
+        runStatistics_.sharedF3ToF2TimeMs = sharedPipelineStats_.f3ToF2Time / 1000000;
+        runStatistics_.sharedF2CorrectionTimeMs = sharedPipelineStats_.f2CorrectionTime / 1000000;
+        runStatistics_.sharedF2ToF1TimeMs = sharedPipelineStats_.f2SectionToF1SectionTime / 1000000;
+        runStatistics_.sharedF1ToData24TimeMs = sharedPipelineStats_.f1ToData24Time / 1000000;
+        runStatistics_.audioData24ToAudioTimeMs = audioPipelineStats_.data24ToAudioTime / 1000000;
+        runStatistics_.audioCorrectionTimeMs = audioPipelineStats_.audioCorrectionTime / 1000000;
+        return ok ? 0 : 1;
     }
 
-    return runDataBranch() ? 0 : 1;
+    const bool ok = runDataBranch();
+    runStatistics_.noTimecodesActive = config_.global.noTimecodes;
+    runStatistics_.sharedChannelToF3TimeMs = sharedPipelineStats_.channelToF3Time / 1000000;
+    runStatistics_.sharedF3ToF2TimeMs = sharedPipelineStats_.f3ToF2Time / 1000000;
+    runStatistics_.sharedF2CorrectionTimeMs = sharedPipelineStats_.f2CorrectionTime / 1000000;
+    runStatistics_.sharedF2ToF1TimeMs = sharedPipelineStats_.f2SectionToF1SectionTime / 1000000;
+    runStatistics_.sharedF1ToData24TimeMs = sharedPipelineStats_.f1ToData24Time / 1000000;
+    runStatistics_.dataData24ToRawSectorTimeMs = dataPipelineStats_.data24ToRawSectorTime / 1000000;
+    runStatistics_.dataRawSectorToSectorTimeMs = dataPipelineStats_.rawSectorToSectorTime / 1000000;
+    return ok ? 0 : 1;
+}
+
+UnifiedDecoder::RunStatistics UnifiedDecoder::getRunStatistics() const
+{
+    return runStatistics_;
 }
 
 std::string UnifiedDecoder::deriveAudioLabelsPath() const
@@ -389,6 +417,7 @@ bool UnifiedDecoder::probeForNoTimecode()
     if (shouldNoTimecodes && !config_.global.noTimecodes) {
         LOG_WARN("No reliable Q-channel timecode detected in probe window; automatically enabling no-timecodes mode for this input.");
         config_.global.noTimecodes = true;
+        runStatistics_.autoNoTimecodesEnabled = true;
         return true;
     }
 
@@ -491,6 +520,7 @@ bool UnifiedDecoder::runSharedDecodePipeline(const std::function<void(const Data
     readerData_.close();
 
     LOG_INFO("Shared pipeline produced {} Data24 sections", data24SectionCount);
+    runStatistics_.data24SectionCount = data24SectionCount;
     return true;
 }
 

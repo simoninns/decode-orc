@@ -186,6 +186,7 @@ if(NOT EZPWD_INCLUDE_DIR)
     find_path(EZPWD_INCLUDE_DIR
         NAMES ezpwd/rs
         PATHS
+            "/app/include"
             "${ORC_REPO_ROOT}/external/ezpwd-reed-solomon/c++"
             "/usr/local/include"
             "/usr/include"

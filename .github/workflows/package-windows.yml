@@ -33,6 +33,17 @@ jobs:
             git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
           }
 
+      - name: Ensure EZPWD source is present
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "external/ezpwd-reed-solomon/c++/ezpwd/rs")) {
+            Write-Host "EZPWD source not present in checkout; cloning fallback source..."
+            New-Item -ItemType Directory -Force -Path external
+            git clone --no-checkout --filter=blob:none https://github.com/pjkundert/ezpwd-reed-solomon external/ezpwd-reed-solomon
+            git -C external/ezpwd-reed-solomon fetch --depth 1 origin 62a490c13f6e057fbf2dc6777fde234c7a19098e
+            git -C external/ezpwd-reed-solomon checkout --detach 62a490c13f6e057fbf2dc6777fde234c7a19098e
+          }
+
       - name: Resolve package version
         id: version
         shell: pwsh

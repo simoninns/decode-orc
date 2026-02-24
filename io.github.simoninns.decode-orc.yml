@@ -147,6 +147,16 @@ modules:
         url: https://github.com/paceholder/nodeeditor
         commit: f953fcab52f505a74271c5f665d6627dce63b66d
 
+  - name: ezpwd
+    buildsystem: simple
+    build-commands:
+      - mkdir -p /app/include
+      - cp -R c++/ezpwd /app/include/
+    sources:
+      - type: git
+        url: https://github.com/pjkundert/ezpwd-reed-solomon
+        commit: 62a490c13f6e057fbf2dc6777fde234c7a19098e
+
   - name: decode-orc
     buildsystem: cmake-ninja
     builddir: true
@@ -155,6 +165,7 @@ modules:
       - -DBUILD_TESTS=OFF
       - -DBUILD_DOCS=OFF
       - -DBUILD_ENCODE_ORC=OFF
+      - -DEZPWD_INCLUDE_DIR=/app/include
     sources:
       - type: dir
         path: .

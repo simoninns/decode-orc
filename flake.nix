@@ -258,6 +258,7 @@
 
           # Environment variables
           CMAKE_EXPORT_COMPILE_COMMANDS = 1;
+          EZPWD_INCLUDE_DIR = "${ezpwdHeaders}/include";
           QT_QPA_PLATFORM = pkgs.lib.optionalString pkgs.stdenv.isLinux "xcb"; # For Linux
         };
 

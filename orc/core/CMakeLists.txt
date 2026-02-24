@@ -162,9 +162,25 @@ add_library(orc-core STATIC
     project_to_dag.cpp
 )
 
+# Suppress known warnings from third-party EFM decoder vendor sources.
+# Keep project warnings strict for non-vendor code.
+file(GLOB_RECURSE ORC_EFM_VENDOR_CPP CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_decoder/vendor/*.cpp"
+)
+
+if(ORC_EFM_VENDOR_CPP)
+    set_source_files_properties(${ORC_EFM_VENDOR_CPP} PROPERTIES
+        COMPILE_OPTIONS "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wno-sign-compare;-Wno-type-limits;-Wno-unused-variable;-Wno-cpp>"
+    )
+endif()
+
 # Optional ezpwd header dependency for EFM decoder integration.
 # EZPWD provides header-only includes such as <ezpwd/rs> and <ezpwd/rs_base>.
 set(EZPWD_INCLUDE_DIR "${EZPWD_INCLUDE_DIR}" CACHE PATH "Path containing ezpwd headers (root that contains ezpwd/rs)")
+
+if(NOT EZPWD_INCLUDE_DIR AND DEFINED ENV{EZPWD_INCLUDE_DIR} AND NOT "$ENV{EZPWD_INCLUDE_DIR}" STREQUAL "")
+    set(EZPWD_INCLUDE_DIR "$ENV{EZPWD_INCLUDE_DIR}" CACHE PATH "Path containing ezpwd headers (root that contains ezpwd/rs)" FORCE)
+endif()
 
 if(NOT EZPWD_INCLUDE_DIR)
     find_path(EZPWD_INCLUDE_DIR
@@ -181,7 +197,10 @@ if(EZPWD_INCLUDE_DIR)
     target_compile_definitions(orc-core PUBLIC ORC_HAVE_EZPWD)
     message(STATUS "Using ezpwd headers from: ${EZPWD_INCLUDE_DIR}")
 else()
-    message(STATUS "ezpwd headers not found (optional until EFM decoder vendor sources are fully wired)")
+    message(FATAL_ERROR
+        "EZPWD headers not found. The EFM decoder stage is fully integrated and requires ezpwd headers "
+        "(<ezpwd/rs_base> and <ezpwd/rs>). Set EZPWD_INCLUDE_DIR to the include root containing ezpwd/rs."
+    )
 endif()
 
 target_include_directories(orc-core PRIVATE
@@ -240,7 +259,7 @@ target_compile_options(orc-core PRIVATE
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/Od /Zi>
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2>
-    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Debug>>:-g -O0>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Debug>>:-g -O0 -U_FORTIFY_SOURCE -Wno-cpp>
     $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Release>>:-O3>
 )
 

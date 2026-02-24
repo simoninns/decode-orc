@@ -40,7 +40,9 @@ Build integration contract:
 
 1. Nix builds pass `-DEZPWD_INCLUDE_DIR=<path>` from the pinned header package.
 2. Core CMake accepts `EZPWD_INCLUDE_DIR` and adds it to `orc-core` include paths.
-3. If `EZPWD_INCLUDE_DIR` is not provided, CMake attempts best-effort local/system path discovery.
+3. `nix develop` exports `EZPWD_INCLUDE_DIR` so local `cmake` configure can consume the same header path.
+4. If `EZPWD_INCLUDE_DIR` is not provided, CMake attempts local/system path discovery.
+5. If discovery fails, configure stops with a clear error explaining how to set `EZPWD_INCLUDE_DIR`.
 
 This keeps the dependency reproducible under Nix while remaining configurable for non-Nix development environments.
 

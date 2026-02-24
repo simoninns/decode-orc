@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-#include "core/logging.h"
+#include <logging.h>
 #include "decoder_config.h"
 
 #include "dec_tvaluestochannel.h"

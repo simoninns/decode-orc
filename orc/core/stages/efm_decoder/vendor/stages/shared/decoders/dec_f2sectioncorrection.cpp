@@ -8,7 +8,7 @@
  */
 
 #include "dec_f2sectioncorrection.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <deque>
 #include <queue>
 #include <stdexcept>

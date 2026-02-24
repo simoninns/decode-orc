@@ -61,30 +61,6 @@ std::vector<ParameterDescriptor> get_parameter_descriptors()
 
     {
         ParameterDescriptor desc;
-        desc.name = "decoder_log_level";
-        desc.display_name = "Decoder Log Level";
-        desc.description = "Verbosity for decoder-internal logging";
-        desc.type = ParameterType::STRING;
-        desc.constraints.default_value = std::string("info");
-        desc.constraints.allowed_strings = {
-            "trace", "debug", "info", "warn", "error", "critical", "off"
-        };
-        descriptors.push_back(desc);
-    }
-
-    {
-        ParameterDescriptor desc;
-        desc.name = "decoder_log_file";
-        desc.display_name = "Decoder Log File";
-        desc.description = "Optional file path for detailed decoder logs";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".log";
-        descriptors.push_back(desc);
-    }
-
-    {
-        ParameterDescriptor desc;
         desc.name = "timecode_mode";
         desc.display_name = "Timecode Mode";
         desc.description = "Timecode handling strategy";
@@ -195,8 +171,6 @@ bool validate_and_normalize(
     static const std::unordered_set<std::string> known_parameters = {
         "decode_mode",
         "output_path",
-        "decoder_log_level",
-        "decoder_log_file",
         "timecode_mode",
         "audio_output_format",
         "write_audacity_labels",
@@ -212,10 +186,6 @@ bool validate_and_normalize(
         "auto", "force_no_timecodes", "force_timecodes"
     };
     static const std::unordered_set<std::string> valid_audio_output_formats = {"wav", "raw_pcm"};
-    static const std::unordered_set<std::string> valid_log_levels = {
-        "trace", "debug", "info", "warn", "error", "critical", "off"
-    };
-
     normalized = default_parameters();
 
     for (const auto& [name, value] : params) {
@@ -232,14 +202,6 @@ bool validate_and_normalize(
     }
     if (!std::holds_alternative<std::string>(normalized["output_path"])) {
         error_message = "Parameter output_path must be a file path string";
-        return false;
-    }
-    if (!std::holds_alternative<std::string>(normalized["decoder_log_level"])) {
-        error_message = "Parameter decoder_log_level must be a string";
-        return false;
-    }
-    if (!std::holds_alternative<std::string>(normalized["decoder_log_file"])) {
-        error_message = "Parameter decoder_log_file must be a file path string";
         return false;
     }
     if (!std::holds_alternative<std::string>(normalized["timecode_mode"])) {
@@ -277,7 +239,6 @@ bool validate_and_normalize(
 
     const std::string decode_mode = get_string_param(normalized, "decode_mode");
     const std::string output_path = get_string_param(normalized, "output_path");
-    const std::string log_level = get_string_param(normalized, "decoder_log_level");
     const std::string timecode_mode = get_string_param(normalized, "timecode_mode");
     const std::string audio_output_format = get_string_param(normalized, "audio_output_format");
     const bool write_audacity_labels = get_bool_param(normalized, "write_audacity_labels");
@@ -293,10 +254,6 @@ bool validate_and_normalize(
     }
     if (output_path.empty()) {
         error_message = "output_path parameter is required";
-        return false;
-    }
-    if (!is_string_in_set(log_level, valid_log_levels)) {
-        error_message = "Invalid decoder_log_level: " + log_level;
         return false;
     }
     if (!is_string_in_set(timecode_mode, valid_timecode_modes)) {
@@ -356,8 +313,6 @@ bool parse_parameters(
 
     const std::string decode_mode = get_string_param(normalized, "decode_mode");
     const std::string output_path = get_string_param(normalized, "output_path");
-    const std::string log_level = get_string_param(normalized, "decoder_log_level");
-    const std::string log_file = get_string_param(normalized, "decoder_log_file");
     const std::string timecode_mode = get_string_param(normalized, "timecode_mode");
     const std::string audio_output_format = get_string_param(normalized, "audio_output_format");
     const bool write_audacity_labels = get_bool_param(normalized, "write_audacity_labels");
@@ -366,8 +321,6 @@ bool parse_parameters(
     const bool write_data_metadata = get_bool_param(normalized, "write_data_metadata");
 
     decoder_config.global.outputPath = output_path;
-    decoder_config.global.logLevel = log_level;
-    decoder_config.global.logFile = log_file;
 
     if (decode_mode == "audio") {
         decoder_config.global.mode = DecoderMode::Audio;

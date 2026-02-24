@@ -8,7 +8,7 @@
  */
 
 #include "delay_lines.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 #include <algorithm>
 

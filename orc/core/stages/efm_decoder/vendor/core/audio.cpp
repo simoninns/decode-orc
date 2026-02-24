@@ -8,7 +8,7 @@
  */
 
 #include "audio.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 #include <cmath>
 #include <cstdio>

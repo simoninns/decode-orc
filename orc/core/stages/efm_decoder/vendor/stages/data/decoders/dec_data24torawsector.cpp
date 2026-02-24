@@ -8,7 +8,7 @@
  */
 
 #include "dec_data24torawsector.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdio>

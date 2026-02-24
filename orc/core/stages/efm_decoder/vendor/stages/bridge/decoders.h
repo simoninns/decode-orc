@@ -14,7 +14,7 @@
 #include <deque>
 #include <cstdint>
 
-#include "core/logging.h"
+#include <logging.h>
 #include "frame.h"
 #include "section.h"
 

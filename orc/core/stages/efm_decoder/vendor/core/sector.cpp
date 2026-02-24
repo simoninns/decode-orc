@@ -8,7 +8,7 @@
  */
 
 #include "sector.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 #include <cstdio>
 #include <iomanip>

@@ -8,7 +8,7 @@
  */
 
 #include "inverter.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 
 Inverter::Inverter() { }

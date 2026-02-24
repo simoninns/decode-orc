@@ -8,7 +8,7 @@
  */
 
 #include "efm_decoder_sink_stage.h"
-#include "logging.h"
+#include <logging.h>
 #include "stage_parameter.h"
 #include "buffered_file_io.h"
 #include "vendor/unified_decoder.h"
@@ -17,7 +17,6 @@
 #include <chrono>
 #include <sstream>
 #include <utility>
-#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace orc {
@@ -220,29 +219,6 @@ bool EFMDecoderSinkStage::trigger(
 
         DecoderConfig decoder_config = parsed.decoder_config;
         decoder_config.global.inputPath = temp_input_path;
-
-        const auto previous_logger = spdlog::default_logger();
-        struct LoggerGuard {
-            explicit LoggerGuard(std::shared_ptr<spdlog::logger> logger)
-                : previous_logger(std::move(logger)) {}
-            ~LoggerGuard() {
-                if (previous_logger) {
-                    spdlog::set_default_logger(previous_logger);
-                }
-            }
-            std::shared_ptr<spdlog::logger> previous_logger;
-        } logger_guard(previous_logger);
-
-        if (!configureLogging(
-            decoder_config.global.logLevel,
-            false,
-            decoder_config.global.logFile
-        )) {
-            ORC_LOG_WARN(
-                "EFMDecoderSink: Failed to configure decoder logging for level '{}' (continuing with current logger)",
-                decoder_config.global.logLevel
-            );
-        }
 
         UnifiedDecoder decoder(decoder_config);
         decoder.setCancellationCallback([this]() {

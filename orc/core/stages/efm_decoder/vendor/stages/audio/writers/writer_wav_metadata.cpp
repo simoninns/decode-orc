@@ -8,7 +8,7 @@
  */
 
 #include "writer_wav_metadata.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <fmt/format.h>
 #include <algorithm>
 #include <iomanip>

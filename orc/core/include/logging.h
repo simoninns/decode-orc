@@ -39,3 +39,10 @@ void set_log_level(const std::string& level);
 #define ORC_LOG_WARN(...)     SPDLOG_LOGGER_WARN(orc::get_logger(), __VA_ARGS__)
 #define ORC_LOG_ERROR(...)    SPDLOG_LOGGER_ERROR(orc::get_logger(), __VA_ARGS__)
 #define ORC_LOG_CRITICAL(...) SPDLOG_LOGGER_CRITICAL(orc::get_logger(), __VA_ARGS__)
+
+#define LOG_TRACE(...)    ORC_LOG_TRACE(__VA_ARGS__)
+#define LOG_DEBUG(...)    ORC_LOG_DEBUG(__VA_ARGS__)
+#define LOG_INFO(...)     ORC_LOG_INFO(__VA_ARGS__)
+#define LOG_WARN(...)     ORC_LOG_WARN(__VA_ARGS__)
+#define LOG_ERROR(...)    ORC_LOG_ERROR(__VA_ARGS__)
+#define LOG_CRITICAL(...) ORC_LOG_CRITICAL(__VA_ARGS__)

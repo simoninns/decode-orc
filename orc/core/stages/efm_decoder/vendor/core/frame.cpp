@@ -8,7 +8,7 @@
  */
 
 #include "frame.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 #include <cstdio>
 #include "hex_utils.h"
@@ -314,7 +314,7 @@ int Data24::frameSize() const
 
 void Data24::showData()
 {
-    if (!get_logger()->should_log(spdlog::level::trace)) return;
+    if (!orc::get_logger()->should_log(spdlog::level::trace)) return;
 
     std::string dataString;
     bool hasError = false;
@@ -357,7 +357,7 @@ int F1Frame::frameSize() const
 
 void F1Frame::showData()
 {
-    if (!get_logger()->should_log(spdlog::level::trace)) return;
+    if (!orc::get_logger()->should_log(spdlog::level::trace)) return;
 
     std::string dataString;
     bool hasError = false;

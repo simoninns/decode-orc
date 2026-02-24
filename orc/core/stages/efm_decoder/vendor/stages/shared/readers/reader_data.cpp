@@ -8,7 +8,7 @@
  */
 
 #include "reader_data.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <iostream>
 
 ReaderData::ReaderData() : m_usingStdin(false), m_fileSize(0) { }

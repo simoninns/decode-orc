@@ -8,7 +8,7 @@
  */
 
 #include "dec_sectorcorrection.h"
-#include "core/logging.h"
+#include <logging.h>
 
 SectorCorrection::SectorCorrection()
     : m_haveLastSectorInfo(false),

@@ -9,7 +9,7 @@
 
 #include "subcode.h"
 #include "hex_utils.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 #include <cstdio>
 

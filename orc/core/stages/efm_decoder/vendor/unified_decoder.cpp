@@ -12,7 +12,7 @@
 #include <cctype>
 #include <spdlog/spdlog.h>
 
-#include "core/logging.h"
+#include <logging.h>
 
 UnifiedDecoder::UnifiedDecoder(const DecoderConfig& config)
     : config_(config)

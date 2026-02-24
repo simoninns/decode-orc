@@ -8,7 +8,7 @@
  */
 
 #include "section.h"
-#include "core/logging.h"
+#include <logging.h>
 #include <cstdlib>
 
 F2Section::F2Section()

@@ -36,12 +36,20 @@ jobs:
       - name: Ensure EZPWD source is present
         shell: pwsh
         run: |
-          if (-not (Test-Path "external/ezpwd-reed-solomon/c++/ezpwd/rs")) {
+          if (-not (Test-Path "external/ezpwd-reed-solomon/c++/ezpwd/rs") -or -not (Test-Path "external/ezpwd-reed-solomon/c++/ezpwd/rs_base")) {
             Write-Host "EZPWD source not present in checkout; cloning fallback source..."
             New-Item -ItemType Directory -Force -Path external
-            git clone --no-checkout --filter=blob:none https://github.com/pjkundert/ezpwd-reed-solomon external/ezpwd-reed-solomon
-            git -C external/ezpwd-reed-solomon fetch --depth 1 origin 62a490c13f6e057fbf2dc6777fde234c7a19098e
+            if (Test-Path "external/ezpwd-reed-solomon") {
+              Remove-Item -Recurse -Force "external/ezpwd-reed-solomon"
+            }
+            git clone https://github.com/pjkundert/ezpwd-reed-solomon external/ezpwd-reed-solomon
             git -C external/ezpwd-reed-solomon checkout --detach 62a490c13f6e057fbf2dc6777fde234c7a19098e
+          }
+
+          if (-not (Test-Path "external/ezpwd-reed-solomon/c++/ezpwd/rs") -or -not (Test-Path "external/ezpwd-reed-solomon/c++/ezpwd/rs_base")) {
+            Write-Error "EZPWD headers still missing after fallback checkout"
+            Get-ChildItem "external/ezpwd-reed-solomon/c++/ezpwd" -ErrorAction SilentlyContinue | Format-Table -AutoSize
+            exit 1
           }
 
       - name: Resolve package version

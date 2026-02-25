@@ -36,12 +36,18 @@ jobs:
       - name: Ensure EZPWD source is present
         shell: bash
         run: |
-          if [[ ! -d external/ezpwd-reed-solomon/c++/ezpwd/rs ]]; then
+          if [[ ! -f external/ezpwd-reed-solomon/c++/ezpwd/rs || ! -f external/ezpwd-reed-solomon/c++/ezpwd/rs_base ]]; then
             echo "EZPWD source not present in checkout; cloning fallback source..."
             mkdir -p external
-            git clone --no-checkout --filter=blob:none https://github.com/pjkundert/ezpwd-reed-solomon external/ezpwd-reed-solomon
-            git -C external/ezpwd-reed-solomon fetch --depth 1 origin 62a490c13f6e057fbf2dc6777fde234c7a19098e
+            rm -rf external/ezpwd-reed-solomon
+            git clone https://github.com/pjkundert/ezpwd-reed-solomon external/ezpwd-reed-solomon
             git -C external/ezpwd-reed-solomon checkout --detach 62a490c13f6e057fbf2dc6777fde234c7a19098e
+          fi
+
+          if [[ ! -f external/ezpwd-reed-solomon/c++/ezpwd/rs || ! -f external/ezpwd-reed-solomon/c++/ezpwd/rs_base ]]; then
+            echo "EZPWD headers still missing after fallback checkout" >&2
+            ls -la external/ezpwd-reed-solomon/c++/ezpwd || true
+            exit 1
           fi
 
       - name: Resolve package version
@@ -84,6 +90,7 @@ jobs:
             -DBUILD_TESTS=OFF \
             -DBUILD_DOCS=OFF \
             -DBUILD_ENCODE_ORC=OFF \
+            -DEZPWD_INCLUDE_DIR="$PWD/external/ezpwd-reed-solomon/c++" \
             -DPROJECT_VERSION_OVERRIDE=${{ steps.version.outputs.version }}
           cmake --build build -j
 

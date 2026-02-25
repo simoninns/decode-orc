@@ -65,8 +65,6 @@ void ChannelToF3Frame::processQueue()
         }
 
         // Generate statistics
-        if (bitCount != 588)
-            LOG_DEBUG("ChannelToF3Frame::processQueue() - Frame data is {} bits (should be 588)", bitCount);
         if (bitCount == 588)
             m_goodFrames++;
         if (bitCount < 588)

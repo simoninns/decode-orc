@@ -178,8 +178,46 @@ Data24ToRawSector::Data24ToRawSector()
       m_validSectorCount(0),
       m_discardedBytes(0),
       m_discardedPaddingBytes(0),
-      m_syncLostCount(0)
+      m_syncLostCount(0),
+      m_syncHuntAttempts(0),
+      m_syncHuntNoPatternCount(0),
+      m_syncHuntFalsePositiveCount(0),
+      m_syncHuntZeroPositionFalsePositiveCount(0),
+      m_syncHuntFullPaddingSkipCount(0),
+      m_syncHuntDiscardedBytes(0),
+      m_syncHuntDiscardedPaddingBytes(0)
 {}
+
+void Data24ToRawSector::resetSyncHuntCounters()
+{
+    m_syncHuntAttempts = 0;
+    m_syncHuntNoPatternCount = 0;
+    m_syncHuntFalsePositiveCount = 0;
+    m_syncHuntZeroPositionFalsePositiveCount = 0;
+    m_syncHuntFullPaddingSkipCount = 0;
+    m_syncHuntDiscardedBytes = 0;
+    m_syncHuntDiscardedPaddingBytes = 0;
+}
+
+void Data24ToRawSector::logSyncHuntSummary(const char* outcome)
+{
+    if (m_syncHuntAttempts == 0) {
+        return;
+    }
+
+    LOG_DEBUG("Data24ToRawSector::waitingForSync(): Sync hunt {} after {} attempts (no-pattern: {}, false-positives: {}, zero-pos false-positives: {}, full-padding skips: {}, discarded bytes: {}, discarded padding bytes: {}, buffered bytes remaining: {})",
+              outcome,
+              m_syncHuntAttempts,
+              m_syncHuntNoPatternCount,
+              m_syncHuntFalsePositiveCount,
+              m_syncHuntZeroPositionFalsePositiveCount,
+              m_syncHuntFullPaddingSkipCount,
+              m_syncHuntDiscardedBytes,
+              m_syncHuntDiscardedPaddingBytes,
+              bufferedBytes());
+
+    resetSyncHuntCounters();
+}
 
 void Data24ToRawSector::pushSection(const Data24Section &data24Section)
 {
@@ -292,6 +330,10 @@ void Data24ToRawSector::processStateMachine()
                 break;
         }
     }
+
+    if (m_currentState == WaitingForSync && m_syncHuntAttempts > 0 && bufferedBytes() < 2352) {
+        logSyncHuntSummary("paused (input exhausted)");
+    }
 }
 
 Data24ToRawSector::State Data24ToRawSector::waitingForSync()
@@ -300,13 +342,12 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync()
 
     // Is there enough data in the buffer to form a sector?
     if (bufferedBytes() < 2352) {
-        // Not enough data
-        LOG_DEBUG("Data24ToRawSector::waitingForSync(): Not enough data in sectorData to form a sector, waiting for more data");
-
         // Get more data and try again
         nextState = WaitingForSync;
         return nextState;
     }
+
+    m_syncHuntAttempts++;
 
     // Does the sector data contain the sync pattern? Use std::search to find it
     auto it = std::search(m_sectorData.begin() + static_cast<std::ptrdiff_t>(m_sectorDataStart), m_sectorData.end(),
@@ -317,11 +358,13 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync()
     
     if (syncPatternPosition == -1) {
         // No sync pattern found
+        m_syncHuntNoPatternCount++;
 
         // Clear the sector data buffer (except the last 11 bytes)
         const size_t bytesBuffered = bufferedBytes();
         if (bytesBuffered > 11) {
             m_discardedBytes += static_cast<uint32_t>(bytesBuffered - 11);
+            m_syncHuntDiscardedBytes += static_cast<uint32_t>(bytesBuffered - 11);
             consumeBufferedBytes(bytesBuffered - 11, false);
         }
 
@@ -332,12 +375,10 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync()
 
         // Discard any data before the sync pattern
         m_discardedBytes += syncPatternPosition;
+        m_syncHuntDiscardedBytes += static_cast<uint32_t>(syncPatternPosition);
         
         // Keep only data from syncPatternPosition onwards
         consumeBufferedBytes(static_cast<size_t>(syncPatternPosition));
-        
-        LOG_DEBUG("Data24ToRawSector::waitingForSync(): Possible sync pattern found in sectorData at position: {} discarding {} bytes", 
-                      syncPatternPosition, syncPatternPosition);
 
         // Do we really have a valid sector or is this a false positive?
 
@@ -357,12 +398,23 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync()
         }
 
         if (errorByteCount > 1000 || paddingByteCount > 1000) {
-            LOG_DEBUG("Data24ToRawSector::waitingForSync(): Discarding sync as false positive due to {} error bytes and {} padding bytes", 
-                                      errorByteCount, paddingByteCount);
+            m_syncHuntFalsePositiveCount++;
+            if (errorByteCount == 0 && paddingByteCount == 2352) {
+                m_discardedBytes += 2352;
+                m_discardedPaddingBytes += 2352;
+                m_syncHuntDiscardedBytes += 2352;
+                m_syncHuntDiscardedPaddingBytes += 2352;
+                m_syncHuntFullPaddingSkipCount++;
+                consumeBufferedBytes(2352);
+            } else if (syncPatternPosition == 0) {
+                m_discardedBytes += 1;
+                m_syncHuntDiscardedBytes += 1;
+                m_syncHuntZeroPositionFalsePositiveCount++;
+                consumeBufferedBytes(1);
+            }
             nextState = WaitingForSync;
         } else {
-            LOG_DEBUG("Data24ToRawSector::waitingForSync(): Valid sector sync found with {} error bytes and {} padding bytes",
-                                      errorByteCount, paddingByteCount);
+            logSyncHuntSummary("succeeded");
             nextState = InSync;
         }
     }

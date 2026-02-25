@@ -32,6 +32,8 @@ private:
     size_t bufferedBytes() const;
     void consumeBufferedBytes(size_t count, bool consumePadded = true);
     void compactBuffers();
+    void logSyncHuntSummary(const char* outcome);
+    void resetSyncHuntCounters();
 
     std::deque<Data24Section> m_inputBuffer;
     std::deque<RawSector> m_outputBuffer;
@@ -66,6 +68,14 @@ private:
     uint32_t m_discardedBytes;
     uint32_t m_discardedPaddingBytes;
     uint32_t m_syncLostCount;
+
+    uint32_t m_syncHuntAttempts;
+    uint32_t m_syncHuntNoPatternCount;
+    uint32_t m_syncHuntFalsePositiveCount;
+    uint32_t m_syncHuntZeroPositionFalsePositiveCount;
+    uint32_t m_syncHuntFullPaddingSkipCount;
+    uint32_t m_syncHuntDiscardedBytes;
+    uint32_t m_syncHuntDiscardedPaddingBytes;
 };
 
 #endif // DEC_DATA24TORAWSECTOR_H

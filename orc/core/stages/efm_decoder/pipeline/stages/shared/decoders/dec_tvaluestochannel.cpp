@@ -146,14 +146,13 @@ TvaluesToChannel::State TvaluesToChannel::expectingSync()
         // If the frame data is 550 to 600 bits, we have a valid frame
         if (bitCount > 550 && bitCount < 600) {
             if (bitCount != 588) {
-                LOG_DEBUG("TvaluesToChannel::expectingSync() - Got frame with {} bits - Treating as valid", bitCount);
                 if (bitCount > 588) attemptToFixOvershootFrame(frameData);
                 if (bitCount < 588) attemptToFixUndershootFrame(0, syncIndex, frameData);
             }
 
             // We have a valid frame
             // Place the frame data into the output buffer
-            m_outputBuffer.push(frameData);
+            m_outputBuffer.push(std::move(frameData));
             
             m_consumedTValues += frameData.size();
             m_channelFrameCount++;
@@ -195,6 +194,10 @@ TvaluesToChannel::State TvaluesToChannel::expectingSync()
 TvaluesToChannel::State TvaluesToChannel::handleUndershoot()
 {
     State nextState = ExpectingSync;
+    const char* outcome = "unknown";
+    int fttBitCount = -1;
+    int sttBitCount = -1;
+    int droppedTValues = 0;
 
     // The frame data is too short
     m_undershootSyncs++;
@@ -216,22 +219,20 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot()
 
     if (thirdSyncIndex != -1) {
         // Value of the Ts between the first and third sync header
-        int fttBitCount = countBits(m_internalBuffer, 0, thirdSyncIndex);
+        fttBitCount = countBits(m_internalBuffer, 0, thirdSyncIndex);
 
         // Value of the Ts between the second and third sync header
-        int sttBitCount = countBits(m_internalBuffer, secondSyncIndex, thirdSyncIndex);
+        sttBitCount = countBits(m_internalBuffer, secondSyncIndex, thirdSyncIndex);
 
         if (fttBitCount > 550 && fttBitCount < 600) {
-            LOG_DEBUG("TvaluesToChannel::handleUndershoot() - Undershoot frame - Value from first to third sync_header = {} bits - treating as valid", fttBitCount);
             // Valid frame between the first and third sync headers
             std::vector<uint8_t> frameData(m_internalBuffer.begin(), m_internalBuffer.begin() + thirdSyncIndex);
             int32_t bitCount = countBits(frameData);
             if (bitCount != 588) {
-                LOG_DEBUG("TvaluesToChannel::handleUndershoot1() - Got frame with {} bits - Treating as valid", sttBitCount);
                 if (bitCount > 588) attemptToFixOvershootFrame(frameData);
                 if (bitCount < 588) attemptToFixUndershootFrame(0, thirdSyncIndex, frameData);
             }
-            m_outputBuffer.push(frameData);
+            m_outputBuffer.push(std::move(frameData));
             
             m_consumedTValues += frameData.size();
             m_channelFrameCount++;
@@ -246,13 +247,12 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot()
             // Remove the frame data from the internal buffer
             m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.begin() + thirdSyncIndex, m_internalBuffer.end());
             nextState = ExpectingSync;
+            outcome = "recovered-first-to-third";
         } else if (sttBitCount > 550 && sttBitCount < 600) {
-            LOG_DEBUG("TvaluesToChannel::handleUndershoot() - Undershoot frame - Value from second to third sync_header = {} bits - treating as valid", sttBitCount);
             // Valid frame between the second and third sync headers
             std::vector<uint8_t> frameData(m_internalBuffer.begin() + secondSyncIndex, m_internalBuffer.begin() + thirdSyncIndex);
             int32_t bitCount = countBits(frameData);
             if (bitCount != 588) {
-                LOG_DEBUG("TvaluesToChannel::handleUndershoot2() - Got frame with {} bits - Treating as valid", sttBitCount);
                 if (bitCount > 588) attemptToFixOvershootFrame(frameData);
                 if (bitCount < 588) attemptToFixUndershootFrame(secondSyncIndex, thirdSyncIndex, frameData);
             }
@@ -270,28 +270,38 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot()
 
             // Remove the frame data from the internal buffer
             m_discardedTValues += secondSyncIndex;
+            droppedTValues = secondSyncIndex;
             m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.begin() + thirdSyncIndex, m_internalBuffer.end());
             nextState = ExpectingSync;
+            outcome = "recovered-second-to-third";
         } else {
-            LOG_DEBUG("TvaluesToChannel::handleUndershoot() - First to third sync is {} bits, second to third sync is {}. Dropping (what might be a) frame.", fttBitCount, sttBitCount);
             nextState = ExpectingSync;
 
             // Remove the frame data from the internal buffer
             m_discardedTValues += secondSyncIndex;
+            droppedTValues = secondSyncIndex;
             m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.begin() + thirdSyncIndex, m_internalBuffer.end());
+            outcome = "dropped-candidate";
         }
     } else {
         if (m_internalBuffer.size() <= 382) {
-            LOG_DEBUG("TvaluesToChannel::handleUndershoot() - No third sync header found.  Staying in undershoot state waiting for more data.");
             nextState = HandleUndershoot;
+            outcome = "waiting-for-more-data";
         } else {
-            LOG_DEBUG("TvaluesToChannel::handleUndershoot() - No third sync header found - Sync lost.  Dropping {} T-values", m_internalBuffer.size() - 1);
-            
+            droppedTValues = static_cast<int>(m_internalBuffer.size() - 1);
             m_discardedTValues += m_internalBuffer.size() - 1;
             m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.end() - 1, m_internalBuffer.end());
             nextState = ExpectingInitialSync;
+            outcome = "sync-lost";
         }
     }
+
+    LOG_DEBUG("TvaluesToChannel::handleUndershoot() - {} (first->third bits: {}, second->third bits: {}, dropped T-values: {}, next state: {})",
+              outcome,
+              fttBitCount,
+              sttBitCount,
+              droppedTValues,
+              static_cast<int>(nextState));
 
     return nextState;
 }
@@ -299,6 +309,9 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot()
 TvaluesToChannel::State TvaluesToChannel::handleOvershoot()
 {
     State nextState = ExpectingSync;
+    uint32_t splitFrameCount = 0;
+    uint32_t splitMinBits = 0;
+    uint32_t splitMaxBits = 0;
 
     // The frame data is too long
     m_overshootSyncs++;
@@ -334,29 +347,37 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot()
         for (int n = 2; n <= maxFrames; ++n) {
             if (bitCount > frameSize * n - tolerance && bitCount < frameSize * n + tolerance) {
                 validFrames = true;
-                int accumulatedBits = 0;
-                int endOfFrameIndex = 0;
+                size_t frameStartIndex = 0;
 
                 for (int i = 0; i < n; ++i) {
-                    std::vector<uint8_t> singleFrameData;
-                    while (accumulatedBits < frameSize && endOfFrameIndex < frameData.size()) {
-                        accumulatedBits += frameData.at(endOfFrameIndex);
-                        ++endOfFrameIndex;
+                    int accumulatedBits = 0;
+                    size_t frameEndIndex = frameStartIndex;
+                    while (accumulatedBits < frameSize && frameEndIndex < frameData.size()) {
+                        accumulatedBits += frameData.at(frameEndIndex);
+                        ++frameEndIndex;
                     }
 
-                    singleFrameData = std::vector<uint8_t>(frameData.begin(), frameData.begin() + endOfFrameIndex);
-                    frameData = std::vector<uint8_t>(frameData.begin() + endOfFrameIndex, frameData.end());
-                    accumulatedBits = 0;
-                    endOfFrameIndex = 0;
+                    const size_t frameLength = frameEndIndex - frameStartIndex;
+
+                    std::vector<uint8_t> singleFrameData(frameData.begin() + static_cast<std::ptrdiff_t>(frameStartIndex),
+                                                         frameData.begin() + static_cast<std::ptrdiff_t>(frameEndIndex));
+                    frameStartIndex = frameEndIndex;
 
                     uint32_t singleFrameBitCount = countBits(singleFrameData);
 
                     // Place the frame into the output buffer
-                    m_outputBuffer.push(singleFrameData);
+                    m_outputBuffer.push(std::move(singleFrameData));
 
-                    LOG_DEBUG("TvaluesToChannel::handleOvershoot() - Overshoot frame split - {} bits - frame split #{}", singleFrameBitCount, i + 1);
+                    if (splitFrameCount == 0) {
+                        splitMinBits = singleFrameBitCount;
+                        splitMaxBits = singleFrameBitCount;
+                    } else {
+                        splitMinBits = std::min(splitMinBits, singleFrameBitCount);
+                        splitMaxBits = std::max(splitMaxBits, singleFrameBitCount);
+                    }
+                    splitFrameCount++;
 
-                    m_consumedTValues += singleFrameData.size();
+                    m_consumedTValues += static_cast<uint32_t>(frameLength);
                     m_channelFrameCount++;
 
                     if (singleFrameBitCount == frameSize)
@@ -371,12 +392,21 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot()
         }
 
         if (!validFrames) {
-            LOG_DEBUG("TvaluesToChannel::handleOvershoot() - Attempted overshoot recovery, but there were no sync headers in the data - are we processing noise?");
-            LOG_DEBUG("TvaluesToChannel::handleOvershoot() - Overshoot by {} bits, but no sync header found, dropping {} T-values", bitCount, m_internalBuffer.size() - 1);
+            const int droppedTValues = static_cast<int>(m_internalBuffer.size()) - 1;
+            LOG_DEBUG("TvaluesToChannel::handleOvershoot() - unrecoverable overshoot (bits: {}, dropped T-values: {}, next state: {})",
+                      bitCount,
+                      droppedTValues,
+                      static_cast<int>(ExpectingInitialSync));
             m_discardedTValues += static_cast<int32_t>(m_internalBuffer.size()) - 1;
             m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.end() - 1, m_internalBuffer.end());
             nextState = ExpectingInitialSync;
         } else {
+            LOG_DEBUG("TvaluesToChannel::handleOvershoot() - recovered by split (bits: {}, split frames: {}, split bit range: {}-{}, next state: {})",
+                      bitCount,
+                      splitFrameCount,
+                      splitMinBits,
+                      splitMaxBits,
+                      static_cast<int>(ExpectingSync));
             nextState = ExpectingSync;
         }
     } else {

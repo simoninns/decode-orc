@@ -162,9 +162,17 @@ jobs:
           $configurePreset = "windows-gui-release"
           $buildPreset = "build-windows-gui-release"
           $projectVersion = "${{ steps.version.outputs.cmake_version }}"
+          $ezpwdIncludeDir = "$PWD\external\ezpwd-reed-solomon\c++"
+
+          if (-not (Test-Path "$ezpwdIncludeDir\ezpwd\rs") -or -not (Test-Path "$ezpwdIncludeDir\ezpwd\rs_base")) {
+            Write-Error "Expected EZPWD headers not found at $ezpwdIncludeDir"
+            exit 1
+          }
+          Write-Host "Using EZPWD_INCLUDE_DIR=$ezpwdIncludeDir"
 
           cmake --preset $configurePreset `
             "-DPROJECT_VERSION_OVERRIDE=$projectVersion" `
+            "-DEZPWD_INCLUDE_DIR=$ezpwdIncludeDir" `
             -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed"
           cmake --build --preset $buildPreset
 

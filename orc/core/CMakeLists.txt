@@ -178,29 +178,39 @@ endif()
 # EZPWD provides header-only includes such as <ezpwd/rs> and <ezpwd/rs_base>.
 set(EZPWD_INCLUDE_DIR "${EZPWD_INCLUDE_DIR}" CACHE PATH "Path containing ezpwd headers (root that contains ezpwd/rs)")
 
+set(_EZPWD_SEARCH_PATHS
+    "/app/include"
+    "${ORC_REPO_ROOT}/external/ezpwd-reed-solomon/c++"
+    "${CMAKE_SOURCE_DIR}/external/ezpwd-reed-solomon/c++"
+    "${CMAKE_SOURCE_DIR}/../external/ezpwd-reed-solomon/c++"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../external/ezpwd-reed-solomon/c++"
+    "/usr/local/include"
+    "/usr/include"
+)
+
 if(NOT EZPWD_INCLUDE_DIR AND DEFINED ENV{EZPWD_INCLUDE_DIR} AND NOT "$ENV{EZPWD_INCLUDE_DIR}" STREQUAL "")
     set(EZPWD_INCLUDE_DIR "$ENV{EZPWD_INCLUDE_DIR}" CACHE PATH "Path containing ezpwd headers (root that contains ezpwd/rs)" FORCE)
 endif()
 
 if(NOT EZPWD_INCLUDE_DIR)
     find_path(EZPWD_INCLUDE_DIR
-        NAMES ezpwd/rs
-        PATHS
-            "/app/include"
-            "${ORC_REPO_ROOT}/external/ezpwd-reed-solomon/c++"
-            "/usr/local/include"
-            "/usr/include"
+        NAMES ezpwd/rs ezpwd/rs_base
+        PATHS ${_EZPWD_SEARCH_PATHS}
     )
 endif()
 
-if(EZPWD_INCLUDE_DIR)
+if(EZPWD_INCLUDE_DIR AND EXISTS "${EZPWD_INCLUDE_DIR}/ezpwd/rs" AND EXISTS "${EZPWD_INCLUDE_DIR}/ezpwd/rs_base")
     target_include_directories(orc-core PRIVATE "${EZPWD_INCLUDE_DIR}")
     target_compile_definitions(orc-core PUBLIC ORC_HAVE_EZPWD)
     message(STATUS "Using ezpwd headers from: ${EZPWD_INCLUDE_DIR}")
 else()
+    if(EZPWD_INCLUDE_DIR)
+        message(STATUS "EZPWD_INCLUDE_DIR was set but required headers were not found under: ${EZPWD_INCLUDE_DIR}")
+    endif()
     message(FATAL_ERROR
         "EZPWD headers not found. The EFM decoder stage is fully integrated and requires ezpwd headers "
-        "(<ezpwd/rs_base> and <ezpwd/rs>). Set EZPWD_INCLUDE_DIR to the include root containing ezpwd/rs."
+        "(<ezpwd/rs_base> and <ezpwd/rs>). Set EZPWD_INCLUDE_DIR to the include root containing ezpwd/rs. "
+        "Searched defaults: ${_EZPWD_SEARCH_PATHS}"
     )
 endif()
 

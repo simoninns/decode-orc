@@ -36,7 +36,7 @@ jobs:
       - name: Ensure EZPWD source is present
         shell: bash
         run: |
-          if [[ ! -f external/ezpwd-reed-solomon/c++/ezpwd/rs ]]; then
+          if [[ ! -d external/ezpwd-reed-solomon/c++/ezpwd/rs ]]; then
             echo "EZPWD source not present in checkout; cloning fallback source..."
             mkdir -p external
             git clone --no-checkout --filter=blob:none https://github.com/pjkundert/ezpwd-reed-solomon external/ezpwd-reed-solomon

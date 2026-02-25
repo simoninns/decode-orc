@@ -9,6 +9,7 @@
 
 #if defined(_MSC_VER)
 #include <BaseTsd.h>
+#include <iso646.h>
 using ssize_t = SSIZE_T;
 #endif
 

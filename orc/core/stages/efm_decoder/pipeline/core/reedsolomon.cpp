@@ -7,6 +7,11 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+using ssize_t = SSIZE_T;
+#endif
+
 #include "ezpwd/rs_base"
 #include "ezpwd/rs"
 #include "reedsolomon.h"

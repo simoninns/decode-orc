@@ -114,10 +114,9 @@ jobs:
           $vcpkgRoot = "$PWD\vcpkg"
           echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
           
-          # CRITICAL: Enable binary caching to download pre-built packages
-          # This reduces build time from hours to minutes for Qt, FFmpeg, etc.
-          # Order matters: GitHub Actions cache first, then Azure blob cache (read-only)
-          echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite;default,readwrite" >> $env:GITHUB_ENV
+          # Enable binary caching using vcpkg's default local archive backend.
+          # The local archive path is persisted by actions/cache in this workflow.
+          echo "VCPKG_BINARY_SOURCES=clear;default,readwrite" >> $env:GITHUB_ENV
           
           Write-Host "vcpkg setup complete with binary caching enabled"
 
@@ -182,7 +181,16 @@ jobs:
             "-DPROJECT_VERSION_OVERRIDE=$projectVersion" `
             "-DEZPWD_INCLUDE_DIR=$ezpwdIncludeDir" `
             -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "CMake configure failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
           cmake --build --preset $buildPreset
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "CMake build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
           # Ensure GUI binary is built (required for MSI packaging)
           $guiBuilt = Get-ChildItem -Path "build/windows-gui-release/bin" -Recurse -Filter "orc-gui.exe" -ErrorAction SilentlyContinue | Select-Object -First 1

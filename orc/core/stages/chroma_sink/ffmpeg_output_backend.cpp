@@ -24,6 +24,71 @@
 
 namespace orc {
 
+namespace {
+
+bool fillAudioFrameFromInterleavedS16(
+    AVFrame* audio_frame,
+    AVSampleFormat sample_fmt,
+    const std::vector<int16_t>& audio_buffer,
+    int frame_size)
+{
+    // audio_buffer is interleaved stereo: [L0, R0, L1, R1, ...]
+    switch (sample_fmt) {
+    case AV_SAMPLE_FMT_FLTP: {
+        float* left_channel = reinterpret_cast<float*>(audio_frame->data[0]);
+        float* right_channel = reinterpret_cast<float*>(audio_frame->data[1]);
+        for (int i = 0; i < frame_size; i++) {
+            left_channel[i] = audio_buffer[i * 2] / 32768.0f;
+            right_channel[i] = audio_buffer[i * 2 + 1] / 32768.0f;
+        }
+        return true;
+    }
+    case AV_SAMPLE_FMT_FLT: {
+        float* out = reinterpret_cast<float*>(audio_frame->data[0]);
+        for (int i = 0; i < frame_size; i++) {
+            out[i * 2] = audio_buffer[i * 2] / 32768.0f;
+            out[i * 2 + 1] = audio_buffer[i * 2 + 1] / 32768.0f;
+        }
+        return true;
+    }
+    case AV_SAMPLE_FMT_S16: {
+        int16_t* out = reinterpret_cast<int16_t*>(audio_frame->data[0]);
+        std::copy_n(audio_buffer.begin(), static_cast<size_t>(frame_size * 2), out);
+        return true;
+    }
+    case AV_SAMPLE_FMT_S16P: {
+        int16_t* left_channel = reinterpret_cast<int16_t*>(audio_frame->data[0]);
+        int16_t* right_channel = reinterpret_cast<int16_t*>(audio_frame->data[1]);
+        for (int i = 0; i < frame_size; i++) {
+            left_channel[i] = audio_buffer[i * 2];
+            right_channel[i] = audio_buffer[i * 2 + 1];
+        }
+        return true;
+    }
+    case AV_SAMPLE_FMT_S32: {
+        int32_t* out = reinterpret_cast<int32_t*>(audio_frame->data[0]);
+        for (int i = 0; i < frame_size; i++) {
+            out[i * 2] = static_cast<int32_t>(audio_buffer[i * 2]) << 16;
+            out[i * 2 + 1] = static_cast<int32_t>(audio_buffer[i * 2 + 1]) << 16;
+        }
+        return true;
+    }
+    case AV_SAMPLE_FMT_S32P: {
+        int32_t* left_channel = reinterpret_cast<int32_t*>(audio_frame->data[0]);
+        int32_t* right_channel = reinterpret_cast<int32_t*>(audio_frame->data[1]);
+        for (int i = 0; i < frame_size; i++) {
+            left_channel[i] = static_cast<int32_t>(audio_buffer[i * 2]) << 16;
+            right_channel[i] = static_cast<int32_t>(audio_buffer[i * 2 + 1]) << 16;
+        }
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
 FFmpegOutputBackend::FFmpegOutputBackend()
 {
 }
@@ -1013,12 +1078,11 @@ bool FFmpegOutputBackend::finalize()
             
             // Encode the final frame
             av_frame_make_writable(audio_frame_);
-            float* left_channel = reinterpret_cast<float*>(audio_frame_->data[0]);
-            float* right_channel = reinterpret_cast<float*>(audio_frame_->data[1]);
-            
-            for (int i = 0; i < frame_size; i++) {
-                left_channel[i] = audio_buffer_[i * 2] / 32768.0f;
-                right_channel[i] = audio_buffer_[i * 2 + 1] / 32768.0f;
+            if (!fillAudioFrameFromInterleavedS16(audio_frame_, audio_codec_ctx_->sample_fmt, audio_buffer_, frame_size)) {
+                ORC_LOG_ERROR("FFmpegOutputBackend: Unsupported audio sample format {} during finalize", 
+                              static_cast<int>(audio_codec_ctx_->sample_fmt));
+                cleanup();
+                return false;
             }
             
             audio_frame_->pts = audio_pts_;
@@ -1238,23 +1302,18 @@ bool FFmpegOutputBackend::encodeAudioForFrame()
     
     // Encode audio in chunks of frame_size from the persistent buffer
     while (audio_buffer_.size() >= static_cast<size_t>(frame_size * 2)) {  // *2 for stereo interleaved
-        // Convert int16 interleaved PCM to float planar format required by AAC encoder
+        // Convert interleaved int16 PCM to the encoder's required sample format
         av_frame_make_writable(audio_frame_);
-        
-        float* left_channel = reinterpret_cast<float*>(audio_frame_->data[0]);
-        float* right_channel = reinterpret_cast<float*>(audio_frame_->data[1]);
-        
-        // Convert interleaved samples to planar from start of buffer
-        // audio_buffer_ is [L0, R0, L1, R1, L2, R2, ...]
-        for (int i = 0; i < frame_size; i++) {
-            left_channel[i] = audio_buffer_[i * 2] / 32768.0f;
-            right_channel[i] = audio_buffer_[i * 2 + 1] / 32768.0f;
+        if (!fillAudioFrameFromInterleavedS16(audio_frame_, audio_codec_ctx_->sample_fmt, audio_buffer_, frame_size)) {
+            ORC_LOG_ERROR("FFmpegOutputBackend: Unsupported audio sample format {}", 
+                          static_cast<int>(audio_codec_ctx_->sample_fmt));
+            return false;
         }
         
         audio_frame_->pts = audio_pts_;
         audio_pts_ += frame_size;
         
-        ORC_LOG_DEBUG("FFmpegOutputBackend: Encoding AAC frame with {} samples, pts={}, buffer_remaining={}", 
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Encoding audio frame with {} samples, pts={}, buffer_remaining={}", 
                      frame_size, audio_frame_->pts, (audio_buffer_.size() / 2) - frame_size);
         
         // Send frame to encoder

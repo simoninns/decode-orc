@@ -18,7 +18,7 @@
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/observation_context.h"
 #include "../core/include/observation_cache.h"
-#include "../core/stages/ld_sink/ld_sink_stage.h"
+#include "../core/stages/triggerable_stage.h"
 #include "../core/stages/dropout_analysis_sink/dropout_analysis_sink_stage.h"
 #include "../core/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
 #include "../core/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"

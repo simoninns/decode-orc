@@ -74,7 +74,7 @@ struct NodeCapabilities {
  */
 using TriggerProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
 
-// Forward declaration from ld_sink_stage.h
+// Forward declaration from triggerable_stage.h
 class TriggerableStage;
 
 namespace project_io {

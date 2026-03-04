@@ -34,7 +34,7 @@
 #include "stage_registry.h"
 #include "project_to_dag.h"
 #include "dag_executor.h"
-#include "stages/ld_sink/ld_sink_stage.h"
+#include "stages/triggerable_stage.h"
 #include "observation_context.h"
 #include <fstream>
 #include <filesystem>

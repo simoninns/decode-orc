@@ -14,7 +14,7 @@
 #include "stage_parameter.h"
 #include <node_type.h>
 #include "video_field_representation.h"
-#include "../ld_sink/ld_sink_stage.h"  // For TriggerableStage interface
+#include "../triggerable_stage.h"
 #include "snr_analysis_types.h"
 #include <atomic>
 #include <map>

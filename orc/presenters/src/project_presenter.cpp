@@ -14,7 +14,8 @@
 #include <orc_source_parameters.h>
 #include "../core/include/stage_parameter.h"
 #include "../core/include/logging.h"
-#include "../core/stages/ld_sink/ld_sink_stage.h"  // For TriggerableStage definition
+#include "../core/stages/triggerable_stage.h"
+#include "../core/tbc_source_internal/tbc_metadata.h"   // for TBCMetaDataReader
 #include <stdexcept>
 #include <algorithm>
 

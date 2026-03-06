@@ -1,5 +1,5 @@
 /*
-* File:        vbi_writer_util.cpp
+ * File:        daphne_vbi_writer_util.cpp
  * Module:      orc-core
  * Purpose:     VBI Writer Util implementation
  *
@@ -7,19 +7,19 @@
  * SPDX-FileCopyrightText: 2026 Matt Ownby
  */
 
-#include "vbi_writer_util.h"
+#include "daphne_vbi_writer_util.h"
 #include "video_metadata_types.h"
 
 namespace orc
 {
 
-void VBIWriterUtil::write_header() const
+void DaphneVBIWriterUtil::write_header() const
 {
     constexpr uint8_t arrHeader[4] = { '1', 'V', 'B', 'I' };
     writer_.write(arrHeader, sizeof(arrHeader));
 }
 
-void VBIWriterUtil::write_observations(FieldID field_id,
+void DaphneVBIWriterUtil::write_observations(FieldID field_id,
                                         const ObservationContext& context) const
 {
     VbiData vbi;

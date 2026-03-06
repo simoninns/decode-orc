@@ -1,5 +1,5 @@
 /*
-* File:        vbi_writer_util.h
+ * File:        daphne_vbi_writer_util.h
  * Module:      orc-core
  * Purpose:     VBI Writer Util implementation
  *
@@ -22,11 +22,11 @@ namespace orc
  *
  * Writes the 4-byte header and 10-byte VBI entries for each field.
  */
-class VBIWriterUtil
+class DaphneVBIWriterUtil
 {
 public:
-    VBIWriterUtil(BufferedFileWriter<uint8_t>& writer) : writer_(writer) {}
-    ~VBIWriterUtil() = default;
+    DaphneVBIWriterUtil(BufferedFileWriter<uint8_t>& writer) : writer_(writer) {}
+    ~DaphneVBIWriterUtil() = default;
 
     void write_header() const;
     void write_observations(FieldID field_id, const ObservationContext& context) const;

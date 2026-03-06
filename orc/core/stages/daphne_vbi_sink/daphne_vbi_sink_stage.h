@@ -1,5 +1,5 @@
 /*
-* File:        vbi_sink_stage.h
+ * File:        daphne_vbi_sink_stage.h
  * Module:      orc-core
  * Purpose:     Generate .VBI binary files
  *
@@ -38,10 +38,10 @@ namespace orc
  * Parameters:
  * - output_path: Output file path
  */
-class VBISinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage {
+class DaphneVBISinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage {
 public:
-    VBISinkStage() = default;
-    ~VBISinkStage() override = default;
+    DaphneVBISinkStage() = default;
+    ~DaphneVBISinkStage() override = default;
 
     // DAGStage interface
     std::string version() const override { return "1.0"; }

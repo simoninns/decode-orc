@@ -33,6 +33,7 @@ void force_link_VideoParamsStage();
 void force_link_DropoutAnalysisSinkStage();
 void force_link_SNRAnalysisSinkStage();
 void force_link_BurstLevelAnalysisSinkStage();
+void force_link_DaphneVBISinkStage();
 
 /**
  * @brief Force linking of all stage object files
@@ -73,6 +74,7 @@ void force_stage_linking() {
     force_link_DropoutAnalysisSinkStage();
     force_link_SNRAnalysisSinkStage();
     force_link_BurstLevelAnalysisSinkStage();
+    force_link_DaphneVBISinkStage();
 }
 
 } // namespace orc

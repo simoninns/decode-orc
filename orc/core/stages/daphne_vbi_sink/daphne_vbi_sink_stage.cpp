@@ -16,16 +16,16 @@
 #include "logging.h"
 #include "biphase_observer.h"
 #include "white_flag_observer.h"
-#include <fstream>
 #include <filesystem>
 #include <algorithm>
 #include <memory>
+#include "../../factories.h"
 
 namespace orc
 {
 
 // Register stage with registry
-ORC_REGISTER_STAGE(DaphneVBISinkStage)
+ORC_REGISTER_STAGE_WITH_FACTORIES(DaphneVBISinkStage)
 
 // Force linker to include this object file
 void force_link_DaphneVBISinkStage() {}
@@ -186,14 +186,14 @@ bool DaphneVBISinkStage::write_vbi(
         ORC_LOG_DEBUG("Opening VBI file for writing: {}", final_vbi_path);
 
         // Open VBI file with buffered writer (1MB buffer chosen arbitrarily)
-        BufferedFileWriter<uint8_t> vbi_writer(1 * 1024 * 1024);
-        if (!vbi_writer.open(final_vbi_path)) {
+        std::unique_ptr<IFileWriter<uint8_t>> vbi_writer = factories_->create_instance_buffered_file_writer_uint8(1 * 1024 * 1024);
+        if (!vbi_writer->open(final_vbi_path)) {
             ORC_LOG_ERROR("Failed to open VBI file for writing: {}", final_vbi_path);
             return false;
         }
 
         // Create VBI writer instance (TODO : use abstract factory in the future?)
-        DaphneVBIWriterUtil vbi_writer_util(vbi_writer);
+        DaphneVBIWriterUtil vbi_writer_util(vbi_writer.get());
         vbi_writer_util.write_header();  // header is required at the beginning of .VBI file
 
         // Get video parameters
@@ -229,7 +229,7 @@ bool DaphneVBISinkStage::write_vbi(
         for (FieldID field_id : field_ids) {
             // Check for cancellation
             if (cancel_requested_.load()) {
-                vbi_writer.close();
+                vbi_writer->close();
                 ORC_LOG_WARN("DaphneVBISink: Export cancelled by user");
                 is_processing_.store(false);
                 return false;
@@ -248,7 +248,7 @@ bool DaphneVBISinkStage::write_vbi(
             }
 
             // Write observations to VBI file
-            vbi_writer_util.write_observations(field_id, observation_context);
+            vbi_writer_util.write_observations(field_id, &observation_context);
 
             fields_processed++;
 
@@ -267,7 +267,7 @@ bool DaphneVBISinkStage::write_vbi(
             }
         }
 
-        vbi_writer.close();
+        vbi_writer->close();
 
         ORC_LOG_DEBUG("Successfully exported {} fields", fields_processed);
         return true;

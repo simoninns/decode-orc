@@ -15,24 +15,11 @@
 #include <vector>
 #include <variant>
 #include <optional>
-#include <cstdint>
+
+#include "observation_context_interface.h"
 #include "observation_schema.h"
 
 namespace orc {
-
-/**
- * @brief Type-safe observation value
- * 
- * Observations can be various types depending on what is being measured.
- * This variant covers common observation data types.
- */
-using ObservationValue = std::variant<
-    int32_t,           // Integer values (e.g., picture number, chapter)
-    int64_t,           // Large integer values (e.g., field sequence numbers)
-    double,            // Floating point values (e.g., burst level, SNR)
-    std::string,       // String values (e.g., timecode, text, confidence levels)
-    bool               // Boolean values (e.g., flag present/absent)
->;
 
 /**
  * @brief Pipeline-scoped observation storage
@@ -54,7 +41,7 @@ using ObservationValue = std::variant<
  *     int32_t picture_number = std::get<int32_t>(*pn);
  * }
  */
-class ObservationContext {
+class ObservationContext : public IObservationContext {
 public:
     ObservationContext() = default;
     
@@ -69,7 +56,7 @@ public:
     void set(FieldID field_id, 
              const std::string& namespace_, 
              const std::string& key, 
-             const ObservationValue& value);
+             const ObservationValue& value) override;
     
     /**
      * @brief Get an observation value for a specific field
@@ -81,7 +68,7 @@ public:
      */
     std::optional<ObservationValue> get(FieldID field_id,
                                         const std::string& namespace_, 
-                                        const std::string& key) const;
+                                        const std::string& key) const override;
     
     /**
      * @brief Check if an observation exists for a specific field
@@ -93,7 +80,7 @@ public:
      */
     bool has(FieldID field_id,
              const std::string& namespace_, 
-             const std::string& key) const;
+             const std::string& key) const override;
     
     /**
      * @brief Get all observation keys for a field in a namespace
@@ -103,7 +90,7 @@ public:
      * @return Vector of observation keys
      */
     std::vector<std::string> get_keys(FieldID field_id,
-                                      const std::string& namespace_) const;
+                                      const std::string& namespace_) const override;
     
     /**
      * @brief Get all namespaces that have observations for a field
@@ -111,7 +98,7 @@ public:
      * @param field_id Field identifier
      * @return Vector of namespace names
      */
-    std::vector<std::string> get_namespaces(FieldID field_id) const;
+    std::vector<std::string> get_namespaces(FieldID field_id) const override;
     
     /**
      * @brief Get all observations for a specific field
@@ -120,21 +107,21 @@ public:
      * @return Map of namespace -> (key -> value)
      */
     std::map<std::string, std::map<std::string, ObservationValue>> 
-    get_all_observations(FieldID field_id) const;
+    get_all_observations(FieldID field_id) const override;
     
     /**
      * @brief Clear all observations
      * 
      * Should be called when starting a new processing run.
      */
-    void clear();
+    void clear() override;
     
     /**
      * @brief Clear observations for a specific field
      * 
      * @param field_id Field identifier
      */
-    void clear_field(FieldID field_id);
+    void clear_field(FieldID field_id) override;
 
     /**
      * @brief Register observation schema entries to enable type validation
@@ -146,12 +133,12 @@ public:
      * data), but if a key exists in the schema and the type mismatches,
      * set() will throw std::invalid_argument.
      */
-    void register_schema(const std::vector<ObservationKey>& keys);
+    void register_schema(const std::vector<ObservationKey>& keys) override;
 
     /**
      * @brief Clear all registered schema entries
      */
-    void clear_schema();
+    void clear_schema() override;
 
 private:
     // Storage: field_id -> namespace -> key -> value

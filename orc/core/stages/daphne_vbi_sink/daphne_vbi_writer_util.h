@@ -25,14 +25,14 @@ namespace orc
 class DaphneVBIWriterUtil
 {
 public:
-    DaphneVBIWriterUtil(BufferedFileWriter<uint8_t>& writer) : writer_(writer) {}
+    DaphneVBIWriterUtil(IFileWriter<uint8_t> *pWriter) : pWriter_(pWriter) {}
     ~DaphneVBIWriterUtil() = default;
 
     void write_header() const;
-    void write_observations(FieldID field_id, const ObservationContext& context) const;
+    void write_observations(FieldID field_id, const IObservationContext *pContext) const;
 
 private:
-    BufferedFileWriter<uint8_t>& writer_;
+    IFileWriter<uint8_t> *pWriter_;
 };
 
 }

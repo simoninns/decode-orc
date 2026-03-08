@@ -20,6 +20,8 @@
 #include <memory>
 #include <functional>
 #include <atomic>
+#include <utility>
+#include "../../factories_interface.h"
 
 namespace orc
 {
@@ -40,7 +42,7 @@ namespace orc
  */
 class DaphneVBISinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage {
 public:
-    DaphneVBISinkStage() = default;
+    DaphneVBISinkStage(std::unique_ptr<IFactories> factories) : factories_(std::move(factories)) {}
     ~DaphneVBISinkStage() override = default;
 
     // DAGStage interface
@@ -89,6 +91,7 @@ private:
     TriggerProgressCallback progress_callback_;  // Progress callback for trigger operations
     std::atomic<bool> is_processing_{false};
     std::atomic<bool> cancel_requested_{false};
+    std::unique_ptr<IFactories> factories_;
 
     // Helper methods
     bool write_vbi(

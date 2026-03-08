@@ -16,6 +16,8 @@
 #include <cstring>
 #include <stdexcept>
 
+#include "file_io_interface.h"
+
 namespace orc {
 
 /**
@@ -27,7 +29,7 @@ namespace orc {
  * Template parameter T is the data type being written (e.g., uint16_t, int16_t, uint8_t)
  */
 template<typename T>
-class BufferedFileWriter {
+class BufferedFileWriter : public IFileWriter<T> {
 public:
     /**
      * @brief Construct a buffered writer
@@ -46,7 +48,8 @@ public:
     /**
      * @brief Destructor - automatically flushes and closes
      */
-    ~BufferedFileWriter() {
+    ~BufferedFileWriter() override
+    {
         if (is_open_) {
             try {
                 close();
@@ -71,7 +74,8 @@ public:
      * @return true if opened successfully
      */
     bool open(const std::string& filepath, 
-              std::ios::openmode mode = std::ios::binary | std::ios::trunc) {
+              std::ios::openmode mode = std::ios::binary | std::ios::trunc) override
+    {
         if (is_open_) {
             close();
         }
@@ -94,7 +98,8 @@ public:
      * @param data Pointer to data
      * @param count Number of elements to write
      */
-    void write(const T* data, size_t count) {
+    void write(const T* data, size_t count) override
+    {
         if (!is_open_) {
             throw std::runtime_error("BufferedFileWriter: File not open");
         }
@@ -123,7 +128,8 @@ public:
      * @brief Write a vector of data
      * @param data Vector of data to write
      */
-    void write(const std::vector<T>& data) {
+    void write(const std::vector<T>& data) override
+    {
         if (!data.empty()) {
             write(data.data(), data.size());
         }
@@ -132,7 +138,8 @@ public:
     /**
      * @brief Flush buffered data to disk
      */
-    void flush() {
+    void flush() override
+    {
         if (!is_open_) {
             throw std::runtime_error("BufferedFileWriter: File not open");
         }
@@ -155,7 +162,8 @@ public:
     /**
      * @brief Close the file (automatically flushes)
      */
-    void close() {
+    void close() override
+    {
         if (!is_open_) {
             return;
         }
@@ -168,7 +176,8 @@ public:
     /**
      * @brief Get total bytes written to file
      */
-    uint64_t bytes_written() const {
+    uint64_t bytes_written() const override
+    {
         return bytes_written_;
     }
 
@@ -182,14 +191,16 @@ public:
     /**
      * @brief Check if file is open
      */
-    bool is_open() const {
+    bool is_open() const override
+    {
         return is_open_;
     }
 
     /**
      * @brief Get the filepath
      */
-    const std::string& filepath() const {
+    const std::string& filepath() const override
+    {
         return filepath_;
     }
 

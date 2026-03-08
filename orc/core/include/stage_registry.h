@@ -170,3 +170,15 @@ public:
             return std::make_shared<StageClass>(); \
         }); \
     }
+
+/**
+ * @brief Macro for explicit stage registration with factory interface.
+ *
+ * Purpose: Alternate approach that reduces blast radius while we contemplate whether we like this architecture.
+ */
+#define ORC_REGISTER_STAGE_WITH_FACTORIES(StageClass) \
+namespace { \
+static ::orc::StageRegistration _orc_stage_registration_##StageClass([]() { \
+return std::make_shared<StageClass>(std::make_unique<Factories>()); \
+}); \
+}

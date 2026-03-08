@@ -15,7 +15,10 @@ add_library(orc-core STATIC
     
     # Logging
     logging.cpp
-    
+
+    # Abstract factories
+    factories.cpp
+
     # Crash handler
     crash_handler.cpp
     

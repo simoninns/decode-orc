@@ -16,18 +16,18 @@ namespace orc
 void DaphneVBIWriterUtil::write_header() const
 {
     constexpr uint8_t arrHeader[4] = { '1', 'V', 'B', 'I' };
-    writer_.write(arrHeader, sizeof(arrHeader));
+    pWriter_->write(arrHeader, sizeof(arrHeader));
 }
 
 void DaphneVBIWriterUtil::write_observations(FieldID field_id,
-                                        const ObservationContext& context) const
+                                        const IObservationContext *pContext) const
 {
     VbiData vbi;
     bool whiteFlagPresent = false;
     uint8_t line_buf[10];  // each entry is 10-bytes in size
 
     // grab whiteflag data
-    auto whiteflag_obs = context.get(field_id, "white_flag", "present");
+    auto whiteflag_obs = pContext->get(field_id, "white_flag", "present");
     if (whiteflag_obs && std::holds_alternative<bool>(*whiteflag_obs))
     {
         whiteFlagPresent = std::get<bool>(*whiteflag_obs);
@@ -35,9 +35,9 @@ void DaphneVBIWriterUtil::write_observations(FieldID field_id,
 
     // Extract and write VBI data (from BiphaseObserver)
     // The biphase observer stores the raw VBI words in "biphase" namespace
-    auto vbi0_obs = context.get(field_id, "biphase", "vbi_line_16");
-    auto vbi1_obs = context.get(field_id, "biphase", "vbi_line_17");
-    auto vbi2_obs = context.get(field_id, "biphase", "vbi_line_18");
+    auto vbi0_obs = pContext->get(field_id, "biphase", "vbi_line_16");
+    auto vbi1_obs = pContext->get(field_id, "biphase", "vbi_line_17");
+    auto vbi2_obs = pContext->get(field_id, "biphase", "vbi_line_18");
 
     if (vbi0_obs && vbi1_obs && vbi2_obs &&
     std::holds_alternative<int32_t>(*vbi0_obs) &&
@@ -71,7 +71,7 @@ void DaphneVBIWriterUtil::write_observations(FieldID field_id,
         }
     }
 
-    writer_.write(line_buf, sizeof(line_buf));
+    pWriter_->write(line_buf, sizeof(line_buf));
 }
 
 }

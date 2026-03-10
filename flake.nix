@@ -220,6 +220,9 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             gdb
             valgrind
+            linuxPackages.perf
+            hotspot
+            heaptrack
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             lldb
           ];

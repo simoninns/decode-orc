@@ -17,5 +17,10 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: Build
-        run: nix build .#decode-orc --print-build-logs
+      - name: Build and Test
+        run: |
+          nix develop -c bash -lc "
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON
+            cmake --build build -j
+            ctest --test-dir build --output-on-failure
+          "

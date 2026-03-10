@@ -22,7 +22,7 @@ using orc::ObservationKey;
 using orc::ObservationValue;
 
 // using different namespace from module-under-test so that we can use the same class names in the tests as in the module-under-test
-namespace orc_test
+namespace orc_unit_test
 {
     /**
      * See https://google.github.io/googletest/gmock_cook_book.html

@@ -19,7 +19,7 @@ using testing::NotNull;
 using testing::Invoke;
 
 // using different namespace from module-under-test so that we can use the same class names in the tests as in the module-under-test
-namespace orc_test
+namespace orc_unit_test
 {
 	// test fixture for DaphneVBIWriterUtil suite of tests
 	class DaphneVBIWriterUtil : public ::testing::Test

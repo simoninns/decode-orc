@@ -18,8 +18,10 @@ enable_testing()
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)
 
-# Add the subdirectory which contains the test project(s)
-add_subdirectory(orc-tests)
+if(BUILD_UNIT_TESTS)
+    # Add the subdirectory which contains the unit test project(s)
+    add_subdirectory(orc-unit-tests)
+endif()
 
 # MVP architecture validation (run via: ctest -R MVPArchitectureCheck)
 add_test(

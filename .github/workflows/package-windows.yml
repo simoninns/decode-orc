@@ -133,6 +133,15 @@ jobs:
           Write-Host "Dependencies installed. Checking for binary cache hits..."
           # Binary cache hits mean packages were downloaded, not compiled
 
+      - name: Fetch ezpwd-reed-solomon headers
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://github.com/pjkundert/ezpwd-reed-solomon `
+            external/ezpwd-reed-solomon
+          # Pin to the same commit used by flake.nix
+          git -C external/ezpwd-reed-solomon fetch --depth 1 origin 62a490c13f6e057fbf2dc6777fde234c7a19098e
+          git -C external/ezpwd-reed-solomon checkout 62a490c13f6e057fbf2dc6777fde234c7a19098e
+
       - name: Configure and build decode-orc
         shell: pwsh
         run: |
@@ -151,10 +160,12 @@ jobs:
           $configurePreset = "windows-gui-release"
           $buildPreset = "build-windows-gui-release"
           $projectVersion = "${{ steps.version.outputs.cmake_version }}"
+          $ezpwdDir = "$PWD\external\ezpwd-reed-solomon\c++"
 
           cmake --preset $configurePreset `
             "-DPROJECT_VERSION_OVERRIDE=$projectVersion" `
-            -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed"
+            -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed" `
+            "-DEZPWD_INCLUDE_DIR=$ezpwdDir"
           cmake --build --preset $buildPreset
 
           # Ensure GUI binary is built (required for MSI packaging)

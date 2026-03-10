@@ -26,6 +26,7 @@
 #include "../core/include/logging.h"
 #include <stdexcept>
 #include <fstream>
+#include <atomic>
 
 namespace orc::presenters {
 
@@ -53,10 +54,10 @@ public:
     std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
     std::shared_ptr<orc::ObservationCache> obs_cache_;
-    bool trigger_cancel_requested_;
-    bool trigger_active_;
+    std::atomic<bool> trigger_cancel_requested_;
+    std::atomic<bool> trigger_active_;
     uint64_t next_request_id_;
-    orc::TriggerableStage* current_trigger_stage_ = nullptr;
+    std::atomic<orc::TriggerableStage*> current_trigger_stage_{nullptr};
     
     void rebuildRenderersFromDAG() {
         auto dag = getConcreteDAG();
@@ -380,8 +381,8 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
         throw std::runtime_error("DAG not initialized");
     }
     
-    impl_->trigger_cancel_requested_ = false;
-    impl_->trigger_active_ = true;
+    impl_->trigger_cancel_requested_.store(false);
+    impl_->trigger_active_.store(true);
     uint64_t request_id = impl_->next_request_id_++;
     
     try {
@@ -395,13 +396,13 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
         }
         
         if (!target_node) {
-            impl_->trigger_active_ = false;
+            impl_->trigger_active_.store(false);
             throw std::runtime_error("Node '" + node_id.to_string() + "' not found in DAG");
         }
         
         auto trigger_stage = dynamic_cast<orc::TriggerableStage*>(target_node->stage.get());
         if (!trigger_stage) {
-            impl_->trigger_active_ = false;
+            impl_->trigger_active_.store(false);
             throw std::runtime_error("Stage '" + node_id.to_string() + "' is not triggerable");
         }
         
@@ -428,14 +429,14 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
         }
         
         // Store pointer to current trigger stage for cancellation
-        impl_->current_trigger_stage_ = trigger_stage;
+        impl_->current_trigger_stage_.store(trigger_stage);
         
         // Set up progress callback
         trigger_stage->set_progress_callback([this, trigger_stage, callback](
             size_t current, size_t total, const std::string& message) {
             
             // Check for cancellation
-            if (impl_->trigger_cancel_requested_) {
+            if (impl_->trigger_cancel_requested_.load()) {
                 trigger_stage->cancel_trigger();
             }
             
@@ -450,8 +451,8 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
         bool success = trigger_stage->trigger(inputs, target_node->parameters, obs_context);
         
         // Clear current trigger stage pointer
-        impl_->current_trigger_stage_ = nullptr;
-        impl_->trigger_active_ = false;
+        impl_->current_trigger_stage_.store(nullptr);
+        impl_->trigger_active_.store(false);
         
         if (!success) {
             std::string status = trigger_stage->get_trigger_status();
@@ -459,8 +460,8 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
         }
         
     } catch (...) {
-        impl_->current_trigger_stage_ = nullptr;
-        impl_->trigger_active_ = false;
+        impl_->current_trigger_stage_.store(nullptr);
+        impl_->trigger_active_.store(false);
         throw;
     }
     
@@ -469,15 +470,17 @@ uint64_t RenderPresenter::triggerStage(NodeID node_id, ProgressCallback callback
 
 void RenderPresenter::cancelTrigger()
 {
-    impl_->trigger_cancel_requested_ = true;
-    if (impl_->current_trigger_stage_) {
-        impl_->current_trigger_stage_->cancel_trigger();
+    impl_->trigger_cancel_requested_.store(true);
+    // Load the pointer atomically so the read is safe from the GUI thread
+    auto* stage = impl_->current_trigger_stage_.load();
+    if (stage) {
+        stage->cancel_trigger();
     }
 }
 
 bool RenderPresenter::isTriggerActive() const
 {
-    return impl_->trigger_active_;
+    return impl_->trigger_active_.load();
 }
 
 void RenderPresenter::setShowDropouts(bool show)

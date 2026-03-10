@@ -40,6 +40,7 @@ public:
      * @brief Construct parameter editor dialog
      * 
      * @param stage_name Name of the stage being edited
+     * @param stage_description Description of the stage (shown at the top of the dialog)
      * @param descriptors Parameter descriptors from the stage
      * @param current_values Current parameter values
      * @param project_path Path to the project file (for relative path conversion)
@@ -47,6 +48,7 @@ public:
      */
     explicit StageParameterDialog(
         const std::string& stage_name,
+        const std::string& stage_description,
         const std::vector<orc::ParameterDescriptor>& descriptors,
         const std::map<std::string, orc::ParameterValue>& current_values,
         const QString& project_path = QString(),

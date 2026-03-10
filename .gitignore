@@ -108,3 +108,6 @@ result-*
 
 # Crash bundles
 crash_bundle*
+
+# External vendor directories
+external/

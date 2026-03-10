@@ -15,6 +15,33 @@ endif()
 # Enable testing so we can register architecture checks with CTest
 enable_testing()
 
+# ---------------------------------------------------------------------------
+# EFM decoder dependencies
+# spdlog and fmt must be found before add_subdirectory(orc) so that the
+# IMPORTED targets exist when orc/core/stages/efm_sink/CMakeLists.txt calls
+# target_link_libraries on them.
+# EZPWD_INCLUDE_DIR is supplied by:
+#   - Nix builds:        -DEZPWD_INCLUDE_DIR=<store-path> via cmakeFlags
+#   - nix develop shell: ENV{EZPWD_INCLUDE_DIR} exported by shellHook
+# ---------------------------------------------------------------------------
+find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
+find_package(ZLIB REQUIRED)
+
+# Resolve the ezpwd include directory (header-only Reed-Solomon library).
+# Priority: CMake cache variable > EZPWD_INCLUDE_DIR env > EZPWD_DIR env.
+if(NOT EZPWD_INCLUDE_DIR)
+    if(DEFINED ENV{EZPWD_INCLUDE_DIR})
+        set(EZPWD_INCLUDE_DIR "$ENV{EZPWD_INCLUDE_DIR}")
+    elseif(DEFINED ENV{EZPWD_DIR})
+        set(EZPWD_INCLUDE_DIR "$ENV{EZPWD_DIR}")
+    else()
+        message(FATAL_ERROR "EZPWD_INCLUDE_DIR is not set. "
+            "Point it at the ezpwd-reed-solomon headers directory. "
+            "In the Nix dev shell this is exported automatically by the shellHook.")
+    endif()
+endif()
+
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)
 

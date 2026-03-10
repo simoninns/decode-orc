@@ -9,10 +9,14 @@
       url = "github:paceholder/nodeeditor";
       flake = false;
     };
+    ezpwd = {
+      url = "github:pjkundert/ezpwd-reed-solomon/62a490c13f6e057fbf2dc6777fde234c7a19098e";
+      flake = false;
+    };
   };
 
   # Build outputs for each supported system
-  outputs = { self, nixpkgs, flake-utils, qtnodes }:
+  outputs = { self, nixpkgs, flake-utils, qtnodes, ezpwd }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # Import Nixpkgs for this system
@@ -39,6 +43,15 @@
           else "0.0.0-dirty";
 
         version = builtins.replaceStrings ["\n" "/" " "] ["" "-" "-"] rawVersion;
+
+        # Filtered ezpwd headers-only derivation (avoids VERSION file collisions)
+        ezpwd-headers = pkgs.runCommand "ezpwd-headers" {} ''
+          mkdir -p $out
+          cp -r ${ezpwd}/c++ $out/ 2>/dev/null || true
+          if [ -d "$out/c++/ezpwd" ]; then
+            ln -s c++/ezpwd $out/ezpwd
+          fi
+        '';
 
         # Build QtNodes as a separate package (no external package needed)
         qtNodes = pkgs.stdenv.mkDerivation {
@@ -103,6 +116,7 @@
             yaml-cpp
             libpng
             fftw
+            zlib
 
             # FFmpeg components
             ffmpeg
@@ -124,6 +138,8 @@
             "-DBUILD_ENCODE_ORC=OFF"
             # Tell CMake where to find QtNodes
             "-DQtNodes_DIR=${qtNodes}/lib/cmake/QtNodes"
+            # Tell CMake where to find the ezpwd Reed-Solomon headers
+            "-DEZPWD_INCLUDE_DIR=${ezpwd-headers}"
             # Pass git version to CMake since .git dir isn't available in Nix builds
             "-DPROJECT_VERSION_OVERRIDE=${version}"
             # Define NODE_EDITOR_STATIC to match QtNodes static build
@@ -219,6 +235,9 @@
             # Set up ccache if available
             export CMAKE_CXX_COMPILER_LAUNCHER=ccache
             
+            # Expose ezpwd headers for manual cmake runs inside nix develop
+            export EZPWD_INCLUDE_DIR=${ezpwd-headers}
+
             # Ensure build directory exists
             mkdir -p build
           '';

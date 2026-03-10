@@ -1,0 +1,65 @@
+# ORC Project File
+# Version: 1.0
+
+project:
+  name: DS2_comS1
+  version: 1.0
+  video_format: PAL
+  source_format: Composite
+dag:
+  nodes:
+    - id: 1
+      stage: PAL_Comp_Source
+      node_type: SOURCE
+      display_name: PAL Composite Source
+      user_label: PAL Composite Source
+      x: 50
+      y: 50
+      parameters:
+        efm_path:
+          type: string
+          value: /home/sdi/Coding/efm-decoder/tests/data/DS2_comS1.efm
+        input_path:
+          type: string
+          value: /home/sdi/Coding/efm-decoder/tests/data/DS2_comS1.tbc
+        pcm_path:
+          type: string
+          value: /home/sdi/Coding/efm-decoder/tests/data/DS2_comS1.pcm
+    - id: 3
+      stage: EFMSink
+      node_type: SINK
+      display_name: EFM Decoder Sink
+      user_label: EFM Decoder Sink
+      x: 275
+      y: 50
+      parameters:
+        audacity_labels:
+          type: bool
+          value: false
+        decode_mode:
+          type: string
+          value: data
+        no_audio_concealment:
+          type: bool
+          value: false
+        no_timecodes:
+          type: bool
+          value: false
+        no_wav_header:
+          type: bool
+          value: false
+        output_metadata:
+          type: bool
+          value: true
+        output_path:
+          type: string
+          value: /home/sdi/tmp/efm/ds2_data.bin
+        report:
+          type: bool
+          value: true
+        zero_pad:
+          type: bool
+          value: false
+  edges:
+    - from: 1
+      to: 3

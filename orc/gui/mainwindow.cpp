@@ -1898,8 +1898,14 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
         display_name = type_info->display_name;
     }
     
+    // Retrieve stage description for the dialog header
+    std::string stage_description;
+    if (type_info && !type_info->description.empty()) {
+        stage_description = type_info->description;
+    }
+
     // Show parameter dialog
-    StageParameterDialog dialog(display_name, param_descriptors, current_values, 
+    StageParameterDialog dialog(display_name, stage_description, param_descriptors, current_values, 
                                project_.projectPath(), this);
     
     if (dialog.exec() == QDialog::Accepted) {

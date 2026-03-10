@@ -1,3 +1,19 @@
+# Collect EFM decoder pipeline sources and compile them directly into orc-core.
+# efm_sink_stage.cpp and efm_processor.cpp are listed explicitly below;
+# all other *.cpp files under stages/efm_sink/ are vendored third-party pipeline
+# sources (decoders, writers, efm-lib) compiled straight into orc-core.
+file(GLOB_RECURSE EFM_DECODER_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/*.cpp
+)
+list(REMOVE_ITEM EFM_DECODER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/efm_sink_stage.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/efm_processor.cpp"
+)
+
+# Suppress warnings on vendored third-party sources — these are not our code and
+# should not be held to the same -Wall/-Wextra standard as the rest of orc-core.
+set_source_files_properties(${EFM_DECODER_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
+
 add_library(orc-core STATIC
     # Phase 1: Foundations
     field_id.cpp
@@ -98,7 +114,10 @@ add_library(orc-core STATIC
     stages/chroma_sink/raw_output_backend.cpp
     stages/chroma_sink/ffmpeg_output_backend.cpp
     stages/audio_sink/audio_sink_stage.cpp
+    stages/raw_efm_sink/efm_sink_stage.cpp
     stages/efm_sink/efm_sink_stage.cpp
+    stages/efm_sink/efm_processor.cpp
+    ${EFM_DECODER_SOURCES}
     stages/cc_sink/cc_sink_stage.cpp
     stages/video_params/video_params_stage.cpp
     stages/dropout_analysis_sink/dropout_analysis_sink_stage.cpp
@@ -152,7 +171,12 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/audio_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/raw_efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/decoders
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/writers
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/efm-lib
+    ${EZPWD_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/cc_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/video_params
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_analysis_sink
@@ -173,13 +197,21 @@ target_include_directories(orc-core PRIVATE
 # Link against common types
 target_link_libraries(orc-core PUBLIC orc-common)
 
+# Link fmt (used by EFM decoder pipeline sources compiled directly into orc-core)
+target_link_libraries(orc-core PUBLIC fmt::fmt)
+
 # Warning flags
+# Note: -Wno-cpp suppresses #warning pragmas from system headers in Debug builds.
+# On NixOS the gcc-wrapper unconditionally injects -D_FORTIFY_SOURCE=2 (hardening),
+# but Debug builds use -O0, which causes glibc features.h to emit a #warning.
+# Since this is a Nix environment issue and not a code quality problem, we silence
+# it with -Wno-cpp (applies only to #warning/#pragma directives in system headers).
 target_compile_options(orc-core PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/W4>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/Od /Zi>
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2>
-    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Debug>>:-g -O0>
+    $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Debug>>:-g -O0 -Wno-cpp>
     $<$<AND:$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Release>>:-O3>
 )
 

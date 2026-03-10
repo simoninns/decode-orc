@@ -20,6 +20,7 @@
 
 StageParameterDialog::StageParameterDialog(
     const std::string& stage_name,
+    const std::string& stage_description,
     const std::vector<orc::ParameterDescriptor>& descriptors,
     const std::map<std::string, orc::ParameterValue>& current_values,
     const QString& project_path,
@@ -33,7 +34,16 @@ StageParameterDialog::StageParameterDialog(
     setMinimumWidth(400);
     
     auto* main_layout = new QVBoxLayout(this);
-    
+
+    // Stage description label (shown at the top when non-empty)
+    if (!stage_description.empty()) {
+        auto* desc_label = new QLabel(QString::fromStdString(stage_description));
+        desc_label->setWordWrap(true);
+        desc_label->setStyleSheet("color: palette(mid); font-style: italic;");
+        desc_label->setContentsMargins(0, 0, 0, 6);
+        main_layout->addWidget(desc_label);
+    }
+
     // Form layout for parameters
     form_layout_ = new QFormLayout();
     main_layout->addLayout(form_layout_);
@@ -581,12 +591,12 @@ void StageParameterDialog::update_dependencies()
                                      current_val) != dep.required_values.end();
         }
         
-        // Enable or disable the widget and label
+        // Show or hide the widget and its label row
         auto widget_it = parameter_widgets_.find(desc.name);
         if (widget_it != parameter_widgets_.end()) {
-            widget_it->second.widget->setEnabled(should_enable);
+            widget_it->second.widget->setVisible(should_enable);
             if (widget_it->second.label) {
-                widget_it->second.label->setEnabled(should_enable);
+                widget_it->second.label->setVisible(should_enable);
             }
         }
     }

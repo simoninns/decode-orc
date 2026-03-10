@@ -1,19 +1,18 @@
 /*
  * File:        efm_sink_stage.cpp
  * Module:      orc-core
- * Purpose:     EFM Data Sink Stage - writes EFM t-values to raw file
+ * Purpose:     EFM Decoder Sink Stage - decodes EFM t-values to audio WAV or data sectors
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #include "efm_sink_stage.h"
+#include "efm_processor.h"
 #include "logging.h"
 #include <common_types.h>
-#include "buffered_file_io.h"
 #include <stage_registry.h>
 #include <stdexcept>
-#include <fstream>
 
 namespace orc {
 
@@ -29,8 +28,9 @@ NodeTypeInfo EFMSinkStage::get_node_type_info() const {
     return NodeTypeInfo{
         NodeType::SINK,
         "EFMSink",
-        "EFM Data Sink",
-        "Extracts EFM t-values and writes to raw binary file",
+        "EFM Decoder Sink",
+        "Decodes EFM t-values from the VFR using the full EFM decode pipeline "
+        "(EFM -> audio WAV or ECMA-130 binary sector data)",
         1, 1,  // One input
         0, 0,  // No outputs (sink)
         VideoFormatCompatibility::ALL
@@ -50,24 +50,120 @@ std::vector<ArtifactPtr> EFMSinkStage::execute(
     return {};
 }
 
-std::vector<ParameterDescriptor> EFMSinkStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const {
+std::vector<ParameterDescriptor> EFMSinkStage::get_parameter_descriptors(
+    VideoSystem project_format, SourceType source_type) const {
     (void)project_format;
     (void)source_type;
     std::vector<ParameterDescriptor> descriptors;
-    
-    // output_path parameter
+
+    // output_path
     {
         ParameterDescriptor desc;
         desc.name = "output_path";
-        desc.display_name = "Output EFM File";
-        desc.description = "Path to output EFM data file (raw t-values)";
+        desc.display_name = "Output File";
+        desc.description = "Path to the decoded output file (.wav for audio mode, .bin for data mode)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = true;
         desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".efm";
+        desc.file_extension_hint = ".wav";
         descriptors.push_back(desc);
     }
-    
+
+    // decode_mode  (STRING with allowed_strings acts as an enum combo-box in the GUI)
+    {
+        ParameterDescriptor desc;
+        desc.name = "decode_mode";
+        desc.display_name = "Decode Mode";
+        desc.description = "Select audio decoding (outputs WAV/PCM) or data decoding (outputs ECMA-130 sectors)";
+        desc.type = ParameterType::STRING;
+        desc.constraints.required = true;
+        desc.constraints.allowed_strings = {"audio", "data"};
+        desc.constraints.default_value = std::string("audio");
+        descriptors.push_back(desc);
+    }
+
+    // no_timecodes  (audio + data)
+    {
+        ParameterDescriptor desc;
+        desc.name = "no_timecodes";
+        desc.display_name = "No Timecodes";
+        desc.description = "Disable timecode output";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        descriptors.push_back(desc);
+    }
+
+    // audacity_labels  (audio only)
+    {
+        ParameterDescriptor desc;
+        desc.name = "audacity_labels";
+        desc.display_name = "Audacity Labels";
+        desc.description = "Write an Audacity label file alongside the audio output";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.depends_on = ParameterDependency{"decode_mode", {"audio"}};
+        descriptors.push_back(desc);
+    }
+
+    // no_audio_concealment  (audio only)
+    {
+        ParameterDescriptor desc;
+        desc.name = "no_audio_concealment";
+        desc.display_name = "Disable Audio Concealment";
+        desc.description = "Disable interpolation-based audio error concealment";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.depends_on = ParameterDependency{"decode_mode", {"audio"}};
+        descriptors.push_back(desc);
+    }
+
+    // zero_pad  (audio only)
+    {
+        ParameterDescriptor desc;
+        desc.name = "zero_pad";
+        desc.display_name = "Zero-Pad Audio";
+        desc.description = "Zero-pad missing or short audio samples instead of skipping";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.depends_on = ParameterDependency{"decode_mode", {"audio"}};
+        descriptors.push_back(desc);
+    }
+
+    // no_wav_header  (audio only)
+    {
+        ParameterDescriptor desc;
+        desc.name = "no_wav_header";
+        desc.display_name = "Raw PCM (No WAV Header)";
+        desc.description = "Output raw PCM samples without a WAV header";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.depends_on = ParameterDependency{"decode_mode", {"audio"}};
+        descriptors.push_back(desc);
+    }
+
+    // output_metadata  (data only)
+    {
+        ParameterDescriptor desc;
+        desc.name = "output_metadata";
+        desc.display_name = "Output Bad Sector Map";
+        desc.description = "Write a bad-sector map metadata file alongside the sector output";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        desc.constraints.depends_on = ParameterDependency{"decode_mode", {"data"}};
+        descriptors.push_back(desc);
+    }
+
+    // report
+    {
+        ParameterDescriptor desc;
+        desc.name = "report";
+        desc.display_name = "Write Decode Report";
+        desc.description = "Write a detailed decode statistics report file";
+        desc.type = ParameterType::BOOL;
+        desc.constraints.default_value = false;
+        descriptors.push_back(desc);
+    }
+
     return descriptors;
 }
 
@@ -80,6 +176,35 @@ bool EFMSinkStage::set_parameters(const std::map<std::string, ParameterValue>& p
     return true;
 }
 
+std::string EFMSinkStage::get_trigger_status() const {
+    return last_status_;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static bool get_bool_param(const std::map<std::string, ParameterValue>& params,
+                            const std::string& name, bool default_val = false) {
+    auto it = params.find(name);
+    if (it == params.end()) return default_val;
+    if (const bool* b = std::get_if<bool>(&it->second)) return *b;
+    return default_val;
+}
+
+static std::string get_string_param(const std::map<std::string, ParameterValue>& params,
+                                     const std::string& name,
+                                     const std::string& default_val = "") {
+    auto it = params.find(name);
+    if (it == params.end()) return default_val;
+    if (const std::string* s = std::get_if<std::string>(&it->second)) return *s;
+    return default_val;
+}
+
+// ---------------------------------------------------------------------------
+// trigger()
+// ---------------------------------------------------------------------------
+
 bool EFMSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
@@ -87,124 +212,155 @@ bool EFMSinkStage::trigger(
     (void)observation_context;
     is_processing_.store(true);
     cancel_requested_.store(false);
-    
+
     try {
-        // Validate inputs
+        // ------------------------------------------------------------------
+        // 1. Validate input
+        // ------------------------------------------------------------------
         if (inputs.empty()) {
-            throw std::runtime_error("EFM sink requires one input (VideoFieldRepresentation)");
+            throw std::runtime_error("EFMSink requires one input (VideoFieldRepresentation)");
         }
-        
         auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
         if (!vfr) {
-            throw std::runtime_error("Input must be a VideoFieldRepresentation");
+            throw std::runtime_error("EFMSink input must be a VideoFieldRepresentation");
         }
-        
-        // Check if VFR has EFM
         if (!vfr->has_efm()) {
-            throw std::runtime_error("Input VFR does not have EFM data (no EFM file specified in source?)");
+            throw std::runtime_error("EFMSink: input VFR has no EFM data (no EFM file in source?)");
         }
-        
-        // Get parameters
-        auto output_path_it = parameters.find("output_path");
-        if (output_path_it == parameters.end()) {
-            throw std::runtime_error("output_path parameter is required");
+
+        // ------------------------------------------------------------------
+        // 2. Extract parameters
+        // ------------------------------------------------------------------
+        const std::string output_path = get_string_param(parameters, "output_path");
+        if (output_path.empty()) {
+            throw std::runtime_error("EFMSink: output_path parameter is required");
         }
-        std::string output_path = std::get<std::string>(output_path_it->second);
-        
-        ORC_LOG_INFO("EFMSink: Writing EFM data to {}", output_path);
-        
-        // Calculate field range
-        auto field_range = vfr->field_range();
-        FieldID start_field = field_range.start;
-        FieldID end_field = field_range.end;
-        
-        uint64_t total_fields = end_field.value() - start_field.value();
-        ORC_LOG_DEBUG("  Processing {} fields", total_fields);
-        
-        // First pass: count total t-values
+
+        const std::string decode_mode  = get_string_param(parameters, "decode_mode", "audio");
+        const bool audio_mode          = (decode_mode != "data");
+
+        const bool no_timecodes         = get_bool_param(parameters, "no_timecodes");
+        const bool audacity_labels      = get_bool_param(parameters, "audacity_labels");
+        const bool no_audio_concealment = get_bool_param(parameters, "no_audio_concealment");
+        const bool zero_pad             = get_bool_param(parameters, "zero_pad");
+        const bool no_wav_header        = get_bool_param(parameters, "no_wav_header");
+        const bool output_metadata      = get_bool_param(parameters, "output_metadata");
+        const bool report               = get_bool_param(parameters, "report");
+
+        ORC_LOG_INFO("EFMSink: mode={}, output={}", audio_mode ? "audio" : "data", output_path);
+
+        // ------------------------------------------------------------------
+        // 3. Count total EFM t-values (no buffer allocation)
+        // ------------------------------------------------------------------
+        const auto field_range  = vfr->field_range();
+        const FieldID start_fid = field_range.start;
+        const FieldID end_fid   = field_range.end;
+        const uint64_t total_fields = end_fid.value() - start_fid.value();
+
+        ORC_LOG_DEBUG("EFMSink: Counting EFM t-values across {} fields", total_fields);
+
         uint64_t total_tvalues = 0;
-        for (FieldID fid = start_field; fid < end_field; ++fid) {
+        for (FieldID fid = start_fid; fid < end_fid; ++fid) {
             total_tvalues += vfr->get_efm_sample_count(fid);
         }
-        
-        ORC_LOG_DEBUG("  Total EFM t-values: {}", total_tvalues);
-        
+
         if (total_tvalues == 0) {
-            throw std::runtime_error("No EFM t-values found in field range");
+            throw std::runtime_error("EFMSink: no EFM t-values found in field range");
         }
-        
-        // Open output file with buffered writer (4MB buffer for optimal performance)
-        BufferedFileWriter<uint8_t> writer(4 * 1024 * 1024);
-        if (!writer.open(output_path)) {
-            throw std::runtime_error("Failed to open output file: " + output_path);
-        }
-        
-        // Second pass: write EFM data using buffered writer
-        uint64_t tvalues_written = 0;
-        uint64_t invalid_tvalue_count = 0;
-        
-        for (FieldID fid = start_field; fid < end_field; ++fid) {
+        ORC_LOG_DEBUG("EFMSink: Total EFM t-values: {}", total_tvalues);
+
+        // ------------------------------------------------------------------
+        // 4. Accumulate all T-values into a flat contiguous buffer.
+        //
+        // Per-field streaming (1024-byte strides within each field) leaves a
+        // partial chunk at the end of every field whose size is field_size%1024.
+        // TvaluesToChannel's state machine has a >382-byte guard; if it is in
+        // ExpectingSync state when a <382-byte tail chunk arrives it will wait
+        // for the next chunk, which belongs to the NEXT field and therefore
+        // starts at a different byte offset than the standalone's file-read path.
+        // This misalignment can cause the second sync header to appear in a
+        // different chunk than in the standalone, subtly changing the pipeline
+        // state near CIRC delay-line gap boundaries and producing a few sectors
+        // that differ from the golden reference.
+        //
+        // Accumulating ALL T-values first and then handing them to
+        // processFromBuffer() guarantees strictly-aligned 1024-byte strides
+        // across the full byte sequence, identical to the standalone's
+        // processAllPipelines() file-read loop.
+        // ------------------------------------------------------------------
+        ORC_LOG_DEBUG("EFMSink: Accumulating {} T-values from {} fields", total_tvalues, total_fields);
+
+        std::vector<uint8_t> efm_buffer;
+        efm_buffer.reserve(total_tvalues);
+
+        uint64_t tvalues_accumulated = 0;
+        for (FieldID fid = start_fid; fid < end_fid; ++fid) {
             if (cancel_requested_.load()) {
-                writer.close();
                 last_status_ = "Cancelled by user";
                 ORC_LOG_WARN("EFMSink: {}", last_status_);
                 is_processing_.store(false);
                 return false;
             }
-            
-            // Get EFM t-values for this field
-            auto tvalues = vfr->get_efm_samples(fid);
-            if (!tvalues.empty()) {
-                // Validate t-values are in valid range [3, 11]
-                for (const auto& tval : tvalues) {
-                    if (tval < 3 || tval > 11) {
-                        invalid_tvalue_count++;
-                    }
-                }
-                
-                // Write t-values using buffered writer (automatically batches writes)
-                writer.write(tvalues);
-                tvalues_written += tvalues.size();
+
+            auto samples = vfr->get_efm_samples(fid);
+            efm_buffer.insert(efm_buffer.end(), samples.begin(), samples.end());
+            tvalues_accumulated += samples.size();
+
+            const uint64_t fields_done = fid.value() - start_fid.value() + 1;
+            if (fields_done % 10 == 0 && progress_callback_) {
+                progress_callback_(tvalues_accumulated, total_tvalues,
+                                   "Buffering EFM: field " +
+                                   std::to_string(fields_done) + "/" +
+                                   std::to_string(total_fields));
             }
-            
-            // Update progress
-            uint64_t current_field = fid.value() - start_field.value();
-            if (current_field % 10 == 0 && progress_callback_) {
-                progress_callback_(current_field, total_fields, 
-                                 "Writing EFM field " + std::to_string(current_field) + "/" + std::to_string(total_fields));
-            }
-            if (current_field % 100 == 0) {
-                double progress = static_cast<double>(current_field) / total_fields * 100.0;
-                ORC_LOG_DEBUG("EFMSink: Progress {:.1f}%", progress);
+            if (fields_done % 200 == 0) {
+                ORC_LOG_DEBUG("EFMSink: Buffered {}/{} fields ({} t-values)", fields_done, total_fields, tvalues_accumulated);
             }
         }
-        
-        writer.close();
-        
-        ORC_LOG_INFO("EFMSink: Successfully wrote {} t-values to {}", 
-                    tvalues_written, output_path);
-        ORC_LOG_DEBUG("  Expected t-values: {}, Actual t-values: {}, Match: {}", 
-                     total_tvalues, tvalues_written, total_tvalues == tvalues_written ? "YES" : "NO");
-        
-        if (invalid_tvalue_count > 0) {
-            ORC_LOG_WARN("EFMSink: Found {} invalid t-values (outside range [3, 11])", 
-                        invalid_tvalue_count);
+
+        ORC_LOG_DEBUG("EFMSink: Buffer complete: {} bytes", efm_buffer.size());
+
+        // ------------------------------------------------------------------
+        // 5. Configure EfmProcessor and run the full decode pipeline.
+        //    processFromBuffer() feeds the buffer in strict 1024-byte strides
+        //    through the same pipeline as the standalone reference, then
+        //    flushes and closes all output writers.
+        // ------------------------------------------------------------------
+        EfmProcessor processor;
+        processor.setAudioMode(audio_mode);
+        processor.setNoTimecodes(no_timecodes);
+        processor.setAudacityLabels(audacity_labels);
+        processor.setNoAudioConcealment(no_audio_concealment);
+        processor.setZeroPad(zero_pad);
+        processor.setNoWavHeader(no_wav_header);
+        processor.setOutputMetadata(output_metadata);
+        processor.setReportOutput(report);
+
+        if (progress_callback_) {
+            progress_callback_(0, total_tvalues, "Decoding EFM...");
         }
-        
-        last_status_ = "Success: " + std::to_string(tvalues_written) + " t-values written";
+
+        const bool ok = processor.processFromBuffer(efm_buffer, output_path);
+
+        if (!ok) {
+            throw std::runtime_error("EFMSink: EfmProcessor::processFromBuffer() returned false");
+        }
+
+        if (progress_callback_) {
+            progress_callback_(total_tvalues, total_tvalues, "Done");
+        }
+
+        last_status_ = "Success: EFM decoded to " + output_path;
+        ORC_LOG_INFO("EFMSink: {}", last_status_);
         is_processing_.store(false);
         return true;
-        
+
     } catch (const std::exception& e) {
         last_status_ = std::string("Error: ") + e.what();
         ORC_LOG_ERROR("EFMSink: {}", e.what());
         is_processing_.store(false);
         return false;
     }
-}
-
-std::string EFMSinkStage::get_trigger_status() const {
-    return last_status_;
 }
 
 } // namespace orc

@@ -126,6 +126,9 @@
 
             # QtNodes built from flake input
             qtNodes
+
+            # Automated testing
+            gtest
           ];
 
           cmakeFlags = [

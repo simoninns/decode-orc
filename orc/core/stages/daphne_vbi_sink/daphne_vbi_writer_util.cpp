@@ -15,8 +15,8 @@ namespace orc
 
 void DaphneVBIWriterUtil::write_header() const
 {
-    constexpr uint8_t arrHeader[4] = { '1', 'V', 'B', 'I' };
-    pWriter_->write(arrHeader, sizeof(arrHeader));
+    const std::vector<uint8_t> header = { '1', 'V', 'B', 'I' };
+    pWriter_->write(header);
 }
 
 void DaphneVBIWriterUtil::write_observations(FieldID field_id,

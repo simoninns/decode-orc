@@ -11,13 +11,9 @@
 #include "daphne_vbi_writer_util.h"
 #include "stage_registry.h"
 #include "preview_renderer.h"
-#include "tbc_metadata_writer.h"
 #include "buffered_file_io.h"
 #include "logging.h"
-#include "biphase_observer.h"
-#include "white_flag_observer.h"
 #include <filesystem>
-#include <algorithm>
 #include <memory>
 #include "../../factories.h"
 

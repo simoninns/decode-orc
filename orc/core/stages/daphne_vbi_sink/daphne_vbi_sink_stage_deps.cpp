@@ -15,6 +15,7 @@
 #include "logging.h"
 #include "observer.h"
 #include "white_flag_observer.h"
+#include <algorithm>    // for sort
 
 namespace orc
 {

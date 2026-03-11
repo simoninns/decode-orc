@@ -133,7 +133,8 @@ add_library(orc-core STATIC
     project_to_dag.cpp
 )
 
-target_include_directories(orc-core PRIVATE
+# the scope needs to be PUBLIC so the unit test project can share these include directory rules
+target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/orc/view-types  # Access to view types (MVP architecture allows core -> view dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
@@ -158,6 +159,7 @@ target_include_directories(orc-core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/dropout_analysis_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/snr_analysis_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/daphne_vbi_sink
 )
 
 # =============================================================================

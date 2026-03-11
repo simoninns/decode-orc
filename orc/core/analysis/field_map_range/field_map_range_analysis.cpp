@@ -367,7 +367,7 @@ AnalysisResult FieldMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
         auto existing = obs_context.get(fid, "vbi", "picture_number");
         if (!existing) {
             // Extract VBI for this field only
-            biphase_observer.process_field(*source, fid, obs_context);
+            biphase_observer.process_field(*source, fid, &obs_context);
         }
     };
     

@@ -288,7 +288,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
                 scanned++;
                 
                 // Process field to populate observations
-                biphase_observer.process_field(*source, field_id, observation_context);
+                biphase_observer.process_field(*source, field_id, &observation_context);
                 
                 // Query the observation context for VBI frame number
                 int32_t frame_num = get_frame_number_from_vbi(observation_context, field_id, is_pal);
@@ -393,7 +393,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(const AnalysisContext& ctx,
                     }
                     
                     // Process field to populate observations
-                    biphase_observer.process_field(*source, field_id, observation_context);
+                    biphase_observer.process_field(*source, field_id, &observation_context);
                     
                     // Query the observation context for VBI frame number
                     int32_t frame_num = get_frame_number_from_vbi(observation_context, field_id, is_pal);

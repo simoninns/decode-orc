@@ -27,7 +27,8 @@ namespace orc_unit_test
 	public:
 		void SetUp() override
 		{
-			instance_ = std::make_unique<orc::DaphneVBIWriterUtil>(&mockFileWriterUint8_);
+			instance_ = std::make_unique<orc::DaphneVBIWriterUtil>();
+			instance_->set_writer(&mockFileWriterUint8_);
 		}
 
 		void TearDown() override

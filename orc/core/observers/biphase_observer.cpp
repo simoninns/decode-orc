@@ -134,7 +134,7 @@ static bool check_parity(uint32_t x4, uint32_t x5) {
 // Interpret the decoded VBI data according to IEC 60857 LaserDisc standard
 static void interpret_vbi_data(
     int32_t vbi16, int32_t vbi17, int32_t vbi18,
-    FieldID field_id, ObservationContext& context)
+    FieldID field_id, IObservationContext *pContext)
 {
     // IEC 60857-1986 - 10.1.3 Picture numbers (CAV discs) ----------------------------
     // Check for CAV picture number on lines 17 and 18
@@ -163,7 +163,7 @@ static void interpret_vbi_data(
     if ((vbi17 & 0xF00FFF) == 0x800DDD) {
         int32_t chapter;
         if (decode_bcd((vbi17 & 0x07F000) >> 12, chapter)) {
-            context.set(field_id, "vbi", "chapter_number", chapter);
+            pContext->set(field_id, "vbi", "chapter_number", chapter);
             ORC_LOG_DEBUG("BiphaseObserver: Chapter number {} from line 17", chapter);
         }
     }
@@ -171,7 +171,7 @@ static void interpret_vbi_data(
     if ((vbi18 & 0xF00FFF) == 0x800DDD) {
         int32_t chapter;
         if (decode_bcd((vbi18 & 0x07F000) >> 12, chapter)) {
-            context.set(field_id, "vbi", "chapter_number", chapter);
+            pContext->set(field_id, "vbi", "chapter_number", chapter);
             ORC_LOG_DEBUG("BiphaseObserver: Chapter number {} from line 18", chapter);
         }
     }
@@ -238,35 +238,35 @@ static void interpret_vbi_data(
     // Only store CLV timecode if ALL fields are present and valid
     if (clv_tc.hours != -1 && clv_tc.minutes != -1 && 
         clv_tc.seconds != -1 && clv_tc.picture_number != -1) {
-        context.set(field_id, "vbi", "clv_timecode_hours", clv_tc.hours);
-        context.set(field_id, "vbi", "clv_timecode_minutes", clv_tc.minutes);
-        context.set(field_id, "vbi", "clv_timecode_seconds", clv_tc.seconds);
-        context.set(field_id, "vbi", "clv_timecode_picture", clv_tc.picture_number);
+        pContext->set(field_id, "vbi", "clv_timecode_hours", clv_tc.hours);
+        pContext->set(field_id, "vbi", "clv_timecode_minutes", clv_tc.minutes);
+        pContext->set(field_id, "vbi", "clv_timecode_seconds", clv_tc.seconds);
+        pContext->set(field_id, "vbi", "clv_timecode_picture", clv_tc.picture_number);
         ORC_LOG_DEBUG("BiphaseObserver: Complete CLV timecode validated: {}:{}:{}.{}", 
                      clv_tc.hours, clv_tc.minutes, clv_tc.seconds, clv_tc.picture_number);
     }
 
     // Only set CAV picture number if CLV picture number not detected
     if (!has_clv_picture_number && cav_picture_number.has_value()) {
-        context.set(field_id, "vbi", "picture_number", cav_picture_number.value());
+        pContext->set(field_id, "vbi", "picture_number", cav_picture_number.value());
     }
     
     // IEC 60857-1986 - 10.1.1 Lead-in ------------------------------------------------
     if (vbi17 == 0x88FFFF || vbi18 == 0x88FFFF) {
-        context.set(field_id, "vbi", "lead_in", static_cast<int32_t>(1));
+        pContext->set(field_id, "vbi", "lead_in", static_cast<int32_t>(1));
         ORC_LOG_DEBUG("BiphaseObserver: Lead-in detected");
     }
     
     // IEC 60857-1986 - 10.1.2 Lead-out -----------------------------------------------
     if (vbi17 == 0x80EEEE || vbi18 == 0x80EEEE) {
-        context.set(field_id, "vbi", "lead_out", static_cast<int32_t>(1));
+        pContext->set(field_id, "vbi", "lead_out", static_cast<int32_t>(1));
         ORC_LOG_DEBUG("BiphaseObserver: Lead-out detected");
     }
     
     // IEC 60857-1986 - 10.1.4 Picture stop code --------------------------------------
     // Check for picture stop code on lines 16 and 17
     if (vbi16 == 0x82CFFF || vbi17 == 0x82CFFF) {
-        context.set(field_id, "vbi", "stop_code_present", static_cast<int32_t>(1));
+        pContext->set(field_id, "vbi", "stop_code_present", static_cast<int32_t>(1));
         ORC_LOG_DEBUG("BiphaseObserver: Picture stop code detected");
     }
     
@@ -280,7 +280,7 @@ static void interpret_vbi_data(
     if ((vbi16 & 0xFFF000) == 0x8DC000 || (vbi16 & 0xFFF000) == 0x8BA000) {
         // CX on or off?
         bool cx_enabled = ((vbi16 & 0x0FF000) == 0x0DC000);
-        context.set(field_id, "vbi", "programme_status_cx_enabled", cx_enabled ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_cx_enabled", cx_enabled ? 1 : 0);
         
         // Extract x3, x4, x5 parameters
         uint32_t x3 = (vbi16 & 0x000F00) >> 8;
@@ -289,23 +289,23 @@ static void interpret_vbi_data(
         
         // Check parity
         bool parity_valid = check_parity(x4, x5);
-        context.set(field_id, "vbi", "programme_status_parity_valid", parity_valid ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_parity_valid", parity_valid ? 1 : 0);
         
         // Disc size (x31): 1=8 inch, 0=12 inch
         bool is_12_inch = ((x3 & 0x08) == 0);
-        context.set(field_id, "vbi", "programme_status_is_12_inch", is_12_inch ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_is_12_inch", is_12_inch ? 1 : 0);
         
         // Disc side (x32): 1=side 2, 0=side 1
         bool is_side_1 = ((x3 & 0x04) == 0);
-        context.set(field_id, "vbi", "programme_status_is_side_1", is_side_1 ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_is_side_1", is_side_1 ? 1 : 0);
         
         // Teletext (x33): 1=present, 0=not present
         bool has_teletext = ((x3 & 0x02) != 0);
-        context.set(field_id, "vbi", "programme_status_has_teletext", has_teletext ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_has_teletext", has_teletext ? 1 : 0);
         
         // Digital video (x42): 1=digital, 0=analogue
         bool is_digital = ((x4 & 0x04) != 0);
-        context.set(field_id, "vbi", "programme_status_is_digital", is_digital ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_is_digital", is_digital ? 1 : 0);
         
         // The audio channel status is given by x41, x34, x43 and x44 combined
         uint32_t audio_status = 0;
@@ -388,9 +388,9 @@ static void interpret_vbi_data(
                 break;
         }
 
-        context.set(field_id, "vbi", "programme_status_is_programme_dump", is_programme_dump ? 1 : 0);
-        context.set(field_id, "vbi", "programme_status_is_fm_multiplex", is_fm_multiplex ? 1 : 0);
-        context.set(field_id, "vbi", "programme_status_sound_mode", sound_mode);
+        pContext->set(field_id, "vbi", "programme_status_is_programme_dump", is_programme_dump ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_is_fm_multiplex", is_fm_multiplex ? 1 : 0);
+        pContext->set(field_id, "vbi", "programme_status_sound_mode", sound_mode);
 
         ORC_LOG_DEBUG("BiphaseObserver: Programme status - CX={}, size={}, side={}, digital={}, audio_status={}",
                      cx_enabled, is_12_inch ? 12 : 8, is_side_1 ? 1 : 2, is_digital, audio_status);
@@ -406,7 +406,7 @@ static void interpret_vbi_data(
         
         // Copy permitted flag (x34): 1=copy permitted, 0=copy prohibited
         bool copy_permitted = ((x3 & 0x01) != 0);
-        context.set(field_id, "vbi", "amendment2_status_copy_permitted", copy_permitted ? 1 : 0);
+        pContext->set(field_id, "vbi", "amendment2_status_copy_permitted", copy_permitted ? 1 : 0);
         
         // For Amendment 2, the audio status is in x41, x42, x43, x44 (all 4 bits of x4)
         uint32_t am2_audio_status = (x4 & 0x0F);
@@ -459,8 +459,8 @@ static void interpret_vbi_data(
                 break;
         }
         
-        context.set(field_id, "vbi", "amendment2_status_is_video_standard", is_video_standard ? 1 : 0);
-        context.set(field_id, "vbi", "amendment2_status_sound_mode", am2_sound_mode);
+        pContext->set(field_id, "vbi", "amendment2_status_is_video_standard", is_video_standard ? 1 : 0);
+        pContext->set(field_id, "vbi", "amendment2_status_sound_mode", am2_sound_mode);
         
         ORC_LOG_DEBUG("BiphaseObserver: Amendment 2 status - copy_permitted={}, video_standard={}, sound_mode={}",
                      copy_permitted, is_video_standard, am2_sound_mode);
@@ -475,7 +475,7 @@ static void interpret_vbi_data(
             // Format as hex string
             char user_code_str[8];
             snprintf(user_code_str, sizeof(user_code_str), "%01X%03X", x1, x3x4x5);
-            context.set(field_id, "vbi", "user_code", std::string(user_code_str));
+            pContext->set(field_id, "vbi", "user_code", std::string(user_code_str));
             ORC_LOG_DEBUG("BiphaseObserver: User code = {}", user_code_str);
         } else {
             ORC_LOG_DEBUG("BiphaseObserver: Invalid user code (X1 > 7)");
@@ -486,7 +486,7 @@ static void interpret_vbi_data(
 void BiphaseObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    ObservationContext& context)
+    IObservationContext *pContext)
 {
     // Observers work by analyzing the rendered video data,
     // NOT by reading source metadata hints
@@ -543,15 +543,15 @@ void BiphaseObserver::process_field(
     
     // Store the decoded VBI data in observation context
     if (lines_decoded > 0) {
-        context.set(field_id, "biphase", "vbi_line_16", vbi_data[0]);
-        context.set(field_id, "biphase", "vbi_line_17", vbi_data[1]);
-        context.set(field_id, "biphase", "vbi_line_18", vbi_data[2]);
+        pContext->set(field_id, "biphase", "vbi_line_16", vbi_data[0]);
+        pContext->set(field_id, "biphase", "vbi_line_17", vbi_data[1]);
+        pContext->set(field_id, "biphase", "vbi_line_18", vbi_data[2]);
         
         ORC_LOG_DEBUG("BiphaseObserver: Decoded {} VBI lines for field {}: {:08x} {:08x} {:08x}",
                      lines_decoded, field_id.value(), vbi_data[0], vbi_data[1], vbi_data[2]);
         
         // Interpret the VBI data according to IEC 60857 standard
-        interpret_vbi_data(vbi_data[0], vbi_data[1], vbi_data[2], field_id, context);
+        interpret_vbi_data(vbi_data[0], vbi_data[1], vbi_data[2], field_id, pContext);
     } else {
         ORC_LOG_TRACE("BiphaseObserver: No biphase data decoded for field {}", field_id.value());
     }

@@ -250,8 +250,8 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
         last_field_in_bin = i;  // Update last field index in bin
 
         // Run observers on this field to populate observations
-        white_snr_observer.process_field(vfr, fid, mutable_context);
-        black_psnr_observer.process_field(vfr, fid, mutable_context);
+        white_snr_observer.process_field(vfr, fid, &mutable_context);
+        black_psnr_observer.process_field(vfr, fid, &mutable_context);
 
         try {
             // Read SNR values from observation context

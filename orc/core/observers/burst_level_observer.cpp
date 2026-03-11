@@ -21,7 +21,7 @@ namespace orc {
 void BurstLevelObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    ObservationContext& context)
+    IObservationContext *pContext)
 {
     // Get video parameters to find color burst location
     auto video_params_opt = representation.get_video_parameters();
@@ -142,7 +142,7 @@ void BurstLevelObserver::process_field(
     double median_burst_ire = median_raw * ire_per_unit;
     
     // Store in observation context
-    context.set(field_id, "burst_level", "median_burst_ire", median_burst_ire);
+    pContext->set(field_id, "burst_level", "median_burst_ire", median_burst_ire);
     
     ORC_LOG_DEBUG("BurstLevelObserver: Field {} median_burst_ire={:.2f}",
                   field_id.value(), median_burst_ire);

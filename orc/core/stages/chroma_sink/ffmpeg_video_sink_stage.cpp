@@ -193,7 +193,7 @@ bool FFmpegVideoSinkStage::trigger(
                      field_num <= field_range.end.value(); ++field_num) {
                     FieldID field_id(field_num);
                     if (vfr->has_field(field_id)) {
-                        cc_observer->process_field(*vfr, field_id, observation_context);
+                        cc_observer->process_field(*vfr, field_id, &observation_context);
                     }
                 }
                 

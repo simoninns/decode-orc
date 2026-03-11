@@ -15,7 +15,7 @@ namespace orc {
 void WhiteFlagObserver::process_field(
 	const VideoFieldRepresentation& representation,
 	FieldID field_id,
-	ObservationContext& context)
+	IObservationContext *pContext)
 {
 	auto descriptor = representation.get_descriptor(field_id);
 	if (!descriptor.has_value()) {
@@ -62,7 +62,7 @@ void WhiteFlagObserver::process_field(
 	}
     
 	bool present = (white_count > total_count / 2);
-	context.set(field_id, "white_flag", "present", present);
+	pContext->set(field_id, "white_flag", "present", present);
     
 	ORC_LOG_DEBUG("WhiteFlagObserver: Field {} white_flag={} (white {}/{} samples)",
 				  field_id.value(), present, white_count, total_count);

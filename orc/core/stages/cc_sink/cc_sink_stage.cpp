@@ -151,7 +151,7 @@ bool CCSinkStage::trigger(
         for (size_t i = 0; i < field_count; ++i) {
             FieldID field_id(static_cast<int32_t>(i + 1));
             if (vfr->has_field(field_id)) {
-                cc_observer->process_field(*vfr, field_id, observation_context);
+                cc_observer->process_field(*vfr, field_id, &observation_context);
             }
             
             if (cancel_requested_.load()) {

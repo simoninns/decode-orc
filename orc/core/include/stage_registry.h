@@ -179,6 +179,6 @@ public:
 #define ORC_REGISTER_STAGE_WITH_FACTORIES(StageClass) \
 namespace { \
 static ::orc::StageRegistration _orc_stage_registration_##StageClass([]() { \
-return std::make_shared<StageClass>(std::make_unique<Factories>()); \
+return std::make_shared<StageClass>(std::make_shared<Factories>()); \
 }); \
 }

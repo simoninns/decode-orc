@@ -13,6 +13,8 @@
 #include "buffered_file_io.h"
 #include "field_id.h"
 #include "observation_context.h"
+#include "daphne_vbi_writer_util_interface.h"
+#include "logging.h"
 
 namespace orc
 {
@@ -22,17 +24,18 @@ namespace orc
  *
  * Writes the 4-byte header and 10-byte VBI entries for each field.
  */
-class DaphneVBIWriterUtil
+class DaphneVBIWriterUtil : public IDaphneVBIWriterUtil
 {
 public:
-    DaphneVBIWriterUtil(IFileWriter<uint8_t> *pWriter) : pWriter_(pWriter) {}
-    ~DaphneVBIWriterUtil() = default;
+    DaphneVBIWriterUtil() = default;
+    ~DaphneVBIWriterUtil() override = default;
 
-    void write_header() const;
-    void write_observations(FieldID field_id, const IObservationContext *pContext) const;
+    void set_writer(IFileWriter<uint8_t> *pWriter) override;
+    void write_header() const override;
+    void write_observations(FieldID field_id, const IObservationContext *pContext) const override;
 
 private:
-    IFileWriter<uint8_t> *pWriter_;
+    IFileWriter<uint8_t> *pWriter_ = nullptr;
 };
 
 }

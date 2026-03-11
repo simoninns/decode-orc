@@ -14,13 +14,18 @@
 
 namespace orc
 {
-    std::unique_ptr<IFileWriter<uint8_t>> Factories::create_instance_buffered_file_writer_uint8(size_t buffer_size)
+    IStageFactories* Factories::get_instance_stage_factories()
     {
-        return std::make_unique<BufferedFileWriter<uint8_t>>(buffer_size);
+        return factoriesStage_.get();
     }
 
-    std::unique_ptr<IFileWriter<uint16_t>> Factories::create_instance_buffered_file_writer_uint16(size_t buffer_size)
+    std::shared_ptr<IFileWriter<uint8_t>> Factories::create_instance_buffered_file_writer_uint8(size_t buffer_size)
     {
-        return std::make_unique<BufferedFileWriter<uint16_t>>(buffer_size);
+        return std::make_shared<BufferedFileWriter<uint8_t>>(buffer_size);
+    }
+
+    std::shared_ptr<IFileWriter<uint16_t>> Factories::create_instance_buffered_file_writer_uint16(size_t buffer_size)
+    {
+        return std::make_shared<BufferedFileWriter<uint16_t>>(buffer_size);
     }
 }

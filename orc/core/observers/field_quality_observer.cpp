@@ -20,7 +20,7 @@ namespace orc {
 void FieldQualityObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    ObservationContext& context) {
+    IObservationContext *pContext) {
     
     // Calculate quality score
     double quality_score = calculate_quality_score(representation, field_id);
@@ -28,9 +28,9 @@ void FieldQualityObserver::process_field(
     // Get field descriptor
     auto descriptor = representation.get_descriptor(field_id);
     if (!descriptor.has_value()) {
-        context.set(field_id, "disc_quality", "quality_score", 0.0);
-        context.set(field_id, "disc_quality", "dropout_count", 0);
-        context.set(field_id, "disc_quality", "phase_valid", false);
+        pContext->set(field_id, "disc_quality", "quality_score", 0.0);
+        pContext->set(field_id, "disc_quality", "dropout_count", 0);
+        pContext->set(field_id, "disc_quality", "phase_valid", false);
         return;
     }
     
@@ -38,9 +38,9 @@ void FieldQualityObserver::process_field(
     auto dropout_hints = representation.get_dropout_hints(field_id);
     
     // Populate context with quality metrics
-    context.set(field_id, "disc_quality", "quality_score", quality_score);
-    context.set(field_id, "disc_quality", "dropout_count", static_cast<int32_t>(dropout_hints.size()));
-    context.set(field_id, "disc_quality", "phase_valid", true);
+    pContext->set(field_id, "disc_quality", "quality_score", quality_score);
+    pContext->set(field_id, "disc_quality", "dropout_count", static_cast<int32_t>(dropout_hints.size()));
+    pContext->set(field_id, "disc_quality", "phase_valid", true);
     
     ORC_LOG_DEBUG("FieldQualityObserver: Field {} quality={:.3f} dropouts={}",
                   field_id.value(), quality_score, dropout_hints.size());

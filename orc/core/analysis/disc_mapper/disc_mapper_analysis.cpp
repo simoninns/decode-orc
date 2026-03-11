@@ -137,7 +137,7 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         ORC_LOG_DEBUG("Running BiphaseObserver on {} fields", field_range.size());
         
         for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
-            biphase_observer.process_field(*source, fid, obs_context);
+            biphase_observer.process_field(*source, fid, &obs_context);
         }
         
         ORC_LOG_DEBUG("BiphaseObserver complete, ObservationContext populated");

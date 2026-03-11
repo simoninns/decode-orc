@@ -12,6 +12,7 @@
 #ifndef DECODE_ORC_ROOT_FACTORIES_H
 #define DECODE_ORC_ROOT_FACTORIES_H
 #include "factories_interface.h"
+#include "stages/stage_factories.h"
 
 namespace orc
 {
@@ -24,15 +25,26 @@ namespace orc
     {
     public:
 
+        Factories()
+        {
+            // we want this to be a singleton because it may be used multiple times and there's no need for multiple instances.
+            factoriesStage_ = std::make_unique<StageFactories>(this);
+        }
+
+        IStageFactories* get_instance_stage_factories() override;
+
         /**
          * @brief Create instance of BufferedFileWriter<uint8_t>
          */
-        std::unique_ptr<IFileWriter<uint8_t>> create_instance_buffered_file_writer_uint8(size_t buffer_size) override;
+        std::shared_ptr<IFileWriter<uint8_t>> create_instance_buffered_file_writer_uint8(size_t buffer_size) override;
 
         /**
          * @brief Create instance of BufferedFileWriter<uint16_t>
          */
-        std::unique_ptr<IFileWriter<uint16_t>> create_instance_buffered_file_writer_uint16(size_t buffer_size) override;
+        std::shared_ptr<IFileWriter<uint16_t>> create_instance_buffered_file_writer_uint16(size_t buffer_size) override;
+
+    private:
+        std::unique_ptr<IStageFactories> factoriesStage_;
     };
 } // orc
 

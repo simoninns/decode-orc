@@ -77,6 +77,7 @@ add_library(orc-core STATIC
     analysis/ffmpeg_preset/ffmpeg_preset_analysis.cpp
     
     # Stages (organized in subdirectories)
+    stages/stage_factories.cpp
     stages/pal_comp_source/pal_comp_source_stage.cpp
     stages/ntsc_comp_source/ntsc_comp_source_stage.cpp
     stages/pal_yc_source/pal_yc_source_stage.cpp
@@ -131,6 +132,8 @@ add_library(orc-core STATIC
     # Project to DAG conversion
     stage_registry.cpp
     project_to_dag.cpp
+        stages/daphne_vbi_sink/daphne_vbi_sink_stage_deps.cpp
+        stages/daphne_vbi_sink/daphne_vbi_sink_stage_deps.h
 )
 
 # the scope needs to be PUBLIC so the unit test project can share these include directory rules

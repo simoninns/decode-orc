@@ -13,6 +13,11 @@
 namespace orc
 {
 
+void DaphneVBIWriterUtil::set_writer(IFileWriter<uint8_t>* pWriter)
+{
+    pWriter_ = pWriter;
+}
+
 void DaphneVBIWriterUtil::write_header() const
 {
     const std::vector<uint8_t> header = { '1', 'V', 'B', 'I' };

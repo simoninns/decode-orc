@@ -32,7 +32,7 @@ public:
 	void process_field(
 		const VideoFieldRepresentation& representation,
 		FieldID field_id,
-		ObservationContext& context) override;
+		IObservationContext *Context) override;
     
 	std::vector<ObservationKey> get_provided_observations() const override {
 		return {

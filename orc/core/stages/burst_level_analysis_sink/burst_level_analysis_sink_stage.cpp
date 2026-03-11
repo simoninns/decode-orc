@@ -230,7 +230,7 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
         last_field_in_bin = i;  // Update last field index in bin
 
         // Run observer on this field to populate observations
-        burst_observer.process_field(vfr, fid, mutable_context);
+        burst_observer.process_field(vfr, fid, &mutable_context);
 
         try {
             auto burst_level_opt = mutable_context.get(fid, "burst_level", "median_burst_ire");

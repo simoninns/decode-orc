@@ -1572,6 +1572,7 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
     
     bool any_changed = false;
     int32_t old_mode = m_mode;
+    int32_t old_smart_threshold = m_smart_threshold;
     
     for (const auto& [key, value] : params) {
         if (key == "mode") {
@@ -1613,6 +1614,9 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
             if (auto* val = std::get_if<int32_t>(&value)) {
                 if (*val < 0 || *val > 128) {
                     return false;
+                }
+                if (m_smart_threshold != *val) {
+                    any_changed = true;
                 }
                 m_smart_threshold = *val;
             } else {
@@ -1665,7 +1669,7 @@ bool StackerStage::set_parameters(const std::map<std::string, ParameterValue>& p
     
     if (any_changed) {
         ORC_LOG_DEBUG("StackerStage: Parameters changed - mode: {} -> {}, threshold: {} -> {}",
-                     old_mode, m_mode, old_threshold, m_smart_threshold);
+                     old_mode, m_mode, old_smart_threshold, m_smart_threshold);
     }
     
     return true;

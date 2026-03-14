@@ -512,7 +512,8 @@ std::vector<StageInfo> ProjectPresenter::getAvailableStages(VideoFormat format)
             info.description = node_type_info.description;
             info.node_type = node_type_info.type;
             info.is_source = (node_type_info.type == orc::NodeType::SOURCE);
-            info.is_sink = (node_type_info.type == orc::NodeType::SINK);
+            info.is_sink = (node_type_info.type == orc::NodeType::SINK ||
+                            node_type_info.type == orc::NodeType::ANALYSIS_SINK);
             
             result.push_back(info);
         } catch (const std::exception& e) {

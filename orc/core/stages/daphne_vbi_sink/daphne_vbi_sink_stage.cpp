@@ -37,7 +37,8 @@ NodeTypeInfo DaphneVBISinkStage::get_node_type_info() const
         1,                           // max_inputs
         0,                           // min_outputs
         0,                           // max_outputs
-        VideoFormatCompatibility::ALL
+        VideoFormatCompatibility::ALL,
+        SinkCategory::THIRD_PARTY
     };
 }
 

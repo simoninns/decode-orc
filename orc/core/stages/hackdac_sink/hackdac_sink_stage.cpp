@@ -31,13 +31,14 @@ NodeTypeInfo HackdacSinkStage::get_node_type_info() const {
     return NodeTypeInfo{
         NodeType::SINK,
         "hackdac_sink",
-        "Hackdac Sink",
-        "Exports signed 16-bit field data without half-line padding for Hackdac (.hdac) output.",
+        "HackDAC Sink",
+        "Exports signed 16-bit field data without half-line padding for HackDAC (.hdac) output.",
         1,  // min_inputs
         1,  // max_inputs
         0,  // min_outputs
         0,  // max_outputs
-        VideoFormatCompatibility::ALL
+        VideoFormatCompatibility::ALL,
+        SinkCategory::THIRD_PARTY
     };
 }
 
@@ -63,7 +64,7 @@ std::vector<ParameterDescriptor> HackdacSinkStage::get_parameter_descriptors(
     // Output path (.hdac)
     descriptors.push_back(ParameterDescriptor{
         "output_path",
-        "Hackdac Output Path",
+        "HackDAC Output Path",
         "Destination .hdac file (signed 16-bit). A companion .txt report will be written next to it.",
         ParameterType::FILE_PATH,
         ParameterConstraints{std::nullopt, std::nullopt, std::string(""), {}, true, std::nullopt},
@@ -156,7 +157,7 @@ bool HackdacSinkStage::write_report(const std::string& report_path,
     size_t second_fields = processed_fields / 2;
     const size_t total_bytes = (first_fields * first_field_bytes) + (second_fields * second_field_bytes);
 
-    report << "Hackdac sink export report\n";
+    report << "HackDAC sink export report\n";
     report << "Format: headerless stream of 16-bit signed little-endian samples (VFR representation, fields concatenated in capture order)\n";
     report << "Video format: " << system_to_string(resolved_system) << "\n";
     report << "Line width: " << input_line_width << " samples\n";

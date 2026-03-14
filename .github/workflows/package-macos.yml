@@ -171,19 +171,55 @@ jobs:
           fi
 
           DMG_NAME="Decode-Orc-${{ steps.version.outputs.version }}-macos.dmg"
+          DMG_PATH="dist/$DMG_NAME"
+          VOL_NAME="Decode Orc ${{ steps.version.outputs.version }}"
+          MAX_ATTEMPTS=5
           rm -rf dmg-root
           mkdir -p dmg-root dist
           cp -R "$APP_BUNDLE" dmg-root/
           ln -s /Applications dmg-root/Applications
 
-          hdiutil create \
-            -volname "Decode Orc ${{ steps.version.outputs.version }}" \
-            -srcfolder dmg-root \
-            -ov \
-            -format UDZO \
-            "dist/$DMG_NAME"
+          detach_stale_volumes() {
+            # Best-effort cleanup in case a previous attempt left a mounted image.
+            local suffix
+            for suffix in "" " 1" " 2" " 3"; do
+              hdiutil detach "/Volumes/$VOL_NAME$suffix" -force >/dev/null 2>&1 || true
+            done
+          }
 
-          hdiutil verify "dist/$DMG_NAME"
+          attempt=1
+          while [[ "$attempt" -le "$MAX_ATTEMPTS" ]]; do
+            detach_stale_volumes
+            rm -f "$DMG_PATH"
+
+            echo "Creating DMG (attempt $attempt/$MAX_ATTEMPTS)..."
+            if create_output=$(hdiutil create \
+              -volname "$VOL_NAME" \
+              -srcfolder dmg-root \
+              -ov \
+              -format UDZO \
+              "$DMG_PATH" 2>&1); then
+              echo "$create_output"
+              hdiutil verify "$DMG_PATH"
+              break
+            fi
+
+            echo "$create_output" >&2
+            if ! grep -qi "resource busy" <<<"$create_output"; then
+              echo "hdiutil create failed with a non-retryable error" >&2
+              exit 1
+            fi
+
+            if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then
+              echo "hdiutil create failed after $MAX_ATTEMPTS attempts" >&2
+              exit 1
+            fi
+
+            sleep_seconds=$((attempt * 5))
+            echo "Transient hdiutil contention detected; retrying in ${sleep_seconds}s..."
+            sleep "$sleep_seconds"
+            attempt=$((attempt + 1))
+          done
 
       - name: Collect DMG artifact
         shell: bash

@@ -101,13 +101,29 @@
             ninja
             pkg-config
             qt6.wrapQtAppsHook
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            wrapGAppsHook
           ];
 
-          qtWrapperArgs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            "--set"
-            "QT_QPA_PLATFORM"
-            "cocoa"
-          ];
+          # Wrap Qt binaries and include gapps runtime settings on Linux.
+          dontWrapGApps = pkgs.stdenv.isLinux;
+
+          qtWrapperArgs =
+            pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              "--set"
+              "QT_QPA_PLATFORM"
+              "cocoa"
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+              # Do not inherit potentially incompatible user-profile GIO modules.
+              "--set"
+              "GIO_EXTRA_MODULES"
+              "${pkgs.glib-networking}/lib/gio/modules"
+            ];
+
+          preFixup = pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            qtWrapperArgs+=("''${gappsWrapperArgs[@]}")
+          '';
 
           buildInputs = with pkgs; [
             # Core dependencies from vcpkg.json
@@ -129,6 +145,11 @@
 
             # Automated testing
             gtest
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            # Provide GTK schemas/settings used by Qt's native integration paths.
+            gtk3
+            gsettings-desktop-schemas
+            glib-networking
           ];
 
           cmakeFlags = [

@@ -127,6 +127,7 @@ jobs:
         run: |
           cd vcpkg
           .\vcpkg.exe install `
+            --classic `
             qtbase `
             spdlog `
             yaml-cpp `

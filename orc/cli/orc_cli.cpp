@@ -16,12 +16,37 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <array>
+#include <string_view>
 #include <vector>
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
 using namespace orc;
+
+namespace {
+
+bool is_non_fatal_processing_error(const std::string& error_message) {
+    static constexpr std::array<std::string_view, 6> non_fatal_patterns = {
+        "Failed to load NTSC TBC file '",
+        "Failed to load PAL TBC file '",
+        "Failed to load NTSC YC files '",
+        "Failed to load PAL YC files '",
+        "Failed to load TBC file (validation failed - see logs above)",
+        "Failed to load YC files (validation failed - see logs above)"
+    };
+
+    for (const auto pattern : non_fatal_patterns) {
+        if (error_message.find(pattern) != std::string::npos) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+} // namespace
 
 /**
  * @brief Print command-line usage information
@@ -157,10 +182,19 @@ int main(int argc, char* argv[]) {
         
         exit_code = cli::process_command(options);
     } catch (const std::exception& e) {
-        std::cerr << "\nFATAL ERROR: " << e.what() << "\n";
+        const std::string error_message = e.what();
+
+        if (is_non_fatal_processing_error(error_message)) {
+            ORC_LOG_WARN("Processing failed: {}", error_message);
+            std::cerr << "\nWARNING: " << error_message << "\n";
+            cleanup_crash_handler();
+            return 1;
+        }
+
+        std::cerr << "\nFATAL ERROR: " << error_message << "\n";
         
         // Create crash bundle for unhandled exceptions
-        std::string bundle_path = create_crash_bundle(std::string("Exception: ") + e.what());
+        std::string bundle_path = create_crash_bundle(std::string("Exception: ") + error_message);
         if (!bundle_path.empty()) {
             std::cerr << "\nDiagnostic bundle created: " << bundle_path << "\n";
             std::cerr << "Please report this issue at: https://github.com/simoninns/decode-orc/issues\n";

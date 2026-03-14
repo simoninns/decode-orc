@@ -215,7 +215,7 @@ target_link_libraries(orc-core PUBLIC fmt::fmt)
 # Since this is a Nix environment issue and not a code quality problem, we silence
 # it with -Wno-cpp (applies only to #warning/#pragma directives in system headers).
 target_compile_options(orc-core PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /permissive->
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic>
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:/Od /Zi>
     $<$<AND:$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:/O2>

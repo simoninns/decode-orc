@@ -231,7 +231,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
     while (m_tValuesToChannel.isReady()) {
         m_channelToF3.pushFrame(m_tValuesToChannel.popFrame());
     }
-    m_pipelineStats.channelToF3Time += std::chrono::duration_cast<std::chrono::milliseconds>(
+    m_pipelineStats.channelToF3Time += std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - t0).count();
 
     t0 = std::chrono::high_resolution_clock::now();
@@ -239,7 +239,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
         F3Frame f3Frame = m_channelToF3.popFrame();
         m_f3FrameToF2Section.pushFrame(f3Frame);
     }
-    m_pipelineStats.f3ToF2Time += std::chrono::duration_cast<std::chrono::milliseconds>(
+    m_pipelineStats.f3ToF2Time += std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - t0).count();
 
     t0 = std::chrono::high_resolution_clock::now();
@@ -247,7 +247,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
         F2Section f2Section = m_f3FrameToF2Section.popSection();
         m_f2SectionCorrection.pushSection(f2Section);
     }
-    m_pipelineStats.f2CorrectionTime += std::chrono::duration_cast<std::chrono::milliseconds>(
+    m_pipelineStats.f2CorrectionTime += std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - t0).count();
 
     // -----------------------------------------------------------------------
@@ -259,7 +259,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
         F2Section f2Section = m_f2SectionCorrection.popSection();
         m_f2SectionToF1Section.pushSection(f2Section);
     }
-    m_pipelineStats.f2ToF1Time += std::chrono::duration_cast<std::chrono::milliseconds>(
+    m_pipelineStats.f2ToF1Time += std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - t0).count();
 
     t0 = std::chrono::high_resolution_clock::now();
@@ -268,7 +268,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
         f1Section.showData();
         m_f1SectionToData24Section.pushSection(f1Section);
     }
-    m_pipelineStats.f1ToData24Time += std::chrono::duration_cast<std::chrono::milliseconds>(
+    m_pipelineStats.f1ToData24Time += std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::high_resolution_clock::now() - t0).count();
 
     // -----------------------------------------------------------------------
@@ -308,7 +308,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
                         auto pad_t0 = std::chrono::high_resolution_clock::now();
                         m_data24ToAudio.pushSection(zeroSection);
                         m_pipelineStats.data24ToAudioTime +=
-                            std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::duration_cast<std::chrono::microseconds>(
                                 std::chrono::high_resolution_clock::now() - pad_t0).count();
                         drainAudioPipeline();
                         ++zeroTime;
@@ -319,7 +319,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
             auto audio_t0 = std::chrono::high_resolution_clock::now();
             m_data24ToAudio.pushSection(data24Section);
             m_pipelineStats.data24ToAudioTime +=
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::high_resolution_clock::now() - audio_t0).count();
             drainAudioPipeline();
 
@@ -327,7 +327,7 @@ void EfmProcessor::drainPipeline(bool &zeroPadApplied)
             auto data_t0 = std::chrono::high_resolution_clock::now();
             m_data24ToRawSector.pushSection(data24Section);
             m_pipelineStats.data24ToRawSectorTime +=
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::high_resolution_clock::now() - data_t0).count();
             drainDataPipeline();
         }
@@ -357,7 +357,7 @@ void EfmProcessor::drainAudioPipeline()
             m_audioCorrection.pushSection(audioSection);
         }
         m_pipelineStats.audioCorrectionTime +=
-            std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::high_resolution_clock::now() - t0).count();
 
         while (m_audioCorrection.isReady()) {
@@ -383,7 +383,7 @@ void EfmProcessor::drainDataPipeline()
         rawSector.showData();
     }
     m_pipelineStats.rawSectorToSectorTime +=
-        std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::high_resolution_clock::now() - t0).count();
 
     while (m_rawSectorToSector.isReady()) {
@@ -404,46 +404,46 @@ void EfmProcessor::drainDataPipeline()
 
 void EfmProcessor::showGeneralPipelineStatistics() const
 {
-    [[maybe_unused]] int64_t totalMs = m_pipelineStats.channelToF3Time
+    [[maybe_unused]] int64_t totalMs = (m_pipelineStats.channelToF3Time
                     + m_pipelineStats.f3ToF2Time
-                    + m_pipelineStats.f2CorrectionTime;
+                    + m_pipelineStats.f2CorrectionTime) / 1000;
     ORC_LOG_INFO("Decoder processing summary (general):");
-    ORC_LOG_INFO("  Channel to F3 processing time: {} ms", m_pipelineStats.channelToF3Time);
-    ORC_LOG_INFO("  F3 to F2 section processing time: {} ms", m_pipelineStats.f3ToF2Time);
-    ORC_LOG_INFO("  F2 correction processing time: {} ms", m_pipelineStats.f2CorrectionTime);
+    ORC_LOG_INFO("  Channel to F3 processing time: {} ms", m_pipelineStats.channelToF3Time / 1000);
+    ORC_LOG_INFO("  F3 to F2 section processing time: {} ms", m_pipelineStats.f3ToF2Time / 1000);
+    ORC_LOG_INFO("  F2 correction processing time: {} ms", m_pipelineStats.f2CorrectionTime / 1000);
     ORC_LOG_INFO("  Total processing time: {} ms ({:.2f} seconds)", totalMs, totalMs / 1000.0);
     ORC_LOG_INFO("");
 }
 
 void EfmProcessor::showD24PipelineStatistics() const
 {
-    [[maybe_unused]] int64_t totalMs = m_pipelineStats.f2ToF1Time
-                    + m_pipelineStats.f1ToData24Time;
+    [[maybe_unused]] int64_t totalMs = (m_pipelineStats.f2ToF1Time
+                    + m_pipelineStats.f1ToData24Time) / 1000;
     ORC_LOG_INFO("Decoder processing summary (general):");
-    ORC_LOG_INFO("  F2 to F1 processing time: {} ms", m_pipelineStats.f2ToF1Time);
-    ORC_LOG_INFO("  F1 to Data24 processing time: {} ms", m_pipelineStats.f1ToData24Time);
+    ORC_LOG_INFO("  F2 to F1 processing time: {} ms", m_pipelineStats.f2ToF1Time / 1000);
+    ORC_LOG_INFO("  F1 to Data24 processing time: {} ms", m_pipelineStats.f1ToData24Time / 1000);
     ORC_LOG_INFO("  Total processing time: {} ms ({:.2f} seconds)", totalMs, totalMs / 1000.0);
     ORC_LOG_INFO("");
 }
 
 void EfmProcessor::showAudioPipelineStatistics() const
 {
-    [[maybe_unused]] int64_t totalMs = m_pipelineStats.data24ToAudioTime
-                    + m_pipelineStats.audioCorrectionTime;
+    [[maybe_unused]] int64_t totalMs = (m_pipelineStats.data24ToAudioTime
+                    + m_pipelineStats.audioCorrectionTime) / 1000;
     ORC_LOG_INFO("Decoder processing summary (audio):");
-    ORC_LOG_INFO("  Data24 to Audio processing time: {} ms", m_pipelineStats.data24ToAudioTime);
-    ORC_LOG_INFO("  Audio correction processing time: {} ms", m_pipelineStats.audioCorrectionTime);
+    ORC_LOG_INFO("  Data24 to Audio processing time: {} ms", m_pipelineStats.data24ToAudioTime / 1000);
+    ORC_LOG_INFO("  Audio correction processing time: {} ms", m_pipelineStats.audioCorrectionTime / 1000);
     ORC_LOG_INFO("  Total processing time: {} ms ({:.2f} seconds)", totalMs, totalMs / 1000.0);
     ORC_LOG_INFO("");
 }
 
 void EfmProcessor::showDataPipelineStatistics() const
 {
-    [[maybe_unused]] int64_t totalMs = m_pipelineStats.data24ToRawSectorTime
-                    + m_pipelineStats.rawSectorToSectorTime;
+    [[maybe_unused]] int64_t totalMs = (m_pipelineStats.data24ToRawSectorTime
+                    + m_pipelineStats.rawSectorToSectorTime) / 1000;
     ORC_LOG_INFO("Decoder processing summary (data):");
-    ORC_LOG_INFO("  Data24 to Raw Sector processing time: {} ms", m_pipelineStats.data24ToRawSectorTime);
-    ORC_LOG_INFO("  Raw Sector to Sector processing time: {} ms", m_pipelineStats.rawSectorToSectorTime);
+    ORC_LOG_INFO("  Data24 to Raw Sector processing time: {} ms", m_pipelineStats.data24ToRawSectorTime / 1000);
+    ORC_LOG_INFO("  Raw Sector to Sector processing time: {} ms", m_pipelineStats.rawSectorToSectorTime / 1000);
     ORC_LOG_INFO("  Total processing time: {} ms ({:.2f} seconds)", totalMs, totalMs / 1000.0);
     ORC_LOG_INFO("");
 }

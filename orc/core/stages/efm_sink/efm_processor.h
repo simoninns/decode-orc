@@ -129,20 +129,20 @@ private:
     // Pipeline statistics
     // -----------------------------------------------------------------------
     struct AllPipelineStatistics {
-        // General pipeline timing (ms)
+        // General pipeline timing (µs)
         int64_t channelToF3Time{0};
         int64_t f3ToF2Time{0};
         int64_t f2CorrectionTime{0};
 
-        // D24 pipeline timing (ms)
+        // D24 pipeline timing (µs)
         int64_t f2ToF1Time{0};
         int64_t f1ToData24Time{0};
 
-        // Audio pipeline timing (ms)
+        // Audio pipeline timing (µs)
         int64_t data24ToAudioTime{0};
         int64_t audioCorrectionTime{0};
 
-        // Data pipeline timing (ms)
+        // Data pipeline timing (µs)
         int64_t data24ToRawSectorTime{0};
         int64_t rawSectorToSectorTime{0};
     } m_pipelineStats;

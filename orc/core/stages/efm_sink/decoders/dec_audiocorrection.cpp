@@ -69,6 +69,7 @@ void AudioCorrection::processQueue()
             if (correctingFrame.countErrors() == 0) {
                 // No errors in this frame - just copy it
                 correctedSection.pushFrame(correctingFrame);
+                m_validSamplesCount += correctingFrame.frameSize(); // 6 left + 6 right mono samples
                 continue;
             }
 

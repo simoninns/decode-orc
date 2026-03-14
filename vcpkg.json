@@ -11,12 +11,7 @@
     "sqlite3",
     "libpng",
     "fftw3",
-    {
-      "name": "ffmpeg",
-      "features": [
-        "openh264"
-      ]
-    },
+    "ffmpeg",
     "pkgconf"
   ]
 }

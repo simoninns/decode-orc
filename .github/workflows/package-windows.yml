@@ -96,7 +96,7 @@ jobs:
           echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
           
           # CRITICAL: Enable binary caching to download pre-built packages
-          # This reduces build time from hours to minutes for Qt, FFmpeg, etc.
+          # This reduces build time from hours to minutes for Qt and other dependencies.
           # Order matters: GitHub Actions cache first, then Azure blob cache (read-only)
           echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite;default,readwrite" >> $env:GITHUB_ENV
           
@@ -120,18 +120,74 @@ jobs:
             vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json') }}-
             vcpkg-bin-${{ runner.os }}-
 
-      - name: Install dependencies via vcpkg (manifest mode)
+      - name: Install dependencies via vcpkg (without FFmpeg)
         shell: pwsh
         env:
           VCPKG_MAX_CONCURRENCY: 8
         run: |
-          # Manifest mode automatically reads vcpkg.json and uses binary cache
-          # Pre-built binaries will be downloaded from cache instead of compiling
           cd vcpkg
-          .\vcpkg.exe install --triplet x64-windows --x-manifest-root=.. --x-install-root=..\vcpkg_installed
+          .\vcpkg.exe install `
+            qtbase `
+            spdlog `
+            yaml-cpp `
+            sqlite3 `
+            libpng `
+            fftw3 `
+            pkgconf `
+            --triplet x64-windows `
+            --x-install-root=..\vcpkg_installed
           
-          Write-Host "Dependencies installed. Checking for binary cache hits..."
-          # Binary cache hits mean packages were downloaded, not compiled
+          Write-Host "Dependencies installed from vcpkg (FFmpeg handled via prebuilt package)"
+
+      - name: Fetch prebuilt FFmpeg package
+        shell: pwsh
+        run: |
+          $apiUrl = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
+          $headers = @{ "User-Agent" = "decode-orc-ci" }
+          $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers
+
+          $asset = $release.assets |
+            Where-Object { $_.name -like "ffmpeg-N-*-win64-gpl-shared.zip" } |
+            Select-Object -First 1
+
+          if (-not $asset) {
+            Write-Error "Could not locate a win64 shared FFmpeg package in BtbN latest release"
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path "external/ffmpeg-prebuilt" | Out-Null
+          $zipPath = "$PWD\external\ffmpeg-prebuilt\ffmpeg-win64.zip"
+
+          Write-Host "Downloading FFmpeg prebuilt package: $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath "external/ffmpeg-prebuilt" -Force
+
+          $ffmpegRoot = Get-ChildItem -Path "external/ffmpeg-prebuilt" -Directory |
+            Where-Object { $_.Name -like "ffmpeg-*" } |
+            Select-Object -First 1
+
+          if (-not $ffmpegRoot) {
+            Write-Error "Failed to locate extracted FFmpeg root directory"
+            exit 1
+          }
+
+          $ffmpegBin = Join-Path $ffmpegRoot.FullName "bin"
+          $ffmpegPkgConfig = Join-Path $ffmpegRoot.FullName "lib\pkgconfig"
+
+          if (-not (Test-Path $ffmpegBin)) {
+            Write-Error "FFmpeg bin directory missing: $ffmpegBin"
+            exit 1
+          }
+          if (-not (Test-Path $ffmpegPkgConfig)) {
+            Write-Error "FFmpeg pkg-config directory missing: $ffmpegPkgConfig"
+            exit 1
+          }
+
+          echo "FFMPEG_ROOT=$($ffmpegRoot.FullName)" >> $env:GITHUB_ENV
+          echo "FFMPEG_BIN=$ffmpegBin" >> $env:GITHUB_ENV
+          echo "FFMPEG_PKGCONFIG=$ffmpegPkgConfig" >> $env:GITHUB_ENV
+
+          Write-Host "Using FFmpeg root: $($ffmpegRoot.FullName)"
 
       - name: Fetch ezpwd-reed-solomon headers
         shell: pwsh
@@ -161,10 +217,27 @@ jobs:
           $buildPreset = "build-windows-gui-release"
           $projectVersion = "${{ steps.version.outputs.cmake_version }}"
           $ezpwdDir = "$PWD\external\ezpwd-reed-solomon\c++"
+          $pkgconfExe = "$PWD\vcpkg_installed\x64-windows\tools\pkgconf\pkgconf.exe"
+
+          if (-not (Test-Path $pkgconfExe)) {
+            Write-Error "pkgconf executable not found at $pkgconfExe"
+            exit 1
+          }
+          if (-not $env:FFMPEG_PKGCONFIG) {
+            Write-Error "FFMPEG_PKGCONFIG environment variable not set"
+            exit 1
+          }
+
+          $env:PATH = "$PWD\vcpkg_installed\x64-windows\tools\pkgconf;$env:PATH"
+          $env:PKG_CONFIG_PATH = $env:FFMPEG_PKGCONFIG
+          $env:PKG_CONFIG_LIBDIR = $env:FFMPEG_PKGCONFIG
 
           cmake --preset $configurePreset `
             "-DPROJECT_VERSION_OVERRIDE=$projectVersion" `
             -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed" `
+            -DVCPKG_MANIFEST_MODE=OFF `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            "-DPKG_CONFIG_EXECUTABLE=$pkgconfExe" `
             "-DEZPWD_INCLUDE_DIR=$ezpwdDir"
           cmake --build --preset $buildPreset
 
@@ -225,9 +298,24 @@ jobs:
         shell: pwsh
         run: |
           $vcpkgBin = "vcpkg_installed/x64-windows/bin"
+          $ffmpegBin = $env:FFMPEG_BIN
           $targetBin = (Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
+
+          # Copy FFmpeg runtime DLLs from the prebuilt package
+          if ($ffmpegBin -and (Test-Path $ffmpegBin)) {
+            $ffmpegDlls = Get-ChildItem -Path $ffmpegBin -Filter "*.dll"
+            foreach ($dll in $ffmpegDlls) {
+              $targetPath = Join-Path $targetBin $dll.Name
+              if (-not (Test-Path $targetPath)) {
+                Copy-Item $dll.FullName $targetPath -Force
+                Write-Host "Copied FFmpeg runtime $($dll.Name)"
+              }
+            }
+          } else {
+            Write-Warning "FFmpeg bin directory not found at $ffmpegBin"
+          }
           
-          # Copy non-Qt DLLs from vcpkg (FFmpeg, yaml-cpp, spdlog, fftw3, libpng, sqlite3)
+          # Copy remaining non-Qt DLLs from vcpkg (yaml-cpp, spdlog, fftw3, libpng, sqlite3)
           # Note: windeployqt handles Qt libraries; this step handles all other dependencies
           if (Test-Path $vcpkgBin) {
             $dlls = Get-ChildItem -Path $vcpkgBin -Filter "*.dll"

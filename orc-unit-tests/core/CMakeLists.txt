@@ -16,6 +16,7 @@ add_executable(
 
         stages/daphne_vbi_sink/daphne_vbi_writer_util_test.cpp
         stages/daphne_vbi_sink/daphne_vbi_sink_stage_deps_test.cpp
+        stages/daphne_vbi_sink/daphne_vbi_sink_stage_test.cpp
 )
 
 target_link_libraries(

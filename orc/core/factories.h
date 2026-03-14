@@ -25,11 +25,14 @@ namespace orc
     {
     public:
 
-        Factories()
-        {
-            // we want this to be a singleton because it may be used multiple times and there's no need for multiple instances.
-            factoriesStage_ = std::make_unique<StageFactories>(this);
-        }
+        /**
+         * @brief Get singleton instance of factories
+         *
+         * @return Shared singleton instance as IFactories
+         */
+        static std::shared_ptr<IFactories> instance();
+
+        Factories() : factoriesStage_(this) {}
 
         IStageFactories* get_instance_stage_factories() override;
 
@@ -44,7 +47,7 @@ namespace orc
         std::shared_ptr<IFileWriter<uint16_t>> create_instance_buffered_file_writer_uint16(size_t buffer_size) override;
 
     private:
-        std::unique_ptr<IStageFactories> factoriesStage_;
+        StageFactories factoriesStage_;
     };
 } // orc
 

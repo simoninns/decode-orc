@@ -21,14 +21,15 @@ namespace orc
     {
     public:
 
+        // We intentionally pass in the parent factory (IFactories) to the constructor of this child factory (StageFactories)
+        //  because the parent factory will already be instantiated, so it's natural to pass in 'this' to StageFactories constructor.
+        // Normally, we'd prefer to use std::shared_ptr for this to avoid potential memory management issues, but in this case, we are confident that the parent factory will outlive the child factory, so we can safely use a raw pointer.
         StageFactories(IFactories *pFactories) : pFactories_(pFactories) {}
 
         std::shared_ptr<IDaphneVBISinkStageDeps> CreateInstanceDaphneVBISinkStageDeps(TriggerProgressCallback progress_callback, std::atomic<bool> *pIsProcessing, std::atomic<bool> *pCancelRequested) override;
 
     private:
 
-        // At the moment, this object is special in that we assume the parent is managing the memory for this instance.
-        // Perhaps we should change this to be shared_ptr to reduce 'tribal knowledge.'
         IFactories* pFactories_;
     };
 } // orc

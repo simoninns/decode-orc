@@ -52,8 +52,8 @@ namespace orc_unit_test
 
         StrictMock<MockVideoFieldRepresentation> mockRepresentation_;
 
-        std::atomic<bool> cancelRequested_;
-        std::atomic<bool> isProcessing_;
+        std::atomic<bool> cancelRequested_{};
+        std::atomic<bool> isProcessing_{};
         std::unique_ptr<orc::DaphneVBISinkStageDeps> instance_;
     };
 
@@ -61,9 +61,6 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStageDeps, write_vbi_adds_extension_and_writes_header_when_successful)
     {
-        orc::SourceParameters params;
-        params.decoder = "initial";
-
         EXPECT_CALL(mockRepresentation_, field_range())
             .Times(1)
             .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
@@ -82,10 +79,6 @@ namespace orc_unit_test
             .Times(1);
         EXPECT_CALL(*pMockFileWriterUint8_, close())
             .Times(1);
-
-        EXPECT_CALL(mockRepresentation_, get_video_parameters())
-            .Times(1)
-            .WillOnce(Return(std::optional<orc::SourceParameters>(params)));
 
         const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", &mockObservationContext_);
 
@@ -114,38 +107,8 @@ namespace orc_unit_test
         EXPECT_FALSE(result);
     }
 
-    TEST_F(DaphneVBISinkStageDeps, write_vbi_returns_false_when_video_parameters_missing)
-    {
-        EXPECT_CALL(mockRepresentation_, field_range())
-            .Times(1)
-            .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
-
-        EXPECT_CALL(mockFactories_, create_instance_buffered_file_writer_uint8(1 * 1024 * 1024))
-            .Times(1)
-            .WillOnce(Return(pMockFileWriterUint8_));
-
-        EXPECT_CALL(*pMockFileWriterUint8_, open("already_has_ext.vbi", _))
-            .Times(1)
-            .WillOnce(Return(true));
-
-        EXPECT_CALL(*pMockVBIWriterUtil_, set_writer(pMockFileWriterUint8_.get()))
-            .Times(1);
-        EXPECT_CALL(*pMockVBIWriterUtil_, write_header())
-            .Times(1);
-
-        EXPECT_CALL(mockRepresentation_, get_video_parameters())
-            .Times(1)
-            .WillOnce(Return(std::nullopt));
-
-        const bool result = instance_->write_vbi(&mockRepresentation_, "already_has_ext.vbi", &mockObservationContext_);
-
-        EXPECT_FALSE(result);
-    }
-
     TEST_F(DaphneVBISinkStageDeps, write_vbi_closes_writer_and_marks_processing_false_when_cancelled)
     {
-        orc::SourceParameters params;
-
         EXPECT_CALL(mockRepresentation_, field_range())
             .Times(1)
             .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(1))));
@@ -170,10 +133,6 @@ namespace orc_unit_test
             .Times(0);
         EXPECT_CALL(*pMockFileWriterUint8_, close())
             .Times(1);
-
-        EXPECT_CALL(mockRepresentation_, get_video_parameters())
-            .Times(1)
-            .WillOnce(Return(std::optional<orc::SourceParameters>(params)));
 
         cancelRequested_.store(true);
 

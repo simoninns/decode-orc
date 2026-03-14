@@ -5,7 +5,7 @@
       "label": "Configure (cmake CLI)",
       "type": "shell",
       "command": "cmake",
-      "args": ["-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug"],
+      "args": ["-S", ".", "-B", "build", "-DCMAKE_BUILD_TYPE=Debug", "-DBUILD_UNIT_TESTS=ON"],
       "problemMatcher": [],
       "group": { "kind": "build", "isDefault": false }
     },
@@ -16,6 +16,15 @@
       "args": [],
       "problemMatcher": ["$gcc"],
       "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "Run Unit Tests",
+      "type": "shell",
+      "command": "ctest",
+      "args": ["--test-dir", "build", "--output-on-failure"],
+      "dependsOn": ["Build (cmake CLI)"],
+      "problemMatcher": [],
+      "group": { "kind": "test", "isDefault": true }
     }
   ]
 }

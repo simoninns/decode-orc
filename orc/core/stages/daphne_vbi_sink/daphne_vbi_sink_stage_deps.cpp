@@ -16,12 +16,13 @@
 #include "observer.h"
 #include "white_flag_observer.h"
 #include <algorithm>    // for sort
+#include <utility>
 
 namespace orc
 {
     void DaphneVBISinkStageDeps::init(TriggerProgressCallback progress_callback, std::atomic<bool> *pIsProcessing, std::atomic<bool> *pCancelRequested)
     {
-        progress_callback_ = progress_callback;
+        progress_callback_ = std::move(progress_callback);
         pIsProcessing_ = pIsProcessing;
         pCancelRequested_ = pCancelRequested;
     }
@@ -60,14 +61,6 @@ namespace orc
             daphne_vbi_writer_util_->set_writer(vbi_writer.get());
 
             daphne_vbi_writer_util_->write_header();  // header is required at the beginning of .VBI file
-
-            // Get video parameters
-            auto video_params = representation->get_video_parameters();
-            if (!video_params) {
-                ORC_LOG_ERROR("No video parameters available");
-                return false;
-            }
-            video_params->decoder = "orc";
 
             // Build sorted list of field IDs
             std::vector<FieldID> field_ids;

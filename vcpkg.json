@@ -5,13 +5,11 @@
   "description": "Advanced video decoding and processing application",
   "builtin-baseline": "e5a1490e1409d175932ef6014519e9ae149ddb7c",
   "dependencies": [
-    "qtbase",
     "spdlog",
     "yaml-cpp",
     "sqlite3",
     "libpng",
     "fftw3",
-    "ffmpeg",
     "pkgconf"
   ]
 }

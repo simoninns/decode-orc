@@ -61,27 +61,16 @@ jobs:
           
           # Also install ImageMagick for icon conversion
           choco install imagemagick -y
-          
-          # Install Ninja for faster builds
-          Write-Host "Installing Ninja build tool..."
-          choco install ninja -y
-          # Explicitly add Ninja to PATH
-          $ninjaPath = "C:\ProgramData\chocolatey\bin"
-          if (Test-Path $ninjaPath) {
-            echo $ninjaPath | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-            Write-Host "Ninja installed and added to PATH at: $ninjaPath"
-          }
-          
-          # Verify ninja is accessible
-          $ninjaExe = Get-Command ninja -ErrorAction SilentlyContinue
-          if ($ninjaExe) {
-            Write-Host "Ninja found at: $($ninjaExe.Source)"
-            & ninja --version
-          } else {
-            Write-Warning "Ninja not found in PATH after installation"
-          }
+
+      - name: Cache vcpkg bootstrap
+        id: vcpkg-bootstrap-cache
+        uses: actions/cache@v4
+        with:
+          path: vcpkg
+          key: vcpkg-bootstrap-${{ runner.os }}-e5a1490e
 
       - name: Setup vcpkg
+        if: steps.vcpkg-bootstrap-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Write-Host "Cloning vcpkg at baseline commit..."
@@ -91,27 +80,31 @@ jobs:
           git checkout e5a1490e1409d175932ef6014519e9ae149ddb7c
           .\bootstrap-vcpkg.bat
           cd ..
-          
+          Write-Host "vcpkg bootstrap complete"
+
+      - name: Set vcpkg environment variables
+        shell: pwsh
+        run: |
           $vcpkgRoot = "$PWD\vcpkg"
           $vcpkgInstalled = "$PWD\vcpkg_installed"
           echo "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
           echo "VCPKG_INSTALLED_DIR=$vcpkgInstalled" >> $env:GITHUB_ENV
-          echo "VCPKG_DEFAULT_TRIPLET=x64-windows" >> $env:GITHUB_ENV
-          echo "VCPKG_FEATURE_FLAGS=manifests,binarycaching" >> $env:GITHUB_ENV
+          echo "VCPKG_DEFAULT_TRIPLET=x64-windows-release" >> $env:GITHUB_ENV
           echo "VCPKG_BUILD_TYPE=release" >> $env:GITHUB_ENV
           echo "VCPKG_DISABLE_METRICS=1" >> $env:GITHUB_ENV
-          
-          # Use GitHub Actions as vcpkg's binary cache backend.
-          echo "VCPKG_BINARY_SOURCES=clear;x-gha,readwrite" >> $env:GITHUB_ENV
-          
-          Write-Host "vcpkg setup complete (manifest mode, release-only binaries, GHA cache backend)"
+          Write-Host "vcpkg setup complete (manifest mode, release-only binaries)"
 
-      - name: Export GitHub Actions cache for vcpkg
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+      - name: Configure vcpkg binary cache
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dist.nuget.org/win-x86-commandline/latest/nuget.exe -OutFile nuget.exe
+          .\nuget.exe sources add `
+            -Name "GitHub" `
+            -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" `
+            -Username "${{ github.actor }}" `
+            -Password "${{ secrets.GITHUB_TOKEN }}" `
+            -StorePasswordInClearText
+          echo "VCPKG_BINARY_SOURCES=clear;nuget,GitHub,readwrite" >> $env:GITHUB_ENV
 
       - name: Restore vcpkg installed tree
         id: vcpkg-installed-cache
@@ -131,11 +124,42 @@ jobs:
         run: |
           cd vcpkg
           .\vcpkg.exe install `
-            --triplet x64-windows `
+            --triplet x64-windows-release `
+            --overlay-triplets=..\cmake\triplets `
             --x-manifest-root=.. `
             --x-install-root=..\vcpkg_installed
           
           Write-Host "Dependencies installed from vcpkg manifest (including FFmpeg)"
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2022_64'
+          cache: true
+          cache-key-prefix: qt-windows-msvc2022
+
+      - name: Download pre-built FFmpeg
+        id: ffmpeg
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-shared-8.0.zip"
+          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-dist -Force
+          $ffmpegDir = (Get-ChildItem ffmpeg-dist -Directory | Select-Object -First 1).FullName
+
+          # Fix .pc file prefix to the actual local path (BtbN uses a build-time prefix)
+          $pcDir = "$ffmpegDir\lib\pkgconfig"
+          $winPrefix = ($ffmpegDir -replace '\\', '/')
+          Get-ChildItem $pcDir -Filter "*.pc" | ForEach-Object {
+            (Get-Content $_.FullName -Raw) -replace '(?m)^prefix=.*$', "prefix=$winPrefix" |
+              Set-Content $_.FullName
+          }
+
+          echo "FFMPEG_DIR=$ffmpegDir" >> $env:GITHUB_ENV
+          echo "ffmpeg_dir=$ffmpegDir" >> $env:GITHUB_OUTPUT
 
       - name: Fetch ezpwd-reed-solomon headers
         shell: pwsh
@@ -152,9 +176,6 @@ jobs:
           # Ensure ImageMagick is in path for icon generation
           $env:PATH = "C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;$env:PATH"
           
-          # Add Ninja to PATH (from choco install)
-          $env:PATH = "C:\ProgramData\chocolatey\bin;$env:PATH"
-          
           # Setup MSVC environment
           $vsPath = &"${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
@@ -165,7 +186,7 @@ jobs:
           $buildPreset = "build-windows-gui-release"
           $projectVersion = "${{ steps.version.outputs.cmake_version }}"
           $ezpwdDir = "$PWD\external\ezpwd-reed-solomon\c++"
-          $pkgconfExe = "$PWD\vcpkg_installed\x64-windows\tools\pkgconf\pkgconf.exe"
+          $pkgconfExe = "$PWD\vcpkg_installed\x64-windows-release\tools\pkgconf\pkgconf.exe"
 
           if (-not (Test-Path $pkgconfExe)) {
             Write-Error "pkgconf executable not found at $pkgconfExe"
@@ -173,20 +194,22 @@ jobs:
           }
 
           $pkgConfigPaths = @(
-            "$PWD\vcpkg_installed\x64-windows\lib\pkgconfig",
-            "$PWD\vcpkg_installed\x64-windows\share\pkgconfig"
+            "$PWD\vcpkg_installed\x64-windows-release\lib\pkgconfig",
+            "$PWD\vcpkg_installed\x64-windows-release\share\pkgconfig",
+            "$($env:FFMPEG_DIR)\lib\pkgconfig"
           ) -join ";"
 
-          $env:PATH = "$PWD\vcpkg_installed\x64-windows\tools\pkgconf;$env:PATH"
+          $env:PATH = "$PWD\vcpkg_installed\x64-windows-release\tools\pkgconf;$env:PATH"
           $env:PKG_CONFIG_PATH = $pkgConfigPaths
           $env:PKG_CONFIG_LIBDIR = $pkgConfigPaths
 
           cmake --preset $configurePreset `
             "-DPROJECT_VERSION_OVERRIDE=$projectVersion" `
+            "-DCMAKE_PREFIX_PATH=$($env:QT_ROOT_DIR)" `
             -DVCPKG_INSTALLED_DIR="$PWD\vcpkg_installed" `
             -DVCPKG_MANIFEST_MODE=OFF `
             -DVCPKG_BUILD_TYPE=release `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-release `
             "-DPKG_CONFIG_EXECUTABLE=$pkgconfExe" `
             "-DEZPWD_INCLUDE_DIR=$ezpwdDir"
           cmake --build --preset $buildPreset
@@ -210,31 +233,20 @@ jobs:
       - name: Bundle Qt dependencies
         shell: pwsh
         run: |
-          # Find Qt tools directory in vcpkg_installed
-          $qtToolsPath = Get-ChildItem -Path "vcpkg_installed/x64-windows/tools" -Directory -Filter "Qt6" -ErrorAction SilentlyContinue
-          if (-not $qtToolsPath) {
-            $qtToolsPath = Get-ChildItem -Path "vcpkg_installed/x64-windows/tools" -Directory -Filter "Qt*" -ErrorAction SilentlyContinue | Select-Object -First 1
-          }
-          
-          if ($qtToolsPath) {
-            $qtBinPath = Join-Path $qtToolsPath.FullName "bin"
-            if (Test-Path $qtBinPath) {
-              $env:PATH = "$qtBinPath;$env:PATH"
-              Write-Host "Found Qt tools at: $qtBinPath"
-            }
-          }
-          
-          # Fallback: look for windeployqt in vcpkg_installed
+          # windeployqt is in PATH from jurplel/install-qt-action
           $windeployqt = Get-Command windeployqt -ErrorAction SilentlyContinue
           if (-not $windeployqt) {
-            Write-Host "windeployqt not found in PATH, searching vcpkg_installed..."
-            $windeployqtPath = Get-ChildItem -Path "vcpkg_installed" -Recurse -Filter "windeployqt.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            Write-Host "windeployqt not found in PATH, searching QT_ROOT_DIR..."
+            $windeployqtPath = Get-ChildItem -Path "$env:QT_ROOT_DIR" -Recurse -Filter "windeployqt.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($windeployqtPath) {
               $env:PATH = "$($windeployqtPath.Directory.FullName);$env:PATH"
               Write-Host "Found windeployqt at: $($windeployqtPath.FullName)"
+            } else {
+              Write-Error "windeployqt not found in PATH or Qt installation"
+              exit 1
             }
           }
-          
+
           $guiExe = Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1
           if ($guiExe) {
             Write-Host "Running windeployqt on $($guiExe.FullName)"
@@ -247,7 +259,7 @@ jobs:
       - name: Copy runtime dependencies
         shell: pwsh
         run: |
-          $vcpkgBin = "vcpkg_installed/x64-windows/bin"
+          $vcpkgBin = "vcpkg_installed/x64-windows-release/bin"
           $targetBin = (Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
 
           # Copy non-Qt runtime DLLs from vcpkg (including FFmpeg runtime libraries).
@@ -264,6 +276,9 @@ jobs:
           } else {
             Write-Warning "vcpkg bin directory not found at $vcpkgBin"
           }
+
+          # Copy FFmpeg runtime DLLs (no longer from vcpkg_installed)
+          Copy-Item "$($env:FFMPEG_DIR)\bin\*.dll" $targetBin -Force
 
       - name: Convert PNG icon to ICO for WiX
         shell: pwsh

@@ -86,7 +86,14 @@ void OrcGraphicsView::wheelEvent(QWheelEvent *event)
 void OrcGraphicsView::contextMenuEvent(QContextMenuEvent* event)
 {
     if (itemAt(event->pos())) {
-        QtNodes::GraphicsView::contextMenuEvent(event);
+        // Call QGraphicsView directly, bypassing QtNodes::GraphicsView::contextMenuEvent().
+        // Newer versions of the QtNodes library (used on Windows) call createStdMenu() inside
+        // their contextMenuEvent(), which adds a second menu with grouping actions ("Add to group",
+        // "Create group from selection") on top of ORC's own node context menu.
+        // QGraphicsView::contextMenuEvent() propagates the event to the item under the cursor,
+        // which causes NodeGraphicsObject::contextMenuEvent() to emit nodeContextMenu(), handled
+        // by OrcGraphicsScene::onNodeContextMenu() -- showing only the single ORC context menu.
+        QGraphicsView::contextMenuEvent(event);
         return;
     }
 

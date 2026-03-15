@@ -365,6 +365,15 @@ std::vector<DropoutRegion> DropoutCorrectStage::split_dropout_regions(
     }
     
     for (const auto& dropout : dropouts) {
+        // Skip dropouts on lines beyond the field's standard height.
+        // TBC padding can add an extra line to NTSC first fields (line 262, 0-based) that
+        // is absent from the standards-compliant field height (262 lines → valid lines 0-261).
+        // Accessing field_data at that line would be an out-of-bounds vector access.
+        if (dropout.line >= descriptor.height) {
+            ORC_LOG_DEBUG("split_dropout_regions: skipping dropout on line {} (field height is {})",
+                          dropout.line, descriptor.height);
+            continue;
+        }
         auto location = classify_dropout(dropout, descriptor, video_params);
         
         if (location == DropoutLocation::COLOUR_BURST) {
@@ -814,6 +823,11 @@ void DropoutCorrectStage::correct_single_field(
         size_t corrections_applied = 0;
         
         for (const auto& dropout : split_dropouts) {
+            if (dropout.line >= descriptor.height) {
+                ORC_LOG_WARN("DropoutCorrectStage: skipping OOB dropout on line {} (field height {})",
+                             dropout.line, descriptor.height);
+                continue;
+            }
             uint16_t* luma_line_data = &luma_field_data[dropout.line * descriptor.width];
             uint16_t* chroma_line_data = &chroma_field_data[dropout.line * descriptor.width];
             bool use_intrafield = config_.intrafield_only;
@@ -914,6 +928,12 @@ void DropoutCorrectStage::correct_single_field(
     size_t luma_chroma_corrections = 0;  // Count separate luma/chroma corrections
     
     for (const auto& dropout : split_dropouts) {
+        // Defensive bounds check (also enforced by split_dropout_regions, but guard here too)
+        if (dropout.line >= descriptor.height) {
+            ORC_LOG_WARN("DropoutCorrectStage: skipping OOB dropout on line {} (field height {})",
+                         dropout.line, descriptor.height);
+            continue;
+        }
         // Get pointer to the line within field_data
         uint16_t* line_data = &field_data[dropout.line * descriptor.width];
         

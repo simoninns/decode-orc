@@ -22,6 +22,7 @@
 #include <QInputDialog>
 #include <QTimer>
 #include <algorithm>
+#include <map>
 
 using orc::NodeID;
 using orc::get_all_node_types;
@@ -141,8 +142,7 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
         // Organize stages by type
         std::vector<const NodeTypeInfo*> source_stages;
         std::vector<const NodeTypeInfo*> transform_stages;
-        std::vector<const NodeTypeInfo*> sink_stages;
-        std::vector<const NodeTypeInfo*> analysis_stages;
+        std::map<orc::SinkCategory, std::vector<const NodeTypeInfo*>> sink_stages_by_category;
         
         for (const auto& type_info : all_types) {
             // Filter stages by video format compatibility
@@ -172,10 +172,8 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
                     transform_stages.push_back(&type_info);
                     break;
                 case NodeType::SINK:
-                    sink_stages.push_back(&type_info);
-                    break;
                 case NodeType::ANALYSIS_SINK:
-                    analysis_stages.push_back(&type_info);
+                    sink_stages_by_category[type_info.sink_category].push_back(&type_info);
                     break;
             }
         }
@@ -212,16 +210,20 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
             add_stages_to_menu(transform_menu, transform_stages);
         }
         
-        // Add Sink submenu
-        if (!sink_stages.empty()) {
-            QMenu* sink_menu = add_node_menu->addMenu("Sink");
-            add_stages_to_menu(sink_menu, sink_stages);
-        }
-        
-        // Add Analysis Sink submenu
-        if (!analysis_stages.empty()) {
-            QMenu* analysis_menu = add_node_menu->addMenu("Analysis Sink");
-            add_stages_to_menu(analysis_menu, analysis_stages);
+        const std::vector<std::pair<orc::SinkCategory, const char*>> sink_menu_specs = {
+            {orc::SinkCategory::CORE, "Sink (Core)"},
+            {orc::SinkCategory::ANALYSIS, "Sink (Analysis)"},
+            {orc::SinkCategory::THIRD_PARTY, "Sink (3rd party)"}
+        };
+
+        for (const auto& [category, menu_title] : sink_menu_specs) {
+            auto it = sink_stages_by_category.find(category);
+            if (it == sink_stages_by_category.end() || it->second.empty()) {
+                continue;
+            }
+
+            QMenu* sink_menu = add_node_menu->addMenu(menu_title);
+            add_stages_to_menu(sink_menu, it->second);
         }
     }
     

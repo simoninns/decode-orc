@@ -37,7 +37,8 @@ NodeTypeInfo BurstLevelAnalysisSinkStage::get_node_type_info() const {
         1,
         0,
         0,
-        VideoFormatCompatibility::ALL
+        VideoFormatCompatibility::ALL,
+        SinkCategory::ANALYSIS
     };
 }
 

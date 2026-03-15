@@ -10,6 +10,7 @@
 #include "mainwindow.h"
 #include "logging.h"
 #include "crash_handler.h"
+#include "error_types.h"
 #include "version.h"
 #include "plotwidget.h"
 #include "project_presenter.h"  // For initCoreLogging
@@ -154,12 +155,16 @@ void applySystemTheme(QApplication& app, bool isDark)
         app.setPalette(lightPalette);
     }
 
-    app.setStyleSheet(
+    const QString disabled_menu_text_color = isDark ? "rgb(127, 127, 127)" : "palette(mid)";
+
+    app.setStyleSheet(QString(
         "QMenuBar { background-color: palette(window); color: palette(window-text); }"
         "QMenuBar::item:selected { background-color: palette(highlight); color: palette(highlighted-text); }"
+        "QMenuBar::item:disabled { color: %1; }"
         "QMenu { background-color: palette(window); color: palette(window-text); }"
         "QMenu::item:selected { background-color: palette(highlight); color: palette(highlighted-text); }"
-    );
+        "QMenu::item:disabled { color: %1; }"
+    ).arg(disabled_menu_text_color));
 }
 
 void applyResolvedTheme(QApplication& app, const ThemeManager::Resolution& resolution)
@@ -342,10 +347,61 @@ int main(int argc, char *argv[])
     window.show();
     ORC_LOG_DEBUG("Main window shown");
 
+    auto load_startup_file = [&](const QString& file_path, bool quick_mode) {
+        const char* action = quick_mode ? "quick project creation" : "project open";
+
+        try {
+            if (quick_mode) {
+                window.quickProject(file_path);
+            } else {
+                window.openProject(file_path);
+            }
+        } catch (const orc::UserDataError& e) {
+            ORC_LOG_WARN("Startup {} failed for '{}': {}", action, file_path.toStdString(), e.what());
+            QMessageBox::warning(
+                &window,
+                "Startup Error",
+                QString("%1 failed for '%2':\n%3")
+                    .arg(action)
+                    .arg(file_path)
+                    .arg(e.what())
+            );
+        } catch (const std::exception& e) {
+            ORC_LOG_ERROR("Unhandled startup {} exception for '{}': {}", action, file_path.toStdString(), e.what());
+
+            std::string bundle_path = orc::create_crash_bundle(
+                std::string("Unhandled startup ") + action + " exception: " + e.what()
+            );
+
+            QString message = QString("An unexpected error occurred while processing '%1':\n%2")
+                                  .arg(file_path)
+                                  .arg(e.what());
+            if (!bundle_path.empty()) {
+                message += QString("\n\nDiagnostic bundle created:\n%1").arg(QString::fromStdString(bundle_path));
+            }
+
+            QMessageBox::critical(&window, "Startup Error", message);
+        } catch (...) {
+            ORC_LOG_ERROR("Unknown startup {} exception for '{}'", action, file_path.toStdString());
+
+            std::string bundle_path = orc::create_crash_bundle(
+                std::string("Unknown startup ") + action + " exception"
+            );
+
+            QString message = QString("An unknown error occurred while processing '%1'.")
+                                  .arg(file_path);
+            if (!bundle_path.empty()) {
+                message += QString("\n\nDiagnostic bundle created:\n%1").arg(QString::fromStdString(bundle_path));
+            }
+
+            QMessageBox::critical(&window, "Startup Error", message);
+        }
+    };
+
     if (parser.isSet(quickProjectOption)) {
         QString quickFile = parser.value(quickProjectOption);
         ORC_LOG_INFO("Loading quick project from command line: {}", quickFile.toStdString());
-        window.quickProject(quickFile);
+        load_startup_file(quickFile, true);
     } else {
         const QStringList args = parser.positionalArguments();
         if (!args.isEmpty()) {
@@ -355,15 +411,15 @@ int main(int argc, char *argv[])
                 filePath.endsWith(".tbcc", Qt::CaseInsensitive) ||
                 filePath.endsWith(".tbcy", Qt::CaseInsensitive)) {
                 ORC_LOG_INFO("Creating quick project from TBC file: {}", filePath.toStdString());
-                window.quickProject(filePath);
+                load_startup_file(filePath, true);
             } else if (filePath.endsWith(".orcprj", Qt::CaseInsensitive)) {
                 ORC_LOG_INFO("Opening project from command line: {}", filePath.toStdString());
-                window.openProject(filePath);
+                load_startup_file(filePath, false);
             } else {
                 // Unknown file type - try opening as project (old behavior)
                 ORC_LOG_WARN("Unknown file extension for '{}', attempting to open as project file", 
                             filePath.toStdString());
-                window.openProject(filePath);
+                load_startup_file(filePath, false);
             }
         }
     }

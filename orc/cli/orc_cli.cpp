@@ -12,6 +12,7 @@
 #include "logging.h"
 #include "crash_handler.h"
 #include "project_presenter.h"
+#include "error_types.h"
 
 #include <iostream>
 #include <sstream>
@@ -156,11 +157,19 @@ int main(int argc, char* argv[]) {
         options.project_path = project_path;
         
         exit_code = cli::process_command(options);
+    } catch (const UserDataError& e) {
+        ORC_LOG_WARN("Processing failed: {}", e.what());
+        std::cerr << "\nWARNING: " << e.what() << "\n";
+
+        cleanup_crash_handler();
+        return 1;
     } catch (const std::exception& e) {
-        std::cerr << "\nFATAL ERROR: " << e.what() << "\n";
+        const std::string error_message = e.what();
+
+        std::cerr << "\nFATAL ERROR: " << error_message << "\n";
         
         // Create crash bundle for unhandled exceptions
-        std::string bundle_path = create_crash_bundle(std::string("Exception: ") + e.what());
+        std::string bundle_path = create_crash_bundle(std::string("Exception: ") + error_message);
         if (!bundle_path.empty()) {
             std::cerr << "\nDiagnostic bundle created: " << bundle_path << "\n";
             std::cerr << "Please report this issue at: https://github.com/simoninns/decode-orc/issues\n";

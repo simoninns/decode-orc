@@ -10,6 +10,7 @@
 
 #include "ntsc_comp_source_stage.h"
 #include "logging.h"
+#include "error_types.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
 #include <stage_registry.h>
@@ -88,13 +89,13 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
     try {
         auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
         if (!tbc_representation) {
-            throw std::runtime_error("Failed to load TBC file (validation failed - see logs above)");
+            throw UserDataError("Failed to load TBC file (validation failed - see logs above)");
         }
         
         // Get video parameters for logging
         auto video_params = tbc_representation->get_video_parameters();
         if (!video_params) {
-            throw std::runtime_error("No video parameters found in TBC file");
+            throw UserDataError("No video parameters found in TBC file");
         }
         
         std::string system_str;
@@ -115,7 +116,7 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
         bool is_valid_decoder = (video_params->decoder == "ld-decode") ||
                                (video_params->decoder.rfind("encode-orc", 0) == 0);
         if (!is_valid_decoder) {
-            throw std::runtime_error(
+            throw UserDataError(
                 "TBC file was not created by ld-decode or encode-orc (decoder: " + 
                 video_params->decoder + "). Use the appropriate source type."
             );
@@ -123,7 +124,7 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
         
         // Check system
         if (video_params->system != VideoSystem::NTSC) {
-            throw std::runtime_error(
+            throw UserDataError(
                 "TBC file is not NTSC format. Use 'Add PAL Composite Source' for PAL files."
             );
         }
@@ -133,8 +134,10 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
         cached_input_path_ = input_path;
         
         return {cached_representation_};
+    } catch (const UserDataError&) {
+        throw;
     } catch (const std::exception& e) {
-        throw std::runtime_error(
+        throw UserDataError(
             std::string("Failed to load NTSC TBC file '") + input_path + "': " + e.what()
         );
     }

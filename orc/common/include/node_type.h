@@ -30,6 +30,18 @@ enum class VideoFormatCompatibility {
 };
 
 /**
+ * @brief Sub-category for sink stages
+ *
+ * Used by UI/presenter layers to organize sink stages into menus.
+ * Meaningful for sink-like stages (NodeType::SINK and NodeType::ANALYSIS_SINK).
+ */
+enum class SinkCategory {
+    CORE,
+    ANALYSIS,
+    THIRD_PARTY
+};
+
+/**
  * @brief Node connectivity pattern
  * 
  * Defines the input/output structure of a DAG node type.
@@ -71,6 +83,7 @@ struct NodeTypeInfo {
     uint32_t min_outputs;       // Minimum number of outputs (0 for SINK)
     uint32_t max_outputs;       // Maximum number of outputs (0 for SINK, UINT32_MAX for unlimited)
     VideoFormatCompatibility compatible_formats;  // Video format compatibility
+    SinkCategory sink_category = SinkCategory::CORE;  // Sink grouping metadata
 };
 
 /**

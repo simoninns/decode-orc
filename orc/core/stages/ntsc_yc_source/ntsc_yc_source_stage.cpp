@@ -10,6 +10,7 @@
 
 #include "ntsc_yc_source_stage.h"
 #include "logging.h"
+#include "error_types.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
 #include <stage_registry.h>
@@ -98,13 +99,13 @@ std::vector<ArtifactPtr> NTSCYCSourceStage::execute(
     try {
         auto yc_representation = create_tbc_yc_representation(y_path, c_path, db_path, pcm_path, efm_path);
         if (!yc_representation) {
-            throw std::runtime_error("Failed to load YC files (validation failed - see logs above)");
+            throw UserDataError("Failed to load YC files (validation failed - see logs above)");
         }
         
         // Get video parameters for logging
         auto video_params = yc_representation->get_video_parameters();
         if (!video_params) {
-            throw std::runtime_error("No video parameters found in YC metadata");
+            throw UserDataError("No video parameters found in YC metadata");
         }
         
         std::string system_str;
@@ -123,7 +124,7 @@ std::vector<ArtifactPtr> NTSCYCSourceStage::execute(
         
         // Check system
         if (video_params->system != VideoSystem::NTSC) {
-            throw std::runtime_error(
+            throw UserDataError(
                 "YC files are not NTSC format. Use 'Add PAL YC Source' for PAL files."
             );
         }
@@ -134,8 +135,10 @@ std::vector<ArtifactPtr> NTSCYCSourceStage::execute(
         cached_c_path_ = c_path;
         
         return {cached_representation_};
+    } catch (const UserDataError&) {
+        throw;
     } catch (const std::exception& e) {
-        throw std::runtime_error(
+        throw UserDataError(
             std::string("Failed to load NTSC YC files '") + y_path + "' + '" + c_path + "': " + e.what()
         );
     }

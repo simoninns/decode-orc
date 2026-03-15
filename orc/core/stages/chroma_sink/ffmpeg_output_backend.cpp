@@ -238,7 +238,7 @@ bool FFmpegOutputBackend::initialize(const Configuration& config)
             codec_candidates = {"h264_videotoolbox", "libx264"};
         } else {
             // None/auto: prefer software encoder
-            codec_candidates = {"libx264", "libopenh264"};
+            codec_candidates = {"libx264"};
         }
     } else if (codec_name_ == "hevc") {
         // Apply hardware encoder preference
@@ -491,9 +491,6 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
     } else if (codec_id == "libx264" || codec_id == "libx265") {
         // libx264/libx265 support high quality formats
         codec_ctx_->pix_fmt = AV_PIX_FMT_YUV444P;  // 8-bit 4:4:4
-    } else if (codec_id == "libopenh264") {
-        // libopenh264 only supports yuv420p
-        codec_ctx_->pix_fmt = AV_PIX_FMT_YUV420P;
     } else if (codec_id.find("_vaapi") != std::string::npos) {
         // VAAPI uses hardware surfaces, but we'll upload from yuv420p
         codec_ctx_->pix_fmt = AV_PIX_FMT_VAAPI;
@@ -700,14 +697,6 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
         av_opt_set_int(codec_ctx_->priv_data, "row-mt", 1, 0);
         av_opt_set_int(codec_ctx_->priv_data, "error-resilience", 1, 0);
         ORC_LOG_DEBUG("FFmpegOutputBackend: Using libaom-av1 settings");
-    } else if (codec_id == "libopenh264") {
-        // OpenH264 doesn't support CRF, use bitrate
-        if (encoder_bitrate_ > 0) {
-            codec_ctx_->bit_rate = encoder_bitrate_;
-        } else {
-            // Default to high bitrate if CRF specified
-            codec_ctx_->bit_rate = 20000000;  // 20 Mbps for high quality
-        }
     } else if (codec_id.find("_vaapi") != std::string::npos || 
                codec_id.find("_qsv") != std::string::npos ||
                codec_id.find("_nvenc") != std::string::npos) {

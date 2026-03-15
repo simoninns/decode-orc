@@ -11,6 +11,7 @@
 #include "tbc_source_internal/tbc_yc_video_field_representation.h"
 #include "dropout_decision.h"
 #include "logging.h"
+#include <open_tbc_metadata.h>
 #include <sstream>
 #include <chrono>
 
@@ -19,7 +20,7 @@ namespace orc {
 TBCYCVideoFieldRepresentation::TBCYCVideoFieldRepresentation(
     std::shared_ptr<TBCReader> y_reader,
     std::shared_ptr<TBCReader> c_reader,
-    std::shared_ptr<TBCMetadataReader> metadata_reader,
+    std::shared_ptr<ITBCMetadataReader> metadata_reader,
     ArtifactID artifact_id,
     Provenance provenance
 ) : VideoFieldRepresentation(std::move(artifact_id), std::move(provenance)),
@@ -363,10 +364,10 @@ std::shared_ptr<TBCYCVideoFieldRepresentation> create_tbc_yc_representation(
     // Create readers
     auto y_reader = std::make_shared<TBCReader>();
     auto c_reader = std::make_shared<TBCReader>();
-    auto metadata_reader = std::make_shared<TBCMetadataReader>();
-    
+    auto metadata_reader = std::shared_ptr<ITBCMetadataReader>(open_tbc_metadata(metadata_filename));
+
     // Open metadata first to get parameters
-    if (!metadata_reader->open(metadata_filename)) {
+    if (!metadata_reader) {
         ORC_LOG_ERROR("Failed to open TBC metadata: {}", metadata_filename);
         return nullptr;
     }

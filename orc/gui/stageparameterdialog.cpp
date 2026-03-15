@@ -563,11 +563,18 @@ bool StageParameterDialog::validate_values()
         if (db_path.endsWith(".db", Qt::CaseInsensitive)) {
             QString json_path = db_path.left(db_path.length() - 3) + ".json";
             if (QFileInfo::exists(json_path)) {
-                QMessageBox::warning(this, "Legacy Metadata Format",
-                    "TBC source has legacy JSON metadata and cannot be loaded. "
-                    "Please update your decoder to a recent version with SQLite support and decode again "
-                    "(recommended) or run ld-json-converter on the old JSON file (not recommended)");
-                return false;
+                const QString filename = QFileInfo(json_path).fileName();
+                QMessageBox msgBox(this);
+                msgBox.setWindowTitle("Legacy Metadata Format");
+                msgBox.setIcon(QMessageBox::Warning);
+                msgBox.setText(QString("The TBC source '%1' has legacy JSON metadata. It will be read directly.\n\n"
+                                       "For best long-term results, consider re-decoding with a current version of ld-decode/vhs-decode.")
+                                   .arg(filename));
+                QPushButton* continueBtn = msgBox.addButton("Continue", QMessageBox::AcceptRole);
+                msgBox.addButton("Cancel", QMessageBox::RejectRole);
+                msgBox.setDefaultButton(continueBtn);
+                msgBox.exec();
+                return msgBox.clickedButton() == continueBtn;
             }
         }
         QMessageBox::warning(this, "Missing Metadata File",

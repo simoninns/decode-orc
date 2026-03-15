@@ -1,19 +1,13 @@
 /*
  * File:        tbc_metadata_writer.cpp
- * Module:      orc-core
+ * Module:      orc-metadata
  * Purpose:     TBC Metadata Writer implementation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "tbc_metadata_writer.h"
-#include "biphase_observer.h"
-#include "closed_caption_observer.h"
-#include "white_snr_observer.h"
-#include "black_psnr_observer.h"
-#include "burst_level_observer.h"
-#include "observation_context.h"
+#include <tbc_metadata_writer.h>
 #include "logging.h"
 #include <sqlite3.h>
 #include <stdexcept>
@@ -587,7 +581,7 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
     return rc == SQLITE_DONE;
 }
 
-bool TBCMetadataWriter::write_observations(FieldID field_id, const ObservationContext& context) {
+bool TBCMetadataWriter::write_observations(FieldID field_id, const IObservationContext& context) {
     if (!is_open_ || capture_id_ < 0) return false;
     
     bool any_written = false;

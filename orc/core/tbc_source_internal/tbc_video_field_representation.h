@@ -12,7 +12,7 @@
 
 #include "video_field_representation.h"
 #include "tbc_reader.h"
-#include "tbc_metadata.h"
+#include <itbc_metadata_reader.h>
 #include "tbc_audio_efm_handler.h"
 #include "lru_cache.h"
 #include "buffered_file_io.h"
@@ -67,7 +67,7 @@ public:
      */
     TBCVideoFieldRepresentation(
         std::shared_ptr<TBCReader> tbc_reader,
-        std::shared_ptr<TBCMetadataReader> metadata_reader,
+        std::shared_ptr<ITBCMetadataReader> metadata_reader,
         ArtifactID artifact_id,
         Provenance provenance
     );
@@ -138,13 +138,13 @@ private:
     // Only observers and the source stage itself should access TBC internals
     // Other stages must use the standard VideoFieldRepresentation interface
     const SourceParameters& video_parameters() const { return video_params_; }
-    std::shared_ptr<TBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
+    std::shared_ptr<ITBCMetadataReader> get_metadata_reader() const { return metadata_reader_; }
     std::optional<FieldMetadata> get_field_metadata(FieldID id) const override;
     
     // TODO: Observer system refactored - observers now access data via public interface
     
     std::shared_ptr<TBCReader> tbc_reader_;
-    std::shared_ptr<TBCMetadataReader> metadata_reader_;
+    std::shared_ptr<ITBCMetadataReader> metadata_reader_;
     
     SourceParameters video_params_;
     std::map<FieldID, FieldMetadata> field_metadata_cache_;
@@ -153,7 +153,7 @@ private:
     std::unique_ptr<TBCAudioEFMHandler> audio_efm_handler_;
     
     // Access to metadata reader for internal use only
-    const TBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
+    const ITBCMetadataReader* metadata_reader() const { return metadata_reader_.get(); }
     
     // Line data cache (for get_line calls)
     // Cache size: 500 fields × ~1.4MB/field = ~700MB max for preview navigation

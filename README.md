@@ -49,6 +49,12 @@ nix build
 nix run .#orc-gui
 ```
 
+Note that, if you want to pass command line options when using "nix run" it is performed using a command like:
+
+```
+nix run git+file:///home/pathtoproject/decode-orc#orc-gui -- --log-level debug --log-file /tmp/orc-gui.log
+```
+
 See [docs/NIX-BUILD.md](docs/NIX-BUILD.md) for complete Nix build instructions.
 
 ### Traditional Build

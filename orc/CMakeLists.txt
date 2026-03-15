@@ -83,7 +83,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/MVPEnforcement.cmake)
 # Common types (shared across all layers)
 add_subdirectory(common)
 
-# Core library (internal implementation)
+# Core library (internal implementation; includes metadata as a sub-library)
 add_subdirectory(core)
 
 # View types (shared data structures for presentation layer)

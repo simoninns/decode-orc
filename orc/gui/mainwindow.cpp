@@ -1110,15 +1110,24 @@ void MainWindow::quickProject(const QString& filename)
         // Check for legacy JSON metadata produced by older ld-decode/vhs-decode
         QString json_path = base_path + ".tbc.json";
         if (QFileInfo::exists(json_path)) {
-            QMessageBox::warning(this, "Legacy Metadata Format",
-                "TBC source has legacy JSON metadata and cannot be loaded. "
-                "Please update your decoder to a recent version with SQLite support and decode again "
-                "(recommended) or run ld-json-converter on the old JSON file (not recommended)");
+            const QString filename = QFileInfo(json_path).fileName();
+            QMessageBox msgBox(this);
+            msgBox.setWindowTitle("Legacy Metadata Format");
+            msgBox.setIcon(QMessageBox::Warning);
+            msgBox.setText(QString("The TBC source '%1' has legacy JSON metadata. It will be read directly.\n\n"
+                                   "For best long-term results, consider re-decoding with a current version of ld-decode/vhs-decode.")
+                               .arg(filename));
+            QPushButton* continueBtn = msgBox.addButton("Continue", QMessageBox::AcceptRole);
+            msgBox.addButton("Cancel", QMessageBox::RejectRole);
+            msgBox.setDefaultButton(continueBtn);
+            msgBox.exec();
+            if (msgBox.clickedButton() != continueBtn) return;
+            // User chose Continue; fall through to load with JSON backend
+        } else {
+            QMessageBox::warning(this, "Missing Metadata File",
+                QString("Metadata file not found:\n%1\n\nRe-run the decoder to generate a .tbc.db metadata file.").arg(db_path));
             return;
         }
-        QMessageBox::warning(this, "Missing Metadata File", 
-            QString("Could not find metadata file: %1").arg(db_path));
-        return;
     }
     
     // Read metadata to determine video format (NTSC or PAL)

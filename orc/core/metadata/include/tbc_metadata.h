@@ -1,6 +1,6 @@
 /*
  * File:        tbc_metadata.h
- * Module:      orc-core
+ * Module:      orc-metadata
  * Purpose:     Tbc Metadata
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -10,10 +10,14 @@
 
 #pragma once
 
+// Forward-declare the SQLite handle so callers that only need open_from_handle
+// do not need to include <sqlite3.h>.
+struct sqlite3;
+
 #include <field_id.h>
 #include <common_types.h>  // For VideoSystem enum
 #include <orc_source_parameters.h>  // For SourceParameters
-#include "../include/video_metadata_types.h"  // For VbiData
+#include <video_metadata_types.h>  // For VbiData
 #include <string>
 #include <vector>
 #include <optional>
@@ -135,54 +139,95 @@ struct PcmAudioParameters {
 };
 
 /**
- * @brief Reader for TBC metadata (SQLite database)
- * 
+ * @brief Pure-virtual interface for TBC metadata readers
+ *
+ * Both TBCMetadataSqliteReader (Phase 1-3) and TBCMetadataJsonReader (Phase 4)
+ * implement this interface so callers can substitute either backend transparently.
+ */
+class ITBCMetadataReader {
+public:
+    virtual ~ITBCMetadataReader() = default;
+
+    virtual bool open(const std::string& filename) = 0;
+    virtual void close() = 0;
+    virtual bool is_open() const = 0;
+
+    virtual std::optional<SourceParameters> read_video_parameters() = 0;
+    virtual std::optional<PcmAudioParameters> read_pcm_audio_parameters() = 0;
+
+    virtual std::optional<FieldMetadata> read_field_metadata(FieldID field_id) = 0;
+    virtual std::map<FieldID, FieldMetadata> read_all_field_metadata() = 0;
+    virtual void read_all_dropouts() = 0;
+    virtual void preload_cache() = 0;
+
+    virtual std::optional<VbiData> read_vbi(FieldID field_id) = 0;
+    virtual std::optional<VitcData> read_vitc(FieldID field_id) = 0;
+    virtual std::optional<ClosedCaptionData> read_closed_caption(FieldID field_id) = 0;
+    virtual std::optional<DropoutData> read_dropout(FieldID field_id) const = 0;
+    virtual std::vector<DropoutInfo> read_dropouts(FieldID field_id) const = 0;
+
+    virtual int32_t get_field_record_count() const = 0;
+    virtual bool validate_metadata(std::string* error_message = nullptr) const = 0;
+};
+
+/**
+ * @brief SQLite-backed reader for TBC metadata
+ *
  * Based on legacy SqliteReader and LdDecodeMetaData classes.
  * Provides access to field metadata, VBI data, dropouts, etc.
  */
-class TBCMetadataReader {
+class TBCMetadataSqliteReader : public ITBCMetadataReader {
 public:
-    TBCMetadataReader();
-    ~TBCMetadataReader();
-    
+    TBCMetadataSqliteReader();
+    ~TBCMetadataSqliteReader() override;
+
     // Open a metadata database file
-    bool open(const std::string& filename);
-    void close();
-    
-    bool is_open() const { return is_open_; }
-    
+    bool open(const std::string& filename) override;
+
+    // Attach an already-open sqlite3 connection (takes ownership — the handle
+    // will be closed by close() / the destructor).  Used by TBCMetadataJsonReader
+    // to back a reader with an in-memory database.
+    bool open_from_handle(sqlite3* db);
+
+    void close() override;
+
+    bool is_open() const override { return is_open_; }
+
     // Read video parameters
-    std::optional<SourceParameters> read_video_parameters();
-    
+    std::optional<SourceParameters> read_video_parameters() override;
+
     // Read PCM audio parameters
-    std::optional<PcmAudioParameters> read_pcm_audio_parameters();
-    
+    std::optional<PcmAudioParameters> read_pcm_audio_parameters() override;
+
     // Read field metadata
-    std::optional<FieldMetadata> read_field_metadata(FieldID field_id);
-    
+    std::optional<FieldMetadata> read_field_metadata(FieldID field_id) override;
+
     // Read all field metadata (bulk operation)
-    std::map<FieldID, FieldMetadata> read_all_field_metadata();
-    void read_all_dropouts();  // Load all dropouts into cache
-    
+    std::map<FieldID, FieldMetadata> read_all_field_metadata() override;
+    void read_all_dropouts() override;
+
     // Preload all metadata and dropouts into cache
     // Call this when opening a project or adding a source stage to avoid lazy loading during analysis
-    void preload_cache();
-    
+    void preload_cache() override;
+
     // Read specific field data
-    std::optional<VbiData> read_vbi(FieldID field_id);
-    std::optional<VitcData> read_vitc(FieldID field_id);
-    std::optional<ClosedCaptionData> read_closed_caption(FieldID field_id);
-    std::optional<DropoutData> read_dropout(FieldID field_id) const;
-    std::vector<DropoutInfo> read_dropouts(FieldID field_id) const;  // Legacy compatibility
-    
+    std::optional<VbiData> read_vbi(FieldID field_id) override;
+    std::optional<VitcData> read_vitc(FieldID field_id) override;
+    std::optional<ClosedCaptionData> read_closed_caption(FieldID field_id) override;
+    std::optional<DropoutData> read_dropout(FieldID field_id) const override;
+    std::vector<DropoutInfo> read_dropouts(FieldID field_id) const override;
+
     // Validation and diagnostics
-    int32_t get_field_record_count() const;
-    bool validate_metadata(std::string* error_message = nullptr) const;
-    
+    int32_t get_field_record_count() const override;
+    bool validate_metadata(std::string* error_message = nullptr) const override;
+
 private:
     class Impl;  // Forward declaration for pimpl
     std::unique_ptr<Impl> impl_;
     bool is_open_;
 };
+
+// Backward-compatibility alias – prefer ITBCMetadataReader in new code
+using TBCMetadataReader = TBCMetadataSqliteReader;
 
 } // namespace orc

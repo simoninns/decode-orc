@@ -29,7 +29,7 @@
  */
 
 #include "project.h"
-#include "tbc_source_internal/tbc_metadata.h"
+#include <tbc_metadata.h>
 #include "logging.h"
 #include "stage_registry.h"
 #include "project_to_dag.h"
@@ -634,76 +634,19 @@ void set_node_parameters(Project& project, NodeID node_id,
             
             // Only validate if a path is provided (empty is allowed)
             if (!input_path.empty()) {
-                // Validate using the existing add_source_to_project validation logic
-                std::string db_path = input_path + ".db";
-                
-                try {
-                    // Load metadata to validate system
-                    auto metadata_reader = std::make_shared<TBCMetadataReader>();
-                    if (!metadata_reader->open(db_path)) {
-                        throw std::runtime_error("Failed to open TBC metadata database: " + db_path);
-                    }
-                    
-                    auto video_params = metadata_reader->read_video_parameters();
-                    if (!video_params) {
-                        throw std::runtime_error("No video parameters found in TBC metadata");
-                    }
-                    
-                    // Validate decoder
-                if (video_params->decoder != "ld-decode" && video_params->decoder != "encode-orc") {
+                // Check that a metadata file exists (either .tbc.db or legacy .tbc.json).
+                // Full decoder/system validation is deferred to the source stage on first
+                // execution, which calls create_tbc_representation() → open_tbc_metadata()
+                // and reports any mismatch with a clear error at that point.
+                // input_path is the .tbc file; metadata lives alongside as .tbc.db or .tbc.json
+                std::string db_path   = input_path + ".db";
+                std::string json_path = input_path + ".json";
+                bool metadata_exists = std::filesystem::exists(db_path) ||
+                                       std::filesystem::exists(json_path);
+                if (!metadata_exists) {
                     throw std::runtime_error(
-                        "TBC file was not created by ld-decode or encode-orc (decoder: " + 
-                        video_params->decoder + "). This source type requires ld-decode or encode-orc files."
-                    );
-                }
-                
-                // Validate system matches the node's stage type
-                    if (node_it->stage_name == "PAL_Comp_Source") {
-                        if (video_params->system != VideoSystem::PAL && 
-                            video_params->system != VideoSystem::PAL_M) {
-                            throw std::runtime_error(
-                                "Selected TBC file is not PAL format. This is a PAL source node - use an NTSC source node for NTSC files."
-                            );
-                        }
-                    } else if (node_it->stage_name == "NTSC_Comp_Source") {
-                        if (video_params->system != VideoSystem::NTSC) {
-                            throw std::runtime_error(
-                                "Selected TBC file is not NTSC format. This is an NTSC source node - use a PAL source node for PAL files."
-                            );
-                        }
-                    }
-                    
-                    // Check consistency with other sources in the project
-                    for (const auto& other_node : project.nodes_) {
-                        if (other_node.node_id != node_id && other_node.node_type == NodeType::SOURCE) {
-                            if (other_node.stage_name != node_it->stage_name) {
-                                throw std::runtime_error(
-                                    "Cannot mix source types. Project already has " + other_node.stage_name + 
-                                    " sources, cannot add " + node_it->stage_name + " TBC file."
-                                );
-                            }
-                        }
-                    }
-                    
-                    // Validate against project's source_format if set
-                    if (project.source_format_ != SourceType::Unknown) {
-                        bool is_yc_source = (node_it->stage_name.find("YC") != std::string::npos);
-                        SourceType expected_type = is_yc_source ? SourceType::YC : SourceType::Composite;
-                        
-                        if (expected_type != project.source_format_) {
-                            std::string expected_name = (project.source_format_ == SourceType::YC) ? "YC" : "Composite";
-                            std::string actual_name = is_yc_source ? "YC" : "Composite";
-                            throw std::runtime_error(
-                                "Source type mismatch. Project is configured for " + expected_name + 
-                                " sources, but attempting to add " + actual_name + " source (" + 
-                                node_it->stage_name + ")."
-                            );
-                        }
-                    }
-                } catch (const std::exception& e) {
-                    throw std::runtime_error(
-                        std::string("Failed to validate TBC file: ") + e.what()
-                    );
+                        "Failed to validate TBC file: metadata file not found (expected "
+                        + db_path + " or " + json_path + ")");
                 }
             }
         }

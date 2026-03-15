@@ -43,7 +43,6 @@ add_library(orc-core STATIC
     
     # TBC file I/O
     tbc_reader.cpp
-    tbc_metadata.cpp
     tbc_source_internal/tbc_audio_efm_handler.cpp
     tbc_video_field_representation.cpp
     tbc_yc_video_field_representation.cpp
@@ -102,7 +101,6 @@ add_library(orc-core STATIC
     stages/pal_yc_source/pal_yc_source_stage.cpp
     stages/ntsc_yc_source/ntsc_yc_source_stage.cpp
     stages/ld_sink/ld_sink_stage.cpp
-    stages/ld_sink/tbc_metadata_writer.cpp
     stages/hackdac_sink/hackdac_sink_stage.cpp
     stages/dropout_correct/dropout_correct_stage.cpp
     stages/dropout_map/dropout_map_stage.cpp
@@ -202,8 +200,16 @@ target_include_directories(orc-core PUBLIC
 # Note: All include directories above are PRIVATE by default
 # =============================================================================
 
+# Metadata I/O library (SQLite reader/writer; sub-library of orc-core)
+add_subdirectory(metadata)
+
 # Link against common types
 target_link_libraries(orc-core PUBLIC orc-common)
+
+# Link against metadata library (SQLite reader/writer)
+# PUBLIC so that orc-presenters (which already uses TBCMetadataReader) continues
+# to see tbc_metadata.h.
+target_link_libraries(orc-core PUBLIC orc-metadata)
 
 # Link fmt (used by EFM decoder pipeline sources compiled directly into orc-core)
 target_link_libraries(orc-core PUBLIC fmt::fmt)

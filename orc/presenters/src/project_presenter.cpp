@@ -15,7 +15,7 @@
 #include "../core/include/stage_parameter.h"
 #include "../core/include/logging.h"
 #include "../core/stages/triggerable_stage.h"
-#include "../core/tbc_source_internal/tbc_metadata.h"   // for TBCMetaDataReader
+#include <open_tbc_metadata.h>  // for open_tbc_metadata (handles .tbc.db and legacy .tbc.json)
 #include <stdexcept>
 #include <algorithm>
 
@@ -66,14 +66,14 @@ std::optional<orc::SourceParameters> ProjectPresenter::readVideoParameters(
     const std::string& metadata_path)
 {
     try {
-        orc::TBCMetadataReader reader;
-        if (!reader.open(metadata_path)) {
+        auto reader = orc::open_tbc_metadata(metadata_path);
+        if (!reader) {
             ORC_LOG_WARN("Failed to open metadata file: {}", metadata_path);
             return std::nullopt;
         }
         
-        auto params = reader.read_video_parameters();
-        reader.close();
+        auto params = reader->read_video_parameters();
+        reader->close();
         return params;
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("Exception reading metadata from {}: {}", metadata_path, e.what());

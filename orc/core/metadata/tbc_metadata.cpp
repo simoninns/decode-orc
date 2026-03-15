@@ -1,6 +1,6 @@
 /*
  * File:        tbc_metadata.cpp
- * Module:      orc-core
+ * Module:      orc-metadata
  * Purpose:     Tbc Metadata
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -8,7 +8,7 @@
  */
 
 
-#include "tbc_source_internal/tbc_metadata.h"
+#include <tbc_metadata.h>
 #include "logging.h"
 #include <stdexcept>
 #include <sqlite3.h>
@@ -44,10 +44,10 @@ VideoSystem video_system_from_string(const std::string& name) {
 }
 
 // ============================================================================
-// TBCMetadataReader::Impl (Private implementation using SQLite)
+// TBCMetadataSqliteReader::Impl (Private implementation using SQLite)
 // ============================================================================
 
-class TBCMetadataReader::Impl {
+class TBCMetadataSqliteReader::Impl {
 public:
     sqlite3* db = nullptr;
     int capture_id = 1;  // Default capture ID
@@ -152,18 +152,18 @@ public:
 };
 
 // ============================================================================
-// TBCMetadataReader implementation
+// TBCMetadataSqliteReader implementation
 // ============================================================================
 
-TBCMetadataReader::TBCMetadataReader()
+TBCMetadataSqliteReader::TBCMetadataSqliteReader()
     : impl_(std::make_unique<Impl>()), is_open_(false) {
 }
 
-TBCMetadataReader::~TBCMetadataReader() {
+TBCMetadataSqliteReader::~TBCMetadataSqliteReader() {
     close();
 }
 
-bool TBCMetadataReader::open(const std::string& filename) {
+bool TBCMetadataSqliteReader::open(const std::string& filename) {
     close();
     
     int rc = sqlite3_open_v2(filename.c_str(), &impl_->db, 
@@ -181,7 +181,16 @@ bool TBCMetadataReader::open(const std::string& filename) {
     return true;
 }
 
-void TBCMetadataReader::close() {
+bool TBCMetadataSqliteReader::open_from_handle(sqlite3* db)
+{
+    close();
+    if (!db) return false;
+    impl_->db = db;
+    is_open_ = true;
+    return true;
+}
+
+void TBCMetadataSqliteReader::close() {
     if (impl_->db) {
         sqlite3_close(impl_->db);
         impl_->db = nullptr;
@@ -189,7 +198,7 @@ void TBCMetadataReader::close() {
     is_open_ = false;
 }
 
-std::optional<SourceParameters> TBCMetadataReader::read_video_parameters() {
+std::optional<SourceParameters> TBCMetadataSqliteReader::read_video_parameters() {
     if (!is_open_) {
         ORC_LOG_DEBUG("read_video_parameters: Metadata database is not open");
         return std::nullopt;
@@ -311,7 +320,7 @@ std::optional<SourceParameters> TBCMetadataReader::read_video_parameters() {
     return std::nullopt;
 }
 
-std::optional<PcmAudioParameters> TBCMetadataReader::read_pcm_audio_parameters() {
+std::optional<PcmAudioParameters> TBCMetadataSqliteReader::read_pcm_audio_parameters() {
     if (!is_open_) {
         return std::nullopt;
     }
@@ -345,7 +354,7 @@ std::optional<PcmAudioParameters> TBCMetadataReader::read_pcm_audio_parameters()
     return std::nullopt;
 }
 
-void TBCMetadataReader::preload_cache() {
+void TBCMetadataSqliteReader::preload_cache() {
     if (!is_open_) {
         return;
     }
@@ -361,7 +370,7 @@ void TBCMetadataReader::preload_cache() {
     }
 }
 
-std::optional<FieldMetadata> TBCMetadataReader::read_field_metadata(FieldID field_id) {
+std::optional<FieldMetadata> TBCMetadataSqliteReader::read_field_metadata(FieldID field_id) {
     if (!is_open_ || !field_id.is_valid()) {
         return std::nullopt;
     }
@@ -386,7 +395,7 @@ std::optional<FieldMetadata> TBCMetadataReader::read_field_metadata(FieldID fiel
     return std::nullopt;
 }
 
-std::map<FieldID, FieldMetadata> TBCMetadataReader::read_all_field_metadata() {
+std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadata() {
     std::map<FieldID, FieldMetadata> result;
     
     if (!is_open_) {
@@ -429,7 +438,7 @@ std::map<FieldID, FieldMetadata> TBCMetadataReader::read_all_field_metadata() {
     return result;
 }
 
-std::optional<VbiData> TBCMetadataReader::read_vbi(FieldID field_id) {
+std::optional<VbiData> TBCMetadataSqliteReader::read_vbi(FieldID field_id) {
     if (!is_open_ || !field_id.is_valid()) {
         return std::nullopt;
     }
@@ -499,7 +508,7 @@ std::optional<VbiData> TBCMetadataReader::read_vbi(FieldID field_id) {
     return std::nullopt;
 }
 
-std::optional<VitcData> TBCMetadataReader::read_vitc(FieldID field_id) {
+std::optional<VitcData> TBCMetadataSqliteReader::read_vitc(FieldID field_id) {
     if (!is_open_ || !field_id.is_valid()) {
         return std::nullopt;
     }
@@ -508,7 +517,7 @@ std::optional<VitcData> TBCMetadataReader::read_vitc(FieldID field_id) {
     return std::nullopt;
 }
 
-std::optional<ClosedCaptionData> TBCMetadataReader::read_closed_caption(FieldID field_id) {
+std::optional<ClosedCaptionData> TBCMetadataSqliteReader::read_closed_caption(FieldID field_id) {
     if (!is_open_ || !field_id.is_valid()) {
         return std::nullopt;
     }
@@ -543,7 +552,7 @@ std::optional<ClosedCaptionData> TBCMetadataReader::read_closed_caption(FieldID 
     return std::nullopt;
 }
 
-std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) const {
+std::vector<DropoutInfo> TBCMetadataSqliteReader::read_dropouts(FieldID field_id) const {
     if (!is_open_ || !field_id.is_valid()) {
         return {};
     }
@@ -561,7 +570,7 @@ std::vector<DropoutInfo> TBCMetadataReader::read_dropouts(FieldID field_id) cons
     return {};
 }
 
-void TBCMetadataReader::read_all_dropouts() {
+void TBCMetadataSqliteReader::read_all_dropouts() {
     if (!is_open_) {
         return;
     }
@@ -597,7 +606,7 @@ void TBCMetadataReader::read_all_dropouts() {
     sqlite3_finalize(stmt);
 }
 
-std::optional<DropoutData> TBCMetadataReader::read_dropout(FieldID field_id) const {
+std::optional<DropoutData> TBCMetadataSqliteReader::read_dropout(FieldID field_id) const {
     auto dropouts = read_dropouts(field_id);
     if (dropouts.empty()) {
         return std::nullopt;
@@ -608,7 +617,7 @@ std::optional<DropoutData> TBCMetadataReader::read_dropout(FieldID field_id) con
     return data;
 }
 
-int32_t TBCMetadataReader::get_field_record_count() const {
+int32_t TBCMetadataSqliteReader::get_field_record_count() const {
     if (!is_open_) {
         return -1;
     }
@@ -633,7 +642,7 @@ int32_t TBCMetadataReader::get_field_record_count() const {
     return count;
 }
 
-bool TBCMetadataReader::validate_metadata(std::string* error_message) const {
+bool TBCMetadataSqliteReader::validate_metadata(std::string* error_message) const {
     if (!is_open_) {
         if (error_message) {
             *error_message = "Metadata database is not open";

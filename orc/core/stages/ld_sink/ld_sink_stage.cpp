@@ -11,7 +11,7 @@
 #include "stage_registry.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
-#include "tbc_metadata_writer.h"
+#include <tbc_metadata_writer.h>
 #include "buffered_file_io.h"
 #include "logging.h"
 #include "biphase_observer.h"

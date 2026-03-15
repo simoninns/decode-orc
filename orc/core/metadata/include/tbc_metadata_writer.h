@@ -1,6 +1,6 @@
 /*
  * File:        tbc_metadata_writer.h
- * Module:      orc-core
+ * Module:      orc-metadata
  * Purpose:     TBC Metadata Writer (SQLite)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,9 @@
 
 #pragma once
 
-#include "../../tbc_source_internal/tbc_metadata.h"
+#include "tbc_metadata.h"
 #include <field_id.h>
-#include "observer.h"
-#include "observation_context.h"
+#include <observation_context_interface.h>
 #include <string>
 #include <memory>
 #include <vector>
@@ -57,8 +56,8 @@ public:
     bool write_vits_metrics(FieldID field_id, const VitsMetrics& metrics);
     bool write_dropout(FieldID field_id, const DropoutInfo& dropout);
     
-    // Write all observations from an ObservationContext
-    bool write_observations(FieldID field_id, const ObservationContext& context);
+    // Write all observations from an IObservationContext
+    bool write_observations(FieldID field_id, const IObservationContext& context);
     
     // Transaction support for bulk writes
     bool begin_transaction();

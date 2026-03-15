@@ -115,18 +115,19 @@ void OrcGraphicsScene::onSelectionChanged()
 
 QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
 {
-    QMenu* menu = new QMenu(views().isEmpty() ? nullptr : views().first());
-    
     // Check if project has a valid name (indicating it's been created/loaded)
     bool has_project = !graph_model_.presenter().getProjectName().empty();
     
+    if (!has_project) {
+        return nullptr;
+    }
+
+    QMenu* menu = new QMenu(views().isEmpty() ? nullptr : views().first());
+    
     // Add Node submenu
     QMenu* add_node_menu = menu->addMenu("Add Node");
-    add_node_menu->setEnabled(has_project);
     
-    if (!has_project) {
-        add_node_menu->addAction("(No project loaded)")->setEnabled(false);
-    } else {
+    {
         const auto& all_types = get_all_node_types();
         auto project_format_enum = graph_model_.presenter().getVideoFormat();
         auto project_source_enum = graph_model_.presenter().getSourceType();

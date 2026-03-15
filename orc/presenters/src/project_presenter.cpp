@@ -84,7 +84,7 @@ std::optional<orc::SourceParameters> ProjectPresenter::readVideoParameters(
 // === ProjectPresenter Implementation ===
 
 ProjectPresenter::ProjectPresenter()
-    : project_(std::make_unique<orc::Project>(orc::project_io::create_empty_project("Untitled Project")))
+    : project_(std::make_unique<orc::Project>(orc::project_io::create_empty_project("")))
     , project_path_()
     , is_modified_(false)
     , dag_(nullptr)

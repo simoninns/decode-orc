@@ -1598,7 +1598,7 @@ void MainWindow::onAspectRatioModeChanged(int index)
 
 void MainWindow::updateWindowTitle()
 {
-    QString title = "Orc GUI";
+    QString title = "No Project Loaded";
     
     QString project_name = project_.projectName();
     if (!project_name.isEmpty()) {

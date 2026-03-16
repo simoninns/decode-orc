@@ -613,6 +613,10 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
             ORC_LOG_DEBUG("FFmpegOutputBackend: Using CRF mode: {}", encoder_crf_);
         }
         
+        // Set field order: NTSC = Bottom-Field-First (BFF), PAL = Top-Field-First (TFF)
+        is_tff_ = (params.system == VideoSystem::PAL || params.system == VideoSystem::PAL_M);
+        codec_ctx_->field_order = is_tff_ ? AV_FIELD_TT : AV_FIELD_BB;
+
         // Add interlaced flag if not deinterlacing
         // TODO: check for apply_deinterlace parameter
         if (codec_id == "libx264") {
@@ -984,7 +988,15 @@ bool FFmpegOutputBackend::convertAndEncode(const ComponentFrame& component_frame
     
     // Set presentation timestamp
     frame_->pts = pts_++;
-    
+
+    // Signal interlaced field order per-frame (required for correct H.264/H.265 SEI Pic Timing)
+    frame_->flags |= AV_FRAME_FLAG_INTERLACED;
+    if (is_tff_) {
+        frame_->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
+    } else {
+        frame_->flags &= ~AV_FRAME_FLAG_TOP_FIELD_FIRST;
+    }
+
     // Send frame to encoder
     ret = avcodec_send_frame(codec_ctx_, frame_);
     if (ret < 0) {

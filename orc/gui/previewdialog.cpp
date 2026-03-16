@@ -25,6 +25,7 @@
 #include <QMenu>
 #include <QSettings>
 #include <QGuiApplication>
+#include <QFontMetrics>
 #include <QScreen>
 #include <algorithm>
 
@@ -32,7 +33,13 @@ PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
     , line_scope_dialog_(nullptr)
     , field_timing_dialog_(nullptr)
+    , nav_debounce_timer_(new QTimer(this))
 {
+    nav_debounce_timer_->setSingleShot(true);
+    nav_debounce_timer_->setInterval(100);  // ms: coalesces rapid scrub moves
+    connect(nav_debounce_timer_, &QTimer::timeout, [this]() {
+        emit renderRequested(currentIndex());
+    });
     setupUI();
     setWindowTitle("Field/Frame Preview");
     
@@ -53,6 +60,38 @@ void PreviewDialog::setSignalControlsVisible(bool visible)
 }
 
 PreviewDialog::~PreviewDialog() = default;
+
+void PreviewDialog::navigateToIndex(int zero_based)
+{
+    const int clamped = std::clamp(zero_based,
+                                   preview_slider_->minimum(),
+                                   preview_slider_->maximum());
+    nav_debounce_timer_->stop();  // cancel any pending debounced render
+    setIndex(clamped);
+    emit positionChanged(clamped);
+    emit renderRequested(clamped);
+}
+
+void PreviewDialog::navigateToIndexDebounced(int zero_based)
+{
+    const int clamped = std::clamp(zero_based,
+                                   preview_slider_->minimum(),
+                                   preview_slider_->maximum());
+    setIndex(clamped);              // update UI immediately for visual feedback
+    emit positionChanged(clamped);
+    nav_debounce_timer_->start();   // (re)starts; fires renderRequested when settled
+}
+
+void PreviewDialog::setIndex(int zero_based)
+{
+    // Silently sync both slider and spinbox without emitting any signals.
+    preview_slider_->blockSignals(true);
+    frame_jump_spinbox_->blockSignals(true);
+    preview_slider_->setValue(zero_based);
+    frame_jump_spinbox_->setValue(zero_based + 1);  // 1-indexed display
+    preview_slider_->blockSignals(false);
+    frame_jump_spinbox_->blockSignals(false);
+}
 
 void PreviewDialog::setupUI()
 {
@@ -118,6 +157,13 @@ void PreviewDialog::setupUI()
     next_button_->setAutoRepeatDelay(200);
     next_button_->setAutoRepeatInterval(30);
     
+    // Prevent navigation buttons from being treated as dialog default buttons
+    // (without this, the << button appears focused when the spinbox has focus)
+    first_button_->setAutoDefault(false);
+    prev_button_->setAutoDefault(false);
+    next_button_->setAutoDefault(false);
+    last_button_->setAutoDefault(false);
+
     // Set fixed width for navigation buttons
     first_button_->setFixedWidth(40);
     prev_button_->setFixedWidth(40);
@@ -137,6 +183,20 @@ void PreviewDialog::setupUI()
     sliderLayout->addWidget(prev_button_);
     sliderLayout->addWidget(next_button_);
     sliderLayout->addWidget(last_button_);
+    
+    // Jump-to spin box (1-indexed, to the right of navigation buttons)
+    frame_jump_spinbox_ = new QSpinBox();
+    frame_jump_spinbox_->setMinimum(1);
+    frame_jump_spinbox_->setMaximum(1);
+    frame_jump_spinbox_->setEnabled(false);
+    {
+        // Size the spinbox to comfortably hold up to 5-digit numbers
+        QFontMetrics fm(frame_jump_spinbox_->font());
+        frame_jump_spinbox_->setMinimumWidth(fm.horizontalAdvance("99999") + 36);  // +36 for arrows/margins
+    }
+    frame_jump_spinbox_->setToolTip("Jump directly to a frame/field number");
+    sliderLayout->addWidget(frame_jump_spinbox_);
+    
     sliderLayout->addWidget(slider_min_label_);
     sliderLayout->addWidget(preview_slider_, 1);
     sliderLayout->addWidget(slider_max_label_);
@@ -165,11 +225,13 @@ void PreviewDialog::setupUI()
     
     // Add Zoom 1:1 button
     zoom1to1_button_ = new QPushButton("Zoom 1:1");
+    zoom1to1_button_->setAutoDefault(false);
     zoom1to1_button_->setToolTip("Resize preview to original image size");
     controlLayout->addWidget(zoom1to1_button_);
     
     // Add Dropouts toggle button
     dropouts_button_ = new QPushButton("Dropouts: Off");
+    dropouts_button_->setAutoDefault(false);
     dropouts_button_->setCheckable(true);
     dropouts_button_->setChecked(false);
     dropouts_button_->setToolTip("Show/hide dropout regions");
@@ -183,55 +245,63 @@ void PreviewDialog::setupUI()
     status_bar_->showMessage("No stage selected");
     mainLayout->addWidget(status_bar_);
     
-    // Connect signals
-    connect(preview_slider_, &QSlider::valueChanged, this, &PreviewDialog::previewIndexChanged);
+    // -----------------------------------------------------------------------
+    // Internal sync: keep spinbox display in step with slider (handles range-
+    // clamping done by Qt when setRange is called, and also setIndex calls).
+    // These connections do NOT emit navigation signals.
+    // -----------------------------------------------------------------------
+    connect(preview_slider_, &QSlider::valueChanged, [this](int value) {
+        frame_jump_spinbox_->blockSignals(true);
+        frame_jump_spinbox_->setValue(value + 1);
+        frame_jump_spinbox_->blockSignals(false);
+    });
+    connect(preview_slider_, &QSlider::rangeChanged, [this](int min, int max) {
+        frame_jump_spinbox_->setRange(min + 1, max + 1);
+    });
+
+    // -----------------------------------------------------------------------
+    // Navigation: all sources call navigateToIndex / navigateToIndexDebounced.
+    // Those two methods are the single authority for position changes and
+    // decide which signals to emit.
+    // -----------------------------------------------------------------------
+
+    // First / Prev / Next / Last buttons — always immediate
+    connect(first_button_, &QPushButton::clicked,  [this]() {
+        navigateToIndex(preview_slider_->minimum());
+    });
+    connect(prev_button_,  &QPushButton::clicked,  [this]() {
+        navigateToIndex(preview_slider_->value() - 1);
+    });
+    connect(next_button_,  &QPushButton::clicked,  [this]() {
+        navigateToIndex(preview_slider_->value() + 1);
+    });
+    connect(last_button_,  &QPushButton::clicked,  [this]() {
+        navigateToIndex(preview_slider_->maximum());
+    });
+
+    // Slider drag — debounced for smooth scrubbing
+    connect(preview_slider_, &QSlider::sliderMoved, [this](int value) {
+        navigateToIndexDebounced(value);
+    });
+    // Slider release — commit immediately (cancels any pending debounce)
+    connect(preview_slider_, &QSlider::sliderReleased, [this]() {
+        navigateToIndex(preview_slider_->value());
+    });
+
+    // Spinbox changes (arrow buttons AND keyboard typing) — debounced so that
+    // intermediate digits while typing are coalesced into a final render.
+    connect(frame_jump_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged),
+            [this](int one_based) {
+        navigateToIndexDebounced(one_based - 1);
+    });
+    // Non-navigation signals
     connect(preview_mode_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::previewModeChanged);
     connect(signal_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::signalChanged);
     connect(aspect_ratio_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &PreviewDialog::aspectRatioModeChanged);
-    
-    // Connect navigation buttons
-    connect(first_button_, &QPushButton::clicked, [this]() {
-        const int new_value = preview_slider_->minimum();
-        if (preview_slider_->value() == new_value) {
-            return;  // Already at first frame, avoid duplicate request
-        }
 
-        preview_slider_->setValue(new_value);
-        emit sequentialPreviewRequested(new_value);
-    });
-    connect(prev_button_, &QPushButton::clicked, [this]() {
-        const int current_value = preview_slider_->value();
-        const int new_value = std::max(preview_slider_->minimum(), current_value - 1);
-        if (new_value == current_value) {
-            return;  // Already at boundary, do not re-request
-        }
-
-        preview_slider_->setValue(new_value);
-        emit sequentialPreviewRequested(new_value);
-    });
-    connect(next_button_, &QPushButton::clicked, [this]() {
-        const int current_value = preview_slider_->value();
-        const int new_value = std::min(preview_slider_->maximum(), current_value + 1);
-        if (new_value == current_value) {
-            return;  // Already at boundary, do not re-request
-        }
-
-        preview_slider_->setValue(new_value);
-        emit sequentialPreviewRequested(new_value);
-    });
-    connect(last_button_, &QPushButton::clicked, [this]() {
-        const int new_value = preview_slider_->maximum();
-        if (preview_slider_->value() == new_value) {
-            return;  // Already at last frame, avoid duplicate request
-        }
-
-        preview_slider_->setValue(new_value);
-        emit sequentialPreviewRequested(new_value);
-    });
-    
     // Connect dropouts button
     connect(dropouts_button_, &QPushButton::toggled, [this](bool checked) {
         dropouts_button_->setText(checked ? "Dropouts: On" : "Dropouts: Off");

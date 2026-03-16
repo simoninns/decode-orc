@@ -12,6 +12,8 @@
 
 #include <QDialog>
 #include <QSlider>
+#include <QSpinBox>
+#include <QTimer>
 #include <QLabel>
 #include <QComboBox>
 #include <QPushButton>
@@ -61,6 +63,7 @@ public:
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }  ///< Get aspect ratio selector
     QAction* ntscObserverAction() { return show_ntsc_observer_action_; }  ///< Get NTSC observer menu action
     QPushButton* dropoutsButton() { return dropouts_button_; }  ///< Get dropouts button for state control
+    QSpinBox* frameJumpSpinBox() { return frame_jump_spinbox_; }  ///< Get frame/field jump spin box
     /// @}
     
     /**
@@ -125,9 +128,46 @@ public:
      */
     FieldTimingDialog* fieldTimingDialog() { return field_timing_dialog_; }
 
+    /**
+     * @brief Returns the current 0-based navigation index (always matches slider/spinbox display).
+     */
+    int currentIndex() const { return preview_slider_->value(); }
+
+    /**
+     * @brief Navigate immediately to \p zero_based.
+     * Clamps to range, updates slider + spinbox, emits positionChanged and renderRequested.
+     * Call this from outside the dialog (keyboard, MainWindow::onNavigatePreview).
+     */
+    void navigateToIndex(int zero_based);
+
+    /**
+     * @brief Navigate with debounce (slider scrub, spinbox typing).
+     * Updates UI immediately for visual feedback; emits renderRequested only after
+     * the debounce timer fires.
+     */
+    void navigateToIndexDebounced(int zero_based);
+
+    /**
+     * @brief Silently set the displayed index — updates slider and spinbox without
+     * emitting any navigation signals. Used by MainWindow when restoring position
+     * after a range change (refreshViewerControls / onPreviewModeChanged).
+     */
+    void setIndex(int zero_based);
+
 Q_SIGNALS:
-    void previewIndexChanged(int index);
-    void sequentialPreviewRequested(int index);  // Emitted when next/prev button clicked
+    /**
+     * Emitted whenever the current index changes (every navigate/scrub).
+     * MainWindow connects this to its updatePreviewInfo() to keep the info
+     * label in sync even during a scrub before the render fires.
+     */
+    void positionChanged(int index);
+    /**
+     * Emitted when a render should happen — either immediately (buttons,
+     * slider release) or after the debounce timer settles (slider drag,
+     * spinbox typing).  MainWindow renders now if not in-flight, otherwise
+     * the completion callback will re-render for currentIndex().
+     */
+    void renderRequested(int index);
     void previewModeChanged(int index);
     void signalChanged(int index);  // Emitted when signal selection changes (Y/C/Y+C)
     void aspectRatioModeChanged(int index);
@@ -175,13 +215,15 @@ private:
     int current_line_scope_preview_width_ = 0;
     int current_line_scope_samples_count_ = 0;
     
-    // Navigation buttons
+    // Navigation
+    QTimer* nav_debounce_timer_;
     QPushButton* first_button_;
     QPushButton* prev_button_;
     QPushButton* next_button_;
     QPushButton* last_button_;
     QPushButton* zoom1to1_button_;
     QPushButton* dropouts_button_;
+    QSpinBox* frame_jump_spinbox_;
 };
 
 #endif // PREVIEWDIALOG_H

@@ -167,6 +167,8 @@ private:
     void setupUI();
     void setupMenus();
     void setupToolbar();
+    void connectDAGSignals();     ///< Connect DAG model/scene signals to their handlers
+    void recreateDAGModelScene(); ///< Delete and recreate DAG model/scene with signals reconnected
     void updateWindowTitle();
     void updatePreviewInfo();
     void updateUIState();
@@ -271,12 +273,8 @@ private:
     int last_line_scope_preview_width_;  ///< Store preview width for coordinate mapping
     int last_line_scope_samples_count_;  ///< Store samples count for coordinate mapping
     
-    // Preview update debouncing (for slider scrubbing)
-    QTimer* preview_update_timer_;
-    int pending_preview_index_;
-    bool preview_update_pending_;
-    bool preview_render_in_flight_{false};  // Track if a render request is currently being processed
-    int latest_requested_preview_index_{-1};  // Cache the latest requested index (may differ from what's being rendered)
+    bool preview_render_in_flight_{false};  // True while a render request is in-flight
+    int pending_render_index_{-1};          // Index passed to the most recent render call
     
     // Trigger progress tracking (now via coordinator signals)
     // Use QPointer to auto-null when dialog is deleted

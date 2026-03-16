@@ -133,9 +133,6 @@ MainWindow::MainWindow(QWidget *parent)
     , current_output_type_(orc::PreviewOutputType::Frame)
     , current_option_id_("frame")  // Default to "Frame (Y)" option
     , current_aspect_ratio_mode_(orc::AspectRatioMode::DAR_4_3)  // Default to 4:3
-    , preview_update_timer_(nullptr)
-    , pending_preview_index_(-1)
-    , preview_update_pending_(false)
     , trigger_progress_dialog_(nullptr)
     , last_line_scope_field_index_(std::numeric_limits<uint64_t>::max())
     , last_line_scope_line_number_(-1)
@@ -201,19 +198,6 @@ MainWindow::MainWindow(QWidget *parent)
     render_coordinator_->start();
     
     // Aspect ratio display is handled exclusively in GUI (no core scaling)
-    
-    // Create preview update debounce timer
-    // This prevents excessive rendering during slider scrubbing by only updating
-    // after the slider has been stationary for a short period
-    preview_update_timer_ = new QTimer(this);
-    preview_update_timer_->setSingleShot(true);  // Single-shot for debounce behavior
-    preview_update_timer_->setInterval(100);  // 100ms delay for debounce (slider scrubbing)
-    connect(preview_update_timer_, &QTimer::timeout, this, [this]() {
-        if (preview_update_pending_) {
-            updateAllPreviewComponents();
-            preview_update_pending_ = false;
-        }
-    });
     
     setupUI();
     setupMenus();
@@ -324,28 +308,18 @@ void MainWindow::setupUI()
     quality_metrics_dialog_->setWindowTitle("Field/Frame Quality Metrics");
     quality_metrics_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
     
-    // Connect preview dialog signals
-    connect(preview_dialog_, &PreviewDialog::previewIndexChanged,
-            this, &MainWindow::onPreviewIndexChanged);
-    // For sequential navigation (button clicks), implement intelligent throttling:
-    // Cache the latest requested index. If no render is in-flight, send immediately.
-    // If a render is in-flight, the cached index will be processed when it completes.
-    connect(preview_dialog_, &PreviewDialog::sequentialPreviewRequested,
-            this, [this](int index) {
-                // Skip debounce timer for button clicks
-                preview_update_timer_->stop();
-                preview_update_pending_ = false;
-                
-                // Always update the latest requested index (cache the latest click)
-                latest_requested_preview_index_ = index;
-                
+    // Connect preview dialog signals.
+    // PreviewDialog owns all navigation state (position, clamping, debouncing).
+    // positionChanged  — fires on every scrub/click so MainWindow can update labels.
+    // renderRequested  — fires when a render should happen (already debounced).
+    connect(preview_dialog_, &PreviewDialog::positionChanged,
+            this, [this](int) { updatePreviewInfo(); });
+    connect(preview_dialog_, &PreviewDialog::renderRequested,
+            this, [this](int) {
                 if (!preview_render_in_flight_) {
-                    // No render in progress - send request immediately
-                    pending_preview_index_ = index;
                     updateAllPreviewComponents();
                 }
-                // If render is in-flight, onPreviewReady will check if latest_requested differs
-                // from what was just rendered and issue a new request if needed
+                // else: in-flight — onPreviewReady checks currentIndex() vs pending_render_index_
             });
     connect(preview_dialog_, &PreviewDialog::previewModeChanged,
             this, &MainWindow::onPreviewModeChanged);
@@ -360,7 +334,7 @@ void MainWindow::setupUI()
                 render_coordinator_->setShowDropouts(show);
                 updatePreview();
             });
-        connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
+    connect(preview_dialog_, &PreviewDialog::showVBIDialogRequested,
             this, &MainWindow::onShowVBIDialog);
     connect(preview_dialog_, &PreviewDialog::showHintsDialogRequested,
             this, &MainWindow::onShowHintsDialog);
@@ -413,30 +387,9 @@ void MainWindow::setupUI()
     // Set alignment so (0,0) appears at top-left of view
     dag_view_->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     
-    // Connect scene/model signals for DAG modifications  
-    connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
-            this, &MainWindow::onDAGModified);
-    connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
-            this, &MainWindow::onDAGModified);
-    connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
-            this, &MainWindow::onDAGModified);
-    connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
-            this, &MainWindow::onDAGModified);
-    
-    // Connect node selection signal
-    connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
-            this, &MainWindow::onQtNodeSelected);
-    
-    // Connect node context menu action signals
-    connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
-            this, &MainWindow::onEditParameters);
-    connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
-            this, &MainWindow::onTriggerStage);
-    connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
-            this, &MainWindow::onInspectStage);
-    connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
-            this, &MainWindow::runAnalysisForNode);
-    
+    // Connect scene/model signals for DAG modifications
+    connectDAGSignals();
+
     // DAG editor takes up full main window
     setCentralWidget(dag_view_);
     
@@ -529,6 +482,43 @@ void MainWindow::setupToolbar()
     // Toolbar removed - was creating blank bar between menu and DAG editor
 }
 
+void MainWindow::connectDAGSignals()
+{
+    connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
+            this, &MainWindow::onDAGModified);
+    connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
+            this, &MainWindow::onDAGModified);
+    connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
+            this, &MainWindow::onDAGModified);
+    connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
+            this, &MainWindow::onDAGModified);
+    connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
+            this, &MainWindow::onQtNodeSelected);
+    connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
+            this, &MainWindow::onEditParameters);
+    connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
+            this, &MainWindow::onTriggerStage);
+    connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
+            this, &MainWindow::onInspectStage);
+    connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
+            this, &MainWindow::runAnalysisForNode);
+    connect(dag_scene_, &QtNodes::BasicGraphicsScene::nodeDoubleClicked,
+            this, [this](QtNodes::NodeId) {
+                if (!auto_show_preview_action_->isChecked() && !preview_dialog_->isVisible()) {
+                    preview_dialog_->show();
+                }
+            });
+}
+
+void MainWindow::recreateDAGModelScene()
+{
+    delete dag_scene_;
+    delete dag_model_;
+    dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
+    dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
+    dag_view_->setScene(dag_scene_);
+    connectDAGSignals();
+}
 
 
 void MainWindow::onNewProject()
@@ -913,6 +903,7 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
     project_.clear();
     preview_dialog_->previewWidget()->clearImage();
     preview_dialog_->previewSlider()->setEnabled(false);
+    preview_dialog_->frameJumpSpinBox()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
     QString error;
@@ -930,36 +921,12 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
     
     // Recreate DAG model/scene since the presenter has changed
     if (dag_model_) {
-        delete dag_scene_;
-        delete dag_model_;
-        dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
-        dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
-        dag_view_->setScene(dag_scene_);
-        
-        // Reconnect signals
-        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
-                this, &MainWindow::onDAGModified);
-        connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
-                this, &MainWindow::onQtNodeSelected);
-        connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
-                this, &MainWindow::onEditParameters);
-        connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
-                this, &MainWindow::onTriggerStage);
-        connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
-                this, &MainWindow::onInspectStage);
-        connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
-                this, &MainWindow::runAnalysisForNode);
+        recreateDAGModelScene();
     }
-    
+
     // Don't set a project path - leave it empty so user must use "Save As"
     // Project is marked as modified by create_empty_project()
-    
+
     ORC_LOG_INFO("Project created successfully: {}", project_name.toStdString());
     updateUIState();
     
@@ -983,6 +950,7 @@ void MainWindow::openProject(const QString& filename)
     project_.clear();
     preview_dialog_->previewWidget()->clearImage();
     preview_dialog_->previewSlider()->setEnabled(false);
+    preview_dialog_->frameJumpSpinBox()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
     QString error;
@@ -997,33 +965,9 @@ void MainWindow::openProject(const QString& filename)
     
     // Recreate DAG model/scene since the presenter has changed
     if (dag_model_) {
-        delete dag_scene_;
-        delete dag_model_;
-        dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
-        dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
-        dag_view_->setScene(dag_scene_);
-        
-        // Reconnect signals
-        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
-                this, &MainWindow::onDAGModified);
-        connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
-                this, &MainWindow::onQtNodeSelected);
-        connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
-                this, &MainWindow::onEditParameters);
-        connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
-                this, &MainWindow::onTriggerStage);
-        connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
-                this, &MainWindow::onInspectStage);
-        connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
-                this, &MainWindow::runAnalysisForNode);
+        recreateDAGModelScene();
     }
-    
+
     ORC_LOG_DEBUG("Project loaded: {}", project_.projectName().toStdString());
     
     // Project loaded - user can select a stage in the DAG editor for viewing
@@ -1153,6 +1097,7 @@ void MainWindow::quickProject(const QString& filename)
     project_.clear();
     preview_dialog_->previewWidget()->clearImage();
     preview_dialog_->previewSlider()->setEnabled(false);
+    preview_dialog_->frameJumpSpinBox()->setEnabled(false);
     preview_dialog_->previewSlider()->setValue(0);
     
     // Determine stage names based on format and source type
@@ -1272,36 +1217,12 @@ void MainWindow::quickProject(const QString& filename)
     
     // Recreate DAG model/scene since the presenter has changed
     if (dag_model_) {
-        delete dag_scene_;
-        delete dag_model_;
-        dag_model_ = new OrcGraphModel(*project_.presenter(), dag_view_);
-        dag_scene_ = new OrcGraphicsScene(*dag_model_, dag_view_);
-        dag_view_->setScene(dag_scene_);
-        
-        // Reconnect signals
-        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionCreated,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::connectionDeleted,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeCreated,
-                this, &MainWindow::onDAGModified);
-        connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted,
-                this, &MainWindow::onDAGModified);
-        connect(dag_scene_, &OrcGraphicsScene::nodeSelected,
-                this, &MainWindow::onQtNodeSelected);
-        connect(dag_scene_, &OrcGraphicsScene::editParametersRequested,
-                this, &MainWindow::onEditParameters);
-        connect(dag_scene_, &OrcGraphicsScene::triggerStageRequested,
-                this, &MainWindow::onTriggerStage);
-        connect(dag_scene_, &OrcGraphicsScene::inspectStageRequested,
-                this, &MainWindow::onInspectStage);
-        connect(dag_scene_, &OrcGraphicsScene::runAnalysisRequested,
-                this, &MainWindow::runAnalysisForNode);
+        recreateDAGModelScene();
     }
-    
+
     // Don't set a project path - leave it empty so user must use "Save As"
     // Project is marked as modified by create_empty_project() and subsequent operations
-    
+
     ORC_LOG_INFO("Quick project created successfully from: {}", filename.toStdString());
     
     // Remember this source directory
@@ -1431,18 +1352,9 @@ void MainWindow::updateUIState()
     updateWindowTitle();
 }
 
-void MainWindow::onPreviewIndexChanged(int index)
+void MainWindow::onPreviewIndexChanged(int /*index*/)
 {
-    // Debounce preview updates to avoid excessive rendering during slider scrubbing
-    // The timer will only fire after the slider has been stationary for 200ms
-    // This provides smooth scrubbing while still allowing updates when paused
-    
-    pending_preview_index_ = index;
-    preview_update_pending_ = true;
-    
-    // Restart the debounce timer - this cancels any pending update
-    // and schedules a new one for 200ms from now
-    preview_update_timer_->start();
+    // Navigation is now handled entirely by PreviewDialog.
 }
 
 void MainWindow::onNavigatePreview(int delta)
@@ -1450,27 +1362,12 @@ void MainWindow::onNavigatePreview(int delta)
     if (!preview_dialog_->previewSlider()->isEnabled()) {
         return;
     }
-    
-    // In frame view modes, move by 2 items at a time
-    int step = (current_output_type_ == orc::PreviewOutputType::Frame ||
-                current_output_type_ == orc::PreviewOutputType::Frame_Reversed) ? 2 : 1;
-    
-    int current_index = preview_dialog_->previewSlider()->value();
-    int new_index = current_index + (delta * step);
-    int max_index = preview_dialog_->previewSlider()->maximum();
-    
-    if (new_index >= 0 && new_index <= max_index) {
-        // For keyboard navigation, update immediately without debouncing
-        preview_dialog_->previewSlider()->blockSignals(true);
-        preview_dialog_->previewSlider()->setValue(new_index);
-        preview_dialog_->previewSlider()->blockSignals(false);
-        
-        // Skip debounce timer and update immediately
-        preview_update_timer_->stop();
-        pending_preview_index_ = new_index;
-        updateAllPreviewComponents();
-        preview_update_pending_ = false;
-    }
+    // In frame view modes, keyboard arrows skip 2 slider positions at a time
+    // so one keypress = one frame; in field mode one keypress = one field.
+    const int step = (current_output_type_ == orc::PreviewOutputType::Frame ||
+                      current_output_type_ == orc::PreviewOutputType::Frame_Reversed) ? 2 : 1;
+    const int cur  = preview_dialog_->previewSlider()->value();
+    preview_dialog_->navigateToIndex(cur + delta * step);
 }
 
 void MainWindow::onPreviewModeChanged(int index)
@@ -1545,16 +1442,13 @@ void MainWindow::onPreviewModeChanged(int index)
     // Otherwise, both are same type (field->field or frame->frame), keep position as-is
     
     // Update viewer controls (slider range, step, labels) without triggering a render yet
-    bool old_signal_state = preview_dialog_->previewSlider()->blockSignals(true);
     refreshViewerControls(true /* skip_preview */);
     
     // Set the calculated position (after refreshViewerControls updates the range)
     if (new_position >= 0 && new_position <= static_cast<uint64_t>(preview_dialog_->previewSlider()->maximum())) {
-        preview_dialog_->previewSlider()->setValue(new_position);
+        preview_dialog_->setIndex(new_position);
     }
     
-    // Restore signal state and trigger preview update at the correct position
-    preview_dialog_->previewSlider()->blockSignals(old_signal_state);
     updateAllPreviewComponents();
 }
 
@@ -1823,11 +1717,11 @@ void MainWindow::keyPressEvent(QKeyEvent* event)
             event->accept();
             break;
         case Qt::Key_Home:
-            preview_dialog_->previewSlider()->setValue(0);
+            preview_dialog_->navigateToIndex(0);
             event->accept();
             break;
         case Qt::Key_End:
-            preview_dialog_->previewSlider()->setValue(preview_dialog_->previewSlider()->maximum());
+            preview_dialog_->navigateToIndex(preview_dialog_->previewSlider()->maximum());
             event->accept();
             break;
         case Qt::Key_PageUp:
@@ -2301,9 +2195,10 @@ void MainWindow::updatePreview()
     
     // Mark that a render is now in-flight (will be cleared when onPreviewReady is called)
     preview_render_in_flight_ = true;
-    
-    // Initialize the cache with the current index we're rendering
-    latest_requested_preview_index_ = current_index;
+
+    // Record exactly which index we just dispatched so onPreviewReady can
+    // compare against latest_requested_preview_index_ correctly.
+    pending_render_index_ = current_index;
 }
 
 void MainWindow::updateVectorscope(const orc::PreviewRenderResult& result)
@@ -2492,6 +2387,7 @@ void MainWindow::refreshViewerControls(bool skip_preview)
         }
         
         preview_dialog_->previewSlider()->setEnabled(true);
+        preview_dialog_->frameJumpSpinBox()->setEnabled(true);
     }
     
     // Update all preview-related components (image, info, VBI dialog)

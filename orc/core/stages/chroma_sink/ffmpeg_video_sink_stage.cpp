@@ -161,6 +161,10 @@ bool FFmpegVideoSinkStage::trigger(
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context)
 {
+    // Reset cancel flag at the start of each trigger so a previous cancellation
+    // (e.g. during CC collection) doesn't cause subsequent triggers to fail immediately.
+    cancel_requested_.store(false);
+
     // Check if closed caption embedding is enabled in parameters
     bool embed_cc = false;
     auto cc_param = parameters.find("embed_closed_captions");
@@ -205,6 +209,10 @@ bool FFmpegVideoSinkStage::trigger(
                     ++cc_fields_processed;
                     if (progress_callback_) {
                         progress_callback_(cc_fields_processed, total_cc_fields, "Collecting closed caption data...");
+                    }
+                    if (cancel_requested_.load()) {
+                        ORC_LOG_WARN("FFmpegVideoSink: Cancelled during closed caption collection");
+                        return false;
                     }
                 }
                 

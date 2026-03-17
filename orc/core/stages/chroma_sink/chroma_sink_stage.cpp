@@ -464,7 +464,7 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
 bool ChromaSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context [[maybe_unused]]) {
+    IObservationContext& observation_context [[maybe_unused]]) {
     // ChromaSinkStage is a video output sink and does not require or populate observations.
     // The LD sink and dedicated analysis stages handle observation extraction.
     ORC_LOG_DEBUG("ChromaSink: Trigger called - starting decode");

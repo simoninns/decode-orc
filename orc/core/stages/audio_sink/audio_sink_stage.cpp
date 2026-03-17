@@ -118,7 +118,7 @@ bool AudioSinkStage::write_wav_header(std::ofstream& out, uint32_t num_samples,
 bool AudioSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context) {
+    IObservationContext& observation_context) {
     (void)observation_context;
     is_processing_.store(true);
     cancel_requested_.store(false);

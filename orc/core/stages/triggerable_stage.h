@@ -11,7 +11,7 @@
 
 #include "../include/artifact.h"
 #include "../include/stage_parameter.h"
-#include "../include/observation_context.h"
+#include "../include/observation_context_interface.h"
 #include <memory>
 #include <vector>
 #include <map>
@@ -47,12 +47,13 @@ public:
    *
    * @param inputs Input artifacts (typically one VideoFieldRepresentation)
    * @param parameters Stage parameters
+   * @param observation_context The observation context interface
    * @return True if trigger succeeded, false otherwise
    */
   virtual bool trigger(
       const std::vector<ArtifactPtr>& inputs,
       const std::map<std::string, ParameterValue>& parameters,
-      ObservationContext& observation_context
+      IObservationContext& observation_context
   ) = 0;
 
   /**

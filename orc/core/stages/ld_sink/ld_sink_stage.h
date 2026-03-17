@@ -74,7 +74,7 @@ public:
     bool trigger(
         const std::vector<ArtifactPtr>& inputs,
         const std::map<std::string, ParameterValue>& parameters,
-        ObservationContext& observation_context
+        IObservationContext& observation_context
     ) override;
     
     std::string get_trigger_status() const override;
@@ -109,7 +109,7 @@ private:
     bool write_tbc_and_metadata(
         const VideoFieldRepresentation* representation,
         const std::string& tbc_path,
-        ObservationContext& observation_context
+        IObservationContext& observation_context
     );
 };
 

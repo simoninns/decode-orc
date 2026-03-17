@@ -95,7 +95,7 @@ bool DaphneVBISinkStage::set_parameters(const std::map<std::string, ParameterVal
 bool DaphneVBISinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context)
+    IObservationContext& observation_context)
 {
     ORC_LOG_DEBUG("DaphneVBISink: Trigger started");
     trigger_status_ = "Starting export...";

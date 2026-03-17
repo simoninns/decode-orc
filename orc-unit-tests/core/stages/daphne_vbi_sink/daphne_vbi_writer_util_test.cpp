@@ -28,7 +28,7 @@ namespace orc_unit_test
 		void SetUp() override
 		{
 			instance_ = std::make_unique<orc::DaphneVBIWriterUtil>();
-			instance_->set_writer(&mockFileWriterUint8_);
+			instance_->init(&mockFileWriterUint8_);
 		}
 
 		void TearDown() override
@@ -89,7 +89,7 @@ namespace orc_unit_test
 					EXPECT_EQ(actual, expected);
 				}));
 
-		instance_->write_observations(field_id, &mockObservationContext_);
+		instance_->write_observations(field_id, mockObservationContext_);
 	}
 
 	TEST_F(DaphneVBIWriterUtil, write_observations_with_no_whiteflag_and_parse_errors)
@@ -126,7 +126,7 @@ namespace orc_unit_test
 					EXPECT_EQ(actual, expected);
 				}));
 
-		instance_->write_observations(field_id, &mockObservationContext_);
+		instance_->write_observations(field_id, mockObservationContext_);
 	}
 
 }

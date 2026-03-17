@@ -30,9 +30,9 @@ public:
     DaphneVBIWriterUtil() = default;
     ~DaphneVBIWriterUtil() override = default;
 
-    void set_writer(IFileWriter<uint8_t> *pWriter) override;
+    void init(IFileWriter<uint8_t> *pWriter) override;
     void write_header() const override;
-    void write_observations(FieldID field_id, const IObservationContext *pContext) const override;
+    void write_observations(FieldID field_id, const IObservationContext &context) const override;
 
 private:
     IFileWriter<uint8_t> *pWriter_ = nullptr;

@@ -36,10 +36,10 @@ namespace orc
          *
          * @param pWriter The file writer to be used by this object
          */
-        virtual void set_writer(IFileWriter<uint8_t> *pWriter) = 0;
+        virtual void init(IFileWriter<uint8_t> *pWriter) = 0;
 
         virtual void write_header() const = 0;
-        virtual void write_observations(FieldID field_id, const IObservationContext *pContext) const = 0;
+        virtual void write_observations(FieldID field_id, const IObservationContext &context) const = 0;
     };
 
 }

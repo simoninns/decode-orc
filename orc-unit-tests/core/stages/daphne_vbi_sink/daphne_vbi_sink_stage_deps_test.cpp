@@ -73,7 +73,7 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(true));
 
-        EXPECT_CALL(*pMockVBIWriterUtil_, set_writer(pMockFileWriterUint8_.get()))
+        EXPECT_CALL(*pMockVBIWriterUtil_, init(pMockFileWriterUint8_.get()))
             .Times(1);
         EXPECT_CALL(*pMockVBIWriterUtil_, write_header())
             .Times(1);
@@ -99,7 +99,7 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(false));
 
-        EXPECT_CALL(*pMockVBIWriterUtil_, set_writer(_)).Times(0);
+        EXPECT_CALL(*pMockVBIWriterUtil_, init(_)).Times(0);
         EXPECT_CALL(*pMockVBIWriterUtil_, write_header()).Times(0);
 
         const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", mockObservationContext_);
@@ -125,7 +125,7 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(true));
 
-        EXPECT_CALL(*pMockVBIWriterUtil_, set_writer(pMockFileWriterUint8_.get()))
+        EXPECT_CALL(*pMockVBIWriterUtil_, init(pMockFileWriterUint8_.get()))
             .Times(1);
         EXPECT_CALL(*pMockVBIWriterUtil_, write_header())
             .Times(1);

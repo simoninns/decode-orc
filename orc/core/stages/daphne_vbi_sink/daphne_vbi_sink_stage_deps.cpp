@@ -58,7 +58,7 @@ namespace orc
                 return false;
             }
 
-            daphne_vbi_writer_util_->set_writer(vbi_writer.get());
+            daphne_vbi_writer_util_->init(vbi_writer.get());
 
             daphne_vbi_writer_util_->write_header();  // header is required at the beginning of .VBI file
 
@@ -106,7 +106,7 @@ namespace orc
                 }
 
                 // Write observations to VBI file
-                daphne_vbi_writer_util_->write_observations(field_id, &observation_context);
+                daphne_vbi_writer_util_->write_observations(field_id, observation_context);
 
                 fields_processed++;
 

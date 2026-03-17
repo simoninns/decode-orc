@@ -18,6 +18,7 @@
 using testing::_;
 using testing::Return;
 using testing::StrictMock;
+using testing::Ref;
 
 // using different namespace from module-under-test so that we can use the same class names in the tests as in the module-under-test
 namespace orc_unit_test
@@ -116,8 +117,9 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(pMockDeps_));
 
-        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", &mockObservationContext))
-            .Times(1)
+        // Ref needed here so gMock doesn't try to do the wrong thing
+        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", testing::Ref(mockObservationContext)))
+                .Times(1)
             .WillOnce(Return(true));
 
         EXPECT_CALL(*pMockRepresentation_, field_range())
@@ -142,7 +144,8 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(pMockDeps_));
 
-        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", &mockObservationContext))
+        // Ref needed here so gMock doesn't try to do the wrong thing
+        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", Ref(mockObservationContext)))
             .Times(1)
             .WillOnce(Return(false));
 

@@ -80,7 +80,7 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockFileWriterUint8_, close())
             .Times(1);
 
-        const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", &mockObservationContext_);
+        const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", mockObservationContext_);
 
         EXPECT_TRUE(result);
     }
@@ -102,7 +102,7 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockVBIWriterUtil_, set_writer(_)).Times(0);
         EXPECT_CALL(*pMockVBIWriterUtil_, write_header()).Times(0);
 
-        const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", &mockObservationContext_);
+        const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", mockObservationContext_);
 
         EXPECT_FALSE(result);
     }
@@ -136,7 +136,7 @@ namespace orc_unit_test
 
         cancelRequested_.store(true);
 
-        const bool result = instance_->write_vbi(&mockRepresentation_, "cancel_path", &mockObservationContext_);
+        const bool result = instance_->write_vbi(&mockRepresentation_, "cancel_path", mockObservationContext_);
 
         EXPECT_FALSE(result);
         EXPECT_FALSE(isProcessing_.load());

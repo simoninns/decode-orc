@@ -28,7 +28,7 @@ namespace orc
     }
 
     bool DaphneVBISinkStageDeps::write_vbi(const VideoFieldRepresentation* representation,
-                                           const std::string& vbi_path, IObservationContext *pObservationContext)
+                                           const std::string& vbi_path, IObservationContext &observation_context)
     {
         // Ensure the path has .vbi extension
         std::string final_vbi_path = vbi_path;
@@ -102,11 +102,11 @@ namespace orc
 
                 // ===== Run observers to populate observation context =====
                 for (const auto& observer : observers) {
-                    observer->process_field(*representation, field_id, pObservationContext);
+                    observer->process_field(*representation, field_id, &observation_context);
                 }
 
                 // Write observations to VBI file
-                daphne_vbi_writer_util_->write_observations(field_id, pObservationContext);
+                daphne_vbi_writer_util_->write_observations(field_id, &observation_context);
 
                 fields_processed++;
 

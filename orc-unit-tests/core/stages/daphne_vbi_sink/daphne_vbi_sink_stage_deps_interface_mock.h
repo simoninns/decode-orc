@@ -24,8 +24,8 @@ namespace orc_unit_test
      */
     class MockDaphneVBISinkStageDeps : public orc::IDaphneVBISinkStageDeps {
     public:
-        // virtual bool write_vbi(const VideoFieldRepresentation* representation, const std::string& vbi_path, IObservationContext *pObservationContext) = 0;
-        MOCK_METHOD(bool, write_vbi, (const VideoFieldRepresentation*, const std::string&, IObservationContext *), (override));
+        // virtual bool write_vbi(const VideoFieldRepresentation* representation, const std::string& vbi_path, IObservationContext &ObservationContext) = 0;
+        MOCK_METHOD(bool, write_vbi, (const VideoFieldRepresentation*, const std::string&, IObservationContext &), (override));
     };
 }
 

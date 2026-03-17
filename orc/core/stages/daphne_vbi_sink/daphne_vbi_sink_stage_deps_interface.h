@@ -23,7 +23,7 @@ namespace orc
         virtual bool write_vbi(
             const VideoFieldRepresentation* representation,
             const std::string& vbi_path,
-            IObservationContext *pObservationContext) = 0;
+            IObservationContext &observation_context) = 0;
     };
 }
 

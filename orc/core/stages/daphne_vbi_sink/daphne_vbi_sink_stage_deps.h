@@ -38,7 +38,7 @@ namespace orc
         bool write_vbi(
             const VideoFieldRepresentation* representation,
             const std::string& vbi_path,
-            IObservationContext *pObservationContext) override;
+            IObservationContext &observation_context) override;
 
     private:
         TriggerProgressCallback progress_callback_;  // Progress callback for trigger operations

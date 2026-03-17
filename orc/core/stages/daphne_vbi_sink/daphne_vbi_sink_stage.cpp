@@ -138,7 +138,7 @@ bool DaphneVBISinkStage::trigger(
     observation_context.clear();
 
     std::shared_ptr<IDaphneVBISinkStageDeps> deps = this->factories_->get_instance_stage_factories()->CreateInstanceDaphneVBISinkStageDeps(progress_callback_, is_processing_, cancel_requested_);
-    bool success = deps->write_vbi(representation.get(), output_path, &observation_context);
+    bool success = deps->write_vbi(representation.get(), output_path, observation_context);
 
     if (success) {
         auto range = representation->field_range();

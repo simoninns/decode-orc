@@ -159,7 +159,7 @@ bool FFmpegVideoSinkStage::set_parameters(const std::map<std::string, ParameterV
 bool FFmpegVideoSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context)
+    IObservationContext& observation_context)
 {
     // Reset cancel flag at the start of each trigger so a previous cancellation
     // (e.g. during CC collection) doesn't cause subsequent triggers to fail immediately.
@@ -204,7 +204,7 @@ bool FFmpegVideoSinkStage::trigger(
                      field_num <= field_range.end.value(); ++field_num) {
                     FieldID field_id(field_num);
                     if (vfr->has_field(field_id)) {
-                        cc_observer->process_field(*vfr, field_id, &observation_context);
+                        cc_observer->process_field(*vfr, field_id, observation_context);
                     }
                     ++cc_fields_processed;
                     if (progress_callback_) {

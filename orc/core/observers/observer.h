@@ -86,7 +86,7 @@ public:
     virtual void process_field(
         const VideoFieldRepresentation& representation,
         FieldID field_id,
-        IObservationContext *pContext) = 0;
+        IObservationContext &context) = 0;
     
     /**
      * @brief Declare observations this observer provides

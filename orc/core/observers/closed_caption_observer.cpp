@@ -18,14 +18,14 @@ namespace orc {
 void ClosedCaptionObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    IObservationContext *pContext) {
+    IObservationContext &context) {
     
     ORC_LOG_DEBUG("ClosedCaptionObserver::process_field called for field {}", field_id.value());
     
     auto descriptor = representation.get_descriptor(field_id);
     if (!descriptor.has_value()) {
         ORC_LOG_DEBUG("Field {}: No descriptor available", field_id.value());
-        pContext->set(field_id, "closed_caption", "present", false);
+        context.set(field_id, "closed_caption", "present", false);
         return;
     }
     
@@ -37,7 +37,7 @@ void ClosedCaptionObserver::process_field(
         if (field_id.value() % 2 == 1) {
             // This is field 1 type, skip it
             ORC_LOG_DEBUG("Field {}: Skipping odd field (field 1 type)", field_id.value());
-            pContext->set(field_id, "closed_caption", "present", false);
+            context.set(field_id, "closed_caption", "present", false);
             return;
         }
         ORC_LOG_DEBUG("Field {}: Processing even field (field 2 type)", field_id.value());
@@ -49,14 +49,14 @@ void ClosedCaptionObserver::process_field(
     
     if (line_num >= descriptor->height) {
         ORC_LOG_DEBUG("Field {}: Line {} >= height {}", field_id.value(), line_num, descriptor->height);
-        pContext->set(field_id, "closed_caption", "present", false);
+        context.set(field_id, "closed_caption", "present", false);
         return;
     }
     
     const uint16_t* line_data = representation.get_line(field_id, line_num);
     if (line_data == nullptr) {
         ORC_LOG_DEBUG("Field {}: get_line({}) returned nullptr", field_id.value(), line_num);
-        pContext->set(field_id, "closed_caption", "present", false);
+        context.set(field_id, "closed_caption", "present", false);
         return;
     }
     
@@ -74,7 +74,7 @@ void ClosedCaptionObserver::process_field(
     auto video_params_opt = representation.get_video_parameters();
     if (!video_params_opt.has_value()) {
         ORC_LOG_DEBUG("Field {}: Failed to get video parameters", field_id.value());
-        pContext->set(field_id, "closed_caption", "present", false);
+        context.set(field_id, "closed_caption", "present", false);
         return;
     }
     
@@ -105,12 +105,12 @@ void ClosedCaptionObserver::process_field(
                                zero_crossing, colorburst_end, samples_per_bit,
                                decoded);
     
-    pContext->set(field_id, "closed_caption", "present", success);
+    context.set(field_id, "closed_caption", "present", success);
     if (success) {
-        pContext->set(field_id, "closed_caption", "data0", static_cast<int32_t>(decoded.data0));
-        pContext->set(field_id, "closed_caption", "data1", static_cast<int32_t>(decoded.data1));
-        pContext->set(field_id, "closed_caption", "parity0_valid", decoded.parity_valid0);
-        pContext->set(field_id, "closed_caption", "parity1_valid", decoded.parity_valid1);
+        context.set(field_id, "closed_caption", "data0", static_cast<int32_t>(decoded.data0));
+        context.set(field_id, "closed_caption", "data1", static_cast<int32_t>(decoded.data1));
+        context.set(field_id, "closed_caption", "parity0_valid", decoded.parity_valid0);
+        context.set(field_id, "closed_caption", "parity1_valid", decoded.parity_valid1);
         
         ORC_LOG_DEBUG("ClosedCaptionObserver: Field {} CC=[{:#04x}, {:#04x}] parity=({}, {})",
                       field_id.value(), decoded.data0, decoded.data1,

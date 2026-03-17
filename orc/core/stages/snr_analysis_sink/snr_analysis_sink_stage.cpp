@@ -139,7 +139,7 @@ SNRAnalysisSinkStage::ParsedConfig SNRAnalysisSinkStage::parse_config(
 bool SNRAnalysisSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context) {
+    IObservationContext& observation_context) {
 
     ORC_LOG_DEBUG("SNRAnalysisSink: Trigger started");
     is_processing_.store(true);
@@ -192,7 +192,7 @@ bool SNRAnalysisSinkStage::trigger(
     }
 }
 
-void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, const ParsedConfig& cfg, const ObservationContext& observation_context) {
+void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, const ParsedConfig& cfg, const IObservationContext& observation_context) {
     (void)cfg;  // Reserved for future configuration options
     frame_stats_.clear();
     total_frames_ = 0;
@@ -220,8 +220,11 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
     ORC_LOG_DEBUG("SNRAnalysisSink: {} total fields, binning by {} fields per data point", 
                   total_fields, fields_per_bin);
 
-    // Create mutable copy of observation context to populate observations
-    ObservationContext mutable_context = observation_context;
+    // Create a mutable copy of observation context to populate observations
+    // I'm not sure if having a mutable_context is necessary; it may just be AI fluff.  I did this conversion to preserve existing behavior.
+    const auto *pCasted = dynamic_cast<const ObservationContext *>(&observation_context);
+    if (pCasted == nullptr) throw std::runtime_error("Observation context is not of type ObservationContext");  // this should never happen
+    ObservationContext mutable_context = *pCasted;
     
     // Run observers on each field to populate SNR observations
     WhiteSNRObserver white_snr_observer;
@@ -251,8 +254,8 @@ void SNRAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, co
         last_field_in_bin = i;  // Update last field index in bin
 
         // Run observers on this field to populate observations
-        white_snr_observer.process_field(vfr, fid, &mutable_context);
-        black_psnr_observer.process_field(vfr, fid, &mutable_context);
+        white_snr_observer.process_field(vfr, fid, mutable_context);
+        black_psnr_observer.process_field(vfr, fid, mutable_context);
 
         try {
             // Read SNR values from observation context

@@ -28,7 +28,7 @@ namespace orc
     }
 
     bool DaphneVBISinkStageDeps::write_vbi(const VideoFieldRepresentation* representation,
-                                           const std::string& vbi_path, IObservationContext *pObservationContext)
+                                           const std::string& vbi_path, IObservationContext &observation_context)
     {
         // Ensure the path has .vbi extension
         std::string final_vbi_path = vbi_path;
@@ -52,15 +52,15 @@ namespace orc
             ORC_LOG_DEBUG("Opening VBI file for writing: {}", final_vbi_path);
 
             // Open VBI file with buffered writer (1MB buffer chosen arbitrarily)
-            std::shared_ptr<IFileWriter<uint8_t>> vbi_writer = pFactories_->create_instance_buffered_file_writer_uint8(1 * 1024 * 1024);
+            std::shared_ptr<IFileWriter<uint8_t>> vbi_writer = factories_.create_instance_buffered_file_writer_uint8(1 * 1024 * 1024);
             if (!vbi_writer->open(final_vbi_path)) {
                 ORC_LOG_ERROR("Failed to open VBI file for writing: {}", final_vbi_path);
                 return false;
             }
 
-            daphne_vbi_writer_util_->set_writer(vbi_writer.get());
+            std::shared_ptr<IDaphneVBIWriterUtil> daphne_vbi_writer_util = stageFactories_.CreateInstanceDaphneVBIWriterUtil(*vbi_writer);
 
-            daphne_vbi_writer_util_->write_header();  // header is required at the beginning of .VBI file
+            daphne_vbi_writer_util->write_header();  // header is required at the beginning of .VBI file
 
             // Build sorted list of field IDs
             std::vector<FieldID> field_ids;
@@ -102,11 +102,11 @@ namespace orc
 
                 // ===== Run observers to populate observation context =====
                 for (const auto& observer : observers) {
-                    observer->process_field(*representation, field_id, pObservationContext);
+                    observer->process_field(*representation, field_id, observation_context);
                 }
 
                 // Write observations to VBI file
-                daphne_vbi_writer_util_->write_observations(field_id, pObservationContext);
+                daphne_vbi_writer_util->write_observations(field_id, observation_context);
 
                 fields_processed++;
 

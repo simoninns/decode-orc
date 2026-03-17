@@ -217,28 +217,28 @@ FieldRenderResult DAGFieldRenderer::execute_to_node(
         // Run observers to populate observation context for this field
         // These observers extract metadata that GUI features like VBI dialog and quality metrics need
         BiphaseObserver biphase_observer;
-        biphase_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        biphase_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         FmCodeObserver fm_code_observer;
-        fm_code_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        fm_code_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         WhiteFlagObserver white_flag_observer;
-        white_flag_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        white_flag_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         FieldQualityObserver field_quality_observer;
-        field_quality_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        field_quality_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         BurstLevelObserver burst_level_observer;
-        burst_level_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        burst_level_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         WhiteSNRObserver white_snr_observer;
-        white_snr_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        white_snr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         BlackPSNRObserver black_psnr_observer;
-        black_psnr_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        black_psnr_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
 
         ClosedCaptionObserver closed_caption_observer;
-        closed_caption_observer.process_field(*video_field_repr, field_id, &executor_->get_observation_context());
+        closed_caption_observer.process_field(*video_field_repr, field_id, executor_->get_observation_context());
         
         ORC_LOG_DEBUG("Node '{}': Field {} rendered successfully with observations", 
                      node_id.to_string(), field_id.to_string());

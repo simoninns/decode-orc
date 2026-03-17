@@ -194,7 +194,7 @@ bool HackdacSinkStage::write_report(const std::string& report_path,
 bool HackdacSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context) {
+    IObservationContext& observation_context) {
     (void)observation_context;
 
     ORC_LOG_DEBUG("HackdacSink: Trigger started");

@@ -113,7 +113,7 @@ bool LDSinkStage::set_parameters(const std::map<std::string, ParameterValue>& pa
 bool LDSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context)
+    IObservationContext& observation_context)
 {
     ORC_LOG_DEBUG("LDSink: Trigger started");
     trigger_status_ = "Starting export...";
@@ -177,7 +177,7 @@ std::string LDSinkStage::get_trigger_status() const
 bool LDSinkStage::write_tbc_and_metadata(
     const VideoFieldRepresentation* representation,
     const std::string& tbc_path,
-    ObservationContext& observation_context)
+    IObservationContext& observation_context)
 {
     // Ensure the path has .tbc extension
     std::string final_tbc_path = tbc_path;
@@ -351,7 +351,7 @@ bool LDSinkStage::write_tbc_and_metadata(
             
             // ===== Run observers to populate observation context =====
             for (const auto& observer : observers) {
-                observer->process_field(*representation, field_id, &observation_context);
+                observer->process_field(*representation, field_id, observation_context);
             }
             
             // Write observations to metadata

@@ -95,7 +95,7 @@ bool DaphneVBISinkStage::set_parameters(const std::map<std::string, ParameterVal
 bool DaphneVBISinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context)
+    IObservationContext& observation_context)
 {
     ORC_LOG_DEBUG("DaphneVBISink: Trigger started");
     trigger_status_ = "Starting export...";
@@ -137,8 +137,8 @@ bool DaphneVBISinkStage::trigger(
     // Clear previous observations to avoid mixing runs
     observation_context.clear();
 
-    std::shared_ptr<IDaphneVBISinkStageDeps> deps = this->factories_->get_instance_stage_factories()->CreateInstanceDaphneVBISinkStageDeps(progress_callback_, &is_processing_, &cancel_requested_);
-    bool success = deps->write_vbi(representation.get(), output_path, &observation_context);
+    std::shared_ptr<IDaphneVBISinkStageDeps> deps = this->factories_->get_instance_stage_factories()->CreateInstanceDaphneVBISinkStageDeps(progress_callback_, is_processing_, cancel_requested_);
+    bool success = deps->write_vbi(representation.get(), output_path, observation_context);
 
     if (success) {
         auto range = representation->field_range();

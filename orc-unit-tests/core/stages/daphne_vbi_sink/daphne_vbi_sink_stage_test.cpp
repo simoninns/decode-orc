@@ -9,6 +9,7 @@
 
 #include "../../factories_interface_mock.h"
 #include "../../include/video_field_representation_mock.h"
+#include "../../include/observation_context_interface_mock.h"
 #include "../stage_factories_interface_mock.h"
 #include <gtest/gtest.h>
 #include "daphne_vbi_sink_stage.h"
@@ -17,6 +18,7 @@
 using testing::_;
 using testing::Return;
 using testing::StrictMock;
+using testing::Ref;
 
 // using different namespace from module-under-test so that we can use the same class names in the tests as in the module-under-test
 namespace orc_unit_test
@@ -52,6 +54,7 @@ namespace orc_unit_test
         StrictMock<MockStageFactories> mockStageFactories_;
         std::shared_ptr<StrictMock<MockDaphneVBISinkStageDeps>> pMockDeps_;
         std::shared_ptr<StrictMock<MockVideoFieldRepresentation>> pMockRepresentation_;
+        MockObservationContext mockObservationContext;
 
         std::unique_ptr<orc::DaphneVBISinkStage> instance_;
     };
@@ -60,9 +63,7 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStage, trigger_returns_false_when_output_path_missing)
     {
-        orc::ObservationContext observationContext;
-
-        const bool result = instance_->trigger({}, {}, observationContext);
+        const bool result = instance_->trigger({}, {}, mockObservationContext);
 
         EXPECT_FALSE(result);
         EXPECT_EQ(instance_->get_trigger_status(), "Error: No output path specified");
@@ -70,12 +71,11 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStage, trigger_returns_false_when_output_path_is_empty)
     {
-        orc::ObservationContext observationContext;
         const std::map<std::string, orc::ParameterValue> parameters = {
             {"output_path", std::string("")}
         };
 
-        const bool result = instance_->trigger({}, parameters, observationContext);
+        const bool result = instance_->trigger({}, parameters, mockObservationContext);
 
         EXPECT_FALSE(result);
         EXPECT_EQ(instance_->get_trigger_status(), "Error: Output path is empty");
@@ -83,12 +83,11 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStage, trigger_returns_false_when_no_input_connected)
     {
-        orc::ObservationContext observationContext;
         const std::map<std::string, orc::ParameterValue> parameters = {
             {"output_path", std::string("out")}
         };
 
-        const bool result = instance_->trigger({}, parameters, observationContext);
+        const bool result = instance_->trigger({}, parameters, mockObservationContext);
 
         EXPECT_FALSE(result);
         EXPECT_EQ(instance_->get_trigger_status(), "Error: No input connected");
@@ -96,13 +95,12 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStage, trigger_returns_false_when_input_not_video_field_representation)
     {
-        orc::ObservationContext observationContext;
         const std::map<std::string, orc::ParameterValue> parameters = {
             {"output_path", std::string("out")}
         };
         const std::vector<orc::ArtifactPtr> inputs = {nullptr};
 
-        const bool result = instance_->trigger(inputs, parameters, observationContext);
+        const bool result = instance_->trigger(inputs, parameters, mockObservationContext);
 
         EXPECT_FALSE(result);
         EXPECT_EQ(instance_->get_trigger_status(), "Error: Input is not a video field representation");
@@ -110,7 +108,6 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStage, trigger_writes_vbi_and_sets_success_status)
     {
-        orc::ObservationContext observationContext;
         const std::map<std::string, orc::ParameterValue> parameters = {
             {"output_path", std::string("out_path")}
         };
@@ -120,15 +117,16 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(pMockDeps_));
 
-        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", &observationContext))
-            .Times(1)
+        // Ref needed here so gMock doesn't try to do the wrong thing
+        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", testing::Ref(mockObservationContext)))
+                .Times(1)
             .WillOnce(Return(true));
 
         EXPECT_CALL(*pMockRepresentation_, field_range())
             .Times(1)
             .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(3))));
 
-        const bool result = instance_->trigger(inputs, parameters, observationContext);
+        const bool result = instance_->trigger(inputs, parameters, mockObservationContext);
 
         EXPECT_TRUE(result);
         EXPECT_EQ(instance_->get_trigger_status(), "Exported 3 fields to out_path");
@@ -137,7 +135,6 @@ namespace orc_unit_test
 
     TEST_F(DaphneVBISinkStage, trigger_sets_error_status_when_dep_write_fails)
     {
-        orc::ObservationContext observationContext;
         const std::map<std::string, orc::ParameterValue> parameters = {
             {"output_path", std::string("out_path")}
         };
@@ -147,14 +144,15 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(pMockDeps_));
 
-        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", &observationContext))
+        // Ref needed here so gMock doesn't try to do the wrong thing
+        EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", Ref(mockObservationContext)))
             .Times(1)
             .WillOnce(Return(false));
 
         EXPECT_CALL(*pMockRepresentation_, field_range())
             .Times(0);
 
-        const bool result = instance_->trigger(inputs, parameters, observationContext);
+        const bool result = instance_->trigger(inputs, parameters, mockObservationContext);
 
         EXPECT_FALSE(result);
         EXPECT_EQ(instance_->get_trigger_status(), "Error: Failed to write output files");

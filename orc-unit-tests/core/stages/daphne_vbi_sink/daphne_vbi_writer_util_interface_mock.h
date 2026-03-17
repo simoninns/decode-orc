@@ -25,14 +25,11 @@ namespace orc_unit_test
      */
     class MockDaphneVBIWriterUtil : public orc::IDaphneVBIWriterUtil {
     public:
-        // virtual void set_writer(IFileWriter<uint8_t> *pWriter) = 0;
-        MOCK_METHOD(void, set_writer, (IFileWriter<uint8_t> *), (override));
-
         // virtual void write_header() const = 0;
         MOCK_METHOD(void, write_header, (), (override, const));
 
         // virtual void write_observations(FieldID field_id, const IObservationContext *pContext) const = 0;
-        MOCK_METHOD(void, write_observations, (FieldID, const IObservationContext *), (override, const));
+        MOCK_METHOD(void, write_observations, (FieldID, const IObservationContext &), (override, const));
     };
 }
 

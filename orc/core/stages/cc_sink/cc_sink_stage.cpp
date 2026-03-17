@@ -100,7 +100,7 @@ bool CCSinkStage::set_parameters(const std::map<std::string, ParameterValue>& pa
 bool CCSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context) {
+    IObservationContext& observation_context) {
     is_processing_.store(true);
     cancel_requested_.store(false);
     
@@ -151,7 +151,7 @@ bool CCSinkStage::trigger(
         for (size_t i = 0; i < field_count; ++i) {
             FieldID field_id(static_cast<int32_t>(i + 1));
             if (vfr->has_field(field_id)) {
-                cc_observer->process_field(*vfr, field_id, &observation_context);
+                cc_observer->process_field(*vfr, field_id, observation_context);
             }
             
             if (cancel_requested_.load()) {
@@ -260,7 +260,7 @@ bool CCSinkStage::is_printable_char(uint8_t byte) const {
 bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
                              const std::string& output_path,
                              VideoFormat format,
-                             const ObservationContext& observation_context) {
+                             const IObservationContext& observation_context) {
     try {
         std::ofstream file(output_path);
         if (!file.is_open()) {
@@ -381,7 +381,7 @@ bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
 bool CCSinkStage::export_plain_text(const VideoFieldRepresentation* vfr,
                                    const std::string& output_path,
                                    VideoFormat format,
-                                   const ObservationContext& observation_context) {
+                                   const IObservationContext& observation_context) {
     try {
         std::ofstream file(output_path);
         if (!file.is_open()) {

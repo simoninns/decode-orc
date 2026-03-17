@@ -108,7 +108,7 @@ private:
     bool setupEncoder(const std::string& codec_id, const orc::SourceParameters& params);
     bool setupAudioEncoder();
     bool setupSubtitleEncoder();
-    void extractClosedCaptionsFromObservations(const class ObservationContext& observation_context,
+    void extractClosedCaptionsFromObservations(const class IObservationContext& observation_context,
                                                 uint64_t field_start, uint64_t field_count);
     bool encodeAudioForFrame();
     bool encodeClosedCaptionsForFrame();

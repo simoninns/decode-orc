@@ -1360,7 +1360,7 @@ bool FFmpegOutputBackend::encodeAudioForFrame()
     return true;
 }
 
-void FFmpegOutputBackend::extractClosedCaptionsFromObservations(const ObservationContext& observation_context,
+void FFmpegOutputBackend::extractClosedCaptionsFromObservations(const IObservationContext& observation_context,
                                                                      uint64_t field_start, uint64_t field_count)
 {
     if (!eia608_decoder_) {

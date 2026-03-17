@@ -26,20 +26,8 @@ namespace orc
     public:
         virtual ~IDaphneVBIWriterUtil() = default;
 
-        /**
-         * @brief Sets file writer to be used by this object. This must be called at least once.
-         *
-         * It would be safer to always pass this value into every method that needs it, but that is slightly less performant.
-         * So to improve performance, we'll only set it once via this method.
-         *
-         * We could pass it into the concrete constructor, but then that would clutter up the IStageFactories interface.
-         *
-         * @param pWriter The file writer to be used by this object
-         */
-        virtual void set_writer(IFileWriter<uint8_t> *pWriter) = 0;
-
         virtual void write_header() const = 0;
-        virtual void write_observations(FieldID field_id, const IObservationContext *pContext) const = 0;
+        virtual void write_observations(FieldID field_id, const IObservationContext &context) const = 0;
     };
 
 }

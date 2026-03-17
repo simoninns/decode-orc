@@ -32,7 +32,7 @@ namespace orc
          */
         static std::shared_ptr<IFactories> instance();
 
-        Factories() : factoriesStage_(this) {}
+        Factories() : factoriesStage_(*this) {}
 
         IStageFactories* get_instance_stage_factories() override;
 

@@ -22,7 +22,7 @@ namespace orc {
 void WhiteSNRObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    IObservationContext *pContext)
+    IObservationContext &context)
 {
     // Get field descriptor to determine format
     auto descriptor_opt = representation.get_descriptor(field_id);
@@ -88,7 +88,7 @@ void WhiteSNRObserver::process_field(
             double snr_db = calculate_psnr(white_slice);
             
             // Store in observation context
-            pContext->set(field_id, "white_snr", "snr_db", snr_db);
+            context.set(field_id, "white_snr", "snr_db", snr_db);
             
             ORC_LOG_DEBUG("WhiteSNRObserver: Field {} snr={:.2f} dB (mean={:.1f} IRE, std={:.3f})",
                          field_id.value(), snr_db, white_mean, noise_std);

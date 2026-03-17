@@ -21,7 +21,7 @@ namespace orc {
 void BlackPSNRObserver::process_field(
     const VideoFieldRepresentation& representation,
     FieldID field_id,
-    IObservationContext *pContext)
+    IObservationContext &context)
 {
     // Get field descriptor to determine format
     auto descriptor_opt = representation.get_descriptor(field_id);
@@ -64,7 +64,7 @@ void BlackPSNRObserver::process_field(
     double psnr_db = calculate_psnr(black_slice);
     
     // Store in observation context
-    pContext->set(field_id, "black_psnr", "psnr_db", psnr_db);
+    context.set(field_id, "black_psnr", "psnr_db", psnr_db);
     
     ORC_LOG_DEBUG("BlackPSNRObserver: Field {} psnr={:.2f} dB (mean={:.1f} IRE, std={:.3f})",
                  field_id.value(), psnr_db, black_mean, noise_std);

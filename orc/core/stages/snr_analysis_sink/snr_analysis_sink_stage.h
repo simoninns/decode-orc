@@ -60,7 +60,7 @@ public:
     bool trigger(
         const std::vector<ArtifactPtr>& inputs,
         const std::map<std::string, ParameterValue>& parameters,
-        ObservationContext& observation_context) override;
+        IObservationContext& observation_context) override;
 
     std::string get_trigger_status() const override { return last_status_; }
 
@@ -85,7 +85,7 @@ private:
     ParsedConfig parse_config(const std::map<std::string, ParameterValue>& parameters) const;
 
     bool write_csv(const std::string& path) const;
-    void compute_stats(const VideoFieldRepresentation& vfr, const ParsedConfig& cfg, const ObservationContext& observation_context);
+    void compute_stats(const VideoFieldRepresentation& vfr, const ParsedConfig& cfg, const IObservationContext& observation_context);
 
     std::map<std::string, ParameterValue> parameters_;
     TriggerProgressCallback progress_callback_;

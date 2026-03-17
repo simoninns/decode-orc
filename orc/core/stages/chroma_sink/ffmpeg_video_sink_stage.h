@@ -75,7 +75,7 @@ public:
     bool trigger(
         const std::vector<ArtifactPtr>& inputs,
         const std::map<std::string, ParameterValue>& parameters,
-        ObservationContext& observation_context) override;
+        IObservationContext& observation_context) override;
 };
 
 } // namespace orc

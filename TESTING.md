@@ -28,12 +28,16 @@ we *inject* the abstract dependencies (interfaces) into the class constructor.
 Formal dependency injection frameworks tend to work better when only interfaces are injected into a constructor,
 therefore having a separate *init* method may be wise for non-interface dependencies.
 
+**Important**: The init method should not appear in an interface, only the concrete class.  It's an implementation detail, so only code that handles instantiation (ie factories) should know about it.
+
+**Caveat**: If using this 'init method' convention, you may have to use raw pointers instead of referencing objects (ie ISomeObject* instead of ISomeObject&) due to the compiler not allowing the object to temporarily be null before init is called.
+
 *See DaphneVBISinkStageDeps for example of constructor injection and init method.*
 
 NOTE: We aren't using any dependency injection framework at the moment (we're just manually following this pattern), but we may want to in the future, so I recommend using this 'init method' convention to leave the door open.
 
-### std::shared_ptr vs just raw pointer for interface?
-It's more convenient to just pass around raw pointers to interfaces (including for testing), so I prefer this by default.
+### std::shared_ptr\<ISomeInterface\> vs using ISomeInterface&
+It's more convenient to just pass around references to interfaces (including for testing), so I prefer this by default.
 But if there's a question of an interface going out of scope (and thus being de-allocated) prematurely, then I wrap the interface in std::shared_ptr to be safe.
 
 ### What if the class needs to instantiate an object dynamically, such as opening a file?

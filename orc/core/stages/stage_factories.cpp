@@ -17,15 +17,21 @@
 namespace orc
 {
 
-    std::shared_ptr<IDaphneVBISinkStageDeps> StageFactories::CreateInstanceDaphneVBISinkStageDeps(TriggerProgressCallback progress_callback, std::atomic<bool> *pIsProcessing, std::atomic<bool> *pCancelRequested)
+    std::shared_ptr<IDaphneVBISinkStageDeps> StageFactories::CreateInstanceDaphneVBISinkStageDeps(TriggerProgressCallback &progress_callback, std::atomic<bool> &is_processing, std::atomic<bool> &cancel_requested)
     {
-        // We follow Dependency Inversion pattern by giving our IDaphneVBISinkStageDeps instance all of its dependencies here, rather
+        // We follow the Dependency Inversion pattern by giving our IDaphneVBISinkStageDeps instance all of its dependencies here, rather
         //   than making the caller have to know where to get them.
         // We use shared_ptr instead of just passing normal pointers so that we don't have to manage the memory for these created objects.
-        auto instanceWriterUtil = std::make_shared<DaphneVBIWriterUtil>();
-        auto instance = std::make_shared<DaphneVBISinkStageDeps>(pFactories_, instanceWriterUtil);
-        instance->init(progress_callback, pIsProcessing, pCancelRequested);
+        auto instance = std::make_shared<DaphneVBISinkStageDeps>(factories_, *this);
+        instance->init(progress_callback, &is_processing, &cancel_requested);
         return instance;
     }
 
+    std::shared_ptr<IDaphneVBIWriterUtil> StageFactories::CreateInstanceDaphneVBIWriterUtil(
+	    IFileWriter<uint8_t>& writer)
+    {
+    	auto instanceWriterUtil = std::make_shared<DaphneVBIWriterUtil>();
+    	instanceWriterUtil->init(&writer);
+    	return instanceWriterUtil;
+    }
 } // orc

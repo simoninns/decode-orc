@@ -122,7 +122,7 @@ BurstLevelAnalysisSinkStage::ParsedConfig BurstLevelAnalysisSinkStage::parse_con
 bool BurstLevelAnalysisSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context) {
+    IObservationContext& observation_context) {
 
     ORC_LOG_DEBUG("BurstLevelAnalysisSink: Trigger started");
     is_processing_.store(true);
@@ -173,7 +173,7 @@ bool BurstLevelAnalysisSinkStage::trigger(
     }
 }
 
-void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, const ParsedConfig& cfg, const ObservationContext& observation_context) {
+void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& vfr, const ParsedConfig& cfg, const IObservationContext& observation_context) {
     (void)cfg;  // Reserved for future configuration options
     frame_stats_.clear();
     total_frames_ = 0;
@@ -202,7 +202,10 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
                   total_fields, fields_per_bin);
 
     // Create mutable copy of observation context to populate observations
-    ObservationContext mutable_context = observation_context;
+    // I'm not sure if having a mutable_context is necessary; it may just be AI fluff.  I did this conversion to preserve existing behavior.
+    const auto *pCasted = dynamic_cast<const ObservationContext *>(&observation_context);
+    if (pCasted == nullptr) throw std::runtime_error("Observation context is not of type ObservationContext");  // this should never happen
+    ObservationContext mutable_context = *pCasted;
     
     // Run observer on each field to populate burst level observations
     BurstLevelObserver burst_observer;
@@ -231,7 +234,7 @@ void BurstLevelAnalysisSinkStage::compute_stats(const VideoFieldRepresentation& 
         last_field_in_bin = i;  // Update last field index in bin
 
         // Run observer on this field to populate observations
-        burst_observer.process_field(vfr, fid, &mutable_context);
+        burst_observer.process_field(vfr, fid, mutable_context);
 
         try {
             auto burst_level_opt = mutable_context.get(fid, "burst_level", "median_burst_ire");

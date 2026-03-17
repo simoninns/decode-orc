@@ -16,7 +16,7 @@ namespace orc {
 void FmCodeObserver::process_field(
 	const VideoFieldRepresentation& representation,
 	FieldID field_id,
-	IObservationContext *pContext)
+	IObservationContext &context)
 {
 	auto descriptor = representation.get_descriptor(field_id);
 	if (!descriptor.has_value()) {
@@ -78,9 +78,9 @@ void FmCodeObserver::process_field(
 		return;
 	}
     
-	pContext->set(field_id, "fm_code", "present", true);
-	pContext->set(field_id, "fm_code", "data_value", static_cast<int32_t>(decoded.data_value));
-	pContext->set(field_id, "fm_code", "field_flag", decoded.field_flag);
+	context.set(field_id, "fm_code", "present", true);
+	context.set(field_id, "fm_code", "data_value", static_cast<int32_t>(decoded.data_value));
+	context.set(field_id, "fm_code", "field_flag", decoded.field_flag);
     
 	ORC_LOG_DEBUG("FmCodeObserver: Field {} fm_code={:#06x} field_flag={}",
 				  field_id.value(), decoded.data_value, decoded.field_flag);

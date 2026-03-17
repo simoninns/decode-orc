@@ -15,6 +15,7 @@
 #include <memory>
 
 #include "daphne_vbi_sink_stage_deps_interface.h"
+#include "daphne_vbi_writer_util_interface.h"
 #include "triggerable_stage.h"
 
 namespace orc
@@ -36,13 +37,13 @@ namespace orc
         /*
          * Architectural strategy:
          *
-         * Methods here should only be to create dependencies of stages.
-         * Dependencies of those dependencies should be created implicitly inside the implementation of StageFactories to follow Dependency Inversion design pattern.
+         * Methods here should exist only if a class needs a dependency that can't be inferred ahead of time.
          *
          */
 
-        virtual std::shared_ptr<IDaphneVBISinkStageDeps> CreateInstanceDaphneVBISinkStageDeps(TriggerProgressCallback progress_callback, std::atomic<bool> *pIsProcessing, std::atomic<bool> *pCancelRequested) = 0;
+        virtual std::shared_ptr<IDaphneVBISinkStageDeps> CreateInstanceDaphneVBISinkStageDeps(TriggerProgressCallback &progress_callback, std::atomic<bool> &is_processing, std::atomic<bool> &cancel_requested) = 0;
 
+		virtual std::shared_ptr<IDaphneVBIWriterUtil> CreateInstanceDaphneVBIWriterUtil(IFileWriter<uint8_t> &writer) = 0;
     };
 }
 #endif //DECODE_ORC_ROOT_STAGE_FACTORIES_INTERFACE_H

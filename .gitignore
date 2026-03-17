@@ -111,3 +111,6 @@ crash_bundle*
 
 # External vendor directories
 external/
+
+# User-specific project files
+user-projects/

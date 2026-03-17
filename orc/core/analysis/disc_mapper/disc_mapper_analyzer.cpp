@@ -575,7 +575,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     if (progress) {
         progress->setStatus("Normalizing field metadata...");
-        progress->setProgress(20);
+        progress->setProgress(0);
     }
     
     std::vector<NormalizedField> normalized_fields;
@@ -585,16 +585,25 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     size_t cav_fields = 0;
     size_t clv_fields = 0;
     
-    for (FieldID fid = range.start; fid < range.end; fid = FieldID(fid.value() + 1)) {
-        auto nf = normalize_field(source, observation_context, fid);
-        
-        if (nf.picture_number) {
-            fields_with_pn++;
-            if (nf.is_cav) cav_fields++;
-            else clv_fields++;
+    {
+        size_t norm_idx = 0;
+        size_t norm_interval = std::max(size_t(1), total_fields / 100);
+        for (FieldID fid = range.start; fid < range.end; fid = FieldID(fid.value() + 1)) {
+            auto nf = normalize_field(source, observation_context, fid);
+            
+            if (nf.picture_number) {
+                fields_with_pn++;
+                if (nf.is_cav) cav_fields++;
+                else clv_fields++;
+            }
+            
+            normalized_fields.push_back(nf);
+            ++norm_idx;
+            if (progress && norm_idx % norm_interval == 0) {
+                progress->setProgress(static_cast<int>(norm_idx * 100 / total_fields));
+            }
         }
-        
-        normalized_fields.push_back(nf);
+        if (progress) progress->setProgress(100);
     }
     
     // Determine disc type
@@ -625,7 +634,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     if (progress) {
         progress->setStatus("Pairing fields into frames...");
-        progress->setProgress(40);
+        progress->setProgress(0);
     }
     
     std::vector<CandidateFrame> candidate_frames;
@@ -638,6 +647,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
         }
     }
     
+    if (progress) progress->setProgress(100);
     rationale << "Stage 2: Field Pairing\n";
     rationale << "  Candidate frames created: " << candidate_frames.size() << "\n";
     VideoFormat fmt = decision.is_pal ? VideoFormat::PAL : VideoFormat::NTSC;
@@ -655,7 +665,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     if (progress) {
         progress->setStatus("Validating frames...");
-        progress->setProgress(60);
+        progress->setProgress(0);
     }
     
     std::vector<CandidateFrame> valid_frames;
@@ -681,6 +691,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     decision.stats.removed_lead_in_out = removed_lead_in_out;
     decision.stats.removed_invalid_phase = removed_invalid_phase;
     
+    if (progress) progress->setProgress(100);
     rationale << "Stage 3: Frame Validation\n";
     rationale << "  Frames after filtering: " << valid_frames.size() << "\n";
     rationale << "  Removed (lead-in/out): " << removed_lead_in_out << "\n";
@@ -699,7 +710,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     if (progress) {
         progress->setStatus("Deduplicating frames...");
-        progress->setProgress(75);
+        progress->setProgress(0);
     }
     
     // Group frames by PN
@@ -741,6 +752,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     decision.stats.removed_duplicates = removed_duplicates;
     
+    if (progress) progress->setProgress(100);
     rationale << "Stage 4: Deduplication\n";
     rationale << "  Unique picture numbers: " << frames_by_pn.size() << "\n";
     rationale << "  Duplicates removed: " << removed_duplicates << "\n";
@@ -759,7 +771,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     if (progress) {
         progress->setStatus("Detecting gaps and building timeline...");
-        progress->setProgress(85);
+        progress->setProgress(0);
     }
     
     // Sort selected frames by PN
@@ -821,6 +833,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     decision.stats.gaps_padded = gaps_padded;
     decision.stats.padding_frames = padding_frames;
     
+    if (progress) progress->setProgress(100);
     rationale << "Stage 5: Gap Detection and Timeline Construction\n";
     rationale << "  Gaps detected: " << gaps_padded << "\n";
     rationale << "  PAD frames inserted: " << padding_frames << "\n";
@@ -834,7 +847,7 @@ FieldMappingDecision DiscMapperAnalyzer::analyze(
     
     if (progress) {
         progress->setStatus("Generating mapping specification...");
-        progress->setProgress(95);
+        progress->setProgress(0);
     }
     
     // First, flatten frames into a list of field IDs or PAD markers

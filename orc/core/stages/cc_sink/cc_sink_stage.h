@@ -116,6 +116,7 @@ private:
     int32_t sanity_check_data(int32_t data_byte) const;
     bool is_control_code(uint8_t byte) const;
     bool is_printable_char(uint8_t byte) const;
+    uint8_t apply_odd_parity(uint8_t byte) const;
     
     // Member variables
     std::map<std::string, ParameterValue> parameters_;

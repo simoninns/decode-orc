@@ -125,7 +125,7 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         
         if (progress) {
             progress->setStatus("Extracting VBI data from fields...");
-            progress->setProgress(10);
+            progress->setProgress(0);
         }
         
         // Run BiphaseObserver on all fields to extract VBI data into ObservationContext
@@ -136,32 +136,41 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         
         ORC_LOG_DEBUG("Running BiphaseObserver on {} fields", field_range.size());
         
-        for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
-            biphase_observer.process_field(*source, fid, obs_context);
+        {
+            size_t total_biphase = field_range.size();
+            size_t biphase_idx = 0;
+            size_t update_interval = std::max(size_t(1), total_biphase / 100);
+            for (FieldID fid = field_range.start; fid < field_range.end; fid = FieldID(fid.value() + 1)) {
+                biphase_observer.process_field(*source, fid, obs_context);
+                ++biphase_idx;
+                if (progress && biphase_idx % update_interval == 0) {
+                    int pct = static_cast<int>(biphase_idx * 100 / total_biphase);
+                    progress->setProgress(pct);
+                    progress->setSubStatus("Field " + std::to_string(biphase_idx) + " / " + std::to_string(total_biphase));
+                    if (progress->isCancelled()) {
+                        result.status = AnalysisResult::Cancelled;
+                        return result;
+                    }
+                }
+            }
+            if (progress) {
+                progress->setProgress(100);
+                progress->setSubStatus("");
+            }
         }
         
         ORC_LOG_DEBUG("BiphaseObserver complete, ObservationContext populated");
-        
-        if (progress) {
-            progress->setStatus("Running field analysis...");
-            progress->setProgress(20);
-        }
-        
-        // Now run the analyzer on the representation
-        DiscMapperAnalyzer analyzer;
-        DiscMapperAnalyzer::Options options;
         
         if (progress && progress->isCancelled()) {
             result.status = AnalysisResult::Cancelled;
             return result;
         }
         
-        if (progress) {
-            progress->setStatus("Analyzing field sequence...");
-            progress->setProgress(20);
-        }
+        // Now run the analyzer on the representation
+        DiscMapperAnalyzer analyzer;
+        DiscMapperAnalyzer::Options options;
         
-        // Run field mapping analysis (20-90% progress range)
+        // Run field mapping analysis - each stage reports its own 0-100% progress
         FieldMappingDecision decision = analyzer.analyze(*source, obs_context, options, progress);
 
         if (!decision.success) {
@@ -186,7 +195,7 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
         
         if (progress) {
             progress->setStatus("Processing results...");
-            progress->setProgress(90);
+            progress->setProgress(0);
         }
         
         // Convert warnings to result items

@@ -256,6 +256,24 @@ bool CCSinkStage::is_printable_char(uint8_t byte) const {
     return (byte >= 0x20 && byte <= 0x7E);
 }
 
+// Helper: Apply odd parity to a 7-bit byte value for SCC output
+// The SCC format requires each byte to have an odd number of set bits;
+// bit 7 is set or cleared to achieve this.
+uint8_t CCSinkStage::apply_odd_parity(uint8_t byte) const {
+    uint8_t val = byte & 0x7F;  // Work with 7-bit value only
+    int count = 0;
+    uint8_t tmp = val;
+    while (tmp) {
+        count += (tmp & 1);
+        tmp >>= 1;
+    }
+    // If even bit count, set bit 7 to make total bit count odd
+    if (count % 2 == 0) {
+        val |= 0x80;
+    }
+    return val;
+}
+
 // Export to Scenarist SCC V1.0 format
 bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
                              const std::string& output_path,
@@ -341,9 +359,12 @@ bool CCSinkStage::export_scc(const VideoFieldRepresentation* vfr,
                         caption_in_progress = true;
                     }
                     
-                    // Output the 2 bytes as hex (e.g., 0x14 0x41 becomes "1441 ")
-                    file << std::hex << std::setfill('0') << std::setw(2) << data0
-                         << std::setfill('0') << std::setw(2) << data1 << " ";
+                    // Output the 2 bytes as hex with odd parity applied (e.g., 0x14 0x41 becomes "9441 ")
+                    // SCC format requires odd parity: bit 7 is set to make the total number of set bits odd
+                    uint8_t scc0 = apply_odd_parity(static_cast<uint8_t>(data0));
+                    uint8_t scc1 = apply_odd_parity(static_cast<uint8_t>(data1));
+                    file << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(scc0)
+                         << std::setfill('0') << std::setw(2) << static_cast<int>(scc1) << " ";
                     
                     // Add to debug output
                     if (is_control_code(static_cast<uint8_t>(data0))) {

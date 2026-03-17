@@ -58,9 +58,9 @@ namespace orc
                 return false;
             }
 
-            daphne_vbi_writer_util_->init(vbi_writer.get());
+            std::shared_ptr<IDaphneVBIWriterUtil> daphne_vbi_writer_util = stageFactories_.CreateInstanceDaphneVBIWriterUtil(*vbi_writer);
 
-            daphne_vbi_writer_util_->write_header();  // header is required at the beginning of .VBI file
+            daphne_vbi_writer_util->write_header();  // header is required at the beginning of .VBI file
 
             // Build sorted list of field IDs
             std::vector<FieldID> field_ids;
@@ -106,7 +106,7 @@ namespace orc
                 }
 
                 // Write observations to VBI file
-                daphne_vbi_writer_util_->write_observations(field_id, observation_context);
+                daphne_vbi_writer_util->write_observations(field_id, observation_context);
 
                 fields_processed++;
 

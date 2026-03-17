@@ -30,7 +30,13 @@ public:
     DaphneVBIWriterUtil() = default;
     ~DaphneVBIWriterUtil() override = default;
 
-    void init(IFileWriter<uint8_t> *pWriter) override;
+	/**
+	 * @brief Sets dependencies that aren't interfaces.
+	 *
+	 * @param pWriter The file writer to be used by this object
+	 */
+    void init(IFileWriter<uint8_t> *pWriter);
+
     void write_header() const override;
     void write_observations(FieldID field_id, const IObservationContext &context) const override;
 

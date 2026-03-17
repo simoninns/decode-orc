@@ -25,9 +25,6 @@ namespace orc_unit_test
      */
     class MockDaphneVBIWriterUtil : public orc::IDaphneVBIWriterUtil {
     public:
-        // virtual void set_writer(IFileWriter<uint8_t> *pWriter) = 0;
-        MOCK_METHOD(void, init, (IFileWriter<uint8_t> *), (override));
-
         // virtual void write_header() const = 0;
         MOCK_METHOD(void, write_header, (), (override, const));
 

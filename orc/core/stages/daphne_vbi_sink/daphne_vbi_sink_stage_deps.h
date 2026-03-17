@@ -26,13 +26,16 @@ namespace orc
     {
     public:
 
-        // need IFactories to create file writer.
-        // Intentionally chose shared_ptr for daphne_vbi_writer_util instead of unique_ptr to decrease chances of subtle memory de-allocation defects
-        // 'daphne_vbi_writer_util' needs to be shared_ptr (as opposed to normal pointer) because the parent class won't necessarily keep the object instantiated,
-        //      so this class may become the sole owner.
-        DaphneVBISinkStageDeps(IFactories &factories, std::shared_ptr<IDaphneVBIWriterUtil> daphne_vbi_writer_util) : factories_(factories),
-            daphne_vbi_writer_util_(std::move(daphne_vbi_writer_util)) {}
+        // This class needs IFactories to create file writer and IStageFactories to create DaphneVBIWriterUtil
+        DaphneVBISinkStageDeps(IFactories &factories, IStageFactories &stageFactories) : factories_(factories), stageFactories_(stageFactories) {}
 
+        /**
+         * @brief Sets dependencies that aren't interfaces.
+         *
+         * @param progress_callback The progress callback
+         * @param pIsProcessing Pointer to is_processing bool
+         * @param pCancelRequested Pointer to cancel_requested bool
+         */
         void init(TriggerProgressCallback progress_callback, std::atomic<bool> *pIsProcessing, std::atomic<bool> *pCancelRequested);
 
         bool write_vbi(
@@ -45,7 +48,7 @@ namespace orc
         std::atomic<bool> *pIsProcessing_{};
         std::atomic<bool> *pCancelRequested_{};
         IFactories &factories_;
-        std::shared_ptr<IDaphneVBIWriterUtil> daphne_vbi_writer_util_;
+        IStageFactories &stageFactories_;
     };
 }
 

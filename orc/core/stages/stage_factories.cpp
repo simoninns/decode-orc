@@ -22,10 +22,16 @@ namespace orc
         // We follow the Dependency Inversion pattern by giving our IDaphneVBISinkStageDeps instance all of its dependencies here, rather
         //   than making the caller have to know where to get them.
         // We use shared_ptr instead of just passing normal pointers so that we don't have to manage the memory for these created objects.
-        auto instanceWriterUtil = std::make_shared<DaphneVBIWriterUtil>();
-        auto instance = std::make_shared<DaphneVBISinkStageDeps>(factories_, instanceWriterUtil);
+        auto instance = std::make_shared<DaphneVBISinkStageDeps>(factories_, *this);
         instance->init(progress_callback, &is_processing, &cancel_requested);
         return instance;
     }
 
+    std::shared_ptr<IDaphneVBIWriterUtil> StageFactories::CreateInstanceDaphneVBIWriterUtil(
+	    IFileWriter<uint8_t>& writer)
+    {
+    	auto instanceWriterUtil = std::make_shared<DaphneVBIWriterUtil>();
+    	instanceWriterUtil->init(&writer);
+    	return instanceWriterUtil;
+    }
 } // orc

@@ -143,11 +143,11 @@ void Comb::decodeFrames(const std::vector<SourceField> &inputFields, int32_t sta
     
     if (is_yc_source) {
         // YC DECODE PATH - Y is already clean, only demodulate C
-        ORC_LOG_INFO("Comb: Using YC decode path (separate Y/C channels)");
+        ORC_LOG_TRACE("Comb: Using YC decode path (separate Y/C channels)");
         decodeFramesYC(inputFields, startIndex, endIndex, componentFrames);
     } else {
         // COMPOSITE DECODE PATH - full comb filter for Y/C separation
-        ORC_LOG_DEBUG("Comb: Using composite decode path (Y+C modulated)");
+        ORC_LOG_TRACE("Comb: Using composite decode path (Y+C modulated)");
         decodeFramesComposite(inputFields, startIndex, endIndex, componentFrames);
     }
 }

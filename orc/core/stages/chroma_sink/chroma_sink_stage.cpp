@@ -50,6 +50,8 @@ ChromaSinkStage::ChromaSinkStage()
     , chroma_nr_(0.0)
     , ntsc_phase_comp_(true)
     , simple_pal_(false)
+    , chroma_weight_(1.0)
+    , adapt_threshold_(1.0)
     , output_padding_(8)
     , embed_audio_(false)
     , embed_closed_captions_(false)
@@ -255,6 +257,22 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             ParameterType::BOOL,
             {{}, {}, false, {}, false, std::nullopt}
         });
+        params.push_back(ParameterDescriptor{
+            "chroma_weight",
+            "Chroma Weight",
+            "Chroma weight for 3D adaptive filter (NTSC 3D only). Higher = prefer more 2D result. Range: 0.0-10.0",
+            ParameterType::DOUBLE,
+            {0.0, 10.0, 1.0, {}, false,
+             ParameterDependency{"decoder_type", {"ntsc3d", "ntsc3dnoadapt"}}}
+        });
+        params.push_back(ParameterDescriptor{
+            "adapt_threshold",
+            "Adapt Threshold",
+            "3D adaptive filter threshold (NTSC 3D only). Higher = prefer more 3D result. Range: 0.0-10.0",
+            ParameterType::DOUBLE,
+            {0.0, 10.0, 1.0, {}, false,
+             ParameterDependency{"decoder_type", {"ntsc3d"}}}
+        });
     } else if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
         params.push_back(ParameterDescriptor{
             "simple_pal",
@@ -272,6 +290,22 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Adjust phase per-line using burst phase (NTSC only)",
             ParameterType::BOOL,
             {{}, {}, false, {}, false, std::nullopt}
+        });
+        params.push_back(ParameterDescriptor{
+            "chroma_weight",
+            "Chroma Weight",
+            "Chroma weight for 3D adaptive filter (NTSC 3D only). Higher = prefer more 2D result. Range: 0.0-10.0",
+            ParameterType::DOUBLE,
+            {0.0, 10.0, 1.0, {}, false,
+             ParameterDependency{"decoder_type", {"ntsc3d", "ntsc3dnoadapt"}}}
+        });
+        params.push_back(ParameterDescriptor{
+            "adapt_threshold",
+            "Adapt Threshold",
+            "3D adaptive filter threshold (NTSC 3D only). Higher = prefer more 3D result. Range: 0.0-10.0",
+            ParameterType::DOUBLE,
+            {0.0, 10.0, 1.0, {}, false,
+             ParameterDependency{"decoder_type", {"ntsc3d"}}}
         });
         params.push_back(ParameterDescriptor{
             "simple_pal",
@@ -298,6 +332,8 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const
     params["chroma_nr"] = chroma_nr_;
     params["ntsc_phase_comp"] = ntsc_phase_comp_;
     params["simple_pal"] = simple_pal_;
+    params["chroma_weight"] = chroma_weight_;
+    params["adapt_threshold"] = adapt_threshold_;
     params["output_padding"] = output_padding_;
     params["encoder_preset"] = encoder_preset_;
     params["encoder_crf"] = encoder_crf_;
@@ -380,6 +416,24 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
                 if (new_val != ntsc_phase_comp_) {
                     ORC_LOG_DEBUG("ChromaSink: ntsc_phase_comp changed from {} to {} (from string '{}')", ntsc_phase_comp_, new_val, str_val);
                     ntsc_phase_comp_ = new_val;
+                    decoder_config_changed = true;
+                }
+            }
+        } else if (key == "chroma_weight") {
+            if (std::holds_alternative<double>(value)) {
+                auto new_val = std::get<double>(value);
+                if (new_val != chroma_weight_) {
+                    ORC_LOG_DEBUG("ChromaSink: chroma_weight changed from {} to {}", chroma_weight_, new_val);
+                    chroma_weight_ = new_val;
+                    decoder_config_changed = true;
+                }
+            }
+        } else if (key == "adapt_threshold") {
+            if (std::holds_alternative<double>(value)) {
+                auto new_val = std::get<double>(value);
+                if (new_val != adapt_threshold_) {
+                    ORC_LOG_DEBUG("ChromaSink: adapt_threshold changed from {} to {}", adapt_threshold_, new_val);
+                    adapt_threshold_ = new_val;
                     decoder_config_changed = true;
                 }
             }
@@ -615,6 +669,8 @@ bool ChromaSinkStage::trigger(
         config.cNRLevel = chroma_nr_;
         config.yNRLevel = luma_nr_;
         config.phaseCompensation = ntsc_phase_comp_;
+        config.chromaWeight = chroma_weight_;
+        config.adaptThreshold = adapt_threshold_;
         config.showMap = false;
         
         // Set dimensions based on decoder type
@@ -912,6 +968,8 @@ bool ChromaSinkStage::trigger(
             config.cNRLevel = chroma_nr_;
             config.yNRLevel = luma_nr_;
             config.phaseCompensation = ntsc_phase_comp_;
+            config.chromaWeight = chroma_weight_;
+            config.adaptThreshold = adapt_threshold_;
             config.showMap = false;
             
             if (decoder_type_ == "ntsc1d") {
@@ -1575,7 +1633,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
     // Check if cached decoder matches current configuration
     if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_, 
                                                 chroma_phase_, luma_nr_, chroma_nr_,
-                                                ntsc_phase_comp_, simple_pal_, false)) {
+                                                ntsc_phase_comp_, simple_pal_, false, chroma_weight_, adapt_threshold_)) {
         // Configuration changed - clear old decoders and create new ones
         ORC_LOG_DEBUG("ChromaSink: Decoder config changed, recreating '{}' decoder", effectiveDecoderType);
         preview_decoder_cache_.mono_decoder.reset();
@@ -1589,6 +1647,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         preview_decoder_cache_.ntsc_phase_comp = ntsc_phase_comp_;
         preview_decoder_cache_.simple_pal = simple_pal_;
         preview_decoder_cache_.blackandwhite = false;
+        preview_decoder_cache_.chroma_weight = chroma_weight_;
+        preview_decoder_cache_.adapt_threshold = adapt_threshold_;
         
         // Create appropriate decoder based on type
         if (effectiveDecoderType == "mono") {
@@ -1623,6 +1683,8 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             config.cNRLevel = chroma_nr_;
             config.yNRLevel = luma_nr_;
             config.phaseCompensation = ntsc_phase_comp_;
+            config.chromaWeight = chroma_weight_;
+            config.adaptThreshold = adapt_threshold_;
             config.showMap = false;
             
             if (effectiveDecoderType == "ntsc1d") {

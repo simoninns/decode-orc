@@ -45,6 +45,12 @@ public:
         double cNRLevel = 0.0;
         double yNRLevel = 0.0;
 
+        // Adaptation sensitivity for 3D filter (higher = prefer 3D, lower = prefer 1D/2D)
+        double adaptThreshold = 1.0;
+
+        // Chroma weight for 3D adaptive filter (higher = prefer more 2D, lower = prefer more 3D)
+        double chromaWeight = 1.0;
+
         int32_t getLookBehind() const;
         int32_t getLookAhead() const;
     };

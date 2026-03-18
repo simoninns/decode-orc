@@ -139,16 +139,19 @@ private:
         bool ntsc_phase_comp;
         bool simple_pal;
         bool blackandwhite;
+        double chroma_weight;
+        double adapt_threshold;
         
         std::unique_ptr<MonoDecoder> mono_decoder;
         std::unique_ptr<PalColour> pal_decoder;
         std::unique_ptr<Comb> ntsc_decoder;
         
         bool matches_config(const std::string& dec_type, double cg, double cp, 
-                           double ln, double cn, bool npc, bool sp, bool bw) const {
+                           double ln, double cn, bool npc, bool sp, bool bw, double cw, double at) const {
             return decoder_type == dec_type && chroma_gain == cg && 
                    chroma_phase == cp && luma_nr == ln && chroma_nr == cn &&
-                   ntsc_phase_comp == npc && simple_pal == sp && blackandwhite == bw;
+                   ntsc_phase_comp == npc && simple_pal == sp && blackandwhite == bw &&
+                   chroma_weight == cw && adapt_threshold == at;
         }
     };
     mutable PreviewDecoderCache preview_decoder_cache_;
@@ -164,6 +167,8 @@ private:
     double chroma_nr_;
     bool ntsc_phase_comp_;
     bool simple_pal_;
+    double chroma_weight_;
+    double adapt_threshold_;
     int output_padding_;
     bool embed_audio_;  // Embed analogue audio in output (MP4/MKV only)
     bool embed_closed_captions_;  // Embed closed captions in MP4 output (MP4 only, converted to mov_text)

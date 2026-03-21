@@ -34,32 +34,36 @@ For instructions on how to install please see the [release installtion](https://
 
 ## Building from Source
 
-### Using Nix (Recommended for Reproducible Builds)
+For comprehensive build instructions covering Nix, CMake, and platform-specific setup, please see [BUILD.md](BUILD.md).
 
-The project supports [Nix](https://nixos.org/) for deterministic, reproducible builds:
+**Quick reference:** Use `nix develop` for reproducible builds with all dependencies pre-configured, or follow the CMake/vcpkg instructions for system package manager setups.
 
-```bash
-# Enter development environment
-nix develop
+# Using Agentic Coding AI
 
-# Build the project
-nix build
+This repository includes repository-wide custom instructions for agentic coding AI tools. These instructions are **essential** for AI agents to understand the project architecture, build process, testing strategy, and CI/CD requirements.
 
-# Run the application
-nix run .#orc-gui
-```
+## GitHub Copilot
 
-Note that, if you want to pass command line options when using "nix run" it is performed using a command like:
+If you are using **GitHub Copilot** (coding agent or code review), the custom instructions in [`.github/copilot-instructions.md`](.github/copilot-instructions.md) will be automatically available and used by Copilot.
 
-```
-nix run git+file:///home/pathtoproject/decode-orc#orc-gui -- --log-level debug --log-file /tmp/orc-gui.log
-```
+Key guidance includes:
+- **MVP Architecture:** Core, presenters, view-types, and UI layers must remain decoupled. Run `ctest -R MVPArchitectureCheck` before submitting PRs.
+- **Build & Test:** Use `nix develop` for reproducible setup, then `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON` and `ctest --test-dir build --output-on-failure`.
+- **Testing Philosophy:** ~80% unit test coverage; mock dependencies; no filesystem/network/clock in unit tests.
+- **Multi-OS CI/CD:** Changes must align with Linux (Nix), macOS (DMG packaging), Windows (MSI packaging), and Flatpak workflows.
 
-See [docs/NIX-BUILD.md](docs/NIX-BUILD.md) for complete Nix build instructions.
+## Other AI Coding Tools
 
-### Traditional Build
+If you are using a different agentic coding AI tool (e.g., Claude, Gemini, or other coding assistants), **manually provide the instructions from [`.github/copilot-instructions.md`](.github/copilot-instructions.md)** to the AI when asking it to make changes or contributions to this repository. 
 
-For traditional CMake builds with vcpkg, please refer to the [build documentation](https://simoninns.github.io/decode-orc-docs/).
+This ensures the AI agent understands:
+1. The project's strict MVP architecture constraints
+2. The correct build commands and dependency setup
+3. The unit testing strategy and mocking conventions
+4. How to validate changes against the multi-platform CI/CD pipeline
+5. Contribution hygiene and PR expectations
+
+Sharing these instructions significantly improves the likelihood that AI-generated pull requests will pass CI/CD checks and meet project standards on the first attempt.
 
 # Crash Reporting
 

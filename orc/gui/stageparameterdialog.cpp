@@ -42,7 +42,7 @@ StageParameterDialog::StageParameterDialog(
     if (!stage_description.empty()) {
         auto* desc_label = new QLabel(QString::fromStdString(stage_description));
         desc_label->setWordWrap(true);
-        desc_label->setStyleSheet("color: palette(mid); font-style: italic;");
+        desc_label->setStyleSheet("color: palette(window-text); font-style: italic;");
         desc_label->setContentsMargins(0, 0, 0, 6);
         main_layout->addWidget(desc_label);
     }

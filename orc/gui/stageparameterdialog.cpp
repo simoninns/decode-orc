@@ -61,8 +61,10 @@ StageParameterDialog::StageParameterDialog(
     
     // Dialog buttons
     button_box_ = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    auto* update_button = button_box_->addButton("Update", QDialogButtonBox::ApplyRole);
     connect(button_box_, &QDialogButtonBox::accepted, this, &StageParameterDialog::on_validate_and_accept);
     connect(button_box_, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(update_button, &QPushButton::clicked, this, &StageParameterDialog::on_validate_and_update);
     
     auto* button_layout = new QHBoxLayout();
     button_layout->addWidget(reset_button_);
@@ -693,6 +695,13 @@ void StageParameterDialog::on_validate_and_accept()
 {
     if (validate_values()) {
         accept();
+    }
+}
+
+void StageParameterDialog::on_validate_and_update()
+{
+    if (validate_values()) {
+        emit update_requested();
     }
 }
 

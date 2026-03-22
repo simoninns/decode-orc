@@ -1910,25 +1910,25 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     // Show parameter dialog
     StageParameterDialog dialog(display_name, stage_description, param_descriptors, current_values, 
                                project_.projectPath(), reset_values, this);
-    
-    if (dialog.exec() == QDialog::Accepted) {
+
+    auto apply_dialog_values = [&]() {
         auto new_values = dialog.get_values();
-        
+
         try {
             project_.presenter()->setNodeParameters(node_id, new_values);
-            
+
             // Rebuild DAG to pick up the new parameter values
             project_.rebuildDAG();
-            
+
             // Update the preview renderer with the new DAG
             updatePreviewRenderer();
-            
+
             // Refresh QtNodes view
             dag_model_->refresh();
-            
+
             // Update the preview to show the changes
             updatePreview();
-            
+
             statusBar()->showMessage(
                 QString("Updated parameters for stage '%1'")
                     .arg(QString::fromStdString(node_id.to_string())),
@@ -1939,12 +1939,12 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
             QMessageBox::critical(this, "Parameter Validation Error",
                 QString("Failed to set parameters: %1\n\nParameters have been reset.")
                     .arg(QString::fromStdString(e.what())));
-            
+
             // Reset parameters to empty map
             std::map<std::string, orc::ParameterValue> empty_params;
             try {
                 project_.presenter()->setNodeParameters(node_id, empty_params);
-                
+
                 // Rebuild DAG with empty parameters
                 project_.rebuildDAG();
                 updatePreviewRenderer();
@@ -1955,6 +1955,12 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
                 ORC_LOG_ERROR("Failed to reset parameters after validation error: {}", reset_error.what());
             }
         }
+    };
+
+    connect(&dialog, &StageParameterDialog::update_requested, this, apply_dialog_values);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        apply_dialog_values();
     }
 }
 

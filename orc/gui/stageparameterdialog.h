@@ -64,9 +64,13 @@ public:
      */
     std::map<std::string, orc::ParameterValue> get_values() const;
 
+signals:
+    void update_requested();
+
 private slots:
     void on_reset_defaults();
     void on_validate_and_accept();
+    void on_validate_and_update();
 
 private:
     QFormLayout* form_layout_;

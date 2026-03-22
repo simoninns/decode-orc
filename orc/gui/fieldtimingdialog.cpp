@@ -19,6 +19,18 @@
 #include <QSettings>
 #include <QResizeEvent>
 #include <QComboBox>
+#include <QTimer>
+#include <algorithm>
+#include <cmath>
+
+namespace {
+// Minimum number of lines the timing view can display when fully zoomed in.
+constexpr int kMinLinesVisible = 2;
+
+// Internal slider coordinate range (position-space), mapped logarithmically to line counts.
+constexpr int kZoomSliderMin = 0;
+constexpr int kZoomSliderMax = 1000;
+}
 
 FieldTimingDialog::FieldTimingDialog(QWidget *parent)
     : QDialog(parent)
@@ -60,6 +72,12 @@ void FieldTimingDialog::setupUI()
     // Timing widget
     timing_widget_ = new FieldTimingWidget(this);
     main_layout->addWidget(timing_widget_, 1);
+
+    zoom_settle_timer_ = new QTimer(this);
+    zoom_settle_timer_->setSingleShot(true);
+    connect(zoom_settle_timer_, &QTimer::timeout, this, [this]() {
+        finalizeRenderQuality();
+    });
     
     // Control row with buttons and zoom slider
     auto* control_layout = new QHBoxLayout();
@@ -125,6 +143,43 @@ void FieldTimingDialog::setupUI()
     // Zoom control
     auto* zoom_label = new QLabel("Lines:");
     control_layout->addWidget(zoom_label);
+
+    auto moveZoomByButton = [this](int direction) {
+        // direction: -1 = zoom in (fewer lines), +1 = zoom out (more lines)
+        int total_lines = currentTotalLines();
+        int delta_lines = std::max(1, current_lines_to_show_ / 25);
+        int target_lines = std::clamp(current_lines_to_show_ + (direction * delta_lines),
+                                      kMinLinesVisible,
+                                      total_lines);
+
+        if (target_lines == current_lines_to_show_) {
+            return;
+        }
+
+        int current_pos = zoom_slider_->value();
+        int target_pos = linesToSliderPosition(target_lines);
+
+        // If mapping rounds to the same slider position, walk to the next position that
+        // guarantees at least one visible line change.
+        if (target_pos == current_pos) {
+            int scan_pos = current_pos;
+            while (true) {
+                scan_pos += direction;
+                if (scan_pos < zoom_slider_->minimum() || scan_pos > zoom_slider_->maximum()) {
+                    break;
+                }
+
+                int mapped_lines = sliderPositionToLines(scan_pos);
+                if ((direction < 0 && mapped_lines < current_lines_to_show_) ||
+                    (direction > 0 && mapped_lines > current_lines_to_show_)) {
+                    target_pos = scan_pos;
+                    break;
+                }
+            }
+        }
+
+        zoom_slider_->setValue(target_pos);
+    };
     
     // Zoom in button (decrease lines shown)
     auto* zoom_in_button = new QPushButton("-");
@@ -132,33 +187,37 @@ void FieldTimingDialog::setupUI()
     zoom_in_button->setAutoRepeat(true);
     zoom_in_button->setAutoRepeatDelay(250);
     zoom_in_button->setAutoRepeatInterval(50);
-    connect(zoom_in_button, &QPushButton::clicked, [this]() {
-        int current = zoom_slider_->value();
-        int step = (current >= 100) ? 10 : 1;  // Larger steps when zoomed out
-        zoom_slider_->setValue(std::max(current - step, zoom_slider_->minimum()));
+    connect(zoom_in_button, &QPushButton::clicked, [moveZoomByButton]() {
+        moveZoomByButton(-1);
+    });
+    connect(zoom_in_button, &QPushButton::pressed, [this]() {
+        beginDraftRendering();
+    });
+    connect(zoom_in_button, &QPushButton::released, [this]() {
+        finalizeRenderQuality();
     });
     control_layout->addWidget(zoom_in_button);
     
     zoom_slider_ = new QSlider(Qt::Horizontal);
-    zoom_slider_->setMinimum(2);     // Minimum 2 lines visible
-    zoom_slider_->setMaximum(625);   // Default to PAL max, will be updated with video params
-    zoom_slider_->setValue(625);     // Default to showing all lines
+    zoom_slider_->setMinimum(kZoomSliderMin);
+    zoom_slider_->setMaximum(kZoomSliderMax);
+    zoom_slider_->setValue(linesToSliderPosition(current_lines_to_show_));
     zoom_slider_->setTickPosition(QSlider::TicksBelow);
-    zoom_slider_->setTickInterval(50);
+    zoom_slider_->setTickInterval(100);
     zoom_slider_->setMaximumWidth(150);
-    connect(zoom_slider_, &QSlider::valueChanged, [this](int lines_to_show) {
-        // Calculate zoom factor based on total lines available from VFR descriptors
-        // At zoom_factor = 1.0, we show ALL lines
-        // To show fewer lines, we zoom in (zoom_factor > 1.0)
-        if (current_first_field_height_ > 0) {
-            int total_lines = current_first_field_height_;
-            // For frame mode, use sum of both field heights
-            if (current_field_index_2_.has_value() && current_second_field_height_ > 0) {
-                total_lines += current_second_field_height_;
-            }
-            double zoom_factor = static_cast<double>(total_lines) / static_cast<double>(lines_to_show);
-            timing_widget_->setZoomFactor(zoom_factor);
-        }
+    connect(zoom_slider_, &QSlider::valueChanged, [this](int slider_position) {
+        int lines_to_show = sliderPositionToLines(slider_position);
+        current_lines_to_show_ = lines_to_show;
+        zoom_value_label_->setText(QString::number(lines_to_show));
+        beginDraftRendering();
+        applyZoomFromLines(lines_to_show);
+        scheduleFinalRender();
+    });
+    connect(zoom_slider_, &QSlider::sliderPressed, [this]() {
+        beginDraftRendering();
+    });
+    connect(zoom_slider_, &QSlider::sliderReleased, [this]() {
+        finalizeRenderQuality();
     });
     control_layout->addWidget(zoom_slider_);
     
@@ -168,18 +227,20 @@ void FieldTimingDialog::setupUI()
     zoom_out_button->setAutoRepeat(true);
     zoom_out_button->setAutoRepeatDelay(250);
     zoom_out_button->setAutoRepeatInterval(50);
-    connect(zoom_out_button, &QPushButton::clicked, [this]() {
-        int current = zoom_slider_->value();
-        int step = (current >= 100) ? 10 : 1;  // Larger steps when zoomed out
-        zoom_slider_->setValue(std::min(current + step, zoom_slider_->maximum()));
+    connect(zoom_out_button, &QPushButton::clicked, [moveZoomByButton]() {
+        moveZoomByButton(1);
+    });
+    connect(zoom_out_button, &QPushButton::pressed, [this]() {
+        beginDraftRendering();
+    });
+    connect(zoom_out_button, &QPushButton::released, [this]() {
+        finalizeRenderQuality();
     });
     control_layout->addWidget(zoom_out_button);
     
     zoom_value_label_ = new QLabel("625");
     zoom_value_label_->setMinimumWidth(40);
-    connect(zoom_slider_, &QSlider::valueChanged, [this](int value) {
-        zoom_value_label_->setText(QString::number(value));
-    });
+    zoom_value_label_->setText(QString::number(current_lines_to_show_));
     control_layout->addWidget(zoom_value_label_);
     
     control_layout->addSpacing(10);
@@ -233,6 +294,9 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
     } else {
         timing_widget_->setChannelMode(FieldTimingWidget::ChannelMode::YPlusC);
     }
+
+    // Data refreshes should not keep draft mode active.
+    finalizeRenderQuality();
     
     // Enable/disable jump button based on whether marker is present
     jump_button_->setEnabled(marker_sample.has_value());
@@ -248,25 +312,104 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
     if (total_lines > 0) {
         // Set spinbox maximum to total lines available
         line_spinbox_->setMaximum(total_lines);
-        
-        // Update zoom slider range and preserve current zoom level
-        int current_zoom = zoom_slider_->value();
-        zoom_slider_->setMaximum(total_lines);
-        // Restore zoom level if possible, otherwise show all lines
-        if (current_zoom <= total_lines) {
-            zoom_slider_->setValue(current_zoom);
-        } else {
-            zoom_slider_->setValue(total_lines);  // Show all lines if previous zoom was larger
-        }
-        zoom_value_label_->setText(QString::number(zoom_slider_->value()));
+
+        // Preserve visible line target across source changes.
+        current_lines_to_show_ = std::clamp(current_lines_to_show_, kMinLinesVisible, total_lines);
+
+        zoom_slider_->blockSignals(true);
+        zoom_slider_->setValue(linesToSliderPosition(current_lines_to_show_));
+        zoom_slider_->blockSignals(false);
+        zoom_value_label_->setText(QString::number(current_lines_to_show_));
         
         // Trigger zoom update with current slider value
-        int lines_to_show = zoom_slider_->value();
-        double zoom_factor = static_cast<double>(total_lines) / static_cast<double>(lines_to_show);
-        timing_widget_->setZoomFactor(zoom_factor);
-        
-        // Update tick interval based on total lines
-        int tick_interval = (total_lines > 600) ? 100 : 50;
-        zoom_slider_->setTickInterval(tick_interval);
+        applyZoomFromLines(current_lines_to_show_);
     }
+}
+
+int FieldTimingDialog::currentTotalLines() const
+{
+    int total_lines = current_first_field_height_;
+    if (current_field_index_2_.has_value() && current_second_field_height_ > 0) {
+        total_lines += current_second_field_height_;
+    }
+
+    if (total_lines <= 0) {
+        total_lines = 625;
+    }
+
+    return std::max(kMinLinesVisible, total_lines);
+}
+
+int FieldTimingDialog::sliderPositionToLines(int slider_position) const
+{
+    int total_lines = currentTotalLines();
+
+    if (total_lines <= kMinLinesVisible) {
+        return total_lines;
+    }
+
+    double t = static_cast<double>(slider_position - kZoomSliderMin) /
+               static_cast<double>(kZoomSliderMax - kZoomSliderMin);
+    t = std::clamp(t, 0.0, 1.0);
+
+    double ratio = static_cast<double>(total_lines) / static_cast<double>(kMinLinesVisible);
+    double mapped = static_cast<double>(kMinLinesVisible) * std::pow(ratio, t);
+    int lines = static_cast<int>(std::round(mapped));
+    return std::clamp(lines, kMinLinesVisible, total_lines);
+}
+
+int FieldTimingDialog::linesToSliderPosition(int lines_to_show) const
+{
+    int total_lines = currentTotalLines();
+    int lines = std::clamp(lines_to_show, kMinLinesVisible, total_lines);
+
+    if (total_lines <= kMinLinesVisible) {
+        return kZoomSliderMin;
+    }
+
+    double ratio = static_cast<double>(total_lines) / static_cast<double>(kMinLinesVisible);
+    double normalized = std::log(static_cast<double>(lines) / static_cast<double>(kMinLinesVisible)) /
+                        std::log(ratio);
+    normalized = std::clamp(normalized, 0.0, 1.0);
+
+    int slider_position = static_cast<int>(std::round(
+        normalized * static_cast<double>(kZoomSliderMax - kZoomSliderMin) + kZoomSliderMin));
+    return std::clamp(slider_position, kZoomSliderMin, kZoomSliderMax);
+}
+
+void FieldTimingDialog::applyZoomFromLines(int lines_to_show)
+{
+    // At zoom_factor = 1.0, we show all lines; fewer lines means zoom in.
+    if (current_first_field_height_ <= 0 || lines_to_show <= 0) {
+        return;
+    }
+
+    int total_lines = current_first_field_height_;
+    if (current_field_index_2_.has_value() && current_second_field_height_ > 0) {
+        total_lines += current_second_field_height_;
+    }
+
+    if (total_lines <= 0) {
+        return;
+    }
+
+    double zoom_factor = static_cast<double>(total_lines) / static_cast<double>(lines_to_show);
+    timing_widget_->setZoomFactor(zoom_factor);
+}
+
+void FieldTimingDialog::beginDraftRendering()
+{
+    timing_widget_->setDraftRenderMode(true);
+}
+
+void FieldTimingDialog::scheduleFinalRender()
+{
+    constexpr int kZoomSettleDelayMs = 120;
+    zoom_settle_timer_->start(kZoomSettleDelayMs);
+}
+
+void FieldTimingDialog::finalizeRenderQuality()
+{
+    zoom_settle_timer_->stop();
+    timing_widget_->setDraftRenderMode(false);
 }

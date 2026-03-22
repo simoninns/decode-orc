@@ -21,6 +21,7 @@
 #include "decoders/comb.h"
 #include "decoders/outputwriter.h"
 #include "decoders/componentframe.h"
+#include "video_parameter_safety.h"
 #include "../../analysis/vectorscope/vectorscope_analysis.h"
 
 // Output backend includes
@@ -35,6 +36,58 @@
 #include <atomic>
 
 namespace orc {
+
+namespace {
+
+chroma_sink::DecoderVideoProfile decoder_video_profile_for_type(
+    const std::string& decoder_type,
+    VideoSystem system)
+{
+    if (decoder_type == "mono") {
+        return chroma_sink::DecoderVideoProfile::Mono;
+    }
+
+    if (decoder_type == "transform2d" || decoder_type == "transform3d" || decoder_type == "pal2d") {
+        return chroma_sink::DecoderVideoProfile::PalColour;
+    }
+
+    if (decoder_type == "ntsc1d" || decoder_type == "ntsc2d" || decoder_type == "ntsc3d" || decoder_type == "ntsc3dnoadapt") {
+        return chroma_sink::DecoderVideoProfile::NtscColour;
+    }
+
+    if (system == VideoSystem::PAL || system == VideoSystem::PAL_M) {
+        return chroma_sink::DecoderVideoProfile::PalColour;
+    }
+
+    return chroma_sink::DecoderVideoProfile::NtscColour;
+}
+
+bool apply_decoder_safe_video_parameters(
+    SourceParameters& video_params,
+    chroma_sink::DecoderVideoProfile profile,
+    const char* context,
+    std::string* error_message = nullptr)
+{
+    const auto safety = chroma_sink::sanitize_video_parameters(video_params, profile);
+
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("{}: Adjusted unsafe video parameters: {}", context, chroma_sink::join_issues(safety.warnings));
+    }
+
+    if (!safety.ok) {
+        const auto joined_errors = chroma_sink::join_issues(safety.errors);
+        ORC_LOG_ERROR("{}: Invalid video parameters: {}", context, joined_errors);
+        if (error_message != nullptr) {
+            *error_message = joined_errors;
+        }
+        return false;
+    }
+
+    video_params = safety.params;
+    return true;
+}
+
+} // namespace
 
 // NOTE: ChromaSinkStage is no longer registered as a stage.
 // It serves as a base class for RawVideoSinkStage and FFmpegVideoSinkStage.
@@ -660,6 +713,14 @@ bool ChromaSinkStage::trigger(
                          (decoder_type_ == "pal2d" || decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
     bool useNtscDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::NTSC) ||
                           (decoder_type_.find("ntsc") == 0);
+
+    std::string parameter_error;
+    const auto decoder_profile = decoder_video_profile_for_type(decoder_type_, videoParams.system);
+    if (!apply_decoder_safe_video_parameters(videoParams, decoder_profile, "ChromaSink trigger", &parameter_error)) {
+        trigger_status_ = "Error: Invalid video parameters - " + parameter_error;
+        trigger_in_progress_.store(false);
+        return false;
+    }
     
     if (useMonoDecoder) {
         MonoDecoder::MonoConfiguration config;
@@ -1636,7 +1697,13 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         return result;
     }
     const SourceParameters& videoParams = *video_params_opt;
+    SourceParameters safeVideoParams = videoParams;
     
+    const auto preview_profile = decoder_video_profile_for_type(decoder_type_, safeVideoParams.system);
+    if (!apply_decoder_safe_video_parameters(safeVideoParams, preview_profile, "ChromaSink preview")) {
+        return result;
+    }
+
     // Calculate first field offset
     uint64_t first_field_offset = 0;
     auto parity_hint = local_input->get_field_parity_hint(FieldID(0));
@@ -1762,7 +1829,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             MonoDecoder::MonoConfiguration config;
             config.yNRLevel = luma_nr_;
             config.filterChroma = false;
-            config.videoParameters = videoParams;
+            config.videoParameters = safeVideoParams;
             preview_decoder_cache_.mono_decoder = std::make_unique<MonoDecoder>(config);
         } else if (effectiveDecoderType == "pal2d" || effectiveDecoderType == "transform2d" || effectiveDecoderType == "transform3d") {
             PalColour::Configuration config;
@@ -1782,7 +1849,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             }
             
             preview_decoder_cache_.pal_decoder = std::make_unique<PalColour>();
-            preview_decoder_cache_.pal_decoder->updateConfiguration(videoParams, config);
+            preview_decoder_cache_.pal_decoder->updateConfiguration(safeVideoParams, config);
         } else {
             // NTSC decoders
             Comb::Configuration config;
@@ -1810,11 +1877,11 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             }
             
             preview_decoder_cache_.ntsc_decoder = std::make_unique<Comb>();
-            preview_decoder_cache_.ntsc_decoder->updateConfiguration(videoParams, config);
+            preview_decoder_cache_.ntsc_decoder->updateConfiguration(safeVideoParams, config);
         }
 
         if (is_yc_source && effectiveDecoderType != "mono") {
-            preview_decoder_cache_.yc_mono_decoder = create_yc_mono_decoder(videoParams);
+            preview_decoder_cache_.yc_mono_decoder = create_yc_mono_decoder(safeVideoParams);
         }
         ORC_LOG_DEBUG("ChromaSink: Created new '{}' decoder for preview", effectiveDecoderType);
     } else {

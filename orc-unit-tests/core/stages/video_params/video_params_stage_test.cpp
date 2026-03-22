@@ -63,9 +63,7 @@ namespace orc_unit_test
         orc::VideoParamsStage stage;
         const auto descriptors = stage.get_parameter_descriptors();
         const auto params = stage.get_parameters();
-        const std::array<const char*, 10> parameter_names = {
-            "fieldWidth",
-            "fieldHeight",
+        const std::array<const char*, 8> parameter_names = {
             "colourBurstStart",
             "colourBurstEnd",
             "activeVideoStart",
@@ -91,13 +89,13 @@ namespace orc_unit_test
         orc::VideoParamsStage stage;
 
         const bool result = stage.set_parameters({
-            {"fieldWidth", int32_t(910)},
+            {"activeVideoStart", int32_t(120)},
             {"black16bIRE", int32_t(1200)}
         });
         const auto params = stage.get_parameters();
 
         EXPECT_TRUE(result);
-        EXPECT_EQ(std::get<int32_t>(params.at("fieldWidth")), 910);
+        EXPECT_EQ(std::get<int32_t>(params.at("activeVideoStart")), 120);
         EXPECT_EQ(std::get<int32_t>(params.at("black16bIRE")), 1200);
     }
 
@@ -110,7 +108,7 @@ namespace orc_unit_test
     TEST(VideoParamsStageTest, setParameters_rejectsWrongType)
     {
         orc::VideoParamsStage stage;
-        EXPECT_FALSE(stage.set_parameters({{"fieldWidth", std::string("910")}}));
+        EXPECT_FALSE(stage.set_parameters({{"activeVideoStart", std::string("120")}}));
     }
 
     TEST(VideoParamsStageTest, process_appliesConfiguredOverrides)
@@ -125,15 +123,16 @@ namespace orc_unit_test
         source_params.white_16b_ire = 50000;
 
         EXPECT_CALL(*source, get_video_parameters()).WillRepeatedly(Return(source_params));
-        ASSERT_TRUE(stage.set_parameters({{"fieldWidth", int32_t(910)}, {"black16bIRE", int32_t(1500)}}));
+        ASSERT_TRUE(stage.set_parameters({{"activeVideoStart", int32_t(120)}, {"black16bIRE", int32_t(1500)}}));
 
         const auto result = stage.process(source);
 
         ASSERT_NE(result, nullptr);
         const auto overridden = result->get_video_parameters();
         ASSERT_TRUE(overridden.has_value());
-        EXPECT_EQ(overridden->field_width, 910);
+        EXPECT_EQ(overridden->field_width, 844);
         EXPECT_EQ(overridden->field_height, 263);
+        EXPECT_EQ(overridden->active_video_start, 120);
         EXPECT_EQ(overridden->black_16b_ire, 1500);
         EXPECT_EQ(overridden->white_16b_ire, 50000);
     }

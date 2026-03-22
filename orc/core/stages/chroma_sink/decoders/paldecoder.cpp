@@ -11,6 +11,7 @@
 
 #include "paldecoder.h"
 #include "logging.h"
+#include "../video_parameter_safety.h"
 
 
 PalDecoder::PalDecoder(const PalColour::Configuration &palConfig)
@@ -25,7 +26,22 @@ bool PalDecoder::configure(const ::orc::SourceParameters &videoParameters) {
         return false;
     }
 
-    config.videoParameters = videoParameters;
+    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+        videoParameters,
+        ::orc::chroma_sink::DecoderVideoProfile::PalColour);
+
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("PalDecoder::configure(): Adjusted unsafe video parameters: {}",
+                     ::orc::chroma_sink::join_issues(safety.warnings));
+    }
+
+    if (!safety.ok) {
+        ORC_LOG_ERROR("PalDecoder::configure(): Invalid video parameters: {}",
+                      ::orc::chroma_sink::join_issues(safety.errors));
+        return false;
+    }
+
+    config.videoParameters = safety.params;
 
     return true;
 }

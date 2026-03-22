@@ -21,6 +21,7 @@
 #include <QLabel>
 #include <QDialogButtonBox>
 #include <map>
+#include <optional>
 #include <vector>
 #include <string>
 #include <parameter_types.h>
@@ -44,6 +45,7 @@ public:
      * @param descriptors Parameter descriptors from the stage
      * @param current_values Current parameter values
      * @param project_path Path to the project file (for relative path conversion)
+      * @param reset_values Optional values used by the reset button (falls back to descriptor defaults)
      * @param parent Parent widget
      */
     explicit StageParameterDialog(
@@ -52,6 +54,7 @@ public:
         const std::vector<orc::ParameterDescriptor>& descriptors,
         const std::map<std::string, orc::ParameterValue>& current_values,
         const QString& project_path = QString(),
+                const std::optional<std::map<std::string, orc::ParameterValue>>& reset_values = std::nullopt,
         QWidget* parent = nullptr);
     
     /**
@@ -72,6 +75,7 @@ private:
     
     std::string stage_name_;  // Stage name for QSettings keys
     QString project_path_;  // Project file path for relative path conversion
+    std::optional<std::map<std::string, orc::ParameterValue>> reset_values_;
     
     // Parameter descriptors (keep for validation and defaults)
     std::vector<orc::ParameterDescriptor> descriptors_;

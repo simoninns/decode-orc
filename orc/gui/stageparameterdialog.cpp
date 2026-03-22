@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QSettings>
+#include <QStringList>
 #include <limits>
 #include <algorithm>
 
@@ -24,11 +25,13 @@ StageParameterDialog::StageParameterDialog(
     const std::vector<orc::ParameterDescriptor>& descriptors,
     const std::map<std::string, orc::ParameterValue>& current_values,
     const QString& project_path,
+    const std::optional<std::map<std::string, orc::ParameterValue>>& reset_values,
     QWidget* parent)
     : QDialog(parent)
     , stage_name_(stage_name)
     , descriptors_(descriptors)
     , project_path_(project_path)
+    , reset_values_(reset_values)
 {
     setWindowTitle(QString("%1 Parameters").arg(QString::fromStdString(stage_name)));
     setMinimumWidth(400);
@@ -51,8 +54,9 @@ StageParameterDialog::StageParameterDialog(
     // Build UI based on descriptors
     build_ui(current_values);
     
-    // Reset to defaults button
-    reset_button_ = new QPushButton("Reset to Defaults");
+    // Reset button uses metadata values when provided, otherwise descriptor defaults.
+    const bool has_custom_reset_values = reset_values_.has_value() && !reset_values_->empty();
+    reset_button_ = new QPushButton(has_custom_reset_values ? "Reset to Metadata Values" : "Reset to Defaults");
     connect(reset_button_, &QPushButton::clicked, this, &StageParameterDialog::on_reset_defaults);
     
     // Dialog buttons
@@ -107,6 +111,7 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                     spin->setMaximum(std::numeric_limits<int32_t>::max());
                 }
                 spin->setValue(std::get<int32_t>(value));
+
                 widget = spin;
                 break;
             }
@@ -539,7 +544,17 @@ orc::ParameterValue StageParameterDialog::get_widget_value(const std::string& pa
 void StageParameterDialog::on_reset_defaults()
 {
     for (const auto& desc : descriptors_) {
-        if (desc.constraints.default_value.has_value()) {
+        bool value_applied = false;
+
+        if (reset_values_.has_value()) {
+            auto reset_it = reset_values_->find(desc.name);
+            if (reset_it != reset_values_->end()) {
+                set_widget_value(desc.name, reset_it->second);
+                value_applied = true;
+            }
+        }
+
+        if (!value_applied && desc.constraints.default_value.has_value()) {
             set_widget_value(desc.name, *desc.constraints.default_value);
         }
     }
@@ -601,6 +616,76 @@ bool StageParameterDialog::validate_values()
         }
     }
 
+    // Cross-parameter constraints for video parameter overrides.
+    auto get_int_param = [this](const std::string& param_name) -> std::optional<int32_t> {
+        auto it = parameter_widgets_.find(param_name);
+        if (it == parameter_widgets_.end()) {
+            return std::nullopt;
+        }
+
+        const auto value = get_widget_value(param_name);
+        if (const auto* int_value = std::get_if<int32_t>(&value)) {
+            return *int_value;
+        }
+        if (const auto* uint_value = std::get_if<uint32_t>(&value)) {
+            return static_cast<int32_t>(*uint_value);
+        }
+
+        return std::nullopt;
+    };
+
+    auto require_less_than_if_set = [](const std::optional<int32_t>& lhs,
+                                       const std::optional<int32_t>& rhs) -> bool {
+        if (!lhs.has_value() || !rhs.has_value()) {
+            return true;
+        }
+        // Value -1 means "use source value" for video params and should not fail validation.
+        if (lhs.value() < 0 || rhs.value() < 0) {
+            return true;
+        }
+        return lhs.value() < rhs.value();
+    };
+
+    QStringList validation_errors;
+
+    const auto colour_burst_start = get_int_param("colourBurstStart");
+    const auto colour_burst_end = get_int_param("colourBurstEnd");
+    const auto active_video_start = get_int_param("activeVideoStart");
+    const auto active_video_end = get_int_param("activeVideoEnd");
+    const auto first_active_field_line = get_int_param("firstActiveFieldLine");
+    const auto last_active_field_line = get_int_param("lastActiveFieldLine");
+    const auto black_ire = get_int_param("black16bIRE");
+    const auto white_ire = get_int_param("white16bIRE");
+
+    if (!require_less_than_if_set(colour_burst_start, colour_burst_end)) {
+        validation_errors << "Colour Burst Start must be less than Colour Burst End.";
+    }
+
+    if (!require_less_than_if_set(active_video_start, active_video_end)) {
+        validation_errors << "Active Video Start must be less than Active Video End.";
+    }
+
+    if (!require_less_than_if_set(colour_burst_start, active_video_start)) {
+        validation_errors << "Colour Burst Start must be before Active Video Start.";
+    }
+
+    if (!require_less_than_if_set(colour_burst_end, active_video_start)) {
+        validation_errors << "Colour Burst End must be before Active Video Start.";
+    }
+
+    if (!require_less_than_if_set(first_active_field_line, last_active_field_line)) {
+        validation_errors << "First Active Field Line must be less than Last Active Field Line.";
+    }
+
+    if (!require_less_than_if_set(black_ire, white_ire)) {
+        validation_errors << "Black IRE must be less than White IRE.";
+    }
+
+    if (!validation_errors.isEmpty()) {
+        QMessageBox::warning(this, "Invalid Parameters", validation_errors.join("\n"));
+        return false;
+    }
+
     return true;
 }
 
@@ -608,9 +693,6 @@ void StageParameterDialog::on_validate_and_accept()
 {
     if (validate_values()) {
         accept();
-    } else {
-        QMessageBox::warning(this, "Invalid Parameters", 
-                            "One or more parameter values are invalid.");
     }
 }
 

@@ -23,6 +23,7 @@ class QSpinBox;
 class QSlider;
 class QLabel;
 class QComboBox;
+class QTimer;
 
 /**
  * @brief Dialog for viewing field samples as a timing graph
@@ -111,6 +112,13 @@ Q_SIGNALS:
 
 private:
     void setupUI();
+    void applyZoomFromLines(int lines_to_show);
+    void beginDraftRendering();
+    void scheduleFinalRender();
+    void finalizeRenderQuality();
+    int currentTotalLines() const;
+    int sliderPositionToLines(int slider_position) const;
+    int linesToSliderPosition(int lines_to_show) const;
     
     FieldTimingWidget* timing_widget_;
     QPushButton* jump_button_;
@@ -121,12 +129,14 @@ private:
     QComboBox* signal_combo_;
     QSlider* zoom_slider_;
     QLabel* zoom_value_label_;
+    QTimer* zoom_settle_timer_;
     QString current_node_id_;
     uint64_t current_field_index_;
     std::optional<uint64_t> current_field_index_2_;
     int current_first_field_height_;
     int current_second_field_height_;
     int current_signal_index_{0};
+    int current_lines_to_show_{625};
 };
 
 #endif // FIELDTIMINGDIALOG_H

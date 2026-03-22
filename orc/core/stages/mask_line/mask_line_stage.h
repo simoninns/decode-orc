@@ -58,13 +58,11 @@ private:
     
     std::vector<LineRange> line_ranges_;  // List of ranges with parity
     double mask_ire_;  // IRE value (0-100)
-    
-    // Cache for masked lines (mutable to allow caching in const methods)
-    mutable std::unordered_map<FieldID, std::unordered_map<size_t, std::vector<uint16_t>>> masked_line_cache_;
-    
-    // Separate caches for YC sources
-    mutable std::unordered_map<FieldID, std::unordered_map<size_t, std::vector<uint16_t>>> masked_luma_cache_;
-    mutable std::unordered_map<FieldID, std::unordered_map<size_t, std::vector<uint16_t>>> masked_chroma_cache_;
+
+    // Reusable buffers avoid unbounded growth keyed by FieldID during long exports.
+    mutable std::vector<uint16_t> masked_line_buffer_;
+    mutable std::vector<uint16_t> masked_luma_buffer_;
+    mutable std::vector<uint16_t> masked_chroma_buffer_;
 };
 
 /**

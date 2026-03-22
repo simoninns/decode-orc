@@ -158,14 +158,6 @@ MaskedLineRepresentation::get_line(FieldID id, size_t line) const {
         return source_->get_line(id, line);
     }
     
-    // Need to create and cache masked line
-    auto& field_cache = masked_line_cache_[id];
-    auto cache_it = field_cache.find(line);
-    
-    if (cache_it != field_cache.end()) {
-        return cache_it->second.data();
-    }
-    
     // Get source line to determine width
     const sample_type* source_line = source_->get_line(id, line);
     if (!source_line) {
@@ -178,14 +170,11 @@ MaskedLineRepresentation::get_line(FieldID id, size_t line) const {
         return nullptr;
     }
     
-    // Create masked line filled with mask value (converted from IRE)
+    // Fill reusable buffer with mask value (converted from IRE)
     uint16_t mask_sample = ire_to_sample(mask_ire_);
-    std::vector<uint16_t> masked_line(descriptor->width, mask_sample);
-    
-    // Cache it
-    field_cache[line] = std::move(masked_line);
-    
-    return field_cache[line].data();
+    masked_line_buffer_.assign(descriptor->width, mask_sample);
+
+    return masked_line_buffer_.data();
 }
 
 std::vector<MaskedLineRepresentation::sample_type> 
@@ -228,14 +217,6 @@ MaskedLineRepresentation::get_line_luma(FieldID id, size_t line) const {
         return source_->get_line_luma(id, line);
     }
     
-    // Need to create and cache masked line
-    auto& field_cache = masked_luma_cache_[id];
-    auto cache_it = field_cache.find(line);
-    
-    if (cache_it != field_cache.end()) {
-        return cache_it->second.data();
-    }
-    
     // Get source line to determine width
     const sample_type* source_line = source_->get_line_luma(id, line);
     if (!source_line) {
@@ -248,14 +229,11 @@ MaskedLineRepresentation::get_line_luma(FieldID id, size_t line) const {
         return nullptr;
     }
     
-    // Create masked line filled with mask value
+    // Fill reusable buffer with mask value
     uint16_t mask_sample = ire_to_sample(mask_ire_);
-    std::vector<uint16_t> masked_line(descriptor->width, mask_sample);
-    
-    // Cache it
-    field_cache[line] = std::move(masked_line);
-    
-    return field_cache[line].data();
+    masked_luma_buffer_.assign(descriptor->width, mask_sample);
+
+    return masked_luma_buffer_.data();
 }
 
 const MaskedLineRepresentation::sample_type* 
@@ -267,14 +245,6 @@ MaskedLineRepresentation::get_line_chroma(FieldID id, size_t line) const {
     // If this line shouldn't be masked, return source data
     if (!should_mask_line(id, line)) {
         return source_->get_line_chroma(id, line);
-    }
-    
-    // Need to create and cache masked line
-    auto& field_cache = masked_chroma_cache_[id];
-    auto cache_it = field_cache.find(line);
-    
-    if (cache_it != field_cache.end()) {
-        return cache_it->second.data();
     }
     
     // Get source line to determine width
@@ -289,14 +259,11 @@ MaskedLineRepresentation::get_line_chroma(FieldID id, size_t line) const {
         return nullptr;
     }
     
-    // Create masked line filled with mask value
+    // Fill reusable buffer with mask value
     uint16_t mask_sample = ire_to_sample(mask_ire_);
-    std::vector<uint16_t> masked_line(descriptor->width, mask_sample);
-    
-    // Cache it
-    field_cache[line] = std::move(masked_line);
-    
-    return field_cache[line].data();
+    masked_chroma_buffer_.assign(descriptor->width, mask_sample);
+
+    return masked_chroma_buffer_.data();
 }
 
 std::vector<MaskedLineRepresentation::sample_type> 

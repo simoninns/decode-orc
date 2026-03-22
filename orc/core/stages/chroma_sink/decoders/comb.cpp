@@ -29,6 +29,7 @@
 #include <utility>
 #include <vector>
 #include "logging.h"
+#include "../video_parameter_safety.h"
 
 // Indexes for the candidates considered in 3D adaptive mode
 enum CandidateIndex : int32_t {
@@ -103,29 +104,32 @@ const Comb::Configuration &Comb::getConfiguration() const {
 // Set the comb filter configuration parameters
 void Comb::updateConfiguration(const ::orc::SourceParameters &_videoParameters, const Comb::Configuration &_configuration)
 {
-    // Copy the configuration parameters
-    videoParameters = _videoParameters;
     configuration = _configuration;
 
-    // Range check the frame dimensions
-    if (videoParameters.field_width > MAX_WIDTH) {
-        ORC_LOG_ERROR("Comb::Comb(): Frame width exceeds allowed maximum!");
-    }
-    if (((videoParameters.field_height * 2) - 1) > MAX_HEIGHT) {
-        ORC_LOG_ERROR("Comb::Comb(): Frame height exceeds allowed maximum!");
+    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+        _videoParameters,
+        ::orc::chroma_sink::DecoderVideoProfile::NtscColour);
+
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("Comb::updateConfiguration(): Adjusted unsafe video parameters: {}",
+                     ::orc::chroma_sink::join_issues(safety.warnings));
     }
 
-    // Range check the video start
-    if (videoParameters.active_video_start < 16) {
-        ORC_LOG_ERROR("Comb::Comb(): activeVideoStart must be > 16!");
+    if (!safety.ok) {
+        ORC_LOG_ERROR("Comb::updateConfiguration(): Invalid video parameters: {}",
+                      ::orc::chroma_sink::join_issues(safety.errors));
+        configurationSet = false;
+        return;
     }
+
+    videoParameters = safety.params;
 
     // Check the sample rate is close to 4 * fSC.
     // Older versions of ld-decode used integer approximations, so this needs
     // to be an approximate comparison.
     if (fabs((videoParameters.sample_rate / videoParameters.fsc) - 4.0) > 1.0e-6)
     {
-        ORC_LOG_ERROR("Data is not in 4fsc sample rate, color decoding will not work properly!");
+        ORC_LOG_WARN("Data is not in 4fsc sample rate, color decoding will not work properly!");
     }
 
     configurationSet = true;
@@ -134,7 +138,10 @@ void Comb::updateConfiguration(const ::orc::SourceParameters &_videoParameters, 
 void Comb::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
                         std::vector<ComponentFrame> &componentFrames)
 {
-    assert(configurationSet);
+    if (!configurationSet) {
+        ORC_LOG_ERROR("Comb::decodeFrames(): Decoder configuration is invalid");
+        return;
+    }
     assert((componentFrames.size() * 2) == (endIndex - startIndex));
     
     // Check if we have YC sources (separate Y and C channels)

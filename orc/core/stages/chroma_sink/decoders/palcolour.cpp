@@ -31,6 +31,7 @@
 #endif
 
 #include "logging.h"  // ORC logging
+#include "../video_parameter_safety.h"
 
 /*!
     \class PalColour
@@ -97,9 +98,26 @@ const PalColour::Configuration &PalColour::getConfiguration() const {
 void PalColour::updateConfiguration(const ::orc::SourceParameters &_videoParameters,
                                     const Configuration &_configuration)
 {
-    // Copy the configuration parameters
-    videoParameters = _videoParameters;
     configuration = _configuration;
+
+    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+        _videoParameters,
+        ::orc::chroma_sink::DecoderVideoProfile::PalColour);
+
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("PalColour::updateConfiguration(): Adjusted unsafe video parameters: {}",
+                     ::orc::chroma_sink::join_issues(safety.warnings));
+    }
+
+    if (!safety.ok) {
+        ORC_LOG_ERROR("PalColour::updateConfiguration(): Invalid video parameters: {}",
+                      ::orc::chroma_sink::join_issues(safety.errors));
+        configurationSet = false;
+        transformPal.reset();
+        return;
+    }
+
+    videoParameters = safety.params;
 
     // Build the look-up tables
     buildLookUpTables();
@@ -244,7 +262,10 @@ void PalColour::buildLookUpTables()
 void PalColour::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
                              std::vector<ComponentFrame> &componentFrames)
 {
-    assert(configurationSet);
+    if (!configurationSet) {
+        ORC_LOG_ERROR("PalColour::decodeFrames(): Decoder configuration is invalid");
+        return;
+    }
     assert((componentFrames.size() * 2) == (endIndex - startIndex));
     
     // Check if we have YC sources (separate Y and C channels)

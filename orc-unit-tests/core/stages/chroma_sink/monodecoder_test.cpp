@@ -77,4 +77,29 @@ namespace orc_unit_test
             EXPECT_DOUBLE_EQ(line4[sample], 0.0);
         }
     }
+
+    TEST(MonoDecoderTest, updateConfigurationRejectsInvalidIreWindow)
+    {
+        orc::SourceParameters sourceParameters;
+        sourceParameters.field_width = 4;
+        sourceParameters.field_height = 3;
+        sourceParameters.first_active_frame_line = 0;
+        sourceParameters.last_active_frame_line = 5;
+        sourceParameters.active_video_start = 0;
+        sourceParameters.active_video_end = 4;
+        sourceParameters.black_16b_ire = 100;
+        sourceParameters.white_16b_ire = 50;
+
+        MonoDecoder decoder;
+        MonoDecoder::MonoConfiguration config;
+        config.yNRLevel = 0.0;
+        config.filterChroma = false;
+
+        EXPECT_TRUE(decoder.updateConfiguration(sourceParameters, config));
+
+        std::vector<SourceField> inputFields(2);
+        std::vector<ComponentFrame> outputFrames(1);
+
+        EXPECT_NO_FATAL_FAILURE(decoder.decodeFrames(inputFields, 0, 2, outputFrames));
+    }
 }

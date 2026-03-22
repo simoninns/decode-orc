@@ -172,8 +172,6 @@ private:
     mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
     
     // Parameters - all optional, -1 means "use source value"
-    int32_t field_width_ = -1;
-    int32_t field_height_ = -1;
     int32_t colour_burst_start_ = -1;
     int32_t colour_burst_end_ = -1;
     int32_t active_video_start_ = -1;

@@ -107,6 +107,41 @@ namespace {
         }
         return orc::presenters::SourceType::Unknown;
     }
+
+    std::map<std::string, orc::ParameterValue> sourceParametersToVideoParamsStageValues(
+        const orc::SourceParameters& params)
+    {
+        return {
+            {"colourBurstStart", params.colour_burst_start},
+            {"colourBurstEnd", params.colour_burst_end},
+            {"activeVideoStart", params.active_video_start},
+            {"activeVideoEnd", params.active_video_end},
+            {"firstActiveFieldLine", params.first_active_field_line},
+            {"lastActiveFieldLine", params.last_active_field_line},
+            {"white16bIRE", params.white_16b_ire},
+            {"black16bIRE", params.black_16b_ire}
+        };
+    }
+
+    bool isUnsetVideoParamsStageValue(const orc::ParameterValue& value)
+    {
+        if (const auto* int_value = std::get_if<int32_t>(&value)) {
+            return *int_value == -1;
+        }
+        return false;
+    }
+
+    void applyMetadataFallbackValues(
+        std::map<std::string, orc::ParameterValue>& current_values,
+        const std::map<std::string, orc::ParameterValue>& metadata_values)
+    {
+        for (const auto& [param_name, metadata_value] : metadata_values) {
+            auto current_it = current_values.find(param_name);
+            if (current_it == current_values.end() || isUnsetVideoParamsStageValue(current_it->second)) {
+                current_values[param_name] = metadata_value;
+            }
+        }
+    }
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -407,7 +442,8 @@ void MainWindow::setupMenus()
     connect(new_project_action, &QAction::triggered, this, &MainWindow::onNewProject);
     
     auto* quick_project_action = file_menu->addAction("&Quick Project...");
-    quick_project_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
+    // Avoid conflict with Quit on macOS (Command+Q maps to Ctrl in Qt shortcuts).
+    quick_project_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Q));
     connect(quick_project_action, &QAction::triggered, this, &MainWindow::onQuickProject);
     
     auto* open_project_action = file_menu->addAction("&Open Project...");
@@ -442,7 +478,7 @@ void MainWindow::setupMenus()
     auto* view_menu = menuBar()->addMenu("&View");
     
     show_preview_action_ = view_menu->addAction("Show &Preview");
-    show_preview_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_P));
+    show_preview_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
     show_preview_action_->setEnabled(false);
     connect(show_preview_action_, &QAction::triggered, this, [this]() {
         preview_dialog_->show();
@@ -1823,6 +1859,40 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
     
     // Get current parameter values from the node
     auto current_values = project_.presenter()->getNodeParameters(node_id);
+
+    std::optional<std::map<std::string, orc::ParameterValue>> reset_values;
+    if (stage_name == "video_params") {
+        auto* core_project = project_.presenter()->getCoreProjectHandle();
+        if (core_project) {
+            orc::presenters::RenderPresenter render_presenter(core_project);
+            render_presenter.setDAG(project_.getDAG());
+
+            // Reset values should come from the stage input path (pre-override),
+            // not from the video_params node output (which already includes overrides).
+            orc::NodeID metadata_source_node_id = node_id;
+            const auto edges = project_.presenter()->getEdges();
+            auto input_edge = std::find_if(edges.begin(), edges.end(),
+                [&node_id](const orc::presenters::EdgeInfo& edge) {
+                    return edge.target_node == node_id;
+                });
+
+            if (input_edge != edges.end()) {
+                metadata_source_node_id = input_edge->source_node;
+            }
+
+            ORC_LOG_DEBUG(
+                "Video params reset source resolved: target_node='{}', source_node='{}', used_upstream_input={}",
+                node_id.to_string(),
+                metadata_source_node_id.to_string(),
+                (input_edge != edges.end())
+            );
+
+            if (auto source_params = render_presenter.getVideoParameters(metadata_source_node_id)) {
+                reset_values = sourceParametersToVideoParamsStageValues(*source_params);
+                applyMetadataFallbackValues(current_values, *reset_values);
+            }
+        }
+    }
     
     // Get display name for the dialog title
     std::string display_name = stage_name;  // Fallback to stage_name
@@ -1839,7 +1909,7 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id)
 
     // Show parameter dialog
     StageParameterDialog dialog(display_name, stage_description, param_descriptors, current_values, 
-                               project_.projectPath(), this);
+                               project_.projectPath(), reset_values, this);
     
     if (dialog.exec() == QDialog::Accepted) {
         auto new_values = dialog.get_values();

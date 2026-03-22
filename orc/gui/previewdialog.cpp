@@ -101,30 +101,30 @@ void PreviewDialog::setupUI()
     menu_bar_ = new QMenuBar(this);
     auto* fileMenu = menu_bar_->addMenu("&File");
     export_png_action_ = fileMenu->addAction("&Export PNG...");
-    export_png_action_->setShortcut(QKeySequence("Ctrl+E"));
+    export_png_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E));
     connect(export_png_action_, &QAction::triggered, this, &PreviewDialog::exportPNGRequested);
     
     auto* observersMenu = menu_bar_->addMenu("&Observers");
     show_vbi_action_ = observersMenu->addAction("&VBI Decoder");
-    show_vbi_action_->setShortcut(QKeySequence("Ctrl+V"));
+    show_vbi_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_V));
     connect(show_vbi_action_, &QAction::triggered, this, &PreviewDialog::showVBIDialogRequested);
     
     show_quality_metrics_action_ = observersMenu->addAction("&Quality Metrics");
-    show_quality_metrics_action_->setShortcut(QKeySequence("Ctrl+Q"));
+    show_quality_metrics_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
     connect(show_quality_metrics_action_, &QAction::triggered, this, &PreviewDialog::showQualityMetricsDialogRequested);
     
     show_ntsc_observer_action_ = observersMenu->addAction("&NTSC Observer");
-    show_ntsc_observer_action_->setShortcut(QKeySequence("Ctrl+N"));
+    show_ntsc_observer_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
     connect(show_ntsc_observer_action_, &QAction::triggered, this, &PreviewDialog::showNtscObserverDialogRequested);
     
     auto* hintsMenu = menu_bar_->addMenu("&Hints");
     show_hints_action_ = hintsMenu->addAction("&Video Parameter Hints");
-    show_hints_action_->setShortcut(QKeySequence("Ctrl+H"));
+    show_hints_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_H));
     connect(show_hints_action_, &QAction::triggered, this, &PreviewDialog::showHintsDialogRequested);
     
     auto* viewMenu = menu_bar_->addMenu("&View");
     show_field_timing_action_ = viewMenu->addAction("&Field Timing");
-    show_field_timing_action_->setShortcut(QKeySequence("Ctrl+T"));
+    show_field_timing_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
     connect(show_field_timing_action_, &QAction::triggered, this, &PreviewDialog::fieldTimingRequested);
     
     mainLayout->setMenuBar(menu_bar_);

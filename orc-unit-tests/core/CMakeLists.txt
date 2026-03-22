@@ -53,6 +53,7 @@ orc_add_core_unit_tests(
 
         stages/chroma_sink/componentframe_test.cpp
         stages/chroma_sink/chroma_sink_stage_defaults_test.cpp
+        stages/chroma_sink/chroma_sink_stage_safety_test.cpp
         stages/chroma_sink/comb_test.cpp
         stages/chroma_sink/ffmpeg_video_sink_stage_test.cpp
         stages/chroma_sink/monodecoder_test.cpp

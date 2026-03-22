@@ -84,12 +84,6 @@ std::optional<SourceParameters> VideoParamsStage::build_video_parameters(
     }
     
     // Apply overrides for each parameter (only if set, i.e., != -1)
-    if (field_width_ >= 0) {
-        params.field_width = field_width_;
-    }
-    if (field_height_ >= 0) {
-        params.field_height = field_height_;
-    }
     if (colour_burst_start_ >= 0) {
         params.colour_burst_start = colour_burst_start_;
     }
@@ -124,34 +118,6 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
     (void)source_type;     // Unused - video params works with all source types
     
     return {
-        ParameterDescriptor{
-            "fieldWidth",
-            "Field Width",
-            "Override field width in samples. Set to -1 to use source value.",
-            ParameterType::INT32,
-            ParameterConstraints{
-                ParameterValue{int32_t(-1)},  // min: -1 (unset)
-                ParameterValue{int32_t(10000)},  // max: reasonable upper bound
-                ParameterValue{int32_t(-1)},  // default: -1 (use source)
-                {},  // no allowed strings
-                false,  // not required
-                std::nullopt  // no dependency
-            }
-        },
-        ParameterDescriptor{
-            "fieldHeight",
-            "Field Height",
-            "Override field height in lines. Set to -1 to use source value.",
-            ParameterType::INT32,
-            ParameterConstraints{
-                ParameterValue{int32_t(-1)},  // min
-                ParameterValue{int32_t(1200)},  // max
-                ParameterValue{int32_t(-1)},  // default
-                {},
-                false,
-                std::nullopt
-            }
-        },
         ParameterDescriptor{
             "colourBurstStart",
             "Colour Burst Start",
@@ -270,8 +236,6 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
 std::map<std::string, ParameterValue> VideoParamsStage::get_parameters() const
 {
     return {
-        {"fieldWidth", ParameterValue{field_width_}},
-        {"fieldHeight", ParameterValue{field_height_}},
         {"colourBurstStart", ParameterValue{colour_burst_start_}},
         {"colourBurstEnd", ParameterValue{colour_burst_end_}},
         {"activeVideoStart", ParameterValue{active_video_start_}},
@@ -286,19 +250,7 @@ std::map<std::string, ParameterValue> VideoParamsStage::get_parameters() const
 bool VideoParamsStage::set_parameters(const std::map<std::string, ParameterValue>& params)
 {
     for (const auto& [key, value] : params) {
-        if (key == "fieldWidth") {
-            if (auto* val = std::get_if<int32_t>(&value)) {
-                field_width_ = *val;
-            } else {
-                return false;
-            }
-        } else if (key == "fieldHeight") {
-            if (auto* val = std::get_if<int32_t>(&value)) {
-                field_height_ = *val;
-            } else {
-                return false;
-            }
-        } else if (key == "colourBurstStart") {
+        if (key == "colourBurstStart") {
             if (auto* val = std::get_if<int32_t>(&value)) {
                 colour_burst_start_ = *val;
             } else {

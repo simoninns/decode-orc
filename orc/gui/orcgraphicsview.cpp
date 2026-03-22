@@ -38,6 +38,7 @@ OrcGraphicsView::OrcGraphicsView(QWidget* parent)
     // Find and disconnect the default delete action
     for (QAction* action : actions()) {
         if (action->shortcut() == QKeySequence::Delete) {
+            action->setShortcuts({QKeySequence::Delete, QKeySequence(Qt::Key_Backspace)});
             // Disconnect all connections from this action
             disconnect(action, nullptr, nullptr, nullptr);
             // Connect to our custom handler

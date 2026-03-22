@@ -115,4 +115,26 @@ namespace orc_unit_test
         EXPECT_GT(decoder_3d.getLookBehind(), 0);
         EXPECT_GT(decoder_3d.getLookAhead(), 0);
     }
+
+    TEST(NtscDecoderWrapperTest, configureRejectsInvalidGeometry)
+    {
+        Comb::Configuration config;
+        TestableNtscDecoder decoder(config);
+
+        auto params = make_ntsc_params();
+        params.field_width = 8;
+
+        EXPECT_FALSE(decoder.configure(params));
+    }
+
+    TEST(PalDecoderWrapperTest, configureRejectsInvalidGeometry)
+    {
+        PalColour::Configuration config;
+        TestablePalDecoder decoder(config);
+
+        auto params = make_pal_params();
+        params.field_width = 8;
+
+        EXPECT_FALSE(decoder.configure(params));
+    }
 }

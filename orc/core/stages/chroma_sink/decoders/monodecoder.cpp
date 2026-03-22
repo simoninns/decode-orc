@@ -16,6 +16,7 @@
 
 #include "deemp.h"
 #include "firfilter.h"
+#include "../video_parameter_safety.h"
 
 MonoDecoder::MonoDecoder()
 {	
@@ -24,6 +25,24 @@ MonoDecoder::MonoDecoder()
 MonoDecoder::MonoDecoder(const MonoDecoder::MonoConfiguration &config)
 {
     monoConfig = config;
+    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+        monoConfig.videoParameters,
+        ::orc::chroma_sink::DecoderVideoProfile::Mono);
+
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("MonoDecoder::MonoDecoder(): Adjusted unsafe video parameters: {}",
+                     ::orc::chroma_sink::join_issues(safety.warnings));
+    }
+
+    if (!safety.ok) {
+        ORC_LOG_ERROR("MonoDecoder::MonoDecoder(): Invalid video parameters: {}",
+                      ::orc::chroma_sink::join_issues(safety.errors));
+        configurationValid_ = false;
+        return;
+    }
+
+    monoConfig.videoParameters = safety.params;
+    configurationValid_ = true;
     
     // Initialize comb filter if filterChroma is enabled
     if (monoConfig.filterChroma) {
@@ -44,7 +63,25 @@ bool MonoDecoder::updateConfiguration(const ::orc::SourceParameters &videoParame
     // This decoder works for both PAL and NTSC.
 	monoConfig.yNRLevel = configuration.yNRLevel;
 	monoConfig.filterChroma = configuration.filterChroma;
-    monoConfig.videoParameters = videoParameters;
+    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+        videoParameters,
+        ::orc::chroma_sink::DecoderVideoProfile::Mono);
+
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("MonoDecoder::updateConfiguration(): Adjusted unsafe video parameters: {}",
+                     ::orc::chroma_sink::join_issues(safety.warnings));
+    }
+
+    if (!safety.ok) {
+        ORC_LOG_ERROR("MonoDecoder::updateConfiguration(): Invalid video parameters: {}",
+                      ::orc::chroma_sink::join_issues(safety.errors));
+        configurationValid_ = false;
+        combFilter.reset();
+        return false;
+    }
+
+    monoConfig.videoParameters = safety.params;
+    configurationValid_ = true;
 
     // Create comb filter if needed
     if (monoConfig.filterChroma && !combFilter) {
@@ -65,8 +102,24 @@ bool MonoDecoder::updateConfiguration(const ::orc::SourceParameters &videoParame
 
 bool MonoDecoder::configure(const ::orc::SourceParameters &videoParameters) {
     // This decoder works for both PAL and NTSC.
+    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+        videoParameters,
+        ::orc::chroma_sink::DecoderVideoProfile::Mono);
 
-    monoConfig.videoParameters = videoParameters;
+    if (!safety.warnings.empty()) {
+        ORC_LOG_WARN("MonoDecoder::configure(): Adjusted unsafe video parameters: {}",
+                     ::orc::chroma_sink::join_issues(safety.warnings));
+    }
+
+    if (!safety.ok) {
+        ORC_LOG_ERROR("MonoDecoder::configure(): Invalid video parameters: {}",
+                      ::orc::chroma_sink::join_issues(safety.errors));
+        configurationValid_ = false;
+        return false;
+    }
+
+    monoConfig.videoParameters = safety.params;
+    configurationValid_ = true;
 
     return true;
 }
@@ -76,6 +129,11 @@ void MonoDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
                                int32_t endIndex,
                                std::vector<ComponentFrame>& componentFrames)
 {
+    if (!configurationValid_) {
+        ORC_LOG_ERROR("MonoDecoder::decodeFrames(): Decoder configuration is invalid");
+        return;
+    }
+
 	const ::orc::SourceParameters &videoParameters = monoConfig.videoParameters;
 	
 	if (monoConfig.filterChroma && combFilter) {

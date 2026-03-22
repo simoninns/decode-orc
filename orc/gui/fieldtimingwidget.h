@@ -89,6 +89,11 @@ public:
      * @param zoom_factor Multiplier for pixels per sample (1.0 = all samples fit, >1.0 = zoom in, <1.0 = zoom out)
      */
     void setZoomFactor(double zoom_factor);
+
+    /**
+     * @brief Enable/disable draft rendering mode for interactive zoom.
+     */
+    void setDraftRenderMode(bool enabled);
     
     /**
      * @brief Get the base pixels per sample needed to fit all samples horizontally at 100% zoom
@@ -140,6 +145,7 @@ private:
     static constexpr int SAMPLES_PER_VIEW = 2000;  // Number of samples visible at once
     static constexpr double PIXELS_PER_SAMPLE = 0.5;  // Base zoom level
     double zoom_factor_;  // Current zoom multiplier (1.0 = default)
+    bool draft_render_mode_{false};
     
     // Mouse dragging state
     bool is_dragging_;

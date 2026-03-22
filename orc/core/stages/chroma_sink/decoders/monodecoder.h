@@ -47,6 +47,7 @@ public:
 private:
     MonoConfiguration monoConfig;
     std::unique_ptr<Comb> combFilter;  // Used when filterChroma is true
+	bool configurationValid_ = false;
 };
 
 #endif // MONODECODER

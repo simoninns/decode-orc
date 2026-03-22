@@ -153,4 +153,25 @@ namespace orc_unit_test
         EXPECT_NEAR(v0[16], -0.3712, 1e-5);
         EXPECT_NEAR(v0[24], -0.372185, 1e-5);
     }
+
+    TEST(PalColourTest, invalidConfiguration_doesNotAttemptDecode)
+    {
+        auto params = make_pal_video_params();
+        params.field_width = 8;
+
+        PalColour::Configuration config;
+        config.chromaFilter = PalColour::palColourFilter;
+
+        PalColour decoder;
+        std::vector<SourceField> fields(2);
+        std::vector<ComponentFrame> output(1);
+
+        EXPECT_NO_FATAL_FAILURE({
+            decoder.updateConfiguration(params, config);
+            decoder.decodeFrames(fields, 0, 2, output);
+        });
+
+        EXPECT_EQ(output[0].getWidth(), -1);
+        EXPECT_EQ(output[0].getHeight(), -1);
+    }
 }

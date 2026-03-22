@@ -30,7 +30,11 @@ The Decode-Orc project provides ready-to-install packages for Mac OS (DMG).
 
 The release packages can be found in the [release section](https://github.com/simoninns/decode-orc/releases) of the Github repository.
 
-For instructions on how to install please see the [release installtion](https://simoninns.github.io/decode-orc-docs/release-installation.html) instructions.
+For instructions on how to install please see the documentation for your preferred platform:
+
+- [Linux Flatpak installation](https://simoninns.github.io/decode-orc-docs/decode-orc/installation/linux-flatpak/)
+- [MacOS DMG installation](https://simoninns.github.io/decode-orc-docs/decode-orc/installation/macos-dmg/)
+- [Windows MSI installation](https://simoninns.github.io/decode-orc-docs/decode-orc/installation/windows-msi/)
 
 ## Building from Source
 

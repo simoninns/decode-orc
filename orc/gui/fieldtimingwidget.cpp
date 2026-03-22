@@ -257,6 +257,15 @@ void FieldTimingWidget::setZoomFactor(double zoom_factor)
     update();
 }
 
+void FieldTimingWidget::setDraftRenderMode(bool enabled)
+{
+    if (draft_render_mode_ == enabled) {
+        return;
+    }
+    draft_render_mode_ = enabled;
+    update();
+}
+
 double FieldTimingWidget::getBasePixelsPerSample() const
 {
     // Calculate pixels per sample needed to fit ALL samples horizontally at zoom_factor = 1.0
@@ -552,17 +561,15 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
             int start_sample = scroll_offset_;
             int end_sample = std::min(start_sample + samples_per_view, static_cast<int>(total_samples));
             
-            // Calculate how many lines are visible
-            int lines_visible = samples_per_view / vp.field_width;
-            if (lines_visible == 0) lines_visible = 1;
-            
-            // Determine marker spacing based on zoom level
-            int marker_interval = 1;  // Default: show every line
-            if (lines_visible > 100) {
-                // Show every 50th line
-                marker_interval = 50;
+            // Adapt marker density to current zoom level so marker drawing cost scales
+            // smoothly instead of jumping at an arbitrary visible-line threshold.
+            double pixels_per_line = vp.field_width * effective_pixels_per_sample;
+            int marker_interval = 1;
+            int label_interval = 1;
+            if (pixels_per_line > 0.0) {
+                marker_interval = std::max(1, static_cast<int>(std::ceil(30.0 / pixels_per_line)));
+                label_interval = std::max(marker_interval, static_cast<int>(std::ceil(70.0 / pixels_per_line)));
             }
-            // For 100 or fewer lines, show every line (marker_interval = 1)
             
             QFont line_num_font = painter.font();
             line_num_font.setPointSize(8);
@@ -572,19 +579,21 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
             for (int line = 0; line * vp.field_width < end_sample; ++line) {
                 int sample_pos = line * vp.field_width;
                 if (sample_pos >= start_sample && sample_pos <= end_sample) {
-                    // Only draw markers at the specified interval
-                    if (line % marker_interval == 0 || marker_interval == 1) {
+                    // Only draw markers at the specified interval.
+                    if (line % marker_interval == 0) {
                         int x = graph_area.left() + static_cast<int>((sample_pos - start_sample) * effective_pixels_per_sample);
                         
                         // Draw vertical line in yellow
                         painter.setPen(QPen(marker_yellow, 1, Qt::DotLine));
                         painter.drawLine(x, graph_area.top(), x, graph_area.bottom());
                         
-                        // Draw line number on x-axis below the graph
-                        painter.setPen(axis_color);
-                        QString line_label = QString::number(line + 1);
-                        QRect text_rect(x - 15, graph_area.bottom() + 5, 30, 12);
-                        painter.drawText(text_rect, Qt::AlignCenter, line_label);
+                        // Draw line number labels less frequently than marker lines.
+                        if (line % label_interval == 0) {
+                            painter.setPen(axis_color);
+                            QString line_label = QString::number(line + 1);
+                            QRect text_rect(x - 15, graph_area.bottom() + 5, 30, 12);
+                            painter.drawText(text_rect, Qt::AlignCenter, line_label);
+                        }
                     }
                 }
             }
@@ -676,51 +685,126 @@ void FieldTimingWidget::drawSamples(QPainter& painter, const QRect& graph_area,
     double min_mv, max_mv;
     getMVRange(min_mv, max_mv);
     
-    // Calculate how many field lines are visible
     int lines_visible = 0;
     if (video_params_.has_value() && video_params_->field_width > 0) {
-        lines_visible = samples_per_view / video_params_->field_width;
+        lines_visible = std::max(1, samples_per_view / video_params_->field_width);
     }
-    
-    // Use min/max per pixel optimization only when:
-    // 1. Zoomed out (multiple samples per pixel)
-    // 2. Displaying 100 or more field lines
-    if (effective_pixels_per_sample < 1.0 && lines_visible >= 100) {
+
+    if (draft_render_mode_) {
+        // During active zoom interaction, render a lighter-weight but still detailed preview.
+        constexpr int kDraftBucketPixels = 3;
+        int bucket_samples = std::max(1, static_cast<int>(std::ceil((1.0 / effective_pixels_per_sample) * kDraftBucketPixels)));
+        bucket_samples = std::min(bucket_samples, 64);
+        if (lines_visible > 0 && lines_visible <= 8) {
+            // Preserve more structure when zoomed into just a few lines.
+            bucket_samples = std::min(bucket_samples, 4);
+        }
+
+        QPainterPath path;
+        bool first_point = true;
+
+        for (int bucket_start = start_sample; bucket_start < end_sample; bucket_start += bucket_samples) {
+            int bucket_end = std::min(bucket_start + bucket_samples, end_sample);
+            if (bucket_start >= bucket_end) {
+                continue;
+            }
+
+            uint64_t sum = 0;
+            uint16_t min_sample = samples[bucket_start];
+            uint16_t max_sample = samples[bucket_start];
+            for (int i = bucket_start; i < bucket_end; ++i) {
+                sum += samples[i];
+                min_sample = std::min(min_sample, samples[i]);
+                max_sample = std::max(max_sample, samples[i]);
+            }
+            uint16_t avg_sample = static_cast<uint16_t>(sum / static_cast<uint64_t>(bucket_end - bucket_start));
+
+            int center_index = bucket_start + ((bucket_end - bucket_start) / 2);
+            int x = graph_area.left() + static_cast<int>((center_index - start_sample) * effective_pixels_per_sample);
+
+            double mv_value = convertSampleToMV(avg_sample);
+            double normalized = (mv_value - min_mv) / (max_mv - min_mv);
+            int y = graph_area.bottom() - static_cast<int>(normalized * graph_area.height()) + y_offset;
+
+            // Preserve peaks/troughs that a pure average would hide.
+            double min_mv_value = convertSampleToMV(min_sample);
+            double max_mv_value = convertSampleToMV(max_sample);
+            double min_normalized = (min_mv_value - min_mv) / (max_mv - min_mv);
+            double max_normalized = (max_mv_value - min_mv) / (max_mv - min_mv);
+            int y_top = graph_area.bottom() - static_cast<int>(max_normalized * graph_area.height()) + y_offset;
+            int y_bottom = graph_area.bottom() - static_cast<int>(min_normalized * graph_area.height()) + y_offset;
+            painter.drawLine(x, y_top, x, y_bottom);
+
+            if (first_point) {
+                path.moveTo(x, y);
+                first_point = false;
+            } else {
+                path.lineTo(x, y);
+            }
+        }
+
+        painter.drawPath(path);
+        return;
+    }
+
+    // Use min/max per pixel optimization when zoomed out enough that detail loss is acceptable.
+    // At low visible line counts, prefer the full path to preserve waveform detail.
+    constexpr int kAggregationLineThreshold = 12;
+    if (effective_pixels_per_sample < 1.0 && (lines_visible <= 0 || lines_visible > kAggregationLineThreshold)) {
         // Multiple samples map to each pixel - draw vertical line from min to max
         double samples_per_pixel = 1.0 / effective_pixels_per_sample;
+        QPainterPath center_path;
+        bool first_center_point = true;
         
         for (int px = 0; px < visible_width; ++px) {
             int x = graph_area.left() + px;
             
-            // Calculate sample range for this pixel column
-            int bucket_start = start_sample + static_cast<int>(px * samples_per_pixel);
-            int bucket_end = std::min(start_sample + static_cast<int>((px + 1) * samples_per_pixel), 
-                                     static_cast<int>(samples.size()));
+            // Calculate sample range for this pixel column. Use floor and enforce at
+            // least one sample per bucket to avoid rendering gaps from rounding.
+            int bucket_start = start_sample + static_cast<int>(std::floor(px * samples_per_pixel));
+            int bucket_end = start_sample + static_cast<int>(std::floor((px + 1) * samples_per_pixel));
+            bucket_end = std::max(bucket_end, bucket_start + 1);
+            bucket_end = std::min(bucket_end, static_cast<int>(samples.size()));
             
             if (bucket_start >= bucket_end || bucket_start >= static_cast<int>(samples.size())) continue;
             
             // Find min and max sample values in this pixel column
             uint16_t min_sample = samples[bucket_start];
             uint16_t max_sample = samples[bucket_start];
+            uint64_t sum_samples = 0;
             
             for (int i = bucket_start; i < bucket_end; ++i) {
                 min_sample = std::min(min_sample, samples[i]);
                 max_sample = std::max(max_sample, samples[i]);
+                sum_samples += samples[i];
             }
+            uint16_t avg_sample = static_cast<uint16_t>(sum_samples / static_cast<uint64_t>(bucket_end - bucket_start));
             
             // Convert to Y coordinates
             double min_mv_value = convertSampleToMV(min_sample);
             double max_mv_value = convertSampleToMV(max_sample);
+            double avg_mv_value = convertSampleToMV(avg_sample);
             
             double min_normalized = (min_mv_value - min_mv) / (max_mv - min_mv);
             double max_normalized = (max_mv_value - min_mv) / (max_mv - min_mv);
+            double avg_normalized = (avg_mv_value - min_mv) / (max_mv - min_mv);
             
             int y_top = graph_area.bottom() - static_cast<int>(max_normalized * graph_area.height()) + y_offset;
             int y_bottom = graph_area.bottom() - static_cast<int>(min_normalized * graph_area.height()) + y_offset;
+            int y_center = graph_area.bottom() - static_cast<int>(avg_normalized * graph_area.height()) + y_offset;
             
             // Draw vertical line from min to max (preserves peaks and troughs)
             painter.drawLine(x, y_top, x, y_bottom);
+
+            if (first_center_point) {
+                center_path.moveTo(x, y_center);
+                first_center_point = false;
+            } else {
+                center_path.lineTo(x, y_center);
+            }
         }
+
+        painter.drawPath(center_path);
     } else {
         // Draw all individual samples as connected lines
         QPainterPath path;

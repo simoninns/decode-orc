@@ -160,4 +160,25 @@ namespace orc_unit_test
         EXPECT_TRUE(std::isfinite(u0[16]));
         EXPECT_TRUE(std::isfinite(v0[16]));
     }
+
+    TEST(CombTest, invalidConfiguration_doesNotAttemptDecode)
+    {
+        auto params = make_ntsc_video_params();
+        params.field_width = 8;
+
+        Comb::Configuration config;
+        config.dimensions = 2;
+
+        Comb decoder;
+        std::vector<SourceField> fields(2);
+        std::vector<ComponentFrame> output(1);
+
+        EXPECT_NO_FATAL_FAILURE({
+            decoder.updateConfiguration(params, config);
+            decoder.decodeFrames(fields, 0, 2, output);
+        });
+
+        EXPECT_EQ(output[0].getWidth(), -1);
+        EXPECT_EQ(output[0].getHeight(), -1);
+    }
 }

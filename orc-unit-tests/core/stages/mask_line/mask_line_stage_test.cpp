@@ -119,4 +119,39 @@ namespace orc_unit_test
         ASSERT_NE(result, nullptr);
         EXPECT_NE(result.get(), source.get());
     }
+
+    TEST(MaskLineStageTest, maskedRepresentation_handlesManyFieldIds)
+    {
+        orc::MaskLineStage stage;
+        auto source = std::make_shared<MockVideoFieldRepresentation>();
+
+        static const std::vector<orc::VideoFieldRepresentation::sample_type> source_line(8, 1234);
+        const orc::FieldDescriptor descriptor{
+            orc::FieldID(0),
+            orc::FieldParity::Top,
+            orc::VideoFormat::NTSC,
+            8,
+            262,
+            std::nullopt,
+            std::nullopt
+        };
+
+        EXPECT_CALL(*source, get_line(testing::_, 0))
+            .Times(1000)
+            .WillRepeatedly(testing::Return(source_line.data()));
+        EXPECT_CALL(*source, get_descriptor(testing::_))
+            .Times(1000)
+            .WillRepeatedly(testing::Return(descriptor));
+
+        ASSERT_TRUE(stage.set_parameters({{"lineSpec", std::string("A:0")}, {"maskIRE", 0.0}}));
+        const auto masked = stage.process(source);
+
+        ASSERT_NE(masked, nullptr);
+        for (uint64_t i = 0; i < 1000; ++i) {
+            const auto* line = masked->get_line(orc::FieldID(i), 0);
+            ASSERT_NE(line, nullptr);
+            EXPECT_EQ(line[0], 0);
+            EXPECT_EQ(line[7], 0);
+        }
+    }
 } // namespace orc_unit_test

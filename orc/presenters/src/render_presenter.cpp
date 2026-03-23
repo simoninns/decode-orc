@@ -13,6 +13,7 @@
 #include "../core/include/project.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/include/preview_renderer.h"
+#include "../core/include/preview_view_registry.h"
 #include "../core/include/dag_field_renderer.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/vbi_decoder.h"
@@ -51,6 +52,7 @@ public:
     orc::Project* project_;
     std::shared_ptr<void> dag_void_;  // Opaque DAG handle
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
+    orc::PreviewViewRegistry preview_view_registry_;
     std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
     std::shared_ptr<orc::ObservationCache> obs_cache_;
@@ -67,6 +69,7 @@ public:
             field_renderer_.reset();
             vbi_decoder_.reset();
             obs_cache_.reset();
+            preview_view_registry_ = orc::PreviewViewRegistry{};
             return;
         }
         
@@ -81,6 +84,12 @@ public:
         preview_renderer_ = std::make_unique<orc::PreviewRenderer>(dag);
         field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(dag);
         vbi_decoder_ = std::make_unique<orc::VBIDecoder>();
+
+        preview_view_registry_ = orc::PreviewViewRegistry{};
+        orc::PreviewViewRegistry::register_default_views(
+            preview_view_registry_,
+            dag,
+            preview_renderer_.get());
         
         // Restore dropout state
         if (preview_renderer_) {
@@ -228,6 +237,46 @@ bool RenderPresenter::savePNG(
     } catch (const std::exception&) {
         return false;
     }
+}
+
+std::vector<orc::PreviewViewDescriptor> RenderPresenter::getAvailablePreviewViews(
+    NodeID node_id,
+    orc::VideoDataType data_type)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {};
+    }
+
+    return impl_->preview_view_registry_.get_applicable_views(*dag, node_id, data_type);
+}
+
+orc::PreviewViewDataResult RenderPresenter::requestPreviewViewData(
+    NodeID node_id,
+    const std::string& view_id,
+    orc::VideoDataType data_type,
+    const orc::PreviewCoordinate& coordinate)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {false, "DAG not initialized", orc::PreviewViewPayloadKind::None, std::nullopt, std::nullopt};
+    }
+
+    return impl_->preview_view_registry_.request_data(
+        *dag,
+        node_id,
+        view_id,
+        data_type,
+        coordinate);
+}
+
+orc::PreviewViewExportResult RenderPresenter::exportPreviewViewData(
+    NodeID node_id,
+    const std::string& view_id,
+    const std::string& format,
+    const std::string& path)
+{
+    return impl_->preview_view_registry_.export_as(node_id, view_id, format, path);
 }
 
 std::optional<VBIFieldInfoView> RenderPresenter::getVBIData(NodeID node_id, FieldID field_id)

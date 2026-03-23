@@ -18,6 +18,7 @@
 #include <node_id.h>
 #include <field_id.h>
 #include <orc_rendering.h>  // Public API rendering types
+#include <orc_preview_views.h>
 #include <orc_source_parameters.h>  // Public API SourceParameters
 #include <common_types.h>   // PreviewOutputType
 #include "vbi_view_models.h"  // VBIFieldInfoView
@@ -196,6 +197,34 @@ public:
         uint64_t output_index,
         const std::string& filename,
         const std::string& option_id = ""
+    );
+
+    /**
+     * @brief Get registry-driven preview views applicable to a node/data type.
+     */
+    std::vector<orc::PreviewViewDescriptor> getAvailablePreviewViews(
+        NodeID node_id,
+        orc::VideoDataType data_type
+    );
+
+    /**
+     * @brief Request preview-view data via the Phase 3 registry contract.
+     */
+    orc::PreviewViewDataResult requestPreviewViewData(
+        NodeID node_id,
+        const std::string& view_id,
+        orc::VideoDataType data_type,
+        const orc::PreviewCoordinate& coordinate
+    );
+
+    /**
+     * @brief Export the most recently requested data for a preview view.
+     */
+    orc::PreviewViewExportResult exportPreviewViewData(
+        NodeID node_id,
+        const std::string& view_id,
+        const std::string& format,
+        const std::string& path
     );
     
     // === VBI Data Extraction ===

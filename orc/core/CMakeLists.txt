@@ -29,6 +29,7 @@ add_library(orc-core STATIC
     dag_executor.cpp
     dag_field_renderer.cpp
     preview_renderer.cpp
+    preview_view_registry.cpp
     preview_helpers.cpp
     colour_preview_conversion.cpp
     

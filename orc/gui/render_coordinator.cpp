@@ -179,11 +179,13 @@ uint64_t RenderCoordinator::requestSavePNG(const orc::NodeID& node_id,
                                           orc::PreviewOutputType output_type,
                                           uint64_t output_index,
                                           const std::string& filename,
-                                          const std::string& option_id)
+                                          const std::string& option_id,
+                                          double aspect_correction)
 {
     uint64_t id = nextRequestId();
     auto req = std::make_unique<SavePNGRequest>(id, node_id, output_type, 
-                                                 output_index, filename, option_id);
+                                                 output_index, filename, option_id,
+                                                 aspect_correction);
     enqueueRequest(std::move(req));
     return id;
 }
@@ -843,7 +845,8 @@ void RenderCoordinator::handleSavePNG(const SavePNGRequest& req)
             req.output_type,
             req.output_index,
             req.filename,
-            req.option_id
+            req.option_id,
+            req.aspect_correction
         );
         
         if (success) {

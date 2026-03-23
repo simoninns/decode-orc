@@ -172,16 +172,18 @@ struct SavePNGRequest : public RenderRequest {
     uint64_t output_index;
     std::string filename;
     std::string option_id;
+    double aspect_correction;
     
     SavePNGRequest(uint64_t id, orc::NodeID node, 
                    orc::PreviewOutputType type, uint64_t index,
-                   std::string file, std::string opt_id = "")
+                   std::string file, std::string opt_id = "", double correction = 1.0)
         : RenderRequest(RenderRequestType::SavePNG, id)
         , node_id(std::move(node))
         , output_type(type)
         , output_index(index)
         , filename(std::move(file))
-        , option_id(std::move(opt_id)) {}
+        , option_id(std::move(opt_id))
+        , aspect_correction(correction) {}
 };
 
 /**
@@ -631,7 +633,8 @@ public:
                            orc::PreviewOutputType output_type,
                            uint64_t output_index,
                            const std::string& filename,
-                           const std::string& option_id = "");
+                           const std::string& option_id = "",
+                           double aspect_correction = 1.0);
 
     /**
      * @brief Trigger a stage for batch processing (async)

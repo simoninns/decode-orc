@@ -2603,6 +2603,32 @@ void MainWindow::onPreviewDialogExportPNG()
     setLastExportDirectory(QFileInfo(filename).absolutePath());
     
     int current_index = preview_dialog_->previewSlider()->value();
+
+    // Match export output selection to the currently displayed preview signal
+    // for YC sources (Y+C / Y / C).
+    std::string effective_option_id = current_option_id_;
+    if (preview_dialog_->signalCombo()->isVisible()) {
+        int signal_index = preview_dialog_->signalCombo()->currentIndex();
+        std::string suffix;
+        switch (signal_index) {
+            case 0: suffix = "_yc"; break;  // Y+C composite
+            case 1: suffix = "_y"; break;   // Luma only
+            case 2: suffix = "_c"; break;   // Chroma only
+            default: suffix = "_yc"; break;
+        }
+        effective_option_id = current_option_id_ + suffix;
+    }
+
+    // Export should honor the currently selected aspect ratio mode.
+    double aspect_correction = 1.0;
+    if (current_aspect_ratio_mode_ == orc::AspectRatioMode::DAR_4_3) {
+        for (const auto& output : available_outputs_) {
+            if (output.type == current_output_type_ && output.option_id == current_option_id_) {
+                aspect_correction = output.dar_aspect_correction;
+                break;
+            }
+        }
+    }
     
     // Request PNG save via coordinator (delegates to core)
     ORC_LOG_INFO("Requesting PNG export to: {}", filename.toStdString());
@@ -2612,7 +2638,8 @@ void MainWindow::onPreviewDialogExportPNG()
         current_output_type_,
         current_index,
         filename.toStdString(),
-        current_option_id_
+        effective_option_id,
+        aspect_correction
     );
     
     statusBar()->showMessage(QString("Exporting preview to %1...").arg(filename), 2000);

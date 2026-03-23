@@ -224,7 +224,8 @@ bool RenderPresenter::savePNG(
     orc::PreviewOutputType output_type,
     uint64_t output_index,
     const std::string& filename,
-    const std::string& option_id)
+    const std::string& option_id,
+    double aspect_correction)
 {
     if (!impl_->preview_renderer_) {
         return false;
@@ -232,7 +233,7 @@ bool RenderPresenter::savePNG(
     
     try {
         return impl_->preview_renderer_->save_png(
-            node_id, output_type, output_index, filename, option_id
+            node_id, output_type, output_index, filename, option_id, aspect_correction
         );
     } catch (const std::exception&) {
         return false;

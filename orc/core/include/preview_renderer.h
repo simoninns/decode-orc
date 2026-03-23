@@ -369,7 +369,8 @@ public:
         PreviewOutputType type,
         uint64_t index,
         const std::string& filename,
-        const std::string& option_id = ""
+        const std::string& option_id = "",
+        double aspect_correction = 1.0
     );
     
     /**

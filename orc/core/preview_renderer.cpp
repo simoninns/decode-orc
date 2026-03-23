@@ -14,6 +14,7 @@
 #include "dag_executor.h"
 #include "logging.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <png.h>
 
@@ -178,6 +179,53 @@ static PreviewImage create_placeholder_image(PreviewOutputType type, const char*
     }
     
     return placeholder;
+}
+
+static PreviewImage scale_image_horizontal_for_export(const PreviewImage& image, double correction)
+{
+    if (!image.is_valid()) {
+        return image;
+    }
+
+    if (correction <= 0.0 || std::abs(correction - 1.0) < 1e-6) {
+        return image;
+    }
+
+    const uint32_t src_width = image.width;
+    const uint32_t src_height = image.height;
+    const uint32_t dst_width = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(src_width * correction)));
+
+    if (dst_width == src_width) {
+        return image;
+    }
+
+    PreviewImage scaled;
+    scaled.width = dst_width;
+    scaled.height = src_height;
+    scaled.rgb_data.resize(static_cast<size_t>(dst_width) * src_height * 3);
+    scaled.vectorscope_data = image.vectorscope_data;
+
+    for (uint32_t y = 0; y < src_height; ++y) {
+        for (uint32_t x = 0; x < dst_width; ++x) {
+            uint32_t src_x = static_cast<uint32_t>(std::floor(static_cast<double>(x) / correction));
+            src_x = std::min(src_x, src_width - 1);
+
+            const size_t src_offset = (static_cast<size_t>(y) * src_width + src_x) * 3;
+            const size_t dst_offset = (static_cast<size_t>(y) * dst_width + x) * 3;
+
+            scaled.rgb_data[dst_offset + 0] = image.rgb_data[src_offset + 0];
+            scaled.rgb_data[dst_offset + 1] = image.rgb_data[src_offset + 1];
+            scaled.rgb_data[dst_offset + 2] = image.rgb_data[src_offset + 2];
+        }
+    }
+
+    scaled.dropout_regions = image.dropout_regions;
+    for (auto& region : scaled.dropout_regions) {
+        region.start_sample = std::min<uint32_t>(dst_width, static_cast<uint32_t>(std::lround(region.start_sample * correction)));
+        region.end_sample = std::min<uint32_t>(dst_width, static_cast<uint32_t>(std::lround(region.end_sample * correction)));
+    }
+
+    return scaled;
 }
 
 PreviewRenderer::PreviewRenderer(std::shared_ptr<const DAG> dag)
@@ -1070,9 +1118,10 @@ bool PreviewRenderer::save_png(
     PreviewOutputType type,
     uint64_t index,
     const std::string& filename,
-    const std::string& option_id)
+    const std::string& option_id,
+    double aspect_correction)
 {
-    // Render the output (includes aspect ratio scaling from render_output)
+    // Render output at sample aspect ratio; optional export correction is applied below.
     auto result = render_output(node_id, type, index, option_id);
     
     if (!result.success || !result.image.is_valid()) {
@@ -1080,8 +1129,8 @@ bool PreviewRenderer::save_png(
         return false;
     }
     
-    // Save to PNG (image is already scaled by render_output)
-    return save_png(result.image, filename);
+    const PreviewImage export_image = scale_image_horizontal_for_export(result.image, aspect_correction);
+    return save_png(export_image, filename);
 }
 
 bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& filename) {

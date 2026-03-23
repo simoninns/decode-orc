@@ -18,11 +18,15 @@
 #include <QTimer>
 #include <memory>
 #include <future>
+#include <map>
+#include <string>
 #include <node_id.h>
 #include "guiproject.h"
 #include <orc_rendering.h>  // Public API rendering types
 #include <orc_analysis.h>   // For AnalysisToolInfo
 #include <orc_preview_types.h>
+#include <orc_preview_views.h>  // For LiveTweakClass, LiveTweakableParameterView
+#include <parameter_types.h>    // For ParameterValue, ParameterDescriptor
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
@@ -197,6 +201,17 @@ private:
     void refreshPreviewViewAvailability();
     orc::PreviewCoordinate buildCurrentPreviewCoordinate() const;
     void refreshVectorscopeForCurrentCoordinate();
+
+    // Live preview tweak panel (Phase 6)
+    void refreshTweakPanel();
+    void onTweakParameterChanged(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params,
+        orc::LiveTweakClass tweak_class);
+    void onResetLiveTweaksRequested(orc::NodeID node_id);
+    void onWriteLiveTweaksRequested(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params);
     
     // Settings helpers
     QString getLastProjectDirectory() const;

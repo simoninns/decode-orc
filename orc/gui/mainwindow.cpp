@@ -392,6 +392,12 @@ void MainWindow::setupUI()
             this, &MainWindow::onFieldTimingRequested);
     connect(preview_dialog_, &PreviewDialog::vectorscopeRequested,
             this, &MainWindow::onPreviewVectorscopeRequested);
+        connect(preview_dialog_, &PreviewDialog::tweakParameterChanged,
+            this, &MainWindow::onTweakParameterChanged);
+        connect(preview_dialog_, &PreviewDialog::resetLiveTweaksRequested,
+            this, &MainWindow::onResetLiveTweaksRequested);
+        connect(preview_dialog_, &PreviewDialog::writeLiveTweaksRequested,
+            this, &MainWindow::onWriteLiveTweaksRequested);
     
     // Connect preview frame changed signal to line scope
     // When frame changes, line scope should refresh samples at its current field/line
@@ -2345,6 +2351,108 @@ void MainWindow::onPreviewVectorscopeRequested(const orc::PreviewCoordinate& coo
     refreshVectorscopeForCurrentCoordinate();
 }
 
+void MainWindow::refreshTweakPanel()
+{
+    if (!preview_dialog_ || !render_coordinator_ || !current_view_node_id_.is_valid()) {
+        if (preview_dialog_) {
+            preview_dialog_->setTweakableParameters(orc::NodeID{}, {}, {}, {});
+        }
+        return;
+    }
+
+    const auto tweakable = render_coordinator_->getStageTweakableParameters(current_view_node_id_);
+    if (tweakable.empty()) {
+        preview_dialog_->setTweakableParameters(current_view_node_id_, {}, {}, {});
+        return;
+    }
+
+    const auto nodes = project_.presenter()->getNodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(), [this](const orc::presenters::NodeInfo& node) {
+        return node.node_id == current_view_node_id_;
+    });
+
+    if (node_it == nodes.end()) {
+        preview_dialog_->setTweakableParameters(current_view_node_id_, {}, {}, {});
+        return;
+    }
+
+    const auto descriptors = project_.presenter()->getStageParameters(node_it->stage_name);
+    const auto current_values = project_.presenter()->getNodeParameters(current_view_node_id_);
+    preview_dialog_->setTweakableParameters(current_view_node_id_, tweakable, descriptors, current_values);
+}
+
+void MainWindow::onTweakParameterChanged(
+    orc::NodeID node_id,
+    std::map<std::string, orc::ParameterValue> params,
+    orc::LiveTweakClass tweak_class)
+{
+    if (!render_coordinator_ || !node_id.is_valid() || node_id != current_view_node_id_) {
+        return;
+    }
+
+    ORC_LOG_DEBUG("MainWindow: applying {} tweak parameters for node '{}' (class={})",
+                  params.size(), node_id.to_string(), static_cast<int>(tweak_class));
+
+    const uint64_t output_index = static_cast<uint64_t>(preview_dialog_ ? preview_dialog_->currentIndex() : 0);
+    pending_render_index_ = static_cast<int>(output_index);
+    preview_render_in_flight_ = true;
+
+    pending_preview_request_id_ = render_coordinator_->requestApplyStageParameters(
+        node_id,
+        current_output_type_,
+        output_index,
+        current_option_id_,
+        std::move(params));
+}
+
+void MainWindow::onResetLiveTweaksRequested(orc::NodeID node_id)
+{
+    if (!node_id.is_valid() || node_id != current_view_node_id_) {
+        return;
+    }
+
+    try {
+        auto persisted_params = project_.presenter()->getNodeParameters(node_id);
+        onTweakParameterChanged(node_id, std::move(persisted_params), orc::LiveTweakClass::DecodePhase);
+        refreshTweakPanel();
+        statusBar()->showMessage("Live tweaks reset to stage parameters", 2500);
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("onResetLiveTweaksRequested failed: {}", e.what());
+        statusBar()->showMessage(
+            QString("Failed to reset live tweaks: %1").arg(QString::fromStdString(e.what())),
+            4000);
+    }
+}
+
+void MainWindow::onWriteLiveTweaksRequested(
+    orc::NodeID node_id,
+    std::map<std::string, orc::ParameterValue> params)
+{
+    if (!node_id.is_valid() || node_id != current_view_node_id_) {
+        return;
+    }
+
+    try {
+        project_.presenter()->setNodeParameters(node_id, params);
+
+        // Keep the DAG-backed renderer consistent with persisted stage parameters.
+        project_.rebuildDAG();
+        updatePreviewRenderer();
+        dag_model_->refresh();
+
+        // Reapply to current frame via live path to guarantee immediate visible state.
+        onTweakParameterChanged(node_id, std::move(params), orc::LiveTweakClass::DecodePhase);
+        refreshTweakPanel();
+
+        statusBar()->showMessage("Live tweaks written to stage parameters", 2500);
+    } catch (const std::exception& e) {
+        ORC_LOG_ERROR("onWriteLiveTweaksRequested failed: {}", e.what());
+        statusBar()->showMessage(
+            QString("Failed to write stage parameters: %1").arg(QString::fromStdString(e.what())),
+            4000);
+    }
+}
+
 void MainWindow::updatePreviewModeCombo()
 {
     ORC_LOG_DEBUG("updatePreviewModeCombo: current_output_type={}, current_option_id='{}'",
@@ -2509,6 +2617,8 @@ void MainWindow::refreshViewerControls(bool skip_preview)
     if (!skip_preview) {
         updateAllPreviewComponents();
     }
+
+    refreshTweakPanel();
 }
 
 void MainWindow::updatePreviewRenderer()

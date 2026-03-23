@@ -20,6 +20,8 @@
 #include "../core/include/observation_context.h"
 #include "../core/include/observation_cache.h"
 #include "../core/stages/triggerable_stage.h"
+#include "../core/stages/stage.h"
+#include "../core/include/stage_preview_capability.h"
 #include "../core/stages/dropout_analysis_sink/dropout_analysis_sink_stage.h"
 #include "../core/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
 #include "../core/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"
@@ -905,6 +907,69 @@ std::string RenderPresenter::getCacheStats() const
 {
     // TODO: Implement cache stats
     return "Cache: active";
+}
+
+bool RenderPresenter::applyStageParameters(
+    NodeID node_id,
+    const std::map<std::string, ParameterValue>& params)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        ORC_LOG_WARN("RenderPresenter::applyStageParameters: no DAG");
+        return false;
+    }
+
+    for (const auto& node : dag->nodes()) {
+        if (node.node_id == node_id) {
+            auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(node.stage.get());
+            if (!param_stage) {
+                ORC_LOG_WARN("RenderPresenter::applyStageParameters: node '{}' stage is not ParameterizedStage",
+                             node_id.to_string());
+                return false;
+            }
+            bool ok = param_stage->set_parameters(params);
+            ORC_LOG_DEBUG("RenderPresenter::applyStageParameters: node '{}' set_parameters -> {}",
+                          node_id.to_string(), ok);
+            return ok;
+        }
+    }
+    ORC_LOG_WARN("RenderPresenter::applyStageParameters: node '{}' not found in DAG", node_id.to_string());
+    return false;
+}
+
+std::vector<orc::LiveTweakableParameterView> RenderPresenter::getStageTweakableParameters(NodeID node_id)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {};
+    }
+
+    for (const auto& node : dag->nodes()) {
+        if (node.node_id == node_id) {
+            auto* cap_stage = dynamic_cast<const orc::IStagePreviewCapability*>(node.stage.get());
+            if (!cap_stage) {
+                return {};
+            }
+            auto cap = cap_stage->get_preview_capability();
+            if (cap.tweakable_parameters.empty()) {
+                return {};
+            }
+
+            // Convert core type to view-type
+            std::vector<orc::LiveTweakableParameterView> result;
+            result.reserve(cap.tweakable_parameters.size());
+            for (const auto& tp : cap.tweakable_parameters) {
+                orc::LiveTweakableParameterView view;
+                view.parameter_name = tp.parameter_name;
+                view.tweak_class = (tp.tweak_class == orc::PreviewTweakClass::DisplayPhase)
+                    ? orc::LiveTweakClass::DisplayPhase
+                    : orc::LiveTweakClass::DecodePhase;
+                result.push_back(std::move(view));
+            }
+            return result;
+        }
+    }
+    return {};
 }
 
 // === Analysis Data Access (Phase 2.4) ===

@@ -13,15 +13,20 @@
 #include <QDialog>
 #include <QSlider>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QFormLayout>
+#include <QScrollArea>
 #include <QTimer>
 #include <QLabel>
-#include <QComboBox>
 #include <QPushButton>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QString>
 #include <vector>
+#include <map>
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -29,6 +34,7 @@
 #include <orc_preview_types.h>
 #include <orc_preview_views.h>
 #include <orc_vectorscope.h>
+#include <parameter_types.h>
 #include "presenters/include/hints_view_models.h"  // For VideoParametersView
 
 class FieldPreviewWidget;
@@ -195,6 +201,27 @@ public:
      */
     void setIndex(int zero_based);
 
+    // -------------------------------------------------------------------------
+    // Live Preview Tweak Panel (Phase 6)
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Populate (or clear) the live-tweak parameter panel.
+     *
+     * Called by MainWindow after a node change when tweakable parameters are
+     * available.  Pass empty vectors to clear/hide the panel.
+     *
+     * @param node_id       Node whose stage the tweaks target.
+     * @param tweakable     Tweakable parameter view-models from the coordinator.
+     * @param descriptors   Full ParameterDescriptors for building widgets.
+     * @param current_values Current parameter values to initialise widgets.
+     */
+    void setTweakableParameters(
+        orc::NodeID node_id,
+        const std::vector<orc::LiveTweakableParameterView>& tweakable,
+        const std::vector<orc::ParameterDescriptor>& descriptors,
+        const std::map<std::string, orc::ParameterValue>& current_values);
+
 Q_SIGNALS:
     /**
      * Emitted whenever the current index changes (every navigate/scrub).
@@ -226,9 +253,36 @@ Q_SIGNALS:
     void vectorscopeRequested(const orc::PreviewCoordinate& coordinate);  // Emitted when vectorscope should refresh via presenter contract
     void previewCoordinateChanged(const orc::PreviewCoordinate& coordinate);  // Emitted whenever shared coordinate changes
 
+    /**
+     * @brief Emitted when the user changes a live-tweak widget.
+     *
+     * Carries all current tweak-panel parameter values and the cost class of
+     * the parameter that was just changed.  MainWindow routes this to
+     * RenderCoordinator::requestApplyStageParameters().
+     */
+    void tweakParameterChanged(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params,
+        orc::LiveTweakClass tweak_class);
+
+    /**
+     * @brief User requested reverting live tweaks to persisted stage parameters.
+     */
+    void resetLiveTweaksRequested(orc::NodeID node_id);
+
+    /**
+     * @brief User requested writing current tweak values back to stage parameters.
+     */
+    void writeLiveTweaksRequested(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params);
+
 private slots:
     void onSampleMarkerMoved(int sample_x);
     void onVectorscopeActionTriggered();
+    void onShowLiveTweaksToggled(bool checked);
+    void onResetLiveTweaksClicked();
+    void onWriteLiveTweaksClicked();
 
 private:
     void setupUI();
@@ -252,6 +306,7 @@ private:
     QAction* show_ntsc_observer_action_;
     QAction* show_field_timing_action_;
     QAction* show_vectorscope_action_;
+    QAction* show_live_tweaks_action_;
     LineScopeDialog* line_scope_dialog_;
     FieldTimingDialog* field_timing_dialog_;
     std::unordered_map<orc::NodeID, VectorscopeDialog*> vectorscope_dialogs_;
@@ -273,6 +328,31 @@ private:
     QPushButton* zoom1to1_button_;
     QPushButton* dropouts_button_;
     QSpinBox* frame_jump_spinbox_;
+
+    // Live preview tweak panel (Phase 6)
+    struct TweakWidgetEntry {
+        orc::ParameterType        type;
+        QWidget*                  widget{nullptr};
+        orc::LiveTweakClass       tweak_class{orc::LiveTweakClass::DecodePhase};
+    };
+
+    QDialog*      live_tweaks_dialog_{nullptr};
+    QWidget*      tweak_panel_content_{nullptr};
+    QScrollArea*  tweak_panel_scroll_{nullptr};
+    QPushButton*  tweak_reset_button_{nullptr};
+    QPushButton*  tweak_write_button_{nullptr};
+    QFormLayout*  tweak_form_layout_{nullptr};
+    QTimer*       tweak_debounce_timer_{nullptr};
+    orc::NodeID   tweak_node_id_;
+    std::map<std::string, TweakWidgetEntry> tweak_widgets_;
+
+    void buildTweakPanel(
+        const std::vector<orc::LiveTweakableParameterView>& tweakable,
+        const std::vector<orc::ParameterDescriptor>& descriptors,
+        const std::map<std::string, orc::ParameterValue>& current_values);
+    void clearTweakPanel();
+    std::map<std::string, orc::ParameterValue> collectTweakValues() const;
+    orc::LiveTweakClass dominantTweakClass(const std::string& changed_param_name) const;
 
     void closeVectorscopeDialogs();
 

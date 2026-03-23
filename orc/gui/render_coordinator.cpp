@@ -292,6 +292,29 @@ void RenderCoordinator::cancelTrigger()
     ORC_LOG_DEBUG("RenderCoordinator: Trigger cancellation requested");
 }
 
+uint64_t RenderCoordinator::requestApplyStageParameters(
+    const orc::NodeID& node_id,
+    orc::PreviewOutputType output_type,
+    uint64_t output_index,
+    const std::string& option_id,
+    std::map<std::string, orc::ParameterValue> params)
+{
+    uint64_t id = nextRequestId();
+    auto req = std::make_unique<ApplyStageParametersRequest>(
+        id, node_id, std::move(params), output_type, output_index, option_id);
+    enqueueRequest(std::move(req));
+    return id;
+}
+
+std::vector<orc::LiveTweakableParameterView> RenderCoordinator::getStageTweakableParameters(
+    const orc::NodeID& node_id)
+{
+    if (!worker_render_presenter_) {
+        return {};
+    }
+    return worker_render_presenter_->getStageTweakableParameters(node_id);
+}
+
 // ============================================================================
 // Worker Thread Implementation
 // ============================================================================
@@ -386,6 +409,10 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request)
             
         case RenderRequestType::TriggerStage:
             handleTriggerStage(*static_cast<TriggerStageRequest*>(request.get()));
+            break;
+            
+        case RenderRequestType::ApplyStageParameters:
+            handleApplyStageParameters(*static_cast<ApplyStageParametersRequest*>(request.get()));
             break;
             
         case RenderRequestType::Shutdown:
@@ -824,6 +851,37 @@ void RenderCoordinator::setShowDropouts(bool show)
     if (worker_render_presenter_) {
         worker_render_presenter_->setShowDropouts(show);
         ORC_LOG_DEBUG("RenderCoordinator: Show dropouts set to {}", show);
+    }
+}
+
+void RenderCoordinator::handleApplyStageParameters(const ApplyStageParametersRequest& req)
+{
+    ORC_LOG_DEBUG("RenderCoordinator: ApplyStageParameters for node '{}' (request {})",
+                  req.node_id.to_string(), req.request_id);
+
+    if (!worker_render_presenter_) {
+        ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+        emit stageParametersApplied(req.request_id, false);
+        return;
+    }
+
+    bool ok = worker_render_presenter_->applyStageParameters(req.node_id, req.params);
+    emit stageParametersApplied(req.request_id, ok);
+
+    if (ok) {
+        // Re-render the current field/frame so the preview widget updates immediately.
+        // We construct a synthetic RenderPreviewRequest and handle it directly
+        // on the worker thread (avoids re-queuing through the GUI thread).
+        RenderPreviewRequest render_req(
+            req.request_id,
+            req.node_id,
+            req.output_type,
+            req.output_index,
+            req.option_id);
+        handleRenderPreview(render_req);
+    } else {
+        ORC_LOG_WARN("RenderCoordinator: applyStageParameters failed for node '{}'",
+                     req.node_id.to_string());
     }
 }
 

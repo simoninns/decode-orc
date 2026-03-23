@@ -1692,6 +1692,28 @@ StagePreviewCapability ChromaSinkStage::get_preview_capability() const
 {
     StagePreviewCapability capability{};
 
+    // Declare live-tweakable parameters independent of loaded preview data so
+    // the GUI can build the tweak panel as soon as the node is selected.
+    auto add_decode_tweaks = [&capability](std::optional<bool> is_pal_opt) {
+        capability.tweakable_parameters.push_back({"decoder_type", PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"chroma_gain",  PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"chroma_phase", PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"luma_nr",      PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"chroma_nr",    PreviewTweakClass::DecodePhase});
+
+        // If system is not known yet, include both sets; descriptor filtering
+        // in the GUI removes keys not valid for the current project format.
+        if (!is_pal_opt.has_value() || is_pal_opt.value()) {
+            capability.tweakable_parameters.push_back({"simple_pal",          PreviewTweakClass::DecodePhase});
+            capability.tweakable_parameters.push_back({"transform_threshold", PreviewTweakClass::DecodePhase});
+        }
+        if (!is_pal_opt.has_value() || !is_pal_opt.value()) {
+            capability.tweakable_parameters.push_back({"ntsc_phase_comp", PreviewTweakClass::DecodePhase});
+            capability.tweakable_parameters.push_back({"chroma_weight",   PreviewTweakClass::DecodePhase});
+            capability.tweakable_parameters.push_back({"adapt_threshold", PreviewTweakClass::DecodePhase});
+        }
+    };
+
     std::shared_ptr<const VideoFieldRepresentation> local_input;
     {
         std::lock_guard<std::mutex> lock(cached_input_mutex_);
@@ -1699,11 +1721,13 @@ StagePreviewCapability ChromaSinkStage::get_preview_capability() const
     }
 
     if (!local_input) {
+        add_decode_tweaks(std::nullopt);
         return capability;
     }
 
     auto video_params_opt = local_input->get_video_parameters();
     if (!video_params_opt) {
+        add_decode_tweaks(std::nullopt);
         return capability;
     }
 
@@ -1745,6 +1769,11 @@ StagePreviewCapability ChromaSinkStage::get_preview_capability() const
                          static_cast<double>(capability.geometry.active_height);
     double target_ratio = 4.0 / 3.0;
     capability.geometry.dar_correction_factor = target_ratio / active_ratio;
+
+    // Declare live-tweakable parameters (DecodePhase: affect the chroma decoder).
+    // Output/file parameters (output_path, output_format, encoder_*) are
+    // intentionally excluded from this list.
+    add_decode_tweaks(is_pal);
 
     return capability;
 }

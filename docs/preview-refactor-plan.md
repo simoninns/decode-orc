@@ -26,8 +26,8 @@ Every piece of video data that a stage can expose for preview belongs to one of 
 | **Composite PAL** | Single 16-bit sample stream (signal energy in mV) | PAL field dimensions |
 | **Y+C NTSC** | Two 16-bit sample streams: Y (luma) + C (chroma) | NTSC field dimensions |
 | **Y+C PAL** | Two 16-bit sample streams: Y (luma) + C (chroma) | PAL field dimensions |
-| **Colour NTSC** | Decoded colour frame (typically YUV → RGB for display) | NTSC active picture dimensions |
-| **Colour PAL** | Decoded colour frame (typically YUV → RGB for display) | PAL active picture dimensions |
+| **Colour NTSC** | Decoded colour frame (typically YUV → RGB for display) | NTSC active picture dimensions; representation depth is output-path dependent (8/10/16-bit quantization at boundaries) |
+| **Colour PAL** | Decoded colour frame (typically YUV → RGB for display) | PAL active picture dimensions; representation depth is output-path dependent (8/10/16-bit quantization at boundaries) |
 
 The NTSC/PAL distinction within a type affects only video dimensions and a small number of signal parameters (e.g., field rate, FSC, IRE scale). The structural differences between types — number of channels, whether data is composite/component, whether it is in signal space or display colour space — are independent of the system standard.
 
@@ -121,6 +121,18 @@ A `PreviewCoordinate` structure (field index, line index, x-sample offset, and d
 
 No individual view implements pixel-to-field translation.
 
+### Canonical Unit Model
+
+Preview data should use a single, explicit unit model so all views and exports remain consistent.
+
+1. **Signal-domain data (Composite, Y, C waveforms):** canonical physical unit is **mV**. Stages convert from native sample codes into mV using the stage metadata anchors (blanking, black, white reference levels). IRE can be shown as a derived display axis, but mV is the shared canonical value for core preview/export payloads.
+
+2. **Colour-domain data (YUV/RGB images):** canonical unit is **colour-space value**, not mV. Internally, decoded colour values are kept in decoder-domain numeric representations (high-precision processing domain), and quantization to integer code values is an output-boundary concern. Depending on the target path, exported/displayed code values may be 8-bit, 10-bit, or 16-bit. These units must be treated separately from signal-domain waveform units.
+
+3. **Boundary conversion policy:** quantization/packing happens only at explicit boundaries (preview display buffers, codec output formats, raw file output). The preview core/view contract should carry explicit metadata for colour representation and quantization at each boundary so GUI and CLI exports are deterministic and consistent.
+
+The conversion responsibility belongs in core/stage-side infrastructure (or shared helpers used by stages), not in `PreviewDialog`. The GUI consumes already-normalized payloads and renders them; it does not own calibration math.
+
 ### Chroma-Output Stage Input Exposure
 
 For stages that produce colour output, the composite or Y+C input data is always present. The stage declares which input type it receives as part of its capability declaration. The preview infrastructure automatically makes the appropriate input-side views (line scope on composite or Y+C, timing graph) available alongside the colour-output views (vectorscope, waveform monitor), without any per-stage conditional code.
@@ -195,6 +207,8 @@ When this refactor is complete, the following should be true:
 
 9. **Live parameter tweaking works from inside the preview window.** For stages that declare preview-tweakable parameters, a collapsible control panel appears in `PreviewDialog`. Display-phase parameters (colorimetric metadata) update the preview without re-decoding. Decode-phase parameters (chroma gain, phase, NR, decoder type, etc.) trigger a single-field re-decode via a lightweight `ApplyStageParameters` path, not a full encode-to-file re-trigger.
 
+10. **Units are explicit and consistent across all views and exports.** Signal-domain views/export use canonical mV values (with optional derived IRE display), while colour-domain views/export use explicit colour-space representations with boundary-defined quantization (8/10/16-bit depending on target path). Unit conversion/calibration lives in core, not GUI.
+
 ---
 
 ## Constraints & Principles
@@ -205,6 +219,7 @@ When this refactor is complete, the following should be true:
 - **CLI and GUI remain independent consumers** of the same presenter layer. Neither is privileged in the design.
 - **The registration pattern mirrors the existing `StageRegistry`** design so the codebase remains conceptually uniform.
 - **Chroma decode math is not touched.** Colorimetric parameters (issue #140) are declared and propagated by the preview/export infrastructure; any changes to the underlying `ld-chroma-decoder` decode algorithm are a separate upstream concern.
+- **Unit boundaries are strict.** mV/IRE applies to signal-domain waveform data only; YUV/RGB data remains in colour-space values and boundary-defined code values (8/10/16-bit as required by output format), and is never treated as mV.
 
 ---
 

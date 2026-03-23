@@ -77,9 +77,11 @@ When a user clicks on `FieldPreviewWidget`, pixel coordinates are translated int
 
 The vectorscope data is embedded in `PreviewImage.vectorscope_data` as a side-effect of the render path, rather than being requested and delivered through the same mechanism as all other view data. This means the vectorscope cannot be independently requested (e.g., for a CLI export or a standalone update without a full re-render).
 
-### 5. Stage Capability is Implicit
+### 5. Stage Capability is Implicit — and the Interface Collapses Signal Data
 
 The set of views that make sense for a given stage is not declared anywhere; it is inferred at runtime from the `PreviewOption` list. There is no compile-time or registry-time contract stating "this stage produces Y+C data, therefore the line scope will show two channels".
+
+The deeper problem is that `PreviewableStage::render_preview()` returns a pre-baked `PreviewImage` (RGB888). This collapses the original signal-domain sample data — 16-bit mV-domain composite or Y+C — into an 8-bit display image inside the stage, before any view ever sees it. A line scope or waveform monitor trying to show calibrated mV values has no path back to the raw sample data. The RGB888 bake is a display-layer concern and does not belong in the stage contract.
 
 ---
 
@@ -102,6 +104,20 @@ The interface between a stage and the preview subsystem should be fixed and unif
 These declarations are made once, at stage registration time. No individual stage should need to implement custom export logic, coordinate translation, or view management.
 
 The variation in *how* data is rendered for each type (composite waveform, dual-channel Y+C, RGB display frame) lives in the base rendering infrastructure, not in each stage.
+
+#### Two typed data carriers replace `render_preview()`
+
+The six taxonomy types divide naturally into two groups, each with its own carrier, and the stage interface must reflect this split:
+
+**Signal-domain types** (Composite NTSC/PAL, Y+C NTSC/PAL) are carried by **`VideoFieldRepresentation` (VFR)**. The VFR already exists at every node in the DAG; `DAGFieldRenderer::render_field_at_node()` can walk to any node and return the VFR directly. Source and transform stages implementing these types do not need a custom rendering method — the DAG renderer provides the carrier for free. The stage only needs to declare its capability type.
+
+**Colour-domain types** (Colour NTSC, Colour PAL) are carried by a **structured decoder output** — a typed wrapper around the decoded component planes (the precision-floating-point domain that `ComponentFrame` currently represents). Only chroma-sink stages produce this carrier. The decoder output type must preserve the colour-space representation without premature quantization; display conversion (to RGB888 for on-screen rendering) happens in the rendering layer, not in the stage.
+
+The current `PreviewableStage::render_preview() → PreviewImage(RGB888)` method is superseded by this model. Stages no longer bake display-ready images; they expose typed data carriers. The rendering layer draws on those carriers to produce display frames, waveforms, vectorscope data, and exports.
+
+This means:
+- **Composite/Y+C stages** (source stages, `StackerStage`, `SourceAlignStage`, transform stages): drop `PreviewableStage`; capability declarations reference the VFR path.
+- **Colour-sink stages** (`ChromaSinkStage`, `LDSinkStage`, etc.): implement a thin interface to expose their structured decoder output, and declare which signal-domain input type (composite or Y+C) feeds them so the VFR input is also available.
 
 ### View Interface
 
@@ -137,7 +153,7 @@ The conversion responsibility belongs in core/stage-side infrastructure (or shar
 
 ### Chroma-Output Stage Input Exposure
 
-For stages that produce colour output, the composite or Y+C input data is always present. The stage declares which input type it receives as part of its capability declaration. The preview infrastructure automatically makes the appropriate input-side views (line scope on composite or Y+C, timing graph) available alongside the colour-output views (vectorscope, waveform monitor), without any per-stage conditional code.
+For stages that produce colour output, the composite or Y+C input data is always present. The stage declares which input type it receives as part of its capability declaration. Because the signal-domain input is carried by the VFR — and the VFR for the upstream node is already accessible via `DAGFieldRenderer` — exposing the input data requires no per-stage caching or duplication. The preview infrastructure resolves the upstream node's VFR automatically and makes the appropriate input-side views (line scope on composite or Y+C, timing graph) available alongside the colour-output views (vectorscope, waveform monitor), without any per-stage conditional code.
 
 ### Live Parameter Tweaking
 
@@ -199,9 +215,9 @@ When this refactor is complete, the following should be true:
 
 4. **CLI export of any preview view** works without touching GUI code, using the same rendering path as the GUI.
 
-5. **Chroma-output stages always expose their input data** with no per-stage special casing.
+5. **Chroma-output stages always expose their input data** with no per-stage special casing. The VFR at the upstream node is resolved by the DAG renderer and requires no per-stage caching.
 
-6. **The six video data types are named explicitly** in code and used as the primary discriminant for view applicability, rather than being inferred from option lists or enum values.
+6. **The six video data types are named explicitly** in code and used as the primary discriminant for view applicability, rather than being inferred from option lists or enum values. Signal-domain types (Composite, Y+C) are served by the VFR carrier; colour-domain types are served by the structured decoder-output carrier. `PreviewableStage::render_preview()` is retired — no stage pre-bakes an RGB888 image.
 
 7. **No code duplication** across view implementations for common concerns: coordinate handling, export formatting, aspect-ratio correction, IRE scale markers, and data-type routing.
 

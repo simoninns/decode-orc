@@ -83,3 +83,10 @@ orc_add_core_unit_tests(
         contracts/stage_registry_contract_test.cpp
         contracts/project_to_dag_contract_test.cpp
 )
+
+        orc_add_core_unit_tests(
+                orc-core-unit-tests-preview-foundation
+                "unit;preview"
+
+                preview_types/preview_types_test.cpp
+        )

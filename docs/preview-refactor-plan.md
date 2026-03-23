@@ -7,8 +7,8 @@ The preview dialogue (`PreviewDialog`) has grown organically alongside the stage
 - **No formal taxonomy of video data types.** The six kinds of video data a stage can produce are never explicitly named as a set; instead they are implied by a flat `PreviewOutputType` enum and scattered conditional logic.
 - **Views are hardcoded, not registered.** `LineScopeDialog`, `FieldTimingDialog`, and `VectorscopeDialog` are wired into `PreviewDialog` and `MainWindow` by direct construction, not through any extensible mechanism. Adding a new view (e.g., a chroma waveform monitor or an RGB parade) requires modifying multiple files unrelated to the new view itself.
 - **Vectorscope ownership is inconsistent.** `VectorscopeDialog` is owned by `MainWindow` rather than by the preview subsystem, while `LineScopeDialog` and `FieldTimingDialog` are owned by `PreviewDialog`. There is no single home for "tools that analyse a field".
-- **Cross-view coordination is ad-hoc.** The crosshair click-to-line-scope flow passes raw pixel coordinates through multiple layers without a shared coordinate model, making it fragile and hard to reuse for CLI export.
-- **CLI export is not structurally first-class.** Saving a preview or scope as PNG/CSV works, but only because individual paths happen to call the same rendering functions — not because the architecture guarantees it.
+- **Cross-view coordination is ad-hoc.** The crosshair click-to-line-scope flow passes raw pixel coordinates through multiple layers without a shared coordinate model, making it fragile and hard to reuse consistently across preview tools.
+- **CLI/preview scope is blurred.** `orc-cli` should remain focused on orchestration/processing and should not be required to implement preview PNG/CSV export flows.
 - **Stage capabilities are implicit.** Whether a stage produces composite, Y+C, or colour output — and therefore which views apply to it — is inferred from the `PreviewOption` list rather than declared as a first-class capability contract.
 - **Chroma-output stages expose input data inconsistently.** Stages that decode colour (chroma sinks) should always be able to expose their composite or Y+C input alongside the colour output, but this is not enforced or structured.
 
@@ -67,7 +67,7 @@ Each supplementary view (line scope, timing graph, vectorscope) is instantiated 
 - New dialog class
 - Manual construction in `PreviewDialog` or `MainWindow`
 - Manual signal connections for data delivery and coordinate events
-- Separate code path for CLI export
+- Separate wiring across multiple preview call sites
 
 ### 3. Scattered Coordinate Passing
 
@@ -75,7 +75,7 @@ When a user clicks on `FieldPreviewWidget`, pixel coordinates are translated int
 
 ### 4. `VectorscopeData` Piggybacked on `PreviewImage`
 
-The vectorscope data is embedded in `PreviewImage.vectorscope_data` as a side-effect of the render path, rather than being requested and delivered through the same mechanism as all other view data. This means the vectorscope cannot be independently requested (e.g., for a CLI export or a standalone update without a full re-render).
+The vectorscope data is embedded in `PreviewImage.vectorscope_data` as a side-effect of the render path, rather than being requested and delivered through the same mechanism as all other view data. This means the vectorscope cannot be independently requested (e.g., for a standalone update without a full re-render).
 
 ### 5. Stage Capability is Implicit — and the Interface Collapses Signal Data
 
@@ -125,7 +125,7 @@ Each supplementary view implements a minimal interface:
 
 - **`supported_data_types()`** — declares which of the six video data types can feed this view.
 - **`request_data(VideoDataType, coordinate)`** — asks the view to update itself given a field/line coordinate in the shared coordinate model.
-- **`export_as(format, path)`** — produces a PNG or CSV export using the same data path, enabling CLI export without any GUI-specific code.
+- **`export_as(format, path)`** — produces a PNG or CSV export using the same data path for preview-owned export workflows.
 
 Views register with the preview view registry at application startup, mirroring how stages and analysis tools register themselves.
 
@@ -147,7 +147,7 @@ Preview data should use a single, explicit unit model so all views and exports r
 
 2. **Colour-domain data (YUV/RGB images):** canonical unit is **colour-space value**, not mV. Internally, decoded colour values are kept in decoder-domain numeric representations (high-precision processing domain), and quantization to integer code values is an output-boundary concern. Depending on the target path, exported/displayed code values may be 8-bit, 10-bit, or 16-bit. These units must be treated separately from signal-domain waveform units.
 
-3. **Boundary conversion policy:** quantization/packing happens only at explicit boundaries (preview display buffers, codec output formats, raw file output). The preview core/view contract should carry explicit metadata for colour representation and quantization at each boundary so GUI and CLI exports are deterministic and consistent.
+3. **Boundary conversion policy:** quantization/packing happens only at explicit boundaries (preview display buffers, codec output formats, raw file output). The preview core/view contract should carry explicit metadata for colour representation and quantization at each boundary so preview-owned exports are deterministic and consistent.
 
 The conversion responsibility belongs in core/stage-side infrastructure (or shared helpers used by stages), not in `PreviewDialog`. The GUI consumes already-normalized payloads and renders them; it does not own calibration math.
 
@@ -179,15 +179,13 @@ The live parameter panel itself is surfaced in `PreviewDialog` automatically for
 
 The colorimetric parameters introduced for issue #140 are display-phase tweaks: changing the declared matrix, primaries, or transfer characteristics for preview purposes does not require re-running the chroma decoder; it only affects the YUV-to-display-RGB conversion step in the render path.
 
-### CLI Export Integration
+### CLI/Core Interface Alignment
 
-Because every view exposes `export_as(format, path)` and data is requested through a common `request_data()` contract, the CLI can invoke any registered view's export by:
+`orc-cli` remains non-preview. It should not depend on preview view contracts (`request_data`/`export_as`) or add PNG/CSV preview export responsibilities.
 
-1. Resolving the stage data type from its capability declaration.
-2. Looking up applicable views in the registry.
-3. Calling `request_data` and then `export_as` on each desired view.
+Instead, CLI and GUI-facing flows should both use presenter-mediated core orchestration interfaces for shared responsibilities (project loading, DAG build/validation, trigger/process operations, and parameter application).
 
-No GUI-specific code is involved. The presenter layer mediates between the CLI and the registry/views, following the existing MVP structure.
+No GUI-specific code is involved. The presenter layer remains the shared boundary for non-GUI application flows.
 
 ### MVP Layer Mapping
 
@@ -197,7 +195,7 @@ No GUI-specific code is involved. The presenter layer mediates between the CLI a
 | Stage capability declarations, view registry, data fetch logic | `orc/core` |
 | Presenter mediating between CLI/GUI and core registry | `orc/presenters` |
 | Concrete Qt widget implementations of each view | `orc/gui` |
-| CLI export commands invoking view `export_as` | `orc/cli` |
+| CLI orchestration commands (non-preview) using presenter/core interfaces | `orc/cli` |
 
 Core never knows about Qt. The view interface in `orc/view-types` is defined purely in terms of the coordinate model and the data types — no GUI types cross the boundary.
 
@@ -213,7 +211,7 @@ When this refactor is complete, the following should be true:
 
 3. **Crosshair and click-to-view coordination** is handled entirely by `PreviewDialog`'s base logic via the shared `PreviewCoordinate` model. No view implements pixel translation independently.
 
-4. **CLI export of any preview view** works without touching GUI code, using the same rendering path as the GUI.
+4. **`orc-cli` remains non-preview** while sharing presenter-mediated core orchestration interfaces with GUI-facing flows.
 
 5. **Chroma-output stages always expose their input data** with no per-stage special casing. The VFR at the upstream node is resolved by the DAG renderer and requires no per-stage caching.
 

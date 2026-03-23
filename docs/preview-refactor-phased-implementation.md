@@ -25,7 +25,7 @@ Delivery model: this roadmap is implemented **phase-by-phase on one feature bran
 | 2 | Carrier split and render pipeline pivot | Signal-domain VFR and colour-domain decoder output carriers replace stage-side baked RGB contract |
 | 3 | Core preview view registry | Views become registry-driven by data type and request/export contract |
 | 4 | GUI integration and ownership cleanup | `PreviewDialog` becomes the single owner/coordinator for supplementary views |
-| 5 | CLI export unification | CLI export uses the same registry/data request path as GUI views |
+| 5 | CLI/core interface alignment | CLI remains non-preview and uses the same core orchestration interfaces as the GUI-facing path |
 | 6 | Live parameter tweaking pipeline | Display-phase and decode-phase preview tweaks work without full DAG rebuild |
 | 7 | Migration completion and hardening | Legacy paths removed; architecture/tests/docs finalized |
 
@@ -193,22 +193,19 @@ Move GUI to consume registry/presenter contracts and unify supplementary-view ow
 
 ---
 
-## Phase 5 — CLI Export Unification
+## Phase 5 — CLI/Core Interface Alignment
 
 ### Scope
 
-Make CLI export a first-class consumer of the same registry-based preview view APIs.
+Keep `orc-cli` out of preview view/export responsibilities while ensuring it uses the same core-facing orchestration interfaces used by the GUI-facing presenter path.
 
 Ensure source layout matches architectural ownership: when preview-related ownership is moved, the corresponding source files move into preview-focused locations as part of the same phase work.
 
 ### Implementation Work
 
-- Add/extend CLI commands to:
-  - Resolve stage capabilities/data type.
-  - Enumerate available views via presenter.
-  - Invoke `request_data` then `export_as` for selected view(s).
-- Ensure export formats (PNG/CSV) map to shared contracts rather than GUI paths.
-- Add clear CLI error messaging for unsupported view/data-type combinations.
+- Ensure CLI command execution paths (process/orchestration/parameter application) go through the same presenter-mediated core interfaces as the GUI-facing path.
+- Remove preview export requirements from CLI scope (no PNG/CSV preview export contract in `orc-cli`).
+- If any preview-export CLI hooks/flags were introduced during refactor work, remove them instead of keeping compatibility shims.
 - Move implementation files to reflect ownership boundaries introduced by the refactor:
   - Relocate preview-owned tool/dialog implementation out of generic window ownership areas and into preview subsystem source folders.
   - Keep presenter/core modules in matching preview namespaces/paths so architecture and source tree stay aligned.
@@ -221,18 +218,17 @@ Ensure source layout matches architectural ownership: when preview-related owner
 
 ### Tests
 
-- CLI integration tests for:
-  - Export success for representative signal-domain and colour-domain views.
-  - Failure behavior for unsupported combinations.
-  - Deterministic output shape/headers for CSV exports.
+- CLI integration/unit tests for:
+  - Representative CLI processing flows confirming presenter-mediated core orchestration is used.
+  - Absence/rejection of preview export functionality in CLI surface area.
 - Build-system and structure checks:
   - Confirm moved files are compiled from their new subsystem paths.
   - Confirm no stale includes or source references remain in old ownership locations.
 
 ### Exit Criteria
 
-- CLI exports execute without any GUI-specific code path.
-- GUI and CLI share same underlying data request/export contracts.
+- `orc-cli` exposes no preview export feature.
+- CLI processing paths use the same core-facing presenter orchestration interfaces as GUI-facing flows.
 - Source tree structure matches runtime ownership and module boundaries (no ownership/source-location mismatch).
 
 ---
@@ -339,6 +335,6 @@ The refactor is complete when all of the following are true:
 - View applicability and export are registry-driven by explicit data types.
 - Signal-domain and colour-domain carriers are separate and preserved until output boundaries.
 - Colorimetric metadata is first-class in preview and stage handoff contracts.
-- GUI and CLI both consume the same presenter-mediated request/export APIs.
+- GUI consumes preview request/export APIs via presenter/core contracts, while CLI remains non-preview and uses shared presenter-mediated core orchestration for its processing responsibilities.
 - Live preview tweaks support display-phase and decode-phase update classes.
 - Legacy hardcoded preview wiring paths are removed, and tests/docs reflect the new model.

@@ -60,9 +60,9 @@ add_executable(orc-gui MACOSX_BUNDLE
     field_frame_presentation.cpp
     field_frame_presentation.h
     
-    # Analysis dialogs
-    analysis/vectorscope_dialog.cpp
-    analysis/vectorscope_dialog.h
+    # Preview dialogs
+    preview/vectorscope_dialog.cpp
+    preview/vectorscope_dialog.h
     generic_analysis_dialog.cpp
     generic_analysis_dialog.h
     

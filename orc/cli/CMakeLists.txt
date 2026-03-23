@@ -38,3 +38,32 @@ else()
         COMPONENT Runtime
     )
 endif()
+
+if(BUILD_UNIT_TESTS)
+    add_test(
+        NAME CLI.HelpShowsProcessOnlyCommand
+        COMMAND $<TARGET_FILE:orc-cli> --help
+    )
+    set_tests_properties(CLI.HelpShowsProcessOnlyCommand PROPERTIES
+        LABELS "unit;cli"
+        PASS_REGULAR_EXPRESSION "--process"
+    )
+
+    add_test(
+        NAME CLI.RejectsPreviewExportOption
+        COMMAND $<TARGET_FILE:orc-cli> ${CMAKE_SOURCE_DIR}/test-projects/ntsc-stacking-comp.orcprj --preview-export
+    )
+    set_tests_properties(CLI.RejectsPreviewExportOption PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
+    )
+
+    add_test(
+        NAME CLI.ProcessNoSinksFails
+        COMMAND $<TARGET_FILE:orc-cli> ${CMAKE_CURRENT_SOURCE_DIR}/test-data/no-sinks.orcprj --process
+    )
+    set_tests_properties(CLI.ProcessNoSinksFails PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
+    )
+endif()

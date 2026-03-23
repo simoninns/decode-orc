@@ -11,7 +11,7 @@
 #include "fieldpreviewwidget.h"
 #include "linescopedialog.h"
 #include "fieldtimingdialog.h"
-#include "analysis/vectorscope_dialog.h"
+#include "preview/vectorscope_dialog.h"
 #include "logging.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>

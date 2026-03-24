@@ -92,4 +92,5 @@ orc_add_core_unit_tests(
                 preview_types/preview_types_test.cpp
                 preview_types/preview_carrier_conversion_test.cpp
                 preview_types/preview_view_registry_test.cpp
+                preview_types/preview_helpers_yc_combine_test.cpp
         )

@@ -40,6 +40,15 @@ inline uint8_t scale_16bit_to_8bit(
     }
 }
 
+inline uint16_t combine_yc_to_composite_sample(uint16_t y_sample, uint16_t c_sample)
+{
+    // YC chroma is centered at mid-code; remove that DC offset before combining.
+    constexpr int32_t CHROMA_MID_CODE = 32768;
+    int32_t combined = static_cast<int32_t>(y_sample) +
+                       (static_cast<int32_t>(c_sample) - CHROMA_MID_CODE);
+    return static_cast<uint16_t>(std::clamp(combined, 0, 65535));
+}
+
 std::vector<PreviewOption> get_standard_preview_options(
     const std::shared_ptr<const VideoFieldRepresentation>& representation)
 {
@@ -463,8 +472,7 @@ static std::vector<uint16_t> get_field_for_channel(
         }
         std::vector<uint16_t> combined(y_data.size());
         for (size_t i = 0; i < y_data.size(); ++i) {
-            uint32_t sum = static_cast<uint32_t>(y_data[i]) + static_cast<uint32_t>(c_data[i]);
-            combined[i] = static_cast<uint16_t>(std::min(sum, 65535u));
+            combined[i] = combine_yc_to_composite_sample(y_data[i], c_data[i]);
         }
         return combined;
     } else {
@@ -764,9 +772,7 @@ PreviewImage render_field_grayscale(
         
         field_data.resize(y_data.size());
         for (size_t i = 0; i < y_data.size(); ++i) {
-            // Simple addition for visualization (clamp to uint16_t range)
-            uint32_t sum = static_cast<uint32_t>(y_data[i]) + static_cast<uint32_t>(c_data[i]);
-            field_data[i] = static_cast<uint16_t>(std::min(sum, 65535u));
+            field_data[i] = combine_yc_to_composite_sample(y_data[i], c_data[i]);
         }
     } else {
         // Composite source or default - render normal field data

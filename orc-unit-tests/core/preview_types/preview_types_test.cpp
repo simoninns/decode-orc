@@ -17,6 +17,8 @@
 #include <climits>
 
 #include "../../../orc/view-types/orc_preview_types.h"
+#include "../../../orc/view-types/orc_preview_views.h"
+#include "../../../orc/view-types/orc_vectorscope.h"
 #include "../../../orc/core/include/stage_preview_capability.h"
 
 namespace orc_unit_test
@@ -576,6 +578,168 @@ TEST(IStagePreviewCapabilityTest, concreteImplementation_returnsExpectedItemCoun
     MockPreviewCapabilityStage stage{};
     auto cap = stage.get_preview_capability();
     EXPECT_EQ(cap.navigation_extent.item_count, 400u);
+}
+
+// =============================================================================
+// PreviewViewDataResult — is_valid() correctness
+// =============================================================================
+
+namespace {
+
+orc::PreviewImage make_valid_preview_image()
+{
+    orc::PreviewImage img{};
+    img.width = 1;
+    img.height = 1;
+    img.rgb_data = {0, 0, 0};
+    return img;
+}
+
+} // anonymous namespace
+
+TEST(PreviewViewDataResultTest, failedResult_isNotValid)
+{
+    orc::PreviewViewDataResult result{};
+    result.success = false;
+    EXPECT_FALSE(result.is_valid());
+}
+
+TEST(PreviewViewDataResultTest, successWithNoneKind_isNotValid)
+{
+    // A successful result with payload kind None has no useful payload.
+    orc::PreviewViewDataResult result{};
+    result.success = true;
+    result.payload_kind = orc::PreviewViewPayloadKind::None;
+    EXPECT_FALSE(result.is_valid());
+}
+
+TEST(PreviewViewDataResultTest, successWithImageKindAndValidImage_isValid)
+{
+    orc::PreviewViewDataResult result{};
+    result.success = true;
+    result.payload_kind = orc::PreviewViewPayloadKind::Image;
+    result.image = make_valid_preview_image();
+    EXPECT_TRUE(result.is_valid());
+}
+
+TEST(PreviewViewDataResultTest, successWithImageKindButEmptyImage_isNotValid)
+{
+    orc::PreviewViewDataResult result{};
+    result.success = true;
+    result.payload_kind = orc::PreviewViewPayloadKind::Image;
+    // image left as std::nullopt
+    EXPECT_FALSE(result.is_valid());
+}
+
+TEST(PreviewViewDataResultTest, successWithImageKindButInvalidImage_isNotValid)
+{
+    orc::PreviewImage bad_image{};
+    bad_image.width = 2;
+    bad_image.height = 2;
+    bad_image.rgb_data = {0, 0, 0};  // too small (needs 2*2*3 = 12 bytes)
+
+    orc::PreviewViewDataResult result{};
+    result.success = true;
+    result.payload_kind = orc::PreviewViewPayloadKind::Image;
+    result.image = bad_image;
+    EXPECT_FALSE(result.is_valid());
+}
+
+TEST(PreviewViewDataResultTest, successWithVectorscopeKindAndData_isValid)
+{
+    orc::VectorscopeData vs{};
+    vs.width = 1;
+    vs.height = 1;
+
+    orc::PreviewViewDataResult result{};
+    result.success = true;
+    result.payload_kind = orc::PreviewViewPayloadKind::Vectorscope;
+    result.vectorscope = vs;
+    EXPECT_TRUE(result.is_valid());
+}
+
+TEST(PreviewViewDataResultTest, successWithVectorscopeKindButNoData_isNotValid)
+{
+    orc::PreviewViewDataResult result{};
+    result.success = true;
+    result.payload_kind = orc::PreviewViewPayloadKind::Vectorscope;
+    // vectorscope left as std::nullopt
+    EXPECT_FALSE(result.is_valid());
+}
+
+// =============================================================================
+// LiveTweakableParameterView — view-types mirror of PreviewTweakableParameter
+// =============================================================================
+
+TEST(LiveTweakableParameterViewTest, displayPhaseClass_isPreserved)
+{
+    orc::LiveTweakableParameterView param;
+    param.parameter_name = "chroma_matrix";
+    param.tweak_class = orc::LiveTweakClass::DisplayPhase;
+    EXPECT_EQ(param.parameter_name, "chroma_matrix");
+    EXPECT_EQ(param.tweak_class, orc::LiveTweakClass::DisplayPhase);
+}
+
+TEST(LiveTweakableParameterViewTest, decodePhaseClass_isPreserved)
+{
+    orc::LiveTweakableParameterView param;
+    param.parameter_name = "chroma_gain";
+    param.tweak_class = orc::LiveTweakClass::DecodePhase;
+    EXPECT_EQ(param.parameter_name, "chroma_gain");
+    EXPECT_EQ(param.tweak_class, orc::LiveTweakClass::DecodePhase);
+}
+
+TEST(LiveTweakableParameterViewTest, displayPhaseAndDecodePhase_areDistinct)
+{
+    EXPECT_NE(orc::LiveTweakClass::DisplayPhase, orc::LiveTweakClass::DecodePhase);
+}
+
+TEST(LiveTweakableParameterViewTest, defaultTweakClass_isDecodePhase)
+{
+    orc::LiveTweakableParameterView param;
+    EXPECT_EQ(param.tweak_class, orc::LiveTweakClass::DecodePhase);
+}
+
+// =============================================================================
+// rgb_to_uv — inline chrominance conversion
+// =============================================================================
+
+TEST(RgbToUvTest, neutralGray_producesNearZeroChroma)
+{
+    // Equal R=G=B should have near-zero U and V components.
+    const auto sample = orc::rgb_to_uv(32768, 32768, 32768);
+    EXPECT_NEAR(sample.u, 0.0, 1.0);
+    EXPECT_NEAR(sample.v, 0.0, 1.0);
+}
+
+TEST(RgbToUvTest, fullBlue_producesPositiveU)
+{
+    // Pure blue should have positive U (Cb) according to BT.601.
+    const auto sample = orc::rgb_to_uv(0, 0, 65535);
+    EXPECT_GT(sample.u, 0.0);
+}
+
+TEST(RgbToUvTest, fullRed_producesPositiveV)
+{
+    // Pure red should have positive V (Cr) according to BT.601.
+    const auto sample = orc::rgb_to_uv(65535, 0, 0);
+    EXPECT_GT(sample.v, 0.0);
+}
+
+TEST(RgbToUvTest, outputIsInSignedRange)
+{
+    // U and V values should be in approximately [-32768, +32768] range.
+    const auto sample = orc::rgb_to_uv(65535, 0, 0);
+    EXPECT_GE(sample.u, -32768.0);
+    EXPECT_LE(sample.u,  32768.0);
+    EXPECT_GE(sample.v, -32768.0);
+    EXPECT_LE(sample.v,  32768.0);
+}
+
+TEST(RgbToUvTest, fieldIdDefaultsToZero)
+{
+    const auto sample = orc::rgb_to_uv(0, 0, 0);
+    EXPECT_EQ(sample.field_id, 0u);
 }
 
 } // namespace orc_unit_test

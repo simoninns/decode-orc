@@ -59,13 +59,13 @@ namespace orc {
  * Supported Decoders:
  * - PAL: pal2d, transform2d, transform3d
  * - NTSC: ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt
- * - Other: mono, auto
+ * - Other: mono
  * 
  * This sink supports preview - it decodes fields on-demand for GUI visualization.
  * 
  * Parameters:
  * - output_path: Output file path for video
- * - decoder_type: Which decoder to use (auto, pal2d, ntsc2d, etc.)
+ * - decoder_type: Which decoder to use (pal2d, ntsc2d, etc.)
  * - output_format: Output format (rgb, yuv, y4m, mp4-h264, mkv-ffv1)
  * - chroma_gain: Chroma gain factor (0.0-10.0, default 1.0)
  * - chroma_phase: Chroma phase rotation in degrees (-180 to 180, default 0)

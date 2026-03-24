@@ -96,7 +96,7 @@ bool apply_decoder_safe_video_parameters(
 
 ChromaSinkStage::ChromaSinkStage()
     : output_path_("")
-    , decoder_type_("auto")
+    , decoder_type_("ntsc2d")
     , output_format_("rgb")
     , chroma_gain_(1.0)
     , chroma_phase_(0.0)
@@ -171,18 +171,22 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
 {
     // Determine available decoder types based on project video format
     std::vector<std::string> decoder_options;
+    std::string decoder_default = "ntsc2d";
     
     if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+        decoder_options = {"pal2d", "transform2d", "transform3d", "mono"};
+        decoder_default = "pal2d";
     } else if (project_format == VideoSystem::NTSC) {
-        decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_options = {"ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_default = "ntsc2d";
     } else {
         // Unknown system - show all options
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_options = {"pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_default = "ntsc2d";
     }
     
     std::string decoder_description =
-        "Chroma decoder to use: auto, pal2d, transform2d, transform3d, ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt, mono";
+        "Chroma decoder to use: pal2d, transform2d, transform3d, ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt, mono";
     if (source_type == SourceType::YC) {
         decoder_description += "\n"
                                "YC sources: transform2d/transform3d are not compatible and will fall back to pal2d.";
@@ -202,7 +206,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Decoder Type",
             decoder_description,
             ParameterType::STRING,
-            {{}, {}, {}, decoder_options, false, std::nullopt}
+            {{}, {}, decoder_default, decoder_options, false, std::nullopt}
         },
         ParameterDescriptor{
             "output_format",
@@ -446,6 +450,10 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "decoder_type") {
             if (std::holds_alternative<std::string>(value)) {
                 auto new_val = std::get<std::string>(value);
+                if (new_val == "auto") {
+                    ORC_LOG_WARN("ChromaSink: decoder_type 'auto' is no longer supported (loaded from old project). Migrating to 'ntsc2d'.");
+                    new_val = "ntsc2d";
+                }
                 if (new_val != decoder_type_) {
                     ORC_LOG_DEBUG("ChromaSink: decoder_type changed from '{}' to '{}'", decoder_type_, new_val);
                     decoder_type_ = new_val;
@@ -710,10 +718,8 @@ bool ChromaSinkStage::trigger(
     const bool is_yc_source = vfr->has_separate_channels();
     
     bool useMonoDecoder = (decoder_type_ == "mono");
-    bool usePalDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::PAL) ||
-                         (decoder_type_ == "pal2d" || decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
-    bool useNtscDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::NTSC) ||
-                          (decoder_type_.find("ntsc") == 0);
+    bool usePalDecoder = (decoder_type_ == "pal2d" || decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
+    bool useNtscDecoder = (decoder_type_.find("ntsc") == 0);
 
     std::string parameter_error;
     const auto decoder_profile = decoder_video_profile_for_type(decoder_type_, videoParams.system);
@@ -738,7 +744,7 @@ bool ChromaSinkStage::trigger(
         if (is_yc_source && isTransformFilter) {
             ORC_LOG_ERROR("ChromaSink: Transform PAL filters (transform2d/transform3d) are not compatible with YC sources.");
             ORC_LOG_ERROR("ChromaSink: YC sources have already-separated Y and C channels and do not need frequency-domain filtering.");
-            ORC_LOG_ERROR("ChromaSink: Please use 'pal2d', 'auto', or 'mono' decoder instead.");
+            ORC_LOG_ERROR("ChromaSink: Please use 'pal2d' or 'mono' decoder instead.");
             ORC_LOG_ERROR("ChromaSink: Falling back to 'pal2d' decoder for YC source.");
             // Override to pal2d for YC sources
             decoder_type_ = "pal2d";
@@ -760,10 +766,10 @@ bool ChromaSinkStage::trigger(
         } else if (decoder_type_ == "transform2d") {
             config.chromaFilter = PalColour::transform2DFilter;
             filterName = "transform2d";
-        } else if (decoder_type_ == "pal2d" || decoder_type_ == "auto") {
+        } else if (decoder_type_ == "pal2d") {
             // pal2d uses the basic PAL colour filter (default)
             config.chromaFilter = PalColour::palColourFilter;
-            filterName = decoder_type_ == "auto" ? "pal2d (auto)" : "pal2d";
+            filterName = "pal2d";
         } else {
             config.chromaFilter = PalColour::palColourFilter;
             filterName = "pal2d (default)";
@@ -801,7 +807,7 @@ bool ChromaSinkStage::trigger(
         } else {
             config.dimensions = 2;
             config.adaptive = false;
-            decoderName = decoder_type_ == "auto" ? "ntsc2d (auto)" : "ntsc2d";
+            decoderName = "ntsc2d";
         }
         
         ntscDecoder = std::make_unique<Comb>();
@@ -1821,13 +1827,6 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
     int32_t num_lookahead_fields = 0;
 
     std::string temp_decoder_type = decoder_type_;
-    if (temp_decoder_type == "auto") {
-        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
-            temp_decoder_type = "transform2d";
-        } else {
-            temp_decoder_type = "ntsc2d";
-        }
-    }
     const bool will_use_3d = (temp_decoder_type == "transform3d" || temp_decoder_type == "ntsc3d" || temp_decoder_type == "ntsc3dnoadapt");
 
     if (will_use_3d) {
@@ -1877,13 +1876,6 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
     }
 
     std::string effectiveDecoderType = decoder_type_;
-    if (effectiveDecoderType == "auto") {
-        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
-            effectiveDecoderType = "transform2d";
-        } else {
-            effectiveDecoderType = "ntsc2d";
-        }
-    }
 
     if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_,
                                                 chroma_phase_, luma_nr_, chroma_nr_,

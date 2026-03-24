@@ -54,6 +54,7 @@ orc_add_core_unit_tests(
         stages/chroma_sink/componentframe_test.cpp
         stages/chroma_sink/chroma_sink_stage_defaults_test.cpp
         stages/chroma_sink/chroma_sink_stage_safety_test.cpp
+        stages/chroma_sink/chroma_sink_tweak_panel_test.cpp
         stages/chroma_sink/comb_test.cpp
         stages/chroma_sink/ffmpeg_video_sink_stage_test.cpp
         stages/chroma_sink/monodecoder_test.cpp
@@ -83,3 +84,13 @@ orc_add_core_unit_tests(
         contracts/stage_registry_contract_test.cpp
         contracts/project_to_dag_contract_test.cpp
 )
+
+        orc_add_core_unit_tests(
+                orc-core-unit-tests-preview-foundation
+                "unit;preview"
+
+                preview_types/preview_types_test.cpp
+                preview_types/preview_carrier_conversion_test.cpp
+                preview_types/preview_view_registry_test.cpp
+                preview_types/preview_helpers_yc_combine_test.cpp
+        )

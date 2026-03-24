@@ -35,6 +35,7 @@
 #include <node_id.h>
 #include <common_types.h>  // For PreviewOutputType, AspectRatioMode
 #include <orc_rendering.h>  // For public API types (DropoutRegion, PreviewImage)
+#include "stage_preview_capability.h"
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
 #include "../analysis/vectorscope/vectorscope_data.h"
 #include <memory>
@@ -368,7 +369,8 @@ public:
         PreviewOutputType type,
         uint64_t index,
         const std::string& filename,
-        const std::string& option_id = ""
+        const std::string& option_id = "",
+        double aspect_correction = 1.0
     );
     
     /**
@@ -450,6 +452,26 @@ private:
     // ========================================================================
     // Stage preview support (new interface for sources/transforms)
     // ========================================================================
+
+    /**
+     * @brief Build preview output metadata from StagePreviewCapability.
+     */
+    std::vector<PreviewOutputInfo> get_capability_preview_outputs(
+        const NodeID& stage_node_id,
+        const StagePreviewCapability& capability
+    );
+
+    /**
+     * @brief Render a frame through the colour-carrier provider path.
+     */
+    PreviewRenderResult render_colour_carrier_preview(
+        const NodeID& stage_node_id,
+        const class IColourPreviewProvider& provider,
+        const StagePreviewCapability& capability,
+        PreviewOutputType type,
+        uint64_t index,
+        PreviewNavigationHint hint = PreviewNavigationHint::Random
+    );
     
     /**
      * @brief Get available outputs for a previewable stage (source/transform)

@@ -13,22 +13,35 @@
 #include <QDialog>
 #include <QSlider>
 #include <QSpinBox>
+#include <QDoubleSpinBox>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QFormLayout>
+#include <QScrollArea>
 #include <QTimer>
 #include <QLabel>
-#include <QComboBox>
 #include <QPushButton>
 #include <QMenuBar>
 #include <QStatusBar>
 #include <QVBoxLayout>
 #include <QString>
 #include <vector>
+#include <map>
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
+#include <node_id.h>
+#include <orc_preview_types.h>
+#include <orc_preview_views.h>
+#include <orc_vectorscope.h>
+#include <parameter_types.h>
 #include "presenters/include/hints_view_models.h"  // For VideoParametersView
 
 class FieldPreviewWidget;
 class LineScopeDialog;
 class FieldTimingDialog;
+class VectorscopeDialog;
 
 /**
  * @brief Separate dialog window for previewing field/frame outputs from DAG nodes
@@ -78,6 +91,46 @@ public:
      * @param node_id Node identifier string
      */
     void setCurrentNode(const QString& node_label, const QString& node_id);
+
+    /**
+     * @brief Set the current node used by preview-owned supplementary views.
+     */
+    void setCurrentNodeId(orc::NodeID node_id);
+
+    /**
+     * @brief Update view launcher availability using presenter/registry descriptors.
+     */
+    void setAvailablePreviewViews(const std::vector<orc::PreviewViewDescriptor>& views);
+
+    /**
+     * @brief Check whether a registry view is currently available for this node.
+     */
+    bool hasAvailablePreviewView(const std::string& view_id) const;
+
+    /**
+     * @brief Set and broadcast the shared preview coordinate for supplementary tools.
+     */
+    void setSharedPreviewCoordinate(const orc::PreviewCoordinate& coordinate);
+
+    /**
+     * @brief Read the currently shared coordinate used by supplementary tools.
+     */
+    const std::optional<orc::PreviewCoordinate>& sharedPreviewCoordinate() const { return shared_preview_coordinate_; }
+
+    /**
+     * @brief Show vectorscope dialog owned by the preview subsystem.
+     */
+    void showVectorscopeForNode(orc::NodeID node_id);
+
+    /**
+     * @brief Update vectorscope dialog content for the given node.
+     */
+    void updateVectorscope(orc::NodeID node_id, const std::optional<orc::VectorscopeData>& data);
+
+    /**
+     * @brief Check if vectorscope is visible for node.
+     */
+    bool isVectorscopeVisibleForNode(orc::NodeID node_id) const;
     
     /**
      * @brief Show line scope dialog with sample data
@@ -154,6 +207,34 @@ public:
      */
     void setIndex(int zero_based);
 
+    // -------------------------------------------------------------------------
+    // Live Preview Tweak Panel (Phase 6)
+    // -------------------------------------------------------------------------
+
+    /**
+     * @brief Populate (or clear) the live-tweak parameter panel.
+     *
+     * Called by MainWindow after a node change when tweakable parameters are
+     * available.  Pass empty vectors to clear/hide the panel.
+     *
+     * @param node_id       Node whose stage the tweaks target.
+     * @param tweakable     Tweakable parameter view-models from the coordinator.
+     * @param descriptors   Full ParameterDescriptors for building widgets.
+      * @param display_values Current live stage parameter values to initialise widgets.
+            * @param has_unsaved_changes Whether this stage currently has unwritten live tweaks.
+     */
+    void setTweakableParameters(
+        orc::NodeID node_id,
+        const std::vector<orc::LiveTweakableParameterView>& tweakable,
+        const std::vector<orc::ParameterDescriptor>& descriptors,
+                    const std::map<std::string, orc::ParameterValue>& display_values,
+                    bool has_unsaved_changes);
+
+        /**
+         * @brief Update the explicit unsaved state for the currently displayed tweak stage.
+         */
+        void setLiveTweaksDirty(bool has_unsaved_changes);
+
 Q_SIGNALS:
     /**
      * Emitted whenever the current index changes (every navigate/scrub).
@@ -182,9 +263,45 @@ Q_SIGNALS:
     void sampleMarkerMovedInLineScope(int sample_x);  // Emitted when sample marker moves in line scope
     void previewFrameChanged();  // Emitted when preview frame/output type changes - tells line scope to refresh at current position
     void fieldTimingRequested();  // Emitted when user requests field timing view
+    void vectorscopeRequested(const orc::PreviewCoordinate& coordinate);  // Emitted when vectorscope should refresh via presenter contract
+    void previewCoordinateChanged(const orc::PreviewCoordinate& coordinate);  // Emitted whenever shared coordinate changes
+
+    /**
+     * @brief Emitted when the user changes a live-tweak widget.
+     *
+     * Carries all current tweak-panel parameter values and the cost class of
+     * the parameter that was just changed.  MainWindow routes this to
+     * RenderCoordinator::requestApplyStageParameters().
+     */
+    void tweakParameterChanged(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params,
+        orc::LiveTweakClass tweak_class);
+
+    /**
+     * @brief User requested reverting live tweaks to persisted stage parameters.
+     */
+    void resetLiveTweaksRequested(orc::NodeID node_id);
+
+    /**
+     * @brief User requested writing current tweak values back to stage parameters.
+     */
+    void writeLiveTweaksRequested(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params);
+
+    /**
+     * @brief Emitted when the live tweaks dialog is closed without writing.
+     * MainWindow should discard all applied tweaks for all stages.
+     */
+    void allLiveTweaksDismissed();
 
 private slots:
     void onSampleMarkerMoved(int sample_x);
+    void onVectorscopeActionTriggered();
+    void onShowLiveTweaksToggled(bool checked);
+    void onResetLiveTweaksClicked();
+    void onWriteLiveTweaksClicked();
 
 private:
     void setupUI();
@@ -207,8 +324,15 @@ private:
     QAction* show_quality_metrics_action_;
     QAction* show_ntsc_observer_action_;
     QAction* show_field_timing_action_;
+    QAction* show_vectorscope_action_;
+    QAction* show_live_tweaks_action_;
     LineScopeDialog* line_scope_dialog_;
     FieldTimingDialog* field_timing_dialog_;
+    VectorscopeDialog* vectorscope_dialog_{nullptr};
+    orc::NodeID vectorscope_node_id_;
+    orc::NodeID current_node_id_;
+    std::optional<orc::PreviewCoordinate> shared_preview_coordinate_;
+    std::unordered_set<std::string> available_preview_view_ids_;
     
     // Current line scope context for cross-hair updates
     int current_line_scope_line_ = -1;  // Image Y coordinate of current line being scoped
@@ -224,6 +348,38 @@ private:
     QPushButton* zoom1to1_button_;
     QPushButton* dropouts_button_;
     QSpinBox* frame_jump_spinbox_;
+
+    // Live preview tweak panel (Phase 6)
+    struct TweakWidgetEntry {
+        orc::ParameterType        type;
+        QWidget*                  widget{nullptr};
+        orc::LiveTweakClass       tweak_class{orc::LiveTweakClass::DecodePhase};
+    };
+
+    QDialog*      live_tweaks_dialog_{nullptr};
+    QWidget*      tweak_panel_content_{nullptr};
+    QScrollArea*  tweak_panel_scroll_{nullptr};
+    QPushButton*  tweak_reset_button_{nullptr};
+    QPushButton*  tweak_write_button_{nullptr};
+    QFormLayout*  tweak_form_layout_{nullptr};
+    QTimer*       tweak_debounce_timer_{nullptr};
+    orc::NodeID   tweak_node_id_;
+    bool          tweak_unsaved_changes_{false};
+    std::map<std::string, TweakWidgetEntry> tweak_widgets_;
+
+    void buildTweakPanel(
+        const std::vector<orc::LiveTweakableParameterView>& tweakable,
+        const std::vector<orc::ParameterDescriptor>& descriptors,
+        const std::map<std::string, orc::ParameterValue>& current_values);
+    void clearTweakPanel();
+    void updateLiveTweaksWindowTitle();
+    std::map<std::string, orc::ParameterValue> collectTweakValues() const;
+    orc::LiveTweakClass dominantTweakClass(const std::string& changed_param_name) const;
+
+    void closeVectorscopeDialogs();
+
+protected:
+    void closeEvent(QCloseEvent* event) override;
 };
 
 #endif // PREVIEWDIALOG_H

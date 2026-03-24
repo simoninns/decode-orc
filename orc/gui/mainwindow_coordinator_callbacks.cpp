@@ -38,7 +38,6 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     if (result.success) {
         // Use public API image directly - no conversion needed
         preview_dialog_->previewWidget()->setImage(result.image);
-        updateVectorscope(result);
     } else {
         preview_dialog_->previewWidget()->clearImage();
         statusBar()->showMessage(
@@ -61,7 +60,13 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
         ORC_LOG_DEBUG("Render queue clear - re-rendering for latest position: {} (just rendered {})",
                       preview_dialog_->currentIndex(), rendered_index);
         updateAllPreviewComponents();
+        return;
     }
+
+    // Keep shared coordinate in sync with the currently displayed preview before
+    // requesting vectorscope data for this settled frame/field.
+    preview_dialog_->setSharedPreviewCoordinate(buildCurrentPreviewCoordinate());
+    refreshVectorscopeForCurrentCoordinate();
 }
 
 void MainWindow::onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info)
@@ -206,6 +211,7 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
         node_label = QString::fromStdString(current_view_node_id_.to_string());
     }
     preview_dialog_->setCurrentNode(node_label, QString::fromStdString(current_view_node_id_.to_string()));
+    preview_dialog_->setCurrentNodeId(current_view_node_id_);
     
     // Update status bar to show which stage is being viewed
     QString node_display = QString::fromStdString(current_view_node_id_.to_string());
@@ -214,6 +220,7 @@ void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::P
     // Update UI controls
     updatePreviewModeCombo();
     refreshViewerControls();
+    refreshPreviewViewAvailability();
     updateUIState();
 
     // If line scope is visible, refresh it after outputs and controls are updated

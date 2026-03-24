@@ -13,6 +13,7 @@
 #include "logging.h"
 #include "preview_renderer.h"
 #include "preview_helpers.h"
+#include "colour_preview_conversion.h"
 
 // Decoder includes (relative to this file)
 #include "decoders/sourcefield.h"
@@ -95,7 +96,7 @@ bool apply_decoder_safe_video_parameters(
 
 ChromaSinkStage::ChromaSinkStage()
     : output_path_("")
-    , decoder_type_("auto")
+    , decoder_type_("ntsc2d")
     , output_format_("rgb")
     , chroma_gain_(1.0)
     , chroma_phase_(0.0)
@@ -170,18 +171,22 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
 {
     // Determine available decoder types based on project video format
     std::vector<std::string> decoder_options;
+    std::string decoder_default = "ntsc2d";
     
     if (project_format == VideoSystem::PAL || project_format == VideoSystem::PAL_M) {
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "mono"};
+        decoder_options = {"pal2d", "transform2d", "transform3d", "mono"};
+        decoder_default = "pal2d";
     } else if (project_format == VideoSystem::NTSC) {
-        decoder_options = {"auto", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_options = {"ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_default = "ntsc2d";
     } else {
         // Unknown system - show all options
-        decoder_options = {"auto", "pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_options = {"pal2d", "transform2d", "transform3d", "ntsc1d", "ntsc2d", "ntsc3d", "ntsc3dnoadapt", "mono"};
+        decoder_default = "ntsc2d";
     }
     
     std::string decoder_description =
-        "Chroma decoder to use: auto, pal2d, transform2d, transform3d, ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt, mono";
+        "Chroma decoder to use: pal2d, transform2d, transform3d, ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt, mono";
     if (source_type == SourceType::YC) {
         decoder_description += "\n"
                                "YC sources: transform2d/transform3d are not compatible and will fall back to pal2d.";
@@ -201,7 +206,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(Vide
             "Decoder Type",
             decoder_description,
             ParameterType::STRING,
-            {{}, {}, {}, decoder_options, false, std::nullopt}
+            {{}, {}, decoder_default, decoder_options, false, std::nullopt}
         },
         ParameterDescriptor{
             "output_format",
@@ -445,6 +450,10 @@ bool ChromaSinkStage::set_parameters(const std::map<std::string, ParameterValue>
         } else if (key == "decoder_type") {
             if (std::holds_alternative<std::string>(value)) {
                 auto new_val = std::get<std::string>(value);
+                if (new_val == "auto") {
+                    ORC_LOG_WARN("ChromaSink: decoder_type 'auto' is no longer supported (loaded from old project). Migrating to 'ntsc2d'.");
+                    new_val = "ntsc2d";
+                }
                 if (new_val != decoder_type_) {
                     ORC_LOG_DEBUG("ChromaSink: decoder_type changed from '{}' to '{}'", decoder_type_, new_val);
                     decoder_type_ = new_val;
@@ -709,10 +718,8 @@ bool ChromaSinkStage::trigger(
     const bool is_yc_source = vfr->has_separate_channels();
     
     bool useMonoDecoder = (decoder_type_ == "mono");
-    bool usePalDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::PAL) ||
-                         (decoder_type_ == "pal2d" || decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
-    bool useNtscDecoder = (decoder_type_ == "auto" && videoParams.system == orc::VideoSystem::NTSC) ||
-                          (decoder_type_.find("ntsc") == 0);
+    bool usePalDecoder = (decoder_type_ == "pal2d" || decoder_type_ == "transform2d" || decoder_type_ == "transform3d");
+    bool useNtscDecoder = (decoder_type_.find("ntsc") == 0);
 
     std::string parameter_error;
     const auto decoder_profile = decoder_video_profile_for_type(decoder_type_, videoParams.system);
@@ -737,7 +744,7 @@ bool ChromaSinkStage::trigger(
         if (is_yc_source && isTransformFilter) {
             ORC_LOG_ERROR("ChromaSink: Transform PAL filters (transform2d/transform3d) are not compatible with YC sources.");
             ORC_LOG_ERROR("ChromaSink: YC sources have already-separated Y and C channels and do not need frequency-domain filtering.");
-            ORC_LOG_ERROR("ChromaSink: Please use 'pal2d', 'auto', or 'mono' decoder instead.");
+            ORC_LOG_ERROR("ChromaSink: Please use 'pal2d' or 'mono' decoder instead.");
             ORC_LOG_ERROR("ChromaSink: Falling back to 'pal2d' decoder for YC source.");
             // Override to pal2d for YC sources
             decoder_type_ = "pal2d";
@@ -759,10 +766,10 @@ bool ChromaSinkStage::trigger(
         } else if (decoder_type_ == "transform2d") {
             config.chromaFilter = PalColour::transform2DFilter;
             filterName = "transform2d";
-        } else if (decoder_type_ == "pal2d" || decoder_type_ == "auto") {
+        } else if (decoder_type_ == "pal2d") {
             // pal2d uses the basic PAL colour filter (default)
             config.chromaFilter = PalColour::palColourFilter;
-            filterName = decoder_type_ == "auto" ? "pal2d (auto)" : "pal2d";
+            filterName = "pal2d";
         } else {
             config.chromaFilter = PalColour::palColourFilter;
             filterName = "pal2d (default)";
@@ -800,7 +807,7 @@ bool ChromaSinkStage::trigger(
         } else {
             config.dimensions = 2;
             config.adaptive = false;
-            decoderName = decoder_type_ == "auto" ? "ntsc2d (auto)" : "ntsc2d";
+            decoderName = "ntsc2d";
         }
         
         ntscDecoder = std::make_unique<Comb>();
@@ -1673,105 +1680,185 @@ std::vector<PreviewOption> ChromaSinkStage::get_preview_options() const
 PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint64_t index,
                                             PreviewNavigationHint hint [[maybe_unused]]) const
 {
-    PreviewImage result{};
-    
-    ORC_LOG_DEBUG("ChromaSink: render_preview called on instance {} for frame {}, has_cached_input={}", 
-                  static_cast<const void*>(this), index, (cached_input_ != nullptr));
-    
-    // Make a local copy of cached_input_ to avoid race conditions
+    if (option_id != "frame") {
+        return PreviewImage{};
+    }
+
+    auto carrier_opt = get_colour_preview_carrier(index, hint);
+    if (!carrier_opt.has_value()) {
+        return PreviewImage{};
+    }
+
+    auto result = render_preview_from_colour_carrier(*carrier_opt);
+    result.vectorscope_data = carrier_opt->vectorscope_data;
+    return result;
+}
+
+StagePreviewCapability ChromaSinkStage::get_preview_capability() const
+{
+    StagePreviewCapability capability{};
+
+    // Declare live-tweakable parameters independent of loaded preview data so
+    // the GUI can build the tweak panel as soon as the node is selected.
+    auto add_decode_tweaks = [&capability](std::optional<bool> is_pal_opt) {
+        capability.tweakable_parameters.push_back({"decoder_type", PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"chroma_gain",  PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"chroma_phase", PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"luma_nr",      PreviewTweakClass::DecodePhase});
+        capability.tweakable_parameters.push_back({"chroma_nr",    PreviewTweakClass::DecodePhase});
+
+        // If system is not known yet, include both sets; descriptor filtering
+        // in the GUI removes keys not valid for the current project format.
+        if (!is_pal_opt.has_value() || is_pal_opt.value()) {
+            capability.tweakable_parameters.push_back({"simple_pal",          PreviewTweakClass::DecodePhase});
+            capability.tweakable_parameters.push_back({"transform_threshold", PreviewTweakClass::DecodePhase});
+        }
+        if (!is_pal_opt.has_value() || !is_pal_opt.value()) {
+            capability.tweakable_parameters.push_back({"ntsc_phase_comp", PreviewTweakClass::DecodePhase});
+            capability.tweakable_parameters.push_back({"chroma_weight",   PreviewTweakClass::DecodePhase});
+            capability.tweakable_parameters.push_back({"adapt_threshold", PreviewTweakClass::DecodePhase});
+        }
+    };
+
     std::shared_ptr<const VideoFieldRepresentation> local_input;
     {
         std::lock_guard<std::mutex> lock(cached_input_mutex_);
         local_input = cached_input_;
     }
-    
-    if (!local_input || option_id != "frame") {
-        ORC_LOG_WARN("ChromaSink: Invalid preview request (cached_input={}, option='{}')", 
-                     local_input ? "valid" : "null", option_id);
-        return result;
+
+    if (!local_input) {
+        add_decode_tweaks(std::nullopt);
+        return capability;
     }
-    
-    // Get video parameters
+
     auto video_params_opt = local_input->get_video_parameters();
     if (!video_params_opt) {
-        return result;
+        add_decode_tweaks(std::nullopt);
+        return capability;
+    }
+
+    const auto& video_params = *video_params_opt;
+    const bool is_pal = (video_params.system == VideoSystem::PAL || video_params.system == VideoSystem::PAL_M);
+
+    capability.supported_data_types.push_back(is_pal ? VideoDataType::ColourPAL : VideoDataType::ColourNTSC);
+    capability.supported_data_types.push_back(local_input->has_separate_channels()
+        ? (is_pal ? VideoDataType::YC_PAL : VideoDataType::YC_NTSC)
+        : (is_pal ? VideoDataType::CompositePAL : VideoDataType::CompositeNTSC));
+
+    const uint64_t field_count = local_input->field_count();
+    capability.navigation_extent.item_count = field_count / 2;
+    capability.navigation_extent.granularity = 1;
+    capability.navigation_extent.item_label = "frame";
+
+    // Keep capability geometry aligned with legacy VFR preview sizing so
+    // 4:3 mode remains consistent when switching between signal-domain and
+    // colour-domain preview paths.
+    capability.geometry.active_width = 702;
+    capability.geometry.active_height = 576;
+    if (video_params.active_video_start >= 0 && video_params.active_video_end > video_params.active_video_start) {
+        capability.geometry.active_width =
+            static_cast<uint32_t>(video_params.active_video_end - video_params.active_video_start);
+    }
+    if (video_params.first_active_frame_line >= 0 && video_params.last_active_frame_line > video_params.first_active_frame_line) {
+        capability.geometry.active_height =
+            static_cast<uint32_t>(video_params.last_active_frame_line - video_params.first_active_frame_line);
+    }
+
+    if (capability.geometry.active_height == 0) {
+        capability.geometry.active_height = is_pal ? 576u : 486u;
+    }
+
+    capability.geometry.display_aspect_ratio = 4.0 / 3.0;
+    
+    // Match DAR correction math used by PreviewHelpers/get_preview_options().
+    double active_ratio = static_cast<double>(capability.geometry.active_width) / 
+                         static_cast<double>(capability.geometry.active_height);
+    double target_ratio = 4.0 / 3.0;
+    capability.geometry.dar_correction_factor = target_ratio / active_ratio;
+
+    // Declare live-tweakable parameters (DecodePhase: affect the chroma decoder).
+    // Output/file parameters (output_path, output_format, encoder_*) are
+    // intentionally excluded from this list.
+    add_decode_tweaks(is_pal);
+
+    return capability;
+}
+
+std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
+    uint64_t index,
+    PreviewNavigationHint hint [[maybe_unused]]) const
+{
+    ORC_LOG_DEBUG("ChromaSink: get_colour_preview_carrier called on instance {} for frame {}, has_cached_input={}",
+                  static_cast<const void*>(this), index, (cached_input_ != nullptr));
+
+    std::shared_ptr<const VideoFieldRepresentation> local_input;
+    {
+        std::lock_guard<std::mutex> lock(cached_input_mutex_);
+        local_input = cached_input_;
+    }
+
+    if (!local_input) {
+        return std::nullopt;
+    }
+
+    auto video_params_opt = local_input->get_video_parameters();
+    if (!video_params_opt) {
+        return std::nullopt;
     }
     const SourceParameters& videoParams = *video_params_opt;
     SourceParameters safeVideoParams = videoParams;
-    
+
     const auto preview_profile = decoder_video_profile_for_type(decoder_type_, safeVideoParams.system);
     if (!apply_decoder_safe_video_parameters(safeVideoParams, preview_profile, "ChromaSink preview")) {
-        return result;
+        return std::nullopt;
     }
 
-    // Calculate first field offset
     uint64_t first_field_offset = 0;
     auto parity_hint = local_input->get_field_parity_hint(FieldID(0));
     if (parity_hint.has_value() && !parity_hint->is_first_field) {
         first_field_offset = 1;
     }
-    
-    // Get the two fields for this frame
+
     uint64_t field_a_index = first_field_offset + (index * 2);
     uint64_t field_b_index = field_a_index + 1;
-    
-    // For 3D decoding, we also need look-behind and look-ahead frames
-    // Extract up to 10 fields (5 frames: -2, -1, 0, 1, 2) for 3D filtering support
+
     std::vector<SourceField> inputFields;
-    
-    // Determine how many fields to extract based on decoder type
     int32_t num_lookbehind_fields = 0;
     int32_t num_lookahead_fields = 0;
-    
-    // Check if we'll use 3D mode (will be determined below after checking decoder type)
+
     std::string temp_decoder_type = decoder_type_;
-    if (temp_decoder_type == "auto") {
-        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
-            temp_decoder_type = "transform2d";
-        } else {
-            temp_decoder_type = "ntsc2d";
-        }
-    }
-    bool will_use_3d = (temp_decoder_type == "transform3d" || temp_decoder_type == "ntsc3d" || temp_decoder_type == "ntsc3dnoadapt");
-    
+    const bool will_use_3d = (temp_decoder_type == "transform3d" || temp_decoder_type == "ntsc3d" || temp_decoder_type == "ntsc3dnoadapt");
+
     if (will_use_3d) {
-        // For 3D decoding: need 4 fields back, 4 fields forward (for the current frame at index 0,1,2,3)
         num_lookbehind_fields = 4;
         num_lookahead_fields = 4;
     } else {
-        // For 2D decoding: need 1 field back, 1 field forward
         num_lookbehind_fields = 2;
         num_lookahead_fields = 2;
     }
-    
-    // Extract the field range
+
     int64_t start_field = static_cast<int64_t>(field_a_index) - num_lookbehind_fields;
     int64_t end_field = static_cast<int64_t>(field_b_index) + num_lookahead_fields;
-    
-    // Get video parameters for field metadata
+
     auto video_desc = local_input->get_descriptor(FieldID(0));
     if (!video_desc) {
-        return result;  // Can't get field descriptor
+        return std::nullopt;
     }
-    
-    // Determine if source is YC or composite from the VFR
-    bool is_yc_source = local_input->has_separate_channels();
-    
+
+    const bool is_yc_source = local_input->has_separate_channels();
+
     for (int64_t f = start_field; f <= end_field; ++f) {
         if (f >= 0 && local_input->has_field(FieldID(f))) {
             SourceField sf = convertToSourceField(local_input.get(), FieldID(f));
-            // Check if field has data (composite or YC)
-            bool has_data = sf.is_yc ? (!sf.luma_data.empty() && !sf.chroma_data.empty()) : !sf.data.empty();
+            const bool has_data = sf.is_yc ? (!sf.luma_data.empty() && !sf.chroma_data.empty()) : !sf.data.empty();
             if (has_data) {
                 inputFields.push_back(sf);
             }
         } else {
-            // For out-of-bounds indices (look-behind or look-ahead), create a blank field with proper metadata
             SourceField blank_field;
             blank_field.seq_no = static_cast<int32_t>(f) + 1;
-            blank_field.is_first_field = (f % 2 == 0);  // Even indices are first field
-            
-            // Create blank data for composite or YC as appropriate
+            blank_field.is_first_field = (f % 2 == 0);
+
             if (is_yc_source) {
                 blank_field.is_yc = true;
                 blank_field.luma_data.resize(video_desc->width * video_desc->height, 0);
@@ -1783,31 +1870,16 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             inputFields.push_back(blank_field);
         }
     }
-    
+
     if (inputFields.size() < 2) {
-        // Not enough fields even with blanks
-        return result;
+        return std::nullopt;
     }
 
-    
-    // Determine decoder type
     std::string effectiveDecoderType = decoder_type_;
-    if (effectiveDecoderType == "auto") {
-        if (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M) {
-            effectiveDecoderType = "transform2d";
-        } else {
-            effectiveDecoderType = "ntsc2d";
-        }
-    }
-    
-    ORC_LOG_DEBUG("ChromaSink: decoder_type_='{}', effectiveDecoderType='{}'", decoder_type_, effectiveDecoderType);
-    
-    // Check if cached decoder matches current configuration
-    if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_, 
+
+    if (!preview_decoder_cache_.matches_config(effectiveDecoderType, chroma_gain_,
                                                 chroma_phase_, luma_nr_, chroma_nr_,
                                                 ntsc_phase_comp_, simple_pal_, false, transform_threshold_, chroma_weight_, adapt_threshold_)) {
-        // Configuration changed - clear old decoders and create new ones
-        ORC_LOG_DEBUG("ChromaSink: Decoder config changed, recreating '{}' decoder", effectiveDecoderType);
         preview_decoder_cache_.mono_decoder.reset();
         preview_decoder_cache_.yc_mono_decoder.reset();
         preview_decoder_cache_.pal_decoder.reset();
@@ -1823,8 +1895,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         preview_decoder_cache_.transform_threshold = transform_threshold_;
         preview_decoder_cache_.chroma_weight = chroma_weight_;
         preview_decoder_cache_.adapt_threshold = adapt_threshold_;
-        
-        // Create appropriate decoder based on type
+
         if (effectiveDecoderType == "mono") {
             MonoDecoder::MonoConfiguration config;
             config.yNRLevel = luma_nr_;
@@ -1839,7 +1910,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             config.simplePAL = simple_pal_;
             config.transformThreshold = transform_threshold_;
             config.showFFTs = false;
-            
+
             if (effectiveDecoderType == "transform3d") {
                 config.chromaFilter = PalColour::transform3DFilter;
             } else if (effectiveDecoderType == "transform2d") {
@@ -1847,11 +1918,10 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             } else {
                 config.chromaFilter = PalColour::palColourFilter;
             }
-            
+
             preview_decoder_cache_.pal_decoder = std::make_unique<PalColour>();
             preview_decoder_cache_.pal_decoder->updateConfiguration(safeVideoParams, config);
         } else {
-            // NTSC decoders
             Comb::Configuration config;
             config.chromaGain = chroma_gain_;
             config.chromaPhase = chroma_phase_;
@@ -1861,7 +1931,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
             config.chromaWeight = chroma_weight_;
             config.adaptThreshold = adapt_threshold_;
             config.showMap = false;
-            
+
             if (effectiveDecoderType == "ntsc1d") {
                 config.dimensions = 1;
                 config.adaptive = false;
@@ -1875,7 +1945,7 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
                 config.dimensions = 2;
                 config.adaptive = false;
             }
-            
+
             preview_decoder_cache_.ntsc_decoder = std::make_unique<Comb>();
             preview_decoder_cache_.ntsc_decoder->updateConfiguration(safeVideoParams, config);
         }
@@ -1883,25 +1953,12 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         if (is_yc_source && effectiveDecoderType != "mono") {
             preview_decoder_cache_.yc_mono_decoder = create_yc_mono_decoder(safeVideoParams);
         }
-        ORC_LOG_DEBUG("ChromaSink: Created new '{}' decoder for preview", effectiveDecoderType);
-    } else {
-        ORC_LOG_DEBUG("ChromaSink: Reusing cached '{}' decoder", effectiveDecoderType);
     }
-    
-    // Decode the field range using cached decoder
-    // For 3D mode, we need to calculate the proper start/end indices based on the extracted fields
+
     std::vector<::ComponentFrame> outputFrames(1);
-    
-    // Calculate indices for the decoder:
-    // If we extracted lookbehind/lookahead, the target frame starts at a specific offset in the field array
-    int32_t frameStartIndex = num_lookbehind_fields;  // Offset to where the main frame starts
-    int32_t frameEndIndex = frameStartIndex + 2;      // We want to decode 2 fields (1 frame)
-    
-    // (Note: For 3D mode, we have look-behind and look-ahead frames which enable proper 3D filtering)
-    
-    auto decode_start = std::chrono::high_resolution_clock::now();
-    
-    std::string active_decoder = "none";
+    const int32_t frameStartIndex = num_lookbehind_fields;
+    const int32_t frameEndIndex = frameStartIndex + 2;
+
     if (preview_decoder_cache_.yc_mono_decoder) {
         std::vector<SourceField> ycYFields;
         std::vector<SourceField> ycCFields;
@@ -1930,148 +1987,71 @@ PreviewImage ChromaSinkStage::render_preview(const std::string& option_id, uint6
         preview_decoder_cache_.yc_mono_decoder->decodeFrames(ycYFields, frameStartIndex, frameEndIndex, yFrames);
 
         if (preview_decoder_cache_.pal_decoder) {
-            active_decoder = "yc+pal";
             preview_decoder_cache_.pal_decoder->decodeFrames(ycCFields, frameStartIndex, frameEndIndex, uvFrames);
         } else if (preview_decoder_cache_.ntsc_decoder) {
-            active_decoder = "yc+ntsc";
             preview_decoder_cache_.ntsc_decoder->decodeFrames(ycCFields, frameStartIndex, frameEndIndex, uvFrames);
         } else {
-            active_decoder = "yc+mono";
             uvFrames[0] = yFrames[0];
         }
 
         uvFrames[0].merge_luma_from(yFrames[0]);
-
-        // Temporary diagnostic: verify merged output Y matches mono-Y route exactly.
-        const auto& mergedY = *uvFrames[0].getY();
-        const auto& monoY = *yFrames[0].getY();
-        if (mergedY.size() == monoY.size() && !monoY.empty()) {
-            double max_abs_diff = 0.0;
-            double sum_abs_diff = 0.0;
-            for (size_t i = 0; i < monoY.size(); ++i) {
-                double diff = std::abs(mergedY[i] - monoY[i]);
-                max_abs_diff = std::max(max_abs_diff, diff);
-                sum_abs_diff += diff;
-            }
-            ORC_LOG_DEBUG(
-                "ChromaSink: YC preview merge check frame {} decoder='{}' Y abs diff max={:.6f} avg={:.6f}",
-                index,
-                active_decoder,
-                max_abs_diff,
-                sum_abs_diff / static_cast<double>(monoY.size())
-            );
-        }
-
         outputFrames[0] = std::move(uvFrames[0]);
     } else if (preview_decoder_cache_.mono_decoder) {
-        active_decoder = "mono";
         preview_decoder_cache_.mono_decoder->decodeFrames(inputFields, frameStartIndex, frameEndIndex, outputFrames);
     } else if (preview_decoder_cache_.pal_decoder) {
-        active_decoder = "pal";
         preview_decoder_cache_.pal_decoder->decodeFrames(inputFields, frameStartIndex, frameEndIndex, outputFrames);
     } else if (preview_decoder_cache_.ntsc_decoder) {
-        active_decoder = "ntsc";
         preview_decoder_cache_.ntsc_decoder->decodeFrames(inputFields, frameStartIndex, frameEndIndex, outputFrames);
     }
-    
-    auto decode_end = std::chrono::high_resolution_clock::now();
-    [[maybe_unused]] auto decode_ms = std::chrono::duration_cast<std::chrono::milliseconds>(decode_end - decode_start).count();
-    ORC_LOG_DEBUG("ChromaSink: Frame {} decoded using '{}' decoder in {} ms", index, active_decoder, decode_ms);
-    
-    // Extract vectorscope data from ComponentFrame before RGB conversion
+
     ::ComponentFrame& frame = outputFrames[0];
     int32_t width = frame.getWidth();
     int32_t height = frame.getHeight();
-    
-    if (width == 0 || height == 0) {
-        ORC_LOG_WARN("ChromaSink: Frame {} decode failed ({}x{})", index, width, height);
-        return result;
+    if (width <= 0 || height <= 0) {
+        return std::nullopt;
     }
-    
-    // Extract vectorscope data using native U/V channels (subsample=4 for preview performance)
-    result.vectorscope_data = VectorscopeAnalysisTool::extractFromComponentFrame(
-        frame,
-        field_a_index,
-        4  // subsample factor for preview
-    );
-    
-    // Attach video parameters for graticule rendering
-    if (result.vectorscope_data.has_value()) {
-        result.vectorscope_data->system = videoParams.system;
-        result.vectorscope_data->white_16b_ire = videoParams.white_16b_ire;
-        result.vectorscope_data->black_16b_ire = videoParams.black_16b_ire;
+
+    ColourFrameCarrier carrier{};
+    carrier.data_type = (videoParams.system == VideoSystem::PAL || videoParams.system == VideoSystem::PAL_M)
+        ? VideoDataType::ColourPAL
+        : VideoDataType::ColourNTSC;
+    carrier.colorimetry = (carrier.data_type == VideoDataType::ColourPAL)
+        ? ColorimetricMetadata::default_pal()
+        : ColorimetricMetadata::default_ntsc();
+    carrier.frame_index = index;
+    carrier.width = static_cast<uint32_t>(width);
+    carrier.height = static_cast<uint32_t>(height);
+    carrier.black_16b_ire = videoParams.black_16b_ire;
+    carrier.white_16b_ire = videoParams.white_16b_ire;
+
+    carrier.vectorscope_data = VectorscopeAnalysisTool::extractFromComponentFrame(frame, field_a_index, 4);
+    if (carrier.vectorscope_data.has_value()) {
+        carrier.vectorscope_data->system = videoParams.system;
+        carrier.vectorscope_data->white_16b_ire = videoParams.white_16b_ire;
+        carrier.vectorscope_data->black_16b_ire = videoParams.black_16b_ire;
     }
-    
-    ORC_LOG_DEBUG("ChromaSink: Converting frame {} ({}x{}) YUV->RGB", index, width, height);
-    
-    // Get IRE levels for proper scaling
-    double blackIRE = videoParams.black_16b_ire;
-    double whiteIRE = videoParams.white_16b_ire;
-    double ireRange = whiteIRE - blackIRE;
-    
-    // Create preview image
-    result.width = width;
-    result.height = height;
-    result.rgb_data.resize(width * height * 3);
-    std::vector<uint16_t> rgb16_data;
-    rgb16_data.resize(static_cast<size_t>(width) * static_cast<size_t>(height) * 3);
-    
-    // Convert YUV to RGB (16-bit for vectorscope, 8-bit for preview)
-    for (int32_t y = 0; y < height; y++) {
+
+    const size_t samples = static_cast<size_t>(width) * static_cast<size_t>(height);
+    carrier.y_plane.reserve(samples);
+    carrier.u_plane.reserve(samples);
+    carrier.v_plane.reserve(samples);
+
+    for (int32_t y = 0; y < height; ++y) {
         const double* yLine = frame.y(y);
         const double* uLine = frame.u(y);
         const double* vLine = frame.v(y);
-        
-        for (int32_t x = 0; x < width; x++) {
-            double Y = yLine[x];
-            double U = uLine[x];
-            double V = vLine[x];
-            
-            // Scale Y'UV to 0-1 (from IRE range)
-            const double yScale = 1.0 / ireRange;
-            const double uvScale = 1.0 / ireRange;
-            
-            Y = (Y - blackIRE) * yScale;
-            U = U * uvScale;
-            V = V * uvScale;
-            
-            // BT.601 YUV to RGB conversion
-            double R = Y + 1.402 * V;
-            double G = Y - 0.344136 * U - 0.714136 * V;
-            double B = Y + 1.772 * U;
-            
-            // Clamp to 0-1
-            R = std::max(0.0, std::min(1.0, R));
-            G = std::max(0.0, std::min(1.0, G));
-            B = std::max(0.0, std::min(1.0, B));
-
-            // 16-bit representation for analysis
-            const auto clamp_to_u16 = [](double value) {
-                double scaled = value * 65535.0 + 0.5;
-                if (scaled < 0.0) scaled = 0.0;
-                if (scaled > 65535.0) scaled = 65535.0;
-                return static_cast<uint16_t>(scaled);
-            };
-            uint16_t r16 = clamp_to_u16(R);
-            uint16_t g16 = clamp_to_u16(G);
-            uint16_t b16 = clamp_to_u16(B);
-            
-            size_t pixel_offset = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 3;
-            rgb16_data[pixel_offset + 0] = r16;
-            rgb16_data[pixel_offset + 1] = g16;
-            rgb16_data[pixel_offset + 2] = b16;
-            
-            // Downscale to 8-bit for preview display
-            result.rgb_data[pixel_offset + 0] = static_cast<uint8_t>(r16 / 257);
-            result.rgb_data[pixel_offset + 1] = static_cast<uint8_t>(g16 / 257);
-            result.rgb_data[pixel_offset + 2] = static_cast<uint8_t>(b16 / 257);
+        for (int32_t x = 0; x < width; ++x) {
+            carrier.y_plane.push_back(yLine[x]);
+            carrier.u_plane.push_back(uLine[x]);
+            carrier.v_plane.push_back(vLine[x]);
         }
     }
-    
-    // Vectorscope data was already extracted earlier from ComponentFrame native U/V
-    // (see extractFromComponentFrame call above, before RGB conversion)
-    
-    return result;
+
+    if (!carrier.is_valid()) {
+        return std::nullopt;
+    }
+
+    return carrier;
 }
 
 } // namespace orc

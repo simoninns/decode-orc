@@ -11,6 +11,7 @@
 
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 #include <cstdint>
 #include <functional>
@@ -18,8 +19,10 @@
 #include <node_id.h>
 #include <field_id.h>
 #include <orc_rendering.h>  // Public API rendering types
+#include <orc_preview_views.h>
 #include <orc_source_parameters.h>  // Public API SourceParameters
 #include <common_types.h>   // PreviewOutputType
+#include <parameter_types.h>  // ParameterValue
 #include "vbi_view_models.h"  // VBIFieldInfoView
 
 // Forward declare core types
@@ -195,7 +198,36 @@ public:
         orc::PreviewOutputType output_type,
         uint64_t output_index,
         const std::string& filename,
-        const std::string& option_id = ""
+        const std::string& option_id = "",
+        double aspect_correction = 1.0
+    );
+
+    /**
+     * @brief Get registry-driven preview views applicable to a node/data type.
+     */
+    std::vector<orc::PreviewViewDescriptor> getAvailablePreviewViews(
+        NodeID node_id,
+        orc::VideoDataType data_type
+    );
+
+    /**
+     * @brief Request preview-view data via the Phase 3 registry contract.
+     */
+    orc::PreviewViewDataResult requestPreviewViewData(
+        NodeID node_id,
+        const std::string& view_id,
+        orc::VideoDataType data_type,
+        const orc::PreviewCoordinate& coordinate
+    );
+
+    /**
+     * @brief Export the most recently requested data for a preview view.
+     */
+    orc::PreviewViewExportResult exportPreviewViewData(
+        NodeID node_id,
+        const std::string& view_id,
+        const std::string& format,
+        const std::string& path
     );
     
     // === VBI Data Extraction ===
@@ -602,6 +634,38 @@ public:
      * @return String describing cache usage
      */
     std::string getCacheStats() const;
+
+    // === Live Preview Tweak Panel ===
+
+    /**
+     * @brief Apply updated parameters to the live stage instance without rebuilding the DAG.
+     *
+     * For DecodePhase tweaks this invalidates the decoder cache so the next
+     * renderPreview() call produces a fresh frame with the new parameters.
+     * Never triggers a full DAG rebuild.
+     *
+     * @param node_id  Node whose stage should receive the parameter update.
+     * @param params   Parameters to apply (only tweakable keys need be present).
+     * @return true if the stage was found and accepted the parameters.
+     */
+    bool applyStageParameters(
+        NodeID node_id,
+        const std::map<std::string, ParameterValue>& params
+    );
+
+    /**
+     * @brief Return the live-tweakable parameter declarations for a node's stage.
+     *
+     * Returns a view-model list suitable for building the preview tweak panel.
+     * Returns an empty vector if the stage does not implement IStagePreviewCapability
+     * or has not yet loaded any input data.
+     *
+     * @param node_id Node to query.
+     * @return View-model list of tweakable parameters (may be empty).
+     */
+    std::vector<orc::LiveTweakableParameterView> getStageTweakableParameters(NodeID node_id);
+
+    std::map<std::string, ParameterValue> getStageCurrentParameters(NodeID node_id);
 
 private:
     class Impl;

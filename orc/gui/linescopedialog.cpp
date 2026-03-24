@@ -76,7 +76,8 @@ void LineScopeDialog::setupUI()
     channel_selector_ = new QComboBox(this);
     channel_selector_->addItem("Luma (Y)", 0);
     channel_selector_->addItem("Chroma (C)", 1);
-    channel_selector_->addItem("Both (Y+C)", 2);
+    channel_selector_->addItem("Both (Y & C)", 2);
+    channel_selector_->addItem("Y+C", 3);
     channel_selector_->setCurrentIndex(2);  // Default to Both
     channel_selector_->setVisible(false);  // Hidden by default, shown for YC sources
     connect(channel_selector_, QOverload<int>::of(&QComboBox::currentIndexChanged), 
@@ -162,10 +163,10 @@ void LineScopeDialog::setLineSamples(const QString& node_id, int stage_index, ui
     channel_selector_->setVisible(is_yc_source_);
     channel_selector_label_->setVisible(is_yc_source_);
     
-    // For YC sources, default to "Both (Y+C)" mode on first display only
+    // For YC sources, default to "Both (Y & C)" mode on first display only
     static bool first_yc_display = true;
     if (is_yc_source_ && first_yc_display) {
-        channel_selector_->setCurrentIndex(2);  // Both (Y+C) at index 2
+        channel_selector_->setCurrentIndex(2);  // Both (Y & C) at index 2
         first_yc_display = false;
     }
     // Otherwise keep the user's current selection
@@ -315,7 +316,9 @@ void LineScopeDialog::updatePlotData()
             display_samples = &current_y_samples_;
         } else if (channel_mode == 1 && !current_c_samples_.empty()) {  // Chroma (C) only
             display_samples = &current_c_samples_;
-        } else if (channel_mode == 2) {  // Both (Y+C)
+        } else if (channel_mode == 2) {  // Both (Y & C)
+            // Will handle separately below - don't set display_samples
+        } else if (channel_mode == 3) {  // Y+C combined (simulated composite)
             // Will handle separately below - don't set display_samples
         }
         // If none of the above conditions are met, display_samples stays nullptr
@@ -378,7 +381,44 @@ void LineScopeDialog::updatePlotData()
     };
     
     // Recreate series if needed
-    if (is_yc_source_ && channel_mode == 2 && !current_y_samples_.empty() && !current_c_samples_.empty()) {
+    if (is_yc_source_ && channel_mode == 3 && !current_y_samples_.empty() && !current_c_samples_.empty()) {
+        // Y+C combined - simulated composite signal (matches frame preview behaviour)
+        // Compute combined samples: Y + (C - midcode), removing DC offset from chroma
+        constexpr int32_t CHROMA_MID_CODE = 32768;
+        std::vector<uint16_t> combined_samples;
+        combined_samples.reserve(current_y_samples_.size());
+        for (size_t i = 0; i < current_y_samples_.size(); ++i) {
+            int32_t combined = static_cast<int32_t>(current_y_samples_[i]) +
+                               (static_cast<int32_t>(current_c_samples_[i]) - CHROMA_MID_CODE);
+            combined_samples.push_back(static_cast<uint16_t>(std::clamp(combined, 0, 65535)));
+        }
+
+        plot_widget_->setLegendEnabled(false);
+
+        if (!line_series_) {
+            line_series_ = plot_widget_->addSeries("Y+C");
+        } else {
+            line_series_->setTitle("Y+C");
+        }
+
+        // Remove Y/C series if they exist
+        if (y_series_) {
+            plot_widget_->removeSeries(y_series_);
+            y_series_ = nullptr;
+        }
+        if (c_series_) {
+            plot_widget_->removeSeries(c_series_);
+            c_series_ = nullptr;
+        }
+
+        QVector<QPointF> points = convertSamplesToPoints(combined_samples);
+
+        const bool is_dark_theme_yc = PlotWidget::isDarkTheme();
+        QColor line_color_yc = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositePrimary, is_dark_theme_yc);
+        line_series_->setPen(QPen(line_color_yc, 1));
+        line_series_->setData(points);
+
+    } else if (is_yc_source_ && channel_mode == 2 && !current_y_samples_.empty() && !current_c_samples_.empty()) {
         // Both Y and C - need two series (this is the only case that needs a legend)
         plot_widget_->setLegendEnabled(true);
         
@@ -562,8 +602,8 @@ void LineScopeDialog::updatePlotData()
     if (display_samples) {
         sample_count = display_samples->size();
     }
-    if (is_yc_source_ && channel_mode == 2) {
-        // Use Y samples size for both mode
+    if (is_yc_source_ && (channel_mode == 2 || channel_mode == 3)) {
+        // Use Y samples size for both/combined mode
         sample_count = current_y_samples_.size();
     }
     
@@ -714,6 +754,9 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         } else if (channel_mode == 2) {
             // For "Both" mode, use Y samples
             samples_for_marker = &current_y_samples_;
+        } else if (channel_mode == 3) {
+            // For "Y+C" combined mode, use Y samples for position
+            samples_for_marker = &current_y_samples_;
         }
     }
     
@@ -757,8 +800,36 @@ void LineScopeDialog::updateSampleMarker(int sample_x)
         
         QString info_text = QString("Time: %1 µs (Sample: %2)").arg(time_us, 0, 'f', 3).arg(sample_x);
         
-        // Add channel info for YC sources in "Both" mode
-        if (is_yc_source_ && channel_selector_->currentIndex() == 2) {
+        // Add channel info for YC sources in "Both" or "Y+C" mode
+        if (is_yc_source_ && channel_selector_->currentIndex() == 3) {
+            // Y+C combined mode - show the combined mV/IRE value
+            if (sample_x < static_cast<int>(current_y_samples_.size()) &&
+                sample_x < static_cast<int>(current_c_samples_.size())) {
+                constexpr int32_t CHROMA_MID_CODE = 32768;
+                uint16_t y_val = current_y_samples_[sample_x];
+                uint16_t c_val = current_c_samples_[sample_x];
+                uint16_t combined_value = static_cast<uint16_t>(
+                    std::clamp(static_cast<int32_t>(y_val) +
+                               (static_cast<int32_t>(c_val) - CHROMA_MID_CODE), 0, 65535));
+
+                if (current_video_params_.has_value()) {
+                    const auto& vp = current_video_params_.value();
+                    if (vp.blanking_ire >= 0 && vp.white_ire >= 0) {
+                        double ire = (static_cast<double>(combined_value) - vp.blanking_ire) * 100.0 / (vp.white_ire - vp.blanking_ire);
+                        double mv = ire * ire_to_mv;
+                        info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
+                        info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
+                    } else if (vp.black_ire >= 0 && vp.white_ire >= 0) {
+                        double ire = (static_cast<double>(combined_value) - vp.black_ire) * 100.0 / (vp.white_ire - vp.black_ire);
+                        double mv = ire * ire_to_mv;
+                        info_text += QString("\nmV: %1").arg(mv, 0, 'f', 1);
+                        info_text += QString("\nIRE: %1").arg(ire, 0, 'f', 1);
+                    }
+                } else {
+                    info_text += QString("\n16-bit: %1").arg(combined_value);
+                }
+            }
+        } else if (is_yc_source_ && channel_selector_->currentIndex() == 2) {
             // Show both Y and C values
             if (sample_x < static_cast<int>(current_y_samples_.size()) && 
                 sample_x < static_cast<int>(current_c_samples_.size())) {
@@ -857,9 +928,11 @@ void LineScopeDialog::onPlotClicked(const QPointF &dataPoint)
             samples_to_check = &current_c_samples_;
         } else if (channel_mode == 2) {
             samples_to_check = &current_y_samples_;
+        } else if (channel_mode == 3) {
+            samples_to_check = &current_y_samples_;
         }
     }
-    
+
     if (samples_to_check->empty()) {
         return;
     }

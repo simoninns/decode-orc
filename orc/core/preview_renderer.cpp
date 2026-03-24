@@ -9,13 +9,57 @@
 
 #include "preview_renderer.h"
 #include "previewable_stage.h"
+#include "colour_preview_provider.h"
+#include "colour_preview_conversion.h"
 #include "dag_executor.h"
 #include "logging.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <png.h>
 
 namespace orc {
+
+namespace {
+
+bool is_signal_domain_type(VideoDataType type)
+{
+    return type == VideoDataType::CompositeNTSC
+        || type == VideoDataType::CompositePAL
+        || type == VideoDataType::YC_NTSC
+        || type == VideoDataType::YC_PAL;
+}
+
+bool has_colour_domain_type(const StagePreviewCapability& capability)
+{
+    return std::any_of(
+        capability.supported_data_types.begin(),
+        capability.supported_data_types.end(),
+        [](VideoDataType type) {
+            return type == VideoDataType::ColourNTSC || type == VideoDataType::ColourPAL;
+        });
+}
+
+bool has_signal_domain_type(const StagePreviewCapability& capability)
+{
+    return std::any_of(
+        capability.supported_data_types.begin(),
+        capability.supported_data_types.end(),
+        [](VideoDataType type) {
+            return is_signal_domain_type(type);
+        });
+}
+
+bool should_use_legacy_stage_preview(NodeType node_type)
+{
+    // Keep legacy stage preview enabled for all node families until the
+    // generic VFR/capability path reaches full option parity (e.g. clamped/raw).
+    return node_type == NodeType::SOURCE
+        || node_type == NodeType::TRANSFORM
+        || node_type == NodeType::SINK;
+}
+
+} // namespace
 
 // Helper function to create a placeholder image with text
 static PreviewImage create_placeholder_image(PreviewOutputType type, const char* message) {
@@ -137,6 +181,53 @@ static PreviewImage create_placeholder_image(PreviewOutputType type, const char*
     return placeholder;
 }
 
+static PreviewImage scale_image_horizontal_for_export(const PreviewImage& image, double correction)
+{
+    if (!image.is_valid()) {
+        return image;
+    }
+
+    if (correction <= 0.0 || std::abs(correction - 1.0) < 1e-6) {
+        return image;
+    }
+
+    const uint32_t src_width = image.width;
+    const uint32_t src_height = image.height;
+    const uint32_t dst_width = std::max<uint32_t>(1, static_cast<uint32_t>(std::lround(src_width * correction)));
+
+    if (dst_width == src_width) {
+        return image;
+    }
+
+    PreviewImage scaled;
+    scaled.width = dst_width;
+    scaled.height = src_height;
+    scaled.rgb_data.resize(static_cast<size_t>(dst_width) * src_height * 3);
+    scaled.vectorscope_data = image.vectorscope_data;
+
+    for (uint32_t y = 0; y < src_height; ++y) {
+        for (uint32_t x = 0; x < dst_width; ++x) {
+            uint32_t src_x = static_cast<uint32_t>(std::floor(static_cast<double>(x) / correction));
+            src_x = std::min(src_x, src_width - 1);
+
+            const size_t src_offset = (static_cast<size_t>(y) * src_width + src_x) * 3;
+            const size_t dst_offset = (static_cast<size_t>(y) * dst_width + x) * 3;
+
+            scaled.rgb_data[dst_offset + 0] = image.rgb_data[src_offset + 0];
+            scaled.rgb_data[dst_offset + 1] = image.rgb_data[src_offset + 1];
+            scaled.rgb_data[dst_offset + 2] = image.rgb_data[src_offset + 2];
+        }
+    }
+
+    scaled.dropout_regions = image.dropout_regions;
+    for (auto& region : scaled.dropout_regions) {
+        region.start_sample = std::min<uint32_t>(dst_width, static_cast<uint32_t>(std::lround(region.start_sample * correction)));
+        region.end_sample = std::min<uint32_t>(dst_width, static_cast<uint32_t>(std::lround(region.end_sample * correction)));
+    }
+
+    return scaled;
+}
+
 PreviewRenderer::PreviewRenderer(std::shared_ptr<const DAG> dag)
     : dag_(dag)
 {
@@ -209,22 +300,52 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             [&node_id](const auto& n) { return n.node_id == node_id; });
         
         if (node_it != dag_nodes.end() && node_it->stage) {
-            // Check if this stage implements PreviewableStage (sources/transforms/sinks)
-            auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
-            if (previewable_stage) {
-                if (previewable_stage->supports_preview()) {
-                    // Stage supports preview - get outputs from stage options
-                    return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+            const auto node_type = node_it->stage->get_node_type_info().type;
+            auto* capability_stage = dynamic_cast<const IStagePreviewCapability*>(node_it->stage.get());
+            auto* colour_provider = dynamic_cast<const IColourPreviewProvider*>(node_it->stage.get());
+            if (capability_stage) {
+                ensure_node_executed(node_id, false);
+                StagePreviewCapability capability = capability_stage->get_preview_capability();
+
+                if (!capability.is_valid()) {
+                    ensure_node_executed(node_id, true);
+                    capability = capability_stage->get_preview_capability();
                 }
 
-                // Try executing with cache disabled to populate cached output, then re-check
-                ensure_node_executed(node_id, true);
-                if (previewable_stage->supports_preview()) {
-                    return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+                if (capability.is_valid()) {
+                    const bool has_colour = has_colour_domain_type(capability);
+                    const bool has_signal = has_signal_domain_type(capability);
+
+                    if (has_signal) {
+                        if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                            previewable_stage && previewable_stage->supports_preview()
+                            && should_use_legacy_stage_preview(node_type)) {
+                            return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+                        }
+                    }
+
+                    // Phase 2 pivot: signal-domain preview comes from VFR path.
+                    // If the stage also exposes colour-domain output, prefer
+                    // capability-driven outputs only when a carrier provider exists.
+                    if (has_colour && colour_provider != nullptr) {
+                        return get_capability_preview_outputs(node_id, capability);
+                    }
+
+                    if (has_signal) {
+                        // Continue with generic VFR output discovery below.
+                    } else if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                               previewable_stage && previewable_stage->supports_preview()
+                               && should_use_legacy_stage_preview(node_type)) {
+                        return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+                    }
                 }
+            } else if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                       previewable_stage && previewable_stage->supports_preview()
+                       && should_use_legacy_stage_preview(node_type)) {
+                // Compatibility path for non-migrated stages.
+                return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
             }
-            
-            auto node_type = node_it->stage->get_node_type_info().type;
+
             if (node_type == NodeType::SINK) {
                 // Sink doesn't support preview - return empty (no preview available)
                 ORC_LOG_DEBUG("Sink node '{}' does not support preview", node_id.to_string());
@@ -286,6 +407,21 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         return outputs;
     }
     
+    // Compute DAR correction from active-video geometry when available.
+    // Keep this consistent with PreviewHelpers/stage preview option builders.
+    double dar_correction = 0.7;
+    if (auto video_params = result.representation->get_video_parameters(); video_params.has_value()) {
+        const auto& vp = *video_params;
+        if (vp.active_video_start >= 0 && vp.active_video_end > vp.active_video_start
+            && vp.first_active_frame_line >= 0 && vp.last_active_frame_line > vp.first_active_frame_line) {
+            const uint32_t active_width = static_cast<uint32_t>(vp.active_video_end - vp.active_video_start);
+            const uint32_t active_height = static_cast<uint32_t>(vp.last_active_frame_line - vp.first_active_frame_line);
+            const double active_ratio = static_cast<double>(active_width) / static_cast<double>(active_height);
+            const double target_ratio = 4.0 / 3.0;
+            dar_correction = target_ratio / active_ratio;
+        }
+    }
+
     // Get total field count from representation
     auto field_count = result.representation->field_count();
     
@@ -296,7 +432,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             "Field",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7,
+            dar_correction,
             "",
             false,  // No dropouts for empty content
             false,  // No separate channels
@@ -307,7 +443,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             "Frame",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7,
+            dar_correction,
             "",
             false,  // No dropouts for empty content
             false,  // No separate channels
@@ -318,7 +454,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             "Frame (Reversed)",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7,
+            dar_correction,
             "",
             false,  // No dropouts for empty content
             false,  // No separate channels
@@ -329,7 +465,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             "Split",
             1,  // Single placeholder item
             false,  // Not available - placeholder only
-            0.7,
+            dar_correction,
             "",
             false,  // No dropouts for empty content
             false,  // No separate channels
@@ -344,7 +480,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
         "Field",
         field_count,
         true,
-        0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+        dar_correction,
         "",
         true,  // Dropouts available for field outputs
         false, // No separate channels
@@ -374,7 +510,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 "Frame",
                 frame_count,
                 true,
-                0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+                dar_correction,
                 "",
                 true,  // Dropouts available for frame outputs
                 false, // No separate channels
@@ -386,7 +522,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 "Frame (Reversed)",
                 frame_count,
                 true,
-                0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+                dar_correction,
                 "",
                 true,  // Dropouts available for reversed frame outputs
                 false, // No separate channels
@@ -398,7 +534,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
                 "Split",
                 frame_count,
                 true,
-                0.7,  // PAL/NTSC standard (accounts for horizontal blanking)
+                dar_correction,
                 "",
                 true,  // Dropouts available for split outputs
                 false, // No separate channels
@@ -458,11 +594,38 @@ PreviewRenderResult PreviewRenderer::render_output(
             [&node_id](const auto& n) { return n.node_id == node_id; });
         
         if (node_it != dag_nodes.end() && node_it->stage) {
-            // Check for PreviewableStage interface (any stage including sinks)
-            auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
-            
-            if (previewable_stage && previewable_stage->supports_preview()) {
-                // Render using stage's preview interface
+            const auto node_type = node_it->stage->get_node_type_info().type;
+            if (auto* capability_stage = dynamic_cast<const IStagePreviewCapability*>(node_it->stage.get())) {
+                ensure_node_executed(node_id, true);
+                const StagePreviewCapability capability = capability_stage->get_preview_capability();
+
+                if (capability.is_valid()) {
+                    if (has_signal_domain_type(capability)) {
+                        if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                            previewable_stage && previewable_stage->supports_preview()
+                            && should_use_legacy_stage_preview(node_type)) {
+                            return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id, hint);
+                        }
+                    }
+
+                    if (auto* colour_provider = dynamic_cast<const IColourPreviewProvider*>(node_it->stage.get())) {
+                        if (has_colour_domain_type(capability)) {
+                            return render_colour_carrier_preview(node_id, *colour_provider, capability, type, index, hint);
+                        }
+                    }
+
+                    if (!has_signal_domain_type(capability)) {
+                        if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                            previewable_stage && previewable_stage->supports_preview()
+                            && should_use_legacy_stage_preview(node_type)) {
+                            return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id, hint);
+                        }
+                    }
+                }
+            } else if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
+                       previewable_stage && previewable_stage->supports_preview()
+                       && should_use_legacy_stage_preview(node_type)) {
+                // Compatibility path for non-migrated stages.
                 return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id, hint);
             }
         }
@@ -955,9 +1118,10 @@ bool PreviewRenderer::save_png(
     PreviewOutputType type,
     uint64_t index,
     const std::string& filename,
-    const std::string& option_id)
+    const std::string& option_id,
+    double aspect_correction)
 {
-    // Render the output (includes aspect ratio scaling from render_output)
+    // Render output at sample aspect ratio; optional export correction is applied below.
     auto result = render_output(node_id, type, index, option_id);
     
     if (!result.success || !result.image.is_valid()) {
@@ -965,8 +1129,8 @@ bool PreviewRenderer::save_png(
         return false;
     }
     
-    // Save to PNG (image is already scaled by render_output)
-    return save_png(result.image, filename);
+    const PreviewImage export_image = scale_image_horizontal_for_export(result.image, aspect_correction);
+    return save_png(export_image, filename);
 }
 
 bool PreviewRenderer::save_png(const PreviewImage& image, const std::string& filename) {
@@ -1822,6 +1986,100 @@ void PreviewRenderer::ensure_node_executed(const NodeID& node_id, bool disable_c
     } else {
         ORC_LOG_DEBUG("Executed DAG up to node '{}' - stage instance should have cached_output_ set", node_id.to_string());
     }
+}
+
+std::vector<PreviewOutputInfo> PreviewRenderer::get_capability_preview_outputs(
+    const NodeID& stage_node_id,
+    const StagePreviewCapability& capability)
+{
+    std::vector<PreviewOutputInfo> outputs;
+    if (!capability.is_valid()) {
+        return outputs;
+    }
+
+    if (!has_colour_domain_type(capability)) {
+        return outputs;
+    }
+
+    uint64_t first_field_offset = 0;
+    if (field_renderer_) {
+        auto probe_result = field_renderer_->render_field_at_node(stage_node_id, FieldID(0));
+        if (probe_result.is_valid && probe_result.representation) {
+            auto parity_hint = probe_result.representation->get_field_parity_hint(FieldID(0));
+            if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                first_field_offset = 1;
+            }
+        }
+    }
+
+    outputs.push_back(PreviewOutputInfo{
+        PreviewOutputType::Frame,
+        "Frame",
+        capability.navigation_extent.item_count,
+        true,
+        capability.geometry.dar_correction_factor,
+        "phase2_colour_carrier",
+        false,
+        false,
+        first_field_offset
+    });
+
+    return outputs;
+}
+
+PreviewRenderResult PreviewRenderer::render_colour_carrier_preview(
+    const NodeID& stage_node_id,
+    const IColourPreviewProvider& provider,
+    const StagePreviewCapability& capability,
+    PreviewOutputType type,
+    uint64_t index,
+    PreviewNavigationHint hint)
+{
+    PreviewRenderResult result{};
+    result.node_id = stage_node_id;
+    result.output_type = type;
+    result.output_index = index;
+    result.success = false;
+
+    if (!capability.is_valid()) {
+        result.error_message = "Stage preview capability is invalid";
+        return result;
+    }
+
+    if (type != PreviewOutputType::Frame) {
+        result.error_message = "Colour carrier currently supports Frame output only";
+        return result;
+    }
+
+    if (index >= capability.navigation_extent.item_count) {
+        result.error_message = "Requested frame index is out of range";
+        return result;
+    }
+
+    auto carrier_opt = provider.get_colour_preview_carrier(index, hint);
+    if (!carrier_opt.has_value() || !carrier_opt->is_valid()) {
+        result.error_message = "Failed to fetch colour preview carrier";
+        result.image = create_placeholder_image(type, "Rendering failed");
+        result.success = true;
+        return result;
+    }
+
+    result.image = render_preview_from_colour_carrier(*carrier_opt);
+    result.success = result.image.is_valid();
+    result.image.vectorscope_data = carrier_opt->vectorscope_data;
+
+    if (!result.success) {
+        result.error_message = "Colour carrier conversion produced invalid preview image";
+        result.image = create_placeholder_image(type, "Rendering failed");
+        result.success = true;
+        return result;
+    }
+
+    if (result.success) {
+        render_dropouts(result.image);
+    }
+
+    return result;
 }
 
 std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(

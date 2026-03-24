@@ -42,10 +42,9 @@ bool VectorscopeAnalysisTool::canAnalyze(AnalysisSourceType source_type) const {
 }
 
 bool VectorscopeAnalysisTool::isApplicableToStage(const std::string& stage_name) const {
-    // Applicable to all chroma decoder sinks
-    return stage_name == "raw_video_sink" || 
-           stage_name == "ffmpeg_video_sink" ||
-           stage_name == "chroma_sink_base";  // Legacy base class (if ever used)
+    // Vectorscope is exposed via preview views, not Stage Tools.
+    (void)stage_name;
+    return false;
 }
 
 AnalysisResult VectorscopeAnalysisTool::analyze(const AnalysisContext& ctx,

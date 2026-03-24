@@ -23,9 +23,13 @@
 #include <queue>
 #include <atomic>
 #include <functional>
+#include <map>
+#include <string>
 #include <field_id.h>
 #include <node_id.h>
 #include <common_types.h>
+#include <parameter_types.h>  // ParameterValue
+#include <orc_preview_views.h>
 #include <orc_rendering.h>  // Public API rendering types (includes mapping result types)
 #include <orc_source_parameters.h>  // Public API VideoParameters
 #include "vbi_view_models.h"
@@ -54,6 +58,7 @@ enum class RenderRequestType {
     GetFieldTiming,         // Get all field samples for timing view
     SavePNG,                // Save preview as PNG file
     NavigateFrameLine,      // Navigate to next/previous line in frame mode
+    ApplyStageParameters,   // Apply parameter update to live stage without DAG rebuild
     Shutdown                // Shutdown the worker thread
 };
 
@@ -171,16 +176,18 @@ struct SavePNGRequest : public RenderRequest {
     uint64_t output_index;
     std::string filename;
     std::string option_id;
+    double aspect_correction;
     
     SavePNGRequest(uint64_t id, orc::NodeID node, 
                    orc::PreviewOutputType type, uint64_t index,
-                   std::string file, std::string opt_id = "")
+                   std::string file, std::string opt_id = "", double correction = 1.0)
         : RenderRequest(RenderRequestType::SavePNG, id)
         , node_id(std::move(node))
         , output_type(type)
         , output_index(index)
         , filename(std::move(file))
-        , option_id(std::move(opt_id)) {}
+        , option_id(std::move(opt_id))
+        , aspect_correction(correction) {}
 };
 
 /**
@@ -229,6 +236,34 @@ struct GetFieldTimingRequest : public RenderRequest {
         , node_id(std::move(node))
         , output_type(type)
         , output_index(index) {}
+};
+
+/**
+ * @brief Request to apply stage parameters without rebuilding the DAG.
+ *
+ * The worker thread finds the live stage, calls set_parameters(), and
+ * then immediately re-renders the current field/frame so the preview
+ * updates to reflect the change.
+ */
+struct ApplyStageParametersRequest : public RenderRequest {
+    orc::NodeID node_id;
+    std::map<std::string, orc::ParameterValue> params;
+    orc::PreviewOutputType output_type;
+    uint64_t output_index;
+    std::string option_id;
+
+    ApplyStageParametersRequest(uint64_t id,
+                                orc::NodeID node,
+                                std::map<std::string, orc::ParameterValue> p,
+                                orc::PreviewOutputType type,
+                                uint64_t index,
+                                std::string opt_id = "")
+        : RenderRequest(RenderRequestType::ApplyStageParameters, id)
+        , node_id(std::move(node))
+        , params(std::move(p))
+        , output_type(type)
+        , output_index(index)
+        , option_id(std::move(opt_id)) {}
 };
 
 /**
@@ -609,12 +644,66 @@ public:
      * @return Result with first_field and second_field indices
      */
     orc::FrameFieldsResult getFrameFields(const orc::NodeID& node_id, uint64_t frame_index);
+
+    /**
+     * @brief Get registry-driven preview views for node/data type (synchronous).
+     */
+    std::vector<orc::PreviewViewDescriptor> getAvailablePreviewViews(
+        const orc::NodeID& node_id,
+        orc::VideoDataType data_type);
+
+    /**
+     * @brief Request preview-view data through presenter registry contract (synchronous).
+     */
+    orc::PreviewViewDataResult requestPreviewViewData(
+        const orc::NodeID& node_id,
+        const std::string& view_id,
+        orc::VideoDataType data_type,
+        const orc::PreviewCoordinate& coordinate);
     
     uint64_t requestSavePNG(const orc::NodeID& node_id, 
                            orc::PreviewOutputType output_type,
                            uint64_t output_index,
                            const std::string& filename,
-                           const std::string& option_id = "");
+                           const std::string& option_id = "",
+                           double aspect_correction = 1.0);
+
+    /**
+     * @brief Apply stage parameters without rebuilding the DAG (async).
+     *
+     * Enqueues an ApplyStageParametersRequest. The worker thread applies the
+     * parameters to the live stage instance and immediately re-renders the
+     * current field/frame. The resulting preview is emitted via previewReady.
+     *
+     * @param node_id      Node whose stage to update.
+     * @param output_type  Current output type for the re-render.
+     * @param output_index Current output index for the re-render.
+     * @param option_id    Option ID string for the re-render (may be empty).
+     * @param params       Parameters to apply to the stage.
+     * @return Request ID (matched by previewReady signal).
+     */
+    uint64_t requestApplyStageParameters(
+        const orc::NodeID& node_id,
+        orc::PreviewOutputType output_type,
+        uint64_t output_index,
+        const std::string& option_id,
+        std::map<std::string, orc::ParameterValue> params);
+
+    /**
+     * @brief Query a node's live-tweakable parameter declarations (synchronous).
+     *
+     * Returns the view-model list needed to build a preview tweak panel.
+     * Returns an empty vector when the stage has no tweakable parameters or
+     * has not yet loaded any data.
+     *
+     * @param node_id Node to query.
+     * @return Tweakable parameter view-models (may be empty).
+     */
+    std::vector<orc::LiveTweakableParameterView> getStageTweakableParameters(
+        const orc::NodeID& node_id);
+
+    std::map<std::string, orc::ParameterValue> getStageCurrentParameters(
+        const orc::NodeID& node_id);
 
     /**
      * @brief Trigger a stage for batch processing (async)
@@ -721,6 +810,15 @@ signals:
      * @brief Emitted when frame line navigation result is ready
      */
     void frameLineNavigationReady(uint64_t request_id, orc::FrameLineNavigationResult result);
+
+    /**
+     * @brief Emitted when an ApplyStageParameters request completes.
+     *
+     * A successful apply is always followed by a previewReady signal carrying
+     * the freshly re-rendered frame so callers typically only need to handle
+     * previewReady.
+     */
+    void stageParametersApplied(uint64_t request_id, bool success);
     
     /**
      * @brief Emitted on any error
@@ -793,6 +891,11 @@ private:
     void handleNavigateFrameLine(const NavigateFrameLineRequest& req);
     
     void handleSavePNG(const SavePNGRequest& req);
+
+    /**
+     * @brief Handle ApplyStageParameters request
+     */
+    void handleApplyStageParameters(const ApplyStageParametersRequest& req);
     
     /**
      * @brief Handle TriggerStage request

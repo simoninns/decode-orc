@@ -18,10 +18,15 @@
 #include <QTimer>
 #include <memory>
 #include <future>
+#include <map>
+#include <string>
 #include <node_id.h>
 #include "guiproject.h"
 #include <orc_rendering.h>  // Public API rendering types
 #include <orc_analysis.h>   // For AnalysisToolInfo
+#include <orc_preview_types.h>
+#include <orc_preview_views.h>  // For LiveTweakClass, LiveTweakableParameterView
+#include <parameter_types.h>    // For ParameterValue, ParameterDescriptor
 #include "orcgraphmodel.h"
 #include "orcgraphicsscene.h"
 #include "render_coordinator.h"
@@ -40,7 +45,6 @@ class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
 class QualityMetricsDialog;
-class VectorscopeDialog;
 class RenderCoordinator;
 
 namespace orc {
@@ -134,6 +138,7 @@ private slots:
     void onFieldTimingRequested();
     void onSetCrosshairsFromFieldTiming();
     void onLineScopeDialogClosed();
+    void onPreviewVectorscopeRequested(const orc::PreviewCoordinate& coordinate);
     
     // Coordinator response slots
     void onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result);
@@ -178,7 +183,6 @@ private:
     void updateAspectRatioCombo();  // Populate aspect ratio combo from core
     void refreshViewerControls(bool skip_preview = false);  // Update slider, combo, preview, and info for current node
     void updateAllPreviewComponents();  // Update preview image, info label, VBI dialog, and vectorscope(s)
-    void updateVectorscope(const orc::PreviewRenderResult& result);
     void loadProjectDAG();  // Load DAG into embedded viewer
     void positionViewToTopLeft();  // Position view to show top-left node
     void selectLowestSourceStage();  // Auto-select source stage with lowest node ID
@@ -193,6 +197,51 @@ private:
     
     // Line scope helpers
     void requestLineSamplesForNavigation(uint64_t field_index, int line_number, int sample_x, int preview_image_width);
+    orc::VideoDataType inferCurrentVideoDataType() const;
+    void refreshPreviewViewAvailability();
+    orc::PreviewCoordinate buildCurrentPreviewCoordinate() const;
+    void refreshVectorscopeForCurrentCoordinate();
+
+    // Live preview tweak panel (Phase 6)
+    struct LiveTweakStageContext {
+        std::vector<orc::LiveTweakableParameterView> tweakable;
+        std::vector<orc::ParameterDescriptor> descriptors;
+        std::map<std::string, orc::ParameterValue> persisted_values;
+        std::map<std::string, orc::ParameterValue> baseline_values;
+        std::map<std::string, orc::ParameterValue> display_values;
+    };
+
+    void refreshTweakPanel();
+    std::optional<LiveTweakStageContext> buildLiveTweakStageContext(orc::NodeID node_id);
+    std::map<std::string, orc::ParameterValue> buildEffectiveStageParameters(
+        const LiveTweakStageContext& context,
+        const std::map<std::string, orc::ParameterValue>& values) const;
+    bool computeLiveTweakDirty(
+        const LiveTweakStageContext& context,
+        const std::map<std::string, orc::ParameterValue>& current_values) const;
+    void showLiveTweakValues(
+        orc::NodeID node_id,
+        const std::map<std::string, orc::ParameterValue>& display_values,
+        bool dirty);
+    void dispatchLiveTweakApply(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params,
+        orc::LiveTweakClass tweak_class);
+    bool hasStoredLiveTweakValues(orc::NodeID node_id) const;
+    void setStoredLiveTweakValues(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> values);
+    void clearLiveTweakState(orc::NodeID node_id);
+    void clearAllLiveTweakState();
+    void onTweakParameterChanged(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params,
+        orc::LiveTweakClass tweak_class);
+    void onResetLiveTweaksRequested(orc::NodeID node_id);
+    void onAllLiveTweaksDismissed();
+    void onWriteLiveTweaksRequested(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params);
     
     // Settings helpers
     QString getLastProjectDirectory() const;
@@ -224,6 +273,8 @@ private:
     std::unordered_map<uint64_t, orc::NodeID> pending_dropout_requests_;  // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_snr_requests_;      // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_burst_level_requests_;  // request_id -> node_id
+    std::unordered_map<orc::NodeID, std::map<std::string, orc::ParameterValue>> live_tweak_baseline_values_by_node_;
+    std::unordered_map<orc::NodeID, std::map<std::string, orc::ParameterValue>> live_tweak_values_by_node_;
     
     // Dropout analysis state tracking
     orc::NodeID last_dropout_node_id_;
@@ -248,7 +299,6 @@ private:
     std::unordered_map<orc::NodeID, DropoutAnalysisDialog*> dropout_analysis_dialogs_;
     std::unordered_map<orc::NodeID, SNRAnalysisDialog*> snr_analysis_dialogs_;
     std::unordered_map<orc::NodeID, BurstLevelAnalysisDialog*> burst_level_analysis_dialogs_;
-    std::unordered_map<orc::NodeID, VectorscopeDialog*> vectorscope_dialogs_;
     OrcGraphModel* dag_model_;
     OrcGraphicsView* dag_view_;
     OrcGraphicsScene* dag_scene_;

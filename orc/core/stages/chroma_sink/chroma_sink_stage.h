@@ -22,10 +22,13 @@
 #include <orc_source_parameters.h>
 #include "previewable_stage.h"
 #include "preview_renderer.h"  // For PreviewImage definition
+#include "stage_preview_capability.h"
+#include "colour_preview_provider.h"
 #include "../triggerable_stage.h"
 
 #include <atomic>
 #include <thread>
+#include <optional>
 
 // Forward declarations for decoder classes
 struct SourceField;
@@ -56,13 +59,13 @@ namespace orc {
  * Supported Decoders:
  * - PAL: pal2d, transform2d, transform3d
  * - NTSC: ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt
- * - Other: mono, auto
+ * - Other: mono
  * 
  * This sink supports preview - it decodes fields on-demand for GUI visualization.
  * 
  * Parameters:
  * - output_path: Output file path for video
- * - decoder_type: Which decoder to use (auto, pal2d, ntsc2d, etc.)
+ * - decoder_type: Which decoder to use (pal2d, ntsc2d, etc.)
  * - output_format: Output format (rgb, yuv, y4m, mp4-h264, mkv-ffv1)
  * - chroma_gain: Chroma gain factor (0.0-10.0, default 1.0)
  * - chroma_phase: Chroma phase rotation in degrees (-180 to 180, default 0)
@@ -74,7 +77,9 @@ namespace orc {
 class ChromaSinkStage : public DAGStage, 
                        public ParameterizedStage, 
                        public TriggerableStage, 
-                       public PreviewableStage {
+                       public PreviewableStage,
+                       public IStagePreviewCapability,
+                       public IColourPreviewProvider {
 public:
     ChromaSinkStage();
     ~ChromaSinkStage() override;  // Need custom destructor for unique_ptr with incomplete types
@@ -124,6 +129,14 @@ public:
     std::vector<PreviewOption> get_preview_options() const override;
     PreviewImage render_preview(const std::string& option_id, uint64_t index,
                                PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
+
+    // IStagePreviewCapability interface
+    StagePreviewCapability get_preview_capability() const override;
+
+    // IColourPreviewProvider interface
+    std::optional<ColourFrameCarrier> get_colour_preview_carrier(
+        uint64_t frame_index,
+        PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
     
 private:
     mutable std::mutex cached_input_mutex_;  // Protects cached_input_ from race conditions

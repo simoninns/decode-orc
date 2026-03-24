@@ -13,12 +13,15 @@
 #include "../core/include/project.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/include/preview_renderer.h"
+#include "../core/include/preview_view_registry.h"
 #include "../core/include/dag_field_renderer.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/vbi_decoder.h"
 #include "../core/include/observation_context.h"
 #include "../core/include/observation_cache.h"
 #include "../core/stages/triggerable_stage.h"
+#include "../core/stages/stage.h"
+#include "../core/include/stage_preview_capability.h"
 #include "../core/stages/dropout_analysis_sink/dropout_analysis_sink_stage.h"
 #include "../core/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
 #include "../core/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"
@@ -51,6 +54,7 @@ public:
     orc::Project* project_;
     std::shared_ptr<void> dag_void_;  // Opaque DAG handle
     std::unique_ptr<orc::PreviewRenderer> preview_renderer_;
+    orc::PreviewViewRegistry preview_view_registry_;
     std::unique_ptr<orc::DAGFieldRenderer> field_renderer_;
     std::unique_ptr<orc::VBIDecoder> vbi_decoder_;
     std::shared_ptr<orc::ObservationCache> obs_cache_;
@@ -58,6 +62,24 @@ public:
     std::atomic<bool> trigger_active_;
     uint64_t next_request_id_;
     std::atomic<orc::TriggerableStage*> current_trigger_stage_{nullptr};
+
+    void invalidateRenderCachesForNode(const NodeID& node_id) {
+        auto dag = getConcreteDAG();
+        if (!dag) {
+            return;
+        }
+
+        if (preview_renderer_) {
+            preview_renderer_->update_dag(dag);
+        }
+        if (field_renderer_) {
+            field_renderer_->update_dag(dag);
+        }
+        if (obs_cache_) {
+            obs_cache_->update_dag(dag);
+        }
+        preview_view_registry_.clear_cache_for_node(node_id);
+    }
     
     void rebuildRenderersFromDAG() {
         auto dag = getConcreteDAG();
@@ -67,6 +89,7 @@ public:
             field_renderer_.reset();
             vbi_decoder_.reset();
             obs_cache_.reset();
+            preview_view_registry_ = orc::PreviewViewRegistry{};
             return;
         }
         
@@ -81,6 +104,12 @@ public:
         preview_renderer_ = std::make_unique<orc::PreviewRenderer>(dag);
         field_renderer_ = std::make_unique<orc::DAGFieldRenderer>(dag);
         vbi_decoder_ = std::make_unique<orc::VBIDecoder>();
+
+        preview_view_registry_ = orc::PreviewViewRegistry{};
+        orc::PreviewViewRegistry::register_default_views(
+            preview_view_registry_,
+            dag,
+            preview_renderer_.get());
         
         // Restore dropout state
         if (preview_renderer_) {
@@ -154,9 +183,6 @@ orc::PreviewRenderResult RenderPresenter::renderPreview(
         result.image.height = core_result.image.height;
         result.image.rgb_data = std::move(core_result.image.rgb_data);
         result.image.dropout_regions = std::move(core_result.image.dropout_regions);
-        // Propagate vectorscope data from core image to public API result
-        // This enables the GUI vectorscope to render UV samples and graticules
-        result.vectorscope_data = std::move(core_result.image.vectorscope_data);
         result.success = core_result.success;
         result.error_message = std::move(core_result.error_message);
         result.node_id = core_result.node_id;
@@ -215,7 +241,8 @@ bool RenderPresenter::savePNG(
     orc::PreviewOutputType output_type,
     uint64_t output_index,
     const std::string& filename,
-    const std::string& option_id)
+    const std::string& option_id,
+    double aspect_correction)
 {
     if (!impl_->preview_renderer_) {
         return false;
@@ -223,11 +250,51 @@ bool RenderPresenter::savePNG(
     
     try {
         return impl_->preview_renderer_->save_png(
-            node_id, output_type, output_index, filename, option_id
+            node_id, output_type, output_index, filename, option_id, aspect_correction
         );
     } catch (const std::exception&) {
         return false;
     }
+}
+
+std::vector<orc::PreviewViewDescriptor> RenderPresenter::getAvailablePreviewViews(
+    NodeID node_id,
+    orc::VideoDataType data_type)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {};
+    }
+
+    return impl_->preview_view_registry_.get_applicable_views(*dag, node_id, data_type);
+}
+
+orc::PreviewViewDataResult RenderPresenter::requestPreviewViewData(
+    NodeID node_id,
+    const std::string& view_id,
+    orc::VideoDataType data_type,
+    const orc::PreviewCoordinate& coordinate)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {false, "DAG not initialized", orc::PreviewViewPayloadKind::None, std::nullopt, std::nullopt};
+    }
+
+    return impl_->preview_view_registry_.request_data(
+        *dag,
+        node_id,
+        view_id,
+        data_type,
+        coordinate);
+}
+
+orc::PreviewViewExportResult RenderPresenter::exportPreviewViewData(
+    NodeID node_id,
+    const std::string& view_id,
+    const std::string& format,
+    const std::string& path)
+{
+    return impl_->preview_view_registry_.export_as(node_id, view_id, format, path);
 }
 
 std::optional<VBIFieldInfoView> RenderPresenter::getVBIData(NodeID node_id, FieldID field_id)
@@ -855,6 +922,95 @@ std::string RenderPresenter::getCacheStats() const
 {
     // TODO: Implement cache stats
     return "Cache: active";
+}
+
+bool RenderPresenter::applyStageParameters(
+    NodeID node_id,
+    const std::map<std::string, ParameterValue>& params)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        ORC_LOG_WARN("RenderPresenter::applyStageParameters: no DAG");
+        return false;
+    }
+
+    for (const auto& node : dag->nodes()) {
+        if (node.node_id == node_id) {
+            auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(node.stage.get());
+            if (!param_stage) {
+                ORC_LOG_WARN("RenderPresenter::applyStageParameters: node '{}' stage is not ParameterizedStage",
+                             node_id.to_string());
+                return false;
+            }
+            bool ok = param_stage->set_parameters(params);
+            ORC_LOG_DEBUG("RenderPresenter::applyStageParameters: node '{}' set_parameters -> {}",
+                          node_id.to_string(), ok);
+            if (ok) {
+                impl_->invalidateRenderCachesForNode(node_id);
+            }
+            return ok;
+        }
+    }
+    ORC_LOG_WARN("RenderPresenter::applyStageParameters: node '{}' not found in DAG", node_id.to_string());
+    return false;
+}
+
+std::vector<orc::LiveTweakableParameterView> RenderPresenter::getStageTweakableParameters(NodeID node_id)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {};
+    }
+
+    for (const auto& node : dag->nodes()) {
+        if (node.node_id == node_id) {
+            auto* cap_stage = dynamic_cast<const orc::IStagePreviewCapability*>(node.stage.get());
+            if (!cap_stage) {
+                return {};
+            }
+            auto cap = cap_stage->get_preview_capability();
+            if (cap.tweakable_parameters.empty()) {
+                return {};
+            }
+
+            // Convert core type to view-type
+            std::vector<orc::LiveTweakableParameterView> result;
+            result.reserve(cap.tweakable_parameters.size());
+            for (const auto& tp : cap.tweakable_parameters) {
+                orc::LiveTweakableParameterView view;
+                view.parameter_name = tp.parameter_name;
+                view.tweak_class = (tp.tweak_class == orc::PreviewTweakClass::DisplayPhase)
+                    ? orc::LiveTweakClass::DisplayPhase
+                    : orc::LiveTweakClass::DecodePhase;
+                result.push_back(std::move(view));
+            }
+            return result;
+        }
+    }
+    return {};
+}
+
+std::map<std::string, ParameterValue> RenderPresenter::getStageCurrentParameters(NodeID node_id)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {};
+    }
+
+    for (const auto& node : dag->nodes()) {
+        if (node.node_id != node_id) {
+            continue;
+        }
+
+        auto* param_stage = dynamic_cast<const orc::ParameterizedStage*>(node.stage.get());
+        if (!param_stage) {
+            return {};
+        }
+
+        return param_stage->get_parameters();
+    }
+
+    return {};
 }
 
 // === Analysis Data Access (Phase 2.4) ===

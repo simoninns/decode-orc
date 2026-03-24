@@ -31,6 +31,40 @@
 #include <QSignalBlocker>
 #include <algorithm>
 
+namespace {
+
+orc::ParameterValue resolveTweakParameterValue(
+    const orc::ParameterDescriptor& desc,
+    const std::map<std::string, orc::ParameterValue>& values)
+{
+    auto val_it = values.find(desc.name);
+    if (val_it != values.end()) {
+        return val_it->second;
+    }
+
+    if (desc.constraints.default_value.has_value()) {
+        return *desc.constraints.default_value;
+    }
+
+    switch (desc.type) {
+        case orc::ParameterType::INT32:
+            return int32_t{0};
+        case orc::ParameterType::UINT32:
+            return uint32_t{0};
+        case orc::ParameterType::DOUBLE:
+            return double{0.0};
+        case orc::ParameterType::BOOL:
+            return false;
+        case orc::ParameterType::STRING:
+        case orc::ParameterType::FILE_PATH:
+            return std::string{};
+    }
+
+    return std::string{};
+}
+
+} // namespace
+
 PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
     , line_scope_dialog_(nullptr)
@@ -280,7 +314,7 @@ void PreviewDialog::setupUI()
     // -----------------------------------------------------------------------
     live_tweaks_dialog_ = new QDialog(this, Qt::Window);
     live_tweaks_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
-    live_tweaks_dialog_->setWindowTitle("Live Preview Tweaks");
+    updateLiveTweaksWindowTitle();
     live_tweaks_dialog_->resize(460, 520);
 
     auto* tweak_dialog_layout = new QVBoxLayout(live_tweaks_dialog_);
@@ -298,6 +332,8 @@ void PreviewDialog::setupUI()
     tweak_buttons_layout->addStretch();
     tweak_reset_button_ = new QPushButton("Reset to stage parameters", live_tweaks_dialog_);
     tweak_write_button_ = new QPushButton("Write to stage parameters", live_tweaks_dialog_);
+    tweak_reset_button_->setEnabled(false);
+    tweak_write_button_->setEnabled(false);
     tweak_buttons_layout->addWidget(tweak_reset_button_);
     tweak_buttons_layout->addWidget(tweak_write_button_);
     tweak_dialog_layout->addLayout(tweak_buttons_layout);
@@ -431,6 +467,11 @@ void PreviewDialog::setCurrentNode(const QString& node_label, const QString& nod
 
 void PreviewDialog::setCurrentNodeId(orc::NodeID node_id)
 {
+    if (tweak_node_id_ != node_id) {
+        clearTweakPanel();
+        tweak_node_id_ = node_id;
+        updateLiveTweaksWindowTitle();
+    }
     current_node_id_ = node_id;
 }
 
@@ -538,17 +579,37 @@ void PreviewDialog::setTweakableParameters(
     orc::NodeID node_id,
     const std::vector<orc::LiveTweakableParameterView>& tweakable,
     const std::vector<orc::ParameterDescriptor>& descriptors,
-    const std::map<std::string, orc::ParameterValue>& current_values)
+    const std::map<std::string, orc::ParameterValue>& display_values,
+    bool has_unsaved_changes)
 {
     clearTweakPanel();
+    tweak_node_id_ = node_id;
+    updateLiveTweaksWindowTitle();
 
     if (tweakable.empty() || descriptors.empty()) {
         tweak_form_layout_->addRow(new QLabel("No live tweak parameters available for this stage.", tweak_panel_content_));
+        tweak_reset_button_->setEnabled(false);
+        tweak_write_button_->setEnabled(false);
         return;
     }
 
-    tweak_node_id_ = node_id;
-    buildTweakPanel(tweakable, descriptors, current_values);
+    buildTweakPanel(tweakable, descriptors, display_values);
+
+    const bool has_live_tweaks = !tweak_widgets_.empty();
+    tweak_reset_button_->setEnabled(has_live_tweaks);
+    tweak_write_button_->setEnabled(has_live_tweaks);
+    if (!has_live_tweaks) {
+        tweak_form_layout_->addRow(new QLabel("No live tweak parameters available for this stage.", tweak_panel_content_));
+    }
+
+    tweak_unsaved_changes_ = has_unsaved_changes && has_live_tweaks;
+    updateLiveTweaksWindowTitle();
+}
+
+void PreviewDialog::setLiveTweaksDirty(bool has_unsaved_changes)
+{
+    tweak_unsaved_changes_ = has_unsaved_changes && !tweak_widgets_.empty();
+    updateLiveTweaksWindowTitle();
 }
 
 void PreviewDialog::clearTweakPanel()
@@ -556,11 +617,34 @@ void PreviewDialog::clearTweakPanel()
     tweak_debounce_timer_->stop();
     tweak_widgets_.clear();
     tweak_node_id_ = orc::NodeID{};
+    tweak_unsaved_changes_ = false;
+    updateLiveTweaksWindowTitle();
+    tweak_reset_button_->setEnabled(false);
+    tweak_write_button_->setEnabled(false);
 
     // Remove all rows from the form
     while (tweak_form_layout_->rowCount() > 0) {
         tweak_form_layout_->removeRow(0);
     }
+}
+
+void PreviewDialog::updateLiveTweaksWindowTitle()
+{
+    if (!live_tweaks_dialog_) {
+        return;
+    }
+
+    const QString dirty_marker = tweak_unsaved_changes_ ? "*" : "";
+
+    if (tweak_node_id_.is_valid()) {
+        live_tweaks_dialog_->setWindowTitle(
+            QString("Live Preview Tweaks%1 - Stage ID: %2")
+                .arg(dirty_marker)
+                .arg(QString::fromStdString(tweak_node_id_.to_string())));
+        return;
+    }
+
+    live_tweaks_dialog_->setWindowTitle(QString("Live Preview Tweaks%1 - No stage selected").arg(dirty_marker));
 }
 
 void PreviewDialog::buildTweakPanel(
@@ -585,23 +669,7 @@ void PreviewDialog::buildTweakPanel(
         }
         const auto& desc = *desc_it->second;
 
-        // Determine current value (use descriptor default as fallback)
-        orc::ParameterValue value;
-        auto val_it = current_values.find(desc.name);
-        if (val_it != current_values.end()) {
-            value = val_it->second;
-        } else if (desc.constraints.default_value.has_value()) {
-            value = *desc.constraints.default_value;
-        } else {
-            switch (desc.type) {
-                case orc::ParameterType::INT32:    value = int32_t{0};     break;
-                case orc::ParameterType::UINT32:   value = uint32_t{0};    break;
-                case orc::ParameterType::DOUBLE:   value = double{0.0};    break;
-                case orc::ParameterType::BOOL:     value = false;          break;
-                case orc::ParameterType::STRING:
-                case orc::ParameterType::FILE_PATH: value = std::string{}; break;
-            }
-        }
+        const orc::ParameterValue value = resolveTweakParameterValue(desc, current_values);
 
         QWidget* widget = nullptr;
         TweakWidgetEntry entry;

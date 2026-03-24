@@ -82,6 +82,7 @@ namespace orc {
 #include <QResizeEvent>
 #include <QRegularExpression>
 #include <limits>
+#include <cmath>
 
 #include <queue>
 #include <map>
@@ -120,6 +121,92 @@ namespace {
             {"white16bIRE", params.white_16b_ire},
             {"black16bIRE", params.black_16b_ire}
         };
+    }
+
+    orc::ParameterValue resolveEffectiveParameterValue(
+        const orc::ParameterDescriptor& desc,
+        const std::map<std::string, orc::ParameterValue>& values)
+    {
+        auto it = values.find(desc.name);
+        if (it != values.end()) {
+            return it->second;
+        }
+        if (desc.constraints.default_value.has_value()) {
+            return *desc.constraints.default_value;
+        }
+
+        switch (desc.type) {
+            case orc::ParameterType::INT32:
+                return int32_t{0};
+            case orc::ParameterType::UINT32:
+                return uint32_t{0};
+            case orc::ParameterType::DOUBLE:
+                return double{0.0};
+            case orc::ParameterType::BOOL:
+                return false;
+            case orc::ParameterType::STRING:
+            case orc::ParameterType::FILE_PATH:
+                return std::string{};
+        }
+
+        return std::string{};
+    }
+
+    orc::ParameterValue normalizeEffectiveParameterValue(
+        const orc::ParameterDescriptor& desc,
+        const orc::ParameterValue& value)
+    {
+        switch (desc.type) {
+            case orc::ParameterType::INT32: {
+                int32_t normalized = std::get<int32_t>(value);
+                if (desc.constraints.min_value.has_value()) {
+                    normalized = std::max(normalized, std::get<int32_t>(*desc.constraints.min_value));
+                }
+                if (desc.constraints.max_value.has_value()) {
+                    normalized = std::min(normalized, std::get<int32_t>(*desc.constraints.max_value));
+                }
+                return normalized;
+            }
+            case orc::ParameterType::UINT32: {
+                uint32_t normalized = std::get<uint32_t>(value);
+                if (desc.constraints.min_value.has_value()) {
+                    normalized = std::max(normalized, std::get<uint32_t>(*desc.constraints.min_value));
+                }
+                if (desc.constraints.max_value.has_value()) {
+                    normalized = std::min(normalized, std::get<uint32_t>(*desc.constraints.max_value));
+                }
+                return normalized;
+            }
+            case orc::ParameterType::DOUBLE: {
+                double normalized = std::get<double>(value);
+                if (desc.constraints.min_value.has_value()) {
+                    normalized = std::max(normalized, std::get<double>(*desc.constraints.min_value));
+                }
+                if (desc.constraints.max_value.has_value()) {
+                    normalized = std::min(normalized, std::get<double>(*desc.constraints.max_value));
+                }
+                normalized = std::round(normalized * 10000.0) / 10000.0;
+                return normalized;
+            }
+            case orc::ParameterType::BOOL:
+                return std::get<bool>(value);
+            case orc::ParameterType::STRING:
+            case orc::ParameterType::FILE_PATH:
+                return std::get<std::string>(value);
+        }
+
+        return value;
+    }
+
+    std::map<std::string, orc::ParameterValue> mergeParameterValues(
+        const std::map<std::string, orc::ParameterValue>& base,
+        const std::map<std::string, orc::ParameterValue>& overrides)
+    {
+        auto merged = base;
+        for (const auto& [key, value] : overrides) {
+            merged[key] = value;
+        }
+        return merged;
     }
 
     bool isUnsetVideoParamsStageValue(const orc::ParameterValue& value)
@@ -1999,6 +2086,10 @@ void MainWindow::applyStageSelection(const orc::NodeID& node_id)
 {
     // Update which node is being viewed
     current_view_node_id_ = node_id;
+
+    if (preview_dialog_) {
+        preview_dialog_->setCurrentNodeId(node_id);
+    }
     
     // Request available outputs from coordinator
     pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
@@ -2351,37 +2442,131 @@ void MainWindow::onPreviewVectorscopeRequested(const orc::PreviewCoordinate& coo
     refreshVectorscopeForCurrentCoordinate();
 }
 
-void MainWindow::refreshTweakPanel()
+std::optional<MainWindow::LiveTweakStageContext> MainWindow::buildLiveTweakStageContext(orc::NodeID node_id)
 {
-    if (!preview_dialog_ || !render_coordinator_ || !current_view_node_id_.is_valid()) {
-        if (preview_dialog_) {
-            preview_dialog_->setTweakableParameters(orc::NodeID{}, {}, {}, {});
-        }
-        return;
+    if (!render_coordinator_ || !node_id.is_valid()) {
+        return std::nullopt;
     }
 
-    const auto tweakable = render_coordinator_->getStageTweakableParameters(current_view_node_id_);
-    if (tweakable.empty()) {
-        preview_dialog_->setTweakableParameters(current_view_node_id_, {}, {}, {});
-        return;
+    LiveTweakStageContext context;
+    context.tweakable = render_coordinator_->getStageTweakableParameters(node_id);
+    if (context.tweakable.empty()) {
+        return std::nullopt;
     }
 
-    const auto nodes = project_.presenter()->getNodes();
-    auto node_it = std::find_if(nodes.begin(), nodes.end(), [this](const orc::presenters::NodeInfo& node) {
-        return node.node_id == current_view_node_id_;
+    auto* presenter = project_.presenter();
+    const auto nodes = presenter->getNodes();
+    auto node_it = std::find_if(nodes.begin(), nodes.end(), [node_id](const orc::presenters::NodeInfo& node) {
+        return node.node_id == node_id;
     });
-
     if (node_it == nodes.end()) {
-        preview_dialog_->setTweakableParameters(current_view_node_id_, {}, {}, {});
-        return;
+        return std::nullopt;
     }
 
-    const auto descriptors = project_.presenter()->getStageParameters(node_it->stage_name);
-    const auto current_values = project_.presenter()->getNodeParameters(current_view_node_id_);
-    preview_dialog_->setTweakableParameters(current_view_node_id_, tweakable, descriptors, current_values);
+    context.descriptors = presenter->getStageParameters(node_it->stage_name);
+    context.persisted_values = presenter->getNodeParameters(node_id);
+
+    auto baseline_it = live_tweak_baseline_values_by_node_.find(node_id);
+    if (baseline_it == live_tweak_baseline_values_by_node_.end()) {
+        auto baseline_values = render_coordinator_->getStageCurrentParameters(node_id);
+        if (baseline_values.empty()) {
+            baseline_values = buildEffectiveStageParameters(context, context.persisted_values);
+        }
+        baseline_it = live_tweak_baseline_values_by_node_
+            .emplace(node_id, std::move(baseline_values))
+            .first;
+    }
+    context.baseline_values = baseline_it->second;
+
+    auto live_values_it = live_tweak_values_by_node_.find(node_id);
+    if (live_values_it != live_tweak_values_by_node_.end()) {
+        context.display_values = live_values_it->second;
+    } else {
+        context.display_values = context.baseline_values;
+    }
+
+    return context;
 }
 
-void MainWindow::onTweakParameterChanged(
+std::map<std::string, orc::ParameterValue> MainWindow::buildEffectiveStageParameters(
+    const LiveTweakStageContext& context,
+    const std::map<std::string, orc::ParameterValue>& values) const
+{
+    std::map<std::string, orc::ParameterValue> effective_values;
+    for (const auto& tweak : context.tweakable) {
+        auto descriptor_it = std::find_if(
+            context.descriptors.begin(),
+            context.descriptors.end(),
+            [&tweak](const auto& descriptor) {
+                return descriptor.name == tweak.parameter_name;
+            });
+        if (descriptor_it == context.descriptors.end()) {
+            continue;
+        }
+
+        auto value_it = values.find(descriptor_it->name);
+        if (value_it != values.end()) {
+            effective_values[descriptor_it->name] = value_it->second;
+            continue;
+        }
+
+        effective_values[descriptor_it->name] = resolveEffectiveParameterValue(
+            *descriptor_it,
+            context.baseline_values);
+    }
+    return effective_values;
+}
+
+bool MainWindow::computeLiveTweakDirty(
+    const LiveTweakStageContext& context,
+    const std::map<std::string, orc::ParameterValue>& current_values) const
+{
+    for (const auto& tweak : context.tweakable) {
+        auto desc_it = std::find_if(context.descriptors.begin(), context.descriptors.end(), [&tweak](const auto& desc) {
+            return desc.name == tweak.parameter_name;
+        });
+        if (desc_it == context.descriptors.end()) {
+            continue;
+        }
+
+        const auto baseline = normalizeEffectiveParameterValue(
+            *desc_it,
+            resolveEffectiveParameterValue(*desc_it, context.baseline_values));
+        const auto current = normalizeEffectiveParameterValue(
+            *desc_it,
+            resolveEffectiveParameterValue(*desc_it, current_values));
+        if (baseline != current) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void MainWindow::showLiveTweakValues(
+    orc::NodeID node_id,
+    const std::map<std::string, orc::ParameterValue>& display_values,
+    bool dirty)
+{
+    if (!preview_dialog_) {
+        return;
+    }
+
+    const auto context = buildLiveTweakStageContext(node_id);
+    if (!context.has_value()) {
+        preview_dialog_->setTweakableParameters(node_id, {}, {}, {}, false);
+        return;
+    }
+
+    preview_dialog_->setTweakableParameters(
+        node_id,
+        context->tweakable,
+        context->descriptors,
+        display_values,
+        dirty);
+}
+
+void MainWindow::dispatchLiveTweakApply(
     orc::NodeID node_id,
     std::map<std::string, orc::ParameterValue> params,
     orc::LiveTweakClass tweak_class)
@@ -2392,6 +2577,23 @@ void MainWindow::onTweakParameterChanged(
 
     ORC_LOG_DEBUG("MainWindow: applying {} tweak parameters for node '{}' (class={})",
                   params.size(), node_id.to_string(), static_cast<int>(tweak_class));
+
+    bool dirty = false;
+    if (const auto context = buildLiveTweakStageContext(node_id); context.has_value()) {
+        params = buildEffectiveStageParameters(*context, params);
+        dirty = computeLiveTweakDirty(*context, params);
+        if (dirty) {
+            setStoredLiveTweakValues(node_id, params);
+        } else {
+            clearLiveTweakState(node_id);
+        }
+    } else {
+        clearLiveTweakState(node_id);
+    }
+
+    if (preview_dialog_ && current_view_node_id_ == node_id) {
+        preview_dialog_->setLiveTweaksDirty(dirty);
+    }
 
     const uint64_t output_index = static_cast<uint64_t>(preview_dialog_ ? preview_dialog_->currentIndex() : 0);
     pending_render_index_ = static_cast<int>(output_index);
@@ -2405,6 +2607,73 @@ void MainWindow::onTweakParameterChanged(
         std::move(params));
 }
 
+bool MainWindow::hasStoredLiveTweakValues(orc::NodeID node_id) const
+{
+    return live_tweak_values_by_node_.find(node_id) != live_tweak_values_by_node_.end();
+}
+
+void MainWindow::setStoredLiveTweakValues(
+    orc::NodeID node_id,
+    std::map<std::string, orc::ParameterValue> values)
+{
+    if (!node_id.is_valid()) {
+        return;
+    }
+
+    live_tweak_values_by_node_[node_id] = std::move(values);
+}
+
+void MainWindow::clearLiveTweakState(orc::NodeID node_id)
+{
+    if (!node_id.is_valid()) {
+        return;
+    }
+
+    live_tweak_values_by_node_.erase(node_id);
+
+    if (preview_dialog_ && current_view_node_id_ == node_id) {
+        preview_dialog_->setLiveTweaksDirty(false);
+    }
+}
+
+void MainWindow::clearAllLiveTweakState()
+{
+    live_tweak_baseline_values_by_node_.clear();
+    live_tweak_values_by_node_.clear();
+    if (preview_dialog_) {
+        preview_dialog_->setLiveTweaksDirty(false);
+    }
+}
+
+void MainWindow::refreshTweakPanel()
+{
+    if (!preview_dialog_ || !render_coordinator_ || !current_view_node_id_.is_valid()) {
+        if (preview_dialog_) {
+            preview_dialog_->setTweakableParameters(orc::NodeID{}, {}, {}, {}, false);
+        }
+        return;
+    }
+
+    const auto context = buildLiveTweakStageContext(current_view_node_id_);
+    if (!context.has_value()) {
+        preview_dialog_->setTweakableParameters(current_view_node_id_, {}, {}, {}, false);
+        return;
+    }
+
+    showLiveTweakValues(
+        current_view_node_id_,
+        context->display_values,
+        computeLiveTweakDirty(*context, context->display_values));
+}
+
+void MainWindow::onTweakParameterChanged(
+    orc::NodeID node_id,
+    std::map<std::string, orc::ParameterValue> params,
+    orc::LiveTweakClass tweak_class)
+{
+    dispatchLiveTweakApply(node_id, std::move(params), tweak_class);
+}
+
 void MainWindow::onResetLiveTweaksRequested(orc::NodeID node_id)
 {
     if (!node_id.is_valid() || node_id != current_view_node_id_) {
@@ -2412,9 +2681,20 @@ void MainWindow::onResetLiveTweaksRequested(orc::NodeID node_id)
     }
 
     try {
-        auto persisted_params = project_.presenter()->getNodeParameters(node_id);
-        onTweakParameterChanged(node_id, std::move(persisted_params), orc::LiveTweakClass::DecodePhase);
-        refreshTweakPanel();
+        const auto context = buildLiveTweakStageContext(node_id);
+        const auto persisted_params = project_.presenter()->getNodeParameters(node_id);
+
+        std::map<std::string, orc::ParameterValue> reset_params = persisted_params;
+        if (context.has_value()) {
+            reset_params = buildEffectiveStageParameters(*context, persisted_params);
+        }
+
+        clearLiveTweakState(node_id);
+        showLiveTweakValues(
+            node_id,
+            context.has_value() ? context->baseline_values : persisted_params,
+            false);
+        dispatchLiveTweakApply(node_id, std::move(reset_params), orc::LiveTweakClass::DecodePhase);
         statusBar()->showMessage("Live tweaks reset to stage parameters", 2500);
     } catch (const std::exception& e) {
         ORC_LOG_ERROR("onResetLiveTweaksRequested failed: {}", e.what());
@@ -2433,15 +2713,14 @@ void MainWindow::onWriteLiveTweaksRequested(
     }
 
     try {
-        project_.presenter()->setNodeParameters(node_id, params);
+        const auto persisted_params = project_.presenter()->getNodeParameters(node_id);
+        auto merged_params = mergeParameterValues(persisted_params, params);
+        project_.presenter()->setNodeParameters(node_id, merged_params);
 
         // Keep the DAG-backed renderer consistent with persisted stage parameters.
         project_.rebuildDAG();
         updatePreviewRenderer();
         dag_model_->refresh();
-
-        // Reapply to current frame via live path to guarantee immediate visible state.
-        onTweakParameterChanged(node_id, std::move(params), orc::LiveTweakClass::DecodePhase);
         refreshTweakPanel();
 
         statusBar()->showMessage("Live tweaks written to stage parameters", 2500);
@@ -2624,6 +2903,7 @@ void MainWindow::refreshViewerControls(bool skip_preview)
 void MainWindow::updatePreviewRenderer()
 {
     ORC_LOG_DEBUG("Updating preview renderer");
+    clearAllLiveTweakState();
     
     // Get the DAG - could be null for empty projects, that's fine
     auto dag = project_.hasSource() ? project_.getDAG() : nullptr;

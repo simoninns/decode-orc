@@ -665,6 +665,8 @@ public:
      */
     std::vector<orc::LiveTweakableParameterView> getStageTweakableParameters(NodeID node_id);
 
+    std::map<std::string, ParameterValue> getStageCurrentParameters(NodeID node_id);
+
 private:
     class Impl;
     std::unique_ptr<Impl> impl_;

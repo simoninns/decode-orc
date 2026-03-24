@@ -203,7 +203,36 @@ private:
     void refreshVectorscopeForCurrentCoordinate();
 
     // Live preview tweak panel (Phase 6)
+    struct LiveTweakStageContext {
+        std::vector<orc::LiveTweakableParameterView> tweakable;
+        std::vector<orc::ParameterDescriptor> descriptors;
+        std::map<std::string, orc::ParameterValue> persisted_values;
+        std::map<std::string, orc::ParameterValue> baseline_values;
+        std::map<std::string, orc::ParameterValue> display_values;
+    };
+
     void refreshTweakPanel();
+    std::optional<LiveTweakStageContext> buildLiveTweakStageContext(orc::NodeID node_id);
+    std::map<std::string, orc::ParameterValue> buildEffectiveStageParameters(
+        const LiveTweakStageContext& context,
+        const std::map<std::string, orc::ParameterValue>& values) const;
+    bool computeLiveTweakDirty(
+        const LiveTweakStageContext& context,
+        const std::map<std::string, orc::ParameterValue>& current_values) const;
+    void showLiveTweakValues(
+        orc::NodeID node_id,
+        const std::map<std::string, orc::ParameterValue>& display_values,
+        bool dirty);
+    void dispatchLiveTweakApply(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> params,
+        orc::LiveTweakClass tweak_class);
+    bool hasStoredLiveTweakValues(orc::NodeID node_id) const;
+    void setStoredLiveTweakValues(
+        orc::NodeID node_id,
+        std::map<std::string, orc::ParameterValue> values);
+    void clearLiveTweakState(orc::NodeID node_id);
+    void clearAllLiveTweakState();
     void onTweakParameterChanged(
         orc::NodeID node_id,
         std::map<std::string, orc::ParameterValue> params,
@@ -243,6 +272,8 @@ private:
     std::unordered_map<uint64_t, orc::NodeID> pending_dropout_requests_;  // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_snr_requests_;      // request_id -> node_id
     std::unordered_map<uint64_t, orc::NodeID> pending_burst_level_requests_;  // request_id -> node_id
+    std::unordered_map<orc::NodeID, std::map<std::string, orc::ParameterValue>> live_tweak_baseline_values_by_node_;
+    std::unordered_map<orc::NodeID, std::map<std::string, orc::ParameterValue>> live_tweak_values_by_node_;
     
     // Dropout analysis state tracking
     orc::NodeID last_dropout_node_id_;

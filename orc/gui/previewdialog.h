@@ -214,13 +214,20 @@ public:
      * @param node_id       Node whose stage the tweaks target.
      * @param tweakable     Tweakable parameter view-models from the coordinator.
      * @param descriptors   Full ParameterDescriptors for building widgets.
-     * @param current_values Current parameter values to initialise widgets.
+      * @param display_values Current live stage parameter values to initialise widgets.
+            * @param has_unsaved_changes Whether this stage currently has unwritten live tweaks.
      */
     void setTweakableParameters(
         orc::NodeID node_id,
         const std::vector<orc::LiveTweakableParameterView>& tweakable,
         const std::vector<orc::ParameterDescriptor>& descriptors,
-        const std::map<std::string, orc::ParameterValue>& current_values);
+                    const std::map<std::string, orc::ParameterValue>& display_values,
+                    bool has_unsaved_changes);
+
+        /**
+         * @brief Update the explicit unsaved state for the currently displayed tweak stage.
+         */
+        void setLiveTweaksDirty(bool has_unsaved_changes);
 
 Q_SIGNALS:
     /**
@@ -344,6 +351,7 @@ private:
     QFormLayout*  tweak_form_layout_{nullptr};
     QTimer*       tweak_debounce_timer_{nullptr};
     orc::NodeID   tweak_node_id_;
+    bool          tweak_unsaved_changes_{false};
     std::map<std::string, TweakWidgetEntry> tweak_widgets_;
 
     void buildTweakPanel(
@@ -351,6 +359,7 @@ private:
         const std::vector<orc::ParameterDescriptor>& descriptors,
         const std::map<std::string, orc::ParameterValue>& current_values);
     void clearTweakPanel();
+    void updateLiveTweaksWindowTitle();
     std::map<std::string, orc::ParameterValue> collectTweakValues() const;
     orc::LiveTweakClass dominantTweakClass(const std::string& changed_param_name) const;
 

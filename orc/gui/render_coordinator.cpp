@@ -315,6 +315,16 @@ std::vector<orc::LiveTweakableParameterView> RenderCoordinator::getStageTweakabl
     return worker_render_presenter_->getStageTweakableParameters(node_id);
 }
 
+std::map<std::string, orc::ParameterValue> RenderCoordinator::getStageCurrentParameters(
+    const orc::NodeID& node_id)
+{
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (!worker_render_presenter_) {
+        return {};
+    }
+    return worker_render_presenter_->getStageCurrentParameters(node_id);
+}
+
 // ============================================================================
 // Worker Thread Implementation
 // ============================================================================

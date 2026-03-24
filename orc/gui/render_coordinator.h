@@ -702,6 +702,9 @@ public:
     std::vector<orc::LiveTweakableParameterView> getStageTweakableParameters(
         const orc::NodeID& node_id);
 
+    std::map<std::string, orc::ParameterValue> getStageCurrentParameters(
+        const orc::NodeID& node_id);
+
     /**
      * @brief Trigger a stage for batch processing (async)
      * 

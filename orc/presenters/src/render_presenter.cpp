@@ -62,6 +62,24 @@ public:
     std::atomic<bool> trigger_active_;
     uint64_t next_request_id_;
     std::atomic<orc::TriggerableStage*> current_trigger_stage_{nullptr};
+
+    void invalidateRenderCachesForNode(const NodeID& node_id) {
+        auto dag = getConcreteDAG();
+        if (!dag) {
+            return;
+        }
+
+        if (preview_renderer_) {
+            preview_renderer_->update_dag(dag);
+        }
+        if (field_renderer_) {
+            field_renderer_->update_dag(dag);
+        }
+        if (obs_cache_) {
+            obs_cache_->update_dag(dag);
+        }
+        preview_view_registry_.clear_cache_for_node(node_id);
+    }
     
     void rebuildRenderersFromDAG() {
         auto dag = getConcreteDAG();
@@ -930,6 +948,9 @@ bool RenderPresenter::applyStageParameters(
             bool ok = param_stage->set_parameters(params);
             ORC_LOG_DEBUG("RenderPresenter::applyStageParameters: node '{}' set_parameters -> {}",
                           node_id.to_string(), ok);
+            if (ok) {
+                impl_->invalidateRenderCachesForNode(node_id);
+            }
             return ok;
         }
     }
@@ -969,6 +990,29 @@ std::vector<orc::LiveTweakableParameterView> RenderPresenter::getStageTweakableP
             return result;
         }
     }
+    return {};
+}
+
+std::map<std::string, ParameterValue> RenderPresenter::getStageCurrentParameters(NodeID node_id)
+{
+    auto dag = impl_->getConcreteDAG();
+    if (!dag) {
+        return {};
+    }
+
+    for (const auto& node : dag->nodes()) {
+        if (node.node_id != node_id) {
+            continue;
+        }
+
+        auto* param_stage = dynamic_cast<const orc::ParameterizedStage*>(node.stage.get());
+        if (!param_stage) {
+            return {};
+        }
+
+        return param_stage->get_parameters();
+    }
+
     return {};
 }
 

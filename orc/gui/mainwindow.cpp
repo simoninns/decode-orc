@@ -485,6 +485,8 @@ void MainWindow::setupUI()
             this, &MainWindow::onTweakParameterChanged);
         connect(preview_dialog_, &PreviewDialog::resetLiveTweaksRequested,
             this, &MainWindow::onResetLiveTweaksRequested);
+        connect(preview_dialog_, &PreviewDialog::allLiveTweaksDismissed,
+            this, &MainWindow::onAllLiveTweaksDismissed);
         connect(preview_dialog_, &PreviewDialog::writeLiveTweaksRequested,
             this, &MainWindow::onWriteLiveTweaksRequested);
     
@@ -2709,6 +2711,16 @@ void MainWindow::onResetLiveTweaksRequested(orc::NodeID node_id)
             QString("Failed to reset live tweaks: %1").arg(QString::fromStdString(e.what())),
             4000);
     }
+}
+
+void MainWindow::onAllLiveTweaksDismissed()
+{
+    // Reset the currently viewed node's render parameters if it has unsaved tweaks
+    if (current_view_node_id_.is_valid() && hasStoredLiveTweakValues(current_view_node_id_)) {
+        onResetLiveTweaksRequested(current_view_node_id_);
+    }
+    // Discard stored tweaks for all remaining nodes (not actively applied in render coordinator)
+    clearAllLiveTweakState();
 }
 
 void MainWindow::onWriteLiveTweaksRequested(

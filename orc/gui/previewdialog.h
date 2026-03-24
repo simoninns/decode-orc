@@ -290,6 +290,12 @@ Q_SIGNALS:
         orc::NodeID node_id,
         std::map<std::string, orc::ParameterValue> params);
 
+    /**
+     * @brief Emitted when the live tweaks dialog is closed without writing.
+     * MainWindow should discard all applied tweaks for all stages.
+     */
+    void allLiveTweaksDismissed();
+
 private slots:
     void onSampleMarkerMoved(int sample_x);
     void onVectorscopeActionTriggered();
@@ -322,7 +328,8 @@ private:
     QAction* show_live_tweaks_action_;
     LineScopeDialog* line_scope_dialog_;
     FieldTimingDialog* field_timing_dialog_;
-    std::unordered_map<orc::NodeID, VectorscopeDialog*> vectorscope_dialogs_;
+    VectorscopeDialog* vectorscope_dialog_{nullptr};
+    orc::NodeID vectorscope_node_id_;
     orc::NodeID current_node_id_;
     std::optional<orc::PreviewCoordinate> shared_preview_coordinate_;
     std::unordered_set<std::string> available_preview_view_ids_;

@@ -238,6 +238,7 @@ private:
         std::map<std::string, orc::ParameterValue> params,
         orc::LiveTweakClass tweak_class);
     void onResetLiveTweaksRequested(orc::NodeID node_id);
+    void onAllLiveTweaksDismissed();
     void onWriteLiveTweaksRequested(
         orc::NodeID node_id,
         std::map<std::string, orc::ParameterValue> params);

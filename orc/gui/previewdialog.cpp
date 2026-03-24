@@ -71,6 +71,7 @@ PreviewDialog::PreviewDialog(QWidget *parent)
     : QDialog(parent)
     , line_scope_dialog_(nullptr)
     , field_timing_dialog_(nullptr)
+    , vectorscope_dialog_(nullptr)
     , nav_debounce_timer_(new QTimer(this))
     , tweak_debounce_timer_(new QTimer(this))
 {
@@ -348,6 +349,7 @@ void PreviewDialog::setupUI()
             QSignalBlocker blocker(show_live_tweaks_action_);
             show_live_tweaks_action_->setChecked(false);
         }
+        emit allLiveTweaksDismissed();
     });
     
     // -----------------------------------------------------------------------
@@ -475,6 +477,11 @@ void PreviewDialog::setCurrentNodeId(orc::NodeID node_id)
         updateLiveTweaksWindowTitle();
     }
     current_node_id_ = node_id;
+
+    if (vectorscope_dialog_ && vectorscope_dialog_->isVisible() && node_id.is_valid()) {
+        vectorscope_node_id_ = node_id;
+        vectorscope_dialog_->setStage(node_id);
+    }
 }
 
 void PreviewDialog::setAvailablePreviewViews(const std::vector<orc::PreviewViewDescriptor>& views)
@@ -517,57 +524,46 @@ void PreviewDialog::showVectorscopeForNode(orc::NodeID node_id)
         return;
     }
 
-    VectorscopeDialog* dialog = nullptr;
-    auto it = vectorscope_dialogs_.find(node_id);
-    if (it != vectorscope_dialogs_.end()) {
-        dialog = it->second;
-    } else {
-        dialog = new VectorscopeDialog(this);
-        dialog->setAttribute(Qt::WA_DeleteOnClose, true);
-        dialog->setStage(node_id);
-        connect(dialog, &VectorscopeDialog::closed, [this, node_id]() {
-            auto it2 = vectorscope_dialogs_.find(node_id);
-            if (it2 != vectorscope_dialogs_.end()) {
-                vectorscope_dialogs_.erase(it2);
-            }
+    if (!vectorscope_dialog_) {
+        vectorscope_dialog_ = new VectorscopeDialog(this);
+        vectorscope_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
+
+        connect(vectorscope_dialog_, &QObject::destroyed, this, [this]() {
+            vectorscope_dialog_ = nullptr;
+            vectorscope_node_id_ = orc::NodeID{};
         });
-        connect(dialog, &QObject::destroyed, [this, node_id]() {
-            auto it2 = vectorscope_dialogs_.find(node_id);
-            if (it2 != vectorscope_dialogs_.end()) {
-                vectorscope_dialogs_.erase(it2);
-            }
-        });
-        vectorscope_dialogs_[node_id] = dialog;
     }
 
-    dialog->show();
-    dialog->raise();
-    dialog->activateWindow();
+    vectorscope_node_id_ = node_id;
+    vectorscope_dialog_->setStage(node_id);
+    vectorscope_dialog_->show();
+    vectorscope_dialog_->raise();
+    vectorscope_dialog_->activateWindow();
 }
 
 void PreviewDialog::updateVectorscope(orc::NodeID node_id, const std::optional<orc::VectorscopeData>& data)
 {
-    auto it = vectorscope_dialogs_.find(node_id);
-    if (it == vectorscope_dialogs_.end()) {
+    Q_UNUSED(node_id);
+
+    if (!vectorscope_dialog_) {
         return;
     }
 
-    auto* dialog = it->second;
-    if (!dialog || !dialog->isVisible()) {
+    if (!vectorscope_dialog_->isVisible()) {
         return;
     }
 
     if (data.has_value()) {
-        dialog->updateVectorscope(*data);
+        vectorscope_dialog_->updateVectorscope(*data);
     } else {
-        dialog->clearDisplay();
+        vectorscope_dialog_->clearDisplay();
     }
 }
 
 bool PreviewDialog::isVectorscopeVisibleForNode(orc::NodeID node_id) const
 {
-    auto it = vectorscope_dialogs_.find(node_id);
-    return it != vectorscope_dialogs_.end() && it->second && it->second->isVisible();
+    Q_UNUSED(node_id);
+    return vectorscope_dialog_ && vectorscope_dialog_->isVisible();
 }
 
 void PreviewDialog::onSampleMarkerMoved(int sample_x)
@@ -915,17 +911,10 @@ void PreviewDialog::closeChildDialogs()
 
 void PreviewDialog::closeVectorscopeDialogs()
 {
-    std::vector<QWidget*> dialogs_to_close;
-    dialogs_to_close.reserve(vectorscope_dialogs_.size());
-    for (auto& pair : vectorscope_dialogs_) {
-        if (pair.second) {
-            dialogs_to_close.push_back(pair.second);
-        }
+    if (vectorscope_dialog_) {
+        vectorscope_dialog_->close();
     }
-    vectorscope_dialogs_.clear();
-    for (auto* dialog : dialogs_to_close) {
-        dialog->close();
-    }
+    vectorscope_node_id_ = orc::NodeID{};
 }
 
 bool PreviewDialog::isLineScopeVisible() const

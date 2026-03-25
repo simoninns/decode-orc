@@ -24,7 +24,7 @@ MaskLineConfigDialog::MaskLineConfigDialog(QWidget *parent)
 
     add_info_label(preset_layout, 
         "<b>Important:</b> All line numbers are <b>0-based field line indices</b>, not frame line numbers. "
-        "Each field contains ~262 lines (NTSC) or ~312 lines (PAL). Traditional 'line 21' = index 20.");
+        "NTSC/PAL-M: ~262 lines (0-261), PAL: ~312 lines (0-311). Traditional 'line 21' = index 20.");
 
     QStringList presets;
     presets << "None (Custom)" 
@@ -57,11 +57,11 @@ MaskLineConfigDialog::MaskLineConfigDialog(QWidget *parent)
     field_selection_combo_->setEnabled(false);
 
     start_line_spinbox_ = add_spinbox(custom_layout, "Start Field Line:", 0, 1000, 0,
-        "First field line number to mask (0-based, range 0-261 for NTSC, 0-311 for PAL)");
+        "First field line number to mask (0-based, NTSC/PAL-M: 0-261, PAL: 0-311)");
     start_line_spinbox_->setEnabled(false);
 
     end_line_spinbox_ = add_spinbox(custom_layout, "End Field Line:", 0, 1000, 0,
-        "Last field line number to mask (0-based, range 0-261 for NTSC, 0-311 for PAL)");
+        "Last field line number to mask (0-based, NTSC/PAL-M: 0-261, PAL: 0-311)");
     end_line_spinbox_->setEnabled(false);
 
     // Create mask level group

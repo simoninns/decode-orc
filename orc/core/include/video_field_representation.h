@@ -47,6 +47,25 @@ enum class VideoFormat {
     Unknown
 };
 
+/**
+ * @brief Map an exact video system to the legacy coarse format bucket.
+ *
+ * Exact source identity should use VideoSystem. VideoFormat remains a
+ * compatibility bucket for existing PAL-vs-NTSC code paths.
+ */
+inline VideoFormat video_format_from_system(VideoSystem system) {
+    switch (system) {
+        case VideoSystem::PAL:
+        case VideoSystem::PAL_M:
+            return VideoFormat::PAL;
+        case VideoSystem::NTSC:
+            return VideoFormat::NTSC;
+        case VideoSystem::Unknown:
+        default:
+            return VideoFormat::Unknown;
+    }
+}
+
 // ============================================================================
 // Field Height Calculation Utilities
 // ============================================================================
@@ -165,6 +184,7 @@ struct FieldDescriptor {
     FieldID field_id;
     FieldParity parity;
     VideoFormat format;
+    VideoSystem system = VideoSystem::Unknown;
     size_t width;          // Samples per line
     size_t height;         // Number of lines
     

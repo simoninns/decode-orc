@@ -30,6 +30,16 @@ namespace orc {
 // VideoSystem now defined in common_types.h
 
 std::string video_system_to_string(VideoSystem system);
+
+/**
+ * @brief Parse video system name from SQLite metadata.
+ * 
+ * For SQLite reads, the database should contain only "PAL_M" (underscore, canonical form).
+ * For fallback JSON that may use alternate forms, use parseVideoSystemName() instead.
+ * 
+ * @param name System name string ("PAL", "NTSC", or "PAL_M")
+ * @return VideoSystem enum value, or Unknown if not recognized
+ */
 VideoSystem video_system_from_string(const std::string& name);
 
 /**

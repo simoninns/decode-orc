@@ -19,11 +19,22 @@
 
 namespace orc {
 
+class IPALCompSourceLoader {
+public:
+    virtual ~IPALCompSourceLoader() = default;
+
+    virtual std::shared_ptr<VideoFieldRepresentation> load(
+        const std::string& input_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path) const = 0;
+};
+
 /**
- * @brief PAL Composite Source Stage - Loads PAL TBC files from ld-decode
+ * @brief PAL Composite Source Stage - Loads PAL-family TBC files from ld-decode
  * 
- * This stage loads a PAL TBC file and its associated database from ld-decode,
- * creating a VideoFieldRepresentation for PAL video processing.
+ * This stage loads a PAL or PAL-M TBC file and its associated database from
+ * ld-decode, creating a VideoFieldRepresentation for PAL-family processing.
  * 
  * Parameters:
  * - input_path: Path to the .tbc file
@@ -33,7 +44,7 @@ namespace orc {
  */
 class PALCompSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
-    PALCompSourceStage() = default;
+    explicit PALCompSourceStage(std::shared_ptr<IPALCompSourceLoader> loader = nullptr);
     ~PALCompSourceStage() override = default;
 
     // DAGStage interface
@@ -44,7 +55,7 @@ public:
             NodeType::SOURCE,
             "PAL_Comp_Source",
             "PAL Composite Source",
-            "PAL composite input source - loads PAL TBC files from ld-decode",
+            "PAL-family composite input source - loads PAL or PAL-M TBC files from ld-decode",
             0, 0,  // No inputs
             1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::PAL_ONLY
@@ -74,9 +85,16 @@ public:
     std::optional<StageReport> generate_report() const override;
 
 private:
+    std::shared_ptr<VideoFieldRepresentation> load_representation(
+        const std::string& input_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path) const;
+
     // Cache the loaded representation to avoid reloading
     mutable std::string cached_input_path_;
     mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
+    std::shared_ptr<IPALCompSourceLoader> loader_;
     
     // Store parameters for inspection
     std::map<std::string, ParameterValue> parameters_;

@@ -113,6 +113,31 @@ private:
  * Parameters can be set individually - unset parameters are inherited from
  * the input source. This allows partial overrides without specifying all
  * parameters.
+ * 
+ * **Supported Video Systems & Typical Active Line Ranges:**
+ * 
+ * When using this stage with specific video systems, these are the typical
+ * default active field line values to expect (inherited from source metadata):
+ * 
+ * - **PAL (625-line)**: first_active_field_line = 22, last_active_field_line = 310
+ *   - Frame geometry: 625 lines total
+ *   - Subcarrier: 4433618.75 Hz
+ *   - Use these values for standard PAL recordings
+ * 
+ * - **NTSC (525-line)**: first_active_field_line = 20, last_active_field_line = 259
+ *   - Frame geometry: 525 lines total
+ *   - Subcarrier: 3579545.45 Hz
+ *   - Use these values for standard NTSC recordings
+ * 
+ * - **PAL-M (525-line with PAL color)**: first_active_field_line = 20, last_active_field_line = 259
+ *   - Frame geometry: 525 lines total (NTSC-like) with PAL color encoding
+ *   - Subcarrier: 3575611.89 Hz
+ *   - Same active line boundaries as NTSC but with PAL colour system
+ *   - Use these field line values for Brazilian PAL-M recordings
+ * 
+ * When overriding parameters for a video system, inherit the parameters
+ * from the source (set to -1) to use these defaults, or override them
+ * if your source differs from the standard.
  */
 class VideoParamsStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:

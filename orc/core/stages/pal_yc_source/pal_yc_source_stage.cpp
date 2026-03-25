@@ -19,11 +19,46 @@
 
 namespace orc {
 
+namespace {
+
+class DefaultPALYCSourceLoader final : public IPALYCSourceLoader {
+public:
+    std::shared_ptr<VideoFieldRepresentation> load(
+        const std::string& y_path,
+        const std::string& c_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path) const override
+    {
+        return create_tbc_yc_representation(y_path, c_path, db_path, pcm_path, efm_path);
+    }
+};
+
+} // namespace
+
 // Register this stage with the registry
 ORC_REGISTER_STAGE(PALYCSourceStage)
 
 // Force linker to include this object file
 void force_link_PALYCSourceStage() {}
+
+PALYCSourceStage::PALYCSourceStage(std::shared_ptr<IPALYCSourceLoader> loader)
+    : loader_(std::move(loader))
+{
+    if (!loader_) {
+        loader_ = std::make_shared<DefaultPALYCSourceLoader>();
+    }
+}
+
+std::shared_ptr<VideoFieldRepresentation> PALYCSourceStage::load_representation(
+    const std::string& y_path,
+    const std::string& c_path,
+    const std::string& db_path,
+    const std::string& pcm_path,
+    const std::string& efm_path) const
+{
+    return loader_->load(y_path, c_path, db_path, pcm_path, efm_path);
+}
 
 std::vector<ArtifactPtr> PALYCSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
@@ -97,7 +132,7 @@ std::vector<ArtifactPtr> PALYCSourceStage::execute(
     }
     
     try {
-        auto yc_representation = create_tbc_yc_representation(y_path, c_path, db_path, pcm_path, efm_path);
+        auto yc_representation = load_representation(y_path, c_path, db_path, pcm_path, efm_path);
         if (!yc_representation) {
             throw UserDataError("Failed to load YC files (validation failed - see logs above)");
         }
@@ -126,7 +161,7 @@ std::vector<ArtifactPtr> PALYCSourceStage::execute(
         if (video_params->system != VideoSystem::PAL && 
             video_params->system != VideoSystem::PAL_M) {
             throw UserDataError(
-                "YC files are not PAL format. Use 'Add NTSC YC Source' for NTSC files."
+                "YC files are not PAL or PAL-M format. Use 'Add NTSC YC Source' for NTSC files."
             );
         }
         
@@ -140,7 +175,7 @@ std::vector<ArtifactPtr> PALYCSourceStage::execute(
         throw;
     } catch (const std::exception& e) {
         throw UserDataError(
-            std::string("Failed to load PAL YC files '") + y_path + "' + '" + c_path + "': " + e.what()
+            std::string("Failed to load PAL-family YC files '") + y_path + "' + '" + c_path + "': " + e.what()
         );
     }
 }
@@ -156,7 +191,7 @@ std::vector<ParameterDescriptor> PALYCSourceStage::get_parameter_descriptors(Vid
         ParameterDescriptor desc;
         desc.name = "y_path";
         desc.display_name = "Y (Luma) File Path";
-        desc.description = "Path to the PAL .tbcy (luma) file";
+        desc.description = "Path to the PAL or PAL-M .tbcy (luma) file";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
         desc.constraints.default_value = std::string("");
@@ -169,7 +204,7 @@ std::vector<ParameterDescriptor> PALYCSourceStage::get_parameter_descriptors(Vid
         ParameterDescriptor desc;
         desc.name = "c_path";
         desc.display_name = "C (Chroma) File Path";
-        desc.description = "Path to the PAL .tbcc (chroma) file";
+        desc.description = "Path to the PAL or PAL-M .tbcc (chroma) file";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional
         desc.constraints.default_value = std::string("");
@@ -309,7 +344,7 @@ std::optional<StageReport> PALYCSourceStage::generate_report() const {
     
     // Try to load the files to get actual information
     try {
-        auto representation = create_tbc_yc_representation(y_path_, c_path_, effective_db_path, pcm_path_, efm_path_);
+        auto representation = load_representation(y_path_, c_path_, effective_db_path, pcm_path_, efm_path_);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             

@@ -78,12 +78,15 @@ std::optional<SourceParameters> VideoParamsStage::build_video_parameters(
     const std::optional<SourceParameters>& source_params) const
 {
     // Start with source parameters if available, otherwise create new
+    // This function preserves the exact VideoSystem (PAL, NTSC, or PAL-M)
+    // from the source while allowing selective parameter overrides
     SourceParameters params;
     if (source_params.has_value()) {
         params = *source_params;
     }
     
     // Apply overrides for each parameter (only if set, i.e., != -1)
+    // Unset parameters (-1) inherit from source, preserving metadata defaults
     if (colour_burst_start_ >= 0) {
         params.colour_burst_start = colour_burst_start_;
     }
@@ -121,7 +124,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "colourBurstStart",
             "Colour Burst Start",
-            "Override colour burst start sample position. Set to -1 to use source value.",
+            "Override colour burst start sample position. Set to -1 to use source value. "
+            "Typical range: 120-150 samples depending on system.",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -135,7 +139,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "colourBurstEnd",
             "Colour Burst End",
-            "Override colour burst end sample position. Set to -1 to use source value.",
+            "Override colour burst end sample position. Set to -1 to use source value. "
+            "Typical range: 280-320 samples depending on system.",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -149,7 +154,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "activeVideoStart",
             "Active Video Start",
-            "Override active video start sample position. Set to -1 to use source value.",
+            "Override active video start sample position. Set to -1 to use source value. "
+            "Typical: ~200 samples for 16-bit video.",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -163,7 +169,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "activeVideoEnd",
             "Active Video End",
-            "Override active video end sample position. Set to -1 to use source value.",
+            "Override active video end sample position. Set to -1 to use source value. "
+            "Typical: 200-400 samples less than field width.",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -177,7 +184,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "firstActiveFieldLine",
             "First Active Field Line",
-            "Override first active field line number. Set to -1 to use source value.",
+            "Override first active field line (0-based). Set to -1 to use source value. "
+            "PAL: 22, NTSC: 20, PAL-M: 20",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -191,7 +199,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "lastActiveFieldLine",
             "Last Active Field Line",
-            "Override last active field line number. Set to -1 to use source value.",
+            "Override last active field line (0-based). Set to -1 to use source value. "
+            "PAL: 310, NTSC: 259, PAL-M: 259",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -205,7 +214,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "white16bIRE",
             "White 16-bit IRE",
-            "Override white level in 16-bit IRE units. Set to -1 to use source value.",
+            "Override white level in 16-bit IRE. Set to -1 to use source value. "
+            "Typical: 65535 (100 IRE). Both PAL and NTSC use 100 IRE for white.",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},
@@ -219,7 +229,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(Vid
         ParameterDescriptor{
             "black16bIRE",
             "Black 16-bit IRE",
-            "Override black level in 16-bit IRE units. Set to -1 to use source value.",
+            "Override black level in 16-bit IRE. Set to -1 to use source value. "
+            "PAL/PAL-M: 0 (0 IRE), NTSC: 1907 (7.5 IRE).",
             ParameterType::INT32,
             ParameterConstraints{
                 ParameterValue{int32_t(-1)},

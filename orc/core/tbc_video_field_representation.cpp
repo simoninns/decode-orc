@@ -97,18 +97,9 @@ std::optional<FieldDescriptor> TBCVideoFieldRepresentation::get_descriptor(Field
     // Determine parity from field ID (alternating)
     desc.parity = (id.value() % 2 == 0) ? FieldParity::Top : FieldParity::Bottom;
     
-    // Get format from video parameters
-    switch (video_params_.system) {
-        case VideoSystem::PAL:
-        case VideoSystem::PAL_M:
-            desc.format = VideoFormat::PAL;
-            break;
-        case VideoSystem::NTSC:
-            desc.format = VideoFormat::NTSC;
-            break;
-        default:
-            desc.format = VideoFormat::Unknown;
-    }
+    // Preserve the exact system while keeping the legacy coarse format bucket.
+    desc.system = video_params_.system;
+    desc.format = video_format_from_system(video_params_.system);
     
     desc.width = video_params_.field_width;
     

@@ -61,6 +61,7 @@ public:
         d.field_id = id;
         d.parity = (id.value() % 2 == 0) ? orc::FieldParity::Top : orc::FieldParity::Bottom;
         d.format = orc::VideoFormat::NTSC;
+        d.system = orc::VideoSystem::NTSC;
         d.width = static_cast<size_t>(params_.field_width);
         d.height = static_cast<size_t>(params_.field_height);
         return d;

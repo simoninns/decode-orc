@@ -48,6 +48,17 @@ enum class LdVideoSystem {
     PAL_M,      // 525-line PAL
 };
 
+/**
+ * @brief Parse video system name from fallback JSON metadata.
+ * 
+ * Accepts both "PAL_M" (underscore, canonical ld-decode form) and "PAL-M" (hyphen, alternate form).
+ * This function is used for deserialization of JSON metadata which may contain alternate representations.
+ * For SQLite reads, use video_system_from_string() instead, which only accepts the canonical "PAL_M".
+ * 
+ * @param name System name string ("PAL", "NTSC", "PAL_M", or "PAL-M")
+ * @param system Output parameter set to the parsed VideoSystem
+ * @return true if name is recognized, false otherwise
+ */
 bool parseVideoSystemName(std::string name, LdVideoSystem &system);
 
 class LdDecodeMetaData

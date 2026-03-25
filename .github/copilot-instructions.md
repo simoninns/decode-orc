@@ -172,6 +172,19 @@ The project targets ~80% unit test coverage with these principles:
 - **Integration tests:** Sparse; reserved for happy-path wiring checks only.
 - **Mocks:** Use Google Test `MOCK_METHOD` framework on interfaces (not classes).
 
+### ⚠️ CRITICAL: Unit Test Constraints (Non-Negotiable)
+
+**Unit tests MUST NOT access the filesystem, network, database, or system clock under ANY circumstances.** This is enforced in code review:
+
+- ❌ **Forbidden:** Creating temp files, reading JSON/YAML files, loading config files, accessing any external resource
+- ❌ **Forbidden:** Directly calling code that touches disk/network (even "just to test happy path")
+- ✅ **Required:** Mock ALL external dependencies via interfaces; inject mocks into the class under test
+- ✅ **Required:** Test the class's logic in isolation; verify calls to dependencies, not the dependencies' behavior
+
+**Example:** When testing metadata parsing logic that handles both "PAL_M" and "PAL-M" format names, do NOT read real JSON files. Instead, mock the metadata reader interface and feed it expected format-name strings directly through mocked method calls.
+
+See [TESTING.md](../TESTING.md) "Unit tests" section and examples like `daphne_vbi_writer_util_test.cpp` for how to structure tests with proper mocking.
+
 **When adding/changing behavior:**
 1. Write or update unit tests first.
 2. Mock external dependencies (file I/O, network, etc.).

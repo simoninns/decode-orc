@@ -125,8 +125,8 @@ public:
                 desc.field_id = id;
                 desc.width = params->field_width;
                 desc.height = params->field_height;
-                // Convert VideoSystem to VideoFormat
-                desc.format = (params->system == VideoSystem::PAL) ? VideoFormat::PAL : VideoFormat::NTSC;
+                desc.system = params->system;
+                desc.format = video_format_from_system(params->system);
                 desc.parity = FieldParity::Top;  // Arbitrary for black fields
                 return desc;
             }

@@ -32,7 +32,7 @@ void WhiteSNRObserver::process_field(
     }
     
     const auto& descriptor = descriptor_opt.value();
-    VideoFormat format = descriptor.format;
+    const bool uses_pal_vits_layout = (descriptor.system == VideoSystem::PAL);
     
     // VITS white flag locations (from ld-process-vits)
     // PAL: Line 19, 12μs start, 8μs length
@@ -56,7 +56,7 @@ void WhiteSNRObserver::process_field(
 
     const WhiteConfig* configs = nullptr;
     size_t configs_size = 0;
-    if (format == VideoFormat::PAL) {
+    if (uses_pal_vits_layout) {
         configs = pal_configs.data();
         configs_size = pal_configs.size();
     } else {
@@ -127,8 +127,8 @@ std::vector<double> WhiteSNRObserver::get_line_slice_ire(
     }
     
     // Calculate samples per microsecond
-    VideoFormat format = descriptor.format;
-    double us_per_line = (format == VideoFormat::PAL) ? 64.0 : 63.5;
+    const bool uses_pal_line_timing = (descriptor.system == VideoSystem::PAL);
+    double us_per_line = uses_pal_line_timing ? 64.0 : 63.5;
     double samples_per_us = static_cast<double>(descriptor.width) / us_per_line;
     
     // Calculate sample positions

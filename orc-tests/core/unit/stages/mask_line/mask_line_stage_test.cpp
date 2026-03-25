@@ -130,6 +130,7 @@ namespace orc_unit_test
             orc::FieldID(0),
             orc::FieldParity::Top,
             orc::VideoFormat::NTSC,
+            orc::VideoSystem::NTSC,
             8,
             262,
             std::nullopt,

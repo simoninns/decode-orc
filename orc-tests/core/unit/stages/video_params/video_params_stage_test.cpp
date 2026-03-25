@@ -137,6 +137,62 @@ namespace orc_unit_test
         EXPECT_EQ(overridden->white_16b_ire, 50000);
     }
 
+    TEST(VideoParamsStageTest, process_preservesPalVideoSystem)
+    {
+        orc::VideoParamsStage stage;
+        auto source = std::make_shared<testing::NiceMock<MockVideoFieldRepresentation>>();
+        orc::SourceParameters source_params;
+        source_params.system = orc::VideoSystem::PAL;
+        source_params.field_width = 922;
+        source_params.field_height = 313;
+        source_params.first_active_field_line = 22;
+        source_params.last_active_field_line = 310;
+
+        EXPECT_CALL(*source, get_video_parameters()).WillRepeatedly(Return(source_params));
+        ASSERT_TRUE(stage.set_parameters({{"activeVideoStart", int32_t(120)}}));
+
+        const auto result = stage.process(source);
+
+        ASSERT_NE(result, nullptr);
+        const auto overridden = result->get_video_parameters();
+        ASSERT_TRUE(overridden.has_value());
+        EXPECT_EQ(overridden->system, orc::VideoSystem::PAL);
+        EXPECT_EQ(overridden->first_active_field_line, 22);
+        EXPECT_EQ(overridden->last_active_field_line, 310);
+    }
+
+    TEST(VideoParamsStageTest, process_preservesPalMVideoSystem)
+    {
+        orc::VideoParamsStage stage;
+        auto source = std::make_shared<testing::NiceMock<MockVideoFieldRepresentation>>();
+        orc::SourceParameters source_params;
+        source_params.system = orc::VideoSystem::PAL_M;
+        source_params.field_width = 844;
+        source_params.field_height = 262;
+        source_params.first_active_field_line = 20;
+        source_params.last_active_field_line = 259;
+        source_params.black_16b_ire = 0;
+        source_params.white_16b_ire = 65535;
+
+        EXPECT_CALL(*source, get_video_parameters()).WillRepeatedly(Return(source_params));
+        // Override only the first active field line, keeping other PAL-M defaults
+        ASSERT_TRUE(stage.set_parameters({{"firstActiveFieldLine", int32_t(21)}}));
+
+        const auto result = stage.process(source);
+
+        ASSERT_NE(result, nullptr);
+        const auto overridden = result->get_video_parameters();
+        ASSERT_TRUE(overridden.has_value());
+        // Verify PAL-M system is preserved
+        EXPECT_EQ(overridden->system, orc::VideoSystem::PAL_M);
+        // Verify override was applied
+        EXPECT_EQ(overridden->first_active_field_line, 21);
+        // Verify non-overridden PAL-M defaults are preserved
+        EXPECT_EQ(overridden->last_active_field_line, 259);
+        EXPECT_EQ(overridden->black_16b_ire, 0);
+        EXPECT_EQ(overridden->white_16b_ire, 65535);
+    }
+
     TEST(VideoParamsStageTest, execute_throwsWhenInputMissing)
     {
         orc::VideoParamsStage stage;

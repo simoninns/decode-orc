@@ -36,10 +36,17 @@ std::string video_system_to_string(VideoSystem system) {
     }
 }
 
+// Parse video system name from string.
+// For SQLite reads: the database should contain "PAL_M" (underscore) for PAL-M systems.
+// For project files: both "PAL_M" and "PAL-M" are accepted for flexibility.
+// For fallback JSON: both "PAL_M" and "PAL-M" are accepted via parseVideoSystemName().
+// Parse video system name from SQLite metadata.
+// SQLite metadata should use only the canonical name "PAL_M" (underscore).
+// For fallback JSON that may use "PAL-M" or "PAL_M", use parseVideoSystemName() instead.
 VideoSystem video_system_from_string(const std::string& name) {
     if (name == "PAL") return VideoSystem::PAL;
     if (name == "NTSC") return VideoSystem::NTSC;
-    if (name == "PAL-M" || name == "PAL_M") return VideoSystem::PAL_M;
+    if (name == "PAL_M") return VideoSystem::PAL_M;  // SQLite: only underscore form
     return VideoSystem::Unknown;
 }
 

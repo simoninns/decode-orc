@@ -88,6 +88,7 @@ static const VideoSystemDefaults &getSystemDefaults(const LdDecodeMetaData::Vide
 
 // Look up a video system by name.
 // Return true and set system if found; if not found, return false.
+// For PAL-M, both "PAL_M" (underscore, from ld-decode) and "PAL-M" (hyphen, alternate representation) are accepted.
 bool parseVideoSystemName(std::string name, LdVideoSystem &system)
 {
     // Search VIDEO_SYSTEM_DEFAULTS for a matching name
@@ -97,6 +98,13 @@ bool parseVideoSystemName(std::string name, LdVideoSystem &system)
             return true;
         }
     }
+    
+    // Additional fallback: accept "PAL-M" as alternate representation for PAL_M
+    if (name == "PAL-M") {
+        system = LdVideoSystem::PAL_M;
+        return true;
+    }
+    
     return false;
 }
 

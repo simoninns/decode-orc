@@ -9,13 +9,49 @@
  */
 
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
 #include <algorithm>
 
+#include "../../include/video_field_representation_mock.h"
 #include "../../../../orc/core/stages/pal_yc_source/pal_yc_source_stage.h"
 #include "../../../../orc/core/include/observation_context.h"
+#include "../../../../../orc/common/include/error_types.h"
+
+using testing::_;
+using testing::NiceMock;
+using testing::Return;
+using testing::StrictMock;
 
 namespace orc_unit_test
 {
+    class MockPALYCSourceLoader : public orc::IPALYCSourceLoader
+    {
+    public:
+        MOCK_METHOD(
+            std::shared_ptr<orc::VideoFieldRepresentation>,
+            load,
+            (const std::string& y_path,
+             const std::string& c_path,
+             const std::string& db_path,
+             const std::string& pcm_path,
+             const std::string& efm_path),
+            (const, override));
+    };
+
+    orc::SourceParameters make_pal_family_source_parameters(orc::VideoSystem system)
+    {
+        orc::SourceParameters params;
+        params.system = system;
+        params.decoder = "ld-chroma-decoder";
+        params.field_width = 909;
+        params.field_height = (system == orc::VideoSystem::PAL) ? 313 : 263;
+        params.number_of_sequential_fields = 1449;
+        params.fsc = (system == orc::VideoSystem::PAL)
+            ? 4433618.75
+            : 3575611.89;
+        return params;
+    }
+
     // =========================================================================
     // Stage interface invariants
     // =========================================================================
@@ -276,6 +312,88 @@ namespace orc_unit_test
         const auto outputs = stage.execute({}, {{"y_path", std::string("y.tbcy")}}, observation_context);
 
         EXPECT_TRUE(outputs.empty());
+    }
+
+    TEST(PALYCSourceStageTest, execute_loadsPalMRepresentationThroughInjectedLoader)
+    {
+        auto loader = std::make_shared<StrictMock<MockPALYCSourceLoader>>();
+        auto representation = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+        orc::ObservationContext observation_context;
+        orc::PALYCSourceStage stage(loader);
+
+        EXPECT_CALL(*representation, get_video_parameters())
+            .Times(1)
+            .WillOnce(Return(make_pal_family_source_parameters(orc::VideoSystem::PAL_M)));
+
+        EXPECT_CALL(*loader, load("/tmp/source.tbcy", "/tmp/source.tbcc", "/tmp/source.tbcy.db", "", ""))
+            .Times(1)
+            .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
+
+        const auto outputs = stage.execute(
+            {},
+            {
+                {"y_path", std::string("/tmp/source.tbcy")},
+                {"c_path", std::string("/tmp/source.tbcc")}
+            },
+            observation_context);
+
+        ASSERT_EQ(outputs.size(), 1u);
+        EXPECT_EQ(outputs.front(), std::static_pointer_cast<orc::Artifact>(representation));
+        EXPECT_TRUE(stage.supports_preview());
+    }
+
+    TEST(PALYCSourceStageTest, execute_throwsWhenLoadedMetadataIsNotPalFamily)
+    {
+        auto loader = std::make_shared<StrictMock<MockPALYCSourceLoader>>();
+        auto representation = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+        orc::ObservationContext observation_context;
+        orc::PALYCSourceStage stage(loader);
+
+        EXPECT_CALL(*representation, get_video_parameters())
+            .Times(1)
+            .WillOnce(Return(make_pal_family_source_parameters(orc::VideoSystem::NTSC)));
+
+        EXPECT_CALL(*loader, load(_, _, _, _, _))
+            .Times(1)
+            .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
+
+        EXPECT_THROW(
+            stage.execute(
+                {},
+                {
+                    {"y_path", std::string("/tmp/source.tbcy")},
+                    {"c_path", std::string("/tmp/source.tbcc")}
+                },
+                observation_context),
+            orc::UserDataError);
+    }
+
+    TEST(PALYCSourceStageTest, generateReport_usesInjectedLoaderMetadataForPalM)
+    {
+        auto loader = std::make_shared<StrictMock<MockPALYCSourceLoader>>();
+        auto representation = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+        orc::PALYCSourceStage stage(loader);
+
+        ASSERT_TRUE(stage.set_parameters({
+            {"y_path", std::string("/tmp/source.tbcy")},
+            {"c_path", std::string("/tmp/source.tbcc")}
+        }));
+
+        EXPECT_CALL(*representation, get_video_parameters())
+            .Times(1)
+            .WillOnce(Return(make_pal_family_source_parameters(orc::VideoSystem::PAL_M)));
+
+        EXPECT_CALL(*loader, load("/tmp/source.tbcy", "/tmp/source.tbcc", "/tmp/source.tbcy.db", "", ""))
+            .Times(1)
+            .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
+
+        const auto report = stage.generate_report();
+
+        ASSERT_TRUE(report.has_value());
+        EXPECT_EQ(report->summary, "PAL YC Source Status");
+        EXPECT_EQ(std::get<int64_t>(report->metrics.at("field_count")), 1449);
+        EXPECT_EQ(std::get<int64_t>(report->metrics.at("field_width")), 909);
+        EXPECT_EQ(std::get<int64_t>(report->metrics.at("field_height")), 263);
     }
 
 } // namespace orc_unit_test

@@ -25,6 +25,15 @@
 
 namespace orc {
 
+namespace {
+
+bool uses_pal_dropout_geometry(VideoSystem system)
+{
+    return system == VideoSystem::PAL;
+}
+
+}
+
 // Register the stage
 ORC_REGISTER_STAGE(DropoutCorrectStage)
 
@@ -315,11 +324,11 @@ DropoutCorrectStage::DropoutLocation DropoutCorrectStage::classify_dropout(
             active_video_end = static_cast<uint32_t>(video_params->active_video_end);
         }
     } else {
-        // Fallback: use rough estimates based on format
-        if (descriptor.format == VideoFormat::PAL) {
+        // Fallback: use rough estimates based on exact system.
+        if (uses_pal_dropout_geometry(descriptor.system)) {
             color_burst_end = 100;  // ~100 samples for PAL color burst
             active_video_end = descriptor.width > 20 ? static_cast<uint32_t>(descriptor.width - 20) : 0;
-        } else if (descriptor.format == VideoFormat::NTSC) {
+        } else {
             color_burst_end = 80;   // ~80 samples for NTSC color burst  
             active_video_end = descriptor.width > 20 ? static_cast<uint32_t>(descriptor.width - 20) : 0;
         }
@@ -354,11 +363,11 @@ std::vector<DropoutRegion> DropoutCorrectStage::split_dropout_regions(
             active_video_end = static_cast<uint32_t>(video_params->active_video_end);
         }
     } else {
-        // Fallback: use rough estimates based on format
-        if (descriptor.format == VideoFormat::PAL) {
+        // Fallback: use rough estimates based on exact system.
+        if (uses_pal_dropout_geometry(descriptor.system)) {
             color_burst_end = 100;
             active_video_end = descriptor.width > 20 ? static_cast<uint32_t>(descriptor.width - 20) : 0;
-        } else if (descriptor.format == VideoFormat::NTSC) {
+        } else {
             color_burst_end = 80;
             active_video_end = descriptor.width > 20 ? static_cast<uint32_t>(descriptor.width - 20) : 0;
         }

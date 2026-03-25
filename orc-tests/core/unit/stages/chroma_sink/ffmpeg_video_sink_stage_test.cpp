@@ -128,6 +128,39 @@ namespace orc_unit_test
         }
     }
 
+    TEST(FFmpegVideoSinkStageTest, decoderOptions_includePalPaths_forPalM_forCompositeAndYc)
+    {
+        orc::FFmpegVideoSinkStage stage;
+
+        for (const auto source_type : {orc::SourceType::Composite, orc::SourceType::YC}) {
+            auto descriptors = stage.get_parameter_descriptors(orc::VideoSystem::PAL_M, source_type);
+            const auto* decoder_type = find_parameter(descriptors, "decoder_type");
+
+            ASSERT_NE(decoder_type, nullptr);
+            const auto& allowed = decoder_type->constraints.allowed_strings;
+
+            ASSERT_TRUE(decoder_type->constraints.default_value.has_value());
+            ASSERT_TRUE(std::holds_alternative<std::string>(*decoder_type->constraints.default_value));
+            EXPECT_EQ(std::get<std::string>(*decoder_type->constraints.default_value), "pal2d");
+
+            EXPECT_FALSE(has_string(allowed, "auto"));
+            EXPECT_TRUE(has_string(allowed, "mono"));
+            EXPECT_TRUE(has_string(allowed, "pal2d"));
+            EXPECT_TRUE(has_string(allowed, "transform2d"));
+            EXPECT_TRUE(has_string(allowed, "transform3d"));
+            EXPECT_FALSE(has_string(allowed, "ntsc1d"));
+            EXPECT_FALSE(has_string(allowed, "ntsc2d"));
+            EXPECT_FALSE(has_string(allowed, "ntsc3d"));
+            EXPECT_FALSE(has_string(allowed, "ntsc3dnoadapt"));
+
+            if (source_type == orc::SourceType::YC) {
+                EXPECT_NE(decoder_type->description.find("YC sources"), std::string::npos);
+            } else {
+                EXPECT_EQ(decoder_type->description.find("YC sources"), std::string::npos);
+            }
+        }
+    }
+
     TEST(FFmpegVideoSinkStageTest, setParameters_rejectsRawOutputFormats)
     {
         orc::FFmpegVideoSinkStage stage;

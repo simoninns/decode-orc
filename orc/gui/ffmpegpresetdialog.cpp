@@ -216,12 +216,29 @@ void FFmpegPresetDialog::apply_configuration()
     
     const auto& preset = current_category_presets_[preset_combo_->currentIndex()];
     
-    // Set basic output format (container-codec)
-    std::string format_string = preset.container + "-" + preset.codec;
+    // Set basic output format (container-codec), normalized to backend-supported values.
+    // Some UI presets are profile/lossless variants that map to base codecs plus extra params.
+    std::string normalized_codec = preset.codec;
+    if (normalized_codec == "h264_lossless") {
+        normalized_codec = "h264";
+    } else if (normalized_codec == "hevc_lossless") {
+        normalized_codec = "hevc";
+    } else if (normalized_codec == "av1_lossless") {
+        normalized_codec = "av1";
+    } else if (normalized_codec == "prores_4444" ||
+               normalized_codec == "prores_4444xq" ||
+               normalized_codec == "prores_videotoolbox") {
+        normalized_codec = "prores";
+    }
+
+    std::string format_string = preset.container + "-" + normalized_codec;
     set_parameter("output_format", format_string);
     
     // Set hardware encoder preference
     std::string hardware_encoder = "none";
+    if (preset.codec == "prores_videotoolbox") {
+        hardware_encoder = "videotoolbox";
+    }
     if (preset.supports_hardware && hardware_group_->isVisible() && hardware_encoder_combo_->currentIndex() > 0) {
         if (!available_hw_encoders_.empty()) {
             hardware_encoder = available_hw_encoders_[hardware_encoder_combo_->currentIndex() - 1];  // -1 for "None" option
@@ -230,12 +247,13 @@ void FFmpegPresetDialog::apply_configuration()
     set_parameter("hardware_encoder", hardware_encoder);
     
     // Set ProRes profile if applicable
-    if (preset.codec == "prores") {
-        // Extract profile from format_string (e.g., "mov-prores_hq" -> "hq")
-        std::string profile = "hq";  // Default
-        size_t underscore_pos = preset.format_string.find('_');
-        if (underscore_pos != std::string::npos) {
-            profile = preset.format_string.substr(underscore_pos + 1);
+    if (normalized_codec == "prores") {
+        // ProRes profile comes from preset variant.
+        std::string profile = "hq";
+        if (preset.codec == "prores_4444") {
+            profile = "4444";
+        } else if (preset.codec == "prores_4444xq") {
+            profile = "4444xq";
         }
         set_parameter("prores_profile", profile);
     }

@@ -31,7 +31,7 @@ void BlackPSNRObserver::process_field(
     }
     
     const auto& descriptor = descriptor_opt.value();
-    VideoFormat format = descriptor.format;
+    const bool uses_pal_vits_layout = (descriptor.system == VideoSystem::PAL);
     
     // VITS black level locations (from ld-process-vits)
     // PAL: Line 22, 12μs start, 50μs length
@@ -42,7 +42,7 @@ void BlackPSNRObserver::process_field(
     double start_us;
     double length_us;
     
-    if (format == VideoFormat::PAL) {
+    if (uses_pal_vits_layout) {
         line = 22;
         start_us = 12.0;
         length_us = 50.0;
@@ -95,8 +95,8 @@ std::vector<double> BlackPSNRObserver::get_line_slice_ire(
     }
     
     // Calculate samples per microsecond
-    VideoFormat format = descriptor.format;
-    double us_per_line = (format == VideoFormat::PAL) ? 64.0 : 63.5;
+    const bool uses_pal_line_timing = (descriptor.system == VideoSystem::PAL);
+    double us_per_line = uses_pal_line_timing ? 64.0 : 63.5;
     double samples_per_us = static_cast<double>(descriptor.width) / us_per_line;
     
     // Calculate sample positions

@@ -452,10 +452,11 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
     codec_ctx_->width = width_;
     codec_ctx_->height = height_;
     
-    // Set frame rate
-    if (params.system == VideoSystem::PAL || params.system == VideoSystem::PAL_M) {
+    // Set frame rate.
+    // PAL-M uses 525-line/59.94 timing (NTSC-like cadence), not PAL 25 fps.
+    if (params.system == VideoSystem::PAL) {
         time_base_ = {1, 25};
-    } else if (params.system == VideoSystem::NTSC) {
+    } else if (params.system == VideoSystem::NTSC || params.system == VideoSystem::PAL_M) {
         time_base_ = {1001, 30000};  // 29.97 fps
     } else {
         time_base_ = {1, 25};  // Default to PAL
@@ -573,9 +574,9 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
         ORC_LOG_DEBUG("FFmpegOutputBackend: Using uncompressed {} codec", codec_id);
     } else if (codec_id == "mpeg2video") {
         // D10 (Sony IMX/XDCAM) settings
-        bool is_pal = (params.system == VideoSystem::PAL || params.system == VideoSystem::PAL_M);
-        int64_t bitrate = is_pal ? 50000000 : 49999840;  // 50 Mbps PAL, ~50 Mbps NTSC
-        int bufsize = is_pal ? 2000000 : 1668328;
+        const bool is_625_line_pal = (params.system == VideoSystem::PAL);
+        int64_t bitrate = is_625_line_pal ? 50000000 : 49999840;  // 50 Mbps PAL625, ~50 Mbps NTSC/PAL-M 525
+        int bufsize = is_625_line_pal ? 2000000 : 1668328;
         
         codec_ctx_->bit_rate = bitrate;
         codec_ctx_->rc_min_rate = bitrate;
@@ -594,7 +595,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
         // Set interlaced flags
         codec_ctx_->flags |= AV_CODEC_FLAG_INTERLACED_DCT | AV_CODEC_FLAG_INTERLACED_ME | AV_CODEC_FLAG_LOW_DELAY;
         
-        ORC_LOG_DEBUG("FFmpegOutputBackend: Using D10 settings ({})", is_pal ? "PAL" : "NTSC");
+        ORC_LOG_DEBUG("FFmpegOutputBackend: Using D10 settings ({})", is_625_line_pal ? "PAL625" : "525-line");
     } else if (codec_id == "libx264" || codec_id == "libx265") {
         // Use user-specified preset and quality settings
         av_opt_set(codec_ctx_->priv_data, "preset", encoder_preset_.c_str(), 0);
@@ -719,11 +720,13 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
         }
     }
     
-    // Color properties (BT.601 for PAL/NTSC) - applies to all H.264/H.265 variants
+    // Color properties for SD systems.
+    // PAL-M uses PAL-style decoding in the pipeline, but encoded SD signaling should
+    // follow 525-line conventions (same family as NTSC for matrix/primaries tagging).
     if (codec_id.find("264") != std::string::npos || 
         codec_id.find("265") != std::string::npos ||
         codec_id.find("hevc") != std::string::npos) {
-        if (params.system == VideoSystem::PAL || params.system == VideoSystem::PAL_M) {
+        if (params.system == VideoSystem::PAL) {
             codec_ctx_->color_primaries = AVCOL_PRI_BT470BG;
             codec_ctx_->color_trc = AVCOL_TRC_GAMMA28;
             codec_ctx_->colorspace = AVCOL_SPC_BT470BG;
@@ -834,8 +837,8 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
     // So our source is already in "video" range, not full range
     int colorspace = SWS_CS_ITU601;
     
-    // Set colorspace based on video system
-    if (video_system_ == VideoSystem::PAL || video_system_ == VideoSystem::PAL_M) {
+    // Set colorspace based on video system (PAL-M follows 525-line NTSC-family signaling).
+    if (video_system_ == VideoSystem::PAL) {
         colorspace = SWS_CS_ITU601;
     } else {
         colorspace = SWS_CS_SMPTE170M;  // NTSC
@@ -853,7 +856,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
         0, 1 << 16, 1 << 16);
     
     ORC_LOG_DEBUG("FFmpegOutputBackend: Configured color conversion: limited→limited range, colorspace {}", 
-                  video_system_ == VideoSystem::PAL ? "BT.601 (PAL)" : "SMPTE170M (NTSC)");
+                  video_system_ == VideoSystem::PAL ? "BT.601 (PAL625)" : "SMPTE170M (525-line)");
     
     // Allocate packet
     packet_ = av_packet_alloc();

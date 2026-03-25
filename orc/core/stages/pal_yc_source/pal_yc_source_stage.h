@@ -19,11 +19,23 @@
 
 namespace orc {
 
+class IPALYCSourceLoader {
+public:
+    virtual ~IPALYCSourceLoader() = default;
+
+    virtual std::shared_ptr<VideoFieldRepresentation> load(
+        const std::string& y_path,
+        const std::string& c_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path) const = 0;
+};
+
 /**
- * @brief PAL YC Source Stage - Loads PAL YC (separate Y and C) files
+ * @brief PAL YC Source Stage - Loads PAL-family YC (separate Y and C) files
  * 
- * This stage loads separate Y (luma) and C (chroma) TBC files for PAL video,
- * creating a VideoFieldRepresentation for PAL YC video processing.
+ * This stage loads separate Y (luma) and C (chroma) TBC files for PAL-family
+ * video, creating a VideoFieldRepresentation for PAL or PAL-M YC processing.
  * 
  * YC sources are typically from color-under formats like VHS or Betamax,
  * where Y and C are recorded separately. This provides better quality
@@ -42,7 +54,7 @@ namespace orc {
  */
 class PALYCSourceStage : public DAGStage, public ParameterizedStage, public PreviewableStage {
 public:
-    PALYCSourceStage() = default;
+    explicit PALYCSourceStage(std::shared_ptr<IPALYCSourceLoader> loader = nullptr);
     ~PALYCSourceStage() override = default;
 
     // DAGStage interface
@@ -53,7 +65,7 @@ public:
             NodeType::SOURCE,
             "PAL_YC_Source",
             "PAL YC Source",
-            "PAL YC input source - loads separate Y and C TBC files (color-under formats like VHS)",
+            "PAL-family YC input source - loads separate Y and C TBC files (including PAL-M color-under formats like VHS)",
             0, 0,  // No inputs
             1, UINT32_MAX,  // Many outputs
             VideoFormatCompatibility::PAL_ONLY
@@ -83,10 +95,18 @@ public:
     std::optional<StageReport> generate_report() const override;
 
 private:
+    std::shared_ptr<VideoFieldRepresentation> load_representation(
+        const std::string& y_path,
+        const std::string& c_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path) const;
+
     // Cache the loaded representation to avoid reloading
     mutable std::string cached_y_path_;
     mutable std::string cached_c_path_;
     mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
+    std::shared_ptr<IPALYCSourceLoader> loader_;
     
     // Current parameters
     std::string y_path_;

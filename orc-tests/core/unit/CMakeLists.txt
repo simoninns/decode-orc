@@ -60,6 +60,7 @@ orc_add_core_unit_tests(
         stages/chroma_sink/monodecoder_test.cpp
         stages/chroma_sink/ntsc_pal_decoder_wrapper_test.cpp
         stages/chroma_sink/palcolour_test.cpp
+        stages/chroma_sink/pal_m_integration_test.cpp
         stages/chroma_sink/raw_video_sink_stage_test.cpp
         stages/chroma_sink/sourcefield_test.cpp
         stages/daphne_vbi_sink/daphne_vbi_writer_util_test.cpp
@@ -83,6 +84,13 @@ orc_add_core_unit_tests(
         contracts/public_stage_contract_test.cpp
         contracts/stage_registry_contract_test.cpp
         contracts/project_to_dag_contract_test.cpp
+)
+
+orc_add_core_unit_tests(
+        orc-core-unit-tests-metadata
+        "unit"
+
+        metadata/video_system_parsing_test.cpp
 )
 
         orc_add_core_unit_tests(

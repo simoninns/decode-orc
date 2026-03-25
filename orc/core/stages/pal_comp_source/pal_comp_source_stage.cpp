@@ -19,11 +19,44 @@
 
 namespace orc {
 
+namespace {
+
+class DefaultPALCompSourceLoader final : public IPALCompSourceLoader {
+public:
+    std::shared_ptr<VideoFieldRepresentation> load(
+        const std::string& input_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path) const override
+    {
+        return create_tbc_representation(input_path, db_path, pcm_path, efm_path);
+    }
+};
+
+} // namespace
+
 // Register this stage with the registry
 ORC_REGISTER_STAGE(PALCompSourceStage)
 
 // Force linker to include this object file
 void force_link_PALCompSourceStage() {}
+
+PALCompSourceStage::PALCompSourceStage(std::shared_ptr<IPALCompSourceLoader> loader)
+    : loader_(std::move(loader))
+{
+    if (!loader_) {
+        loader_ = std::make_shared<DefaultPALCompSourceLoader>();
+    }
+}
+
+std::shared_ptr<VideoFieldRepresentation> PALCompSourceStage::load_representation(
+    const std::string& input_path,
+    const std::string& db_path,
+    const std::string& pcm_path,
+    const std::string& efm_path) const
+{
+    return loader_->load(input_path, db_path, pcm_path, efm_path);
+}
 
 std::vector<ArtifactPtr> PALCompSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
@@ -87,7 +120,7 @@ std::vector<ArtifactPtr> PALCompSourceStage::execute(
     }
     
     try {
-        auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
+        auto tbc_representation = load_representation(input_path, db_path, pcm_path, efm_path);
         if (!tbc_representation) {
             throw UserDataError("Failed to load TBC file (validation failed - see logs above)");
         }
@@ -124,7 +157,7 @@ std::vector<ArtifactPtr> PALCompSourceStage::execute(
         if (video_params->system != VideoSystem::PAL && 
             video_params->system != VideoSystem::PAL_M) {
             throw UserDataError(
-                "TBC file is not PAL format. Use 'Add NTSC Composite Source' for NTSC files."
+                "TBC file is not PAL or PAL-M format. Use 'Add NTSC Composite Source' for NTSC files."
             );
         }
         
@@ -137,7 +170,7 @@ std::vector<ArtifactPtr> PALCompSourceStage::execute(
         throw;
     } catch (const std::exception& e) {
         throw UserDataError(
-            std::string("Failed to load PAL TBC file '") + input_path + "': " + e.what()
+            std::string("Failed to load PAL-family TBC file '") + input_path + "': " + e.what()
         );
     }
 }
@@ -153,7 +186,7 @@ std::vector<ParameterDescriptor> PALCompSourceStage::get_parameter_descriptors(V
         ParameterDescriptor desc;
         desc.name = "input_path";
         desc.display_name = "TBC File Path";
-        desc.description = "Path to the PAL .tbc file from ld-decode (database file is automatically located)";
+        desc.description = "Path to the PAL or PAL-M .tbc file from ld-decode (database file is automatically located)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
         desc.constraints.default_value = std::string("");
@@ -265,7 +298,7 @@ std::optional<StageReport> PALCompSourceStage::generate_report() const {
     
     // Try to load the file to get actual information
     try {
-        auto representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
+        auto representation = load_representation(input_path, db_path, pcm_path, efm_path);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             

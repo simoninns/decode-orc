@@ -1155,6 +1155,19 @@ void MainWindow::quickProject(const QString& filename)
     if (ext == "tbc") {
         source_type = orc::SourceType::Composite;
         primary_file = filename.toStdString();
+
+        const QString legacy_warning =
+            "You have selected a .tbc file which will be treated as a composite source.  If you meant to load a (dual-TBC) YC source, please rename your TBC files to use the .tbcc (chroma) extension and .tbcy (luma) extension before using the quick project function";
+
+        const QString selected_base_name = file_info.completeBaseName();
+        const bool selected_chroma_file = selected_base_name.endsWith("_chroma", Qt::CaseInsensitive);
+        const QString paired_legacy_chroma_path =
+            file_info.absolutePath() + "/" + selected_base_name + "_chroma.tbc";
+        const bool paired_legacy_chroma_exists = QFileInfo::exists(paired_legacy_chroma_path);
+
+        if (selected_chroma_file || paired_legacy_chroma_exists) {
+            QMessageBox::warning(this, "Legacy YC TBC Naming Detected", legacy_warning);
+        }
     } else if (ext == "tbcc") {
         source_type = orc::SourceType::YC;
         primary_file = filename.toStdString();

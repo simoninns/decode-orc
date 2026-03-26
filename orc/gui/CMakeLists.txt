@@ -48,6 +48,8 @@ set(ORC_GUI_LIB_SOURCES
     previewdialog.h
     linescopedialog.cpp
     linescopedialog.h
+    line_navigation_mapper.cpp
+    line_navigation_mapper.h
     stageparameterdialog.cpp
     stageparameterdialog.h
     projectpropertiesdialog.cpp

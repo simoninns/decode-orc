@@ -36,6 +36,7 @@ void force_link_SNRAnalysisSinkStage();
 void force_link_BurstLevelAnalysisSinkStage();
 void force_link_DaphneVBISinkStage();
 void force_link_NnNtscChromaSinkStage();
+void force_link_AC3RFSinkStage();
 
 /**
  * @brief Force linking of all stage object files
@@ -79,6 +80,7 @@ void force_stage_linking() {
     force_link_BurstLevelAnalysisSinkStage();
     force_link_DaphneVBISinkStage();
     force_link_NnNtscChromaSinkStage();
+    force_link_AC3RFSinkStage();
 }
 
 } // namespace orc

@@ -35,6 +35,9 @@ namespace orc_unit_test
         MOCK_METHOD(bool, has_efm, (), (const, override));
         MOCK_METHOD(uint32_t, get_efm_sample_count, (orc::FieldID), (const, override));
         MOCK_METHOD((std::vector<uint8_t>), get_efm_samples, (orc::FieldID), (const, override));
+        MOCK_METHOD(bool, has_ac3_rf, (), (const, override));
+        MOCK_METHOD(uint32_t, get_ac3_rf_sample_count, (orc::FieldID), (const, override));
+        MOCK_METHOD((std::vector<int16_t>), get_ac3_rf_samples, (orc::FieldID), (const, override));
         MOCK_METHOD((std::vector<orc::DropoutRegion>), get_dropout_hints, (orc::FieldID), (const, override));
         MOCK_METHOD((std::optional<orc::ActiveLineHint>), get_active_line_hint, (), (const, override));
     };

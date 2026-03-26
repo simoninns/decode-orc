@@ -419,13 +419,51 @@ public:
     
     /**
      * @brief Check if EFM data is available
-     * 
+     *
      * @return True if this representation has EFM data
      */
     virtual bool has_efm() const {
         return false;  // Default: no EFM
     }
-    
+
+    // ========================================================================
+    // AC3 RF - AC3 (Dolby Digital) RF sample data access
+    // ========================================================================
+
+    /**
+     * @brief Get number of AC3 RF samples for a specific field
+     *
+     * Returns the number of raw RF samples for the AC3 subcarrier channel.
+     * Returns 0 if no AC3 RF data is available.
+     *
+     * @param id Field ID
+     * @return Number of AC3 RF samples (0 if none)
+     */
+    virtual uint32_t get_ac3_rf_sample_count(FieldID /*id*/) const {
+        return 0;  // Default: no AC3 RF data
+    }
+
+    /**
+     * @brief Get AC3 RF samples for a specific field
+     *
+     * Returns raw 16-bit signed RF samples for the AC3 subcarrier channel.
+     *
+     * @param id Field ID
+     * @return Vector of RF samples (empty if no AC3 RF data)
+     */
+    virtual std::vector<int16_t> get_ac3_rf_samples(FieldID /*id*/) const {
+        return {};  // Default: no AC3 RF data
+    }
+
+    /**
+     * @brief Check if AC3 RF data is available
+     *
+     * @return True if this representation has AC3 RF sample data
+     */
+    virtual bool has_ac3_rf() const {
+        return false;  // Default: no AC3 RF data
+    }
+
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }
     
@@ -530,13 +568,26 @@ public:
     uint32_t get_efm_sample_count(FieldID id) const override {
         return source_ ? source_->get_efm_sample_count(id) : 0;
     }
-    
+
     std::vector<uint8_t> get_efm_samples(FieldID id) const override {
         return source_ ? source_->get_efm_samples(id) : std::vector<uint8_t>{};
     }
-    
+
     bool has_efm() const override {
         return source_ ? source_->has_efm() : false;
+    }
+
+    // Automatically propagate AC3 RF through the chain
+    uint32_t get_ac3_rf_sample_count(FieldID id) const override {
+        return source_ ? source_->get_ac3_rf_sample_count(id) : 0;
+    }
+
+    std::vector<int16_t> get_ac3_rf_samples(FieldID id) const override {
+        return source_ ? source_->get_ac3_rf_samples(id) : std::vector<int16_t>{};
+    }
+
+    bool has_ac3_rf() const override {
+        return source_ ? source_->has_ac3_rf() : false;
     }
     
     // Automatically propagate dual-channel access through the chain

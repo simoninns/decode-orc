@@ -68,6 +68,7 @@ orc_add_core_unit_tests(
         stages/daphne_vbi_sink/daphne_vbi_sink_stage_deps_test.cpp
         stages/daphne_vbi_sink/daphne_vbi_sink_stage_test.cpp
         stages/audio_sink/audio_sink_stage_test.cpp
+        stages/ac3rf_sink/ac3rf_sink_stage_test.cpp
         stages/cc_sink/cc_sink_stage_test.cpp
         stages/ld_sink/ld_sink_stage_test.cpp
         stages/ld_sink/ld_sink_stage_deps_test.cpp

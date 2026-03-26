@@ -120,6 +120,7 @@ add_library(orc-core STATIC
     stages/chroma_sink/raw_output_backend.cpp
     stages/chroma_sink/ffmpeg_output_backend.cpp
     stages/audio_sink/audio_sink_stage.cpp
+    stages/ac3rf_sink/ac3rf_sink_stage.cpp
     stages/raw_efm_sink/efm_sink_stage.cpp
     stages/efm_sink/efm_sink_stage.cpp
     stages/efm_sink/efm_processor.cpp
@@ -183,6 +184,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/audio_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ac3rf_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/raw_efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/decoders
@@ -277,6 +279,10 @@ target_link_libraries(orc-core PUBLIC PNG::PNG)
 # Add chroma decoder library subdirectory (Pure C++17, no Qt6 dependencies)
 add_subdirectory(stages/chroma_sink/decoders)
 target_link_libraries(orc-core PRIVATE orc_chroma_decoders)
+
+# Find and link ac3rf library (AC3 RF decoder)
+find_package(ac3rf REQUIRED)
+target_link_libraries(orc-core PRIVATE ac3rf::ac3rf)
 
 # Find and link FFmpeg libraries (for MP4 output)
 find_package(PkgConfig REQUIRED)

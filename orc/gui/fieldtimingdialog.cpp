@@ -123,14 +123,15 @@ void FieldTimingDialog::setupUI()
 
     control_layout->addSpacing(20);
 
-    signal_label_ = new QLabel("Signal:");
+    signal_label_ = new QLabel("Channel:");
     signal_label_->setVisible(false);
     control_layout->addWidget(signal_label_);
 
     signal_combo_ = new QComboBox();
+    signal_combo_->addItem("Luma (Y)");
+    signal_combo_->addItem("Chroma (C)");
+    signal_combo_->addItem("Both (Y & C)");
     signal_combo_->addItem("Y+C");
-    signal_combo_->addItem("Y");
-    signal_combo_->addItem("C");
     signal_combo_->setVisible(false);
     connect(signal_combo_, &QComboBox::currentIndexChanged, [this](int index) {
         current_signal_index_ = index;
@@ -289,6 +290,7 @@ void FieldTimingDialog::setFieldData(const QString& node_id,
     signal_label_->setVisible(is_yc_source);
     signal_combo_->setVisible(is_yc_source);
     if (is_yc_source) {
+        current_signal_index_ = std::clamp(current_signal_index_, 0, signal_combo_->count() - 1);
         signal_combo_->setCurrentIndex(current_signal_index_);
         timing_widget_->setChannelMode(static_cast<FieldTimingWidget::ChannelMode>(current_signal_index_));
     } else {

@@ -286,13 +286,13 @@ void PreviewDialog::setupUI()
     preview_mode_combo_ = new QComboBox();
     controlLayout->addWidget(preview_mode_combo_);
     
-    signal_label_ = new QLabel("Signal:");
+    signal_label_ = new QLabel("Channel:");
     signal_label_->setVisible(false);  // Hidden by default, shown for YC sources
     controlLayout->addWidget(signal_label_);
     signal_combo_ = new QComboBox();
     signal_combo_->addItem("Y+C");
-    signal_combo_->addItem("Y");
-    signal_combo_->addItem("C");
+    signal_combo_->addItem("Luma (Y)");
+    signal_combo_->addItem("Chroma (C)");
     signal_combo_->setVisible(false);  // Hidden by default, shown for YC sources
     controlLayout->addWidget(signal_combo_);
     

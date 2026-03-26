@@ -30,9 +30,10 @@ class FieldTimingWidget : public QWidget
 
 public:
     enum class ChannelMode {
-        YPlusC = 0,
-        YOnly = 1,
-        COnly = 2
+        YOnly = 0,
+        COnly = 1,
+        BothYC = 2,
+        YPlusC = 3
     };
 
     explicit FieldTimingWidget(QWidget *parent = nullptr);

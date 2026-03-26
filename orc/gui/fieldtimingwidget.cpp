@@ -21,6 +21,29 @@
 #include <algorithm>
 #include <cmath>
 
+namespace {
+std::vector<uint16_t> buildCombinedYPlusC(const std::vector<uint16_t>& y_samples,
+                                          const std::vector<uint16_t>& c_samples)
+{
+    if (y_samples.empty() || c_samples.empty()) {
+        return {};
+    }
+
+    const size_t sample_count = std::min(y_samples.size(), c_samples.size());
+    std::vector<uint16_t> combined_samples;
+    combined_samples.reserve(sample_count);
+
+    constexpr int32_t CHROMA_MID_CODE = 32768;
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int32_t combined = static_cast<int32_t>(y_samples[i]) +
+                                 (static_cast<int32_t>(c_samples[i]) - CHROMA_MID_CODE);
+        combined_samples.push_back(static_cast<uint16_t>(std::clamp(combined, 0, 65535)));
+    }
+
+    return combined_samples;
+}
+}
+
 double FieldTimingWidget::convertSampleToMV(uint16_t sample) const
 {
     if (!video_params_.has_value()) {
@@ -628,26 +651,60 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area)
     bool has_two_fields = !field2_samples_.empty() || !y2_samples_.empty();
     
     if (has_yc) {
-        // Draw Y and C channels separately
-        const bool show_y = (channel_mode_ == ChannelMode::YPlusC) || (channel_mode_ == ChannelMode::YOnly);
-        const bool show_c = (channel_mode_ == ChannelMode::YPlusC) || (channel_mode_ == ChannelMode::COnly);
         const QColor y1_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaPrimary, is_dark_theme);
         const QColor c1_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaPrimary, is_dark_theme);
         const QColor y2_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::LumaSecondary, is_dark_theme);
         const QColor c2_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::ChromaSecondary, is_dark_theme);
+        const QColor composite1_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositePrimary, is_dark_theme);
+        const QColor composite2_color = theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositeSecondary, is_dark_theme);
 
-        if (show_y && !y1_samples_.empty()) {
-            drawSamples(painter, graph_area, y1_samples_, y1_color, 0);
-        }
-        if (show_c && !c1_samples_.empty()) {
-            drawSamples(painter, graph_area, c1_samples_, c1_color, 0);
-        }
-        if (has_two_fields) {
-            if (show_y && !y2_samples_.empty()) {
-                drawSamples(painter, graph_area, y2_samples_, y2_color, 0);
-            }
-            if (show_c && !c2_samples_.empty()) {
-                drawSamples(painter, graph_area, c2_samples_, c2_color, 0);
+        switch (channel_mode_) {
+            case ChannelMode::YOnly:
+                if (!y1_samples_.empty()) {
+                    drawSamples(painter, graph_area, y1_samples_, y1_color, 0);
+                }
+                if (has_two_fields && !y2_samples_.empty()) {
+                    drawSamples(painter, graph_area, y2_samples_, y2_color, 0);
+                }
+                break;
+
+            case ChannelMode::COnly:
+                if (!c1_samples_.empty()) {
+                    drawSamples(painter, graph_area, c1_samples_, c1_color, 0);
+                }
+                if (has_two_fields && !c2_samples_.empty()) {
+                    drawSamples(painter, graph_area, c2_samples_, c2_color, 0);
+                }
+                break;
+
+            case ChannelMode::BothYC:
+                if (!y1_samples_.empty()) {
+                    drawSamples(painter, graph_area, y1_samples_, y1_color, 0);
+                }
+                if (!c1_samples_.empty()) {
+                    drawSamples(painter, graph_area, c1_samples_, c1_color, 0);
+                }
+                if (has_two_fields) {
+                    if (!y2_samples_.empty()) {
+                        drawSamples(painter, graph_area, y2_samples_, y2_color, 0);
+                    }
+                    if (!c2_samples_.empty()) {
+                        drawSamples(painter, graph_area, c2_samples_, c2_color, 0);
+                    }
+                }
+                break;
+
+            case ChannelMode::YPlusC: {
+                const std::vector<uint16_t> combined_1 = buildCombinedYPlusC(y1_samples_, c1_samples_);
+                const std::vector<uint16_t> combined_2 = buildCombinedYPlusC(y2_samples_, c2_samples_);
+
+                if (!combined_1.empty()) {
+                    drawSamples(painter, graph_area, combined_1, composite1_color, 0);
+                }
+                if (has_two_fields && !combined_2.empty()) {
+                    drawSamples(painter, graph_area, combined_2, composite2_color, 0);
+                }
+                break;
             }
         }
     } else {

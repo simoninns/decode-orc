@@ -135,7 +135,7 @@ private:
     std::optional<uint64_t> current_field_index_2_;
     int current_first_field_height_;
     int current_second_field_height_;
-    int current_signal_index_{0};
+    int current_signal_index_{2};
     int current_lines_to_show_{625};
 };
 

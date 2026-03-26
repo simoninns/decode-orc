@@ -30,6 +30,7 @@
 #include "generic_analysis_dialog.h"
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
+#include "line_navigation_mapper.h"
 #include "field_frame_presentation.h"
 #include "logging.h"
 #include "presenters/include/hints_view_models.h"
@@ -4886,67 +4887,46 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field, int cur
 {
     ORC_LOG_DEBUG("Line navigation requested: direction={}, field={}, line={}, sample_x={}", direction, current_field, current_line, sample_x);
     
-    if (!current_view_node_id_.is_valid()) {
+    if (!current_view_node_id_.is_valid() || !preview_dialog_) {
         return;
     }
     
-    // CRITICAL: Store sample_x in last_line_scope_image_x_ immediately
-    // This ensures it's available for async frame navigation responses
-    // The sample_x parameter is in preview-space/image coordinates
+    // sample_x is in preview-space/image coordinates; keep this stable across navigation.
     last_line_scope_image_x_ = sample_x;
-    
-    // Get the image size to determine bounds
-    int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
-    int field_height = image_height;
-    
-    if (current_output_type_ == orc::PreviewOutputType::Field) {
-        // Simple field mode - just move within the same field
-        int new_line_number = current_line + direction;
-        field_height = image_height;
-        
-        // Bounds check
-        if (new_line_number < 0 || new_line_number >= field_height) {
-            ORC_LOG_DEBUG("Line navigation rejected: line {} is out of bounds (field_height={})", new_line_number, field_height);
-            return;
-        }
-        
-        // In field mode, stay in the same field
-        ORC_LOG_DEBUG("Navigating to field {}, line {}", current_field, new_line_number);
-        
-        // Use unified helper to request samples
-        requestLineSamplesForNavigation(current_field, new_line_number, sample_x, preview_image_width);
-        
-    } else if (current_output_type_ == orc::PreviewOutputType::Frame ||
-               current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
-        // Frame mode - delegate to core library via async request
-        // In frame mode, image height is 2x field height (interlaced)
-        field_height = image_height / 2;
-        
-        // Request the core library to calculate navigation
-        pending_line_sample_request_id_ = render_coordinator_->requestFrameLineNavigation(
-            current_view_node_id_,
-            current_output_type_,
+
+    const int image_height = preview_dialog_->previewWidget()->originalImageSize().height();
+    const uint64_t output_index = preview_dialog_->previewSlider()->value();
+    const auto navigation_target = orc::gui::computeLineNavigationTarget(
+        {
+            direction,
             current_field,
             current_line,
-            direction,
-            field_height
-        );
-        
-    } else if (current_output_type_ == orc::PreviewOutputType::Split) {
-        // Split mode - two fields stacked vertically, stay within the same field
-        field_height = image_height / 2;
-        int new_line_number = current_line + direction;
-        
-        // Bounds check
-        if (new_line_number < 0 || new_line_number >= field_height) {
-            ORC_LOG_DEBUG("Line navigation rejected: line {} is out of bounds in split mode (field_height={})", new_line_number, field_height);
-            return;
-        }
-        
-        ORC_LOG_DEBUG("Navigating to field {}, line {}", current_field, new_line_number);
-        
-        // Use unified helper to request samples - same as field mode
-        requestLineSamplesForNavigation(current_field, new_line_number, sample_x, preview_image_width);
+            image_height,
+        },
+        [this, output_index](uint64_t field_index, int line_number, int local_image_height) {
+            return render_coordinator_->mapFieldToImage(
+                current_view_node_id_,
+                current_output_type_,
+                output_index,
+                field_index,
+                line_number,
+                local_image_height);
+        },
+        [this, output_index](int image_y, int local_image_height) {
+            return render_coordinator_->mapImageToField(
+                current_view_node_id_,
+                current_output_type_,
+                output_index,
+                image_y,
+                local_image_height);
+        });
+
+    if (!navigation_target.is_valid) {
+        ORC_LOG_DEBUG("Line navigation rejected: no valid next field/line mapping available");
+        return;
     }
+
+    ORC_LOG_DEBUG("Line navigation mapped to field {}, line {}", navigation_target.field_index, navigation_target.line_number);
+    requestLineSamplesForNavigation(navigation_target.field_index, navigation_target.line_number, sample_x, preview_image_width);
 }
 

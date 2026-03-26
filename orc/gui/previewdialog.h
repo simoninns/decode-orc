@@ -71,7 +71,7 @@ public:
     QLabel* sliderMinLabel() { return slider_min_label_; }  ///< Get slider min label
     QLabel* sliderMaxLabel() { return slider_max_label_; }  ///< Get slider max label
     QComboBox* previewModeCombo() { return preview_mode_combo_; }  ///< Get preview mode selector
-    QComboBox* signalCombo() { return signal_combo_; }  ///< Get signal selector (Y/C/Y+C for YC sources)
+    QComboBox* signalCombo() { return signal_combo_; }  ///< Get channel selector (Y+C/Luma/Chroma for YC sources)
     QLabel* signalLabel() { return signal_label_; }  ///< Get signal label
     QComboBox* aspectRatioCombo() { return aspect_ratio_combo_; }  ///< Get aspect ratio selector
     QAction* ntscObserverAction() { return show_ntsc_observer_action_; }  ///< Get NTSC observer menu action

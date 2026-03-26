@@ -10,6 +10,7 @@
 #pragma once
 
 #include <QtNodes/GraphicsView>
+#include <QString>
 
 class OrcGraphModel;
 
@@ -25,10 +26,18 @@ public:
     ~OrcGraphicsView() override = default;
 
 protected:
+    void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
 
+public:
+    void setShowWelcomeMessage(bool show);
+
 private slots:
     void onDeleteSelectedObjects() override;
+
+private:
+    bool show_welcome_message_{true};
+    QString welcome_message_;
 };

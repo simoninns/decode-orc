@@ -22,6 +22,9 @@
 #include <QShowEvent>
 #include <QContextMenuEvent>
 #include <QMenu>
+#include <QPaintEvent>
+#include <QPainter>
+#include <QFont>
 #include <cmath>
 
 using orc::NodeID;
@@ -34,6 +37,11 @@ using orc::NodeID;
 
 OrcGraphicsView::OrcGraphicsView(QWidget* parent)
     : QtNodes::GraphicsView(parent)
+    , welcome_message_(
+        QStringLiteral(
+            "Welcome to decode-orc. To get started use the 'Quick Project...' option in the File menu to select a source TBC file for processing.\n\n"
+            "TBC files ending in .tbc will be treated as composite video and TBC file pairs ending in .tbcy and .tbcc will be treated as Y/C sources. NTSC, NTSC-J, PAL and PAL-M are currently supported for both LaserDisc, tape and other capture sources.\n\n"
+            "Please see the decode-orc documentation for a detailed user-guide and reference."))
 {
     // Find and disconnect the default delete action
     for (QAction* action : actions()) {
@@ -46,6 +54,61 @@ OrcGraphicsView::OrcGraphicsView(QWidget* parent)
             break;
         }
     }
+}
+
+void OrcGraphicsView::setShowWelcomeMessage(bool show)
+{
+    if (show_welcome_message_ == show) {
+        return;
+    }
+
+    show_welcome_message_ = show;
+    viewport()->update();
+}
+
+void OrcGraphicsView::paintEvent(QPaintEvent* event)
+{
+    QtNodes::GraphicsView::paintEvent(event);
+
+    if (!show_welcome_message_) {
+        return;
+    }
+
+    QPainter painter(viewport());
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+
+    const QRect view_rect = viewport()->rect();
+    const int max_text_width = std::min(560, std::max(320, view_rect.width() - 120));
+    const int horizontal_padding = 24;
+    const int vertical_padding = 18;
+
+    QFont text_font = painter.font();
+    text_font.setPointSize(text_font.pointSize() + 1);
+    painter.setFont(text_font);
+
+    const QRect text_rect = painter.boundingRect(
+        QRect(0, 0, max_text_width, 1000),
+        Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
+        welcome_message_);
+
+    const QSize box_size(text_rect.width() + horizontal_padding * 2,
+                         text_rect.height() + vertical_padding * 2);
+    const int box_margin = 24;
+    const QRect box_rect(box_margin,
+                         box_margin,
+                         box_size.width(),
+                         box_size.height());
+
+    painter.setPen(QPen(QColor(145, 150, 156, 210), 1));
+    painter.setBrush(QColor(248, 250, 252, 240));
+    painter.drawRoundedRect(box_rect, 10, 10);
+
+    painter.setPen(QColor(40, 44, 52));
+    painter.drawText(box_rect.adjusted(horizontal_padding, vertical_padding,
+                                       -horizontal_padding, -vertical_padding),
+                     Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
+                     welcome_message_);
 }
 
 void OrcGraphicsView::showEvent(QShowEvent *event)

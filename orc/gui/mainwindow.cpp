@@ -1476,6 +1476,7 @@ void MainWindow::updateUIState()
     // Enable/disable DAG view based on project state
     if (dag_view_) {
         dag_view_->setEnabled(has_project);
+        dag_view_->setShowWelcomeMessage(!has_project);
     }
     
     // Enable aspect ratio selector when preview is available (in preview dialog)

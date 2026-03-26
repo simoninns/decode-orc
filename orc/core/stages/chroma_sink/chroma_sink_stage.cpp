@@ -2060,9 +2060,22 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
     carrier.colorimetry = (carrier.data_type == VideoDataType::ColourPAL)
         ? ColorimetricMetadata::default_pal()
         : ColorimetricMetadata::default_ntsc();
+    carrier.system = videoParams.system;
     carrier.frame_index = index;
     carrier.width = static_cast<uint32_t>(width);
     carrier.height = static_cast<uint32_t>(height);
+    carrier.active_x_start = (videoParams.active_video_start >= 0 && videoParams.active_video_start < width)
+        ? static_cast<uint32_t>(videoParams.active_video_start)
+        : 0U;
+    carrier.active_x_end = (videoParams.active_video_end > videoParams.active_video_start && videoParams.active_video_end <= width)
+        ? static_cast<uint32_t>(videoParams.active_video_end)
+        : carrier.width;
+    carrier.active_y_start = (videoParams.first_active_frame_line >= 0 && videoParams.first_active_frame_line < height)
+        ? static_cast<uint32_t>(videoParams.first_active_frame_line)
+        : 0U;
+    carrier.active_y_end = (videoParams.last_active_frame_line > videoParams.first_active_frame_line && videoParams.last_active_frame_line <= height)
+        ? static_cast<uint32_t>(videoParams.last_active_frame_line)
+        : carrier.height;
     carrier.black_16b_ire = videoParams.black_16b_ire;
     carrier.white_16b_ire = videoParams.white_16b_ire;
 

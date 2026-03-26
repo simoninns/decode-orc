@@ -19,7 +19,7 @@ std::string VectorscopeAnalysisTool::id() const {
 }
 
 std::string VectorscopeAnalysisTool::name() const {
-    return "Vectorscope";
+    return "Component Vectorscope";
 }
 
 std::string VectorscopeAnalysisTool::description() const {
@@ -252,6 +252,81 @@ VectorscopeData VectorscopeAnalysisTool::extractFromComponentFrame(
     ORC_LOG_DEBUG("Extracted {} native U/V samples from ComponentFrame field {} (active {}x{} within {}x{}, subsample={}, both fields)",
                  data.samples.size(), field_number, data.width, data.height, width, height, subsample);
     
+    return data;
+}
+
+VectorscopeData VectorscopeAnalysisTool::extractFromColourFrameCarrier(
+    const ColourFrameCarrier& carrier,
+    uint64_t field_number,
+    uint32_t subsample,
+    bool active_area_only) {
+
+    VectorscopeData data;
+    data.field_number = field_number;
+    data.system = carrier.system;
+    data.white_16b_ire = static_cast<int32_t>(carrier.white_16b_ire);
+    data.black_16b_ire = static_cast<int32_t>(carrier.black_16b_ire);
+
+    if (!carrier.is_valid() || subsample == 0) {
+        return data;
+    }
+
+    uint32_t x_start = 0;
+    uint32_t x_end = carrier.width;
+    uint32_t y_start = 0;
+    uint32_t y_end = carrier.height;
+
+    if (active_area_only) {
+        if (carrier.active_x_end > carrier.active_x_start && carrier.active_x_end <= carrier.width) {
+            x_start = carrier.active_x_start;
+            x_end = carrier.active_x_end;
+        }
+
+        if (carrier.active_y_end > carrier.active_y_start && carrier.active_y_end <= carrier.height) {
+            y_start = carrier.active_y_start;
+            y_end = carrier.active_y_end;
+        }
+    }
+
+    data.width = x_end - x_start;
+    data.height = y_end - y_start;
+
+    const size_t sample_width = static_cast<size_t>(x_end - x_start);
+    const size_t sample_height = static_cast<size_t>(y_end - y_start);
+    const size_t estimated_samples = (sample_width / subsample) * (sample_height / subsample);
+    data.samples.reserve(estimated_samples);
+
+    for (uint8_t field_id = 0; field_id < 2; ++field_id) {
+        uint32_t first_y = y_start;
+        if ((first_y & 1U) != field_id) {
+            ++first_y;
+        }
+
+        for (uint32_t y = first_y; y < y_end; y += (2 * subsample)) {
+            const size_t line_offset = static_cast<size_t>(y) * static_cast<size_t>(carrier.width);
+
+            for (uint32_t x = x_start; x < x_end; x += subsample) {
+                const size_t sample_index = line_offset + static_cast<size_t>(x);
+                UVSample uv;
+                uv.u = carrier.u_plane[sample_index];
+                uv.v = carrier.v_plane[sample_index];
+                uv.field_id = field_id;
+                data.samples.push_back(uv);
+            }
+        }
+    }
+
+    ORC_LOG_DEBUG(
+        "Extracted {} U/V samples from colour preview carrier field {} ({} area {}x{} within {}x{}, subsample={}, both fields)",
+        data.samples.size(),
+        field_number,
+        active_area_only ? "active" : "full",
+        data.width,
+        data.height,
+        carrier.width,
+        carrier.height,
+        subsample);
+
     return data;
 }
 

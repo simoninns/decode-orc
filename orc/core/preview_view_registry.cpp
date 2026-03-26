@@ -14,6 +14,7 @@
 #include <fstream>
 #include <utility>
 
+#include "analysis/vectorscope/vectorscope_analysis.h"
 #include "colour_preview_provider.h"
 #include "preview_renderer.h"
 
@@ -184,12 +185,29 @@ public:
             return result;
         }
 
-        if (!carrier_opt->vectorscope_data.has_value()) {
+        const bool active_area_only = coordinate.vectorscope_active_area_only;
+        if (active_area_only && carrier_opt->vectorscope_data.has_value()) {
+            last_vectorscope_ = carrier_opt->vectorscope_data;
+        } else {
+            const uint64_t field_number = carrier_opt->vectorscope_data.has_value()
+                ? carrier_opt->vectorscope_data->field_number
+                : coordinate.field_index;
+
+            last_vectorscope_ = VectorscopeAnalysisTool::extractFromColourFrameCarrier(
+                *carrier_opt,
+                field_number,
+                4,
+                active_area_only);
+        }
+
+        if (!last_vectorscope_.has_value() || last_vectorscope_->samples.empty()) {
             result.error_message = "Vectorscope data is not available for requested frame";
             return result;
         }
 
-        last_vectorscope_ = carrier_opt->vectorscope_data;
+        last_vectorscope_->system = carrier_opt->system;
+        last_vectorscope_->white_16b_ire = static_cast<int32_t>(carrier_opt->white_16b_ire);
+        last_vectorscope_->black_16b_ire = static_cast<int32_t>(carrier_opt->black_16b_ire);
 
         result.success = true;
         result.payload_kind = PreviewViewPayloadKind::Vectorscope;
@@ -414,7 +432,7 @@ void PreviewViewRegistry::register_default_views(
     registry.register_view(
         PreviewViewDescriptor{
             "preview.vectorscope",
-            "Vectorscope",
+            "Component Vectorscope",
             {
                 VideoDataType::ColourNTSC,
                 VideoDataType::ColourPAL,

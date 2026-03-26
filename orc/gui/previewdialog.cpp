@@ -177,7 +177,7 @@ void PreviewDialog::setupUI()
     show_field_timing_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
     connect(show_field_timing_action_, &QAction::triggered, this, &PreviewDialog::fieldTimingRequested);
 
-    show_vectorscope_action_ = viewMenu->addAction("&Vectorscope");
+    show_vectorscope_action_ = viewMenu->addAction("&Component Vectorscope");
     show_vectorscope_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
     show_vectorscope_action_->setVisible(false);
     show_vectorscope_action_->setEnabled(false);
@@ -511,7 +511,10 @@ void PreviewDialog::setSharedPreviewCoordinate(const orc::PreviewCoordinate& coo
     }
 
     shared_preview_coordinate_ = coordinate;
-    emit previewCoordinateChanged(coordinate);
+    if (vectorscope_dialog_) {
+        shared_preview_coordinate_->vectorscope_active_area_only = vectorscope_dialog_->isActiveAreaOnly();
+    }
+    emit previewCoordinateChanged(*shared_preview_coordinate_);
 }
 
 void PreviewDialog::showVectorscopeForNode(orc::NodeID node_id)
@@ -523,6 +526,22 @@ void PreviewDialog::showVectorscopeForNode(orc::NodeID node_id)
     if (!vectorscope_dialog_) {
         vectorscope_dialog_ = new VectorscopeDialog(this);
         vectorscope_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
+
+        connect(vectorscope_dialog_, &VectorscopeDialog::dataRefreshRequested, this, [this]() {
+            if (!current_node_id_.is_valid()) {
+                return;
+            }
+
+            orc::PreviewCoordinate coordinate;
+            if (shared_preview_coordinate_.has_value() && shared_preview_coordinate_->is_valid()) {
+                coordinate = *shared_preview_coordinate_;
+            } else {
+                coordinate.field_index = static_cast<uint64_t>(currentIndex());
+            }
+
+            coordinate.vectorscope_active_area_only = vectorscope_dialog_->isActiveAreaOnly();
+            emit vectorscopeRequested(coordinate);
+        });
 
         connect(vectorscope_dialog_, &QObject::destroyed, this, [this]() {
             vectorscope_dialog_ = nullptr;

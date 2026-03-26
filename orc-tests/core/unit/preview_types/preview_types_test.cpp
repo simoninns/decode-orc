@@ -264,6 +264,12 @@ TEST(PreviewCoordinateTest, defaultConstructed_hasCompositeNtscDataTypeContext)
     EXPECT_EQ(coord.data_type_context, orc::VideoDataType::CompositeNTSC);
 }
 
+TEST(PreviewCoordinateTest, defaultConstructed_vectorscopeDefaultsToActiveAreaOnly)
+{
+    orc::PreviewCoordinate coord{};
+    EXPECT_TRUE(coord.vectorscope_active_area_only);
+}
+
 // =============================================================================
 // PreviewCoordinate — validity / bounds
 // =============================================================================
@@ -345,6 +351,13 @@ TEST(PreviewCoordinateTest, copyPreservesAllFields)
     orc::PreviewCoordinate original{100u, 50u, 300u, orc::VideoDataType::ColourPAL};
     auto copy = original;
     EXPECT_EQ(copy, original);
+}
+
+TEST(PreviewCoordinateTest, differentVectorscopeAreaPreference_isNotEqual)
+{
+    orc::PreviewCoordinate active_only{0u, 0u, 0u, orc::VideoDataType::ColourNTSC, true};
+    orc::PreviewCoordinate full_frame{0u, 0u, 0u, orc::VideoDataType::ColourNTSC, false};
+    EXPECT_NE(active_only, full_frame);
 }
 
 // =============================================================================

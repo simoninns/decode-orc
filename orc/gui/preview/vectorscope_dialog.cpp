@@ -97,7 +97,7 @@ VectorscopeDialog::VectorscopeDialog(QWidget *parent)
     : QDialog(parent)
     , d_(std::make_unique<VectorscopeDialogPrivate>())
 {
-    setWindowTitle("Vectorscope");
+    setWindowTitle("Component Vectorscope");
     setWindowFlags(Qt::Window);
     resize(800, 900);
     
@@ -113,7 +113,7 @@ int VectorscopeDialog::getGraticuleMode() const {
 
 void VectorscopeDialog::setStage(orc::NodeID node_id) {
     d_->node_id = node_id;
-    setWindowTitle(QString("Vectorscope - Node %1").arg(node_id.value()));
+    setWindowTitle(QString("Component Vectorscope - Node %1").arg(node_id.value()));
 }
 
 void VectorscopeDialog::setupUI() {
@@ -141,7 +141,9 @@ void VectorscopeDialog::setupUI() {
     blend_color_checkbox_ = new QCheckBox("Blend");
     defocus_checkbox_ = new QCheckBox("Defocus");
     draw_lines_checkbox_ = new QCheckBox("Draw Trace Lines");
+    active_area_only_checkbox_ = new QCheckBox("Active Picture Area Only");
     draw_lines_checkbox_->setChecked(true);
+    active_area_only_checkbox_->setChecked(true);
     
     // Point size spinbox
     QHBoxLayout* point_layout = new QHBoxLayout();
@@ -156,6 +158,7 @@ void VectorscopeDialog::setupUI() {
     display_layout->addWidget(blend_color_checkbox_);
     display_layout->addWidget(defocus_checkbox_);
     display_layout->addWidget(draw_lines_checkbox_);
+    display_layout->addWidget(active_area_only_checkbox_);
     display_layout->addLayout(point_layout);
     
     controls_layout->addWidget(display_group);
@@ -222,11 +225,16 @@ void VectorscopeDialog::connectSignals() {
     connect(blend_color_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onBlendColorToggled);
     connect(defocus_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onDefocusToggled);
     connect(draw_lines_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onDrawLinesToggled);
+    connect(active_area_only_checkbox_, &QCheckBox::toggled, this, &VectorscopeDialog::onActiveAreaOnlyToggled);
     connect(point_size_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged), this, &VectorscopeDialog::onPointSizeChanged);
     connect(field_select_group_, QOverload<int>::of(&QButtonGroup::idClicked),
             this, [this](int){ onFieldSelectionChanged(); });
     connect(graticule_group_, QOverload<int>::of(&QButtonGroup::idClicked),
             this, [this](int){ onGraticuleChanged(); });
+}
+
+bool VectorscopeDialog::isActiveAreaOnly() const {
+    return active_area_only_checkbox_ && active_area_only_checkbox_->isChecked();
 }
 
 void VectorscopeDialog::updateVectorscope(const orc::VectorscopeData& data) {
@@ -404,11 +412,14 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         field_info = "Second field only";
     }
     
-    info_label_->setText(QString("Field %1 - %2 samples (%3x%4) - %5")
+    const QString sample_area = isActiveAreaOnly() ? "active picture" : "full frame";
+
+    info_label_->setText(QString("Field %1 - %2 samples (%3x%4 %5) - %6")
         .arg(data.field_number + 1)  // Convert to 1-based
         .arg(data.samples.size())
         .arg(data.width)
         .arg(data.height)
+        .arg(sample_area)
         .arg(field_info));
 }
 
@@ -581,4 +592,9 @@ void VectorscopeDialog::onPointSizeChanged() {
     if (d_->last_data.has_value()) {
         renderVectorscope(*d_->last_data);
     }
+}
+
+void VectorscopeDialog::onActiveAreaOnlyToggled() {
+    ORC_LOG_DEBUG("VectorscopeDialog: Active area only toggled -> {}", isActiveAreaOnly());
+    emit dataRefreshRequested();
 }

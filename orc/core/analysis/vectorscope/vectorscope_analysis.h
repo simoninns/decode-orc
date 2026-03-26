@@ -12,6 +12,7 @@
 
 #include "../analysis_tool.h"
 #include "vectorscope_data.h"
+#include <orc_preview_carriers.h>
 #include <orc_source_parameters.h>
 #include <memory>
 
@@ -107,6 +108,18 @@ public:
         const ::orc::SourceParameters& video_parameters,
         uint64_t field_number,
         uint32_t subsample = 1);
+
+    /**
+     * @brief Extract vectorscope data from a colour preview carrier.
+     *
+     * Uses the decoded U/V planes already present in the carrier and can either
+     * limit sampling to the active picture window or include the entire frame.
+     */
+    static VectorscopeData extractFromColourFrameCarrier(
+        const ColourFrameCarrier& carrier,
+        uint64_t field_number,
+        uint32_t subsample = 1,
+        bool active_area_only = true);
 };
 
 } // namespace orc

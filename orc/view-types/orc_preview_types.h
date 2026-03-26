@@ -181,6 +181,7 @@ struct PreviewCoordinate {
     uint32_t      line_index{0};                                      ///< Line within the active picture (0-based)
     uint32_t      sample_offset{0};                                   ///< Horizontal sample within that line (0-based)
     VideoDataType data_type_context{VideoDataType::CompositeNTSC};    ///< Data type from which this coordinate was captured
+    bool          vectorscope_active_area_only{true};                 ///< Vectorscope hint: true = active picture only, false = full frame
 
     /**
      * @brief Structural validity check.
@@ -201,7 +202,8 @@ struct PreviewCoordinate {
         return field_index        == other.field_index
             && line_index         == other.line_index
             && sample_offset      == other.sample_offset
-            && data_type_context  == other.data_type_context;
+            && data_type_context  == other.data_type_context
+            && vectorscope_active_area_only == other.vectorscope_active_area_only;
     }
 
     bool operator!=(const PreviewCoordinate& other) const

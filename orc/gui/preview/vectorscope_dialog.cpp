@@ -18,7 +18,7 @@
 class VectorscopeDialogPrivate {
 public:
     orc::NodeID node_id;
-    QString scope_label{"Component Vectorscope"};
+    QString scope_label{"Vectorscope"};
     uint64_t current_field_number = 0;
     std::optional<orc::VectorscopeData> last_data;
     

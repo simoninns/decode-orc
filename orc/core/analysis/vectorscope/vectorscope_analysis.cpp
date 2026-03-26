@@ -38,7 +38,7 @@ std::string VectorscopeAnalysisTool::id() const {
 }
 
 std::string VectorscopeAnalysisTool::name() const {
-    return "Component Vectorscope";
+    return "Vectorscope";
 }
 
 std::string VectorscopeAnalysisTool::description() const {

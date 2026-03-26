@@ -191,7 +191,7 @@ void PreviewDialog::setupUI()
         emit fieldTimingRequested();
     });
 
-        show_component_vectorscope_action_ = viewMenu->addAction("&Component Vectorscope");
+        show_component_vectorscope_action_ = viewMenu->addAction("&Vectorscope");
         show_component_vectorscope_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S));
         show_component_vectorscope_action_->setVisible(false);
         show_component_vectorscope_action_->setEnabled(false);
@@ -583,7 +583,7 @@ void PreviewDialog::showVectorscopeForNode(orc::NodeID node_id)
         });
     }
 
-    vectorscope_dialog_->setScopeLabel(QStringLiteral("Component Vectorscope"));
+    vectorscope_dialog_->setScopeLabel(QStringLiteral("Vectorscope"));
 
     vectorscope_node_id_ = node_id;
     vectorscope_dialog_->setStage(node_id);

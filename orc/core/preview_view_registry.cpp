@@ -500,7 +500,7 @@ void PreviewViewRegistry::register_default_views(
     registry.register_view(
         PreviewViewDescriptor{
             "preview.vectorscope",
-            "Component Vectorscope",
+            "Vectorscope",
             {
                 VideoDataType::ColourNTSC,
                 VideoDataType::ColourPAL,

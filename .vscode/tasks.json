@@ -14,6 +14,7 @@
       "type": "shell",
       "command": "cmake --build build --parallel",
       "args": [],
+      "dependsOn": ["Configure (cmake CLI)"],
       "problemMatcher": ["$gcc"],
       "group": { "kind": "build", "isDefault": true }
     },

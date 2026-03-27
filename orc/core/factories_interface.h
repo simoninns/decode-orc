@@ -35,10 +35,10 @@ namespace orc
   /**
    * @brief Gets instance of stage factories singleton.
    *
-   * Returning a ptr here instead of a unique_ptr because this object is a singleton that is only instantiated once.
+    * Returning a reference here instead of shared_ptr because this object is a singleton that is only instantiated once and the parent will keep it instantiated for us.
    * @return Instance of IStageFactories
    */
-  virtual IStageFactories* get_instance_stage_factories() = 0;
+  virtual IStageFactories& get_instance_stage_factories() = 0;
 
   /*
    * Factory methods for BufferedFileWriter.

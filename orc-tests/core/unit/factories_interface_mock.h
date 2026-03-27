@@ -19,7 +19,7 @@ namespace orc_unit_test
     class MockFactories : public orc::IFactories
     {
     public:
-        MOCK_METHOD(orc::IStageFactories*, get_instance_stage_factories, (), (override));
+        MOCK_METHOD(orc::IStageFactories&, get_instance_stage_factories, (), (override));
         MOCK_METHOD(std::shared_ptr<orc::IFileWriter<uint8_t>>, create_instance_buffered_file_writer_uint8, (size_t), (override));
         MOCK_METHOD(std::shared_ptr<orc::IFileWriter<uint16_t>>, create_instance_buffered_file_writer_uint16, (size_t), (override));
     };

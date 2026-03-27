@@ -142,7 +142,7 @@ bool LDSinkStage::trigger(
     // Clear previous observations to avoid mixing runs
     observation_context.clear();
 
-    std::shared_ptr<ILDSinkStageDeps> deps = this->factories_->get_instance_stage_factories()->CreateInstanceLDSinkStageDeps(progress_callback_, is_processing_, cancel_requested_);
+    std::shared_ptr<ILDSinkStageDeps> deps = this->factories_->get_instance_stage_factories().CreateInstanceLDSinkStageDeps(progress_callback_, is_processing_, cancel_requested_);
     bool success = deps->write_tbc_and_metadata(representation.get(), output_path, observation_context);
 
     if (success) {

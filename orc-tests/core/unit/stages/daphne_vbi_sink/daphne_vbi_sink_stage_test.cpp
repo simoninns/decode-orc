@@ -17,6 +17,7 @@
 
 using testing::_;
 using testing::Return;
+using testing::ReturnRef;
 using testing::StrictMock;
 using testing::Ref;
 
@@ -34,7 +35,7 @@ namespace orc_unit_test
             pMockFactories_ = std::make_shared<MockFactories>();
 
             EXPECT_CALL(*pMockFactories_, get_instance_stage_factories())
-                .WillRepeatedly(Return(&mockStageFactories_));
+                .WillRepeatedly(ReturnRef(mockStageFactories_));
 
             instance_ = std::make_unique<orc::DaphneVBISinkStage>(pMockFactories_);
         }

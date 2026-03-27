@@ -139,7 +139,7 @@ bool DaphneVBISinkStage::trigger(
     // Clear previous observations to avoid mixing runs
     observation_context.clear();
 
-    std::shared_ptr<IDaphneVBISinkStageDeps> deps = this->factories_->get_instance_stage_factories()->CreateInstanceDaphneVBISinkStageDeps(progress_callback_, is_processing_, cancel_requested_);
+    std::shared_ptr<IDaphneVBISinkStageDeps> deps = this->factories_->get_instance_stage_factories().CreateInstanceDaphneVBISinkStageDeps(progress_callback_, is_processing_, cancel_requested_);
     bool success = deps->write_vbi(representation.get(), output_path, observation_context);
 
     if (success) {

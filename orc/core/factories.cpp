@@ -21,9 +21,9 @@ namespace orc
         return instance;
     }
 
-    IStageFactories* Factories::get_instance_stage_factories()
+    IStageFactories& Factories::get_instance_stage_factories()
     {
-        return &factoriesStage_;
+        return factoriesStage_;
     }
 
     std::shared_ptr<IFileWriter<uint8_t>> Factories::create_instance_buffered_file_writer_uint8(size_t buffer_size)

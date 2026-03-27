@@ -34,7 +34,7 @@ namespace orc
 
         Factories() : factoriesStage_(*this) {}
 
-        IStageFactories* get_instance_stage_factories() override;
+        IStageFactories& get_instance_stage_factories() override;
 
         /**
          * @brief Create instance of BufferedFileWriter<uint8_t>

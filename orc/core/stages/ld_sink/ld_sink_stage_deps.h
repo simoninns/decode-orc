@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <utility>
 
 #include "ld_sink_stage_deps_interface.h"
@@ -20,15 +21,14 @@
 #include "video_field_representation.h"
 #include "../triggerable_stage.h"
 #include "../factories_interface.h"
-#include "../stage_factories_interface.h"
 
 namespace orc
 {
     class LDSinkStageDeps : public ILDSinkStageDeps
     {
     public:
-        LDSinkStageDeps(IFactories& factories, IStageFactories& stageFactories)
-            : factories_(factories), stageFactories_(stageFactories) {}
+        LDSinkStageDeps(IFactories& factories, std::shared_ptr<ITBCMetadataWriter> metadata_writer)
+            : factories_(factories), metadata_writer_(std::move(metadata_writer)) {}
 
         /**
          * @brief Sets dependencies that aren't interfaces.
@@ -49,7 +49,7 @@ namespace orc
         std::atomic<bool>* pIsProcessing_{};
         std::atomic<bool>* pCancelRequested_{};
         IFactories& factories_;
-        IStageFactories& stageFactories_;
+        std::shared_ptr<ITBCMetadataWriter> metadata_writer_;
     };
 } // namespace orc
 

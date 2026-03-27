@@ -11,7 +11,6 @@
 #include "../../include/observation_context_interface_mock.h"
 #include "../../include/video_field_representation_mock.h"
 #include "../../factories_interface_mock.h"
-#include "../../stages/stage_factories_interface_mock.h"
 #include <gtest/gtest.h>
 #include "ld_sink_stage_deps.h"
 #include "tbc_metadata_writer_interface_mock.h"
@@ -32,7 +31,7 @@ namespace orc_unit_test
             pMockFileWriterUint16_ = std::make_shared<StrictMock<MockFileWriter<uint16_t>>>();
             pMockMetadataWriter_ = std::make_shared<StrictMock<MockTBCMetadataWriter>>();
 
-            instance_ = std::make_unique<orc::LDSinkStageDeps>(mockFactories_, mockStageFactories_);
+            instance_ = std::make_unique<orc::LDSinkStageDeps>(mockFactories_, pMockMetadataWriter_);
             instance_->init({}, &isProcessing_, &cancelRequested_);
 
             cancelRequested_.store(false);
@@ -46,7 +45,6 @@ namespace orc_unit_test
 
     protected:
         MockFactories mockFactories_;
-        MockStageFactories mockStageFactories_;
         std::shared_ptr<StrictMock<MockFileWriter<uint16_t>>> pMockFileWriterUint16_;
         std::shared_ptr<StrictMock<MockTBCMetadataWriter>> pMockMetadataWriter_;
         MockObservationContext mockObservationContext_;
@@ -73,10 +71,6 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockFileWriterUint16_, open("out_path.tbc", _))
             .Times(1)
             .WillOnce(Return(true));
-
-        EXPECT_CALL(mockStageFactories_, CreateInstanceTBCMetadataWriter())
-            .Times(1)
-            .WillOnce(Return(pMockMetadataWriter_));
 
         EXPECT_CALL(*pMockMetadataWriter_, open("out_path.tbc.db"))
             .Times(1)
@@ -125,8 +119,6 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(false));
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceTBCMetadataWriter()).Times(0);
-
         const bool result = instance_->write_tbc_and_metadata(&mockRepresentation_, "out_path", mockObservationContext_);
 
         EXPECT_FALSE(result);
@@ -145,10 +137,6 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockFileWriterUint16_, open("out_path.tbc", _))
             .Times(1)
             .WillOnce(Return(true));
-
-        EXPECT_CALL(mockStageFactories_, CreateInstanceTBCMetadataWriter())
-            .Times(1)
-            .WillOnce(Return(pMockMetadataWriter_));
 
         EXPECT_CALL(*pMockMetadataWriter_, open("out_path.tbc.db"))
             .Times(1)
@@ -175,10 +163,6 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockFileWriterUint16_, open("out_path.tbc", _))
             .Times(1)
             .WillOnce(Return(true));
-
-        EXPECT_CALL(mockStageFactories_, CreateInstanceTBCMetadataWriter())
-            .Times(1)
-            .WillOnce(Return(pMockMetadataWriter_));
 
         EXPECT_CALL(*pMockMetadataWriter_, open("out_path.tbc.db"))
             .Times(1)
@@ -209,10 +193,6 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockFileWriterUint16_, open("out_path.tbc", _))
             .Times(1)
             .WillOnce(Return(true));
-
-        EXPECT_CALL(mockStageFactories_, CreateInstanceTBCMetadataWriter())
-            .Times(1)
-            .WillOnce(Return(pMockMetadataWriter_));
 
         EXPECT_CALL(*pMockMetadataWriter_, open("out_path.tbc.db"))
             .Times(1)
@@ -253,10 +233,6 @@ namespace orc_unit_test
         EXPECT_CALL(*pMockFileWriterUint16_, open("cancel_path.tbc", _))
             .Times(1)
             .WillOnce(Return(true));
-
-        EXPECT_CALL(mockStageFactories_, CreateInstanceTBCMetadataWriter())
-            .Times(1)
-            .WillOnce(Return(pMockMetadataWriter_));
 
         EXPECT_CALL(*pMockMetadataWriter_, open("cancel_path.tbc.db"))
             .Times(1)

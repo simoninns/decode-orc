@@ -42,13 +42,9 @@ namespace orc
         std::atomic<bool>& is_processing,
         std::atomic<bool>& cancel_requested)
     {
-        auto instance = std::make_shared<LDSinkStageDeps>(factories_, *this);
+        auto metadata_writer = std::make_shared<TBCMetadataWriter>();
+        auto instance = std::make_shared<LDSinkStageDeps>(factories_, metadata_writer);
         instance->init(progress_callback, &is_processing, &cancel_requested);
         return instance;
-    }
-
-    std::shared_ptr<ITBCMetadataWriter> StageFactories::CreateInstanceTBCMetadataWriter()
-    {
-        return std::make_shared<TBCMetadataWriter>();
     }
 } // orc

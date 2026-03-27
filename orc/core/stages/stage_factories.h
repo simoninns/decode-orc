@@ -32,8 +32,6 @@ namespace orc
 
         std::shared_ptr<ILDSinkStageDeps> CreateInstanceLDSinkStageDeps(TriggerProgressCallback &progress_callback, std::atomic<bool> &is_processing, std::atomic<bool> &cancel_requested) override;
 
-        std::shared_ptr<ITBCMetadataWriter> CreateInstanceTBCMetadataWriter() override;
-
     private:
 
         IFactories &factories_;

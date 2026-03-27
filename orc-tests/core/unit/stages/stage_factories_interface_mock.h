@@ -28,9 +28,6 @@ namespace orc_unit_test
 
         MOCK_METHOD(std::shared_ptr<orc::ILDSinkStageDeps>, CreateInstanceLDSinkStageDeps,
             (orc::TriggerProgressCallback &, std::atomic<bool> &, std::atomic<bool> &), (override));
-
-        MOCK_METHOD(std::shared_ptr<orc::ITBCMetadataWriter>, CreateInstanceTBCMetadataWriter,
-            (), (override));
     };
 }
 

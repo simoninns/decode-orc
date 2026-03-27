@@ -17,7 +17,6 @@
 #include "daphne_vbi_sink_stage_deps_interface.h"
 #include "daphne_vbi_writer_util_interface.h"
 #include "ld_sink_stage_deps_interface.h"
-#include "tbc_metadata_writer_interface.h"
 #include "triggerable_stage.h"
 
 namespace orc
@@ -48,8 +47,6 @@ namespace orc
 		virtual std::shared_ptr<IDaphneVBIWriterUtil> CreateInstanceDaphneVBIWriterUtil(IFileWriter<uint8_t> &writer) = 0;
 
         virtual std::shared_ptr<ILDSinkStageDeps> CreateInstanceLDSinkStageDeps(TriggerProgressCallback &progress_callback, std::atomic<bool> &is_processing, std::atomic<bool> &cancel_requested) = 0;
-
-        virtual std::shared_ptr<ITBCMetadataWriter> CreateInstanceTBCMetadataWriter() = 0;
     };
 }
 #endif //DECODE_ORC_ROOT_STAGE_FACTORIES_INTERFACE_H

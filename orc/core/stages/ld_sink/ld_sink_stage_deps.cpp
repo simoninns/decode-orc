@@ -70,9 +70,7 @@ namespace orc
             }
 
             // Open metadata database
-            std::shared_ptr<ITBCMetadataWriter> metadata_writer =
-                stageFactories_.CreateInstanceTBCMetadataWriter();
-            if (!metadata_writer->open(db_path)) {
+            if (!metadata_writer_->open(db_path)) {
                 ORC_LOG_ERROR("Failed to open metadata database for writing: {}", db_path);
                 tbc_writer->close();
                 return false;
@@ -82,14 +80,14 @@ namespace orc
             auto video_params = representation->get_video_parameters();
             if (!video_params) {
                 ORC_LOG_ERROR("No video parameters available");
-                metadata_writer->close();
+                metadata_writer_->close();
                 tbc_writer->close();
                 return false;
             }
             video_params->decoder = "orc";
-            if (!metadata_writer->write_video_parameters(*video_params)) {
+            if (!metadata_writer_->write_video_parameters(*video_params)) {
                 ORC_LOG_ERROR("Failed to write video parameters");
-                metadata_writer->close();
+                metadata_writer_->close();
                 tbc_writer->close();
                 return false;
             }
@@ -120,7 +118,7 @@ namespace orc
             ORC_LOG_DEBUG("Instantiated {} observers for metadata extraction", observers.size());
 
             // Begin transaction for metadata writes
-            metadata_writer->begin_transaction();
+            metadata_writer_->begin_transaction();
 
             size_t fields_processed = 0;
 
@@ -128,8 +126,8 @@ namespace orc
             for (FieldID field_id : field_ids) {
                 // Check for cancellation
                 if (pCancelRequested_->load()) {
-                    metadata_writer->commit_transaction();
-                    metadata_writer->close();
+                    metadata_writer_->commit_transaction();
+                    metadata_writer_->close();
                     tbc_writer->close();
                     ORC_LOG_WARN("LDSink: Export cancelled by user");
                     pIsProcessing_->store(false);
@@ -212,7 +210,7 @@ namespace orc
                     ORC_LOG_WARN("LDSink: Failed to write observations for field {}: {}", field_id.value(), e.what());
                 }
 
-                metadata_writer->write_field_metadata(field_meta);
+                metadata_writer_->write_field_metadata(field_meta);
 
                 // ===== Run observers to populate observation context =====
                 for (const auto& observer : observers) {
@@ -220,7 +218,7 @@ namespace orc
                 }
 
                 // Write observations to metadata
-                metadata_writer->write_observations(field_id, observation_context);
+                metadata_writer_->write_observations(field_id, observation_context);
 
                 // Write dropout hints
                 auto dropout_hints = representation->get_dropout_hints(field_id);
@@ -229,7 +227,7 @@ namespace orc
                     dropout.line = hint.line;
                     dropout.start_sample = hint.start_sample;
                     dropout.end_sample = hint.end_sample;
-                    metadata_writer->write_dropout(field_id, dropout);
+                    metadata_writer_->write_dropout(field_id, dropout);
                 }
 
                 fields_processed++;
@@ -250,8 +248,8 @@ namespace orc
             }
 
             // Commit metadata transaction and close files
-            metadata_writer->commit_transaction();
-            metadata_writer->close();
+            metadata_writer_->commit_transaction();
+            metadata_writer_->close();
             tbc_writer->close();
 
             ORC_LOG_DEBUG("Successfully exported {} fields", fields_processed);

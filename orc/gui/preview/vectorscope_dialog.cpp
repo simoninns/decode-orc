@@ -20,6 +20,7 @@ public:
     orc::NodeID node_id;
     QString scope_label{"Vectorscope"};
     uint64_t current_field_number = 0;
+    orc::VideoSystem current_system{orc::VideoSystem::Unknown};
     std::optional<orc::VectorscopeData> last_data;
     
     void drawGraticule(QPainter& painter, VectorscopeDialog* dialog, 
@@ -56,11 +57,34 @@ constexpr double kZoneHalfAngleDegrees = 13.0;
 constexpr double kZoneHalfRadialSpanPercent = 0.14;
 constexpr double kTargetBoxSizePixels = 42.0;
 constexpr double kTargetCrosshairSizePixels = 22.0;
+constexpr double kPalMVectorscopeSampleScale = 1.25;
 
 bool isPointWithinCanvas(const QPointF& point, int canvas_size)
 {
     return point.x() >= 0.0 && point.x() < static_cast<double>(canvas_size)
         && point.y() >= 0.0 && point.y() < static_cast<double>(canvas_size);
+}
+
+double vectorscopeSampleDisplayScale(orc::VideoSystem system)
+{
+    if (system == orc::VideoSystem::PAL_M) {
+        return kPalMVectorscopeSampleScale;
+    }
+
+    return 1.0;
+}
+
+QString vectorscopeSystemTag(orc::VideoSystem system)
+{
+    if (system == orc::VideoSystem::NTSC) {
+        return QStringLiteral("NTSC");
+    }
+
+    if (system == orc::VideoSystem::PAL || system == orc::VideoSystem::PAL_M) {
+        return QStringLiteral("PAL/PAL-M");
+    }
+
+    return QString{};
 }
 
 QColor vectorscopeTargetColor(int rgb)
@@ -293,11 +317,16 @@ void VectorscopeDialog::setScopeLabel(const QString& scope_label)
 
 void VectorscopeDialog::updateWindowTitle()
 {
+    const QString system_tag = vectorscopeSystemTag(d_->current_system);
+    const QString title_scope_label = system_tag.isEmpty()
+        ? d_->scope_label
+        : QStringLiteral("%1 (%2)").arg(d_->scope_label, system_tag);
+
     if (d_->node_id.is_valid()) {
-        setWindowTitle(QString("%1 - Node %2").arg(d_->scope_label).arg(d_->node_id.value()));
+        setWindowTitle(QString("%1 - Node %2").arg(title_scope_label).arg(d_->node_id.value()));
         return;
     }
-    setWindowTitle(d_->scope_label);
+    setWindowTitle(title_scope_label);
 }
 
 void VectorscopeDialog::setStage(orc::NodeID node_id) {
@@ -435,6 +464,8 @@ void VectorscopeDialog::updateVectorscope(const orc::VectorscopeData& data) {
 
     d_->last_data = data;
     d_->current_field_number = data.field_number;
+    d_->current_system = data.system;
+    updateWindowTitle();
     renderVectorscope(data);
     ORC_LOG_DEBUG("Vectorscope updated for field {} ({} samples)", data.field_number, data.samples.size());
 }
@@ -545,6 +576,9 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
         // Apply defocus if enabled.
         double u = sample.u;
         double v = sample.v;
+        const double sample_display_scale = vectorscopeSampleDisplayScale(data.system);
+        u *= sample_display_scale;
+        v *= sample_display_scale;
         if (defocus) {
             u += normal_dist(random_engine);
             v += normal_dist(random_engine);

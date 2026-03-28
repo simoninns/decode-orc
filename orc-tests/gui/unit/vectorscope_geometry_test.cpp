@@ -65,6 +65,17 @@ TEST(VectorscopeGeometryTest, ntscDisplayTargetsApplyDecoderSpaceCalibration)
     EXPECT_NEAR(display_target.v, raw_target.v * orc::gui::kNtscDisplayTargetVScale, 1e-9);
 }
 
+TEST(VectorscopeGeometryTest, palMDisplayTargetsRemainUnchangedLikePal)
+{
+    constexpr double kIreRange = 50000.0;
+
+    const orc::UVSample raw_target = orc::gui::vectorscopeTargetUv(4, 0.75, kIreRange, orc::VideoSystem::PAL_M);
+    const orc::UVSample display_target = orc::gui::vectorscopeDisplayTargetUv(4, 0.75, kIreRange, orc::VideoSystem::PAL_M);
+
+    EXPECT_DOUBLE_EQ(display_target.u, raw_target.u);
+    EXPECT_DOUBLE_EQ(display_target.v, raw_target.v);
+}
+
 TEST(VectorscopeGeometryTest, palDisplayTargetsRemainUnchanged)
 {
     constexpr double kIreRange = 50000.0;

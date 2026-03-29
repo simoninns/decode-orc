@@ -106,6 +106,7 @@ public:
                 ntsc_video_id_data INTEGER,
                 ntsc_white_flag INTEGER
                     CHECK (ntsc_white_flag IN (0,1)),
+                ac3rf_symbols INTEGER,
                 PRIMARY KEY (capture_id, field_id)
             );
             
@@ -315,8 +316,9 @@ bool TBCMetadataWriter::write_field_metadata(const FieldMetadata& field) {
             disk_loc, efm_t_values, field_phase_id, file_loc,
             is_first_field, median_burst_ire, pad, sync_conf,
             ntsc_is_fm_code_data_valid, ntsc_fm_code_data, ntsc_field_flag,
-            ntsc_is_video_id_data_valid, ntsc_video_id_data, ntsc_white_flag
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ntsc_is_video_id_data_valid, ntsc_video_id_data, ntsc_white_flag,
+            ac3rf_symbols
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     )";
     
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
@@ -410,7 +412,13 @@ bool TBCMetadataWriter::write_field_metadata(const FieldMetadata& field) {
     }
     
     sqlite3_bind_int(stmt, 18, field.ntsc.white_flag ? 1 : 0);
-    
+
+    if (field.ac3rf_symbols.has_value()) {
+        sqlite3_bind_int(stmt, 19, field.ac3rf_symbols.value());
+    } else {
+        sqlite3_bind_null(stmt, 19);
+    }
+
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
     

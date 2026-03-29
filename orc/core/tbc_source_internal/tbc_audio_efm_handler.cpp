@@ -15,7 +15,8 @@ namespace orc {
 TBCAudioEFMHandler::TBCAudioEFMHandler(MetadataProvider* provider)
     : provider_(provider),
       has_audio_(false),
-      has_efm_(false)
+      has_efm_(false),
+      has_ac3_rf_(false)
 {
 }
 
@@ -329,6 +330,114 @@ void TBCAudioEFMHandler::compute_efm_offsets() {
     }
     
     ORC_LOG_DEBUG("TBCAudioEFMHandler: Computed EFM offsets, total size: {} bytes", byte_offset);
+}
+
+// ============================================================================
+// AC3 RF symbols interface implementation
+// ============================================================================
+
+uint32_t TBCAudioEFMHandler::get_ac3_symbol_count(FieldID id) const {
+    if (!has_ac3_rf_) return 0;
+    auto metadata = provider_->get_field_metadata(id);
+    if (!metadata || !metadata->ac3rf_byte_start || !metadata->ac3rf_byte_end) return 0;
+    return static_cast<uint32_t>(metadata->ac3rf_byte_end.value() - metadata->ac3rf_byte_start.value());
+}
+
+std::vector<uint8_t> TBCAudioEFMHandler::get_ac3_symbols(FieldID id) const {
+    if (!has_ac3_rf_) return {};
+
+    auto metadata = provider_->get_field_metadata(id);
+    if (!metadata || !metadata->ac3rf_byte_start || !metadata->ac3rf_byte_end) return {};
+
+    uint64_t start_offset = metadata->ac3rf_byte_start.value();
+    uint64_t end_offset   = metadata->ac3rf_byte_end.value();
+    uint64_t count        = end_offset - start_offset;
+    if (count == 0) return {};
+
+    std::lock_guard<std::mutex> lock(ac3rf_mutex_);
+    if (!ac3rf_symbols_reader_ || !ac3rf_symbols_reader_->is_open()) {
+        ORC_LOG_WARN("TBCAudioEFMHandler: AC3 RF symbols file not open");
+        return {};
+    }
+    try {
+        return ac3rf_symbols_reader_->read(start_offset, count);
+    } catch (const std::exception& e) {
+        ORC_LOG_WARN("TBCAudioEFMHandler: Failed to read AC3 symbols for field {}: {}",
+                     id.value(), e.what());
+        return {};
+    }
+}
+
+bool TBCAudioEFMHandler::set_ac3rf_symbols_file(const std::string& ac3rf_path) {
+    if (ac3rf_path.empty()) {
+        has_ac3_rf_ = false;
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(ac3rf_mutex_);
+
+    ac3rf_symbols_reader_ = std::make_unique<BufferedFileReader<uint8_t>>(4 * 1024 * 1024);
+    if (!ac3rf_symbols_reader_->open(ac3rf_path)) {
+        ORC_LOG_ERROR("TBCAudioEFMHandler: Failed to open AC3 RF symbols file: {}", ac3rf_path);
+        has_ac3_rf_ = false;
+        ac3rf_symbols_reader_.reset();
+        return false;
+    }
+
+    uint64_t total_symbols = ac3rf_symbols_reader_->file_size();
+    ORC_LOG_DEBUG("TBCAudioEFMHandler: Opened AC3 RF symbols file: {}", ac3rf_path);
+    ORC_LOG_DEBUG("  Total symbols: {}", total_symbols);
+
+    compute_ac3rf_offsets(total_symbols);
+
+    ac3rf_symbols_path_ = ac3rf_path;
+    has_ac3_rf_ = true;
+    return true;
+}
+
+void TBCAudioEFMHandler::compute_ac3rf_offsets(uint64_t total_symbols) {
+    auto field_range = provider_->field_range();
+    auto& cache = provider_->get_field_metadata_cache();
+
+    // Check whether per-field counts are available in the metadata.
+    // If any field has ac3rf_symbols set, trust the metadata for all fields.
+    bool have_per_field_counts = false;
+    for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+        auto it = cache.find(fid);
+        if (it != cache.end() && it->second.ac3rf_symbols.has_value()) {
+            have_per_field_counts = true;
+            break;
+        }
+    }
+
+    uint64_t byte_offset = 0;
+    uint64_t total_fields = field_range.end.value() - field_range.start.value();
+
+    for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+        auto it = cache.find(fid);
+        if (it == cache.end()) continue;
+        auto& metadata = it->second;
+
+        metadata.ac3rf_byte_start = byte_offset;
+
+        if (have_per_field_counts && metadata.ac3rf_symbols.has_value()) {
+            byte_offset += static_cast<uint64_t>(metadata.ac3rf_symbols.value());
+        } else {
+            // Uniform distribution fallback: divide total symbols evenly across fields.
+            // This is accurate enough in practice since the DPLL symbol rate is stable.
+            uint64_t field_index = fid.value() - field_range.start.value();
+            uint64_t next_index  = field_index + 1;
+            uint64_t end_sym = (total_symbols * next_index) / total_fields;
+            uint64_t start_sym = (total_symbols * field_index) / total_fields;
+            byte_offset = end_sym;
+            metadata.ac3rf_byte_start = start_sym;
+        }
+
+        metadata.ac3rf_byte_end = byte_offset;
+    }
+
+    ORC_LOG_DEBUG("TBCAudioEFMHandler: Computed AC3 RF offsets, total: {} symbols ({} mode)",
+                  total_symbols, have_per_field_counts ? "per-field metadata" : "uniform fallback");
 }
 
 } // namespace orc

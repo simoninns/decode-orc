@@ -427,41 +427,41 @@ public:
     }
 
     // ========================================================================
-    // AC3 RF - AC3 (Dolby Digital) RF sample data access
+    // AC3 RF - AC3 (Dolby Digital) demodulated symbols access
     // ========================================================================
 
     /**
-     * @brief Get number of AC3 RF samples for a specific field
+     * @brief Get number of AC3 RF QPSK symbols for a specific field
      *
-     * Returns the number of raw RF samples for the AC3 subcarrier channel.
-     * Returns 0 if no AC3 RF data is available.
+     * Returns 0 if no AC3 RF symbols file was provided to the source stage.
      *
      * @param id Field ID
-     * @return Number of AC3 RF samples (0 if none)
+     * @return Number of symbols (0 if none)
      */
-    virtual uint32_t get_ac3_rf_sample_count(FieldID /*id*/) const {
-        return 0;  // Default: no AC3 RF data
+    virtual uint32_t get_ac3_symbol_count(FieldID /*id*/) const {
+        return 0;
     }
 
     /**
-     * @brief Get AC3 RF samples for a specific field
+     * @brief Get AC3 RF QPSK symbols for a specific field
      *
-     * Returns raw 16-bit signed RF samples for the AC3 subcarrier channel.
+     * Returns the demodulated differential QPSK symbols (output of Ac3RfDemodulator::demodulateToSymbols)
+     * stored in the AC3 RF symbols file alongside the TBC. Each byte is one dibit symbol.
      *
      * @param id Field ID
-     * @return Vector of RF samples (empty if no AC3 RF data)
+     * @return Vector of symbols (empty if no AC3 RF data)
      */
-    virtual std::vector<int16_t> get_ac3_rf_samples(FieldID /*id*/) const {
-        return {};  // Default: no AC3 RF data
+    virtual std::vector<uint8_t> get_ac3_symbols(FieldID /*id*/) const {
+        return {};
     }
 
     /**
-     * @brief Check if AC3 RF data is available
+     * @brief Check if AC3 RF symbol data is available
      *
-     * @return True if this representation has AC3 RF sample data
+     * @return True if an AC3 RF symbols file was loaded by the source stage
      */
     virtual bool has_ac3_rf() const {
-        return false;  // Default: no AC3 RF data
+        return false;
     }
 
     // Type information
@@ -578,12 +578,12 @@ public:
     }
 
     // Automatically propagate AC3 RF through the chain
-    uint32_t get_ac3_rf_sample_count(FieldID id) const override {
-        return source_ ? source_->get_ac3_rf_sample_count(id) : 0;
+    uint32_t get_ac3_symbol_count(FieldID id) const override {
+        return source_ ? source_->get_ac3_symbol_count(id) : 0;
     }
 
-    std::vector<int16_t> get_ac3_rf_samples(FieldID id) const override {
-        return source_ ? source_->get_ac3_rf_samples(id) : std::vector<int16_t>{};
+    std::vector<uint8_t> get_ac3_symbols(FieldID id) const override {
+        return source_ ? source_->get_ac3_symbols(id) : std::vector<uint8_t>{};
     }
 
     bool has_ac3_rf() const override {

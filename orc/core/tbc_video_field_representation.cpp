@@ -241,7 +241,8 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     const std::string& tbc_filename,
     const std::string& metadata_filename,
     const std::string& pcm_filename,
-    const std::string& efm_filename
+    const std::string& efm_filename,
+    const std::string& ac3rf_filename
 ) {
     // Create readers
     auto tbc_reader = std::make_shared<TBCReader>();
@@ -343,7 +344,15 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
             ORC_LOG_WARN("Failed to set EFM data file, continuing without EFM");
         }
     }
-    
+
+    // Set AC3 RF symbols file if provided
+    if (!ac3rf_filename.empty()) {
+        provenance.parameters["ac3rf_file"] = ac3rf_filename;
+        if (!representation->set_ac3rf_symbols_file(ac3rf_filename)) {
+            ORC_LOG_WARN("Failed to set AC3 RF symbols file, continuing without AC3 RF");
+        }
+    }
+
     return representation;
 }
 
@@ -489,9 +498,25 @@ bool TBCVideoFieldRepresentation::has_efm() const {
 }
 
 bool TBCVideoFieldRepresentation::set_efm_file(const std::string& efm_path) {
-    // Ensure metadata is loaded before setting EFM file
     ensure_field_metadata();
     return audio_efm_handler_->set_efm_file(efm_path);
+}
+
+uint32_t TBCVideoFieldRepresentation::get_ac3_symbol_count(FieldID id) const {
+    return audio_efm_handler_->get_ac3_symbol_count(id);
+}
+
+std::vector<uint8_t> TBCVideoFieldRepresentation::get_ac3_symbols(FieldID id) const {
+    return audio_efm_handler_->get_ac3_symbols(id);
+}
+
+bool TBCVideoFieldRepresentation::has_ac3_rf() const {
+    return audio_efm_handler_->has_ac3_rf();
+}
+
+bool TBCVideoFieldRepresentation::set_ac3rf_symbols_file(const std::string& ac3rf_path) {
+    ensure_field_metadata();
+    return audio_efm_handler_->set_ac3rf_symbols_file(ac3rf_path);
 }
 
 } // namespace orc

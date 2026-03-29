@@ -38,11 +38,11 @@
     "ldaudio": {
       "flake": false,
       "locked": {
-        "lastModified": 1774559705,
-        "narHash": "sha256-4FIkTeW4Qq+SML6HJnLWV8jpbP3MDZ/6cfCThf5Dv6s=",
+        "lastModified": 1774647569,
+        "narHash": "sha256-RAsN/APc+eijK/FbM+bF48bT3CisIx5yo3kZ7wqkoKM=",
         "ref": "refs/heads/master",
-        "rev": "689df457e197b0c061d8c6da259456986ea7dd32",
-        "revCount": 457,
+        "rev": "4f2d3943cd901383397dba0ad30c439ad3e73155",
+        "revCount": 459,
         "submodules": true,
         "type": "git",
         "url": "ssh://git@bitbucket.org/staffanulfberg/ldaudio"

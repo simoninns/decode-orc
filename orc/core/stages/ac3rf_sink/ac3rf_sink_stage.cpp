@@ -17,7 +17,6 @@
 
 #include <Logger.h>
 #include <ac3/Ac3RfDemodulator.h>
-#include <filter/FirFilterStage.h>
 
 namespace orc {
 
@@ -72,19 +71,6 @@ std::vector<ParameterDescriptor> AC3RFSinkStage::get_parameter_descriptors(
         descriptors.push_back(desc);
     }
 
-    {
-        ParameterDescriptor desc;
-        desc.name = "input_sample_rate";
-        desc.display_name = "Input Sample Rate (Hz)";
-        desc.description = "Sample rate of the AC3 RF capture (typically 40 MHz for ld-decode)";
-        desc.type = ParameterType::DOUBLE;
-        desc.constraints.required = false;
-        desc.constraints.default_value = 40e6;
-        desc.constraints.min_value = 1e6;
-        desc.constraints.max_value = 200e6;
-        descriptors.push_back(desc);
-    }
-
     return descriptors;
 }
 
@@ -119,8 +105,8 @@ bool AC3RFSinkStage::trigger(
 
         if (!vfr->has_ac3_rf()) {
             throw std::runtime_error(
-                "Input VFR does not have AC3 RF data "
-                "(no AC3 RF file specified in the source stage?)");
+                "Input VFR does not have AC3 RF symbols data "
+                "(no AC3 RF symbols file specified in the source stage?)");
         }
 
         // Get output path
@@ -130,48 +116,27 @@ bool AC3RFSinkStage::trigger(
         }
         const std::string output_path = std::get<std::string>(path_it->second);
 
-        // Get sample rate (default: 40 MHz)
-        double sample_rate = 40e6;
-        auto sr_it = parameters.find("input_sample_rate");
-        if (sr_it != parameters.end()) {
-            sample_rate = std::get<double>(sr_it->second);
-        }
-
-        ORC_LOG_INFO("AC3RFSink: Decoding AC3 RF at {:.1f} MHz, writing to {}",
-            sample_rate / 1e6, output_path);
+        ORC_LOG_INFO("AC3RFSink: Decoding AC3 RF symbols, writing to {}", output_path);
 
         std::ofstream out(output_path, std::ios::binary | std::ios::trunc);
         if (!out) {
             throw std::runtime_error("Failed to open output file: " + output_path);
         }
 
-        const auto field_range  = vfr->field_range();
+        const auto field_range    = vfr->field_range();
         const FieldID start_field = field_range.start;
         const FieldID end_field   = field_range.end;
         const uint64_t total_fields = end_field.value() - start_field.value();
 
-        // Samples are processed in fixed-size blocks.  kBlockSize is chosen to
-        // balance internal filter memory against demodulate() call overhead.
-        static constexpr int kBlockSize = 1 << 18; // 262144 samples
-
         Logger ac3_log(Logger::c_log_warn, std::cerr, false);
-        Ac3RfDemodulator demodulator(ac3_log, sample_rate, kBlockSize,
-            FirFilterStage::simdSupported());
-
-        // Accumulation buffer: collects samples from successive fields until a
-        // full block is available for the demodulator.
-        std::vector<float> accum;
-        accum.reserve(kBlockSize * 2);
+        // Only the digital half (framing + Reed-Solomon) is used here — the
+        // analog half (filtering, mixing, DPLL) was already run by the tool that
+        // produced the symbols file.  The constructor arguments (sample frequency,
+        // block size, SIMD) are therefore dummy values; they configure the analog
+        // pipeline which decodeSymbols() never touches.
+        Ac3RfDemodulator decoder(ac3_log, 40e6, 1 << 18, false);
 
         uint64_t frames_written = 0;
-
-        auto process_block = [&](const float* data) {
-            for (const auto& frame : demodulator.demodulate(data)) {
-                out.write(reinterpret_cast<const char*>(frame.data()),
-                          static_cast<std::streamsize>(frame.size()));
-                ++frames_written;
-            }
-        };
 
         for (FieldID fid = start_field; fid < end_field; ++fid) {
             if (cancel_requested_.load()) {
@@ -182,20 +147,11 @@ bool AC3RFSinkStage::trigger(
                 return false;
             }
 
-            // Convert int16_t RF samples to float and append to accumulation buffer
-            for (auto s : vfr->get_ac3_rf_samples(fid)) {
-                accum.push_back(static_cast<float>(s));
-            }
-
-            // Process all complete blocks from the accumulation buffer
-            size_t consumed = 0;
-            while (consumed + kBlockSize <= accum.size()) {
-                process_block(accum.data() + consumed);
-                consumed += kBlockSize;
-            }
-            // Remove consumed samples, keeping the partial block at the front
-            if (consumed > 0) {
-                accum.erase(accum.begin(), accum.begin() + static_cast<ptrdiff_t>(consumed));
+            auto symbols = vfr->get_ac3_symbols(fid);
+            for (const auto& frame : decoder.decodeSymbols(symbols)) {
+                out.write(reinterpret_cast<const char*>(frame.data()),
+                          static_cast<std::streamsize>(frame.size()));
+                ++frames_written;
             }
 
             const uint64_t current = fid.value() - start_field.value() + 1;
@@ -206,17 +162,10 @@ bool AC3RFSinkStage::trigger(
             }
         }
 
-        // Flush the final partial block, zero-padded to kBlockSize
-        if (!accum.empty()) {
-            std::vector<float> pad_block(kBlockSize, 0.0f);
-            std::copy(accum.begin(), accum.end(), pad_block.begin());
-            process_block(pad_block.data());
-        }
-
         out.close();
 
         ORC_LOG_INFO("AC3RFSink: Wrote {} AC3 frames to {}", frames_written, output_path);
-        ORC_LOG_INFO("AC3RFSink: {}", demodulator.reedSolomonStatistics());
+        ORC_LOG_INFO("AC3RFSink: {}", decoder.reedSolomonStatistics());
         last_status_ = "Success: " + std::to_string(frames_written) + " frames written";
         is_processing_.store(false);
         return true;

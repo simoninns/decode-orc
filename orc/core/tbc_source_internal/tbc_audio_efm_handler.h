@@ -70,24 +70,37 @@ public:
     uint32_t get_efm_sample_count(FieldID id) const;
     std::vector<uint8_t> get_efm_samples(FieldID id) const;
     bool has_efm() const { return has_efm_; }
-    
+
+    // AC3 RF symbols interface
+    bool set_ac3rf_symbols_file(const std::string& ac3rf_path);
+    uint32_t get_ac3_symbol_count(FieldID id) const;
+    std::vector<uint8_t> get_ac3_symbols(FieldID id) const;
+    bool has_ac3_rf() const { return has_ac3_rf_; }
+
 private:
     void compute_audio_offsets();
     void compute_efm_offsets();
-    
+    void compute_ac3rf_offsets(uint64_t total_symbols);
+
     MetadataProvider* provider_;
-    
+
     // PCM audio file handle and path
     std::string pcm_audio_path_;
     mutable std::unique_ptr<BufferedFileReader<int16_t>> pcm_audio_reader_;
     mutable std::mutex audio_mutex_;
     bool has_audio_;
-    
+
     // EFM data file handle and path
     std::string efm_data_path_;
     mutable std::unique_ptr<BufferedFileReader<uint8_t>> efm_data_reader_;
     mutable std::mutex efm_mutex_;
     bool has_efm_;
+
+    // AC3 RF symbols file handle and path
+    std::string ac3rf_symbols_path_;
+    mutable std::unique_ptr<BufferedFileReader<uint8_t>> ac3rf_symbols_reader_;
+    mutable std::mutex ac3rf_mutex_;
+    bool has_ac3_rf_;
 };
 
 } // namespace orc

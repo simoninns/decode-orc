@@ -105,6 +105,7 @@ bool TBCMetadataJsonReader::open(const std::string& json_path)
         if (f.decodeFaults > 0) fm.decode_faults  = f.decodeFaults;
         if (f.diskLoc > 0.0)    fm.disk_location  = f.diskLoc;
         if (f.efmTValues > 0)   fm.efm_t_values   = f.efmTValues;
+        if (f.ac3rfSymbols > 0) fm.ac3rf_symbols  = f.ac3rfSymbols;
         if (f.fileLoc > 0)      fm.file_location  = f.fileLoc;
         field_cache_[fid] = fm;
 

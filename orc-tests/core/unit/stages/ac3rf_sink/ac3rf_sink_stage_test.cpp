@@ -91,7 +91,7 @@ namespace orc_unit_test
 
         EXPECT_FALSE(result);
         EXPECT_THAT(stage.get_trigger_status(),
-                    testing::HasSubstr("does not have AC3 RF data"));
+                    testing::HasSubstr("does not have AC3 RF symbols data"));
         EXPECT_FALSE(stage.is_trigger_in_progress());
     }
 

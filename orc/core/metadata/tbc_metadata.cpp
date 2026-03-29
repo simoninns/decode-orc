@@ -411,7 +411,7 @@ std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadat
     
     const char* sql = 
         "SELECT field_id, is_first_field, sync_conf, median_burst_ire, field_phase_id, "
-        "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values "
+        "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values, ac3rf_symbols "
         "FROM field_record WHERE capture_id = ? ORDER BY field_id";
     
     sqlite3_stmt* stmt = nullptr;
@@ -436,6 +436,7 @@ std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadat
         metadata.file_location = impl_->get_optional_int64(stmt, 8);
         metadata.decode_faults = impl_->get_optional_int(stmt, 9);
         metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
+        metadata.ac3rf_symbols = impl_->get_optional_int(stmt, 11);
         
         result[FieldID(metadata.seq_no)] = metadata;
     }

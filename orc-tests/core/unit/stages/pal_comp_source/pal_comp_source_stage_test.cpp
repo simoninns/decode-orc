@@ -33,7 +33,8 @@ namespace orc_unit_test
             (const std::string& input_path,
              const std::string& db_path,
              const std::string& pcm_path,
-             const std::string& efm_path),
+             const std::string& efm_path,
+             const std::string& ac3rf_path),
             (const, override));
     };
 
@@ -258,7 +259,7 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(make_pal_family_comp_source_parameters(orc::VideoSystem::PAL_M)));
 
-        EXPECT_CALL(*loader, load("/tmp/source.tbc", "/tmp/source.tbc.db", "", ""))
+        EXPECT_CALL(*loader, load("/tmp/source.tbc", "/tmp/source.tbc.db", "", "", ""))
             .Times(1)
             .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
 
@@ -283,7 +284,7 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(make_pal_family_comp_source_parameters(orc::VideoSystem::NTSC)));
 
-        EXPECT_CALL(*loader, load(_, _, _, _))
+        EXPECT_CALL(*loader, load(_, _, _, _, _))
             .Times(1)
             .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
 
@@ -330,7 +331,7 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(true));
 
-        EXPECT_CALL(*loader, load("/tmp/source.tbc", "/tmp/source.tbc.db", "", ""))
+        EXPECT_CALL(*loader, load("/tmp/source.tbc", "/tmp/source.tbc.db", "", "", ""))
             .Times(1)
             .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
 

@@ -368,6 +368,9 @@
             # Expose ezpwd headers for manual cmake runs inside nix develop
             export EZPWD_INCLUDE_DIR=${ezpwd-headers}
 
+            # Expose ac3rf cmake config for manual cmake runs and IDEs (e.g. CLion)
+            export ac3rf_DIR=${ac3rfLib}/lib/cmake/ac3rf
+
             # Build CMAKE_PREFIX_PATH from all build inputs so that IDEs (e.g. CLion)
             # launched from this shell can run cmake without extra configuration.
             export CMAKE_PREFIX_PATH="$(echo $buildInputs $nativeBuildInputs | tr ' ' '\n' | tr '\n' ':')"

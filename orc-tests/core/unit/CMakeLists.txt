@@ -18,7 +18,7 @@ function(orc_add_core_unit_tests target labels)
             orc-core
             GTest::gmock_main
     )
-    gtest_discover_tests(${target} PROPERTIES LABELS "${labels}")
+    gtest_discover_tests(${target} PROPERTIES LABELS ${labels})
 endfunction()
 
 include(GoogleTest)

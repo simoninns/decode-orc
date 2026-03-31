@@ -145,8 +145,38 @@ jobs:
         id: ffmpeg
         shell: pwsh
         run: |
-          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.0-latest-win64-gpl-shared-8.0.zip"
-          Invoke-WebRequest $url -OutFile ffmpeg.zip
+          $releaseApi = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
+          $headers = @{
+            "Accept" = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+          }
+
+          $release = Invoke-RestMethod -Uri $releaseApi -Headers $headers
+          $assets = @($release.assets)
+
+          # Prefer versioned win64 GPL shared bundles, then fallback to any win64 GPL shared bundle.
+          $asset = $assets |
+            Where-Object {
+              $_.name -match '^ffmpeg-n\d+\.\d+-latest-win64-gpl-shared.*\.zip$'
+            } |
+            Select-Object -First 1
+
+          if (-not $asset) {
+            $asset = $assets |
+              Where-Object {
+                $_.name -match '^ffmpeg-.*-win64-gpl-shared.*\.zip$'
+              } |
+              Select-Object -First 1
+          }
+
+          if (-not $asset) {
+            $available = $assets | ForEach-Object { $_.name } | Sort-Object
+            Write-Error "Could not find a win64 GPL shared FFmpeg zip in latest release. Available assets: $($available -join ', ')"
+            exit 1
+          }
+
+          Write-Host "Downloading FFmpeg asset: $($asset.name)"
+          Invoke-WebRequest $asset.browser_download_url -OutFile ffmpeg.zip
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-dist -Force
           $ffmpegDir = (Get-ChildItem ffmpeg-dist -Directory | Select-Object -First 1).FullName
 

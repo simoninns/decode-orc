@@ -107,6 +107,6 @@ For new features or enhancements, please describe:
 
 For questions or help using Decode Orc (not bugs):
 
-- Check the [user documentation](https://simoninns.github.io/decode-orc-docs/)
+- Check the [user documentation](https://simoninns.github.io/decode-orc/)
 - Review existing [GitHub Issues](https://github.com/simoninns/decode-orc/issues){target="_blank"} (someone may have had the same question)
 - [The Domesday86 Discord Server](https://discord.com/invite/pVVrrxd){target="_blank"}

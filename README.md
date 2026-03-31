@@ -7,7 +7,7 @@
 It aims to brings structure and consistency to complex decoding processes, making them easier to run, repeat, and understand.
 
 > [!IMPORTANT]
-> [Click here for the documentation](https://simoninns.github.io/decode-orc-docs/index.html)
+> [Click here for the documentation](https://simoninns.github.io/decode-orc/)
 
 `Decode-Orc` is a direct replacement for the existing ld-decode-tools, coordinating each step of the process and keeping track of inputs, outputs, and results.
 
@@ -22,7 +22,7 @@ Both a graphical interface (orc-gui) and command-line interface (orc-cli) are im
 
 ## User documentation
 
-The user documentation is available via [Github Pages](https://simoninns.github.io/decode-orc-docs/index.html)
+The user documentation is available via [GitHub Pages](https://simoninns.github.io/decode-orc/)
 
 # Installation
 
@@ -32,9 +32,9 @@ The release packages can be found in the [release section](https://github.com/si
 
 For instructions on how to install please see the documentation for your preferred platform:
 
-- [Linux Flatpak installation](https://simoninns.github.io/decode-orc-docs/decode-orc/installation/linux-flatpak/)
-- [MacOS DMG installation](https://simoninns.github.io/decode-orc-docs/decode-orc/installation/macos-dmg/)
-- [Windows MSI installation](https://simoninns.github.io/decode-orc-docs/decode-orc/installation/windows-msi/)
+- [Linux Flatpak installation](https://simoninns.github.io/decode-orc/installation/linux-flatpak/)
+- [MacOS DMG installation](https://simoninns.github.io/decode-orc/installation/macos-dmg/)
+- [Windows MSI installation](https://simoninns.github.io/decode-orc/installation/windows-msi/)
 
 ## Building from Source
 

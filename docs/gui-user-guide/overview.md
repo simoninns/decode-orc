@@ -2,7 +2,7 @@
 
 Before using **decode-orc**, it is helpful to understand a small number of core concepts that appear throughout the application and documentation. These concepts describe *how decoding work is structured*, *how data flows*, and *how execution is observed*.
 
-![](../../assets/orc-gui-screenshot.png)
+![](../assets/orc-gui-screenshot.png)
 
 ---
 

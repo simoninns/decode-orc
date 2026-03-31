@@ -1,6 +1,6 @@
 # Home
 
-Welcome to the decode-orc documentation.  Here you will find information about decode-orc and the encode-orc sub-project.
+Welcome to the decode-orc documentation. Here you will find user and technical information about decode-orc.
 
 ![](assets/decode-orc_logotype-1024x286.png)
 
@@ -18,9 +18,9 @@ decode-orc is a new replacement for the ld-decode-tools, so it is relatively new
 
 # Further information
 
-This documentation aims to provide both user-level and technical-level documentation.  If you spot a mistake and would like to report a documentation issue or you would like to contribute to the documentation please see the decode-orc-documentation github repository:
+This documentation aims to provide both user-level and technical-level documentation. If you spot a mistake and would like to report a documentation issue or contribute documentation updates, please use the main decode-orc repository:
 
-[decode-orc-documentation GitHub repository](https://github.com/simoninns/decode-orc-docs){target="_blank"}
+[decode-orc GitHub repository](https://github.com/simoninns/decode-orc){target="_blank"}
 
 decode-orc is not a standalone application - it is designed to be used with ld-decode and the (ever expanding) decoder variations such as VHS Decode.  You can find information about ld-decode from the project's documentation site:
 

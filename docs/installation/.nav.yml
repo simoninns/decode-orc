@@ -1,0 +1,5 @@
+nav:
+  - macos-dmg.md
+  - windows-msi.md
+  - linux-flatpak.md
+  - Build from source: source

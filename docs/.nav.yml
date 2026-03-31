@@ -1,0 +1,7 @@
+nav:
+  - index.md
+  - Orc-GUI User Guide: gui-user-guide
+  - Orc-CLI User Guide: cli-user-guide
+  - Installation: installation
+  - Technical Reference: technical
+  - Miscellaneous: misc

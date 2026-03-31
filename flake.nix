@@ -3,7 +3,7 @@
 
   # Upstream dependencies for the flake
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     qtnodes = {
       url = "github:paceholder/nodeeditor";
@@ -87,12 +87,22 @@
           };
         };
 
+        # Python environment for MkDocs documentation tooling
+        mkdocsPythonEnv = pkgs.python312.withPackages (ps: [
+          ps.mkdocs
+          ps.mkdocs-material
+          ps."mkdocs-awesome-nav"
+        ]);
+
         # Build the decode-orc package (primary output)
         decode-orc = pkgs.stdenv.mkDerivation {
           pname = "decode-orc";
           version = version;
 
-          src = self;
+          src = builtins.path {
+            path = ./.;
+            name = "decode-orc-docs-src";
+          };
 
           strictDeps = true;
 
@@ -102,7 +112,7 @@
             pkg-config
             qt6.wrapQtAppsHook
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-            wrapGAppsHook
+            wrapGAppsHook3
           ];
 
           # Wrap Qt binaries and include gapps runtime settings on Linux.
@@ -202,12 +212,42 @@
           };
         };
 
+        # Build MkDocs documentation as a separate flake package
+        decode-orc-docs = pkgs.stdenv.mkDerivation {
+          pname = "decode-orc-docs";
+          version = version;
+
+          src = self;
+
+          nativeBuildInputs = [
+            mkdocsPythonEnv
+          ];
+
+          buildPhase = ''
+            mkdocs build
+          '';
+
+          installPhase = ''
+            mkdir -p $out
+            cp -r site/* $out/
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Decode-Orc documentation site";
+            homepage = "https://github.com/simoninns/decode-orc";
+            license = licenses.gpl3Plus;
+            platforms = platforms.all;
+            maintainers = [ ];
+          };
+        };
+
       in
       {
         # Packages that can be built with `nix build`
         packages = {
           default = decode-orc;
           decode-orc = decode-orc;
+          docs = decode-orc-docs;
         };
 
         # Apps that can be run with `nix run`
@@ -237,6 +277,7 @@
             ccache
             doxygen
             graphviz
+            mkdocsPythonEnv
             ninja
             zip
 
@@ -245,7 +286,7 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             gdb
             valgrind
-            linuxPackages.perf
+            perf
             hotspot
             heaptrack
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [

@@ -3,7 +3,7 @@
 
   # Upstream dependencies for the flake
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     qtnodes = {
       url = "github:paceholder/nodeeditor";
@@ -91,7 +91,7 @@
         mkdocsPythonEnv = pkgs.python312.withPackages (ps: [
           ps.mkdocs
           ps.mkdocs-material
-          ps."mkdocs-awesome-pages-plugin"
+          ps."mkdocs-awesome-nav"
         ]);
 
         # Build the decode-orc package (primary output)
@@ -112,7 +112,7 @@
             pkg-config
             qt6.wrapQtAppsHook
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-            wrapGAppsHook
+            wrapGAppsHook3
           ];
 
           # Wrap Qt binaries and include gapps runtime settings on Linux.
@@ -286,7 +286,7 @@
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             gdb
             valgrind
-            linuxPackages.perf
+            perf
             hotspot
             heaptrack
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [

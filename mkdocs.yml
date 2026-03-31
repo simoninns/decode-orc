@@ -49,7 +49,7 @@ markdown_extensions:
 
 plugins:
   - search
-  - awesome-pages
+  - awesome-nav
 
 # This file intentionally left minimal - navigation is auto-generated from docs/ folder structure
 # You can optionally add explicit nav: section here if you want custom ordering

@@ -58,6 +58,9 @@ encode-tests/encode-output/
 docs/html/
 docs/latex/
 
+# MkDocs generated documentation
+site/
+
 # CTest temporary files
 Testing/
 

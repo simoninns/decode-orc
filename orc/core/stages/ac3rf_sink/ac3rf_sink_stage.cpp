@@ -16,7 +16,7 @@
 #include <algorithm>
 
 #include <Logger.h>
-#include <ac3/Ac3RfDemodulator.h>
+#include <ac3/Ac3Decoder.h>
 
 namespace orc {
 
@@ -129,12 +129,7 @@ bool AC3RFSinkStage::trigger(
         const uint64_t total_fields = end_field.value() - start_field.value();
 
         Logger ac3_log(Logger::c_log_warn, std::cerr, false);
-        // Only the digital half (framing + Reed-Solomon) is used here — the
-        // analog half (filtering, mixing, DPLL) was already run by the tool that
-        // produced the symbols file.  The constructor arguments (sample frequency,
-        // block size, SIMD) are therefore dummy values; they configure the analog
-        // pipeline which decodeSymbols() never touches.
-        Ac3RfDemodulator decoder(ac3_log, 40e6, 1 << 18, false);
+        Ac3Decoder decoder(ac3_log);
 
         uint64_t frames_written = 0;
 

@@ -211,7 +211,7 @@ public:
         int64_t fileLoc = -1;
         int32_t decodeFaults = -1;
         int32_t efmTValues = -1;
-        int32_t ac3rfSymbols = -1;
+        int32_t ac3Symbols = -1;
 
         void read(JsonReader &reader);
         void write(JsonWriter &writer) const;

@@ -409,20 +409,20 @@ std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadat
         return result;
     }
     
-    const char* sql = 
+    const char* sql =
         "SELECT field_id, is_first_field, sync_conf, median_burst_ire, field_phase_id, "
-        "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values, ac3rf_symbols "
+        "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values, ac3_symbols "
         "FROM field_record WHERE capture_id = ? ORDER BY field_id";
-    
+
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
-    
+
     if (rc != SQLITE_OK) {
         return result;
     }
-    
+
     sqlite3_bind_int(stmt, 1, impl_->capture_id);
-    
+
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         FieldMetadata metadata;
         metadata.seq_no = impl_->get_int(stmt, 0);
@@ -437,10 +437,10 @@ std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadat
         metadata.decode_faults = impl_->get_optional_int(stmt, 9);
         metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
         metadata.ac3rf_symbols = impl_->get_optional_int(stmt, 11);
-        
+
         result[FieldID(metadata.seq_no)] = metadata;
     }
-    
+
     sqlite3_finalize(stmt);
     
     return result;

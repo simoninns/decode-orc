@@ -29,8 +29,6 @@ namespace orc {
  * resulting AC3 frames to an output file.
  *
  * This is a SINK stage — it takes one VFR input and produces no outputs.
- * Actual decoding is deferred to trigger(), which the GUI invokes when the
- * user clicks the export button.
  *
  * The AC3 RF data must be present in the source stage's VFR (i.e. the source
  * stage must have been given an AC3 RF input file so that has_ac3_rf() returns

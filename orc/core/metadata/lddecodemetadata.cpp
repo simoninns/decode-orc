@@ -460,7 +460,7 @@ void LdDecodeMetaData::Field::read(JsonReader &reader)
         else if (member == "diskLoc") reader.read(diskLoc);
         else if (member == "dropOuts") dropOuts.read(reader);
         else if (member == "efmTValues") reader.read(efmTValues);
-        else if (member == "ac3rfSymbols") reader.read(ac3rfSymbols);
+        else if (member == "ac3Symbols") reader.read(ac3Symbols);
         else if (member == "fieldPhaseID") reader.read(fieldPhaseID);
         else if (member == "fileLoc") reader.read(fileLoc);
         else if (member == "isFirstField") reader.read(isFirstField);
@@ -501,8 +501,8 @@ void LdDecodeMetaData::Field::write(JsonWriter &writer) const
         writer.writeMember("dropOuts");
         dropOuts.write(writer);
     }
-    if (ac3rfSymbols != -1) {
-        writer.writeMember("ac3rfSymbols", ac3rfSymbols);
+    if (ac3Symbols != -1) {
+        writer.writeMember("ac3Symbols", ac3Symbols);
     }
     if (efmTValues != -1) {
         writer.writeMember("efmTValues", efmTValues);

@@ -106,7 +106,7 @@ public:
                 ntsc_video_id_data INTEGER,
                 ntsc_white_flag INTEGER
                     CHECK (ntsc_white_flag IN (0,1)),
-                ac3rf_symbols INTEGER,
+                ac3_symbols INTEGER,
                 PRIMARY KEY (capture_id, field_id)
             );
             
@@ -317,7 +317,7 @@ bool TBCMetadataWriter::write_field_metadata(const FieldMetadata& field) {
             is_first_field, median_burst_ire, pad, sync_conf,
             ntsc_is_fm_code_data_valid, ntsc_fm_code_data, ntsc_field_flag,
             ntsc_is_video_id_data_valid, ntsc_video_id_data, ntsc_white_flag,
-            ac3rf_symbols
+            ac3_symbols
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     )";
     

@@ -16,6 +16,7 @@
 #include <algorithm>
 
 #include <Logger.h>
+#include <StreamLogger.h>
 #include <ac3/Ac3Decoder.h>
 
 namespace orc {
@@ -128,7 +129,10 @@ bool AC3RFSinkStage::trigger(
         const FieldID end_field   = field_range.end;
         const uint64_t total_fields = end_field.value() - start_field.value();
 
-        Logger ac3_log(Logger::c_log_warn, std::cerr, false);
+        ORC_LOG_DEBUG("AC3RFSink: field range [{}, {}), total_fields={}",
+                      start_field.value(), end_field.value(), total_fields);
+
+        StreamLogger ac3_log(StreamLogger::c_log_warn, std::cerr, false);
         Ac3Decoder decoder(ac3_log);
 
         uint64_t frames_written = 0;
@@ -143,7 +147,8 @@ bool AC3RFSinkStage::trigger(
             }
 
             auto symbols = vfr->get_ac3_symbols(fid);
-            for (const auto& frame : decoder.decodeSymbols(symbols)) {
+            auto frames = decoder.decodeSymbols(symbols);
+            for (const auto& frame : frames) {
                 out.write(reinterpret_cast<const char*>(frame.data()),
                           static_cast<std::streamsize>(frame.size()));
                 ++frames_written;

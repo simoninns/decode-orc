@@ -35,24 +35,6 @@
         "type": "github"
       }
     },
-    "ldaudio": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1774647569,
-        "narHash": "sha256-RAsN/APc+eijK/FbM+bF48bT3CisIx5yo3kZ7wqkoKM=",
-        "ref": "refs/heads/master",
-        "rev": "4f2d3943cd901383397dba0ad30c439ad3e73155",
-        "revCount": 459,
-        "submodules": true,
-        "type": "git",
-        "url": "ssh://git@bitbucket.org/staffanulfberg/ldaudio"
-      },
-      "original": {
-        "submodules": true,
-        "type": "git",
-        "url": "ssh://git@bitbucket.org/staffanulfberg/ldaudio"
-      }
-    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1774799055,
@@ -105,7 +87,6 @@
       "inputs": {
         "ezpwd": "ezpwd",
         "flake-utils": "flake-utils",
-        "ldaudio": "ldaudio",
         "nixpkgs": "nixpkgs",
         "nixpkgs-unstable": "nixpkgs-unstable",
         "qtnodes": "qtnodes"

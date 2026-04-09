@@ -113,36 +113,6 @@
           ps."mkdocs-awesome-nav"
         ]);
 
-        # Build the ac3rf library from ldaudio/ac3rf-decode (library only, no CLI)
-        ac3rfLib = stdenv.mkDerivation {
-          pname = "ac3rf";
-          version = "0.1.0";
-
-          src = "${ldaudio}/ac3rf-decode";
-
-          strictDeps = true;
-
-          nativeBuildInputs = with pkgs; [
-            cmake
-            ninja
-          ];
-
-          buildInputs = with pkgs; [
-            eigen
-          ];
-
-          cmakeFlags = [
-            "-GNinja"
-            "-DCMAKE_BUILD_TYPE=Release"
-            "-DBUILD_EXECUTABLE=OFF"
-          ];
-
-          meta = with pkgs.lib; {
-            description = "AC3 RF decoder library for LaserDisc";
-            license = licenses.gpl3Plus;
-          };
-        };
-
         # Build the decode-orc package (primary output)
         decode-orc = stdenv.mkDerivation {
           pname = "decode-orc";
@@ -202,9 +172,6 @@
             # QtNodes built from flake input
             qtNodes
 
-            # AC3 RF decoder library
-            ac3rfLib
-
             # Automated testing
             gtest
 
@@ -233,8 +200,6 @@
             "-DQtNodes_DIR=${qtNodes}/lib/cmake/QtNodes"
             # Tell CMake where to find the ezpwd Reed-Solomon headers
             "-DEZPWD_INCLUDE_DIR=${ezpwd-headers}"
-            # Tell CMake where to find the ac3rf library
-            "-Dac3rf_DIR=${ac3rfLib}/lib/cmake/ac3rf"
             # Pass git version to CMake since .git dir isn't available in Nix builds
             "-DPROJECT_VERSION_OVERRIDE=${version}"
             # Define NODE_EDITOR_STATIC to match QtNodes static build
@@ -367,9 +332,6 @@
 
             # Expose ezpwd headers for manual cmake runs inside nix develop
             export EZPWD_INCLUDE_DIR=${ezpwd-headers}
-
-            # Expose ac3rf cmake config for manual cmake runs and IDEs (e.g. CLion)
-            export ac3rf_DIR=${ac3rfLib}/lib/cmake/ac3rf
 
             # Build CMAKE_PREFIX_PATH from all build inputs so that IDEs (e.g. CLion)
             # launched from this shell can run cmake without extra configuration.

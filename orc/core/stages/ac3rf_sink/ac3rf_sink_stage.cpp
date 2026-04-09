@@ -15,9 +15,30 @@
 #include <fstream>
 #include <algorithm>
 
-#include <Logger.h>
-#include <StreamLogger.h>
-#include <ac3/Ac3Decoder.h>
+#include <ac3/Ac3Decoder.h>  // brings in Logger.h transitively
+
+// Adapter: forwards ac3rf Logger calls to the orc spdlog logger.
+class SpdlogLogger : public Logger {
+public:
+    void log(LogPriority priority, LogCategoryFlags, const std::string &message) override {
+        auto l = orc::get_logger();
+        switch (priority) {
+            case eDebug: l->debug("[ac3rf] {}", message); break;
+            case eInfo:  l->info ("[ac3rf] {}", message); break;
+            case eWarn:  l->warn ("[ac3rf] {}", message); break;
+            default:     l->error("[ac3rf] {}", message); break;
+        }
+    }
+    [[nodiscard]] bool isEnabled(LogPriority priority, LogCategoryFlags) const override {
+        auto l = orc::get_logger();
+        const spdlog::level::level_enum lvl = l->level();
+        if (priority >= eError) return lvl <= spdlog::level::err;
+        if (priority >= eWarn)  return lvl <= spdlog::level::warn;
+        if (priority >= eInfo)  return lvl <= spdlog::level::info;
+        return lvl <= spdlog::level::debug;
+    }
+    void sync() override { orc::get_logger()->flush(); }
+};
 
 namespace orc {
 
@@ -132,7 +153,7 @@ bool AC3RFSinkStage::trigger(
         ORC_LOG_DEBUG("AC3RFSink: field range [{}, {}), total_fields={}",
                       start_field.value(), end_field.value(), total_fields);
 
-        StreamLogger ac3_log(StreamLogger::c_log_warn, std::cerr, false);
+        SpdlogLogger ac3_log;
         Ac3Decoder decoder(ac3_log);
 
         uint64_t frames_written = 0;

@@ -1,0 +1,14 @@
+Source: https://bitbucket.org/staffanulfberg/ldaudio
+        subdirectory: ac3rf-decode/
+Commit: d4dae40a7cc35dc637ea67ed256502344886d99a
+License: GPL-3.0-or-later
+
+Vendored subset: ac3/, rs/, Logger.h only (digital decode path).
+Excluded: Ac3RfDemodulator, Ac3DPLL, filter/, efm/, StreamLogger,
+          firpm/Eigen3 (RF demodulation, not needed here).
+
+Local adaptations (not in upstream):
+- rs/ReedSolomon.h, ac3/Ac3InputFraming.cpp, ac3/Ac3BlockHandler.cpp:
+  #include <format> replaced with #include <spdlog/fmt/fmt.h> and
+  std::format( replaced with fmt::format( — orc-core builds as C++17
+  and std::format requires C++20.

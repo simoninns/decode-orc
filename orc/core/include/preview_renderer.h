@@ -38,6 +38,7 @@
 #include "stage_preview_capability.h"
 #include "previewable_stage.h"  // For PreviewNavigationHint enum
 #include "../analysis/vectorscope/vectorscope_data.h"
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -394,7 +395,13 @@ private:
     
     /// Whether to render dropout regions onto images
     bool show_dropouts_ = false;
-    
+
+    /// Cache of first_field_offset per node, computed once on the worker thread
+    /// when available outputs are first queried or a frame is first rendered.
+    /// This allows GUI-thread calls (getFrameFields, map_image_to_field, etc.) to
+    /// determine field ordering without calling ensure_node_executed concurrently.
+    mutable std::map<NodeID, uint64_t> first_field_offset_cache_;
+
     /// Ensure node has been executed (execute on-demand if needed)
     void ensure_node_executed(const NodeID& node_id, bool disable_cache = false) const;
     

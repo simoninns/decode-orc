@@ -131,6 +131,9 @@ add_library(orc-core STATIC
     stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.cpp
     stages/daphne_vbi_sink/daphne_vbi_sink_stage.cpp
     stages/daphne_vbi_sink/daphne_vbi_writer_util.cpp
+    stages/nn_ntsc_chroma_sink/nn_ntsc_chroma_sink_stage.cpp
+    stages/nn_ntsc_chroma_sink/nn_output_backend.cpp
+    stages/nn_ntsc_chroma_sink/vfr_to_source_field_adapter.cpp
 
     # Dropout decision utilities
     dropout_decision.cpp
@@ -192,6 +195,7 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/snr_analysis_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/burst_level_analysis_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/daphne_vbi_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/nn_ntsc_chroma_sink
 )
 
 # =============================================================================
@@ -314,3 +318,167 @@ endif()
 
 target_compile_definitions(orc-core PUBLIC HAVE_FFMPEG)
 target_link_libraries(orc-core PUBLIC PkgConfig::FFMPEG)
+
+# =============================================================================
+# ONNX Runtime (nn_ntsc_chroma_sink_stage — Phase 1: build-system stub)
+# =============================================================================
+# Requires ONNX Runtime >= 1.23.2 (chroma_net_v2.onnx is incompatible with
+# earlier releases).  In Nix builds the runtime is sourced from nixpkgs-unstable;
+# on macOS via Homebrew; on Windows via vcpkg.
+# target_link_libraries for the concrete stage sources will be wired in Phase 3.
+find_package(onnxruntime CONFIG REQUIRED)
+
+# =============================================================================
+# FFTW3 double-precision (explicit dependency for nn_ntsc_chroma_sink_stage)
+# =============================================================================
+# PkgConfig::FFTW3 is created in stages/chroma_sink/decoders/CMakeLists.txt
+# but is directory-scoped to that subdirectory and NOT visible here in the
+# parent.  Probe pkg-config independently at this scope using the FFTW3_CORE
+# prefix (to avoid a target-name collision), then fall back to the CMake CONFIG
+# package only if pkg-config cannot find fftw3 (e.g. Windows/vcpkg builds
+# where no .pc file is installed).  The CONFIG find is what used to fail on
+# Flatpak because autotools-built fftw3 provides a .pc file but does NOT
+# install FFTW3LibraryDepends.cmake.
+if(PkgConfig_FOUND)
+    pkg_check_modules(FFTW3_CORE QUIET IMPORTED_TARGET fftw3)
+endif()
+if(NOT TARGET PkgConfig::FFTW3_CORE AND NOT TARGET FFTW3::fftw3)
+    find_package(FFTW3 CONFIG REQUIRED)
+endif()
+
+# =============================================================================
+# NN NTSC Chroma Sink — Phase 3: Stage integration
+# =============================================================================
+# The vendored NN decoder sources and the stage shell are compiled into
+# orc-core.  The decoder sources are kept in a separate OBJECT library
+# (orc_nn_ntsc_decoders) so their private include directories do not leak
+# into the rest of orc-core's translation units — preventing header collisions
+# between stages/nn_ntsc_chroma_sink/decoders/ and stages/chroma_sink/decoders/
+# (both contain files named componentframe.h, comb.h, etc.).
+
+# --- Embed chroma_net_v2.onnx as a plain C byte array (no Qt required) --------
+# CMake reads the vendored .onnx binary as a hex string, reformats it into C
+# hex literals, and writes two files into the build tree at configure time.
+# The model bytes are identical to the source file — no format conversion.
+# comb.cpp includes the generated header and passes the pointer directly to
+# the Ort::Session from-memory constructor.
+set(_onnx_model "${CMAKE_CURRENT_SOURCE_DIR}/stages/nn_ntsc_chroma_sink/resources/chroma_net_v2.onnx")
+file(READ "${_onnx_model}" _onnx_hex HEX)
+string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," _onnx_arr "${_onnx_hex}")
+string(LENGTH "${_onnx_hex}" _onnx_hex_len)
+math(EXPR _onnx_size "${_onnx_hex_len} / 2")
+
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/chroma_net_v2_onnx_data.h"
+    "#pragma once\n"
+    "#include <cstddef>\n"
+    "extern const unsigned char kChromaNetV2OnnxData[];\n"
+    "extern const std::size_t   kChromaNetV2OnnxDataSize;\n")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/chroma_net_v2_onnx_data.cpp"
+    "#include \"chroma_net_v2_onnx_data.h\"\n"
+    "const unsigned char kChromaNetV2OnnxData[] = {${_onnx_arr}};\n"
+    "const std::size_t   kChromaNetV2OnnxDataSize = ${_onnx_size};\n")
+# ------------------------------------------------------------------------------
+
+set(NN_NTSC_DECODER_SOURCES
+    stages/nn_ntsc_chroma_sink/decoders/componentframe.cpp
+    stages/nn_ntsc_chroma_sink/decoders/decoder.cpp
+    stages/nn_ntsc_chroma_sink/decoders/comb.cpp
+    stages/nn_ntsc_chroma_sink/decoders/ntscdecoder.cpp
+    stages/nn_ntsc_chroma_sink/decoders/nn_output_writer.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/chroma_net_v2_onnx_data.cpp
+)
+
+# Suppress warnings on vendored sources and force -O2 even in Debug builds.
+# comb.cpp is the dominant CPU cost and is impractically slow at -O0.
+if(NOT MSVC)
+    set_source_files_properties(${NN_NTSC_DECODER_SOURCES}
+        PROPERTIES COMPILE_FLAGS "-w -O2"
+    )
+endif()
+
+# Compile vendored decoder sources in a separate OBJECT library so their
+# private include directories (stages/nn_ntsc_chroma_sink/decoders) do not
+# pollute the rest of orc-core's include search path.
+add_library(orc_nn_ntsc_decoders OBJECT ${NN_NTSC_DECODER_SOURCES})
+
+target_include_directories(orc_nn_ntsc_decoders PRIVATE
+    # Vendored decoder headers (nn_ntsc_chroma_sink/decoders/)
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/nn_ntsc_chroma_sink/decoders
+    # Generated ONNX model data header (chroma_net_v2_onnx_data.h)
+    ${CMAKE_CURRENT_BINARY_DIR}
+    # Shared filter tables used by NN comb.cpp (deemp.h, firfilter.h, iirfilter.h)
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink/decoders
+    # orc-core logging macros (ORC_LOG_*)
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    # Common types (VideoSystem, SourceType, etc.)
+    ${CMAKE_SOURCE_DIR}/orc/common/include
+)
+
+# Explicitly propagate FFTW3 and spdlog include directories into the OBJECT
+# library.  PRIVATE target_link_libraries include propagation from pkg-config
+# and Homebrew imported targets to OBJECT libraries is unreliable on macOS
+# (the Homebrew prefix /opt/homebrew/include is sometimes treated as implicit
+# by CMake and filtered out of INTERFACE_INCLUDE_DIRECTORIES before it reaches
+# the OBJECT library's compilation unit).  Using TARGET_PROPERTY generator
+# expressions in target_include_directories bypasses that propagation path and
+# adds the evaluated paths directly to each source file's compile command.
+if(TARGET PkgConfig::FFTW3_CORE)
+    target_include_directories(orc_nn_ntsc_decoders PRIVATE
+        $<TARGET_PROPERTY:PkgConfig::FFTW3_CORE,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+elseif(TARGET FFTW3::fftw3)
+    target_include_directories(orc_nn_ntsc_decoders PRIVATE
+        $<TARGET_PROPERTY:FFTW3::fftw3,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+endif()
+# spdlog headers are required by orc/core/include/logging.h which is included
+# by several NN decoder sources (nn_output_writer.cpp, ntscdecoder.cpp, …).
+# spdlog::spdlog is already found via find_package(spdlog REQUIRED) above.
+target_include_directories(orc_nn_ntsc_decoders PRIVATE
+    $<TARGET_PROPERTY:spdlog::spdlog,INTERFACE_INCLUDE_DIRECTORIES>
+)
+# spdlog (via fmt) requires /utf-8 on MSVC; propagate its compile options so
+# that the static_assert in fmt/base.h does not fire on the OBJECT library's
+# compilation units.  On non-MSVC platforms the option set is empty.
+target_compile_options(orc_nn_ntsc_decoders PRIVATE
+    $<TARGET_PROPERTY:spdlog::spdlog,INTERFACE_COMPILE_OPTIONS>
+)
+# On Windows with vcpkg the compiled spdlog DLL sets SPDLOG_COMPILED_LIB and
+# SPDLOG_SHARED_LIB via INTERFACE_COMPILE_DEFINITIONS.  Without these defines
+# spdlog compiles in header-only mode and emits its own symbol definitions into
+# every .obj that includes a spdlog header (comb.cpp, ntscdecoder.cpp, …).
+# Those inline definitions then conflict with spdlog.lib at final link time
+# (LNK2005 multiply-defined symbols).  Propagating the interface definitions
+# here tells the compiler to treat spdlog symbols as dllimport/extern instead.
+target_compile_definitions(orc_nn_ntsc_decoders PRIVATE
+    $<TARGET_PROPERTY:spdlog::spdlog,INTERFACE_COMPILE_DEFINITIONS>
+)
+
+target_link_libraries(orc_nn_ntsc_decoders PRIVATE onnxruntime::onnxruntime)
+
+# Link FFTW3 (prefer FFTW3_CORE pkg-config target; fall back to CONFIG target)
+if(TARGET PkgConfig::FFTW3_CORE)
+    target_link_libraries(orc_nn_ntsc_decoders PRIVATE PkgConfig::FFTW3_CORE)
+elseif(TARGET FFTW3::fftw3)
+    target_link_libraries(orc_nn_ntsc_decoders PRIVATE FFTW3::fftw3)
+endif()
+
+target_compile_definitions(orc_nn_ntsc_decoders PRIVATE
+    _USE_MATH_DEFINES  # M_PI on MSVC
+)
+
+set_target_properties(orc_nn_ntsc_decoders PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+)
+
+# Fold the OBJECT library's compiled objects and its runtime deps into orc-core.
+target_sources(orc-core PRIVATE $<TARGET_OBJECTS:orc_nn_ntsc_decoders>)
+target_link_libraries(orc-core PRIVATE onnxruntime::onnxruntime)
+if(TARGET PkgConfig::FFTW3_CORE)
+    target_link_libraries(orc-core PRIVATE PkgConfig::FFTW3_CORE)
+elseif(TARGET FFTW3::fftw3)
+    target_link_libraries(orc-core PRIVATE FFTW3::fftw3)
+endif()
+
+message(STATUS "NN NTSC Chroma Sink stage integrated into orc-core (Phase 3)")

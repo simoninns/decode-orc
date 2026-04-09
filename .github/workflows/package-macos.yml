@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           brew update
-          DEPS=(cmake ninja pkg-config qt@6 spdlog yaml-cpp sqlite libpng fftw ffmpeg dylibbundler)
+          DEPS=(cmake ninja pkg-config qt@6 spdlog yaml-cpp sqlite libpng fftw ffmpeg dylibbundler onnxruntime)
           MISSING=()
 
           for dep in "${DEPS[@]}"; do

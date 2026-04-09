@@ -12,6 +12,7 @@
     "fftw3",
     "pkgconf",
     "ffmpeg",
-    "gtest"
+    "gtest",
+    "onnxruntime"
   ]
 }

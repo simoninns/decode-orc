@@ -77,6 +77,7 @@ orc_add_core_unit_tests(
         stages/dropout_analysis_sink/dropout_analysis_sink_stage_test.cpp
         stages/snr_analysis_sink/snr_analysis_sink_stage_test.cpp
         stages/burst_level_analysis_sink/burst_level_analysis_sink_stage_test.cpp
+        stages/nn_ntsc_chroma_sink/nn_ntsc_chroma_sink_stage_test.cpp
 )
 
 orc_add_core_unit_tests(

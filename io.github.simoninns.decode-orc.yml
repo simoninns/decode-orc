@@ -156,6 +156,38 @@ modules:
         url: https://github.com/pjkundert/ezpwd-reed-solomon
         commit: 62a490c13f6e057fbf2dc6777fde234c7a19098e
 
+  # ONNX Runtime >= 1.23.2 is required for chroma_net_v2.onnx model inference
+  # used by the NN NTSC Chroma Sink stage.  The pre-built Linux x64 binary is
+  # used here to avoid the complex multi-dependency source build (protobuf,
+  # abseil, re2, etc.).  The cmake targets file is patched to replace the
+  # hard-coded lib64 path with lib, which is the standard Flatpak library dir.
+  - name: onnxruntime
+    buildsystem: simple
+    build-commands:
+      # Headers: cmake config (via get_filename_component x4) resolves prefix to
+      # /app and expects headers at ${prefix}/include/onnxruntime/
+      - install -d /app/include/onnxruntime
+      - cp -a include/. /app/include/onnxruntime/
+      # Shared libraries: /app/lib is the standard Flatpak library directory
+      - install -d /app/lib
+      - cp -a lib/libonnxruntime.so.1.24.4 lib/libonnxruntime.so.1 lib/libonnxruntime.so lib/libonnxruntime_providers_shared.so /app/lib/
+      # CMake package config: placed at /app/lib/cmake/onnxruntime/ so that the
+      # four get_filename_component(PATH) traversals resolve _IMPORT_PREFIX to /app
+      - install -d /app/lib/cmake/onnxruntime
+      - install -m644 lib/cmake/onnxruntime/onnxruntimeConfig.cmake /app/lib/cmake/onnxruntime/
+      - install -m644 lib/cmake/onnxruntime/onnxruntimeConfigVersion.cmake /app/lib/cmake/onnxruntime/
+      - install -m644 lib/cmake/onnxruntime/onnxruntimeTargets.cmake /app/lib/cmake/onnxruntime/
+      # The release targets file hard-codes lib64/; patch to lib/ before installing
+      - sed 's|/lib64/|/lib/|g' lib/cmake/onnxruntime/onnxruntimeTargets-release.cmake > /app/lib/cmake/onnxruntime/onnxruntimeTargets-release.cmake
+      # pkg-config (fix prefix; consumed by pkg-config-based discovery fallbacks)
+      - install -d /app/lib/pkgconfig
+      - sed -e 's|prefix=.*|prefix=/app|' lib/pkgconfig/libonnxruntime.pc > /app/lib/pkgconfig/libonnxruntime.pc
+    sources:
+      - type: archive
+        url: https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz
+        sha256: 3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747
+        strip-components: 1
+
   - name: decode-orc
     buildsystem: cmake-ninja
     builddir: true

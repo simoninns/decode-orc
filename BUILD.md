@@ -57,6 +57,7 @@ ctest --test-dir build --output-on-failure
 - **Qt6**: For GUI builds (`BUILD_GUI=ON`)
 - **Dependencies**: Managed via vcpkg or system packages (see `vcpkg.json` for the dependency list)
 - **EZPWD Headers**: Reed-Solomon library headers (automatically provided in Nix; for manual setups, set `EZPWD_INCLUDE_DIR` environment variable)
+- **ONNX Runtime ≥ 1.23.2**: Required for the NN NTSC Chroma Sink stage. Provided automatically via Nix (`nixpkgs-unstable`), Homebrew (`onnxruntime`), and vcpkg (`onnxruntime`). For manual Linux setups, see [ONNX Runtime manual install](#onnx-runtime-manual-install-linux) below.
 
 ### Nix Development Environment
 
@@ -70,6 +71,7 @@ nix develop
 # - cmake, ninja
 # - Qt6 (qtbase, qttools)
 # - FFmpeg, spdlog, yaml-cpp, sqlite, libpng, fftw
+# - ONNX Runtime >= 1.23.2 (from nixpkgs-unstable; see note below)
 # - Google Test (gtest) for unit testing
 # - pkg-config for dependency discovery
 # - Clang tools, ccache, doxygen, graphviz (on Linux/macOS)
@@ -97,15 +99,50 @@ sudo apt-get install -y cmake ninja-build pkg-config \
   libffmpeg-dev google-gtest-dev
 ```
 
+ONNX Runtime is not packaged in standard Ubuntu/Debian repositories. See [ONNX Runtime manual install](#onnx-runtime-manual-install-linux) below.
+
 **macOS (Homebrew):**
 ```bash
-brew install cmake ninja qt@6 spdlog fmt sqlite yaml-cpp libpng fftw ffmpeg google-benchmark
+brew install cmake ninja qt@6 spdlog fmt sqlite yaml-cpp libpng fftw ffmpeg onnxruntime
 ```
 
 **Windows (vcpkg):**
-See `vcpkg.json` for the manifest-based dependency list. The CI/CD workflow (`package-windows.yml`) documents how dependencies are resolved on Windows.
+See `vcpkg.json` for the manifest-based dependency list, which includes `onnxruntime`. The CI/CD workflow (`package-windows.yml`) documents how dependencies are resolved on Windows.
 
-#### 2. Provide EZPWD Headers
+#### 2. Provide ONNX Runtime Headers and Libraries
+
+<a id="onnx-runtime-manual-install-linux"></a>
+
+ONNX Runtime ≥ 1.23.2 is required for the NN NTSC Chroma Sink stage. It is consumed via `find_package(onnxruntime CONFIG REQUIRED)` in CMake.
+
+**Nix:** Automatically provided from `nixpkgs-unstable` (version 1.24.4 is pinned in `flake.lock`). No action needed — `nix develop` sets everything up.
+
+**macOS (Homebrew):** `brew install onnxruntime` provides a compatible version.
+
+**Windows (vcpkg):** `onnxruntime` is declared in `vcpkg.json`; vcpkg installs it automatically during the cmake configure step.
+
+**Linux (manual):** Download the pre-built Linux x64 release from GitHub and install to a prefix of your choice:
+
+```bash
+# Adapt the version as needed (>= 1.23.2 required)
+ORT_VERSION=1.24.4
+curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz" \
+  | tar -xz -C /opt
+
+# Tell CMake where to find the package config
+export CMAKE_PREFIX_PATH="/opt/onnxruntime-linux-x64-${ORT_VERSION}:$CMAKE_PREFIX_PATH"
+```
+
+Or pass `-DCMAKE_PREFIX_PATH=/opt/onnxruntime-linux-x64-${ORT_VERSION}` directly to CMake.
+
+> **Note on the ONNX model:** The `chroma_net_v2.onnx` model file is vendored at
+> `orc/core/stages/nn_ntsc_chroma_sink/resources/chroma_net_v2.onnx`. CMake reads
+> it at configure time and generates a C byte-array (`chroma_net_v2_onnx_data.cpp`)
+> in the build tree that is compiled directly into `orc-core`. No separate model
+> file is needed at runtime — the weights are embedded in the binary.
+
+#### 3. Provide EZPWD Headers
+
 
 The project requires the `ezpwd-reed-solomon` headers (header-only library):
 
@@ -122,7 +159,7 @@ Alternatively, pass it directly to CMake:
 cmake -S . -B build -DEZPWD_INCLUDE_DIR="/path/to/ezpwd-reed-solomon/c++" ...
 ```
 
-#### 3. Configure with CMake
+#### 4. Configure with CMake
 
 ```bash
 # Debug build with unit tests
@@ -146,7 +183,7 @@ cmake --preset windows-gui-debug
 - `BUILD_DOCS`: `OFF` (default) or `ON` (generate Doxygen docs)
 - `EZPWD_INCLUDE_DIR`: Path to ezpwd headers (or set `EZPWD_INCLUDE_DIR` environment variable)
 
-#### 4. Build
+#### 5. Build
 
 ```bash
 # Build using the configured generator
@@ -157,7 +194,7 @@ make -C build -j
 ninja -C build
 ```
 
-#### 5. Run Tests
+#### 6. Run Tests
 
 ```bash
 # Run all tests (unit tests + MVP architecture check)

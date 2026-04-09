@@ -628,6 +628,7 @@ bool TBCYCVideoFieldRepresentation::has_efm() const {
 }
 
 bool TBCYCVideoFieldRepresentation::set_efm_file(const std::string& efm_path) {
+    // Ensure metadata is loaded before setting EFM file
     ensure_field_metadata();
     return audio_efm_handler_->set_efm_file(efm_path);
 }

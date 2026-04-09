@@ -4,6 +4,9 @@
   # Upstream dependencies for the flake
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    # nixpkgs-unstable is required for ONNX Runtime ≥ 1.23.2 (nn_ntsc_chroma_sink_stage).
+    # nixos-25.11 ships 1.22.2 which is insufficient for chroma_net_v2.onnx.
+    nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     qtnodes = {
       url = "github:paceholder/nodeeditor";
@@ -16,7 +19,7 @@
   };
 
   # Build outputs for each supported system
-  outputs = { self, nixpkgs, flake-utils, qtnodes, ezpwd }:
+  outputs = { self, nixpkgs, nixpkgs-unstable, flake-utils, qtnodes, ezpwd }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         # Import Nixpkgs for this system
@@ -24,6 +27,15 @@
           inherit system;
           config = {
             allowUnfree = true; # In case any dependencies require it
+          };
+        };
+
+        # nixpkgs-unstable is used for packages that require a newer version
+        # than what nixos-25.11 provides (currently: ONNX Runtime ≥ 1.23.2).
+        pkgs-unstable = import nixpkgs-unstable {
+          inherit system;
+          config = {
+            allowUnfree = true;
           };
         };
 
@@ -155,6 +167,14 @@
 
             # Automated testing
             gtest
+
+            # ONNX Runtime for neural-network chroma decoding (nn_ntsc_chroma_sink_stage).
+            # Sourced from nixpkgs-unstable because nixos-25.11 ships 1.22.2 which is
+            # insufficient; chroma_net_v2.onnx requires runtime ≥ 1.23.2.
+            # Both outputs are required: 'out' for the shared library, 'dev' for
+            # the CMake config files and C++ API headers.
+            pkgs-unstable.onnxruntime
+            pkgs-unstable.onnxruntime.dev
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # Provide GTK schemas/settings used by Qt's native integration paths.
             gtk3

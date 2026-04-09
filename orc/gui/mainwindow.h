@@ -203,6 +203,10 @@ private:
     orc::PreviewCoordinate buildCurrentPreviewCoordinate() const;
     void refreshVectorscopeForCurrentCoordinate();
 
+    // In-flight render state helpers — all "rendering" UX lives here
+    void beginPreviewRenderInFlight();  // Set flag + start slow-title timer
+    void endPreviewRenderInFlight();    // Clear flag + stop timer + restore title
+
     // Live preview tweak panel (Phase 6)
     struct LiveTweakStageContext {
         std::vector<orc::LiveTweakableParameterView> tweakable;
@@ -326,6 +330,7 @@ private:
     
     bool preview_render_in_flight_{false};  // True while a render request is in-flight
     int pending_render_index_{-1};          // Index passed to the most recent render call
+    QTimer* render_slow_timer_{nullptr};    // Fires after 2 s to update preview title during long renders
     
     // Trigger progress tracking (now via coordinator signals)
     // Use QPointer to auto-null when dialog is deleted

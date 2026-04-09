@@ -31,6 +31,7 @@
 #include "../../../orc/core/stages/hackdac_sink/hackdac_sink_stage.h"
 #include "../../../orc/core/stages/ld_sink/ld_sink_stage.h"
 #include "../../../orc/core/stages/mask_line/mask_line_stage.h"
+#include "../../../orc/core/stages/nn_ntsc_chroma_sink/nn_ntsc_chroma_sink_stage.h"
 #include "../../../orc/core/stages/ntsc_comp_source/ntsc_comp_source_stage.h"
 #include "../../../orc/core/stages/ntsc_yc_source/ntsc_yc_source_stage.h"
 #include "../../../orc/core/stages/pal_comp_source/pal_comp_source_stage.h"
@@ -84,6 +85,7 @@ namespace orc_unit_test
             {"dropout_analysis_sink", PublicStageFamily::Sink, true, [] { return std::make_shared<orc::DropoutAnalysisSinkStage>(); }},
             {"snr_analysis_sink", PublicStageFamily::Sink, true, [] { return std::make_shared<orc::SNRAnalysisSinkStage>(); }},
             {"burst_level_analysis_sink", PublicStageFamily::Sink, true, [] { return std::make_shared<orc::BurstLevelAnalysisSinkStage>(); }},
+            {"nn_ntsc_chroma_sink", PublicStageFamily::Sink, true, [] { return std::make_shared<orc::NnNtscChromaSinkStage>(); }},
         };
 
         return specs;

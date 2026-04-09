@@ -330,7 +330,19 @@ MainWindow::MainWindow(QWidget *parent)
     setupUI();
     setupMenus();
     setupToolbar();
-    
+
+    // Slow-render title timer — fires after 2 s if a render is still in-flight so
+    // the user knows the application is working (e.g. during 26-second NN inference).
+    // beginPreviewRenderInFlight() / endPreviewRenderInFlight() manage start/stop.
+    render_slow_timer_ = new QTimer(this);
+    render_slow_timer_->setSingleShot(true);
+    render_slow_timer_->setInterval(2000);
+    connect(render_slow_timer_, &QTimer::timeout, this, [this]() {
+        if (preview_dialog_) {
+            preview_dialog_->setWindowTitle("Field/Frame Preview - Rendering...");
+        }
+    });
+
     updateWindowTitle();
     
     // Restore window geometry and state from settings
@@ -2113,7 +2125,12 @@ void MainWindow::applyStageSelection(const orc::NodeID& node_id)
     if (preview_dialog_) {
         preview_dialog_->setCurrentNodeId(node_id);
     }
-    
+
+    // Start the slow-render timer immediately so stages that run inference during
+    // requestAvailableOutputs (e.g. nnNtsc) still show "Rendering..." while the
+    // worker is busy — even before updatePreview() is eventually called.
+    beginPreviewRenderInFlight();
+
     // Request available outputs from coordinator
     pending_outputs_request_id_ = render_coordinator_->requestAvailableOutputs(node_id);
     
@@ -2361,7 +2378,7 @@ void MainWindow::updatePreview()
     );
     
     // Mark that a render is now in-flight (will be cleared when onPreviewReady is called)
-    preview_render_in_flight_ = true;
+    beginPreviewRenderInFlight();
 
     // Record exactly which index we just dispatched so onPreviewReady can
     // compare against latest_requested_preview_index_ correctly.
@@ -2630,7 +2647,7 @@ void MainWindow::dispatchLiveTweakApply(
 
     const uint64_t output_index = static_cast<uint64_t>(preview_dialog_ ? preview_dialog_->currentIndex() : 0);
     pending_render_index_ = static_cast<int>(output_index);
-    preview_render_in_flight_ = true;
+    beginPreviewRenderInFlight();
 
     pending_preview_request_id_ = render_coordinator_->requestApplyStageParameters(
         node_id,
@@ -4191,6 +4208,21 @@ void MainWindow::updateQualityMetricsDialog()
 }
 
 // Vectorscope is preview-owned and refreshed through the registry request contract.
+
+void MainWindow::beginPreviewRenderInFlight()
+{
+    preview_render_in_flight_ = true;
+    render_slow_timer_->start();
+}
+
+void MainWindow::endPreviewRenderInFlight()
+{
+    render_slow_timer_->stop();
+    if (preview_dialog_) {
+        preview_dialog_->setWindowTitle("Field/Frame Preview");
+    }
+    preview_render_in_flight_ = false;
+}
 
 void MainWindow::updateAllPreviewComponents()
 {

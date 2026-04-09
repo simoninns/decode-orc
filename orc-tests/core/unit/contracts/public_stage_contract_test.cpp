@@ -74,7 +74,7 @@ namespace orc_unit_test
 
     TEST(PublicStageInventoryTest, inventoryCountMatchesPhaseFiveScope)
     {
-        EXPECT_EQ(public_stage_specs().size(), 25u);
+        EXPECT_EQ(public_stage_specs().size(), 26u);
     }
 
     TEST_P(PublicStageContractTest, interfaceMetadataIsConsistent)

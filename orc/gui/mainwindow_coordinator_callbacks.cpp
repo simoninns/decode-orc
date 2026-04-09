@@ -51,8 +51,7 @@ void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult re
     // Get the index we just rendered.
     const int rendered_index = pending_render_index_;
 
-    // Mark that the render is complete.
-    preview_render_in_flight_ = false;
+    endPreviewRenderInFlight();
 
     // If the user navigated while we were rendering, the dialog's current
     // index will already differ from what we just rendered — issue a follow-up.
@@ -76,7 +75,7 @@ void MainWindow::onStageParametersApplied(uint64_t request_id, bool success)
     if (!success && request_id == pending_preview_request_id_) {
         ORC_LOG_WARN("onStageParametersApplied: apply failed for request {}; clearing in-flight flag",
                      request_id);
-        preview_render_in_flight_ = false;
+        endPreviewRenderInFlight();
     }
 }
 

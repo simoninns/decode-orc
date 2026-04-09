@@ -502,6 +502,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(const Node
             // Field 0 is second field, so first complete frame starts at field 1
             first_frame_start = 1;
         }
+        // Cache so GUI-thread synchronous calls can use it without re-executing the DAG
+        first_field_offset_cache_[node_id] = first_frame_start;
         
         // Calculate number of complete frames
         uint64_t complete_fields = field_count - first_frame_start;
@@ -603,17 +605,22 @@ PreviewRenderResult PreviewRenderer::render_output(
                 const StagePreviewCapability capability = capability_stage->get_preview_capability();
 
                 if (capability.is_valid()) {
+                    // Colour carrier preview takes priority: stages that implement IColourPreviewProvider
+                    // and advertise a colour-domain type (ColourNTSC/ColourPAL) use the bounds-checked
+                    // render_colour_carrier_preview path. This must be checked before the signal-domain
+                    // path to avoid dispatching NN chroma stages (which advertise both ColourNTSC and
+                    // CompositeNTSC) to the unchecked render_stage_preview path with a stale frame index.
+                    if (auto* colour_provider = dynamic_cast<const IColourPreviewProvider*>(node_it->stage.get())) {
+                        if (has_colour_domain_type(capability)) {
+                            return render_colour_carrier_preview(node_id, *colour_provider, capability, type, index, hint);
+                        }
+                    }
+
                     if (has_signal_domain_type(capability)) {
                         if (auto* previewable_stage = dynamic_cast<const PreviewableStage*>(node_it->stage.get());
                             previewable_stage && previewable_stage->supports_preview()
                             && should_use_legacy_stage_preview(node_type)) {
                             return render_stage_preview(node_id, *node_it, *previewable_stage, type, index, option_id, hint);
-                        }
-                    }
-
-                    if (auto* colour_provider = dynamic_cast<const IColourPreviewProvider*>(node_it->stage.get())) {
-                        if (has_colour_domain_type(capability)) {
-                            return render_colour_carrier_preview(node_id, *colour_provider, capability, type, index, hint);
                         }
                     }
 
@@ -683,6 +690,8 @@ PreviewRenderResult PreviewRenderer::render_output(
                     first_field_offset = 1;
                 }
             }
+            // Cache so GUI-thread synchronous calls can use it without re-executing the DAG
+            first_field_offset_cache_[node_id] = first_field_offset;
             
             // Calculate field IDs for this frame
             uint64_t field_a_index = first_field_offset + (index * 2);     // First field of frame
@@ -755,6 +764,7 @@ PreviewRenderResult PreviewRenderer::render_output(
 
 void PreviewRenderer::update_dag(std::shared_ptr<const DAG> dag) {
     dag_ = dag;
+    first_field_offset_cache_.clear();
     
     if (dag_) {
         field_renderer_ = std::make_unique<DAGFieldRenderer>(dag_);
@@ -1503,6 +1513,8 @@ FrameLineNavigationResult PreviewRenderer::navigate_frame_line(
             first_field_offset = 1;
         }
     }
+    // Cache so GUI-thread synchronous calls can use it without re-executing the DAG
+    first_field_offset_cache_[node_id] = first_field_offset;
     
     ORC_LOG_DEBUG("navigate_frame_line: first_field_offset={}, current_field={}", first_field_offset, current_field);
     
@@ -1677,11 +1689,19 @@ ImageToFieldMappingResult PreviewRenderer::map_image_to_field(
     }
     
     if (output_type == PreviewOutputType::Frame || output_type == PreviewOutputType::Frame_Reversed) {
-        // Frame mode: determine field order and top/bottom placement using parity hints
+        // Frame mode: determine field order and top/bottom placement using parity hints.
+        // Use the cached first_field_offset where possible to avoid calling
+        // get_representation_at_node (which triggers ensure_node_executed) from the
+        // GUI thread while the worker may be in a long render operation.
         uint64_t first_field_offset = 0;
-        auto parity_hint = repr->get_field_parity_hint(FieldID(0));
-        if (parity_hint.has_value() && !parity_hint->is_first_field) {
-            first_field_offset = 1;
+        auto cache_it = first_field_offset_cache_.find(node_id);
+        if (cache_it != first_field_offset_cache_.end()) {
+            first_field_offset = cache_it->second;
+        } else {
+            auto parity_hint = repr->get_field_parity_hint(FieldID(0));
+            if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                first_field_offset = 1;
+            }
         }
         bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
 
@@ -1814,11 +1834,18 @@ FieldToImageMappingResult PreviewRenderer::map_field_to_image(
     }
     
     if (output_type == PreviewOutputType::Frame || output_type == PreviewOutputType::Frame_Reversed) {
-        // Frame mode: determine field order and placement using parity hints
+        // Frame mode: determine field order and placement using parity hints.
+        // Use the cached first_field_offset where possible to avoid calling
+        // get_representation_at_node from the GUI thread during concurrent rendering.
         uint64_t first_field_offset = 0;
-        auto parity_hint = repr->get_field_parity_hint(FieldID(0));
-        if (parity_hint.has_value() && !parity_hint->is_first_field) {
-            first_field_offset = 1;
+        auto cache_it = first_field_offset_cache_.find(node_id);
+        if (cache_it != first_field_offset_cache_.end()) {
+            first_field_offset = cache_it->second;
+        } else {
+            auto parity_hint = repr->get_field_parity_hint(FieldID(0));
+            if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                first_field_offset = 1;
+            }
         }
         bool is_reversed = (output_type == PreviewOutputType::Frame_Reversed);
 
@@ -1879,14 +1906,27 @@ FrameFieldsResult PreviewRenderer::get_frame_fields(
     result.first_field = 0;
     result.second_field = 0;
     
-    // Determine first_field_offset using the SAME logic as render_output()
+    // Use the cached first_field_offset if available; this avoids calling
+    // get_representation_at_node (which calls ensure_node_executed) from the
+    // GUI thread while the worker may be concurrently running a long render.
     uint64_t first_field_offset = 0;
-    auto repr = get_representation_at_node(node_id);
-    if (repr) {
-        auto parity_hint = repr->get_field_parity_hint(FieldID(0));
-        if (parity_hint.has_value() && !parity_hint->is_first_field) {
-            first_field_offset = 1;
+    auto cache_it = first_field_offset_cache_.find(node_id);
+    if (cache_it != first_field_offset_cache_.end()) {
+        first_field_offset = cache_it->second;
+        ORC_LOG_DEBUG("get_frame_fields: using cached first_field_offset={} for node='{}'",
+                      first_field_offset, node_id.to_string());
+    } else {
+        // Cache not yet populated (no render or output query has run for this node).
+        // Fall back to direct parity probe — this only happens before first render.
+        auto repr = get_representation_at_node(node_id);
+        if (repr) {
+            auto parity_hint = repr->get_field_parity_hint(FieldID(0));
+            if (parity_hint.has_value() && !parity_hint->is_first_field) {
+                first_field_offset = 1;
+            }
         }
+        ORC_LOG_DEBUG("get_frame_fields: computed first_field_offset={} for node='{}' (cache miss)",
+                      first_field_offset, node_id.to_string());
     }
     
     // Calculate field indices for this frame
@@ -2182,6 +2222,8 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_stage_preview_outputs(
                     first_field_offset = 1;
                 }
             }
+            // Cache so GUI-thread synchronous calls can use it without re-executing the DAG
+            first_field_offset_cache_[stage_node_id] = first_field_offset;
         }
 
         outputs.push_back(PreviewOutputInfo{

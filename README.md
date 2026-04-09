@@ -42,6 +42,8 @@ For comprehensive build instructions covering Nix, CMake, and platform-specific 
 
 **Quick reference:** Use `nix develop` for reproducible builds with all dependencies pre-configured, or follow the CMake/vcpkg instructions for system package manager setups.
 
+**Notable dependency:** The NN NTSC Chroma Sink stage requires **ONNX Runtime ≥ 1.23.2**. This is handled automatically by Nix (`nixpkgs-unstable`), Homebrew (`onnxruntime`), and vcpkg (`vcpkg.json`). For manual Linux builds without a package manager, see the [ONNX Runtime manual install](BUILD.md#onnx-runtime-manual-install-linux) section in BUILD.md.
+
 # Using Agentic Coding AI
 
 This repository includes repository-wide custom instructions for agentic coding AI tools. These instructions are **essential** for AI agents to understand the project architecture, build process, testing strategy, and CI/CD requirements.

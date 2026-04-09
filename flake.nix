@@ -56,6 +56,13 @@
 
         version = builtins.replaceStrings ["\n" "/" " "] ["" "-" "-"] rawVersion;
 
+        # On macOS, Nix's default stdenv uses Apple SDK 10.12.2 which pre-dates
+        # aligned_alloc (added in macOS 10.15). Override to SDK 11.0 so libc++
+        # can find ::aligned_alloc in the global namespace.
+        stdenv = if pkgs.stdenv.isDarwin
+                 then pkgs.overrideSDK pkgs.stdenv "11.0"
+                 else pkgs.stdenv;
+
         # Filtered ezpwd headers-only derivation (avoids VERSION file collisions)
         ezpwd-headers = pkgs.runCommand "ezpwd-headers" {} ''
           mkdir -p $out
@@ -66,7 +73,7 @@
         '';
 
         # Build QtNodes as a separate package (no external package needed)
-        qtNodes = pkgs.stdenv.mkDerivation {
+        qtNodes = stdenv.mkDerivation {
           pname = "qtnodes";
           version = "3.0.0";
 
@@ -107,7 +114,7 @@
         ]);
 
         # Build the decode-orc package (primary output)
-        decode-orc = pkgs.stdenv.mkDerivation {
+        decode-orc = stdenv.mkDerivation {
           pname = "decode-orc";
           version = version;
 
@@ -287,7 +294,7 @@
         };
 
         # Development shell with all dependencies for `nix develop`
-        devShells.default = pkgs.mkShell {
+        devShells.default = pkgs.mkShell.override { inherit stdenv; } {
           inputsFrom = [ decode-orc ];
 
           packages = with pkgs; [
@@ -325,6 +332,10 @@
             
             # Expose ezpwd headers for manual cmake runs inside nix develop
             export EZPWD_INCLUDE_DIR=${ezpwd-headers}
+
+            # Build CMAKE_PREFIX_PATH from all build inputs so that IDEs (e.g. CLion)
+            # launched from this shell can run cmake without extra configuration.
+            export CMAKE_PREFIX_PATH="$(echo $buildInputs $nativeBuildInputs | tr ' ' '\n' | tr '\n' ':')"
 
             # Ensure build directory exists
             mkdir -p build

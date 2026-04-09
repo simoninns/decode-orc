@@ -75,6 +75,7 @@ function(generate_platform_icons SOURCE_PNG OUTPUT_DIR)
                 set(HIGHRES_PNG "${OUTPUT_DIR}/orc-gui-icon-1024.png")
                 add_custom_command(
                     OUTPUT ${HIGHRES_PNG}
+                    COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
                     COMMAND ${RSVG_CONVERT} -w 1024 -h 1024 ${SVG_SOURCE} -o ${HIGHRES_PNG}
                     DEPENDS ${SVG_SOURCE}
                     COMMENT "Generating 1024x1024 PNG from SVG for icon generation"

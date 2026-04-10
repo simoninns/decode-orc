@@ -1,6 +1,8 @@
 // Copyright 2025-2026 Staffan Ulfberg
 // This file is licensed under the provisions of the Gnu General Public License v3 (see gpl-3.0.txt)
 
+#include <algorithm>
+#include <stdexcept>
 #include <spdlog/fmt/fmt.h>  // orc vendor adaptation: std::format → fmt::format (C++17 compat)
 #include "../Logger.h"
 #include "Ac3InputFraming.h"

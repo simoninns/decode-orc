@@ -59,91 +59,94 @@ namespace GfValueHelper {
         }
         return table;
     }
-}
 
-using namespace GfValueHelper;
 
-// An element with operations in GF[2^bits] mod the given irreducible polynomial
-// and a primitive element (the primitive element is used to compute logs and powers
-// for thw pow() function.
-template <int bits, int irreducible_poly, int alpha> class GFValue {
-public:
-    GFValue() : m_value(0) {};
-    explicit GFValue(int v) : m_value(v) {};
+    // An element with operations in GF[2^bits] mod the given irreducible polynomial
+    // and a primitive element (the primitive element is used to compute logs and powers
+    // for the pow() function.
+    template <int bits, int irreducible_poly, int alpha> class GFValue {
+    public:
+        GFValue() : m_value(0) {};
+        explicit GFValue(int v) : m_value(v) {};
 
-    [[nodiscard]] bool isZero() const {
-        return m_value == 0;
-    }
+        [[nodiscard]] bool isZero() const {
+            return m_value == 0;
+        }
 
-    [[nodiscard]] bool nonZero() const {
-        return m_value != 0;
-    }
+        [[nodiscard]] bool nonZero() const {
+            return m_value != 0;
+        }
 
-    [[nodiscard]] int getInt() const {
-        return m_value;
-    }
+        [[nodiscard]] int getInt() const {
+            return m_value;
+        }
 
-    bool operator==(GFValue b) const {
-        return m_value == b.m_value;
-    }
+        bool operator==(GFValue b) const {
+            return m_value == b.m_value;
+        }
 
-    bool operator!=(GFValue b) const {
-        return m_value != b.m_value;
-    }
+        bool operator!=(GFValue b) const {
+            return m_value != b.m_value;
+        }
 
-    GFValue operator+(GFValue b) const {
-        return GFValue(m_value ^ b.m_value);
-    }
+        GFValue operator+(GFValue b) const {
+            return GFValue(m_value ^ b.m_value);
+        }
 
-    void operator+=(GFValue b) {
-        m_value = m_value ^ b.m_value;
-    }
+        void operator+=(GFValue b) {
+            m_value = m_value ^ b.m_value;
+        }
 
-    GFValue operator*(GFValue b) const {
-        return GFValue(multiply_impl<bits, irreducible_poly>(m_value, b.m_value));
-    }
+        GFValue operator*(GFValue b) const {
+            return GFValue(multiply_impl<bits, irreducible_poly>(m_value, b.m_value));
+        }
 
-    void operator*=(GFValue b) {
-        m_value = multiply_impl<bits, irreducible_poly>(m_value, b.m_value);
-    }
+        void operator*=(GFValue b) {
+            m_value = multiply_impl<bits, irreducible_poly>(m_value, b.m_value);
+        }
 
-    GFValue inverse() const {
-        assert(this->m_value != 0 && m_value < (1 << bits));
-        return GFValue(c_inverse_table[m_value]);
-    }
+        GFValue inverse() const {
+            assert(this->m_value != 0 && m_value < (1 << bits));
+            return GFValue(c_inverse_table[m_value]);
+        }
 
-    GFValue pow(int a) const {
-        return m_value == 0 ? GFValue(0) : alpha_pow(a * log(*this));
-    }
+        GFValue pow(int a) const {
+            return m_value == 0 ? GFValue(0) : alpha_pow(a * log(*this));
+        }
 
-    [[nodiscard]] int log() const {
-        assert(this->m_value != 0 && m_value < (1 << bits));
-        return c_log_table[m_value];
-    }
+        [[nodiscard]] int log() const {
+            assert(this->m_value != 0 && m_value < (1 << bits));
+            return c_log_table[m_value];
+        }
 
-    static int log(GFValue a) {
-        return a.log();
-    }
+        static int log(GFValue a) {
+            return a.log();
+        }
 
-    static GFValue alpha_pow(int i) {
-        return GFValue(c_alpha_pow_table[i % ((1 << bits) - 1)]);
-    }
+        static GFValue alpha_pow(int i) {
+            return GFValue(c_alpha_pow_table[i % ((1 << bits) - 1)]);
+        }
 
-private:
-    static const std::array<int, 1 << bits> c_inverse_table;
-    static const std::array<int, 1 << bits> c_log_table;
-    static const std::array<int, 1 << bits> c_alpha_pow_table;
+    private:
+        static const std::array<int, 1 << bits> c_inverse_table;
+        static const std::array<int, 1 << bits> c_log_table;
+        static const std::array<int, 1 << bits> c_alpha_pow_table;
 
-    int m_value;
-};
+        int m_value;
+    };
 
-template <int bits, int irreducible_poly, int alpha>
-const std::array<int, 1 << bits> GFValue<bits, irreducible_poly, alpha>::c_inverse_table = make_inverse_table<bits, irreducible_poly>();
+    template <int bits, int irreducible_poly, int alpha>
+    const std::array<int, 1 << bits> GFValue<bits, irreducible_poly, alpha>::c_inverse_table = make_inverse_table<bits, irreducible_poly>();
 
-template <int bits, int irreducible_poly, int alpha>
-const std::array<int, 1 << bits> GFValue<bits, irreducible_poly, alpha>::c_log_table = make_log_table<bits, irreducible_poly>(alpha);
+    template <int bits, int irreducible_poly, int alpha>
+    const std::array<int, 1 << bits> GFValue<bits, irreducible_poly, alpha>::c_log_table = make_log_table<bits, irreducible_poly>(alpha);
 
-template <int bits, int irreducible_poly, int alpha>
-const std::array<int, 1 << bits> GFValue<bits, irreducible_poly, alpha>::c_alpha_pow_table = make_pow_table<bits, irreducible_poly>(alpha);
+    template <int bits, int irreducible_poly, int alpha>
+    const std::array<int, 1 << bits> GFValue<bits, irreducible_poly, alpha>::c_alpha_pow_table = make_pow_table<bits, irreducible_poly>(alpha);
+
+} // namespace GfValueHelper
+
+// Expose GFValue in the global namespace for callers.
+using GfValueHelper::GFValue;
 
 #endif //MUSECPP_GFVALUE_H

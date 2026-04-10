@@ -4,7 +4,9 @@
 #ifndef AC3RF_DECODE_AC3BLOCKHANDLER_H
 #define AC3RF_DECODE_AC3BLOCKHANDLER_H
 
+#include <array>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "../rs/ReedSolomon.h"

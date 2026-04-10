@@ -409,16 +409,26 @@ std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadat
         return result;
     }
     
+    // Try the full query including ac3_symbols (present in ld-decode >= ac3rf support).
+    // Fall back to the legacy query without it for older .tbc.db files.
     const char* sql =
         "SELECT field_id, is_first_field, sync_conf, median_burst_ire, field_phase_id, "
         "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values, ac3_symbols "
         "FROM field_record WHERE capture_id = ? ORDER BY field_id";
+    const char* sql_legacy =
+        "SELECT field_id, is_first_field, sync_conf, median_burst_ire, field_phase_id, "
+        "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values "
+        "FROM field_record WHERE capture_id = ? ORDER BY field_id";
 
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
+    bool has_ac3_symbols = (rc == SQLITE_OK);
 
-    if (rc != SQLITE_OK) {
-        return result;
+    if (!has_ac3_symbols) {
+        rc = sqlite3_prepare_v2(impl_->db, sql_legacy, -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            return result;
+        }
     }
 
     sqlite3_bind_int(stmt, 1, impl_->capture_id);
@@ -436,7 +446,8 @@ std::map<FieldID, FieldMetadata> TBCMetadataSqliteReader::read_all_field_metadat
         metadata.file_location = impl_->get_optional_int64(stmt, 8);
         metadata.decode_faults = impl_->get_optional_int(stmt, 9);
         metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
-        metadata.ac3rf_symbols = impl_->get_optional_int(stmt, 11);
+        if (has_ac3_symbols)
+            metadata.ac3rf_symbols = impl_->get_optional_int(stmt, 11);
 
         result[FieldID(metadata.seq_no)] = metadata;
     }

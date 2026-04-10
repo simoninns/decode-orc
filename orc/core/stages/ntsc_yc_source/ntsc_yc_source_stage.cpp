@@ -230,11 +230,11 @@ std::vector<ParameterDescriptor> NTSCYCSourceStage::get_parameter_descriptors(Vi
         ParameterDescriptor desc;
         desc.name = "ac3rf_path";
         desc.display_name = "AC3 RF Symbols File Path";
-        desc.description = "Path to the AC3 RF symbols file (demodulated QPSK dibits from ac3rf-decode)";
+        desc.description = "Path to the AC3 RF symbols .ac3sym file (demodulated QPSK dibits from ld-decode)";
         desc.type = ParameterType::FILE_PATH;
         desc.constraints.required = false;  // Optional
         desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".ac3rf";
+        desc.file_extension_hint = ".ac3sym";
         descriptors.push_back(desc);
     }
 

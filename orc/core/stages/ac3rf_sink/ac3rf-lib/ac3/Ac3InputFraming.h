@@ -3,6 +3,7 @@
 
 #ifndef AC3RF_DECODE_AC3INPUTFRAMING_H
 #define AC3RF_DECODE_AC3INPUTFRAMING_H
+#include <array>
 #include <cstdint>
 #include <vector>
 

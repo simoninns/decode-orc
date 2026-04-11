@@ -318,9 +318,22 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                                 }
                             }
                         }
+
+                        // Check for .ac3sym file
+                        auto ac3rf_it = parameter_widgets_.find("ac3rf_path");
+                        if (ac3rf_it != parameter_widgets_.end()) {
+                            QWidget* ac3rf_container = ac3rf_it->second.widget;
+                            QLineEdit* ac3rf_edit = ac3rf_container->findChild<QLineEdit*>("file_path_edit");
+                            if (ac3rf_edit && ac3rf_edit->text().isEmpty()) {
+                                QString ac3rf_path = base_path + ".ac3sym";
+                                if (QFileInfo::exists(ac3rf_path)) {
+                                    ac3rf_edit->setText(ac3rf_path);
+                                }
+                            }
+                        }
                     });
                 }
-                
+
                 // Special handling for YC source stages: auto-populate y_path/c_path and pcm_path/efm_path
                 if (param_name == "y_path" || param_name == "c_path") {
                     connect(edit, &QLineEdit::textChanged, [this, edit, param_name, stage_name_copy]() {
@@ -389,7 +402,20 @@ void StageParameterDialog::build_ui(const std::map<std::string, orc::ParameterVa
                                 }
                             }
                         }
-                        
+
+                        // Auto-populate ac3rf_path if not already set
+                        auto ac3rf_it = parameter_widgets_.find("ac3rf_path");
+                        if (ac3rf_it != parameter_widgets_.end()) {
+                            QWidget* ac3rf_container = ac3rf_it->second.widget;
+                            QLineEdit* ac3rf_edit = ac3rf_container->findChild<QLineEdit*>("file_path_edit");
+                            if (ac3rf_edit && ac3rf_edit->text().isEmpty()) {
+                                QString ac3rf_path = base_path + ".ac3sym";
+                                if (QFileInfo::exists(ac3rf_path)) {
+                                    ac3rf_edit->setText(ac3rf_path);
+                                }
+                            }
+                        }
+
                         // Auto-populate db_path if not already set
                         auto db_it = parameter_widgets_.find("db_path");
                         if (db_it != parameter_widgets_.end()) {

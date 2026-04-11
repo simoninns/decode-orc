@@ -326,10 +326,10 @@
             echo "CMake version: $(cmake --version | head -n1)"
             echo "Qt version: ${pkgs.qt6.qtbase.version}"
             echo ""
-            
+
             # Set up ccache if available
             export CMAKE_CXX_COMPILER_LAUNCHER=ccache
-            
+
             # Expose ezpwd headers for manual cmake runs inside nix develop
             export EZPWD_INCLUDE_DIR=${ezpwd-headers}
 

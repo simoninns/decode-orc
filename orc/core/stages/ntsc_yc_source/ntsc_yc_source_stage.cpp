@@ -78,6 +78,13 @@ std::vector<ArtifactPtr> NTSCYCSourceStage::execute(
         efm_path = std::get<std::string>(efm_path_it->second);
     }
 
+    // Get optional AC3 RF symbols path
+    std::string ac3rf_path;
+    auto ac3rf_path_it = parameters.find("ac3rf_path");
+    if (ac3rf_path_it != parameters.end()) {
+        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+    }
+
     // Check cache
     if (cached_representation_ && cached_y_path_ == y_path && cached_c_path_ == c_path) {
         ORC_LOG_DEBUG("NTSC_YC_Source: Using cached representation for {} + {}", y_path, c_path);
@@ -95,9 +102,12 @@ std::vector<ArtifactPtr> NTSCYCSourceStage::execute(
     if (!efm_path.empty()) {
         ORC_LOG_DEBUG("  EFM Data: {}", efm_path);
     }
-    
+    if (!ac3rf_path.empty()) {
+        ORC_LOG_DEBUG("  AC3 RF Symbols: {}", ac3rf_path);
+    }
+
     try {
-        auto yc_representation = create_tbc_yc_representation(y_path, c_path, db_path, pcm_path, efm_path);
+        auto yc_representation = create_tbc_yc_representation(y_path, c_path, db_path, pcm_path, efm_path, ac3rf_path);
         if (!yc_representation) {
             throw UserDataError("Failed to load YC files (validation failed - see logs above)");
         }
@@ -214,7 +224,20 @@ std::vector<ParameterDescriptor> NTSCYCSourceStage::get_parameter_descriptors(Vi
         desc.file_extension_hint = ".efm";
         descriptors.push_back(desc);
     }
-    
+
+    // ac3rf_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "ac3rf_path";
+        desc.display_name = "AC3 RF Symbols File Path";
+        desc.description = "Path to the AC3 RF symbols .ac3sym file (demodulated QPSK dibits from ld-decode)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
+        desc.file_extension_hint = ".ac3sym";
+        descriptors.push_back(desc);
+    }
+
     return descriptors;
 }
 
@@ -226,6 +249,7 @@ std::map<std::string, ParameterValue> NTSCYCSourceStage::get_parameters() const
     params["db_path"] = db_path_;
     params["pcm_path"] = pcm_path_;
     params["efm_path"] = efm_path_;
+    params["ac3rf_path"] = ac3rf_path_;
     return params;
 }
 
@@ -271,7 +295,15 @@ bool NTSCYCSourceStage::set_parameters(const std::map<std::string, ParameterValu
         }
         efm_path_ = std::get<std::string>(efm_path_it->second);
     }
-    
+
+    auto ac3rf_path_it = params.find("ac3rf_path");
+    if (ac3rf_path_it != params.end()) {
+        if (!std::holds_alternative<std::string>(ac3rf_path_it->second)) {
+            return false;
+        }
+        ac3rf_path_ = std::get<std::string>(ac3rf_path_it->second);
+    }
+
     return true;
 }
 
@@ -305,10 +337,15 @@ std::optional<StageReport> NTSCYCSourceStage::generate_report() const {
     } else {
         report.items.push_back({"EFM Data File", "Not configured"});
     }
-    
+
+    // Display AC3 RF symbols file path if configured
+    if (!ac3rf_path_.empty()) {
+        report.items.push_back({"AC3 RF Symbols File", ac3rf_path_});
+    }
+
     // Try to load the files to get actual information
     try {
-        auto representation = create_tbc_yc_representation(y_path_, c_path_, effective_db_path, pcm_path_, efm_path_);
+        auto representation = create_tbc_yc_representation(y_path_, c_path_, effective_db_path, pcm_path_, efm_path_, ac3rf_path_);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             

@@ -27,7 +27,8 @@ public:
         const std::string& input_path,
         const std::string& db_path,
         const std::string& pcm_path,
-        const std::string& efm_path) const = 0;
+        const std::string& efm_path,
+        const std::string& ac3rf_path = "") const = 0;
 };
 
 /**
@@ -89,7 +90,8 @@ private:
         const std::string& input_path,
         const std::string& db_path,
         const std::string& pcm_path,
-        const std::string& efm_path) const;
+        const std::string& efm_path,
+        const std::string& ac3rf_path = "") const;
 
     // Cache the loaded representation to avoid reloading
     mutable std::string cached_input_path_;

@@ -37,6 +37,7 @@ namespace orc {
  * - db_path: Path to the .tbc.db database file
  * - pcm_path: Optional path to .pcm audio file
  * - efm_path: Optional path to .efm EFM data file
+ * - ac3rf_path: Optional path to .ac3rf AC3 RF symbols file
  * 
  * This is a source stage with no inputs.
  */
@@ -94,6 +95,7 @@ private:
     std::string db_path_;
     std::string pcm_path_;
     std::string efm_path_;
+    std::string ac3rf_path_;
 };
 
 } // namespace orc

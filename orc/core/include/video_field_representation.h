@@ -419,13 +419,51 @@ public:
     
     /**
      * @brief Check if EFM data is available
-     * 
+     *
      * @return True if this representation has EFM data
      */
     virtual bool has_efm() const {
         return false;  // Default: no EFM
     }
-    
+
+    // ========================================================================
+    // AC3 RF - AC3 (Dolby Digital) demodulated symbols access
+    // ========================================================================
+
+    /**
+     * @brief Get number of AC3 RF QPSK symbols for a specific field
+     *
+     * Returns 0 if no AC3 RF symbols file was provided to the source stage.
+     *
+     * @param id Field ID
+     * @return Number of symbols (0 if none)
+     */
+    virtual uint32_t get_ac3_symbol_count(FieldID /*id*/) const {
+        return 0;
+    }
+
+    /**
+     * @brief Get AC3 RF QPSK symbols for a specific field
+     *
+     * Returns the demodulated differential QPSK symbols (output of Ac3RfDemodulator::demodulateToSymbols)
+     * stored in the AC3 RF symbols file alongside the TBC. Each byte is one dibit symbol.
+     *
+     * @param id Field ID
+     * @return Vector of symbols (empty if no AC3 RF data)
+     */
+    virtual std::vector<uint8_t> get_ac3_symbols(FieldID /*id*/) const {
+        return {};
+    }
+
+    /**
+     * @brief Check if AC3 RF symbol data is available
+     *
+     * @return True if an AC3 RF symbols file was loaded by the source stage
+     */
+    virtual bool has_ac3_rf() const {
+        return false;
+    }
+
     // Type information
     std::string type_name() const override { return "VideoFieldRepresentation"; }
     
@@ -530,13 +568,26 @@ public:
     uint32_t get_efm_sample_count(FieldID id) const override {
         return source_ ? source_->get_efm_sample_count(id) : 0;
     }
-    
+
     std::vector<uint8_t> get_efm_samples(FieldID id) const override {
         return source_ ? source_->get_efm_samples(id) : std::vector<uint8_t>{};
     }
-    
+
     bool has_efm() const override {
         return source_ ? source_->has_efm() : false;
+    }
+
+    // Automatically propagate AC3 RF through the chain
+    uint32_t get_ac3_symbol_count(FieldID id) const override {
+        return source_ ? source_->get_ac3_symbol_count(id) : 0;
+    }
+
+    std::vector<uint8_t> get_ac3_symbols(FieldID id) const override {
+        return source_ ? source_->get_ac3_symbols(id) : std::vector<uint8_t>{};
+    }
+
+    bool has_ac3_rf() const override {
+        return source_ ? source_->has_ac3_rf() : false;
     }
     
     // Automatically propagate dual-channel access through the chain

@@ -115,17 +115,20 @@ struct FieldMetadata {
     std::optional<int32_t> decode_faults;
     std::optional<double> disk_location;
     std::optional<int32_t> efm_t_values;
+    std::optional<int32_t> ac3rf_symbols;
     std::optional<int64_t> file_location;
     std::optional<int32_t> sync_confidence;
     std::optional<bool> is_pad;
     
     // Cumulative byte offsets for efficient O(1) random access
-    // These are computed from audio_samples and efm_t_values counts
-    // when the metadata is loaded, eliminating the need for offset caching
-    std::optional<uint64_t> audio_byte_start;    // Start offset in PCM file (bytes)
-    std::optional<uint64_t> audio_byte_end;      // End offset in PCM file (bytes, exclusive)
-    std::optional<uint64_t> efm_byte_start;      // Start offset in EFM file (bytes)
-    std::optional<uint64_t> efm_byte_end;        // End offset in EFM file (bytes, exclusive)
+    // These are computed from audio_samples, efm_t_values, and ac3rf_symbols counts
+    // when the respective files are loaded, eliminating the need for offset caching
+    std::optional<uint64_t> audio_byte_start;       // Start offset in PCM file (bytes)
+    std::optional<uint64_t> audio_byte_end;         // End offset in PCM file (bytes, exclusive)
+    std::optional<uint64_t> efm_byte_start;         // Start offset in EFM file (bytes)
+    std::optional<uint64_t> efm_byte_end;           // End offset in EFM file (bytes, exclusive)
+    std::optional<uint64_t> ac3rf_byte_start;       // Start offset in AC3 RF symbols file (bytes)
+    std::optional<uint64_t> ac3rf_byte_end;         // End offset in AC3 RF symbols file (bytes, exclusive)
     
     // VBI/metadata structures (from observers)
     VitsMetrics vits_metrics;

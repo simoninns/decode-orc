@@ -28,7 +28,8 @@ public:
         const std::string& c_path,
         const std::string& db_path,
         const std::string& pcm_path,
-        const std::string& efm_path) const = 0;
+        const std::string& efm_path,
+        const std::string& ac3rf_path = "") const = 0;
 };
 
 /**
@@ -49,6 +50,7 @@ public:
  * - db_path: Path to the .tbc.db database file
  * - pcm_path: Optional path to .pcm audio file
  * - efm_path: Optional path to .efm EFM data file
+ * - ac3rf_path: Optional path to .ac3rf AC3 RF symbols file
  * 
  * This is a source stage with no inputs.
  */
@@ -100,7 +102,8 @@ private:
         const std::string& c_path,
         const std::string& db_path,
         const std::string& pcm_path,
-        const std::string& efm_path) const;
+        const std::string& efm_path,
+        const std::string& ac3rf_path = "") const;
 
     // Cache the loaded representation to avoid reloading
     mutable std::string cached_y_path_;
@@ -114,6 +117,7 @@ private:
     std::string db_path_;
     std::string pcm_path_;
     std::string efm_path_;
+    std::string ac3rf_path_;
 };
 
 } // namespace orc

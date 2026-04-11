@@ -21,6 +21,14 @@ else()
     set_source_files_properties(${EFM_DECODER_SOURCES} PROPERTIES COMPILE_FLAGS "-w -O2")
 endif()
 
+# AC3RF vendored sources — compiled directly into orc-core with warnings suppressed
+file(GLOB AC3RF_LIB_SOURCES
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ac3rf_sink/ac3rf-lib/ac3/*.cpp
+)
+if(NOT MSVC)
+    set_source_files_properties(${AC3RF_LIB_SOURCES} PROPERTIES COMPILE_FLAGS "-w")
+endif()
+
 add_library(orc-core STATIC
     # Phase 1: Foundations
     field_id.cpp
@@ -120,6 +128,8 @@ add_library(orc-core STATIC
     stages/chroma_sink/raw_output_backend.cpp
     stages/chroma_sink/ffmpeg_output_backend.cpp
     stages/audio_sink/audio_sink_stage.cpp
+    stages/ac3rf_sink/ac3rf_sink_stage.cpp
+    ${AC3RF_LIB_SOURCES}
     stages/raw_efm_sink/efm_sink_stage.cpp
     stages/efm_sink/efm_sink_stage.cpp
     stages/efm_sink/efm_processor.cpp
@@ -183,6 +193,8 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/stacker
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/chroma_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/audio_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ac3rf_sink
+    ${CMAKE_CURRENT_SOURCE_DIR}/stages/ac3rf_sink/ac3rf-lib
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/raw_efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink
     ${CMAKE_CURRENT_SOURCE_DIR}/stages/efm_sink/decoders

@@ -145,14 +145,14 @@ public:
     uint32_t get_efm_sample_count(FieldID id) const override;
     std::vector<uint8_t> get_efm_samples(FieldID id) const override;
     bool has_efm() const override;
-    
-    /**
-     * @brief Set the EFM data file path
-     * @param efm_path Path to .efm file
-     * @return true if file opened successfully, false otherwise
-     */
     bool set_efm_file(const std::string& efm_path);
-    
+
+    // AC3 RF symbols interface
+    uint32_t get_ac3_symbol_count(FieldID id) const override;
+    std::vector<uint8_t> get_ac3_symbols(FieldID id) const override;
+    bool has_ac3_rf() const override;
+    bool set_ac3rf_symbols_file(const std::string& ac3rf_path);
+
     std::string type_name() const override { return "TBCYCVideoFieldRepresentation"; }
     
 private:
@@ -209,7 +209,8 @@ std::shared_ptr<TBCYCVideoFieldRepresentation> create_tbc_yc_representation(
     const std::string& c_filename,
     const std::string& metadata_filename,
     const std::string& pcm_filename = "",
-    const std::string& efm_filename = ""
+    const std::string& efm_filename = "",
+    const std::string& ac3rf_filename = ""
 );
 
 } // namespace orc

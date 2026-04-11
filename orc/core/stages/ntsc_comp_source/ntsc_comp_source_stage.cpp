@@ -70,6 +70,13 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
         efm_path = std::get<std::string>(efm_path_it->second);
     }
 
+    // Get optional AC3 RF symbols path
+    std::string ac3rf_path;
+    auto ac3rf_path_it = parameters.find("ac3rf_path");
+    if (ac3rf_path_it != parameters.end()) {
+        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+    }
+
     // Check cache
     if (cached_representation_ && cached_input_path_ == input_path) {
         ORC_LOG_DEBUG("NTSC_Comp_Source: Using cached representation for {}", input_path);
@@ -85,9 +92,12 @@ std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
     if (!efm_path.empty()) {
         ORC_LOG_DEBUG("  EFM Data: {}", efm_path);
     }
-    
+    if (!ac3rf_path.empty()) {
+        ORC_LOG_DEBUG("  AC3 RF Symbols: {}", ac3rf_path);
+    }
+
     try {
-        auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
+        auto tbc_representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path, ac3rf_path);
         if (!tbc_representation) {
             throw UserDataError("Failed to load TBC file (validation failed - see logs above)");
         }
@@ -187,7 +197,20 @@ std::vector<ParameterDescriptor> NTSCCompSourceStage::get_parameter_descriptors(
         desc.file_extension_hint = ".efm";
         descriptors.push_back(desc);
     }
-    
+
+    // ac3rf_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "ac3rf_path";
+        desc.display_name = "AC3 RF Symbols File Path";
+        desc.description = "Path to the AC3 RF symbols .ac3sym file (demodulated QPSK dibits from ld-decode)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
+        desc.file_extension_hint = ".ac3sym";
+        descriptors.push_back(desc);
+    }
+
     return descriptors;
 }
 
@@ -249,7 +272,14 @@ std::optional<StageReport> NTSCCompSourceStage::generate_report() const {
     if (efm_path_it != parameters_.end()) {
         efm_path = std::get<std::string>(efm_path_it->second);
     }
-    
+
+    // Get optional AC3 RF symbols path
+    std::string ac3rf_path;
+    auto ac3rf_path_it = parameters_.find("ac3rf_path");
+    if (ac3rf_path_it != parameters_.end()) {
+        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+    }
+
     // Display PCM file path if configured
     if (!pcm_path.empty()) {
         report.items.push_back({"PCM Audio File", pcm_path});
@@ -263,10 +293,15 @@ std::optional<StageReport> NTSCCompSourceStage::generate_report() const {
     } else {
         report.items.push_back({"EFM Data File", "Not configured"});
     }
-    
+
+    // Display AC3 RF symbols file path if configured
+    if (!ac3rf_path.empty()) {
+        report.items.push_back({"AC3 RF Symbols File", ac3rf_path});
+    }
+
     // Try to load the file to get actual information
     try {
-        auto representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path);
+        auto representation = create_tbc_representation(input_path, db_path, pcm_path, efm_path, ac3rf_path);
         if (representation) {
             auto video_params = representation->get_video_parameters();
             

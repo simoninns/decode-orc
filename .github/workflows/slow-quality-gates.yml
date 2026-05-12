@@ -12,6 +12,7 @@ jobs:
   integration-and-broad-slices:
     name: Integration + GUI + Contract Sweeps
     runs-on: ubuntu-latest
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -26,14 +27,43 @@ jobs:
 
       - name: Configure and Build (Slow Gate)
         run: |
-          nix develop -c bash -lc "
-            cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON -DBUILD_GUI_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON
-            cmake --build build --parallel
-          "
+          nix develop .#ci -c bash -lc '
+            set -euo pipefail
+
+            BUILD_JOBS="$(nproc)"
+            if [ -z "$BUILD_JOBS" ] || [ "$BUILD_JOBS" -lt 2 ]; then
+              BUILD_JOBS=2
+            fi
+
+            cmake -S . -B build \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DBUILD_UNIT_TESTS=ON \
+              -DBUILD_GUI_TESTS=ON \
+              -DBUILD_INTEGRATION_TESTS=ON \
+              -DCMAKE_JOB_POOLS='"'"'link=2'"'"' \
+              -DCMAKE_JOB_POOL_LINK=link
+
+            heartbeat() {
+              while true; do
+                echo "[keepalive] $(date -u +%FT%TZ) build in progress"
+                sleep 60
+              done
+            }
+
+            heartbeat &
+            HEARTBEAT_PID=$!
+            trap '"'"'kill "$HEARTBEAT_PID" >/dev/null 2>&1 || true'"'"' EXIT
+
+            cmake --build build --parallel "$BUILD_JOBS"
+
+            kill "$HEARTBEAT_PID" >/dev/null 2>&1 || true
+            trap - EXIT
+          '
 
       - name: Run Integration Tests
         run: |
-          nix develop -c bash -lc "
+          nix develop .#ci -c bash -lc "
+            set -euo pipefail
             CTEST_JOBS=\"$(nproc)\"
             if [ -z \"$CTEST_JOBS\" ] || [ \"$CTEST_JOBS\" -lt 2 ]; then
               CTEST_JOBS=2
@@ -43,7 +73,8 @@ jobs:
 
       - name: Run GUI Unit Slices
         run: |
-          nix develop -c bash -lc "
+          nix develop .#ci -c bash -lc "
+            set -euo pipefail
             CTEST_JOBS=\"$(nproc)\"
             if [ -z \"$CTEST_JOBS\" ] || [ \"$CTEST_JOBS\" -lt 2 ]; then
               CTEST_JOBS=2
@@ -53,7 +84,8 @@ jobs:
 
       - name: Run Broad Contract Sweeps
         run: |
-          nix develop -c bash -lc "
+          nix develop .#ci -c bash -lc "
+            set -euo pipefail
             CTEST_JOBS=\"$(nproc)\"
             if [ -z \"$CTEST_JOBS\" ] || [ \"$CTEST_JOBS\" -lt 2 ]; then
               CTEST_JOBS=2
@@ -64,7 +96,8 @@ jobs:
       - name: Generate Slow-Gate Timing Summaries
         if: always()
         run: |
-          nix develop -c bash -lc "
+          nix develop .#ci -c bash -lc "
+            set -euo pipefail
             if [ -f build/ctest-results-integration.xml ]; then
               python3 cmake/summarize_ctest_junit.py --input build/ctest-results-integration.xml --output build/ctest-results-integration-summary.md --top 25
             fi
@@ -79,7 +112,8 @@ jobs:
       - name: Alert on Slow-Gate Regressions
         if: always()
         run: |
-          nix develop -c bash -lc "
+          nix develop .#ci -c bash -lc "
+            set -euo pipefail
             if [ -f build/ctest-results-integration.xml ]; then
               python3 cmake/check_ctest_budget.py --input build/ctest-results-integration.xml --max-wall-seconds 120.0 --min-pass-rate 99.0 --max-p95-seconds 0.250 || true
             fi

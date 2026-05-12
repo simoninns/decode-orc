@@ -1,0 +1,412 @@
+/*
+ * File:        ntsc_comp_source_stage.cpp
+ * Module:      orc-core
+ * Purpose:     NTSC composite source loading stage
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2025-2026 Simon Inns
+ */
+
+
+#include "ntsc_comp_source_stage.h"
+#include "../sources/common/tbc_source_loader.h"
+#include "logging.h"
+#include "error_types.h"
+#include "preview_renderer.h"
+#include "preview_helpers.h"
+#include <stdexcept>
+#include <fstream>
+
+namespace orc {
+
+namespace {
+
+class DefaultNTSCCompSourceLoader final : public INTSCCompSourceLoader {
+public:
+    std::shared_ptr<VideoFieldRepresentation> load(
+        const std::string& input_path,
+        const std::string& db_path,
+        const std::string& pcm_path,
+        const std::string& efm_path,
+        const std::string& ac3rf_path = "") const override
+    {
+        return source_loader_shared::load_tbc_composite(
+            input_path, db_path, pcm_path, efm_path, ac3rf_path);
+    }
+};
+
+} // namespace
+
+NTSCCompSourceStage::NTSCCompSourceStage(std::shared_ptr<INTSCCompSourceLoader> loader)
+    : loader_(std::move(loader))
+{
+    if (!loader_) {
+        loader_ = std::make_shared<DefaultNTSCCompSourceLoader>();
+    }
+}
+
+std::shared_ptr<VideoFieldRepresentation> NTSCCompSourceStage::load_representation(
+    const std::string& input_path,
+    const std::string& db_path,
+    const std::string& pcm_path,
+    const std::string& efm_path,
+    const std::string& ac3rf_path) const
+{
+    return loader_->load(input_path, db_path, pcm_path, efm_path, ac3rf_path);
+}
+
+std::vector<ArtifactPtr> NTSCCompSourceStage::execute(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, ParameterValue>& parameters,
+    ObservationContext& observation_context
+) {
+    (void)observation_context; // Unused for now
+    // Source stage should have no inputs
+    if (!inputs.empty()) {
+        throw std::runtime_error("NTSC_Comp_Source stage should have no inputs");
+    }
+
+    // Get input_path parameter
+    auto input_path_it = parameters.find("input_path");
+    if (input_path_it == parameters.end() || std::get<std::string>(input_path_it->second).empty()) {
+        // No file path configured - return empty artifact (0 fields)
+        // This allows the node to exist in the DAG without a file, acting as a placeholder
+        ORC_LOG_DEBUG("NTSC_Comp_Source: No input_path configured, returning empty output");
+        return {};
+    }
+    std::string input_path = std::get<std::string>(input_path_it->second);
+
+    // Get db_path parameter (optional)
+    std::string db_path;
+    auto db_path_it = parameters.find("db_path");
+    if (db_path_it != parameters.end()) {
+        db_path = std::get<std::string>(db_path_it->second);
+    } else {
+        // Default: input_path + ".db"
+        db_path = input_path + ".db";
+    }
+
+    // Get optional PCM audio path
+    std::string pcm_path;
+    auto pcm_path_it = parameters.find("pcm_path");
+    if (pcm_path_it != parameters.end()) {
+        pcm_path = std::get<std::string>(pcm_path_it->second);
+    }
+    
+    // Get optional EFM data path
+    std::string efm_path;
+    auto efm_path_it = parameters.find("efm_path");
+    if (efm_path_it != parameters.end()) {
+        efm_path = std::get<std::string>(efm_path_it->second);
+    }
+
+    // Get optional AC3 RF symbols path
+    std::string ac3rf_path;
+    auto ac3rf_path_it = parameters.find("ac3rf_path");
+    if (ac3rf_path_it != parameters.end()) {
+        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+    }
+
+    // Check cache
+    if (cached_representation_ && cached_input_path_ == input_path) {
+        ORC_LOG_DEBUG("NTSC_Comp_Source: Using cached representation for {}", input_path);
+        return {cached_representation_};
+    }
+
+    // Load the TBC file
+    ORC_LOG_INFO("NTSC_Comp_Source: Loading TBC file: {}", input_path);
+    ORC_LOG_DEBUG("  Database: {}", db_path);
+    if (!pcm_path.empty()) {
+        ORC_LOG_DEBUG("  PCM Audio: {}", pcm_path);
+    }
+    if (!efm_path.empty()) {
+        ORC_LOG_DEBUG("  EFM Data: {}", efm_path);
+    }
+    if (!ac3rf_path.empty()) {
+        ORC_LOG_DEBUG("  AC3 RF Symbols: {}", ac3rf_path);
+    }
+
+    try {
+        auto tbc_representation = load_representation(input_path, db_path, pcm_path, efm_path, ac3rf_path);
+        if (!tbc_representation) {
+            throw UserDataError("Failed to load TBC file (validation failed - see logs above)");
+        }
+        
+        // Get video parameters for logging
+        auto video_params = tbc_representation->get_video_parameters();
+        if (!video_params) {
+            throw UserDataError("No video parameters found in TBC file");
+        }
+        
+        std::string system_str;
+        switch (video_params->system) {
+            case VideoSystem::PAL: system_str = "PAL"; break;
+            case VideoSystem::PAL_M: system_str = "PAL-M"; break;
+            case VideoSystem::NTSC: system_str = "NTSC"; break;
+            default: system_str = "UNKNOWN"; break;
+        }
+        ORC_LOG_DEBUG("  Decoder: {}", video_params->decoder);
+        ORC_LOG_DEBUG("  System: {}", system_str);
+        ORC_LOG_DEBUG("  Fields: {} ({}x{} pixels)", 
+                    video_params->number_of_sequential_fields,
+                    video_params->field_width, 
+                    video_params->field_height);
+        
+        // Check decoder - accept ld-decode or anything starting with encode-orc
+        bool is_valid_decoder = (video_params->decoder == "ld-decode") ||
+                               (video_params->decoder.rfind("encode-orc", 0) == 0);
+        if (!is_valid_decoder) {
+            throw UserDataError(
+                "TBC file was not created by ld-decode or encode-orc (decoder: " + 
+                video_params->decoder + "). Use the appropriate source type."
+            );
+        }
+        
+        // Check system
+        if (video_params->system != VideoSystem::NTSC) {
+            throw UserDataError(
+                "TBC file is not NTSC format. Use 'Add PAL Composite Source' for PAL files."
+            );
+        }
+        
+        // Cache the representation (observations will be generated lazily per-field during rendering)
+        cached_representation_ = tbc_representation;
+        cached_input_path_ = input_path;
+        
+        return {cached_representation_};
+    } catch (const UserDataError&) {
+        throw;
+    } catch (const std::exception& e) {
+        throw UserDataError(
+            std::string("Failed to load NTSC TBC file '") + input_path + "': " + e.what()
+        );
+    }
+}
+
+std::vector<ParameterDescriptor> NTSCCompSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
+{
+    (void)project_format;  // Unused - source stages don't need project format
+    (void)source_type;     // Unused - source stages define the source type
+    std::vector<ParameterDescriptor> descriptors;
+    
+    // input_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "input_path";
+        desc.display_name = "TBC File Path";
+        desc.description = "Path to the NTSC .tbc file from ld-decode (database file is automatically located)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
+        desc.constraints.default_value = std::string("");
+        desc.file_extension_hint = ".tbc";
+        descriptors.push_back(desc);
+    }
+    
+    // pcm_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "pcm_path";
+        desc.display_name = "PCM Audio File Path";
+        desc.description = "Path to the analogue audio .pcm file (raw 16-bit stereo PCM at 44.1kHz)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
+        desc.file_extension_hint = ".pcm";
+        descriptors.push_back(desc);
+    }
+    
+    // efm_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "efm_path";
+        desc.display_name = "EFM Data File Path";
+        desc.description = "Path to the EFM data .efm file (8-bit t-values from 3-11)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
+        desc.file_extension_hint = ".efm";
+        descriptors.push_back(desc);
+    }
+
+    // ac3rf_path parameter
+    {
+        ParameterDescriptor desc;
+        desc.name = "ac3rf_path";
+        desc.display_name = "AC3 RF Symbols File Path";
+        desc.description = "Path to the AC3 RF symbols .ac3sym file (demodulated QPSK dibits from ld-decode)";
+        desc.type = ParameterType::FILE_PATH;
+        desc.constraints.required = false;  // Optional
+        desc.constraints.default_value = std::string("");
+        desc.file_extension_hint = ".ac3sym";
+        descriptors.push_back(desc);
+    }
+
+    return descriptors;
+}
+
+std::map<std::string, ParameterValue> NTSCCompSourceStage::get_parameters() const
+{
+    return parameters_;
+}
+
+bool NTSCCompSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
+{
+    // Validate that input_path has correct type if present
+    auto input_path_it = params.find("input_path");
+    if (input_path_it != params.end() && !std::holds_alternative<std::string>(input_path_it->second)) {
+        return false;
+    }
+    
+    parameters_ = params;
+    return true;
+}
+
+std::optional<StageReport> NTSCCompSourceStage::generate_report() const {
+    StageReport report;
+    report.summary = "NTSC Source Status";
+    
+    // Get input_path from parameters
+    std::string input_path;
+    auto input_path_it = parameters_.find("input_path");
+    if (input_path_it != parameters_.end()) {
+        input_path = std::get<std::string>(input_path_it->second);
+    }
+    
+    if (input_path.empty()) {
+        report.items.push_back({"Source File", "Not configured"});
+        report.items.push_back({"Status", "No TBC file path set"});
+        return report;
+    }
+    
+    report.items.push_back({"Source File", input_path});
+    
+    // Get db_path
+    std::string db_path;
+    auto db_path_it = parameters_.find("db_path");
+    if (db_path_it != parameters_.end()) {
+        db_path = std::get<std::string>(db_path_it->second);
+    } else {
+        db_path = input_path + ".db";
+    }
+    
+    // Get optional PCM audio path
+    std::string pcm_path;
+    auto pcm_path_it = parameters_.find("pcm_path");
+    if (pcm_path_it != parameters_.end()) {
+        pcm_path = std::get<std::string>(pcm_path_it->second);
+    }
+    
+    // Get optional EFM data path
+    std::string efm_path;
+    auto efm_path_it = parameters_.find("efm_path");
+    if (efm_path_it != parameters_.end()) {
+        efm_path = std::get<std::string>(efm_path_it->second);
+    }
+
+    // Get optional AC3 RF symbols path
+    std::string ac3rf_path;
+    auto ac3rf_path_it = parameters_.find("ac3rf_path");
+    if (ac3rf_path_it != parameters_.end()) {
+        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+    }
+
+    // Display PCM file path if configured
+    if (!pcm_path.empty()) {
+        report.items.push_back({"PCM Audio File", pcm_path});
+    } else {
+        report.items.push_back({"PCM Audio File", "Not configured"});
+    }
+    
+    // Display EFM file path if configured
+    if (!efm_path.empty()) {
+        report.items.push_back({"EFM Data File", efm_path});
+    } else {
+        report.items.push_back({"EFM Data File", "Not configured"});
+    }
+
+    // Display AC3 RF symbols file path if configured
+    if (!ac3rf_path.empty()) {
+        report.items.push_back({"AC3 RF Symbols File", ac3rf_path});
+    }
+
+    // Try to load the file to get actual information
+    try {
+        auto representation = load_representation(input_path, db_path, pcm_path, efm_path, ac3rf_path);
+        if (representation) {
+            auto video_params = representation->get_video_parameters();
+            
+            report.items.push_back({"Status", "File accessible"});
+            
+            if (video_params) {
+                report.items.push_back({"Decoder", video_params->decoder});
+                report.items.push_back({"Video System", "NTSC"});
+                report.items.push_back({"Field Dimensions", 
+                    std::to_string(video_params->field_width) + " x " + 
+                    std::to_string(video_params->field_height)});
+                report.items.push_back({"Total Fields", 
+                    std::to_string(video_params->number_of_sequential_fields)});
+                report.items.push_back({"Total Frames", 
+                    std::to_string(video_params->number_of_sequential_fields / 2)});
+                
+                // Calculate total audio samples and EFM t-values from metadata
+                uint64_t total_audio_samples = 0;
+                uint64_t total_efm_tvalues = 0;
+                auto field_range = representation->field_range();
+                
+                for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+                    total_audio_samples += representation->get_audio_sample_count(fid);
+                    total_efm_tvalues += representation->get_efm_sample_count(fid);
+                }
+                
+                // Display audio information
+                if (representation->has_audio() && total_audio_samples > 0) {
+                    report.items.push_back({"Audio Samples", std::to_string(total_audio_samples)});
+                    // Calculate approximate duration (44.1kHz stereo)
+                    double duration_seconds = static_cast<double>(total_audio_samples) / 44100.0;
+                    int minutes = static_cast<int>(duration_seconds / 60.0);
+                    int seconds = static_cast<int>(duration_seconds) % 60;
+                    report.items.push_back({"Audio Duration", 
+                        std::to_string(minutes) + "m " + std::to_string(seconds) + "s"});
+                } else {
+                    report.items.push_back({"Audio Samples", "0 (no audio)"});
+                }
+                
+                // Display EFM information
+                if (representation->has_efm() && total_efm_tvalues > 0) {
+                    report.items.push_back({"EFM T-Values", std::to_string(total_efm_tvalues)});
+                } else {
+                    report.items.push_back({"EFM T-Values", "0 (no EFM)"});
+                }
+                
+                // Metrics
+                report.metrics["field_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields);
+                report.metrics["frame_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields / 2);
+                report.metrics["field_width"] = static_cast<int64_t>(video_params->field_width);
+                report.metrics["field_height"] = static_cast<int64_t>(video_params->field_height);
+                report.metrics["audio_samples"] = static_cast<int64_t>(total_audio_samples);
+                report.metrics["efm_tvalues"] = static_cast<int64_t>(total_efm_tvalues);
+            }
+        } else {
+            report.items.push_back({"Status", "Error loading file"});
+        }
+    } catch (const std::exception& e) {
+        report.items.push_back({"Status", "Error"});
+        report.items.push_back({"Error", e.what()});
+    }
+    
+    return report;
+}
+
+std::vector<PreviewOption> NTSCCompSourceStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_representation_);
+}
+
+PreviewImage NTSCCompSourceStage::render_preview(const std::string& option_id, uint64_t index,
+                                            PreviewNavigationHint hint) const
+{
+    (void)hint;  // Unused for now
+    return PreviewHelpers::render_standard_preview(cached_representation_, option_id, index);
+}
+
+} // namespace orc

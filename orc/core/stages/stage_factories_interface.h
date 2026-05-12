@@ -14,9 +14,9 @@
 
 #include <memory>
 
-#include "daphne_vbi_sink_stage_deps_interface.h"
-#include "daphne_vbi_writer_util_interface.h"
-#include "ld_sink_stage_deps_interface.h"
+#include "../../plugins/stages/daphne_vbi_sink/daphne_vbi_sink_stage_deps_interface.h"
+#include "../../plugins/stages/daphne_vbi_sink/daphne_vbi_writer_util_interface.h"
+#include "../../plugins/stages/ld_sink/ld_sink_stage_deps_interface.h"
 #include "triggerable_stage.h"
 
 namespace orc

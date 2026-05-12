@@ -122,7 +122,7 @@ The graph editor is the central workspace where you build your processing pipeli
 To add a stage:
 
 * Right-click on empty space in the graph editor
-* Choose **Add** (shown as “Add Node” in the menu)
+* Choose **Add** (shown as “Add Stage” in the menu)
 * Pick a stage from one of the categories:
 
   * Source

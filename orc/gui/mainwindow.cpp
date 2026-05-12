@@ -28,6 +28,7 @@
 #include "inspection_dialog.h"
 #include "dropout_editor_dialog.h"
 #include "generic_analysis_dialog.h"
+#include "pluginmanagerdialog.h"
 #include "orcgraphicsview.h"
 #include "render_coordinator.h"
 #include "line_navigation_mapper.h"
@@ -82,6 +83,7 @@ namespace orc {
 #include <QMoveEvent>
 #include <QResizeEvent>
 #include <QRegularExpression>
+#include <QStringList>
 #include <limits>
 #include <cmath>
 
@@ -349,6 +351,7 @@ MainWindow::MainWindow(QWidget *parent)
     restoreSettings();
     
     updateUIState();
+    reportPluginRuntimeDiagnostics(true);
 }
 
 MainWindow::~MainWindow()
@@ -553,6 +556,118 @@ void MainWindow::setupUI()
     statusBar()->showMessage("Ready");
 }
 
+void MainWindow::reportPluginRuntimeDiagnostics(bool show_error_dialog)
+{
+    if (!project_.presenter()) {
+        return;
+    }
+
+    const auto loaded_plugins = project_.presenter()->listLoadedPlugins();
+    const auto diagnostics = project_.presenter()->listPluginDiagnostics();
+    const auto search_paths = project_.presenter()->listPluginSearchPaths();
+    const auto registry = project_.presenter()->getPluginRegistry();
+
+    if (!registry.registry_path.empty()) {
+        ORC_LOG_DEBUG("Plugin registry path: {}", registry.registry_path);
+    }
+
+    if (!registry.entries.empty()) {
+        ORC_LOG_DEBUG("Configured {} plugin registry entr{}", registry.entries.size(), registry.entries.size() == 1 ? "y" : "ies");
+        for (const auto& entry : registry.entries) {
+            ORC_LOG_DEBUG(
+                "  registry entry '{}' enabled={} loaded={} exists={} path='{}'",
+                entry.plugin_id.empty() ? std::string("<unnamed>") : entry.plugin_id,
+                entry.enabled ? "true" : "false",
+                entry.is_loaded ? "true" : "false",
+                entry.path_exists ? "true" : "false",
+                entry.path);
+        }
+    }
+
+    if (!search_paths.empty()) {
+        ORC_LOG_DEBUG("Configured runtime stage plugin search paths: {}", search_paths.size());
+        for (const auto& path : search_paths) {
+            ORC_LOG_DEBUG("  plugin search path: {}", path);
+        }
+    }
+
+    if (!loaded_plugins.empty()) {
+        ORC_LOG_DEBUG("Loaded {} runtime stage plugin(s)", loaded_plugins.size());
+        for (const auto& plugin : loaded_plugins) {
+            ORC_LOG_DEBUG(
+                "  plugin '{}' version '{}' registered {} stage(s)",
+                plugin.plugin_id,
+                plugin.plugin_version,
+                plugin.registered_stage_names.size());
+        }
+    }
+
+    int warning_count = 0;
+    int error_count = 0;
+    QStringList error_lines;
+
+    for (const auto& diagnostic : diagnostics) {
+        const QString path_suffix = diagnostic.path.empty()
+            ? QString()
+            : QString(" [%1]").arg(QString::fromStdString(diagnostic.path));
+        const QString message = QString::fromStdString(diagnostic.message) + path_suffix;
+
+        switch (diagnostic.severity) {
+            case orc::presenters::PluginDiagnosticSeverity::Info:
+                ORC_LOG_DEBUG("Plugin runtime: {}", message.toStdString());
+                break;
+            case orc::presenters::PluginDiagnosticSeverity::Warning:
+                ++warning_count;
+                ORC_LOG_WARN("Plugin runtime: {}", message.toStdString());
+                break;
+            case orc::presenters::PluginDiagnosticSeverity::Error:
+                ++error_count;
+                error_lines.push_back(message);
+                ORC_LOG_ERROR("Plugin runtime: {}", message.toStdString());
+                break;
+        }
+    }
+
+    if (error_count > 0) {
+        statusBar()->showMessage(
+            QString("Stage plugin initialization completed with %1 error(s)").arg(error_count),
+            7000);
+
+        if (show_error_dialog) {
+            QString details;
+            const qsizetype max_lines = std::min<qsizetype>(error_lines.size(), 8);
+            for (qsizetype index = 0; index < max_lines; ++index) {
+                details += QString("- %1\n").arg(error_lines[index]);
+            }
+            if (error_lines.size() > max_lines) {
+                details += QString("- (%1 additional errors omitted)").arg(error_lines.size() - max_lines);
+            }
+
+            QMessageBox::warning(
+                this,
+                "Stage Plugin Errors",
+                QString("Some stage plugins failed to load.\n\n%1").arg(details.trimmed()));
+        }
+        return;
+    }
+
+    if (warning_count > 0) {
+        statusBar()->showMessage(
+            QString("Stage plugin initialization completed with %1 warning(s)").arg(warning_count),
+            5000);
+        return;
+    }
+
+    if (!loaded_plugins.empty()) {
+        statusBar()->showMessage(
+            QString("Loaded %1 runtime stage plugin(s) from %2 registry entr%3")
+                .arg(loaded_plugins.size())
+                .arg(registry.entries.size())
+                .arg(registry.entries.size() == 1 ? "y" : "ies"),
+            3000);
+    }
+}
+
 void MainWindow::setupMenus()
 {
     auto* file_menu = menuBar()->addMenu("&File");
@@ -627,9 +742,18 @@ void MainWindow::setupMenus()
     arrange_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_G));
     connect(arrange_action, &QAction::triggered, this, &MainWindow::onArrangeDAGToGrid);
     
+    // Tools menu
+    auto* tools_menu = menuBar()->addMenu("&Tools");
+
+    plugin_manager_action_ = tools_menu->addAction("&Plugin Manager...");
+    connect(plugin_manager_action_, &QAction::triggered, this, [this]() {
+        orc::PluginManagerDialog dlg(this);
+        dlg.exec();
+    });
+
     // Help menu
     auto* help_menu = menuBar()->addMenu("&Help");
-    
+
     auto* about_action = help_menu->addAction("&About Orc GUI...");
     connect(about_action, &QAction::triggered, this, &MainWindow::onAbout);
 }
@@ -865,126 +989,26 @@ void MainWindow::closeAllDialogs()
 
 void MainWindow::createAndShowAnalysisDialog(const orc::NodeID& node_id, const std::string& stage_name)
 {
-    // Get node label
-    QString node_label = QString::fromStdString(node_id.to_string());
-    const auto nodes = project_.presenter()->getNodes();
-    auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [&node_id](const orc::presenters::NodeInfo& n) { return n.node_id == node_id; });
-    if (node_it != nodes.end()) {
-        if (!node_it->label.empty()) {
-            node_label = QString::fromStdString(node_it->label);
-        } else if (!node_it->stage_name.empty()) {
-            node_label = QString::fromStdString(node_it->stage_name);
-        }
+    orc::presenters::AnalysisPresenter analysis_presenter(project_.presenter()->getCoreProjectHandle());
+    const auto tools = analysis_presenter.getToolsForStage(stage_name);
+
+    // Descriptor-driven routing: pick the first advertised batch-analysis tool.
+    const auto tool_it = std::find_if(
+        tools.begin(),
+        tools.end(),
+        [](const orc::AnalysisToolInfo& tool) {
+            return tool.stage_tool_kind == "batch_analysis";
+        });
+
+    if (tool_it == tools.end()) {
+        ORC_LOG_DEBUG(
+            "No descriptor-advertised batch analysis tool for stage '{}' (node '{}')",
+            stage_name,
+            node_id.to_string());
+        return;
     }
-    
-    if (stage_name == "burst_level_analysis_sink") {
-        BurstLevelAnalysisDialog* dialog = nullptr;
-        auto it = burst_level_analysis_dialogs_.find(node_id);
-        if (it == burst_level_analysis_dialogs_.end()) {
-            dialog = new BurstLevelAnalysisDialog(this);
-            dialog->setWindowTitle(QString("Burst Level Analysis - %1").arg(node_label));
-            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
-            connect(dialog, &QObject::destroyed, [this, node_id]() {
-                burst_level_analysis_dialogs_.erase(node_id);
-                burst_level_progress_dialogs_.erase(node_id);
-            });
-            burst_level_analysis_dialogs_[node_id] = dialog;
-        } else {
-            dialog = it->second;
-        }
-        
-        auto& prog_dialog = burst_level_progress_dialogs_[node_id];
-        if (prog_dialog) {
-            delete prog_dialog;
-        }
-        prog_dialog = new QProgressDialog("Loading burst level analysis data...", QString(), 0, 100, this);
-        prog_dialog->setWindowTitle(dialog->windowTitle());
-        prog_dialog->setWindowModality(Qt::ApplicationModal);
-        prog_dialog->setMinimumDuration(0);
-        prog_dialog->setCancelButton(nullptr);
-        prog_dialog->setValue(0);
-        prog_dialog->show();
-        prog_dialog->raise();
-        prog_dialog->activateWindow();
-        
-        dialog->show();
-        dialog->raise();
-        dialog->activateWindow();
-    }
-    else if (stage_name == "dropout_analysis_sink") {
-        DropoutAnalysisDialog* dialog = nullptr;
-        auto it = dropout_analysis_dialogs_.find(node_id);
-        if (it == dropout_analysis_dialogs_.end()) {
-            dialog = new DropoutAnalysisDialog(this);
-            dialog->setWindowTitle(QString("Dropout Analysis - %1").arg(node_label));
-            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
-            connect(dialog, &QObject::destroyed, [this, node_id]() {
-                dropout_analysis_dialogs_.erase(node_id);
-                dropout_progress_dialogs_.erase(node_id);
-            });
-            dropout_analysis_dialogs_[node_id] = dialog;
-        } else {
-            dialog = it->second;
-        }
-        
-        auto& prog_dialog = dropout_progress_dialogs_[node_id];
-        if (prog_dialog) {
-            delete prog_dialog;
-        }
-        prog_dialog = new QProgressDialog("Loading dropout analysis data...", QString(), 0, 100, this);
-        prog_dialog->setWindowTitle(dialog->windowTitle());
-        prog_dialog->setWindowModality(Qt::ApplicationModal);
-        prog_dialog->setMinimumDuration(0);
-        prog_dialog->setCancelButton(nullptr);
-        prog_dialog->setValue(0);
-        prog_dialog->show();
-        prog_dialog->raise();
-        prog_dialog->activateWindow();
-        
-        dialog->show();
-        dialog->raise();
-        dialog->activateWindow();
-    }
-    else if (stage_name == "snr_analysis_sink") {
-        SNRAnalysisDialog* dialog = nullptr;
-        auto it = snr_analysis_dialogs_.find(node_id);
-        if (it == snr_analysis_dialogs_.end()) {
-            dialog = new SNRAnalysisDialog(this);
-            dialog->setWindowTitle(QString("SNR Analysis - %1").arg(node_label));
-            dialog->setAttribute(Qt::WA_DeleteOnClose, true);
-            connect(dialog, &SNRAnalysisDialog::modeChanged, [this, node_id](orc::SNRAnalysisMode mode) {
-                pending_snr_requests_.clear();
-                uint64_t request_id = render_coordinator_->requestSNRData(node_id, mode);
-                pending_snr_requests_[request_id] = node_id;
-            });
-            connect(dialog, &QObject::destroyed, [this, node_id]() {
-                snr_analysis_dialogs_.erase(node_id);
-                snr_progress_dialogs_.erase(node_id);
-            });
-            snr_analysis_dialogs_[node_id] = dialog;
-        } else {
-            dialog = it->second;
-        }
-        
-        auto& prog_dialog = snr_progress_dialogs_[node_id];
-        if (prog_dialog) {
-            delete prog_dialog;
-        }
-        prog_dialog = new QProgressDialog("Loading SNR analysis data...", QString(), 0, 100, this);
-        prog_dialog->setWindowTitle(dialog->windowTitle());
-        prog_dialog->setWindowModality(Qt::ApplicationModal);
-        prog_dialog->setMinimumDuration(0);
-        prog_dialog->setCancelButton(nullptr);
-        prog_dialog->setValue(0);
-        prog_dialog->show();
-        prog_dialog->raise();
-        prog_dialog->activateWindow();
-        
-        dialog->show();
-        dialog->raise();
-        dialog->activateWindow();
-    }
+
+    runAnalysisForNode(*tool_it, node_id, stage_name);
 }
 
 void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType source_format)
@@ -1082,6 +1106,7 @@ void MainWindow::newProject(orc::VideoSystem video_format, orc::SourceType sourc
     
     // Initialize preview renderer for new project
     updatePreviewRenderer();
+    reportPluginRuntimeDiagnostics(false);
     
     // Load DAG into embedded viewer
     loadProjectDAG();
@@ -1134,6 +1159,7 @@ void MainWindow::openProject(const QString& filename)
     
     // Initialize preview renderer with project DAG
     updatePreviewRenderer();
+    reportPluginRuntimeDiagnostics(false);
     
     // Load DAG into embedded viewer
     loadProjectDAG();
@@ -1394,6 +1420,7 @@ void MainWindow::quickProject(const QString& filename)
     // Update UI - preview renderer and DAG display
     updateUIState();
     updatePreviewRenderer();
+    reportPluginRuntimeDiagnostics(false);
     loadProjectDAG();
     
     // Automatically select the source stage with the lowest node ID
@@ -1499,6 +1526,9 @@ void MainWindow::updateUIState()
     }
     if (edit_project_action_) {
         edit_project_action_->setEnabled(has_project);
+    }
+    if (plugin_manager_action_) {
+        plugin_manager_action_->setEnabled(!has_project);
     }
     
     // Enable/disable DAG view based on project state
@@ -3272,10 +3302,30 @@ void MainWindow::onInspectStage(const NodeID& node_id)
 
 void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, const orc::NodeID& node_id, const std::string& stage_name)
 {
+    const bool is_dropout_analysis_tool =
+        tool_info.stage_tool_contract == "decode-orc.stage-tools.dropout-analysis.v1" ||
+        tool_info.id == "dropout_analysis";
+    const bool is_snr_analysis_tool =
+        tool_info.stage_tool_contract == "decode-orc.stage-tools.snr-analysis.v1" ||
+        tool_info.id == "snr_analysis";
+    const bool is_burst_level_analysis_tool =
+        tool_info.stage_tool_contract == "decode-orc.stage-tools.burst-level-analysis.v1" ||
+        tool_info.id == "burst_level_analysis";
+
     ORC_LOG_DEBUG("Running analysis '{}' for node '{}'", tool_info.name, node_id.to_string());
 
+    // Descriptor contract-based dispatch: tools that advertise their behavior via SDK StageToolDescriptor
+    // are routed via stage_tool_contract. Legacy built-in tools propagate the same contract strings
+    // through applyLegacyToolMetadata() in the presenter, so this check covers both paths.
+    const bool is_mask_line_config_tool =
+        tool_info.stage_tool_contract == "decode-orc.stage-tools.mask-line-config.v1";
+    const bool is_ffmpeg_preset_tool =
+        tool_info.stage_tool_contract == "decode-orc.stage-tools.ffmpeg-preset.v1";
+    const bool is_dropout_editor_tool =
+        tool_info.stage_tool_contract == "decode-orc.stage-tools.dropout-editor.v1";
+
     // Special-case: Mask Line Configuration uses a custom rules-based config dialog
-    if (tool_info.id == "mask_line_config") {
+    if (is_mask_line_config_tool) {
         ORC_LOG_DEBUG("Opening mask line configuration dialog for node '{}'", node_id.to_string());
         
         // Get current parameters from the node
@@ -3340,7 +3390,7 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, cons
     }
 
     // Special-case: FFmpeg Preset Configuration uses a custom preset dialog
-    if (tool_info.id == "ffmpeg_preset_config") {
+    if (is_ffmpeg_preset_tool) {
         ORC_LOG_DEBUG("Opening FFmpeg preset configuration dialog for node '{}'", node_id.to_string());
         
         // Get current parameters from the node
@@ -3418,7 +3468,7 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, cons
     }
     
     // Special-case: Dropout Editor opens interactive editor dialog
-    if (tool_info.id == "dropout_editor") {
+    if (is_dropout_editor_tool) {
         // Get the project
         if (!dag_model_) {
             ORC_LOG_ERROR("No DAG model available for dropout editor");
@@ -3526,7 +3576,7 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, cons
     }
     
     // Special-case: Dropout Analysis triggers batch processing and shows dialog
-    if (tool_info.id == "dropout_analysis") {
+    if (is_dropout_analysis_tool) {
         // Get node info from project
         auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
@@ -3591,7 +3641,7 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, cons
     }
     
     // Special-case: SNR Analysis triggers batch processing and shows dialog
-    if (tool_info.id == "snr_analysis") {
+    if (is_snr_analysis_tool) {
         // Get node info from project
         auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
@@ -3681,7 +3731,7 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info, cons
     }
     
     // Special-case: Burst Level Analysis triggers batch processing and shows dialog
-    if (tool_info.id == "burst_level_analysis") {
+    if (is_burst_level_analysis_tool) {
         // Get node info from project
         auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),

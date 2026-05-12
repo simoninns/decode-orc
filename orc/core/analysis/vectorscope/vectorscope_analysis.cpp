@@ -10,13 +10,15 @@
 #include "vectorscope_analysis.h"
 #include "../analysis_registry.h"
 #include "../../include/video_field_representation.h"
-#include "../../stages/chroma_sink/decoders/componentframe.h"
+#include "../../../plugins/stages/sinks/common/decoders/componentframe.h"
 #include "logging.h"
 
 #include <algorithm>
 #include <cmath>
 
 namespace {
+
+constexpr double kPi = 3.141592653589793238462643383279502884;
 
 double clamp_normalized(double value)
 {
@@ -413,7 +415,7 @@ VectorscopeData VectorscopeAnalysisTool::extractFromCompositeRepresentation(
             && video_parameters.sample_rate > 0.0
             && std::abs((video_parameters.sample_rate / video_parameters.fsc) - 4.0) < 1.0e-3;
         const double phase_step = (video_parameters.fsc > 0.0 && video_parameters.sample_rate > 0.0)
-            ? (2.0 * M_PI * video_parameters.fsc / video_parameters.sample_rate)
+            ? (2.0 * kPi * video_parameters.fsc / video_parameters.sample_rate)
             : 0.0;
 
         for (size_t y = y_start; y < y_end; y += static_cast<size_t>(subsample)) {

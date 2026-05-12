@@ -253,8 +253,28 @@ int main(int argc, char *argv[])
         "filename");
     parser.addOption(quickProjectOption);
 
+    QCommandLineOption safeCorePluginsOption(
+        "safe-core-plugins",
+        "Clear user plugin registry and ignore ORC_STAGE_PLUGIN_PATHS for this run (core plugins only)");
+    parser.addOption(safeCorePluginsOption);
+
     parser.addPositionalArgument("project", "Project file to open (optional)");
     parser.process(app);
+
+    if (parser.isSet(safeCorePluginsOption)) {
+        // Ensure no external env-configured plugin search paths are used for this run.
+        qputenv("ORC_STAGE_PLUGIN_PATHS", "");
+
+        const auto reset_result = orc::presenters::ProjectPresenter::clearPluginRegistryForSafeMode();
+        if (!reset_result.success) {
+            QMessageBox::critical(
+                nullptr,
+                "Safe Startup Failed",
+                QString("Failed to clear plugin registry for safe startup:\n%1")
+                    .arg(QString::fromStdString(reset_result.error_message)));
+            return 1;
+        }
+    }
 
     // Initialize GUI and core logging
     QString logLevel = parser.value(logLevelOption);
@@ -274,6 +294,9 @@ int main(int argc, char *argv[])
     qInstallMessageHandler(qtMessageHandler);
 
     ORC_LOG_INFO("orc-gui {} starting", ORC_VERSION);
+    if (parser.isSet(safeCorePluginsOption)) {
+        ORC_LOG_WARN("Safe startup mode enabled: plugin registry cleared and ORC_STAGE_PLUGIN_PATHS ignored for this run");
+    }
 
     ThemeManager themeManager(parser.value(themeOption));
     if (themeManager.hadInvalidMode()) {

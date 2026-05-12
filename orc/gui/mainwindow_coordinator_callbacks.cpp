@@ -321,34 +321,14 @@ void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString st
     
     // If trigger was successful, automatically create dialog and request analysis data for display
     if (success && pending_trigger_node_id_.is_valid()) {
-        // Determine which type of analysis sink was triggered by checking stage_name
+        // Descriptor-driven analysis routing: resolve the node stage and defer
+        // tool selection to createAndShowAnalysisDialog().
         const auto nodes = project_.presenter()->getNodes();
         auto node_it = std::find_if(nodes.begin(), nodes.end(),
             [this](const orc::presenters::NodeInfo& n) { return n.node_id == pending_trigger_node_id_; });
         
         if (node_it != nodes.end()) {
-            const std::string& stage_name = node_it->stage_name;
-            
-            // Create and show analysis dialog
-            createAndShowAnalysisDialog(pending_trigger_node_id_, stage_name);
-            
-            // Request the appropriate data based on sink type
-            uint64_t data_request_id;
-            if (stage_name == "burst_level_analysis_sink") {
-                data_request_id = render_coordinator_->requestBurstLevelData(pending_trigger_node_id_);
-                pending_burst_level_requests_[data_request_id] = pending_trigger_node_id_;
-                ORC_LOG_DEBUG("Auto-requesting burst level data after trigger complete");
-            }
-            else if (stage_name == "dropout_analysis_sink") {
-                data_request_id = render_coordinator_->requestDropoutData(pending_trigger_node_id_, orc::DropoutAnalysisMode::FULL_FIELD);
-                pending_dropout_requests_[data_request_id] = pending_trigger_node_id_;
-                ORC_LOG_DEBUG("Auto-requesting dropout analysis data after trigger complete");
-            }
-            else if (stage_name == "snr_analysis_sink") {
-                data_request_id = render_coordinator_->requestSNRData(pending_trigger_node_id_, orc::SNRAnalysisMode::BOTH);
-                pending_snr_requests_[data_request_id] = pending_trigger_node_id_;
-                ORC_LOG_DEBUG("Auto-requesting SNR analysis data after trigger complete");
-            }
+            createAndShowAnalysisDialog(pending_trigger_node_id_, node_it->stage_name);
         }
     }
     

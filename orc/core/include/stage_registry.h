@@ -25,12 +25,15 @@
 #endif
 
 #include "dag_executor.h"
+#include "stage_plugin_loader.h"
+#include "stage_plugin_registry.h"
 #include <memory>
 #include <string>
 #include <functional>
 #include <map>
 #include <stdexcept>
 #include <iostream>
+#include <vector>
 
 namespace orc {
 
@@ -40,6 +43,18 @@ namespace orc {
 class StageRegistryError : public std::runtime_error {
 public:
     explicit StageRegistryError(const std::string& msg) : std::runtime_error(msg) {}
+};
+
+enum class StagePluginDiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+};
+
+struct StagePluginDiagnostic {
+    StagePluginDiagnosticSeverity severity = StagePluginDiagnosticSeverity::Info;
+    std::string path;
+    std::string message;
 };
 
 /**
@@ -65,6 +80,11 @@ public:
      * @brief Get singleton instance
      */
     static StageRegistry& instance();
+
+    /**
+        * @brief Ensure runtime plugin stages are initialized
+     */
+    void initialize();
     
     /**
      * @brief Register a stage factory
@@ -98,6 +118,31 @@ public:
      * @return Vector of stage names
      */
     std::vector<std::string> get_registered_stages() const;
+
+    /**
+     * @brief Get successfully loaded stage plugins
+     */
+    const std::vector<LoadedStagePlugin>& get_loaded_plugins() const;
+
+    /**
+     * @brief Get plugin discovery and load diagnostics
+     */
+    const std::vector<StagePluginDiagnostic>& get_plugin_diagnostics() const;
+
+    /**
+     * @brief Get configured plugin search paths used during initialization
+     */
+    const std::vector<std::string>& get_plugin_search_paths() const;
+
+    /**
+     * @brief Get plugin registry path used during initialization
+     */
+    const std::string& get_plugin_registry_path() const;
+
+    /**
+     * @brief Get parsed plugin registry entries used during initialization
+     */
+    const std::vector<StagePluginRegistryEntry>& get_plugin_registry_entries() const;
     
     /**
      * @brief Get default transform stage name
@@ -118,67 +163,17 @@ private:
     StageRegistry() = default;
     StageRegistry(const StageRegistry&) = delete;
     StageRegistry& operator=(const StageRegistry&) = delete;
+
+    void initialize_runtime_plugins();
+    void add_plugin_diagnostic(StagePluginDiagnosticSeverity severity, const std::string& path, const std::string& message);
     
     std::map<std::string, StageFactory> factories_;
-};
-
-/**
- * @brief Helper for auto-registering stages
- * 
- * Automatically queries the stage for its name via get_node_type_info(),
- * eliminating duplication and preventing mismatches.
- * 
- * This class is typically used via the ORC_REGISTER_STAGE macro.
- */
-class StageRegistration {
-public:
-    StageRegistration(StageRegistry::StageFactory factory) {
-        // Create a temporary instance to get the stage name
-        auto temp_stage = factory();
-        std::string stage_name = temp_stage->get_node_type_info().stage_name;
-        StageRegistry::instance().register_stage(stage_name, factory);
-    }
+    StagePluginLoader plugin_loader_;
+    std::vector<StagePluginDiagnostic> plugin_diagnostics_;
+    std::vector<std::string> plugin_search_paths_;
+    std::string plugin_registry_path_;
+    std::vector<StagePluginRegistryEntry> plugin_registry_entries_;
+    bool initialized_ = false;
 };
 
 } // namespace orc
-
-/**
- * @brief Macro for explicit stage registration
- * 
- * This macro creates a static registration object that automatically registers
- * the stage with the StageRegistry during static initialization. The registration
- * is self-documenting and ensures the stage is available for use.
- * 
- * Usage in stage implementation files:
- * ```cpp
- * ORC_REGISTER_STAGE(DropoutCorrectStage);
- * ```
- * 
- * The macro expands to:
- * - A uniquely-named static StageRegistration object
- * - A lambda factory that creates instances of the stage
- * 
- * This approach:
- * - Makes registration explicit and easy to verify
- * - Prevents forgetting to register new stages
- * - Self-documents which stages are available
- * - Eliminates the need for force-linking workarounds
- */
-#define ORC_REGISTER_STAGE(StageClass) \
-    namespace { \
-        static ::orc::StageRegistration _orc_stage_registration_##StageClass([]() { \
-            return std::make_shared<StageClass>(); \
-        }); \
-    }
-
-/**
- * @brief Macro for explicit stage registration with factory interface.
- *
- * Purpose: Alternate approach that reduces blast radius while we contemplate whether we like this architecture.
- */
-#define ORC_REGISTER_STAGE_WITH_FACTORIES(StageClass) \
-namespace { \
-static ::orc::StageRegistration _orc_stage_registration_##StageClass([]() { \
-return std::make_shared<StageClass>(::orc::Factories::instance()); \
-}); \
-}

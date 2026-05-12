@@ -142,10 +142,49 @@ namespace orc_unit_test
         const auto existing_name = public_stage_specs().front().create()->get_node_type_info().stage_name;
 
         EXPECT_THROW(
-            registry.register_stage(existing_name, []() -> orc::DAGStagePtr {
-                return std::make_shared<orc::AudioSinkStage>();
+            registry.register_stage(existing_name, [existing_name]() -> orc::DAGStagePtr {
+                return orc::StageRegistry::instance().create_stage(existing_name);
             }),
             orc::StageRegistryError);
+    }
+
+    TEST(StageRegistryContractTest, migratedStagesLoadFromRuntimePlugins)
+    {
+        auto& registry = orc::StageRegistry::instance();
+        const auto& loaded_plugins = registry.get_loaded_plugins();
+
+        std::set<std::string> loaded_stage_names;
+        for (const auto& plugin : loaded_plugins) {
+            for (const auto& stage_name : plugin.registered_stage_names) {
+                loaded_stage_names.insert(stage_name);
+            }
+        }
+
+        EXPECT_TRUE(loaded_stage_names.count("NTSC_YC_Source") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("NTSC_Comp_Source") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("PAL_Comp_Source") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("PAL_YC_Source") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("field_invert") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("field_map") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("dropout_map") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("dropout_correct") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("source_align") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("mask_line") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("video_params") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("AudioSink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("CCSink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("raw_video_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("dropout_analysis_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("snr_analysis_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("burst_level_analysis_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("hackdac_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("stacker") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("ffmpeg_video_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("RawEFMSink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("EFMSink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("AC3RFSink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("ld_sink") > 0);
+        EXPECT_TRUE(loaded_stage_names.count("daphne_vbi_sink") > 0);
     }
 
     TEST(NodeTypeContractTest, allPublicStagesAppearInNodeTypeDiscovery)

@@ -9,6 +9,7 @@
 
 
 #include "tbc_source_internal/tbc_video_field_representation.h"
+#include "tbc_source_representation_factory.h"
 #include "dropout_decision.h"
 #include "logging.h"
 #include <open_tbc_metadata.h>
@@ -354,6 +355,21 @@ std::shared_ptr<TBCVideoFieldRepresentation> create_tbc_representation(
     }
 
     return representation;
+}
+
+std::shared_ptr<VideoFieldRepresentation> create_tbc_source_representation(
+    const std::string& tbc_filename,
+    const std::string& metadata_filename,
+    const std::string& pcm_filename,
+    const std::string& efm_filename,
+    const std::string& ac3rf_filename
+) {
+    return create_tbc_representation(
+        tbc_filename,
+        metadata_filename,
+        pcm_filename,
+        efm_filename,
+        ac3rf_filename);
 }
 
 std::vector<DropoutRegion> TBCVideoFieldRepresentation::get_dropout_hints(FieldID id) const {

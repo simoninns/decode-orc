@@ -11,6 +11,8 @@
 #include "../core/include/project.h"
 #include "../core/include/project_to_dag.h"
 #include "../core/include/stage_registry.h"
+#include "../core/include/stage_plugin_registry.h"
+#include "../core/include/plugin_remote_loader.h"
 #include <orc_source_parameters.h>
 #include "../core/include/stage_parameter.h"
 #include "../core/include/logging.h"
@@ -18,10 +20,36 @@
 #include <open_tbc_metadata.h>  // for open_tbc_metadata (handles .tbc.db and legacy .tbc.json)
 #include <stdexcept>
 #include <algorithm>
+#include <filesystem>
+#include <set>
+#include <cctype>
 
 namespace orc::presenters {
 
 // === Helper Functions ===
+
+static std::string current_platform_plugin_extension()
+{
+#if defined(_WIN32)
+    return ".dll";
+#elif defined(__APPLE__)
+    return ".dylib";
+#else
+    return ".so";
+#endif
+}
+
+static bool has_case_insensitive_suffix(const std::string& value, const std::string& suffix)
+{
+    if (value.size() < suffix.size()) {
+        return false;
+    }
+
+    return std::equal(suffix.rbegin(), suffix.rend(), value.rbegin(),
+        [](unsigned char a, unsigned char b) {
+            return std::tolower(a) == std::tolower(b);
+        });
+}
 
 static VideoSystem toVideoSystem(VideoFormat format) {
     switch (format) {
@@ -58,6 +86,15 @@ static SourceType fromSourceType(orc::SourceType type) {
         case orc::SourceType::Unknown: return SourceType::Unknown;
     }
     return SourceType::Unknown;
+}
+
+static PluginDiagnosticSeverity fromPluginDiagnosticSeverity(orc::StagePluginDiagnosticSeverity severity) {
+    switch (severity) {
+        case orc::StagePluginDiagnosticSeverity::Info: return PluginDiagnosticSeverity::Info;
+        case orc::StagePluginDiagnosticSeverity::Warning: return PluginDiagnosticSeverity::Warning;
+        case orc::StagePluginDiagnosticSeverity::Error: return PluginDiagnosticSeverity::Error;
+    }
+    return PluginDiagnosticSeverity::Info;
 }
 
 // === Static Utility Methods ===
@@ -479,6 +516,14 @@ std::vector<StageInfo> ProjectPresenter::getAvailableStages(VideoFormat format)
     
     auto& registry = orc::StageRegistry::instance();
     auto stage_names = registry.get_registered_stages();
+    const auto loaded_plugins = registry.get_loaded_plugins();
+    std::map<std::string, std::string> stage_to_plugin_id;
+
+    for (const auto& plugin : loaded_plugins) {
+        for (const auto& stage_name : plugin.registered_stage_names) {
+            stage_to_plugin_id[stage_name] = plugin.plugin_id;
+        }
+    }
     
     for (const auto& stage_name : stage_names) {
         try {
@@ -510,10 +555,22 @@ std::vector<StageInfo> ProjectPresenter::getAvailableStages(VideoFormat format)
             info.name = node_type_info.stage_name;
             info.display_name = node_type_info.display_name;
             info.description = node_type_info.description;
+            info.category = node_type_info.menu_category;
+            if (info.display_name.empty()) {
+                throw std::runtime_error("Stage '" + stage_name + "' is missing required display_name metadata");
+            }
+            if (info.category.empty()) {
+                throw std::runtime_error("Stage '" + stage_name + "' is missing required menu_category metadata");
+            }
             info.node_type = node_type_info.type;
             info.is_source = (node_type_info.type == orc::NodeType::SOURCE);
             info.is_sink = (node_type_info.type == orc::NodeType::SINK ||
                             node_type_info.type == orc::NodeType::ANALYSIS_SINK);
+            auto plugin_it = stage_to_plugin_id.find(stage_name);
+            if (plugin_it != stage_to_plugin_id.end()) {
+                info.is_runtime_plugin_stage = true;
+                info.owning_plugin_id = plugin_it->second;
+            }
             
             result.push_back(info);
         } catch (const std::exception& e) {
@@ -532,6 +589,380 @@ std::vector<StageInfo> ProjectPresenter::getAllStages()
 bool ProjectPresenter::hasStage(const std::string& stage_name)
 {
     return orc::StageRegistry::instance().has_stage(stage_name);
+}
+
+std::vector<LoadedPluginInfo> ProjectPresenter::getLoadedPlugins()
+{
+    std::vector<LoadedPluginInfo> result;
+
+    const auto& loaded_plugins = orc::StageRegistry::instance().get_loaded_plugins();
+    result.reserve(loaded_plugins.size());
+
+    for (const auto& plugin : loaded_plugins) {
+        LoadedPluginInfo info;
+        info.path = plugin.path;
+        info.plugin_id = plugin.plugin_id;
+        info.plugin_version = plugin.plugin_version;
+        info.license_spdx = plugin.license_spdx;
+        info.is_core_plugin = plugin.is_core_plugin;
+        info.registered_stage_names = plugin.registered_stage_names;
+        result.push_back(std::move(info));
+    }
+
+    return result;
+}
+
+std::vector<PluginDiagnosticInfo> ProjectPresenter::getPluginDiagnostics()
+{
+    std::vector<PluginDiagnosticInfo> result;
+
+    const auto& diagnostics = orc::StageRegistry::instance().get_plugin_diagnostics();
+    result.reserve(diagnostics.size());
+
+    for (const auto& diagnostic : diagnostics) {
+        PluginDiagnosticInfo info;
+        info.severity = fromPluginDiagnosticSeverity(diagnostic.severity);
+        info.path = diagnostic.path;
+        info.message = diagnostic.message;
+        result.push_back(std::move(info));
+    }
+
+    return result;
+}
+
+std::vector<std::string> ProjectPresenter::getPluginSearchPaths()
+{
+    return orc::StageRegistry::instance().get_plugin_search_paths();
+}
+
+PluginRegistryInfo ProjectPresenter::readPluginRegistry()
+{
+    PluginRegistryInfo result;
+
+    const auto& registry = orc::StageRegistry::instance();
+    const auto persisted_registry = orc::StagePluginRegistry::load_default();
+    result.registry_path = persisted_registry.registry_path;
+
+    const auto& loaded_plugins = registry.get_loaded_plugins();
+    std::set<std::string> loaded_paths;
+    std::set<std::string> loaded_plugin_ids;
+    for (const auto& plugin : loaded_plugins) {
+        loaded_paths.insert(plugin.path);
+        loaded_plugin_ids.insert(plugin.plugin_id);
+    }
+
+    const auto& entries = persisted_registry.entries;
+    result.entries.reserve(entries.size());
+
+    for (const auto& entry : entries) {
+        PluginRegistryEntryInfo info;
+        info.plugin_id = entry.plugin_id;
+        info.plugin_version = entry.plugin_version;
+        info.path = entry.path;
+        info.source_repo_url = entry.source_repo_url;
+        info.artifact_source = entry.artifact_source;
+        info.release_asset_url = entry.release_asset_url;
+        info.release_tag = entry.release_tag;
+        info.release_asset_name = entry.release_asset_name;
+        info.target_platform = entry.target_platform;
+        info.local_dev_path = entry.local_dev_path;
+        info.enabled = entry.enabled;
+        info.trust_state = entry.trust_state;
+        info.license_spdx = entry.license_spdx;
+        info.is_core_plugin = entry.is_core_plugin;
+        info.required_host_abi = entry.required_host_abi;
+        info.is_loaded = loaded_paths.count(entry.path) > 0 ||
+            (!entry.plugin_id.empty() && loaded_plugin_ids.count(entry.plugin_id) > 0);
+
+        std::error_code error_code;
+        info.path_exists = !entry.path.empty() && std::filesystem::exists(entry.path, error_code) && !error_code;
+        result.entries.push_back(std::move(info));
+    }
+
+    return result;
+}
+
+PluginRegistryMutationResult ProjectPresenter::addPluginToRegistry(
+    const std::string& path,
+    const std::string& plugin_id,
+    const std::string& plugin_version,
+    const std::string& license_spdx,
+    bool is_core_plugin,
+    bool trusted)
+{
+    PluginRegistryEntryInfo entry_info;
+    entry_info.path = path;
+    entry_info.plugin_id = plugin_id;
+    entry_info.plugin_version = plugin_version;
+    entry_info.license_spdx = license_spdx;
+    entry_info.is_core_plugin = is_core_plugin;
+    entry_info.trust_state = trusted ? "trusted" : "untrusted";
+    entry_info.enabled = true;
+    entry_info.artifact_source = "local_path";
+    return addPluginRegistryEntry(entry_info);
+}
+
+PluginRegistryMutationResult ProjectPresenter::addPluginRegistryEntry(
+    const PluginRegistryEntryInfo& entry_info)
+{
+    PluginRegistryMutationResult result;
+
+    const bool is_remote_entry = entry_info.artifact_source == "github_release_asset";
+    const bool has_local_path = !entry_info.path.empty() || !entry_info.local_dev_path.empty();
+
+    if (!has_local_path && !is_remote_entry) {
+        result.error_message = "Plugin path cannot be empty";
+        return result;
+    }
+
+    if (is_remote_entry) {
+        if (entry_info.release_asset_url.empty()) {
+            result.error_message = "Remote plugin URL cannot be empty";
+            return result;
+        }
+        if (entry_info.release_asset_name.empty()) {
+            result.error_message = "Remote plugin asset name cannot be empty";
+            return result;
+        }
+    } else {
+        if (!entry_info.path.empty()) {
+            const std::string expected_ext = current_platform_plugin_extension();
+            if (!has_case_insensitive_suffix(entry_info.path, expected_ext)) {
+                result.error_message =
+                    "Plugin path '" + entry_info.path + "' is not valid for this platform "
+                    "(expected a '" + expected_ext + "' plugin binary)";
+                return result;
+            }
+        }
+    }
+
+    if (entry_info.is_core_plugin) {
+        result.error_message = "User-added plugins cannot be marked as core";
+        return result;
+    }
+
+    const auto persisted_registry = orc::StagePluginRegistry::load_default();
+    auto entries = persisted_registry.entries;
+    const std::string registry_path = persisted_registry.registry_path;
+
+    for (const auto& entry : entries) {
+        if (!entry_info.plugin_id.empty() && entry.plugin_id == entry_info.plugin_id) {
+            result.error_message = "A plugin with id '" + entry_info.plugin_id + "' already exists in the registry";
+            return result;
+        }
+        if (!entry_info.path.empty() && !entry.path.empty() && entry.path == entry_info.path) {
+            result.error_message = "Path '" + entry_info.path + "' is already registered";
+            return result;
+        }
+        if (!entry_info.local_dev_path.empty() && !entry.local_dev_path.empty() &&
+            entry.local_dev_path == entry_info.local_dev_path) {
+            result.error_message = "Local override path '" + entry_info.local_dev_path + "' is already registered";
+            return result;
+        }
+    }
+
+    orc::StagePluginRegistryEntry new_entry;
+    new_entry.path = entry_info.path;
+    new_entry.plugin_id = entry_info.plugin_id;
+    new_entry.plugin_version = entry_info.plugin_version;
+    new_entry.source_repo_url = entry_info.source_repo_url;
+    new_entry.artifact_source = entry_info.artifact_source;
+    new_entry.release_asset_url = entry_info.release_asset_url;
+    new_entry.release_tag = entry_info.release_tag;
+    new_entry.release_asset_name = entry_info.release_asset_name;
+    new_entry.target_platform = entry_info.target_platform;
+    new_entry.local_dev_path = entry_info.local_dev_path;
+    new_entry.enabled = entry_info.enabled;
+    new_entry.trust_state = entry_info.trust_state;
+    new_entry.license_spdx = entry_info.license_spdx;
+    new_entry.is_core_plugin = false;
+    new_entry.required_host_abi = entry_info.required_host_abi;
+    entries.push_back(std::move(new_entry));
+
+    std::string error;
+    if (!orc::StagePluginRegistry::save(registry_path, entries, &error)) {
+        result.error_message = "Failed to save registry: " + error;
+        return result;
+    }
+
+    result.success = true;
+    return result;
+}
+
+PluginRegistryMutationResult ProjectPresenter::addPluginFromReleasesUrl(
+    const std::string& releases_url)
+{
+    PluginRegistryMutationResult result;
+
+    if (releases_url.empty()) {
+        result.error_message = "Release URL cannot be empty";
+        return result;
+    }
+
+    std::vector<std::string> warnings;
+#if defined(_WIN32)
+    const std::string target_platform = "windows";
+#elif defined(__APPLE__)
+    const std::string target_platform = "macos";
+#else
+    const std::string target_platform = "linux";
+#endif
+
+    const auto resolved = orc::PluginRemoteLoader::resolve_release_asset_from_releases_url(
+        releases_url,
+        target_platform,
+        &warnings);
+
+    if (!resolved.success) {
+        result.error_message = resolved.error_message;
+        return result;
+    }
+
+    PluginRegistryEntryInfo entry_info;
+    entry_info.artifact_source = "github_release_asset";
+    entry_info.source_repo_url = resolved.source_repo_url;
+    entry_info.release_tag = resolved.release_tag;
+    entry_info.release_asset_url = resolved.release_asset_url;
+    entry_info.release_asset_name = resolved.release_asset_name;
+    entry_info.target_platform = target_platform;
+    entry_info.enabled = true;
+    entry_info.trust_state = "untrusted";
+
+    auto add_result = addPluginRegistryEntry(entry_info);
+    if (!add_result.success) {
+        return add_result;
+    }
+
+    if (!warnings.empty()) {
+        add_result.error_message = warnings.front();
+    }
+
+    return add_result;
+}
+
+PluginRegistryMutationResult ProjectPresenter::removePluginFromRegistry(const std::string& plugin_id)
+{
+    return removePluginRegistryEntry(plugin_id, std::string(), std::string());
+}
+
+PluginRegistryMutationResult ProjectPresenter::removePluginRegistryEntry(
+    const std::string& plugin_id,
+    const std::string& path,
+    const std::string& release_asset_url)
+{
+    PluginRegistryMutationResult result;
+
+    if (plugin_id.empty() && path.empty() && release_asset_url.empty()) {
+        result.error_message = "No plugin identifier was provided for removal";
+        return result;
+    }
+
+    const auto persisted_registry = orc::StagePluginRegistry::load_default();
+    auto entries = persisted_registry.entries;
+    const std::string registry_path = persisted_registry.registry_path;
+
+    auto matches_identity = [&](const orc::StagePluginRegistryEntry& e) {
+        if (!plugin_id.empty() && e.plugin_id == plugin_id) {
+            return true;
+        }
+        if (!path.empty() && e.path == path) {
+            return true;
+        }
+        if (!release_asset_url.empty() && e.release_asset_url == release_asset_url) {
+            return true;
+        }
+        return false;
+    };
+
+    auto it = std::find_if(entries.begin(), entries.end(), matches_identity);
+
+    if (it == entries.end()) {
+        result.error_message = "No matching plugin entry found in registry";
+        return result;
+    }
+
+    entries.erase(it);
+
+    std::string error;
+    if (!orc::StagePluginRegistry::save(registry_path, entries, &error)) {
+        result.error_message = "Failed to save registry: " + error;
+        return result;
+    }
+
+    result.success = true;
+    return result;
+}
+
+PluginRegistryMutationResult ProjectPresenter::setPluginRegistryEntryEnabled(
+    const std::string& plugin_id, bool enabled)
+{
+    PluginRegistryMutationResult result;
+
+    if (plugin_id.empty()) {
+        result.error_message = "Plugin id cannot be empty";
+        return result;
+    }
+
+    const auto persisted_registry = orc::StagePluginRegistry::load_default();
+    auto entries = persisted_registry.entries;
+    const std::string registry_path = persisted_registry.registry_path;
+
+    // First, try to find entry by exact plugin_id match
+    auto it = std::find_if(entries.begin(), entries.end(),
+        [&plugin_id](const orc::StagePluginRegistryEntry& e) { return e.plugin_id == plugin_id; });
+
+    // If not found and plugin_id is non-empty, also look for entries with empty plugin_id
+    // where the loaded plugin matches this ID (happens when plugins are added via file before their ID is known)
+    if (it == entries.end()) {
+        const auto& loaded_plugins = orc::StageRegistry::instance().get_loaded_plugins();
+        auto loaded_it = std::find_if(
+            loaded_plugins.begin(), loaded_plugins.end(),
+            [&plugin_id](const auto& lp) { return lp.plugin_id == plugin_id; });
+        
+        if (loaded_it != loaded_plugins.end()) {
+            // Found a loaded plugin with this ID - now find the registry entry that matches its path
+            it = std::find_if(entries.begin(), entries.end(),
+                [&loaded_it](const orc::StagePluginRegistryEntry& e) { 
+                    return !e.path.empty() && e.path == loaded_it->path; 
+                });
+            
+            // If found, populate the plugin_id in the registry entry (it was empty before)
+            if (it != entries.end() && it->plugin_id.empty()) {
+                it->plugin_id = plugin_id;
+            }
+        }
+    }
+
+    if (it == entries.end()) {
+        result.error_message = "No plugin with id '" + plugin_id + "' found in registry";
+        return result;
+    }
+
+    it->enabled = enabled;
+
+    std::string error;
+    if (!orc::StagePluginRegistry::save(registry_path, entries, &error)) {
+        result.error_message = "Failed to save registry: " + error;
+        return result;
+    }
+
+    result.success = true;
+    return result;
+}
+
+PluginRegistryMutationResult ProjectPresenter::clearPluginRegistryForSafeMode()
+{
+    PluginRegistryMutationResult result;
+
+    const std::string registry_path = orc::StagePluginRegistry::default_registry_path();
+    std::string error;
+    if (!orc::StagePluginRegistry::save(registry_path, {}, &error)) {
+        result.error_message = "Failed to clear plugin registry: " + error;
+        return result;
+    }
+
+    result.success = true;
+    return result;
 }
 
 std::shared_ptr<void> ProjectPresenter::getStageForInspection(NodeID node_id) const

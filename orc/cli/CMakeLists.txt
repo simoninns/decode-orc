@@ -3,6 +3,7 @@
 add_executable(orc-cli 
     orc_cli.cpp
     command_process.cpp
+    command_plugins.cpp
 )
 
 # Section: Architecture enforcement (MVP)
@@ -24,6 +25,12 @@ target_include_directories(orc-cli PRIVATE
 target_compile_definitions(orc-cli PRIVATE
     ORC_CLI_BUILD
 )
+
+if(APPLE)
+    set_target_properties(orc-cli PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks")
+elseif(UNIX AND NOT WIN32)
+    set_target_properties(orc-cli PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib")
+endif()
 
 # Section: Install rules
 if(APPLE)
@@ -47,6 +54,98 @@ if(BUILD_UNIT_TESTS)
     set_tests_properties(CLI.HelpShowsProcessOnlyCommand PROPERTIES
         LABELS "unit;cli"
         PASS_REGULAR_EXPRESSION "--process"
+    )
+
+    add_test(
+        NAME CLI.HelpShowsPluginsSubcommand
+        COMMAND $<TARGET_FILE:orc-cli> --help
+    )
+    set_tests_properties(CLI.HelpShowsPluginsSubcommand PROPERTIES
+        LABELS "unit;cli"
+        PASS_REGULAR_EXPRESSION "plugins"
+    )
+
+    add_test(
+        NAME CLI.HelpShowsSafeCorePluginsOption
+        COMMAND $<TARGET_FILE:orc-cli> --help
+    )
+    set_tests_properties(CLI.HelpShowsSafeCorePluginsOption PROPERTIES
+        LABELS "unit;cli"
+        PASS_REGULAR_EXPRESSION "--safe-core-plugins"
+    )
+
+    add_test(
+        NAME CLI.PluginsListWithSafeCorePluginsBeforeSubcommandSucceeds
+        COMMAND $<TARGET_FILE:orc-cli> plugins --safe-core-plugins list
+    )
+    set_tests_properties(CLI.PluginsListWithSafeCorePluginsBeforeSubcommandSucceeds PROPERTIES
+        LABELS "unit;cli"
+        PASS_REGULAR_EXPRESSION "Registry path:"
+        ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-safe-before;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-safe-before"
+    )
+
+    add_test(
+        NAME CLI.PluginsListWithSafeCorePluginsAfterSubcommandSucceeds
+        COMMAND $<TARGET_FILE:orc-cli> plugins list --safe-core-plugins
+    )
+    set_tests_properties(CLI.PluginsListWithSafeCorePluginsAfterSubcommandSucceeds PROPERTIES
+        LABELS "unit;cli"
+        PASS_REGULAR_EXPRESSION "Registry path:"
+        ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-safe-after;HOME=${CMAKE_CURRENT_BINARY_DIR}/test-home-safe-after"
+    )
+
+    add_test(
+        NAME CLI.PluginsListSucceeds
+        COMMAND $<TARGET_FILE:orc-cli> plugins list
+    )
+    set_tests_properties(CLI.PluginsListSucceeds PROPERTIES
+        LABELS "unit;cli"
+        PASS_REGULAR_EXPRESSION "Registry path:"
+    )
+
+    add_test(
+        NAME CLI.PluginsAddMissingPathFails
+        COMMAND $<TARGET_FILE:orc-cli> plugins add
+    )
+    set_tests_properties(CLI.PluginsAddMissingPathFails PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
+    )
+
+    add_test(
+        NAME CLI.PluginsRemoveMissingIdFails
+        COMMAND $<TARGET_FILE:orc-cli> plugins remove
+    )
+    set_tests_properties(CLI.PluginsRemoveMissingIdFails PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
+    )
+
+    add_test(
+        NAME CLI.PluginsEnableMissingIdFails
+        COMMAND $<TARGET_FILE:orc-cli> plugins enable
+    )
+    set_tests_properties(CLI.PluginsEnableMissingIdFails PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
+    )
+
+    add_test(
+        NAME CLI.PluginsDisableMissingIdFails
+        COMMAND $<TARGET_FILE:orc-cli> plugins disable
+    )
+    set_tests_properties(CLI.PluginsDisableMissingIdFails PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
+    )
+
+    add_test(
+        NAME CLI.PluginsUnknownSubcommandFails
+        COMMAND $<TARGET_FILE:orc-cli> plugins frobnicate
+    )
+    set_tests_properties(CLI.PluginsUnknownSubcommandFails PROPERTIES
+        LABELS "unit;cli"
+        WILL_FAIL TRUE
     )
 
     add_test(

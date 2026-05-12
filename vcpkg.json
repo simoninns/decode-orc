@@ -13,6 +13,6 @@
     "pkgconf",
     "ffmpeg",
     "gtest",
-    "onnxruntime"
+    "curl"
   ]
 }

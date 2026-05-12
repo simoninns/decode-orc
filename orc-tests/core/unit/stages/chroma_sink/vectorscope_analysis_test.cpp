@@ -10,7 +10,7 @@
 #include <gtest/gtest.h>
 
 #include "../../../../orc/core/analysis/vectorscope/vectorscope_analysis.h"
-#include "../../../../orc/core/stages/chroma_sink/decoders/componentframe.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/componentframe.h"
 #include "../../../../orc/view-types/orc_preview_carriers.h"
 
 namespace orc_unit_test

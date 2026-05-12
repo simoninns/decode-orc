@@ -79,7 +79,9 @@ class TriggerableStage;
 
 namespace project_io {
     Project load_project(const std::string& filename);
+    Project load_project_from_yaml(const std::string& yaml_text, const std::string& filename_hint);
     void save_project(const Project& project, const std::string& filename);
+    std::string serialize_project_to_yaml(const Project& project, const std::string& filename_hint);
     Project create_empty_project(const std::string& project_name, VideoSystem video_format = VideoSystem::Unknown, SourceType source_format = SourceType::Unknown);
     void update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
     NodeID generate_unique_node_id(const Project& project);
@@ -131,12 +133,29 @@ struct ProjectDAGEdge {
     NodeID target_node_id;
 };
 
+struct ProjectPluginRequirement {
+    std::string plugin_id;
+    std::string plugin_version;
+    std::string source_repo_url;
+    std::string artifact_source = "local_path";
+    std::string release_asset_url;
+    std::string release_tag;
+    std::string release_asset_name;
+    std::string target_platform;
+    std::string local_dev_path;
+    std::string license_spdx;
+    bool is_core_plugin = false;
+    uint32_t required_host_abi = 0;
+    std::vector<std::string> stage_names;
+};
+
 /**
  * Project - encapsulates processing DAG
  * 
  * A project file (.orc-project) is a YAML file containing:
  * - Project metadata (name, description, version)
  * - DAG structure (nodes, edges, parameters)
+ * - Optional required_plugins metadata for third-party plugin-backed stages
  * - SOURCE nodes use TBCSourceStage with tbc_path in parameters
  * 
  * The project file format is shared between orc-gui and orc-cli.
@@ -178,6 +197,7 @@ public:
     SourceType get_source_format() const { return source_format_; }
     const std::vector<ProjectDAGNode>& get_nodes() const { return nodes_; }
     const std::vector<ProjectDAGEdge>& get_edges() const { return edges_; }
+    const std::vector<ProjectPluginRequirement>& get_required_plugins() const { return required_plugins_; }
     const std::string& get_project_root() const { return project_root_; }
     
     // Modification tracking
@@ -206,11 +226,14 @@ private:
     SourceType source_format_ = SourceType::Unknown;   // Composite or YC
     std::vector<ProjectDAGNode> nodes_;
     std::vector<ProjectDAGEdge> edges_;
+    std::vector<ProjectPluginRequirement> required_plugins_;
     mutable bool is_modified_ = false;
     
     // Grant project_io namespace functions access (declared below)
     friend Project project_io::load_project(const std::string& filename);
+    friend Project project_io::load_project_from_yaml(const std::string& yaml_text, const std::string& filename_hint);
     friend void project_io::save_project(const Project& project, const std::string& filename);
+    friend std::string project_io::serialize_project_to_yaml(const Project& project, const std::string& filename_hint);
     friend Project project_io::create_empty_project(const std::string& project_name, VideoSystem video_format, SourceType source_format);
     friend void project_io::update_project_dag(Project& project, const std::vector<ProjectDAGNode>& nodes, const std::vector<ProjectDAGEdge>& edges);
     friend NodeID project_io::generate_unique_node_id(const Project& project);

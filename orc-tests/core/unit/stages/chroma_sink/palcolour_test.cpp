@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../../../../orc/core/stages/chroma_sink/decoders/palcolour.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/palcolour.h"
 
 namespace orc_unit_test
 {

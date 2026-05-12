@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../../../../orc/core/stages/chroma_sink/decoders/monodecoder.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/monodecoder.h"
 
 namespace orc_unit_test
 {

@@ -34,6 +34,57 @@ enum class SourceType {
     Unknown
 };
 
+enum class PluginDiagnosticSeverity {
+    Info,
+    Warning,
+    Error
+};
+
+struct PluginDiagnosticInfo {
+    PluginDiagnosticSeverity severity = PluginDiagnosticSeverity::Info;
+    std::string path;
+    std::string message;
+};
+
+struct LoadedPluginInfo {
+    std::string path;
+    std::string plugin_id;
+    std::string plugin_version;
+    std::string license_spdx;
+    bool is_core_plugin = false;
+    std::vector<std::string> registered_stage_names;
+};
+
+struct PluginRegistryEntryInfo {
+    std::string plugin_id;
+    std::string plugin_version;
+    std::string path;
+    std::string source_repo_url;
+    std::string artifact_source = "local_path";
+    std::string release_asset_url;
+    std::string release_tag;
+    std::string release_asset_name;
+    std::string target_platform;
+    std::string local_dev_path;
+    bool enabled = true;
+    std::string trust_state = "untrusted";
+    std::string license_spdx;
+    bool is_core_plugin = false;
+    uint32_t required_host_abi = 0;
+    bool is_loaded = false;
+    bool path_exists = false;
+};
+
+struct PluginRegistryInfo {
+    std::string registry_path;
+    std::vector<PluginRegistryEntryInfo> entries;
+};
+
+struct PluginRegistryMutationResult {
+    bool success = false;
+    std::string error_message;
+};
+
 /**
  * @brief Information about a stage available in the registry
  */
@@ -41,9 +92,12 @@ struct StageInfo {
     std::string name;           ///< Internal stage name
     std::string display_name;   ///< User-friendly display name
     std::string description;    ///< Stage description
+    std::string category;       ///< Add Stage menu category label
     NodeType node_type;         ///< Type of node
     bool is_source;             ///< True if this is a source stage
     bool is_sink;               ///< True if this is a sink stage
+    bool is_runtime_plugin_stage = false;   ///< True if discovered from runtime plugin loading
+    std::string owning_plugin_id;           ///< Plugin id when known
 };
 
 /**

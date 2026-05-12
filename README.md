@@ -42,7 +42,20 @@ For comprehensive build instructions covering Nix, CMake, and platform-specific 
 
 **Quick reference:** Use `nix develop` for reproducible builds with all dependencies pre-configured, or follow the CMake/vcpkg instructions for system package manager setups.
 
-**Notable dependency:** The NN NTSC Chroma Sink stage requires **ONNX Runtime ≥ 1.23.2**. This is handled automatically by Nix (`nixpkgs-unstable`), Homebrew (`onnxruntime`), and vcpkg (`vcpkg.json`). For manual Linux builds without a package manager, see the [ONNX Runtime manual install](BUILD.md#onnx-runtime-manual-install-linux) section in BUILD.md.
+## Plugin Development
+
+Third-party plugins are external repositories and should follow the naming
+convention `orc-plugin_<stage-name>`.
+
+Canonical starter template repository:
+
+- `https://github.com/simoninns/orc-plugin_skeleton`
+
+Decode-Orc host integration consumes pre-compiled plugin artifacts from release
+assets (or a local pre-compiled path for development/testing).
+
+For in-repo simulated external-plugin workflow details, see
+`3rd-party-plugins/README.md`.
 
 # Using Agentic Coding AI
 

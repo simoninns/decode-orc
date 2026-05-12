@@ -18,6 +18,7 @@ enable_testing()
 # Build options
 option(BUILD_UNIT_TESTS "Build unit tests" ON)
 option(BUILD_GUI_TESTS "Build GUI unit tests" OFF)
+option(BUILD_INTEGRATION_TESTS "Build integration tests" OFF)
 
 # ---------------------------------------------------------------------------
 # EFM decoder dependencies
@@ -48,7 +49,7 @@ endif()
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)
 
-if(BUILD_UNIT_TESTS OR BUILD_GUI_TESTS)
+if(BUILD_UNIT_TESTS OR BUILD_GUI_TESTS OR BUILD_INTEGRATION_TESTS)
     # Add the unified test tree rooted at orc-tests/
     add_subdirectory(orc-tests)
 endif()
@@ -60,3 +61,17 @@ add_test(
     COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_mvp_architecture.sh
 )
 set_tests_properties(MVPArchitectureCheck PROPERTIES LABELS "mvp")
+
+# SDK-only enforcement gates: plugin code and build files must not use private host headers or link targets.
+# These gates are required and will FAIL the build if violations are detected.
+add_test(
+    NAME PluginPrivateIncludeScan
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_plugin_private_includes.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(PluginPrivateIncludeScan PROPERTIES LABELS "sdk")
+
+add_test(
+    NAME PluginPrivateLinkScan
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_plugin_private_links.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(PluginPrivateLinkScan PROPERTIES LABELS "sdk")

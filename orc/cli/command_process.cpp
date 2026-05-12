@@ -19,6 +19,76 @@ namespace fs = std::filesystem;
 namespace orc {
 namespace cli {
 
+namespace {
+
+std::string format_plugin_diagnostic_message(const orc::presenters::PluginDiagnosticInfo& diagnostic)
+{
+    if (diagnostic.path.empty()) {
+        return diagnostic.message;
+    }
+
+    return diagnostic.message + " [" + diagnostic.path + "]";
+}
+
+void log_plugin_runtime_state(const orc::presenters::ProjectPresenter& presenter)
+{
+    const auto search_paths = presenter.listPluginSearchPaths();
+    const auto registry = presenter.getPluginRegistry();
+
+    if (!registry.registry_path.empty()) {
+        ORC_LOG_DEBUG("Plugin registry path: {}", registry.registry_path);
+    }
+
+    if (!registry.entries.empty()) {
+        ORC_LOG_DEBUG("Configured {} plugin registry entr{}", registry.entries.size(), registry.entries.size() == 1 ? "y" : "ies");
+        for (const auto& entry : registry.entries) {
+            ORC_LOG_DEBUG(
+                "  registry entry '{}' enabled={} loaded={} exists={} path='{}'",
+                entry.plugin_id.empty() ? std::string("<unnamed>") : entry.plugin_id,
+                entry.enabled ? "true" : "false",
+                entry.is_loaded ? "true" : "false",
+                entry.path_exists ? "true" : "false",
+                entry.path);
+        }
+    }
+
+    if (!search_paths.empty()) {
+        ORC_LOG_DEBUG("Configured runtime stage plugin search paths: {}", search_paths.size());
+        for (const auto& path : search_paths) {
+            ORC_LOG_DEBUG("  plugin search path: {}", path);
+        }
+    }
+
+    const auto loaded_plugins = presenter.listLoadedPlugins();
+    if (!loaded_plugins.empty()) {
+        ORC_LOG_DEBUG("Loaded {} runtime stage plugin(s)", loaded_plugins.size());
+        for (const auto& plugin : loaded_plugins) {
+            ORC_LOG_DEBUG(
+                "  plugin '{}' version '{}' registered {} stage(s)",
+                plugin.plugin_id,
+                plugin.plugin_version,
+                plugin.registered_stage_names.size());
+        }
+    }
+
+    for (const auto& diagnostic : presenter.listPluginDiagnostics()) {
+        const std::string message = format_plugin_diagnostic_message(diagnostic);
+        switch (diagnostic.severity) {
+            case orc::presenters::PluginDiagnosticSeverity::Info:
+                ORC_LOG_DEBUG("Plugin runtime: {}", message);
+                break;
+            case orc::presenters::PluginDiagnosticSeverity::Warning:
+                ORC_LOG_WARN("Plugin runtime: {}", message);
+                break;
+            case orc::presenters::PluginDiagnosticSeverity::Error:
+                ORC_LOG_ERROR("Plugin runtime: {}", message);
+                break;
+        }
+    }
+}
+
+} // namespace
+
 int process_command(const ProcessOptions& options) {
     // Check if file exists
     if (!fs::exists(options.project_path)) {
@@ -39,6 +109,8 @@ int process_command(const ProcessOptions& options) {
         ORC_LOG_ERROR("Failed to load project: {}", e.what());
         return 1;
     }
+
+    log_plugin_runtime_state(presenter);
     
     ORC_LOG_INFO("Project loaded: {}", presenter.getProjectName());
     if (!presenter.getProjectDescription().empty()) {

@@ -5,6 +5,7 @@
 *.slo
 *.lo
 *.o
+*.o.tmp
 *.obj
 
 # Precompiled Headers
@@ -44,6 +45,11 @@
 build/
 */build/
 build-*/
+
+# Flatpak build directories
+flatpak-*/
+.flatpak-*/
+.flatpak-builder/
 
 # Local Windows build/dependency directories
 vcpkg/

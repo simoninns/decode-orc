@@ -11,7 +11,7 @@
 
 #include <cmath>
 
-#include "../../../../orc/core/stages/chroma_sink/decoders/comb.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/comb.h"
 
 namespace orc_unit_test
 {

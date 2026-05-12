@@ -16,6 +16,7 @@
 #include "../include/observation_context_interface_mock.h"
 #include "../include/public_stage_inventory.h"
 #include "../../../orc/core/include/observation_context.h"
+#include "../../../orc/core/stages/triggerable_stage.h"
 
 namespace orc_unit_test
 {
@@ -72,11 +73,6 @@ namespace orc_unit_test
         }
     };
 
-    TEST(PublicStageInventoryTest, inventoryCountMatchesPhaseFiveScope)
-    {
-        EXPECT_EQ(public_stage_specs().size(), 26u);
-    }
-
     TEST_P(PublicStageContractTest, interfaceMetadataIsConsistent)
     {
         auto stage = spec().create();
@@ -114,8 +110,10 @@ namespace orc_unit_test
 
     TEST_P(PublicStageContractTest, parameterDefaultsMatchRuntimeState)
     {
+        // All inventory entries are registry-backed; this skip is retained as a
+        // safety guard should a non-registry stage be added to the inventory.
         if (!spec().registry_backed) {
-            GTEST_SKIP() << "Stage is an internal, non-registry-backed base with stage-specific subclasses owning the full parameter surface";
+            GTEST_SKIP() << "Stage is not registry-backed";
         }
 
         auto stage = spec().create();

@@ -12,7 +12,7 @@
 #include <algorithm>
 
 #include "../../include/video_field_representation_mock.h"
-#include "../../../../orc/core/stages/stacker/stacker_stage.h"
+#include "../../../../orc/plugins/stages/stacker/stacker_stage.h"
 
 namespace orc_unit_test
 {

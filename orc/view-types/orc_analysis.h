@@ -28,6 +28,9 @@ struct AnalysisToolInfo {
     std::string category;                   ///< Category for organization
     int priority;                           ///< Menu ordering priority (lower = first)
     std::vector<std::string> applicable_stages; ///< Stage types this tool can analyze
+    std::string stage_tool_kind;            ///< Optional SDK tool kind (config_dialog, non_modal_editor, batch_analysis, preview_utility)
+    std::string stage_tool_contract;        ///< Optional SDK tool contract id for stable dispatch
+    bool stage_tool_non_modal = false;      ///< True when the tool is intended to open non-modally
 };
 
 /**

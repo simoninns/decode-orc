@@ -304,6 +304,33 @@ public:
     std::shared_ptr<void> instantiateStage(const std::string& stage_name) const override {
         return ProjectPresenter::createStageInstance(stage_name);
     }
+    std::vector<LoadedPluginInfo> listLoadedPlugins() const override {
+        return ProjectPresenter::getLoadedPlugins();
+    }
+    std::vector<PluginDiagnosticInfo> listPluginDiagnostics() const override {
+        return ProjectPresenter::getPluginDiagnostics();
+    }
+    std::vector<std::string> listPluginSearchPaths() const override {
+        return ProjectPresenter::getPluginSearchPaths();
+    }
+    PluginRegistryInfo getPluginRegistry() const override {
+        return ProjectPresenter::readPluginRegistry();
+    }
+    PluginRegistryMutationResult addPlugin(
+        const std::string& path,
+        const std::string& plugin_id,
+        const std::string& plugin_version,
+        const std::string& license_spdx,
+        bool is_core_plugin,
+        bool trusted) const override {
+        return ProjectPresenter::addPluginToRegistry(path, plugin_id, plugin_version, license_spdx, is_core_plugin, trusted);
+    }
+    PluginRegistryMutationResult removePlugin(const std::string& plugin_id) const override {
+        return ProjectPresenter::removePluginFromRegistry(plugin_id);
+    }
+    PluginRegistryMutationResult setPluginEnabled(const std::string& plugin_id, bool enabled) const override {
+        return ProjectPresenter::setPluginRegistryEntryEnabled(plugin_id, enabled);
+    }
     
     // === Stage Registry ===
     
@@ -325,6 +352,75 @@ public:
      * @return true if stage exists
      */
     static bool hasStage(const std::string& stage_name);
+
+    /**
+     * @brief Get runtime-loaded plugin metadata from the stage registry
+     */
+    static std::vector<LoadedPluginInfo> getLoadedPlugins();
+
+    /**
+     * @brief Get runtime plugin diagnostics from the stage registry
+     */
+    static std::vector<PluginDiagnosticInfo> getPluginDiagnostics();
+
+    /**
+     * @brief Get configured plugin search paths used by the stage registry
+     */
+    static std::vector<std::string> getPluginSearchPaths();
+
+    /**
+     * @brief Get persistent plugin registry metadata used during startup reconciliation
+     */
+    static PluginRegistryInfo readPluginRegistry();
+
+    /**
+     * @brief Add a plugin entry to the persistent registry
+     */
+    static PluginRegistryMutationResult addPluginToRegistry(
+        const std::string& path,
+        const std::string& plugin_id,
+        const std::string& plugin_version,
+        const std::string& license_spdx,
+        bool is_core_plugin,
+        bool trusted);
+
+    /**
+     * @brief Add a fully specified plugin registry entry
+     */
+    static PluginRegistryMutationResult addPluginRegistryEntry(
+        const PluginRegistryEntryInfo& entry_info);
+
+    /**
+     * @brief Add a remote plugin by resolving a GitHub releases URL
+     */
+    static PluginRegistryMutationResult addPluginFromReleasesUrl(
+        const std::string& releases_url);
+
+    /**
+     * @brief Remove a plugin entry from the persistent registry by plugin_id
+     */
+    static PluginRegistryMutationResult removePluginFromRegistry(const std::string& plugin_id);
+
+    /**
+     * @brief Remove a plugin entry from the persistent registry by identity fields
+     */
+    static PluginRegistryMutationResult removePluginRegistryEntry(
+        const std::string& plugin_id,
+        const std::string& path,
+        const std::string& release_asset_url);
+
+    /**
+     * @brief Enable or disable a plugin entry in the persistent registry
+     */
+    static PluginRegistryMutationResult setPluginRegistryEntryEnabled(const std::string& plugin_id, bool enabled);
+
+    /**
+     * @brief Clear persistent plugin registry entries for safe startup mode
+     *
+     * This resets the user plugin registry to an empty set so the runtime loads
+     * only core plugins discovered from build/install default plugin paths.
+     */
+    static PluginRegistryMutationResult clearPluginRegistryForSafeMode();
     
     /**
      * @brief Get stage instance for inspection (from DAG if available, else fresh)

@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../../../../orc/core/stages/chroma_sink/decoders/sourcefield.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/sourcefield.h"
 
 namespace orc_unit_test
 {

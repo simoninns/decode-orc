@@ -13,8 +13,6 @@
 #include <string>
 
 #include "../include/public_stage_inventory.h"
-#include "../../../orc/core/stages/chroma_sink/ffmpeg_video_sink_stage.h"
-#include "../../../orc/core/stages/chroma_sink/raw_video_sink_stage.h"
 #include "../../../orc/core/include/project.h"
 #include "../../../orc/core/include/project_to_dag.h"
 

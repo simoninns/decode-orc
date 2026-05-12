@@ -7,10 +7,8 @@
  * SPDX-FileCopyrightText: 2026 Matt Ownby
  */
 
-#include "../../factories_interface_mock.h"
 #include "../../include/video_field_representation_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../stage_factories_interface_mock.h"
 #include <gtest/gtest.h>
 #include "daphne_vbi_sink_stage.h"
 #include "daphne_vbi_sink_stage_deps_interface_mock.h"
@@ -32,12 +30,8 @@ namespace orc_unit_test
         {
             pMockDeps_ = std::make_shared<StrictMock<MockDaphneVBISinkStageDeps>>();
             pMockRepresentation_ = std::make_shared<StrictMock<MockVideoFieldRepresentation>>();
-            pMockFactories_ = std::make_shared<MockFactories>();
 
-            EXPECT_CALL(*pMockFactories_, get_instance_stage_factories())
-                .WillRepeatedly(ReturnRef(mockStageFactories_));
-
-            instance_ = std::make_unique<orc::DaphneVBISinkStage>(pMockFactories_);
+            instance_ = std::make_unique<orc::DaphneVBISinkStage>(static_cast<orc::IStageServices*>(nullptr));
         }
 
         void TearDown() override
@@ -51,8 +45,6 @@ namespace orc_unit_test
             return {std::static_pointer_cast<orc::Artifact>(pMockRepresentation_)};
         }
 
-        std::shared_ptr<MockFactories> pMockFactories_;
-        StrictMock<MockStageFactories> mockStageFactories_;
         std::shared_ptr<StrictMock<MockDaphneVBISinkStageDeps>> pMockDeps_;
         std::shared_ptr<StrictMock<MockVideoFieldRepresentation>> pMockRepresentation_;
         MockObservationContext mockObservationContext;
@@ -114,9 +106,8 @@ namespace orc_unit_test
         };
         const std::vector<orc::ArtifactPtr> inputs = make_valid_input();
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceDaphneVBISinkStageDeps(_, _, _))
-            .Times(1)
-            .WillOnce(Return(pMockDeps_));
+        // Inject mock deps via seam instead of factory mock.
+        instance_->set_deps_override(pMockDeps_);
 
         // Ref needed here so gMock doesn't try to do the wrong thing
         EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", testing::Ref(mockObservationContext)))
@@ -141,9 +132,8 @@ namespace orc_unit_test
         };
         const std::vector<orc::ArtifactPtr> inputs = make_valid_input();
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceDaphneVBISinkStageDeps(_, _, _))
-            .Times(1)
-            .WillOnce(Return(pMockDeps_));
+        // Inject mock deps via seam instead of factory mock.
+        instance_->set_deps_override(pMockDeps_);
 
         // Ref needed here so gMock doesn't try to do the wrong thing
         EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path", Ref(mockObservationContext)))

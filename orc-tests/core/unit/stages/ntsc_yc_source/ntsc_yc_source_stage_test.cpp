@@ -9,48 +9,46 @@
  */
 
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
 #include <algorithm>
 
-#include "../../../../orc/core/stages/ntsc_yc_source/ntsc_yc_source_stage.h"
+#include "../../include/video_field_representation_mock.h"
+#include "../source_common/source_stage_descriptor_test_utils.h"
+#include "../../../../orc/plugins/stages/ntsc_yc_source/ntsc_yc_source_stage.h"
 #include "../../../../orc/core/include/observation_context.h"
+#include "../../../../../orc/common/include/error_types.h"
+
+using testing::_;
+using testing::NiceMock;
+using testing::Return;
+using testing::StrictMock;
 
 namespace orc_unit_test
 {
-    // =========================================================================
-    // Stage interface invariants
-    // =========================================================================
-
-    TEST(NTSCYCSourceStageTest, requiredInputCount_isZero)
+    class MockNTSCYCSourceLoader : public orc::INTSCYCSourceLoader
     {
-        orc::NTSCYCSourceStage stage;
-        EXPECT_EQ(stage.required_input_count(), 0u);
-    }
+    public:
+        MOCK_METHOD(
+            std::shared_ptr<orc::VideoFieldRepresentation>,
+            load,
+            (const std::string& y_path,
+             const std::string& c_path,
+             const std::string& db_path,
+             const std::string& pcm_path,
+             const std::string& efm_path,
+             const std::string& ac3rf_path),
+            (const, override));
+    };
 
-    TEST(NTSCYCSourceStageTest, outputCount_isOne)
+    orc::SourceParameters make_ntsc_yc_source_parameters(orc::VideoSystem system)
     {
-        orc::NTSCYCSourceStage stage;
-        EXPECT_EQ(stage.output_count(), 1u);
-    }
-
-    TEST(NTSCYCSourceStageTest, nodeTypeInfo_hasSourceType)
-    {
-        orc::NTSCYCSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.type, orc::NodeType::SOURCE);
-    }
-
-    TEST(NTSCYCSourceStageTest, nodeTypeInfo_hasExpectedStageName)
-    {
-        orc::NTSCYCSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.stage_name, "NTSC_YC_Source");
-    }
-
-    TEST(NTSCYCSourceStageTest, nodeTypeInfo_formatCompatibilityIsNtscOnly)
-    {
-        orc::NTSCYCSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.compatible_formats, orc::VideoFormatCompatibility::NTSC_ONLY);
+        orc::SourceParameters params;
+        params.system = system;
+        params.decoder = "ld-decode";
+        params.field_width = 910;
+        params.field_height = 263;
+        params.number_of_sequential_fields = 1200;
+        return params;
     }
 
     // =========================================================================
@@ -61,65 +59,35 @@ namespace orc_unit_test
     {
         orc::NTSCYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "y_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".tbcy");
+        expect_file_path_descriptor(descriptors, "y_path", ".tbcy");
     }
 
     TEST(NTSCYCSourceStageTest, parameterDescriptors_containsCPath)
     {
         orc::NTSCYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "c_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".tbcc");
+        expect_file_path_descriptor(descriptors, "c_path", ".tbcc");
     }
 
     TEST(NTSCYCSourceStageTest, parameterDescriptors_containsDbPath)
     {
         orc::NTSCYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "db_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".db");
+        expect_file_path_descriptor(descriptors, "db_path", ".db");
     }
 
     TEST(NTSCYCSourceStageTest, parameterDescriptors_containsPcmPath)
     {
         orc::NTSCYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "pcm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".pcm");
+        expect_file_path_descriptor(descriptors, "pcm_path", ".pcm");
     }
 
     TEST(NTSCYCSourceStageTest, parameterDescriptors_containsEfmPath)
     {
         orc::NTSCYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "efm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".efm");
+        expect_file_path_descriptor(descriptors, "efm_path", ".efm");
     }
 
     TEST(NTSCYCSourceStageTest, descriptorDefaults_allPathsAreEmptyString)
@@ -141,11 +109,7 @@ namespace orc_unit_test
     {
         orc::NTSCYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        for (const auto& desc : descriptors) {
-            EXPECT_FALSE(desc.constraints.required)
-                << "Parameter '" << desc.name << "' should be optional";
-        }
+        expect_all_descriptors_optional(descriptors);
     }
 
     // =========================================================================
@@ -276,6 +240,60 @@ namespace orc_unit_test
         const auto outputs = stage.execute({}, {{"y_path", std::string("y.tbcy")}}, observation_context);
 
         EXPECT_TRUE(outputs.empty());
+    }
+
+    TEST(NTSCYCSourceStageTest, execute_loadsNtscRepresentationThroughInjectedLoader)
+    {
+        auto loader = std::make_shared<StrictMock<MockNTSCYCSourceLoader>>();
+        auto representation = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+        orc::ObservationContext observation_context;
+        orc::NTSCYCSourceStage stage(loader);
+
+        EXPECT_CALL(*representation, get_video_parameters())
+            .Times(1)
+            .WillOnce(Return(make_ntsc_yc_source_parameters(orc::VideoSystem::NTSC)));
+
+        EXPECT_CALL(*loader, load("/tmp/source.tbcy", "/tmp/source.tbcc", "/tmp/source.tbcy.db", "", "", ""))
+            .Times(1)
+            .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
+
+        const auto outputs = stage.execute(
+            {},
+            {
+                {"y_path", std::string("/tmp/source.tbcy")},
+                {"c_path", std::string("/tmp/source.tbcc")}
+            },
+            observation_context);
+
+        ASSERT_EQ(outputs.size(), 1u);
+        EXPECT_EQ(outputs.front(), std::static_pointer_cast<orc::Artifact>(representation));
+        EXPECT_TRUE(stage.supports_preview());
+    }
+
+    TEST(NTSCYCSourceStageTest, execute_throwsWhenLoadedMetadataIsNotNtsc)
+    {
+        auto loader = std::make_shared<StrictMock<MockNTSCYCSourceLoader>>();
+        auto representation = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+        orc::ObservationContext observation_context;
+        orc::NTSCYCSourceStage stage(loader);
+
+        EXPECT_CALL(*representation, get_video_parameters())
+            .Times(1)
+            .WillOnce(Return(make_ntsc_yc_source_parameters(orc::VideoSystem::PAL)));
+
+        EXPECT_CALL(*loader, load(_, _, _, _, _, _))
+            .Times(1)
+            .WillOnce(Return(std::static_pointer_cast<orc::VideoFieldRepresentation>(representation)));
+
+        EXPECT_THROW(
+            stage.execute(
+                {},
+                {
+                    {"y_path", std::string("/tmp/source.tbcy")},
+                    {"c_path", std::string("/tmp/source.tbcc")}
+                },
+                observation_context),
+            orc::UserDataError);
     }
 
 } // namespace orc_unit_test

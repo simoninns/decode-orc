@@ -14,12 +14,25 @@
 
 #include "../../include/video_field_representation_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../../../orc/core/stages/raw_efm_sink/efm_sink_stage.h"
+#include "../../../../orc/plugins/stages/raw_efm_sink/efm_sink_stage.h"
+#include "../../../../orc/plugins/stages/raw_efm_sink/efm_sink_stage_deps_interface.h"
 
 namespace orc_unit_test
 {
     using testing::NiceMock;
     using testing::Return;
+    using testing::StrictMock;
+
+    class MockRawEFMSinkStageDeps : public orc::IRawEFMSinkStageDeps
+    {
+    public:
+        MOCK_METHOD(void, init, (orc::TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested), (override));
+        MOCK_METHOD(
+            orc::RawEFMSinkWriteResult,
+            write_raw_efm,
+            (const orc::VideoFieldRepresentation* representation, const std::string& output_path),
+            (override));
+    };
 
     TEST(RawEFMSinkStageTest, descriptorDefaults_outputPathIsEmptyEfm)
     {
@@ -78,4 +91,45 @@ namespace orc_unit_test
         EXPECT_EQ(stage.get_trigger_status(), "Error: output_path parameter is required");
         EXPECT_FALSE(stage.is_trigger_in_progress());
     }
+
+    TEST(RawEFMSinkStageTest, triggerUsesDepsSeam_andReportsSuccess)
+    {
+        orc::RawEFMSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockRawEFMSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        MockObservationContext observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*vfr, has_efm()).WillOnce(Return(true));
+        EXPECT_CALL(*deps, write_raw_efm(vfr.get(), "out.efm"))
+            .WillOnce(Return(orc::RawEFMSinkWriteResult{true, 1337, "Success: 1337 t-values written"}));
+
+        const bool result = stage.trigger({vfr}, {{"output_path", std::string("out.efm")}}, observation_context);
+
+        EXPECT_TRUE(result);
+        EXPECT_EQ(stage.get_trigger_status(), "Success: 1337 t-values written");
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+    }
+
+    TEST(RawEFMSinkStageTest, triggerUsesDepsSeam_andPropagatesFailure)
+    {
+        orc::RawEFMSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockRawEFMSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        MockObservationContext observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*vfr, has_efm()).WillOnce(Return(true));
+        EXPECT_CALL(*deps, write_raw_efm(vfr.get(), "out.efm"))
+            .WillOnce(Return(orc::RawEFMSinkWriteResult{false, 0, "Cancelled by user"}));
+
+        const bool result = stage.trigger({vfr}, {{"output_path", std::string("out.efm")}}, observation_context);
+
+        EXPECT_FALSE(result);
+        EXPECT_EQ(stage.get_trigger_status(), "Cancelled by user");
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+    }
 }
+

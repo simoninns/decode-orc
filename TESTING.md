@@ -141,6 +141,21 @@ make
 ctest
 ```
 
+### How to run integration tests
+
+Integration tests are compiled only when explicitly enabled.
+
+```bash
+# Configure with integration tests enabled
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON
+
+# Build
+cmake --build build -j
+
+# Run only integration tests
+ctest --test-dir build -L integration --output-on-failure
+```
+
 ### Test labels and standard invocations
 
 For required stage-level definition-of-done criteria (new stages and stage behavior changes), see [docs/stage-test-expectations.md](docs/stage-test-expectations.md).
@@ -148,7 +163,11 @@ For required stage-level definition-of-done criteria (new stages and stage behav
 CTest labels are used to keep the suite easy to slice during development and in CI.
 
 - `unit`: All GoogleTest-based core unit tests. This is the fast, default label for test-driven iteration.
+- `integration`: Integration suites compiled with `BUILD_INTEGRATION_TESTS=ON`.
 - `mvp`: The architecture boundary check only (`MVPArchitectureCheck`).
+- `phasec`: Phase C SDK-only migration soft gates (for example `PluginPrivateIncludeScan`).
+	This currently includes `PluginPrivateIncludeScan` and `PluginPrivateLinkScan`.
+	`PluginPrivateIncludeScan` now scans plugin code recursively (headers + implementation/helper files, excluding test/build trees).
 - `sources`: Source-stage unit tests.
 - `transforms`: Transform-stage unit tests.
 - `sinks`: Sink-stage unit tests, including the existing chroma and Daphne baselines.
@@ -160,8 +179,18 @@ Standard invocations:
 # All unit tests (fast path during development)
 ctest -L unit --output-on-failure
 
+# Integration tests (explicitly enabled build only)
+ctest -L integration --output-on-failure
+
 # MVP architecture check only
 ctest -L mvp --output-on-failure
+
+# Phase C SDK-only migration soft gates
+ctest -L phasec --output-on-failure
+
+# Direct convenience build targets
+cmake --build build --target check-plugin-private-includes
+cmake --build build --target check-plugin-private-links
 
 # Everything (matches the CI expectation)
 ctest --output-on-failure
@@ -175,6 +204,11 @@ ctest -L unit -L contracts --output-on-failure
 # Focus on a single stage family test name while keeping the unit label filter
 ctest -L unit -R SourceAlign --output-on-failure
 ```
+
+Unit/integration boundary guard:
+
+- Configure fails if any `*_integration_test.cpp` file exists under `orc-tests/core/unit/` or `orc-tests/gui/unit/`.
+- Move those tests under an integration subtree (for example `orc-tests/core/integration/`).
 
 Label assignment rules:
 
@@ -252,3 +286,36 @@ ctest --test-dir build -R MVPArchitectureCheck --output-on-failure
 - Presenter-boundary mocking used.
 - MVP architecture check passes.
 - Any intentional skips documented in test body with rationale.
+
+## CI Gate Slices
+
+The CI pipeline is split into a fast required gate and a slower quality sweep.
+
+- Fast required gate workflow: [.github/workflows/build-and-test.yml](.github/workflows/build-and-test.yml)
+	- Runs `unit`, `mvp`, and SDK private-gate checks.
+	- Uses `ctest --parallel` tuned to runner CPU count.
+	- Enforces unit performance budget through [cmake/check_ctest_budget.py](cmake/check_ctest_budget.py).
+- Slow quality workflow: [.github/workflows/slow-quality-gates.yml](.github/workflows/slow-quality-gates.yml)
+	- Runs broader `integration`, `gui`, and `contracts` sweeps.
+	- Emits timing summaries and regression alerts.
+
+Reference invocations (local equivalent):
+
+```bash
+# Fast required gate equivalent
+QT_QPA_PLATFORM=offscreen ctest --test-dir build -L unit --parallel "$(nproc)" --output-on-failure --output-junit build/ctest-results-unit.xml
+ctest --test-dir build -L mvp --parallel "$(nproc)" --output-on-failure --output-junit build/ctest-results-mvp.xml
+ctest --test-dir build -L sdk -R 'PluginPrivate' --parallel "$(nproc)" --output-on-failure --output-junit build/ctest-results-sdk.xml
+
+# Performance budget check (fast gate)
+python3 cmake/check_ctest_budget.py \
+--input build/ctest-results-unit.xml \
+--max-wall-seconds 30.0 \
+--min-pass-rate 99.5 \
+--max-p95-seconds 0.085
+
+# Slow quality sweep equivalent
+ctest --test-dir build -L integration --parallel "$(nproc)" --output-on-failure
+QT_QPA_PLATFORM=offscreen ctest --test-dir build -L gui --parallel "$(nproc)" --output-on-failure
+ctest --test-dir build -L contracts --parallel "$(nproc)" --output-on-failure
+```

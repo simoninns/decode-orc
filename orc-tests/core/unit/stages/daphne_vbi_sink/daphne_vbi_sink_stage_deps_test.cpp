@@ -10,11 +10,9 @@
 #include "../../include/file_io_interface_mock.h"
 #include "../../include/observation_context_interface_mock.h"
 #include "../../include/video_field_representation_mock.h"
-#include "../../factories_interface_mock.h"
-#include "../../stages/stage_factories_interface_mock.h"
+#include "../../stage_services_mock.h"
 #include <gtest/gtest.h>
 #include "daphne_vbi_sink_stage_deps.h"
-#include "daphne_vbi_writer_util_interface_mock.h"
 
 using testing::_;
 using testing::Return;
@@ -30,11 +28,9 @@ namespace orc_unit_test
     public:
         void SetUp() override
         {
-            pMockFileWriterUint8_ = std::make_shared<StrictMock<MockFileWriter<uint8_t>>>();
+            pMockFileWriterUint8_ = std::make_shared<StrictMock<MockFileWriterUint8>>();
 
-            pMockVBIWriterUtil_ = std::make_shared<MockDaphneVBIWriterUtil>();
-            pMockFileWriterUint8_ = std::make_shared<MockFileWriter<uint8_t>>();
-            instance_ = std::make_unique<orc::DaphneVBISinkStageDeps>(mockFactories_, mockStageFactories_);
+            instance_ = std::make_unique<orc::DaphneVBISinkStageDeps>(&mockStageServices_);
             instance_->init({}, &isProcessing_, &cancelRequested_);
 
             cancelRequested_.store(false);
@@ -47,10 +43,8 @@ namespace orc_unit_test
         }
 
     protected:
-        MockFactories mockFactories_;
-        MockStageFactories mockStageFactories_;
-        std::shared_ptr<MockFileWriter<uint8_t>> pMockFileWriterUint8_; // must be shared_ptr because at least one mocked method will return a shared_ptr of this mock
-        std::shared_ptr<MockDaphneVBIWriterUtil> pMockVBIWriterUtil_;   // must be shared_ptr because instance class requires such
+        MockStageServices mockStageServices_;
+        std::shared_ptr<StrictMock<MockFileWriterUint8>> pMockFileWriterUint8_;
         MockObservationContext mockObservationContext_;
 
         StrictMock<MockVideoFieldRepresentation> mockRepresentation_;
@@ -68,20 +62,17 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
 
-        EXPECT_CALL(mockFactories_, create_instance_buffered_file_writer_uint8(1 * 1024 * 1024))
+        EXPECT_CALL(mockStageServices_, create_buffered_file_writer_uint8(1 * 1024 * 1024))
             .Times(1)
             .WillOnce(Return(pMockFileWriterUint8_));
 
-        EXPECT_CALL(*pMockFileWriterUint8_, open("out_path.vbi", _))
+        EXPECT_CALL(*pMockFileWriterUint8_, open("out_path.vbi"))
             .Times(1)
             .WillOnce(Return(true));
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceDaphneVBIWriterUtil(Ref(*pMockFileWriterUint8_)))
-            .Times(1)
-            .WillOnce(Return(pMockVBIWriterUtil_));
+        EXPECT_CALL(*pMockFileWriterUint8_, write(testing::A<const std::vector<uint8_t>&>()))
+            .Times(testing::AtLeast(1));
 
-        EXPECT_CALL(*pMockVBIWriterUtil_, write_header())
-            .Times(1);
         EXPECT_CALL(*pMockFileWriterUint8_, close())
             .Times(1);
 
@@ -96,15 +87,13 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
 
-        EXPECT_CALL(mockFactories_, create_instance_buffered_file_writer_uint8(1 * 1024 * 1024))
+        EXPECT_CALL(mockStageServices_, create_buffered_file_writer_uint8(1 * 1024 * 1024))
             .Times(1)
             .WillOnce(Return(pMockFileWriterUint8_));
 
-        EXPECT_CALL(*pMockFileWriterUint8_, open("out_path.vbi", _))
+        EXPECT_CALL(*pMockFileWriterUint8_, open("out_path.vbi"))
             .Times(1)
             .WillOnce(Return(false));
-
-        EXPECT_CALL(*pMockVBIWriterUtil_, write_header()).Times(0);
 
         const bool result = instance_->write_vbi(&mockRepresentation_, "out_path", mockObservationContext_);
 
@@ -121,22 +110,17 @@ namespace orc_unit_test
             .Times(1)
             .WillOnce(Return(true));
 
-        EXPECT_CALL(mockFactories_, create_instance_buffered_file_writer_uint8(1 * 1024 * 1024))
+        EXPECT_CALL(mockStageServices_, create_buffered_file_writer_uint8(1 * 1024 * 1024))
             .Times(1)
             .WillOnce(Return(pMockFileWriterUint8_));
 
-        EXPECT_CALL(*pMockFileWriterUint8_, open("cancel_path.vbi", _))
+        EXPECT_CALL(*pMockFileWriterUint8_, open("cancel_path.vbi"))
             .Times(1)
             .WillOnce(Return(true));
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceDaphneVBIWriterUtil(Ref(*pMockFileWriterUint8_)))
-            .Times(1)
-            .WillOnce(Return(pMockVBIWriterUtil_));
+        EXPECT_CALL(*pMockFileWriterUint8_, write(testing::A<const std::vector<uint8_t>&>()))
+            .Times(testing::AtLeast(1));
 
-        EXPECT_CALL(*pMockVBIWriterUtil_, write_header())
-            .Times(1);
-        EXPECT_CALL(*pMockVBIWriterUtil_, write_observations(_, _))
-            .Times(0);
         EXPECT_CALL(*pMockFileWriterUint8_, close())
             .Times(1);
 

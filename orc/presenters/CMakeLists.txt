@@ -46,7 +46,6 @@ target_include_directories(orc-presenters
         # Core headers are private - only presenters can see them
         ${CMAKE_SOURCE_DIR}/orc/core/include
         ${CMAKE_SOURCE_DIR}/orc/core/analysis
-        ${CMAKE_SOURCE_DIR}/orc/core/stages/ld_sink
         ${CMAKE_SOURCE_DIR}/orc/view-types
 )
 
@@ -60,6 +59,14 @@ target_link_libraries(orc-presenters
     PUBLIC
         orc-view-types  # Shared presentation layer types
         orc-common      # Common types
+        # These stage plugins are consumed directly by presenter code.
+        # Because orc-presenters is a static library, its downstream
+        # executables must inherit these dependencies for final linking,
+        # especially on Windows/MSVC.
+        orc-stage-plugin-dropout-map
+        orc-stage-plugin-dropout-analysis-sink
+        orc-stage-plugin-snr-analysis-sink
+        orc-stage-plugin-burst-level-analysis-sink
     PRIVATE
         orc-core    # Core implementation hidden from GUI/CLI
 )

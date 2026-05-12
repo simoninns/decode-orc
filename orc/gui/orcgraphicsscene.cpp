@@ -23,12 +23,10 @@
 #include <QTimer>
 #include <algorithm>
 #include <map>
+#include <vector>
 
 using orc::NodeID;
-using orc::get_all_node_types;
 using orc::is_stage_compatible_with_format;
-using orc::get_node_type_info;
-using orc::NodeTypeInfo;
 using orc::VideoSystem;
 using orc::SourceType;
 using orc::NodeType;
@@ -124,13 +122,13 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
 
     QMenu* menu = new QMenu(views().isEmpty() ? nullptr : views().first());
     
-    // Add Node submenu
-    QMenu* add_node_menu = menu->addMenu("Add Node");
+    // Add Stage submenu
+    QMenu* add_node_menu = menu->addMenu("Add Stage");
     
     {
-        const auto& all_types = get_all_node_types();
         auto project_format_enum = graph_model_.presenter().getVideoFormat();
         auto project_source_enum = graph_model_.presenter().getSourceType();
+        auto stages = graph_model_.presenter().listAvailableStagesForFormat(project_format_enum);
         
         // Convert presenter enums to core enums
         VideoSystem project_format = (project_format_enum == orc::presenters::VideoFormat::NTSC) 
@@ -140,52 +138,52 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
             ? SourceType::Composite : (project_source_enum == orc::presenters::SourceType::YC)
             ? SourceType::YC : SourceType::Unknown;
         
-        // Organize stages by type
-        std::vector<const NodeTypeInfo*> source_stages;
-        std::vector<const NodeTypeInfo*> transform_stages;
-        std::map<orc::SinkCategory, std::vector<const NodeTypeInfo*>> sink_stages_by_category;
-        
-        for (const auto& type_info : all_types) {
-            // Filter stages by video format compatibility
-            if (!is_stage_compatible_with_format(type_info.stage_name, project_format)) {
+        // Organize stages by plugin-provided category labels.
+        std::map<std::string, std::vector<orc::presenters::StageInfo>> stages_by_category;
+
+        for (const auto& stage : stages) {
+            if (!is_stage_compatible_with_format(stage.name, project_format)) {
                 continue;
             }
-            
-            // Categorize by NodeType
-            switch (type_info.type) {
+
+            switch (stage.node_type) {
                 case NodeType::SOURCE: {
-                    // Filter source stages by source type if project has a specified source format
+                    // Filter source stages by source type when the project source is constrained.
                     if (project_source_type != SourceType::Unknown) {
-                        bool is_yc_stage = (type_info.stage_name.find("YC") != std::string::npos);
+                        bool is_yc_stage = (stage.name.find("YC") != std::string::npos);
                         SourceType stage_type = is_yc_stage ? SourceType::YC : SourceType::Composite;
-                        
-                        // Only include source stages that match project's source type
+
                         if (stage_type != project_source_type) {
                             continue;
                         }
                     }
-                    source_stages.push_back(&type_info);
                     break;
                 }
                 case NodeType::TRANSFORM:
                 case NodeType::MERGER:
                 case NodeType::COMPLEX:
-                    transform_stages.push_back(&type_info);
-                    break;
                 case NodeType::SINK:
                 case NodeType::ANALYSIS_SINK:
-                    sink_stages_by_category[type_info.sink_category].push_back(&type_info);
                     break;
             }
+
+            stages_by_category[stage.category].push_back(stage);
         }
-        
-        // Helper lambda to add stages to a menu
-        auto add_stages_to_menu = [this, scenePos](QMenu* parent_menu, const std::vector<const NodeTypeInfo*>& stages) {
-            for (const auto* type_info : stages) {
-                QString display_name = QString::fromStdString(type_info->display_name);
-                QString tooltip = QString::fromStdString(type_info->description);
+
+        auto add_stages_to_menu = [this, scenePos](QMenu* parent_menu, const std::vector<orc::presenters::StageInfo>& category_stages) {
+            std::vector<orc::presenters::StageInfo> sorted_stages = category_stages;
+            std::sort(
+                sorted_stages.begin(),
+                sorted_stages.end(),
+                [](const orc::presenters::StageInfo& lhs, const orc::presenters::StageInfo& rhs) {
+                    return lhs.display_name < rhs.display_name;
+                });
+
+            for (const auto& stage : sorted_stages) {
+                QString display_name = QString::fromStdString(stage.display_name);
+                QString tooltip = QString::fromStdString(stage.description);
                 
-                auto* action = parent_menu->addAction(display_name, [this, scenePos, stage_name = type_info->stage_name]() {
+                auto* action = parent_menu->addAction(display_name, [this, scenePos, stage_name = stage.name]() {
                     // Defer graph mutation until after popup menu processing completes
                     // to avoid re-entrant scene/model updates during mouse event handling.
                     QTimer::singleShot(0, this, [this, scenePos, stage_name]() {
@@ -198,33 +196,14 @@ QMenu* OrcGraphicsScene::createSceneMenu(QPointF const scenePos)
                 action->setToolTip(tooltip);
             }
         };
-        
-        // Add Source submenu
-        if (!source_stages.empty()) {
-            QMenu* source_menu = add_node_menu->addMenu("Source");
-            add_stages_to_menu(source_menu, source_stages);
-        }
-        
-        // Add Transform submenu
-        if (!transform_stages.empty()) {
-            QMenu* transform_menu = add_node_menu->addMenu("Transform");
-            add_stages_to_menu(transform_menu, transform_stages);
-        }
-        
-        const std::vector<std::pair<orc::SinkCategory, const char*>> sink_menu_specs = {
-            {orc::SinkCategory::CORE, "Sink (Core)"},
-            {orc::SinkCategory::ANALYSIS, "Sink (Analysis)"},
-            {orc::SinkCategory::THIRD_PARTY, "Sink (3rd party)"}
-        };
 
-        for (const auto& [category, menu_title] : sink_menu_specs) {
-            auto it = sink_stages_by_category.find(category);
-            if (it == sink_stages_by_category.end() || it->second.empty()) {
+        for (const auto& [category, category_stages] : stages_by_category) {
+            if (category_stages.empty()) {
                 continue;
             }
 
-            QMenu* sink_menu = add_node_menu->addMenu(menu_title);
-            add_stages_to_menu(sink_menu, it->second);
+            QMenu* category_menu = add_node_menu->addMenu(QString::fromStdString(category));
+            add_stages_to_menu(category_menu, category_stages);
         }
     }
     

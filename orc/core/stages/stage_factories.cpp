@@ -11,30 +11,22 @@
 
 #include "stage_factories.h"
 
-#include "daphne_vbi_sink_stage_deps.h"
-#include "daphne_vbi_writer_util.h"
-#include "ld_sink_stage_deps.h"
-#include "tbc_metadata_writer.h"
-
 namespace orc
 {
 
     std::shared_ptr<IDaphneVBISinkStageDeps> StageFactories::CreateInstanceDaphneVBISinkStageDeps(TriggerProgressCallback &progress_callback, std::atomic<bool> &is_processing, std::atomic<bool> &cancel_requested)
     {
-        // We follow the Dependency Inversion pattern by giving our IDaphneVBISinkStageDeps instance all of its dependencies here, rather
-        //   than making the caller have to know where to get them.
-        // We use shared_ptr instead of just passing normal pointers so that we don't have to manage the memory for these created objects.
-        auto instance = std::make_shared<DaphneVBISinkStageDeps>(factories_, *this);
-        instance->init(progress_callback, &is_processing, &cancel_requested);
-        return instance;
+        (void)progress_callback;
+        (void)is_processing;
+        (void)cancel_requested;
+        return nullptr;
     }
 
     std::shared_ptr<IDaphneVBIWriterUtil> StageFactories::CreateInstanceDaphneVBIWriterUtil(
 	    IFileWriter<uint8_t>& writer)
     {
-    	auto instanceWriterUtil = std::make_shared<DaphneVBIWriterUtil>();
-    	instanceWriterUtil->init(&writer);
-    	return instanceWriterUtil;
+	    (void)writer;
+	    return nullptr;
     }
 
     std::shared_ptr<ILDSinkStageDeps> StageFactories::CreateInstanceLDSinkStageDeps(
@@ -42,9 +34,9 @@ namespace orc
         std::atomic<bool>& is_processing,
         std::atomic<bool>& cancel_requested)
     {
-        auto metadata_writer = std::make_shared<TBCMetadataWriter>();
-        auto instance = std::make_shared<LDSinkStageDeps>(factories_, metadata_writer);
-        instance->init(progress_callback, &is_processing, &cancel_requested);
-        return instance;
+        (void)progress_callback;
+        (void)is_processing;
+        (void)cancel_requested;
+        return nullptr;
     }
 } // orc

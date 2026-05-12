@@ -130,7 +130,11 @@ set(ORC_GUI_LIB_SOURCES
     # Quality metrics dialog
     qualitymetricsdialog.cpp
     qualitymetricsdialog.h
-    
+
+    # Plugin manager dialog
+    pluginmanagerdialog.cpp
+    pluginmanagerdialog.h
+
     # Resources
     orc_gui_resources.qrc
 )
@@ -140,6 +144,12 @@ add_library(orc-gui-lib STATIC ${ORC_GUI_LIB_SOURCES})
 add_executable(orc-gui MACOSX_BUNDLE
     main.cpp
 )
+
+if(APPLE)
+    set_target_properties(orc-gui PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks")
+elseif(UNIX AND NOT WIN32)
+    set_target_properties(orc-gui PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib")
+endif()
 
 # =============================================================================
 # Link Libraries
@@ -352,5 +362,16 @@ if(UNIX AND NOT APPLE)
 
     install(FILES io.github.simoninns.decode-orc.metainfo.xml
         DESTINATION share/metainfo
+    )
+endif()
+
+if(BUILD_UNIT_TESTS)
+    add_test(
+        NAME GUI.HelpShowsSafeCorePluginsOption
+        COMMAND $<TARGET_FILE:orc-gui> --help
+    )
+    set_tests_properties(GUI.HelpShowsSafeCorePluginsOption PROPERTIES
+        LABELS "unit;gui"
+        PASS_REGULAR_EXPRESSION "--safe-core-plugins"
     )
 endif()

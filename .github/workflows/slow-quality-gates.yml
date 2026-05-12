@@ -1,0 +1,108 @@
+name: Slow Quality Gates (Nix)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "25 3 * * *"
+  push:
+    branches:
+      - main
+
+jobs:
+  integration-and-broad-slices:
+    name: Integration + GUI + Contract Sweeps
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-25.11
+
+      - name: Configure and Build (Slow Gate)
+        run: |
+          nix develop -c bash -lc "
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON -DBUILD_GUI_TESTS=ON -DBUILD_INTEGRATION_TESTS=ON
+            cmake --build build --parallel
+          "
+
+      - name: Run Integration Tests
+        run: |
+          nix develop -c bash -lc "
+            CTEST_JOBS=\"$(nproc)\"
+            if [ -z \"$CTEST_JOBS\" ] || [ \"$CTEST_JOBS\" -lt 2 ]; then
+              CTEST_JOBS=2
+            fi
+            ctest --test-dir build -L integration --parallel \"$CTEST_JOBS\" --output-on-failure --output-junit ${PWD}/build/ctest-results-integration.xml
+          "
+
+      - name: Run GUI Unit Slices
+        run: |
+          nix develop -c bash -lc "
+            CTEST_JOBS=\"$(nproc)\"
+            if [ -z \"$CTEST_JOBS\" ] || [ \"$CTEST_JOBS\" -lt 2 ]; then
+              CTEST_JOBS=2
+            fi
+            QT_QPA_PLATFORM=offscreen ctest --test-dir build -L gui --parallel \"$CTEST_JOBS\" --output-on-failure --output-junit ${PWD}/build/ctest-results-gui.xml
+          "
+
+      - name: Run Broad Contract Sweeps
+        run: |
+          nix develop -c bash -lc "
+            CTEST_JOBS=\"$(nproc)\"
+            if [ -z \"$CTEST_JOBS\" ] || [ \"$CTEST_JOBS\" -lt 2 ]; then
+              CTEST_JOBS=2
+            fi
+            ctest --test-dir build -L contracts --parallel \"$CTEST_JOBS\" --output-on-failure --output-junit ${PWD}/build/ctest-results-contracts.xml
+          "
+
+      - name: Generate Slow-Gate Timing Summaries
+        if: always()
+        run: |
+          nix develop -c bash -lc "
+            if [ -f build/ctest-results-integration.xml ]; then
+              python3 cmake/summarize_ctest_junit.py --input build/ctest-results-integration.xml --output build/ctest-results-integration-summary.md --top 25
+            fi
+            if [ -f build/ctest-results-gui.xml ]; then
+              python3 cmake/summarize_ctest_junit.py --input build/ctest-results-gui.xml --output build/ctest-results-gui-summary.md --top 25
+            fi
+            if [ -f build/ctest-results-contracts.xml ]; then
+              python3 cmake/summarize_ctest_junit.py --input build/ctest-results-contracts.xml --output build/ctest-results-contracts-summary.md --top 25
+            fi
+          "
+
+      - name: Alert on Slow-Gate Regressions
+        if: always()
+        run: |
+          nix develop -c bash -lc "
+            if [ -f build/ctest-results-integration.xml ]; then
+              python3 cmake/check_ctest_budget.py --input build/ctest-results-integration.xml --max-wall-seconds 120.0 --min-pass-rate 99.0 --max-p95-seconds 0.250 || true
+            fi
+            if [ -f build/ctest-results-gui.xml ]; then
+              python3 cmake/check_ctest_budget.py --input build/ctest-results-gui.xml --max-wall-seconds 180.0 --min-pass-rate 99.0 --max-p95-seconds 0.300 || true
+            fi
+            if [ -f build/ctest-results-contracts.xml ]; then
+              python3 cmake/check_ctest_budget.py --input build/ctest-results-contracts.xml --max-wall-seconds 120.0 --min-pass-rate 99.0 --max-p95-seconds 0.200 || true
+            fi
+          "
+
+      - name: Upload Slow-Gate Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-artifacts-slow-gates
+          if-no-files-found: warn
+          path: |
+            build/ctest-results-integration.xml
+            build/ctest-results-gui.xml
+            build/ctest-results-contracts.xml
+            build/ctest-results-integration-summary.md
+            build/ctest-results-gui-summary.md
+            build/ctest-results-contracts-summary.md
+            build/Testing/Temporary/LastTest.log
+            build/Testing/Temporary/CTestCostData.txt

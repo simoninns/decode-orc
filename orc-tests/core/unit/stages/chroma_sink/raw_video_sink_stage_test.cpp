@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <string>
 
-#include "../../../../orc/core/stages/chroma_sink/raw_video_sink_stage.h"
+#include "../../../../orc/plugins/stages/sinks/common/raw_video_sink_stage.h"
 
 namespace orc_unit_test
 {

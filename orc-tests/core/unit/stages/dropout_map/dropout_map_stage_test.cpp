@@ -12,7 +12,7 @@
 #include <algorithm>
 
 #include "../../../../orc/core/include/observation_context.h"
-#include "../../../../orc/core/stages/dropout_map/dropout_map_stage.h"
+#include "../../../../orc/plugins/stages/dropout_map/dropout_map_stage.h"
 
 namespace orc_unit_test
 {

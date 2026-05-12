@@ -11,10 +11,8 @@
 
 #include <algorithm>
 
-#include "../../factories_interface_mock.h"
 #include "../../include/video_field_representation_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../stage_factories_interface_mock.h"
 #include "ld_sink_stage.h"
 #include "ld_sink_stage_deps_interface_mock.h"
 
@@ -34,12 +32,8 @@ namespace orc_unit_test
         {
             pMockDeps_ = std::make_shared<StrictMock<MockLDSinkStageDeps>>();
             pMockRepresentation_ = std::make_shared<StrictMock<MockVideoFieldRepresentation>>();
-            pMockFactories_ = std::make_shared<MockFactories>();
 
-            EXPECT_CALL(*pMockFactories_, get_instance_stage_factories())
-                .WillRepeatedly(ReturnRef(mockStageFactories_));
-
-            instance_ = std::make_unique<orc::LDSinkStage>(pMockFactories_);
+            instance_ = std::make_unique<orc::LDSinkStage>(static_cast<orc::IStageServices*>(nullptr));
         }
 
         void TearDown() override
@@ -53,8 +47,6 @@ namespace orc_unit_test
             return {std::static_pointer_cast<orc::Artifact>(pMockRepresentation_)};
         }
 
-        std::shared_ptr<MockFactories> pMockFactories_;
-        StrictMock<MockStageFactories> mockStageFactories_;
         std::shared_ptr<StrictMock<MockLDSinkStageDeps>> pMockDeps_;
         std::shared_ptr<StrictMock<MockVideoFieldRepresentation>> pMockRepresentation_;
         MockObservationContext mockObservationContext_;
@@ -137,9 +129,8 @@ namespace orc_unit_test
 
         EXPECT_CALL(mockObservationContext_, clear()).Times(1);
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceLDSinkStageDeps(_, _, _))
-            .Times(1)
-            .WillOnce(Return(pMockDeps_));
+        // Inject mock deps via seam instead of factory mock.
+        instance_->set_deps_override(pMockDeps_);
 
         EXPECT_CALL(*pMockDeps_, write_tbc_and_metadata(pMockRepresentation_.get(), "out_path", Ref(mockObservationContext_)))
             .Times(1)
@@ -165,9 +156,8 @@ namespace orc_unit_test
 
         EXPECT_CALL(mockObservationContext_, clear()).Times(1);
 
-        EXPECT_CALL(mockStageFactories_, CreateInstanceLDSinkStageDeps(_, _, _))
-            .Times(1)
-            .WillOnce(Return(pMockDeps_));
+        // Inject mock deps via seam instead of factory mock.
+        instance_->set_deps_override(pMockDeps_);
 
         EXPECT_CALL(*pMockDeps_, write_tbc_and_metadata(pMockRepresentation_.get(), "out_path", Ref(mockObservationContext_)))
             .Times(1)

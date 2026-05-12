@@ -55,6 +55,15 @@ public:
     MOCK_METHOD(bool, stageExists, (const std::string& stage_name), (const, override));
     MOCK_METHOD(std::shared_ptr<void>, instantiateStage, (const std::string& stage_name), (const, override));
     MOCK_METHOD(std::shared_ptr<void>, getStageForInspection, (NodeID node_id), (const, override));
+    MOCK_METHOD(std::vector<LoadedPluginInfo>, listLoadedPlugins, (), (const, override));
+    MOCK_METHOD(std::vector<PluginDiagnosticInfo>, listPluginDiagnostics, (), (const, override));
+    MOCK_METHOD(std::vector<std::string>, listPluginSearchPaths, (), (const, override));
+    MOCK_METHOD(PluginRegistryInfo, getPluginRegistry, (), (const, override));
+    MOCK_METHOD(PluginRegistryMutationResult, addPlugin,
+        (const std::string& path, const std::string& plugin_id, const std::string& plugin_version,
+         const std::string& license_spdx, bool is_core_plugin, bool trusted), (const, override));
+    MOCK_METHOD(PluginRegistryMutationResult, removePlugin, (const std::string& plugin_id), (const, override));
+    MOCK_METHOD(PluginRegistryMutationResult, setPluginEnabled, (const std::string& plugin_id, bool enabled), (const, override));
 
     MOCK_METHOD(bool, canTriggerNode, (NodeID node_id, std::string* reason), (const, override));
     MOCK_METHOD(bool, triggerNode, (NodeID node_id, ProgressCallback progress_callback), (override));

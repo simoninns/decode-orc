@@ -33,6 +33,8 @@ function(orc_add_gui_unit_tests target labels)
     set(oneValueArgs)
     set(multiValueArgs SOURCES LIBRARIES)
     cmake_parse_arguments(ORC_GUI_TEST "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+    set(all_labels "gui;${labels}")
+    string(REPLACE ";" "\\;" escaped_labels "${all_labels}")
 
     add_executable(
         ${target}
@@ -53,12 +55,20 @@ function(orc_add_gui_unit_tests target labels)
         ${CMAKE_CURRENT_SOURCE_DIR}
     )
 
-    set(test_properties LABELS "gui;${labels}")
     if(ORC_GUI_TEST_OFFSCREEN)
-        list(APPEND test_properties ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        gtest_discover_tests(${target}
+            DISCOVERY_MODE POST_BUILD
+            DISCOVERY_TIMEOUT 30
+            PROPERTIES
+            LABELS "${escaped_labels}"
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    else()
+        gtest_discover_tests(${target}
+            DISCOVERY_MODE POST_BUILD
+            DISCOVERY_TIMEOUT 30
+            PROPERTIES
+            LABELS "${escaped_labels}")
     endif()
-
-    gtest_discover_tests(${target} PROPERTIES ${test_properties})
 endfunction()
 
 set(QTNODES_TARGET ${QtNodes_LIBRARIES})

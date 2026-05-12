@@ -21,9 +21,10 @@ endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 if(APPLE)
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS deployment version" FORCE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment version" FORCE)
 endif()
 
 # Repo root (used for submodules)
@@ -60,6 +61,15 @@ endif()
 
 message(STATUS "Decode Orc Version: ${ORC_VERSION}")
 
+# ---------------------------------------------------------------------------
+# Plugin ABI version — kept in sync with kStagePluginHostAbiVersion in
+# orc/sdk/include/orc/plugin/orc_plugin_abi.h.  CI/CD and packaging scripts
+# can compare against this CMake variable without parsing C++ headers.
+# ---------------------------------------------------------------------------
+set(ORC_STAGE_PLUGIN_HOST_ABI_VERSION 3 CACHE INTERNAL
+    "Host ABI version exposed to plugins (must match kStagePluginHostAbiVersion in orc_plugin_abi.h)")
+message(STATUS "Stage Plugin Host ABI version: ${ORC_STAGE_PLUGIN_HOST_ABI_VERSION}")
+
 # Configure version header
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/version.h.in
@@ -79,12 +89,19 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Include MVP enforcement utilities
 include(${CMAKE_SOURCE_DIR}/cmake/MVPEnforcement.cmake)
+include(${CMAKE_SOURCE_DIR}/cmake/StagePlugins.cmake)
 
 # Common types (shared across all layers)
 add_subdirectory(common)
 
 # Core library (internal implementation; includes metadata as a sub-library)
 add_subdirectory(core)
+
+# Public Plugin SDK (stable ABI/API surface for in-tree and third-party plugins)
+add_subdirectory(sdk)
+
+# Runtime stage plugins (kept in a standalone tree for repo extraction)
+add_subdirectory(plugins)
 
 # View types (shared data structures for presentation layer)
 add_subdirectory(view-types)
@@ -128,6 +145,13 @@ if(BUILD_GUI)
     add_subdirectory(gui)
 endif()
 
+if(TARGET orc-stage-plugins)
+    add_dependencies(orc-cli orc-stage-plugins)
+    if(BUILD_GUI AND TARGET orc-gui)
+        add_dependencies(orc-gui orc-stage-plugins)
+    endif()
+endif()
+
 # =============================================================================
 # MVP Architecture Validation
 # =============================================================================
@@ -146,6 +170,21 @@ add_custom_target(check-mvp-fast
     COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_mvp_architecture.sh --skip-compiler-tests
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMENT "Quick MVP validation (skip compiler tests)..."
+    VERBATIM
+)
+
+# SDK-only enforcement: convenience build targets for scanning plugin compliance.
+add_custom_target(check-plugin-private-includes
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_plugin_private_includes.sh ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Scanning plugin code for private include usage..."
+    VERBATIM
+)
+
+add_custom_target(check-plugin-private-links
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_plugin_private_links.sh ${CMAKE_SOURCE_DIR}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Scanning plugin build files for private host link targets..."
     VERBATIM
 )
 

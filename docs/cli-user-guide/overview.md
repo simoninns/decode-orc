@@ -133,6 +133,24 @@ Project files (`.orcprj`) are YAML-based files that define:
 - DAG structure (processing nodes and connections)
 - Node parameters (decoder settings, output formats, etc.)
 - Project metadata (name, description, video format)
+- Optional `required_plugins` metadata for third-party plugin-backed stages
+
+When a project contains stages supplied by third-party plugins, Decode-Orc now
+saves a root-level `required_plugins` block in the `.orcprj` file. Each entry
+records the plugin identity, repository or release URL metadata, ABI
+expectation, and the stage names from that plugin that are still used by the
+project.
+
+This block is refreshed every time the project is saved:
+
+- Plugin entries are kept only if at least one of their stage names is still present in the current DAG
+- Plugin metadata is refreshed from the current local plugin registry when available
+- Stale entries are removed automatically if the corresponding plugin-backed stages were deleted while editing
+
+If a project is opened on a machine where one of those stages is unavailable,
+Decode-Orc uses the saved `required_plugins` metadata to give a more specific
+missing-stage error that can point the user at the expected plugin and its
+repository URL.
 
 ### Creating Projects
 

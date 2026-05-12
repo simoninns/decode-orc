@@ -9,16 +9,72 @@
 
 #include "analysis_presenter.h"
 #include "../core/include/project.h"
+#include "../core/include/stage_registry.h"
 #include "../core/analysis/analysis_registry.h"
 #include "../core/analysis/analysis_tool.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/video_field_representation.h"
 #include "../core/include/logging.h"
+#include "../../sdk/include/orc/plugin/orc_stage_tooling.h"
 #include <stdexcept>
 #include <algorithm>
+#include <unordered_set>
 #include <iostream>
 
 namespace orc::presenters {
+
+namespace {
+
+void applyLegacyToolMetadata(orc::AnalysisToolInfo& info)
+{
+    if (info.id == "mask_line_config") {
+        info.stage_tool_kind = "config_dialog";
+        info.stage_tool_contract = "decode-orc.stage-tools.mask-line-config.v1";
+        info.stage_tool_non_modal = false;
+    } else if (info.id == "ffmpeg_preset_config") {
+        info.stage_tool_kind = "config_dialog";
+        info.stage_tool_contract = "decode-orc.stage-tools.ffmpeg-preset.v1";
+        info.stage_tool_non_modal = false;
+    } else if (info.id == "dropout_editor") {
+        info.stage_tool_kind = "non_modal_editor";
+        info.stage_tool_contract = "decode-orc.stage-tools.dropout-editor.v1";
+        info.stage_tool_non_modal = true;
+    } else if (info.id == "vectorscope") {
+        info.stage_tool_kind = "preview_utility";
+        info.stage_tool_contract = "decode-orc.stage-tools.vectorscope.v1";
+        info.stage_tool_non_modal = true;
+    } else if (info.id == "dropout_analysis" ||
+               info.id == "snr_analysis" ||
+               info.id == "burst_level_analysis") {
+        info.stage_tool_kind = "batch_analysis";
+        if (info.id == "dropout_analysis") {
+            info.stage_tool_contract = "decode-orc.stage-tools.dropout-analysis.v1";
+        } else if (info.id == "snr_analysis") {
+            info.stage_tool_contract = "decode-orc.stage-tools.snr-analysis.v1";
+        } else {
+            info.stage_tool_contract = "decode-orc.stage-tools.burst-level-analysis.v1";
+        }
+        info.stage_tool_non_modal = false;
+    }
+}
+
+const char* stageToolKindToString(orc::StageToolKind kind)
+{
+    switch (kind) {
+        case orc::StageToolKind::ConfigDialog:
+            return "config_dialog";
+        case orc::StageToolKind::NonModalEditor:
+            return "non_modal_editor";
+        case orc::StageToolKind::BatchAnalysis:
+            return "batch_analysis";
+        case orc::StageToolKind::PreviewUtility:
+            return "preview_utility";
+        default:
+            return "";
+    }
+}
+
+} // namespace
 
 class AnalysisPresenter::Impl {
 public:
@@ -141,6 +197,7 @@ std::vector<orc::AnalysisToolInfo> AnalysisPresenter::getAvailableTools() const
         info.description = tool->description();
         info.category = tool->category();
         info.priority = tool->priority();
+        applyLegacyToolMetadata(info);
         // Note: applicable_stages not directly available from AnalysisTool interface
         // Would need to enumerate all stage types and test isApplicableToStage()
         result.push_back(std::move(info));
@@ -152,6 +209,7 @@ std::vector<orc::AnalysisToolInfo> AnalysisPresenter::getAvailableTools() const
 std::vector<orc::AnalysisToolInfo> AnalysisPresenter::getToolsForStage(const std::string& stage_name) const
 {
     std::vector<orc::AnalysisToolInfo> result;
+    std::unordered_set<std::string> existing_ids;
     
     auto& registry = orc::AnalysisRegistry::instance();
     auto all_tools = registry.tools();
@@ -169,8 +227,58 @@ std::vector<orc::AnalysisToolInfo> AnalysisPresenter::getToolsForStage(const std
         info.category = tool->category();
         info.priority = tool->priority();
         info.applicable_stages.push_back(stage_name);
+        applyLegacyToolMetadata(info);
         
+        existing_ids.insert(info.id);
         result.push_back(std::move(info));
+    }
+
+    // Phase B: allow stages to advertise helper/tool contracts directly via SDK.
+    try {
+        auto stage = orc::StageRegistry::instance().create_stage(stage_name);
+        if (stage) {
+            auto* provider = dynamic_cast<orc::StageToolProvider*>(stage.get());
+            if (provider) {
+                const auto descriptors = provider->get_stage_tools();
+                for (const auto& descriptor : descriptors) {
+                    if (descriptor.tool_id.empty() || existing_ids.find(descriptor.tool_id) != existing_ids.end()) {
+                        continue;
+                    }
+
+                    orc::AnalysisToolInfo info;
+                    info.id = descriptor.tool_id;
+                    info.name = descriptor.display_name;
+                    info.description = descriptor.description;
+                    switch (descriptor.kind) {
+                        case orc::StageToolKind::ConfigDialog:
+                            info.category = "Stage Config";
+                            break;
+                        case orc::StageToolKind::NonModalEditor:
+                            info.category = "Stage Editor";
+                            break;
+                        case orc::StageToolKind::BatchAnalysis:
+                            info.category = "Stage Analysis";
+                            break;
+                        case orc::StageToolKind::PreviewUtility:
+                            info.category = "Preview";
+                            break;
+                        default:
+                            info.category = "Stage Tools";
+                            break;
+                    }
+                    info.priority = 25;
+                    info.applicable_stages.push_back(stage_name);
+                    info.stage_tool_kind = stageToolKindToString(descriptor.kind);
+                    info.stage_tool_contract = descriptor.contract_id;
+                    info.stage_tool_non_modal = descriptor.non_modal;
+
+                    existing_ids.insert(info.id);
+                    result.push_back(std::move(info));
+                }
+            }
+        }
+    } catch (const std::exception&) {
+        // Missing/invalid stage registration should not block standard analysis tool discovery.
     }
     
     // Sort by priority (lower = first), then alphabetically
@@ -200,6 +308,7 @@ orc::AnalysisToolInfo AnalysisPresenter::getToolInfo(const std::string& tool_id)
     info.description = tool->description();
     info.category = tool->category();
     info.priority = tool->priority();
+    applyLegacyToolMetadata(info);
     
     return info;
 }

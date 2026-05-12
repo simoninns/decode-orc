@@ -12,8 +12,8 @@
 
 #include "../../include/video_field_representation_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../../../orc/core/stages/chroma_sink/raw_video_sink_stage.h"
-#include "../../../../orc/core/stages/chroma_sink/ffmpeg_video_sink_stage.h"
+#include "../../../../orc/plugins/stages/sinks/common/raw_video_sink_stage.h"
+#include "../../../../orc/plugins/stages/sinks/common/ffmpeg_video_sink_stage.h"
 
 namespace orc_unit_test
 {

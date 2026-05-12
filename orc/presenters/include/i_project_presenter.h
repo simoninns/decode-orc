@@ -69,6 +69,19 @@ public:
     virtual bool stageExists(const std::string& stage_name) const = 0;
     virtual std::shared_ptr<void> instantiateStage(const std::string& stage_name) const = 0;
     virtual std::shared_ptr<void> getStageForInspection(NodeID node_id) const = 0;
+    virtual std::vector<LoadedPluginInfo> listLoadedPlugins() const = 0;
+    virtual std::vector<PluginDiagnosticInfo> listPluginDiagnostics() const = 0;
+    virtual std::vector<std::string> listPluginSearchPaths() const = 0;
+    virtual PluginRegistryInfo getPluginRegistry() const = 0;
+    virtual PluginRegistryMutationResult addPlugin(
+        const std::string& path,
+        const std::string& plugin_id,
+        const std::string& plugin_version,
+        const std::string& license_spdx,
+        bool is_core_plugin,
+        bool trusted) const = 0;
+    virtual PluginRegistryMutationResult removePlugin(const std::string& plugin_id) const = 0;
+    virtual PluginRegistryMutationResult setPluginEnabled(const std::string& plugin_id, bool enabled) const = 0;
 
     // === Batch Operations ===
     virtual bool canTriggerNode(NodeID node_id, std::string* reason = nullptr) const = 0;

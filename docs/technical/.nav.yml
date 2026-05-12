@@ -1,3 +1,5 @@
 nav:
   - iec-608-control-codes.md
   - disc-mapping.md
+  - plugin-architecture.md
+  - plugin-sdk.md

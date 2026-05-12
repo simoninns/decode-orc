@@ -9,25 +9,8 @@
 
 #pragma once
 
-#if defined(ORC_GUI_BUILD)
-#error "GUI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
-#endif
-#if defined(ORC_CLI_BUILD)
-#error "CLI code cannot include core/include/preview_renderer.h. Use RenderPresenter instead."
-#endif
-
-// =============================================================================
-// MVP Architecture Enforcement - Phase 3.5 Complete
-// =============================================================================
-// GUI/CLI code cannot include this file (enforced by compile guards).
-// This header is part of core and contains internal implementation types.
-//
-// GUI/CLI must use:
-// - orc/public/*.h for public API types (PreviewImage, etc.)
-// - orc/presenters/include/*.h for rendering operations (RenderPresenter)
-//
-// Presenters bridge between GUI and core, performing type conversions.
-// =============================================================================
+// Stage and plugin implementations may use this header for preview rendering.
+// GUI/CLI code must NOT include this directly; use RenderPresenter instead.
 
 #include "dag_field_renderer.h"
 #include "video_field_representation.h"

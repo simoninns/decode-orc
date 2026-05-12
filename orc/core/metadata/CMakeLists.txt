@@ -29,12 +29,12 @@ target_include_directories(orc-metadata
         $<INSTALL_INTERFACE:include/orc/metadata>
         # view-types path is needed because tbc_metadata.h includes orc_source_parameters.h.
         # Mirrors the pattern used in orc/core/CMakeLists.txt.
-        ${CMAKE_SOURCE_DIR}/orc/view-types
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../view-types
 
     # Private: only needed when compiling orc-metadata's own sources
     PRIVATE
         # observation_context_interface.h, observation_schema.h, video_metadata_types.h
-        ${CMAKE_SOURCE_DIR}/orc/core/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include
         # JSON converter headers live alongside their .cpp files in this directory
         ${CMAKE_CURRENT_SOURCE_DIR}
 )

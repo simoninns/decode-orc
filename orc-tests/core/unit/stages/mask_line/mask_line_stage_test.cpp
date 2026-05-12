@@ -12,7 +12,7 @@
 #include <algorithm>
 
 #include "../../include/video_field_representation_mock.h"
-#include "../../../../orc/core/stages/mask_line/mask_line_stage.h"
+#include "../../../../orc/plugins/stages/mask_line/mask_line_stage.h"
 
 namespace orc_unit_test
 {

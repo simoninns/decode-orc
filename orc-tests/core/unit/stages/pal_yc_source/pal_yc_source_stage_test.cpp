@@ -13,7 +13,8 @@
 #include <algorithm>
 
 #include "../../include/video_field_representation_mock.h"
-#include "../../../../orc/core/stages/pal_yc_source/pal_yc_source_stage.h"
+#include "../source_common/source_stage_descriptor_test_utils.h"
+#include "../../../../orc/plugins/stages/pal_yc_source/pal_yc_source_stage.h"
 #include "../../../../orc/core/include/observation_context.h"
 #include "../../../../../orc/common/include/error_types.h"
 
@@ -54,43 +55,6 @@ namespace orc_unit_test
     }
 
     // =========================================================================
-    // Stage interface invariants
-    // =========================================================================
-
-    TEST(PALYCSourceStageTest, requiredInputCount_isZero)
-    {
-        orc::PALYCSourceStage stage;
-        EXPECT_EQ(stage.required_input_count(), 0u);
-    }
-
-    TEST(PALYCSourceStageTest, outputCount_isOne)
-    {
-        orc::PALYCSourceStage stage;
-        EXPECT_EQ(stage.output_count(), 1u);
-    }
-
-    TEST(PALYCSourceStageTest, nodeTypeInfo_hasSourceType)
-    {
-        orc::PALYCSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.type, orc::NodeType::SOURCE);
-    }
-
-    TEST(PALYCSourceStageTest, nodeTypeInfo_hasExpectedStageName)
-    {
-        orc::PALYCSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.stage_name, "PAL_YC_Source");
-    }
-
-    TEST(PALYCSourceStageTest, nodeTypeInfo_formatCompatibilityIsPalOnly)
-    {
-        orc::PALYCSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.compatible_formats, orc::VideoFormatCompatibility::PAL_ONLY);
-    }
-
-    // =========================================================================
     // Parameter descriptor tests
     // =========================================================================
 
@@ -98,65 +62,35 @@ namespace orc_unit_test
     {
         orc::PALYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "y_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".tbcy");
+        expect_file_path_descriptor(descriptors, "y_path", ".tbcy");
     }
 
     TEST(PALYCSourceStageTest, parameterDescriptors_containsCPath)
     {
         orc::PALYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "c_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".tbcc");
+        expect_file_path_descriptor(descriptors, "c_path", ".tbcc");
     }
 
     TEST(PALYCSourceStageTest, parameterDescriptors_containsDbPath)
     {
         orc::PALYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "db_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".db");
+        expect_file_path_descriptor(descriptors, "db_path", ".db");
     }
 
     TEST(PALYCSourceStageTest, parameterDescriptors_containsPcmPath)
     {
         orc::PALYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "pcm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".pcm");
+        expect_file_path_descriptor(descriptors, "pcm_path", ".pcm");
     }
 
     TEST(PALYCSourceStageTest, parameterDescriptors_containsEfmPath)
     {
         orc::PALYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "efm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".efm");
+        expect_file_path_descriptor(descriptors, "efm_path", ".efm");
     }
 
     TEST(PALYCSourceStageTest, descriptorDefaults_allPathsAreEmptyString)
@@ -178,11 +112,7 @@ namespace orc_unit_test
     {
         orc::PALYCSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        for (const auto& desc : descriptors) {
-            EXPECT_FALSE(desc.constraints.required)
-                << "Parameter '" << desc.name << "' should be optional";
-        }
+        expect_all_descriptors_optional(descriptors);
     }
 
     // =========================================================================

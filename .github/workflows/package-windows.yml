@@ -104,7 +104,7 @@ jobs:
             -Username "${{ github.actor }}" `
             -Password "${{ secrets.GITHUB_TOKEN }}" `
             -StorePasswordInClearText
-          echo "VCPKG_BINARY_SOURCES=clear;nuget,GitHub,readwrite" >> $env:GITHUB_ENV
+          echo "VCPKG_BINARY_SOURCES=clear;nuget,GitHub,read" >> $env:GITHUB_ENV
 
       - name: Restore vcpkg installed tree
         id: vcpkg-installed-cache
@@ -203,6 +203,8 @@ jobs:
       - name: Configure and build decode-orc
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+
           # Ensure ImageMagick is in path for icon generation
           $env:PATH = "C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;$env:PATH"
           
@@ -244,7 +246,16 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=x64-windows-release `
             "-DPKG_CONFIG_EXECUTABLE=$pkgconfExe" `
             "-DEZPWD_INCLUDE_DIR=$ezpwdDir"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "CMake configure failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+
           cmake --build --preset $buildPreset
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "CMake build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
 
           # Ensure GUI binary is built (required for MSI packaging)
           $guiBuilt = Get-ChildItem -Path "build/windows-gui-release/bin" -Recurse -Filter "orc-gui.exe" -ErrorAction SilentlyContinue | Select-Object -First 1

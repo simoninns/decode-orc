@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           brew update
-          DEPS=(cmake ninja pkg-config qt@6 spdlog yaml-cpp sqlite libpng fftw ffmpeg dylibbundler onnxruntime)
+          DEPS=(cmake ninja pkg-config qt@6 spdlog yaml-cpp sqlite libpng fftw ffmpeg dylibbundler)
           MISSING=()
 
           for dep in "${DEPS[@]}"; do
@@ -98,12 +98,92 @@ jobs:
         shell: bash
         run: |
           APP_BUNDLE="$PWD/package-root/orc-gui.app"
+          FRAMEWORKS_DIR="$APP_BUNDLE/Contents/Frameworks"
+
+          # Ensure the staged core runtime is discoverable as liborc-core.dylib.
+          CORE_DYLIB="$FRAMEWORKS_DIR/liborc-core.dylib"
+          if [[ ! -e "$CORE_DYLIB" ]]; then
+            CORE_CANDIDATES=()
+            while IFS= read -r candidate; do
+              [[ -z "$candidate" ]] && continue
+              CORE_CANDIDATES+=("$candidate")
+            done < <(find "$FRAMEWORKS_DIR" -maxdepth 1 -type f -name "liborc-core*.dylib" | sort)
+
+            if [[ "${#CORE_CANDIDATES[@]}" -eq 1 ]]; then
+              ln -s "$(basename "${CORE_CANDIDATES[0]}")" "$CORE_DYLIB"
+            fi
+          fi
+
+          if [[ ! -e "$CORE_DYLIB" ]]; then
+            echo "Missing staged core library: $CORE_DYLIB" >&2
+            echo "Available staged frameworks:" >&2
+            find "$FRAMEWORKS_DIR" -maxdepth 1 -type f -name "*.dylib" -print | sort >&2 || true
+            exit 1
+          fi
+
           macdeployqt "$APP_BUNDLE" -always-overwrite -executable="$APP_BUNDLE/Contents/MacOS/orc-cli"
+
+          # Build Qt framework search paths so dylibbundler can resolve @rpath/Qt*.framework refs.
+          # dylibbundler cannot recurse into .framework bundles; we point it at each Versions/A dir.
+          QT_FW_SEARCH_ARGS=()
+          QT_FW_IGNORE_ARGS=()
+          QT_FW_DIR="$(brew --prefix qt@6)/lib"
+          while IFS= read -r fw_dir; do
+            fw_name="$(basename "$fw_dir" .framework)"
+            fw_ver_dir="$fw_dir/Versions/A"
+            if [[ -d "$fw_ver_dir" ]]; then
+              QT_FW_SEARCH_ARGS+=(-s "$fw_ver_dir")
+            fi
+            # Also ignore Qt frameworks already deployed by macdeployqt so dylibbundler
+            # won't try to re-copy them and won't fail on missing optional modules.
+            QT_FW_IGNORE_ARGS+=(-i "$fw_name")
+          done < <(find "$QT_FW_DIR" -maxdepth 1 -name "Qt*.framework" -type d | sort)
+
+          # Ignore all staged stage-plugin dylibs by basename. Plugins are loaded at
+          # runtime from PlugIns/orc-stage-plugins and should not be bundled as direct
+          # Frameworks dependencies by dylibbundler.
+          PLUGIN_DIR="$APP_BUNDLE/Contents/PlugIns/orc-stage-plugins"
+          PLUGIN_IGNORE_ARGS=()
+          if [[ -d "$PLUGIN_DIR" ]]; then
+            while IFS= read -r plugin_path; do
+              [[ -z "$plugin_path" ]] && continue
+              plugin_base="$(basename "$plugin_path")"
+              plugin_name="${plugin_base%.dylib}"
+              # dylibbundler matching is inconsistent across releases: include both
+              # the basename with and without extension.
+              PLUGIN_IGNORE_ARGS+=(-i "$plugin_base")
+              PLUGIN_IGNORE_ARGS+=(-i "$plugin_name")
+            done < <(find "$PLUGIN_DIR" -maxdepth 1 -type f -name "liborc-stage-plugin-*.dylib" | sort)
+          fi
+
           dylibbundler -b \
+            -of \
+            -ns \
             -x "$APP_BUNDLE/Contents/MacOS/orc-gui" \
             -x "$APP_BUNDLE/Contents/MacOS/orc-cli" \
-            -d "$APP_BUNDLE/Contents/Frameworks" \
+            -d "$FRAMEWORKS_DIR" \
+            -s "$FRAMEWORKS_DIR" \
+            -s "$PLUGIN_DIR" \
+            -s "$(brew --prefix)/lib" \
+            -s "/opt/homebrew/lib" \
+            -s "/usr/local/lib" \
+            "${QT_FW_SEARCH_ARGS[@]}" \
+            "${QT_FW_IGNORE_ARGS[@]}" \
+            "${PLUGIN_IGNORE_ARGS[@]}" \
             -p "@executable_path/../Frameworks"
+
+          # Some host libraries link stage plugins via @rpath. After dylibbundler
+          # completes, mirror each plugin into Frameworks as a symlink so runtime
+          # resolution stays deterministic without triggering dylibbundler copy loops.
+          if [[ -d "$PLUGIN_DIR" ]]; then
+            while IFS= read -r plugin_path; do
+              [[ -z "$plugin_path" ]] && continue
+              plugin_base="$(basename "$plugin_path")"
+              if [[ ! -e "$FRAMEWORKS_DIR/$plugin_base" ]]; then
+                ln -s "../PlugIns/orc-stage-plugins/$plugin_base" "$FRAMEWORKS_DIR/$plugin_base"
+              fi
+            done < <(find "$PLUGIN_DIR" -maxdepth 1 -type f -name "liborc-stage-plugin-*.dylib" | sort)
+          fi
 
       - name: Re-sign staged app bundle
         shell: bash

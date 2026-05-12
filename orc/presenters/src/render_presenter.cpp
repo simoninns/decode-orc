@@ -22,9 +22,9 @@
 #include "../core/stages/triggerable_stage.h"
 #include "../core/stages/stage.h"
 #include "../core/include/stage_preview_capability.h"
-#include "../core/stages/dropout_analysis_sink/dropout_analysis_sink_stage.h"
-#include "../core/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
-#include "../core/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"
+#include "../../plugins/stages/dropout_analysis_sink/dropout_analysis_sink_stage.h"
+#include "../../plugins/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
+#include "../../plugins/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"
 #include "vbi_presenter.h"
 #include "../core/include/logging.h"
 #include <stdexcept>

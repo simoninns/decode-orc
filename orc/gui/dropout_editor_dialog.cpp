@@ -522,14 +522,20 @@ DropoutEditorDialog::DropoutEditorDialog(
     dropout_map_ = presenter_->getDropoutMap(node_id_);
     
     if (field_repr_) {
-        auto field_repr_non_const = std::const_pointer_cast<void>(field_repr_);
+        // Convert const void shared_ptr to non-const for presenter methods
+        std::shared_ptr<void> field_repr_non_const = std::const_pointer_cast<void>(field_repr_);
         total_fields_ = presenter_->getFieldCount(field_repr_non_const);
+        ORC_LOG_DEBUG("DropoutEditorDialog: loaded {} total fields", total_fields_);
+    } else {
+        ORC_LOG_ERROR("DropoutEditorDialog: field_repr is null");
     }
 
     setupUI();
     
     if (total_fields_ > 0) {
         loadField(0);
+    } else {
+        ORC_LOG_WARN("DropoutEditorDialog: No fields available (total_fields_={})", total_fields_);
     }
 }
 
@@ -712,8 +718,12 @@ void DropoutEditorDialog::loadField(uint64_t field_id)
     orc::FieldID fid(field_id);
     
     int width = 0, height = 0;
-    auto field_repr_non_const = std::const_pointer_cast<void>(field_repr_);
+    // Convert const void shared_ptr to non-const for presenter methods
+    std::shared_ptr<void> field_repr_non_const = std::const_pointer_cast<void>(field_repr_);
     std::vector<uint8_t> field_data = presenter_->getFieldData(field_repr_non_const, fid, width, height);
+    
+    ORC_LOG_DEBUG("DropoutEditorDialog::loadField: field_id={}, returned {} bytes, width={}, height={}", 
+                  field_id, field_data.size(), width, height);
     
     if (field_data.empty() || width == 0 || height == 0) {
         ORC_LOG_ERROR("Failed to get field data for field {}", field_id);

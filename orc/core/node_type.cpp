@@ -38,8 +38,8 @@ const NodeTypeInfo* get_node_type_info(const std::string& stage_name) {
         // Cache the result to avoid repeated stage creation
         auto it = cache.find(stage_name);
         if (it == cache.end()) {
-            cache[stage_name] = stage->get_node_type_info();
-            it = cache.find(stage_name);
+            const auto inserted = cache.emplace(stage_name, stage->get_node_type_info());
+            it = inserted.first;
         }
         
         return &it->second;

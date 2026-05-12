@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../../../../orc/core/stages/chroma_sink/decoders/componentframe.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/componentframe.h"
 
 namespace orc_unit_test
 {

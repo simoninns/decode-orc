@@ -9,8 +9,8 @@
 
 #include <gtest/gtest.h>
 
-#include "../../../../orc/core/stages/chroma_sink/decoders/ntscdecoder.h"
-#include "../../../../orc/core/stages/chroma_sink/decoders/paldecoder.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/ntscdecoder.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/paldecoder.h"
 
 namespace orc_unit_test
 {

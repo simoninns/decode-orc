@@ -13,7 +13,7 @@
 
 #include "../../include/video_field_representation_mock.h"
 #include "../../../../orc/core/include/observation_context.h"
-#include "../../../../orc/core/stages/field_map/field_map_stage.h"
+#include "../../../../orc/plugins/stages/field_map/field_map_stage.h"
 
 namespace orc_unit_test
 {

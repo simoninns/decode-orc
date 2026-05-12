@@ -9,6 +9,7 @@
 
 #include "version.h"
 #include "command_process.h"
+#include "command_plugins.h"
 #include "logging.h"
 #include "crash_handler.h"
 #include "project_presenter.h"
@@ -19,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <filesystem>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 
@@ -34,19 +36,31 @@ using namespace orc;
  */
 void print_usage(const char* program_name) {
     std::cerr << "Usage: " << program_name << " <project-file> [options]\n";
+    std::cerr << "       " << program_name << " plugins <subcommand> [options]\n";
     std::cerr << "\n";
     std::cerr << "Commands:\n";
     std::cerr << "  --process                      Process the whole DAG chain (trigger all sinks)\n";
+    std::cerr << "\n";
+    std::cerr << "Plugin Management:\n";
+    std::cerr << "  plugins list                   List registry entries and loaded plugins\n";
+    std::cerr << "  plugins add <path> [options]   Add a plugin to the persistent registry\n";
+    std::cerr << "  plugins remove <id>            Remove a plugin from the persistent registry\n";
+    std::cerr << "  plugins enable <id>            Enable a registered plugin\n";
+    std::cerr << "  plugins disable <id>           Disable a registered plugin\n";
     std::cerr << "\n";
     std::cerr << "Options:\n";
     std::cerr << "  --log-level LEVEL              Set logging verbosity\n";
     std::cerr << "                                 (trace, debug, info, warn, error, critical, off)\n";
     std::cerr << "                                 Default: info\n";
     std::cerr << "  --log-file FILE                Write logs to specified file\n";
+    std::cerr << "  --safe-core-plugins            Clear plugin registry and ignore ORC_STAGE_PLUGIN_PATHS\n";
+    std::cerr << "                                 for this run (core plugins only)\n";
     std::cerr << "\n";
     std::cerr << "Examples:\n";
     std::cerr << "  " << program_name << " project.orcprj --process\n";
     std::cerr << "  " << program_name << " project.orcprj --process --log-level debug\n";
+    std::cerr << "  " << program_name << " plugins list\n";
+    std::cerr << "  " << program_name << " plugins add /path/to/libmyplugin.so --id com.example.my --license MIT\n";
 }
 
 /**
@@ -64,6 +78,7 @@ int main(int argc, char* argv[]) {
     std::string project_path;
     std::string log_level = "info";
     std::string log_file;
+    bool safe_core_plugins = false;
     
     // Command flags
     bool do_process = false;
@@ -80,6 +95,51 @@ int main(int argc, char* argv[]) {
         print_usage(argv[0]);
         return 0;
     }
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--safe-core-plugins") {
+            safe_core_plugins = true;
+            break;
+        }
+    }
+
+    auto apply_safe_mode = []() -> bool {
+#if defined(_WIN32)
+        _putenv_s("ORC_STAGE_PLUGIN_PATHS", "");
+#else
+        unsetenv("ORC_STAGE_PLUGIN_PATHS");
+#endif
+
+        const auto clear_result = orc::presenters::ProjectPresenter::clearPluginRegistryForSafeMode();
+        if (!clear_result.success) {
+            std::cerr << "Error: Failed to clear plugin registry for safe startup: "
+                      << clear_result.error_message << "\n";
+            return false;
+        }
+
+        return true;
+    };
+
+    if (safe_core_plugins && !apply_safe_mode()) {
+        return 1;
+    }
+
+    // Route 'plugins' subcommand — does not require a project file
+    if (first_arg == "plugins") {
+        // Rewrite argv so that argv[0] is the program name for usage messages,
+        // and forward all remaining args to the plugins command handler.
+        // plugins_command expects argv[0] = program name, argv[1] = subcommand.
+        // Skip argv[1] ("plugins") since plugins_command handles its own subcommand routing.
+        std::vector<char*> plugins_argv;
+        plugins_argv.push_back(argv[0]);
+        for (int i = 2; i < argc; ++i) {
+            if (std::string(argv[i]) == "--safe-core-plugins") {
+                continue;
+            }
+            plugins_argv.push_back(argv[i]);
+        }
+        return cli::plugins_command(static_cast<int>(plugins_argv.size()), plugins_argv.data());
+    }
     
     // Parse all arguments
     for (int i = 1; i < argc; ++i) {
@@ -92,6 +152,8 @@ int main(int argc, char* argv[]) {
             log_level = argv[++i];
         } else if (arg == "--log-file" && i + 1 < argc) {
             log_file = argv[++i];
+        } else if (arg == "--safe-core-plugins") {
+            // Handled before dispatch.
         } else if (arg == "--process") {
             do_process = true;
         } else if (arg[0] != '-') {
@@ -127,6 +189,10 @@ int main(int argc, char* argv[]) {
     // Initialize logging - both app logger and core logger
     orc::init_app_logging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file, "cli");
     orc::presenters::initCoreLogging(log_level, "[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v", log_file);
+
+    if (safe_core_plugins) {
+        ORC_LOG_WARN("Safe startup mode enabled: plugin registry cleared and ORC_STAGE_PLUGIN_PATHS ignored for this run");
+    }
     
     // Initialize crash handler
     CrashHandlerConfig crash_config;

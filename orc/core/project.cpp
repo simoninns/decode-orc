@@ -32,12 +32,14 @@
 #include <tbc_metadata.h>
 #include "logging.h"
 #include "stage_registry.h"
+#include "include/stage_plugin_registry.h"
 #include "project_to_dag.h"
 #include "dag_executor.h"
 #include "stages/triggerable_stage.h"
 #include "observation_context.h"
 #include <fstream>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
 #include <sstream>
 #include <iomanip>
@@ -48,6 +50,260 @@
 #include <yaml-cpp/yaml.h>
 
 namespace orc {
+
+namespace {
+
+std::filesystem::path resolve_project_root_for_filename(const std::string& filename)
+{
+    std::filesystem::path yaml_path;
+    try {
+        yaml_path = std::filesystem::absolute(filename);
+    } catch (const std::filesystem::filesystem_error& e) {
+        throw std::runtime_error("Failed to resolve project file path '" + filename + "': " + e.what());
+    }
+
+    return yaml_path.parent_path();
+}
+
+ProjectPluginRequirement requirement_from_registry_entry(const StagePluginRegistryEntry& entry)
+{
+    ProjectPluginRequirement requirement;
+    requirement.plugin_id = entry.plugin_id;
+    requirement.plugin_version = entry.plugin_version;
+    requirement.source_repo_url = entry.source_repo_url;
+    requirement.artifact_source = entry.artifact_source;
+    requirement.release_asset_url = entry.release_asset_url;
+    requirement.release_tag = entry.release_tag;
+    requirement.release_asset_name = entry.release_asset_name;
+    requirement.target_platform = entry.target_platform;
+    requirement.local_dev_path = entry.local_dev_path;
+    requirement.license_spdx = entry.license_spdx;
+    requirement.is_core_plugin = entry.is_core_plugin;
+    requirement.required_host_abi = entry.required_host_abi;
+    return requirement;
+}
+
+ProjectPluginRequirement requirement_from_loaded_plugin(const LoadedStagePlugin& plugin)
+{
+    ProjectPluginRequirement requirement;
+    requirement.plugin_id = plugin.plugin_id;
+    requirement.plugin_version = plugin.plugin_version;
+    requirement.license_spdx = plugin.license_spdx;
+    requirement.is_core_plugin = plugin.is_core_plugin;
+    return requirement;
+}
+
+void merge_requirement_metadata(ProjectPluginRequirement& target, const ProjectPluginRequirement& source)
+{
+    if (target.plugin_version.empty()) {
+        target.plugin_version = source.plugin_version;
+    }
+    if (target.source_repo_url.empty()) {
+        target.source_repo_url = source.source_repo_url;
+    }
+    if (target.artifact_source == "local_path" && source.artifact_source != "local_path") {
+        target.artifact_source = source.artifact_source;
+    }
+    if (target.release_asset_url.empty()) {
+        target.release_asset_url = source.release_asset_url;
+    }
+    if (target.release_tag.empty()) {
+        target.release_tag = source.release_tag;
+    }
+    if (target.release_asset_name.empty()) {
+        target.release_asset_name = source.release_asset_name;
+    }
+    if (target.target_platform.empty()) {
+        target.target_platform = source.target_platform;
+    }
+    if (target.local_dev_path.empty()) {
+        target.local_dev_path = source.local_dev_path;
+    }
+    if (target.license_spdx.empty()) {
+        target.license_spdx = source.license_spdx;
+    }
+    if (target.required_host_abi == 0) {
+        target.required_host_abi = source.required_host_abi;
+    }
+    target.is_core_plugin = target.is_core_plugin || source.is_core_plugin;
+}
+
+void add_unique_stage_name(ProjectPluginRequirement& requirement, const std::string& stage_name)
+{
+    if (std::find(requirement.stage_names.begin(), requirement.stage_names.end(), stage_name) == requirement.stage_names.end()) {
+        requirement.stage_names.push_back(stage_name);
+    }
+}
+
+std::vector<ProjectPluginRequirement> collect_required_plugins_for_project(const Project& project)
+{
+    std::set<std::string> used_stage_names;
+    for (const auto& node : project.get_nodes()) {
+        if (!node.stage_name.empty()) {
+            used_stage_names.insert(node.stage_name);
+        }
+    }
+
+    const auto& registry = StageRegistry::instance();
+    std::map<std::string, std::string> stage_to_plugin_id;
+    std::map<std::string, ProjectPluginRequirement> current_requirement_by_plugin_id;
+
+    for (const auto& plugin : registry.get_loaded_plugins()) {
+        if (plugin.is_core_plugin || plugin.plugin_id.empty()) {
+            continue;
+        }
+
+        current_requirement_by_plugin_id.emplace(plugin.plugin_id, requirement_from_loaded_plugin(plugin));
+        for (const auto& stage_name : plugin.registered_stage_names) {
+            stage_to_plugin_id[stage_name] = plugin.plugin_id;
+        }
+    }
+
+    for (const auto& entry : registry.get_plugin_registry_entries()) {
+        if (entry.is_core_plugin || entry.plugin_id.empty()) {
+            continue;
+        }
+
+        auto [it, inserted] = current_requirement_by_plugin_id.emplace(
+            entry.plugin_id,
+            requirement_from_registry_entry(entry));
+        if (!inserted) {
+            merge_requirement_metadata(it->second, requirement_from_registry_entry(entry));
+        }
+    }
+
+    std::map<std::string, ProjectPluginRequirement> required_by_plugin_id;
+    for (const auto& stage_name : used_stage_names) {
+        const auto stage_it = stage_to_plugin_id.find(stage_name);
+        if (stage_it == stage_to_plugin_id.end()) {
+            continue;
+        }
+
+        const std::string& plugin_id = stage_it->second;
+        auto current_requirement_it = current_requirement_by_plugin_id.find(plugin_id);
+        if (current_requirement_it == current_requirement_by_plugin_id.end()) {
+            continue;
+        }
+
+        auto [required_it, inserted] = required_by_plugin_id.emplace(plugin_id, current_requirement_it->second);
+        if (!inserted) {
+            merge_requirement_metadata(required_it->second, current_requirement_it->second);
+        }
+        add_unique_stage_name(required_it->second, stage_name);
+    }
+
+    for (const auto& loaded_requirement : project.get_required_plugins()) {
+        if (loaded_requirement.is_core_plugin || loaded_requirement.plugin_id.empty()) {
+            continue;
+        }
+
+        std::vector<std::string> surviving_stage_names;
+        for (const auto& stage_name : loaded_requirement.stage_names) {
+            if (used_stage_names.find(stage_name) != used_stage_names.end()) {
+                surviving_stage_names.push_back(stage_name);
+            }
+        }
+
+        if (surviving_stage_names.empty()) {
+            continue;
+        }
+
+        auto [required_it, inserted] = required_by_plugin_id.emplace(loaded_requirement.plugin_id, loaded_requirement);
+        if (!inserted) {
+            merge_requirement_metadata(required_it->second, loaded_requirement);
+            required_it->second.stage_names.clear();
+        }
+
+        required_it->second.stage_names.clear();
+        for (const auto& stage_name : surviving_stage_names) {
+            add_unique_stage_name(required_it->second, stage_name);
+        }
+
+        auto current_requirement_it = current_requirement_by_plugin_id.find(loaded_requirement.plugin_id);
+        if (current_requirement_it != current_requirement_by_plugin_id.end()) {
+            merge_requirement_metadata(required_it->second, current_requirement_it->second);
+        }
+    }
+
+    std::vector<ProjectPluginRequirement> requirements;
+    requirements.reserve(required_by_plugin_id.size());
+    for (auto& [plugin_id, requirement] : required_by_plugin_id) {
+        std::sort(requirement.stage_names.begin(), requirement.stage_names.end());
+        requirements.push_back(std::move(requirement));
+    }
+
+    std::sort(requirements.begin(), requirements.end(), [](const auto& left, const auto& right) {
+        return left.plugin_id < right.plugin_id;
+    });
+    return requirements;
+}
+
+YAML::Node to_yaml_node(const ProjectPluginRequirement& requirement)
+{
+    YAML::Node node;
+    node["plugin_id"] = requirement.plugin_id;
+    node["plugin_version"] = requirement.plugin_version;
+    node["source_repo_url"] = requirement.source_repo_url;
+    node["artifact_source"] = requirement.artifact_source;
+    node["release_asset_url"] = requirement.release_asset_url;
+    node["release_tag"] = requirement.release_tag;
+    node["release_asset_name"] = requirement.release_asset_name;
+    node["target_platform"] = requirement.target_platform;
+    node["local_dev_path"] = requirement.local_dev_path;
+    node["license_spdx"] = requirement.license_spdx;
+    node["is_core_plugin"] = requirement.is_core_plugin;
+    node["required_host_abi"] = requirement.required_host_abi;
+
+    YAML::Node stage_names(YAML::NodeType::Sequence);
+    for (const auto& stage_name : requirement.stage_names) {
+        stage_names.push_back(stage_name);
+    }
+    node["stage_names"] = stage_names;
+    return node;
+}
+
+std::optional<ProjectPluginRequirement> parse_required_plugin_node(const YAML::Node& node)
+{
+    if (!node.IsMap()) {
+        return std::nullopt;
+    }
+
+    ProjectPluginRequirement requirement;
+    requirement.plugin_id = node["plugin_id"].as<std::string>("");
+    requirement.plugin_version = node["plugin_version"].as<std::string>("");
+    requirement.source_repo_url = node["source_repo_url"].as<std::string>("");
+    requirement.artifact_source = node["artifact_source"].as<std::string>("local_path");
+    requirement.release_asset_url = node["release_asset_url"].as<std::string>("");
+    requirement.release_tag = node["release_tag"].as<std::string>("");
+    requirement.release_asset_name = node["release_asset_name"].as<std::string>("");
+    requirement.target_platform = node["target_platform"].as<std::string>("");
+    requirement.local_dev_path = node["local_dev_path"].as<std::string>("");
+    requirement.license_spdx = node["license_spdx"].as<std::string>("");
+    requirement.is_core_plugin = node["is_core_plugin"].as<bool>(false);
+    requirement.required_host_abi = node["required_host_abi"].as<uint32_t>(0);
+
+    const auto stage_names = node["stage_names"];
+    if (stage_names && stage_names.IsSequence()) {
+        for (const auto& stage_name : stage_names) {
+            const auto value = stage_name.as<std::string>("");
+            if (!value.empty()) {
+                requirement.stage_names.push_back(value);
+            }
+        }
+    }
+
+    if (requirement.plugin_id.empty() || requirement.stage_names.empty()) {
+        return std::nullopt;
+    }
+
+    std::sort(requirement.stage_names.begin(), requirement.stage_names.end());
+    requirement.stage_names.erase(
+        std::unique(requirement.stage_names.begin(), requirement.stage_names.end()),
+        requirement.stage_names.end());
+    return requirement;
+}
+
+} // namespace
 
 // Project class method implementations
 bool Project::has_source() const
@@ -130,41 +386,56 @@ NodeType string_to_node_type(const std::string& str) {
 } // anonymous namespace
 
 Project load_project(const std::string& filename) {
-    // Resolve the YAML file path to absolute and determine project root
     std::filesystem::path yaml_path;
     try {
         yaml_path = std::filesystem::weakly_canonical(filename);
     } catch (const std::filesystem::filesystem_error& e) {
         throw std::runtime_error("Failed to resolve project file path '" + filename + "': " + e.what());
     }
-    
-    std::string project_root = yaml_path.parent_path().string();
-    
+
     ORC_LOG_DEBUG("Loading project from: {}", yaml_path.string());
-    ORC_LOG_DEBUG("Project root directory: {}", project_root);
-    
-    YAML::Node root;
-    
+    ORC_LOG_DEBUG("Project root directory: {}", yaml_path.parent_path().string());
+
+    std::string yaml_text;
     try {
-        root = YAML::LoadFile(yaml_path.string());
+        YAML::Node root = YAML::LoadFile(yaml_path.string());
+        YAML::Emitter emitter;
+        emitter << root;
+        yaml_text = emitter.c_str();
     } catch (const YAML::Exception& e) {
         throw std::runtime_error("Failed to parse YAML file '" + filename + "': " + e.what());
     }
-    
+
+    return load_project_from_yaml(yaml_text, yaml_path.string());
+}
+
+Project load_project_from_yaml(const std::string& yaml_text, const std::string& filename_hint) {
+    std::filesystem::path yaml_path;
+    try {
+        yaml_path = std::filesystem::absolute(filename_hint);
+    } catch (const std::filesystem::filesystem_error& e) {
+        throw std::runtime_error("Failed to resolve project file path '" + filename_hint + "': " + e.what());
+    }
+
     Project project;
-    
-    // Store project root for path resolution
-    project.project_root_ = project_root;
+    project.project_root_ = yaml_path.parent_path().string();
+
+    YAML::Node root;
+    try {
+        root = YAML::Load(yaml_text);
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("Failed to parse YAML file '" + filename_hint + "': " + e.what());
+    }
     
     // Validate project section exists
     if (!root["project"]) {
-        throw std::runtime_error("Invalid project file '" + filename + "': missing required 'project' section");
+        throw std::runtime_error("Invalid project file '" + filename_hint + "': missing required 'project' section");
     }
     
     // Validate project name (required)
     project.name_ = root["project"]["name"].as<std::string>("");
     if (project.name_.empty()) {
-        throw std::runtime_error("Invalid project file '" + filename + "': project name is required");
+        throw std::runtime_error("Invalid project file '" + filename_hint + "': project name is required");
     }
     
     project.description_ = root["project"]["description"].as<std::string>("");
@@ -172,27 +443,27 @@ Project load_project(const std::string& filename) {
     
     // Validate video format (required)
     if (!root["project"]["video_format"]) {
-        throw std::runtime_error("Invalid project file '" + filename + "': missing required 'video_format' field. "
+        throw std::runtime_error("Invalid project file '" + filename_hint + "': missing required 'video_format' field. "
                                "Please create a new project or manually add 'video_format: NTSC' or 'video_format: PAL' to the project section.");
     }
     
     std::string format_str = root["project"]["video_format"].as<std::string>();
     project.video_format_ = video_system_from_string(format_str);
     if (project.video_format_ == VideoSystem::Unknown && format_str != "Unknown") {
-        throw std::runtime_error("Invalid project file '" + filename + "': invalid video_format '" + format_str + "'. "
+        throw std::runtime_error("Invalid project file '" + filename_hint + "': invalid video_format '" + format_str + "'. "
                                "Valid values are: NTSC, PAL, PAL-M, or Unknown");
     }
     
     // Load source format (required)
     if (!root["project"]["source_format"]) {
-        throw std::runtime_error("Invalid project file '" + filename + "': missing required 'source_format' field. "
+        throw std::runtime_error("Invalid project file '" + filename_hint + "': missing required 'source_format' field. "
                                "Please create a new project or manually add 'source_format: Composite' or 'source_format: YC' to the project section.");
     }
     
     std::string source_format_str = root["project"]["source_format"].as<std::string>();
     project.source_format_ = source_type_from_string(source_format_str);
     if (project.source_format_ == SourceType::Unknown && source_format_str != "Unknown") {
-        throw std::runtime_error("Invalid project file '" + filename + "': invalid source_format '" + source_format_str + "'. "
+        throw std::runtime_error("Invalid project file '" + filename_hint + "': invalid source_format '" + source_format_str + "'. "
                                "Valid values are: Composite, YC, or Unknown");
     }
     
@@ -256,6 +527,15 @@ Project load_project(const std::string& filename) {
             project.edges_.push_back(edge);
         }
     }
+
+    if (root["required_plugins"] && root["required_plugins"].IsSequence()) {
+        for (const auto& plugin_yaml : root["required_plugins"]) {
+            auto requirement = parse_required_plugin_node(plugin_yaml);
+            if (requirement.has_value()) {
+                project.required_plugins_.push_back(std::move(*requirement));
+            }
+        }
+    }
     
     // Validate all loaded edges to ensure they comply with current connection rules
     std::vector<std::string> validation_errors;
@@ -317,16 +597,9 @@ Project load_project(const std::string& filename) {
     return project;
 }
 
-void save_project(const Project& project, const std::string& filename) {
-    // Determine project root from the save location
-    std::filesystem::path save_path;
-    try {
-        save_path = std::filesystem::absolute(filename);
-    } catch (const std::filesystem::filesystem_error& e) {
-        throw std::runtime_error("Failed to resolve save path '" + filename + "': " + e.what());
-    }
-    std::string save_project_root = save_path.parent_path().string();
-    
+std::string serialize_project_to_yaml(const Project& project, const std::string& filename_hint) {
+    (void)resolve_project_root_for_filename(filename_hint);
+
     YAML::Emitter out;
     out << YAML::BeginMap;
     
@@ -419,18 +692,37 @@ void save_project(const Project& project, const std::string& filename) {
         out << YAML::EndMap;
     }
     out << YAML::EndSeq;
-    
+
     out << YAML::EndMap; // end dag
+
+    const auto required_plugins = collect_required_plugins_for_project(project);
+    if (!required_plugins.empty()) {
+        out << YAML::Key << "required_plugins";
+        out << YAML::Value << YAML::BeginSeq;
+        for (const auto& requirement : required_plugins) {
+            out << to_yaml_node(requirement);
+        }
+        out << YAML::EndSeq;
+    }
+
     out << YAML::EndMap; // end root
+
+    std::ostringstream file_text;
+    file_text << "# ORC Project File\n";
+    file_text << "# Version: " << project.version_ << "\n\n";
+    file_text << out.c_str();
+    return file_text.str();
+}
+
+void save_project(const Project& project, const std::string& filename) {
+    std::string yaml_text = serialize_project_to_yaml(project, filename);
     
     // Write to file
     std::ofstream file(filename);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file for writing: " + filename);
     }
-    file << "# ORC Project File\n";
-    file << "# Version: " << project.version_ << "\n\n";
-    file << out.c_str();
+    file << yaml_text;
     file.close();
     
     // Clear modification flag - project has been saved

@@ -13,7 +13,8 @@
 #include <algorithm>
 
 #include "../../include/video_field_representation_mock.h"
-#include "../../../../orc/core/stages/pal_comp_source/pal_comp_source_stage.h"
+#include "../source_common/source_stage_descriptor_test_utils.h"
+#include "../../../../orc/plugins/stages/pal_comp_source/pal_comp_source_stage.h"
 #include "../../../../orc/core/include/observation_context.h"
 #include "../../../../../orc/common/include/error_types.h"
 
@@ -50,43 +51,6 @@ namespace orc_unit_test
     }
 
     // =========================================================================
-    // Stage interface invariants
-    // =========================================================================
-
-    TEST(PALCompSourceStageTest, requiredInputCount_isZero)
-    {
-        orc::PALCompSourceStage stage;
-        EXPECT_EQ(stage.required_input_count(), 0u);
-    }
-
-    TEST(PALCompSourceStageTest, outputCount_isOne)
-    {
-        orc::PALCompSourceStage stage;
-        EXPECT_EQ(stage.output_count(), 1u);
-    }
-
-    TEST(PALCompSourceStageTest, nodeTypeInfo_hasSourceType)
-    {
-        orc::PALCompSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.type, orc::NodeType::SOURCE);
-    }
-
-    TEST(PALCompSourceStageTest, nodeTypeInfo_hasExpectedStageName)
-    {
-        orc::PALCompSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.stage_name, "PAL_Comp_Source");
-    }
-
-    TEST(PALCompSourceStageTest, nodeTypeInfo_formatCompatibilityIsPalOnly)
-    {
-        orc::PALCompSourceStage stage;
-        auto info = stage.get_node_type_info();
-        EXPECT_EQ(info.compatible_formats, orc::VideoFormatCompatibility::PAL_ONLY);
-    }
-
-    // =========================================================================
     // Parameter descriptor tests
     // =========================================================================
 
@@ -94,92 +58,49 @@ namespace orc_unit_test
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "input_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".tbc");
+        expect_file_path_descriptor(descriptors, "input_path", ".tbc");
     }
 
     TEST(PALCompSourceStageTest, parameterDescriptors_containsPcmPath)
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "pcm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".pcm");
+        expect_file_path_descriptor(descriptors, "pcm_path", ".pcm");
     }
 
     TEST(PALCompSourceStageTest, parameterDescriptors_containsEfmPath)
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "efm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        EXPECT_EQ(it->type, orc::ParameterType::FILE_PATH);
-        EXPECT_EQ(it->file_extension_hint, ".efm");
+        expect_file_path_descriptor(descriptors, "efm_path", ".efm");
     }
 
     TEST(PALCompSourceStageTest, descriptorDefaults_inputPath_isEmptyString)
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "input_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        ASSERT_TRUE(it->constraints.default_value.has_value());
-        ASSERT_TRUE(std::holds_alternative<std::string>(*it->constraints.default_value));
-        EXPECT_EQ(std::get<std::string>(*it->constraints.default_value), "");
+        expect_empty_string_default(descriptors, "input_path");
     }
 
     TEST(PALCompSourceStageTest, descriptorDefaults_pcmPath_isEmptyString)
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "pcm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        ASSERT_TRUE(it->constraints.default_value.has_value());
-        ASSERT_TRUE(std::holds_alternative<std::string>(*it->constraints.default_value));
-        EXPECT_EQ(std::get<std::string>(*it->constraints.default_value), "");
+        expect_empty_string_default(descriptors, "pcm_path");
     }
 
     TEST(PALCompSourceStageTest, descriptorDefaults_efmPath_isEmptyString)
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        auto it = std::find_if(descriptors.begin(), descriptors.end(),
-            [](const orc::ParameterDescriptor& d) { return d.name == "efm_path"; });
-
-        ASSERT_NE(it, descriptors.end());
-        ASSERT_TRUE(it->constraints.default_value.has_value());
-        ASSERT_TRUE(std::holds_alternative<std::string>(*it->constraints.default_value));
-        EXPECT_EQ(std::get<std::string>(*it->constraints.default_value), "");
+        expect_empty_string_default(descriptors, "efm_path");
     }
 
     TEST(PALCompSourceStageTest, parameterDescriptors_allParametersAreOptional)
     {
         orc::PALCompSourceStage stage;
         auto descriptors = stage.get_parameter_descriptors();
-
-        for (const auto& desc : descriptors) {
-            EXPECT_FALSE(desc.constraints.required)
-                << "Parameter '" << desc.name << "' should be optional";
-        }
+        expect_all_descriptors_optional(descriptors);
     }
 
     // =========================================================================

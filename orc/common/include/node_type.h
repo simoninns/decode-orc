@@ -12,6 +12,7 @@
 #include <string>
 #include <cstdint>
 #include <vector>
+#include <utility>
 
 namespace orc {
 
@@ -83,7 +84,35 @@ struct NodeTypeInfo {
     uint32_t min_outputs;       // Minimum number of outputs (0 for SINK)
     uint32_t max_outputs;       // Maximum number of outputs (0 for SINK, UINT32_MAX for unlimited)
     VideoFormatCompatibility compatible_formats;  // Video format compatibility
-    SinkCategory sink_category = SinkCategory::CORE;  // Sink grouping metadata
+    SinkCategory sink_category;  // Sink grouping metadata
+    std::string menu_category;  // Required Add Stage menu group label (plugin-provided)
+
+    NodeTypeInfo(
+        NodeType type,
+        std::string stage_name,
+        std::string display_name,
+        std::string description,
+        uint32_t min_inputs,
+        uint32_t max_inputs,
+        uint32_t min_outputs,
+        uint32_t max_outputs,
+        VideoFormatCompatibility compatible_formats,
+        SinkCategory sink_category,
+        std::string menu_category)
+        : type(type)
+        , stage_name(std::move(stage_name))
+        , display_name(std::move(display_name))
+        , description(std::move(description))
+        , min_inputs(min_inputs)
+        , max_inputs(max_inputs)
+        , min_outputs(min_outputs)
+        , max_outputs(max_outputs)
+        , compatible_formats(compatible_formats)
+        , sink_category(sink_category)
+        , menu_category(std::move(menu_category))
+    {}
+
+    NodeTypeInfo() = delete;
 };
 
 /**

@@ -20,6 +20,38 @@
 
 namespace orc {
 
+namespace {
+
+std::string build_missing_stage_message(const Project& project, const ProjectDAGNode& node)
+{
+    for (const auto& requirement : project.get_required_plugins()) {
+        if (std::find(requirement.stage_names.begin(), requirement.stage_names.end(), node.stage_name) == requirement.stage_names.end()) {
+            continue;
+        }
+
+        std::ostringstream oss;
+        oss << "Unknown stage type: " << node.stage_name
+            << " in node " << node.node_id.value();
+
+        if (!requirement.plugin_id.empty()) {
+            oss << ". Required plugin: " << requirement.plugin_id;
+        }
+
+        if (!requirement.source_repo_url.empty()) {
+            oss << ". Source: " << requirement.source_repo_url;
+        } else if (!requirement.release_asset_url.empty()) {
+            oss << ". Release asset: " << requirement.release_asset_url;
+        }
+
+        oss << ". Install or re-enable the plugin, then reload the project.";
+        return oss.str();
+    }
+
+    return "Unknown stage type: " + node.stage_name + " in node " + std::to_string(node.node_id.value());
+}
+
+} // namespace
+
 // Helper function to resolve paths relative to project root
 // Matches the resolve_path function in project.cpp
 static std::string resolve_path_for_execution(const std::string& path, const std::string& project_root) {
@@ -74,9 +106,7 @@ std::shared_ptr<DAG> project_to_dag(const Project& project) {
         
         // Instantiate stage from registry
         if (!registry.has_stage(proj_node.stage_name)) {
-            throw ProjectConversionError(
-                "Unknown stage type: " + proj_node.stage_name + " in node " + std::to_string(proj_node.node_id.value())
-            );
+            throw ProjectConversionError(build_missing_stage_message(project, proj_node));
         }
         
         dag_node.stage = registry.create_stage(proj_node.stage_name);

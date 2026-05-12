@@ -45,6 +45,7 @@ public:
             1,
             orc::VideoFormatCompatibility::ALL,
             orc::SinkCategory::CORE,
+            "Transform",
         };
     }
 
@@ -107,6 +108,7 @@ public:
             1,
             orc::VideoFormatCompatibility::ALL,
             orc::SinkCategory::CORE,
+            "Sink (Core)",
         };
     }
 
@@ -241,6 +243,7 @@ public:
             1, 1, 1, 1,
             orc::VideoFormatCompatibility::ALL,
             orc::SinkCategory::CORE,
+            "Sink (Core)",
         };
     }
 
@@ -284,6 +287,7 @@ public:
             1, 1, 1, 1,
             orc::VideoFormatCompatibility::ALL,
             orc::SinkCategory::CORE,
+            "Sink (Core)",
         };
     }
 
@@ -343,6 +347,7 @@ public:
             1, 1, 1, 1,
             orc::VideoFormatCompatibility::ALL,
             orc::SinkCategory::CORE,
+            "Transform",
         };
     }
 

@@ -14,11 +14,25 @@
 
 #include "../../include/video_field_representation_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../../../orc/core/stages/hackdac_sink/hackdac_sink_stage.h"
+#include "../../../../orc/plugins/stages/hackdac_sink/hackdac_sink_stage.h"
+#include "../../../../orc/plugins/stages/hackdac_sink/hackdac_sink_stage_deps_interface.h"
 
 namespace orc_unit_test
 {
     using testing::NiceMock;
+    using testing::Return;
+    using testing::StrictMock;
+
+    class MockHackdacSinkStageDeps : public orc::IHackdacSinkStageDeps
+    {
+    public:
+        MOCK_METHOD(void, init, (orc::TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested), (override));
+        MOCK_METHOD(
+            orc::HackdacSinkExportResult,
+            export_hackdac,
+            (const orc::VideoFieldRepresentation* representation, const orc::HackdacSinkExportOptions& options),
+            (override));
+    };
 
     TEST(HackdacSinkStageTest, descriptorDefaults_outputPathIsEmptyHdac)
     {
@@ -71,6 +85,44 @@ namespace orc_unit_test
 
         EXPECT_FALSE(result);
         EXPECT_EQ(stage.get_trigger_status(), "Error: output_path parameter is required and must be a string");
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+    }
+
+    TEST(HackdacSinkStageTest, triggerUsesDepsSeam_andReportsSuccess)
+    {
+        orc::HackdacSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockHackdacSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        MockObservationContext observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*deps, export_hackdac(vfr.get(), testing::_))
+            .WillOnce(Return(orc::HackdacSinkExportResult{true, 12, "Success: 12 fields exported"}));
+
+        const bool result = stage.trigger({vfr}, {{"output_path", std::string("out.hdac")}}, observation_context);
+
+        EXPECT_TRUE(result);
+        EXPECT_EQ(stage.get_trigger_status(), "Success: 12 fields exported");
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+    }
+
+    TEST(HackdacSinkStageTest, triggerUsesDepsSeam_andPropagatesFailure)
+    {
+        orc::HackdacSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockHackdacSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        MockObservationContext observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*deps, export_hackdac(vfr.get(), testing::_))
+            .WillOnce(Return(orc::HackdacSinkExportResult{false, 0, "Cancelled by user"}));
+
+        const bool result = stage.trigger({vfr}, {{"output_path", std::string("out.hdac")}}, observation_context);
+
+        EXPECT_FALSE(result);
+        EXPECT_EQ(stage.get_trigger_status(), "Cancelled by user");
         EXPECT_FALSE(stage.is_trigger_in_progress());
     }
 }

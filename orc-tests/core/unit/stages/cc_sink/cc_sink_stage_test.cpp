@@ -1,22 +1,49 @@
 /*
  * File:        cc_sink_stage_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit tests for CCSinkStage parameter contracts and trigger validation
+ * Purpose:     Unit tests for CCSinkStage parameter contracts and trigger dependency seam
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
  */
 
 #include <gtest/gtest.h>
+#include <gmock/gmock.h>
 
 #include <algorithm>
+#include <atomic>
 
 #include "../../include/observation_context_interface_mock.h"
-#include "../../../../orc/core/stages/cc_sink/cc_sink_stage.h"
+#include "../../include/video_field_representation_mock.h"
+#include "../../../../orc/plugins/stages/cc_sink/cc_sink_stage.h"
+#include "../../../../orc/plugins/stages/cc_sink/cc_sink_stage_deps_interface.h"
 
 namespace orc_unit_test
 {
-    TEST(CCSinkStageTest, descriptorDefaults_includeExpectedOutputAndFormat)
+    using testing::NiceMock;
+    using testing::StrictMock;
+    using testing::Return;
+    using testing::_;
+
+    class MockCCSinkStageDeps : public orc::ICCSinkStageDeps
+    {
+    public:
+        MOCK_METHOD(
+            void,
+            init,
+            (orc::TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested),
+            (override));
+
+        MOCK_METHOD(
+            orc::CCExportResult,
+            export_cc,
+            (orc::VideoFieldRepresentation * representation,
+             orc::IObservationContext & observation_context,
+             orc::CCExportOptions options),
+            (override));
+    };
+
+    TEST(CCSinkStageTest, descriptorDefaults_includeExportFormatOptions)
     {
         orc::CCSinkStage stage;
         const auto descriptors = stage.get_parameter_descriptors();
@@ -67,5 +94,114 @@ namespace orc_unit_test
         EXPECT_FALSE(result);
         EXPECT_FALSE(stage.is_trigger_in_progress());
         EXPECT_EQ(stage.get_trigger_status(), "Idle");
+    }
+
+    TEST(CCSinkStageTest, triggerUsesDepsSeam_andReportsSuccess)
+    {
+        orc::CCSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockCCSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        NiceMock<MockObservationContext> observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        orc::CCExportOptions captured_options;
+
+        EXPECT_CALL(*deps, init(_, _));
+        EXPECT_CALL(*deps, export_cc(vfr.get(), _, _))
+            .WillOnce(testing::DoAll(
+                testing::SaveArg<2>(&captured_options),
+                Return(orc::CCExportResult{true, "ok", 42})));
+
+        const bool result = stage.trigger(
+            {vfr},
+            {
+                {"output_path", std::string("captions.scc")},
+                {"format", std::string("Scenarist SCC")}
+            },
+            observation_context);
+
+        EXPECT_TRUE(result);
+        EXPECT_EQ(captured_options.output_path, "captions.scc");
+        EXPECT_EQ(captured_options.export_format, orc::CCExportFormat::SCC);
+        EXPECT_FALSE(captured_options.write_csv);
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+        EXPECT_EQ(stage.get_trigger_status(), "Idle");
+    }
+
+    TEST(CCSinkStageTest, triggerUsesDepsSeam_andPropagatesFailure)
+    {
+        orc::CCSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockCCSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        NiceMock<MockObservationContext> observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*deps, init(_, _));
+        EXPECT_CALL(*deps, export_cc(vfr.get(), _, _))
+            .WillOnce(Return(orc::CCExportResult{false, "export failed", 0}));
+
+        const bool result = stage.trigger(
+            {vfr},
+            {
+                {"output_path", std::string("captions.scc")},
+                {"format", std::string("Scenarist SCC")}
+            },
+            observation_context);
+
+        EXPECT_FALSE(result);
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+        EXPECT_EQ(stage.get_trigger_status(), "Idle");
+    }
+
+    TEST(CCSinkStageTest, triggerUsesDepsSeam_withSCCFormat)
+    {
+        orc::CCSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockCCSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        NiceMock<MockObservationContext> observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*deps, init(_, _));
+        EXPECT_CALL(*deps, export_cc(vfr.get(), _, testing::Field(&orc::CCExportOptions::export_format, orc::CCExportFormat::SCC)))
+            .WillOnce(Return(orc::CCExportResult{true, "ok", 1}));
+
+        const bool result = stage.trigger(
+            {vfr},
+            {
+                {"output_path", std::string("captions.scc")},
+                {"format", std::string("Scenarist SCC")}
+            },
+            observation_context);
+
+        EXPECT_TRUE(result);
+        EXPECT_FALSE(stage.is_trigger_in_progress());
+    }
+
+    TEST(CCSinkStageTest, triggerUsesDepsSeam_withPlainTextFormat)
+    {
+        orc::CCSinkStage stage;
+        auto deps = std::make_shared<StrictMock<MockCCSinkStageDeps>>();
+        stage.set_deps_override(deps);
+
+        NiceMock<MockObservationContext> observation_context;
+        auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+
+        EXPECT_CALL(*deps, init(_, _));
+        EXPECT_CALL(*deps, export_cc(vfr.get(), _, testing::Field(&orc::CCExportOptions::export_format, orc::CCExportFormat::PLAIN_TEXT)))
+            .WillOnce(Return(orc::CCExportResult{true, "ok", 1}));
+
+        const bool result = stage.trigger(
+            {vfr},
+            {
+                {"output_path", std::string("captions.txt")},
+                {"format", std::string("Plain Text")}
+            },
+            observation_context);
+
+        EXPECT_TRUE(result);
+        EXPECT_FALSE(stage.is_trigger_in_progress());
     }
 }

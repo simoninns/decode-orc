@@ -20,6 +20,61 @@ The project enforces **MVP (Model-View-Presenter) pattern** to keep layers decou
 
 Run `ctest -R MVPArchitectureCheck` to validate boundaries before submitting PRs.
 
+## SDK-Only Stage/Plugin Rule
+
+All stage implementations (Decode-Orc supplied and third-party) must use only the public plugin SDK contract.
+
+- Do not include private host headers from `orc/core`, `orc/gui`, `orc/cli`, or `orc/presenters` in plugin-facing stage code.
+- Do not link plugin targets against private host internals outside approved SDK/plugin interfaces.
+- Do not add compatibility fallbacks or include-path workarounds that depend on in-tree private headers being present.
+- If an SDK capability is missing, expand the SDK first rather than bypassing it.
+
+Plugin architecture and SDK documentation are published in `docs/technical/plugin-architecture.md` and `docs/technical/plugin-sdk.md`.
+
+**SDK documentation must be kept in sync with the implementation.** When any of the following change, update the relevant doc file in the same PR:
+
+| Change | Doc to update |
+|--------|---------------|
+| `kStagePluginHostAbiVersion` or `kStagePluginApiVersion` bumped | Both files — update version tables and compatibility sections |
+| New or removed public SDK header (`orc/sdk/include/orc/plugin/`) | `plugin-sdk.md` — SDK Headers table |
+| `StagePluginDescriptor`, entrypoint signatures, or callback contract changed | `plugin-architecture.md` — Compatibility Gating section |
+| Registry YAML schema fields added or removed | `plugin-architecture.md` — Plugin Registry table |
+| Artifact naming convention changed | Both files |
+| `IStageServices` interface methods added or removed | `plugin-sdk.md` — Host services section |
+| `StageToolDescriptor` / `AnalysisToolDescriptor` contract changed | `plugin-sdk.md` — Optional: Stage tools section |
+| Plugin cache path or download behaviour changed | `plugin-architecture.md` — Plugin Registry section |
+| `orc_add_stage_plugin()` macro signature changed | `plugin-sdk.md` — CMake Integration section |
+
+## SDK-Only Enforcement Gates (Active)
+
+**SDK-only compliance is enforced with hard-fail gates in CI/CD.**
+
+Do NOT attempt to work around these gates; they are non-negotiable:
+
+### Required Validation
+
+Before opening a PR that adds or modifies stage plugins:
+
+```bash
+# Build with tests
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON
+cmake --build build --parallel
+
+# Run SDK enforcement gates (REQUIRED - must pass)
+ctest --test-dir build -L sdk --output-on-failure
+
+# Run runtime architecture validation
+ctest --test-dir build -R "StagePluginLoader" --output-on-failure
+```
+
+If either hard gate fails (`PluginPrivateIncludeScan` or `PluginPrivateLinkScan`), the build is rejected. Fix all violations before submitting PR.
+
+### Gates in CI/CD
+
+- **build-and-test.yml:** Requires all `-L sdk` tests to pass before packaging workflows
+- **All platforms:** macOS, Windows, and Flatpak packaging workflows require build-and-test to succeed
+- **Pre-commit locally:** Run gates locally first to avoid failed CI runs
+
 ## Licensing & Legal Requirements
 
 **Decode-Orc is licensed under GPLv3.** All dependencies and contributions must be compatible with GPLv3:

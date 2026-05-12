@@ -41,11 +41,6 @@
     <keyword>tbc</keyword>
     <keyword>processing</keyword>
   </keywords>
-  <screenshots>
-    <screenshot type="default">
-      <caption>Main workflow editor interface</caption>
-    </screenshot>
-  </screenshots>
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="0.1.0" date="2026-02-14">

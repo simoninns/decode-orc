@@ -14,7 +14,7 @@
 
 #include "../../include/video_field_representation_mock.h"
 #include "../../../../orc/core/include/observation_context.h"
-#include "../../../../orc/core/stages/source_align/source_align_stage.h"
+#include "../../../../orc/plugins/stages/source_align/source_align_stage.h"
 
 namespace orc_unit_test
 {

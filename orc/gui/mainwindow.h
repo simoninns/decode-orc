@@ -173,6 +173,7 @@ private:
     void setupUI();
     void setupMenus();
     void setupToolbar();
+    void reportPluginRuntimeDiagnostics(bool show_error_dialog);
     void connectDAGSignals();     ///< Connect DAG model/scene signals to their handlers
     void recreateDAGModelScene(); ///< Delete and recreate DAG model/scene with signals reconnected
     void updateWindowTitle();
@@ -310,6 +311,7 @@ private:
     QAction* save_project_action_;
     QAction* save_project_as_action_;
     QAction* edit_project_action_;
+    QAction* plugin_manager_action_ = nullptr;
     QAction* show_preview_action_;
     QAction* auto_show_preview_action_;
     

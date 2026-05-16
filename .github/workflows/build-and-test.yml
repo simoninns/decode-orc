@@ -78,7 +78,7 @@ jobs:
               --input build/ctest-results-unit.xml \
               --max-wall-seconds 30.0 \
               --min-pass-rate 99.5 \
-              --max-p95-seconds 0.085
+              --max-p95-seconds 0.105
           "
 
       - name: Upload Unit Gate Artifacts

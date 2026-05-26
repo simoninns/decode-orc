@@ -9,6 +9,7 @@
 
 #include "dropout_analysis_sink_stage.h"
 #include "dropout_analysis_sink_deps.h"
+#include "preview_helpers.h"
 #include "logging.h"
 #include <memory>
 #include <stdexcept>
@@ -37,9 +38,12 @@ std::vector<ArtifactPtr> DropoutAnalysisSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context) {
-    (void)inputs;
     (void)parameters;
     (void)observation_context;
+    // Cache input for preview rendering (pass-through preview of upstream output)
+    if (!inputs.empty()) {
+        cached_input_ = std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+    }
     // Sink stages do not emit artifacts during execute(); trigger() performs the work.
     return {};
 }
@@ -205,6 +209,18 @@ bool DropoutAnalysisSinkStage::trigger(
         is_processing_.store(false);
         return false;
     }
+}
+
+std::vector<PreviewOption> DropoutAnalysisSinkStage::get_preview_options() const
+{
+    return PreviewHelpers::get_standard_preview_options(cached_input_);
+}
+
+PreviewImage DropoutAnalysisSinkStage::render_preview(const std::string& option_id, uint64_t index,
+                                                       PreviewNavigationHint hint) const
+{
+    (void)hint;
+    return PreviewHelpers::render_standard_preview(cached_input_, option_id, index);
 }
 
 } // namespace orc

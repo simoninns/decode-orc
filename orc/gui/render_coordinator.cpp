@@ -769,8 +769,16 @@ void RenderCoordinator::handleGetDropoutData(const GetDropoutDataRequest& req)
         int32_t total_frames = 0;
         
         if (!worker_render_presenter_->getDropoutAnalysisData(req.node_id, data_ptr, total_frames)) {
-            emit error(req.request_id, "Failed to get dropout data - node may not be a DropoutAnalysisSinkStage or has no results");
-            return;
+            // Stage has not been triggered yet — trigger it now so the data is available.
+            ORC_LOG_DEBUG("RenderCoordinator: Dropout stage has no results, triggering now (request {})", req.request_id);
+            worker_render_presenter_->triggerStage(req.node_id,
+                [this](int current, int total, const std::string& message) {
+                    emit dropoutProgress(static_cast<size_t>(current), static_cast<size_t>(total), QString::fromStdString(message));
+                });
+            if (!worker_render_presenter_->getDropoutAnalysisData(req.node_id, data_ptr, total_frames)) {
+                emit error(req.request_id, "Failed to get dropout data - node may not be a DropoutAnalysisSinkStage or trigger failed");
+                return;
+            }
         }
 
         if (data_ptr.empty()) {
@@ -808,8 +816,16 @@ void RenderCoordinator::handleGetSNRData(const GetSNRDataRequest& req)
         int32_t total_frames = 0;
         
         if (!worker_render_presenter_->getSNRAnalysisData(req.node_id, data_ptr, total_frames)) {
-            emit error(req.request_id, "Failed to get SNR data - node may not be a SNRAnalysisSinkStage or has no results");
-            return;
+            // Stage has not been triggered yet — trigger it now so the data is available.
+            ORC_LOG_DEBUG("RenderCoordinator: SNR stage has no results, triggering now (request {})", req.request_id);
+            worker_render_presenter_->triggerStage(req.node_id,
+                [this](int current, int total, const std::string& message) {
+                    emit snrProgress(static_cast<size_t>(current), static_cast<size_t>(total), QString::fromStdString(message));
+                });
+            if (!worker_render_presenter_->getSNRAnalysisData(req.node_id, data_ptr, total_frames)) {
+                emit error(req.request_id, "Failed to get SNR data - node may not be a SNRAnalysisSinkStage or trigger failed");
+                return;
+            }
         }
 
         if (data_ptr.empty()) {
@@ -846,8 +862,16 @@ void RenderCoordinator::handleGetBurstLevelData(const GetBurstLevelDataRequest& 
         int32_t total_frames = 0;
         
         if (!worker_render_presenter_->getBurstLevelAnalysisData(req.node_id, data_ptr, total_frames)) {
-            emit error(req.request_id, "Failed to get burst data - node may not be a BurstLevelAnalysisSinkStage or has no results");
-            return;
+            // Stage has not been triggered yet — trigger it now so the data is available.
+            ORC_LOG_DEBUG("RenderCoordinator: Burst level stage has no results, triggering now (request {})", req.request_id);
+            worker_render_presenter_->triggerStage(req.node_id,
+                [this](int current, int total, const std::string& message) {
+                    emit burstLevelProgress(static_cast<size_t>(current), static_cast<size_t>(total), QString::fromStdString(message));
+                });
+            if (!worker_render_presenter_->getBurstLevelAnalysisData(req.node_id, data_ptr, total_frames)) {
+                emit error(req.request_id, "Failed to get burst data - node may not be a BurstLevelAnalysisSinkStage or trigger failed");
+                return;
+            }
         }
 
         if (data_ptr.empty()) {

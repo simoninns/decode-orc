@@ -60,7 +60,8 @@ bool should_use_legacy_stage_preview(NodeType node_type)
     // generic VFR/capability path reaches full option parity (e.g. clamped/raw).
     return node_type == NodeType::SOURCE
         || node_type == NodeType::TRANSFORM
-        || node_type == NodeType::SINK;
+        || node_type == NodeType::SINK
+        || node_type == NodeType::ANALYSIS_SINK;
 }
 
 } // namespace

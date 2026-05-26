@@ -18,6 +18,7 @@
 #include "burst_level_analysis_types.h"
 #include "burst_level_analysis_sink_deps_interface.h"
 #include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
+#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
 #include <atomic>
 #include <map>
 #include <optional>
@@ -37,7 +38,8 @@ namespace orc {
 class BurstLevelAnalysisSinkStage : public DAGStage,
                                     public ParameterizedStage,
                                     public TriggerableStage,
-                                    public StageToolProvider {
+                                    public StageToolProvider,
+                                    public PreviewableStage {
 public:
     BurstLevelAnalysisSinkStage();
     ~BurstLevelAnalysisSinkStage() override = default;
@@ -75,6 +77,12 @@ public:
     bool is_trigger_in_progress() const override { return is_processing_.load(); }
     void cancel_trigger() override { cancel_requested_.store(true); }
 
+    // PreviewableStage interface
+    bool supports_preview() const override { return true; }
+    std::vector<PreviewOption> get_preview_options() const override;
+    PreviewImage render_preview(const std::string& option_id, uint64_t index,
+                               PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
+
     // Result accessors
     const std::vector<FrameBurstLevelStats>& frame_stats() const { return frame_stats_; }
     int32_t total_frames() const { return total_frames_; }
@@ -102,6 +110,7 @@ private:
 
     ParsedConfig parse_config(const std::map<std::string, ParameterValue>& parameters) const;
 
+    mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;
     std::map<std::string, ParameterValue> parameters_;
     TriggerProgressCallback progress_callback_;
     std::atomic<bool> is_processing_{false};

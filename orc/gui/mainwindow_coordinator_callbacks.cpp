@@ -404,12 +404,17 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
     ORC_LOG_DEBUG("onDropoutDataReady for node '{}': {} frames, total={}", 
                   node_id.to_string(), frame_stats.size(), total_frames);
     
-    // Close progress dialog for this stage
+    // Close progress dialog safely (matches onTriggerComplete pattern)
+    // Erase from map FIRST so any re-entrant onDropoutProgress calls see an empty map.
+    // Do NOT call setValue() before hide() — modal QProgressDialog::setValue() calls
+    // QCoreApplication::processEvents() internally, which can re-entrantly modify the map.
     auto prog_it = dropout_progress_dialogs_.find(node_id);
     if (prog_it != dropout_progress_dialogs_.end() && prog_it->second) {
-        prog_it->second->close();
-        prog_it->second->deleteLater();
-        dropout_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
+        QProgressDialog* pd = prog_it->second.data();
+        dropout_progress_dialogs_.erase(prog_it);
+        pd->blockSignals(true);
+        pd->hide();
+        pd->deleteLater();
     }
     
     // Find the dialog for this stage
@@ -446,6 +451,10 @@ void MainWindow::onDropoutDataReady(uint64_t request_id,
     }
     
     dialog->finishUpdate(current_frame);
+
+    // Bring the graph window to the front now that it has data
+    dialog->raise();
+    dialog->activateWindow();
 }
 
 void MainWindow::onSNRDataReady(uint64_t request_id,
@@ -465,12 +474,17 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     ORC_LOG_DEBUG("onSNRDataReady for node '{}': {} frames, total={}", 
                   node_id.to_string(), frame_stats.size(), total_frames);
     
-    // Close progress dialog for this stage
+    // Close progress dialog safely (matches onTriggerComplete pattern)
+    // Erase from map FIRST. Do NOT call setValue() before hide() — modal
+    // QProgressDialog::setValue() calls processEvents() internally, which can
+    // re-entrantly modify the map and invalidate live references.
     auto prog_it = snr_progress_dialogs_.find(node_id);
     if (prog_it != snr_progress_dialogs_.end() && prog_it->second) {
-        prog_it->second->close();
-        prog_it->second->deleteLater();
-        snr_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
+        QProgressDialog* pd = prog_it->second.data();
+        snr_progress_dialogs_.erase(prog_it);
+        pd->blockSignals(true);
+        pd->hide();
+        pd->deleteLater();
     }
     
     // Find the dialog for this stage
@@ -509,39 +523,49 @@ void MainWindow::onSNRDataReady(uint64_t request_id,
     }
     
     dialog->finishUpdate(current_frame);
+
+    // Bring the graph window to the front now that it has data
+    dialog->raise();
+    dialog->activateWindow();
 }
 
 void MainWindow::onDropoutProgress(size_t current, size_t total, QString message)
 {
-    // Update all active dropout progress dialogs
-    for (auto& pair : dropout_progress_dialogs_) {
-        if (pair.second) {
-            pair.second->setMaximum(static_cast<int>(total));
-            // Cap current to prevent reaching 100% which triggers internal reset()
-            int value = static_cast<int>(current);
-            if (total > 0 && value >= static_cast<int>(total)) {
-                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
-            }
-            pair.second->setValue(value);
-            pair.second->setLabelText(message);
-        }
+    if (total == 0) return;
+    int percentage = static_cast<int>((current * 100) / total);
+    if (percentage >= 100) percentage = 99;
+
+    // Snapshot QPointers by value before calling setValue().
+    // Modal QProgressDialog::setValue() calls QCoreApplication::processEvents()
+    // internally, which can re-entrantly invoke onDropoutDataReady() and erase
+    // entries from dropout_progress_dialogs_ — invalidating any reference or
+    // iterator into the map that is live on this call stack.
+    std::vector<QPointer<QProgressDialog>> snapshot;
+    snapshot.reserve(dropout_progress_dialogs_.size());
+    for (auto& [id, pd] : dropout_progress_dialogs_) {
+        if (pd) snapshot.push_back(pd);
+    }
+    for (QPointer<QProgressDialog>& pd : snapshot) {
+        if (pd) pd->setValue(percentage);
+        if (pd) pd->setLabelText(message);
     }
 }
 
 void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
 {
-    // Update all active SNR progress dialogs
-    for (auto& pair : snr_progress_dialogs_) {
-        if (pair.second) {
-            pair.second->setMaximum(static_cast<int>(total));
-            // Cap current to prevent reaching 100% which triggers internal reset()
-            int value = static_cast<int>(current);
-            if (total > 0 && value >= static_cast<int>(total)) {
-                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
-            }
-            pair.second->setValue(value);
-            pair.second->setLabelText(message);
-        }
+    if (total == 0) return;
+    int percentage = static_cast<int>((current * 100) / total);
+    if (percentage >= 100) percentage = 99;
+
+    // Snapshot QPointers by value — see onDropoutProgress for reasoning.
+    std::vector<QPointer<QProgressDialog>> snapshot;
+    snapshot.reserve(snr_progress_dialogs_.size());
+    for (auto& [id, pd] : snr_progress_dialogs_) {
+        if (pd) snapshot.push_back(pd);
+    }
+    for (QPointer<QProgressDialog>& pd : snapshot) {
+        if (pd) pd->setValue(percentage);
+        if (pd) pd->setLabelText(message);
     }
 }
 
@@ -562,12 +586,17 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
     ORC_LOG_DEBUG("onBurstLevelDataReady for node '{}': {} frames, total={}", 
                   node_id.to_string(), frame_stats.size(), total_frames);
     
-    // Close progress dialog for this stage
+    // Close progress dialog safely (matches onTriggerComplete pattern)
+    // Erase from map FIRST. Do NOT call setValue() before hide() — modal
+    // QProgressDialog::setValue() calls processEvents() internally, which can
+    // re-entrantly modify the map and invalidate live references.
     auto prog_it = burst_level_progress_dialogs_.find(node_id);
     if (prog_it != burst_level_progress_dialogs_.end() && prog_it->second) {
-        prog_it->second->close();
-        prog_it->second->deleteLater();
-        burst_level_progress_dialogs_.erase(prog_it);  // Remove from map to prevent use-after-free
+        QProgressDialog* pd = prog_it->second.data();
+        burst_level_progress_dialogs_.erase(prog_it);
+        pd->blockSignals(true);
+        pd->hide();
+        pd->deleteLater();
     }
     
     // Find the dialog for this stage
@@ -604,21 +633,26 @@ void MainWindow::onBurstLevelDataReady(uint64_t request_id,
     }
     
     dialog->finishUpdate(current_frame);
+
+    // Bring the graph window to the front now that it has data
+    dialog->raise();
+    dialog->activateWindow();
 }
 
 void MainWindow::onBurstLevelProgress(size_t current, size_t total, QString message)
 {
-    // Update all active burst level progress dialogs
-    for (auto& pair : burst_level_progress_dialogs_) {
-        if (pair.second) {
-            pair.second->setMaximum(static_cast<int>(total));
-            // Cap current to prevent reaching 100% which triggers internal reset()
-            int value = static_cast<int>(current);
-            if (total > 0 && value >= static_cast<int>(total)) {
-                value = static_cast<int>(total) - 1;  // Cap at total-1 to prevent reset()
-            }
-            pair.second->setValue(value);
-            pair.second->setLabelText(message);
-        }
+    if (total == 0) return;
+    int percentage = static_cast<int>((current * 100) / total);
+    if (percentage >= 100) percentage = 99;
+
+    // Snapshot QPointers by value — see onDropoutProgress for reasoning.
+    std::vector<QPointer<QProgressDialog>> snapshot;
+    snapshot.reserve(burst_level_progress_dialogs_.size());
+    for (auto& [id, pd] : burst_level_progress_dialogs_) {
+        if (pd) snapshot.push_back(pd);
+    }
+    for (QPointer<QProgressDialog>& pd : snapshot) {
+        if (pd) pd->setValue(percentage);
+        if (pd) pd->setLabelText(message);
     }
 }

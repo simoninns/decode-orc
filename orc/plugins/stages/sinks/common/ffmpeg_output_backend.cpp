@@ -774,7 +774,10 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id, const orc::S
     }
     stream_->id = format_ctx_->nb_streams - 1;
     stream_->time_base = time_base_;
-    
+    // Rate not required for Matroska, but gives nice hints to players
+    stream_->avg_frame_rate = av_inv_q(time_base_);
+    stream_->r_frame_rate   = stream_->avg_frame_rate;
+
     // Copy codec parameters to stream
     ret = avcodec_parameters_from_context(stream_->codecpar, codec_ctx_);
     if (ret < 0) {

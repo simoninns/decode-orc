@@ -29,7 +29,7 @@ target_compile_definitions(orc-cli PRIVATE
 if(APPLE)
     set_target_properties(orc-cli PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks")
 elseif(UNIX AND NOT WIN32)
-    set_target_properties(orc-cli PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib")
+    set_target_properties(orc-cli PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib/orc-stage-plugins")
 endif()
 
 # Section: Install rules

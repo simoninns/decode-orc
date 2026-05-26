@@ -148,7 +148,7 @@ add_executable(orc-gui MACOSX_BUNDLE
 if(APPLE)
     set_target_properties(orc-gui PROPERTIES INSTALL_RPATH "@executable_path/../Frameworks")
 elseif(UNIX AND NOT WIN32)
-    set_target_properties(orc-gui PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib")
+    set_target_properties(orc-gui PROPERTIES INSTALL_RPATH "\$ORIGIN/../lib;\$ORIGIN/../lib/orc-stage-plugins")
 endif()
 
 # =============================================================================

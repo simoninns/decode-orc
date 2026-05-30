@@ -40,14 +40,19 @@ public:
     }
     
     bool create_schema() {
-        // Create tables matching legacy ld-decode schema exactly (including CHECK constraints)
+        // Set schema version to match ld-decode's expected user_version
+        if (!exec_sql("PRAGMA user_version = 1;")) {
+            return false;
+        }
+
+        // Create tables matching the ld-decode schema exactly (including CHECK constraints)
         const char* schema_sql = R"(
             CREATE TABLE IF NOT EXISTS capture (
                 capture_id INTEGER PRIMARY KEY,
                 system TEXT NOT NULL
                     CHECK (system IN ('NTSC','PAL','PAL_M')),
                 decoder TEXT NOT NULL
-                    CHECK (decoder IN ('ld-decode','vhs-decode','orc')),
+                    CHECK (decoder IN ('ld-decode','vhs-decode')),
                 git_branch TEXT,
                 git_commit TEXT,
                 video_sample_rate REAL,
@@ -66,6 +71,7 @@ public:
                     CHECK (is_widescreen IN (0,1)),
                 white_16b_ire INTEGER,
                 black_16b_ire INTEGER,
+                blanking_16b_ire INTEGER,
                 capture_notes TEXT
             );
             
@@ -238,8 +244,8 @@ bool TBCMetadataWriter::write_video_parameters(const SourceParameters& params) {
             field_width, field_height, number_of_sequential_fields,
             colour_burst_start, colour_burst_end,
             is_mapped, is_subcarrier_locked, is_widescreen,
-            white_16b_ire, black_16b_ire, capture_notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            white_16b_ire, black_16b_ire, blanking_16b_ire, capture_notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     )";
     
     int rc = sqlite3_prepare_v2(impl_->db, sql, -1, &stmt, nullptr);
@@ -266,7 +272,8 @@ bool TBCMetadataWriter::write_video_parameters(const SourceParameters& params) {
     sqlite3_bind_int(stmt, 15, params.is_widescreen ? 1 : 0);
     sqlite3_bind_int(stmt, 16, params.white_16b_ire);
     sqlite3_bind_int(stmt, 17, params.black_16b_ire);
-    sqlite3_bind_text(stmt, 18, "", -1, SQLITE_TRANSIENT);  // capture_notes
+    sqlite3_bind_int(stmt, 18, params.blanking_16b_ire);
+    sqlite3_bind_text(stmt, 19, "", -1, SQLITE_TRANSIENT);  // capture_notes
     
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -394,24 +401,31 @@ bool TBCMetadataWriter::write_field_metadata(const FieldMetadata& field) {
         sqlite3_bind_null(stmt, 12);
     }
     
-    // NTSC fields come from observers
-    sqlite3_bind_int(stmt, 13, field.ntsc.is_fm_code_data_valid ? 1 : 0);
-    if (field.ntsc.is_fm_code_data_valid) {
-        sqlite3_bind_int(stmt, 14, field.ntsc.fm_code_data);
+    // NTSC-specific fields: must be NULL for non-NTSC content (PAL, PAL_M)
+    if (field.ntsc.in_use) {
+        sqlite3_bind_int(stmt, 13, field.ntsc.is_fm_code_data_valid ? 1 : 0);
+        if (field.ntsc.is_fm_code_data_valid) {
+            sqlite3_bind_int(stmt, 14, field.ntsc.fm_code_data);
+        } else {
+            sqlite3_bind_null(stmt, 14);
+        }
+        sqlite3_bind_int(stmt, 15, field.ntsc.field_flag ? 1 : 0);
+        sqlite3_bind_int(stmt, 16, field.ntsc.is_video_id_data_valid ? 1 : 0);
+        if (field.ntsc.is_video_id_data_valid) {
+            sqlite3_bind_int(stmt, 17, field.ntsc.video_id_data);
+        } else {
+            sqlite3_bind_null(stmt, 17);
+        }
+        sqlite3_bind_int(stmt, 18, field.ntsc.white_flag ? 1 : 0);
     } else {
+        // Non-NTSC: all NTSC-specific fields must be NULL per schema spec
+        sqlite3_bind_null(stmt, 13);
         sqlite3_bind_null(stmt, 14);
-    }
-    
-    sqlite3_bind_int(stmt, 15, field.ntsc.field_flag ? 1 : 0);
-    
-    sqlite3_bind_int(stmt, 16, field.ntsc.is_video_id_data_valid ? 1 : 0);
-    if (field.ntsc.is_video_id_data_valid) {
-        sqlite3_bind_int(stmt, 17, field.ntsc.video_id_data);
-    } else {
+        sqlite3_bind_null(stmt, 15);
+        sqlite3_bind_null(stmt, 16);
         sqlite3_bind_null(stmt, 17);
+        sqlite3_bind_null(stmt, 18);
     }
-    
-    sqlite3_bind_int(stmt, 18, field.ntsc.white_flag ? 1 : 0);
 
     if (field.ac3rf_symbols.has_value()) {
         sqlite3_bind_int(stmt, 19, field.ac3rf_symbols.value());
@@ -589,16 +603,16 @@ bool TBCMetadataWriter::write_dropout(FieldID field_id, const DropoutInfo& dropo
     return rc == SQLITE_DONE;
 }
 
-bool TBCMetadataWriter::write_observations(FieldID field_id, const IObservationContext& context) {
+bool TBCMetadataWriter::write_observations(FieldID source_field_id, FieldID db_field_id, const IObservationContext& context) {
     if (!is_open_ || capture_id_ < 0) return false;
     
     bool any_written = false;
     
     // Extract and write VBI data (from BiphaseObserver)
     // The biphase observer stores the raw VBI words in "biphase" namespace
-    auto vbi0_obs = context.get(field_id, "biphase", "vbi_line_16");
-    auto vbi1_obs = context.get(field_id, "biphase", "vbi_line_17");
-    auto vbi2_obs = context.get(field_id, "biphase", "vbi_line_18");
+    auto vbi0_obs = context.get(source_field_id, "biphase", "vbi_line_16");
+    auto vbi1_obs = context.get(source_field_id, "biphase", "vbi_line_17");
+    auto vbi2_obs = context.get(source_field_id, "biphase", "vbi_line_18");
     
     if (vbi0_obs && vbi1_obs && vbi2_obs &&
         std::holds_alternative<int32_t>(*vbi0_obs) &&
@@ -609,23 +623,22 @@ bool TBCMetadataWriter::write_observations(FieldID field_id, const IObservationC
         vbi.vbi_data[0] = std::get<int32_t>(*vbi0_obs);
         vbi.vbi_data[1] = std::get<int32_t>(*vbi1_obs);
         vbi.vbi_data[2] = std::get<int32_t>(*vbi2_obs);
-        any_written |= write_vbi(field_id, vbi);
+        any_written |= write_vbi(db_field_id, vbi);
     }
     
     // Extract and write VITC data (from VitcObserver)
     // Check if vitc data is present - the observer stores timecode components
-    auto vitc_present_obs = context.get(field_id, "vitc", "present");
+    auto vitc_present_obs = context.get(source_field_id, "vitc", "present");
     if (vitc_present_obs && std::holds_alternative<bool>(*vitc_present_obs) && std::get<bool>(*vitc_present_obs)) {
         // VITC stores the raw BCD bytes
-        auto v0_obs = context.get(field_id, "vitc", "vitc0");
-        auto v1_obs = context.get(field_id, "vitc", "vitc1");
-        auto v2_obs = context.get(field_id, "vitc", "vitc2");
-        auto v3_obs = context.get(field_id, "vitc", "vitc3");
-        auto v4_obs = context.get(field_id, "vitc", "vitc4");
-        auto v5_obs = context.get(field_id, "vitc", "vitc5");
-        auto v6_obs = context.get(field_id, "vitc", "vitc6");
-        auto v7_obs = context.get(field_id, "vitc", "vitc7");
-        
+        auto v0_obs = context.get(source_field_id, "vitc", "vitc0");
+        auto v1_obs = context.get(source_field_id, "vitc", "vitc1");
+        auto v2_obs = context.get(source_field_id, "vitc", "vitc2");
+        auto v3_obs = context.get(source_field_id, "vitc", "vitc3");
+        auto v4_obs = context.get(source_field_id, "vitc", "vitc4");
+        auto v5_obs = context.get(source_field_id, "vitc", "vitc5");
+        auto v6_obs = context.get(source_field_id, "vitc", "vitc6");
+        auto v7_obs = context.get(source_field_id, "vitc", "vitc7");
         if (v0_obs && v1_obs && v2_obs && v3_obs && v4_obs && v5_obs && v6_obs && v7_obs &&
             std::holds_alternative<int32_t>(*v0_obs) && std::holds_alternative<int32_t>(*v1_obs) &&
             std::holds_alternative<int32_t>(*v2_obs) && std::holds_alternative<int32_t>(*v3_obs) &&
@@ -641,15 +654,15 @@ bool TBCMetadataWriter::write_observations(FieldID field_id, const IObservationC
             vitc.vitc_data[5] = std::get<int32_t>(*v5_obs);
             vitc.vitc_data[6] = std::get<int32_t>(*v6_obs);
             vitc.vitc_data[7] = std::get<int32_t>(*v7_obs);
-            any_written |= write_vitc(field_id, vitc);
+            any_written |= write_vitc(db_field_id, vitc);
         }
     }
     
     // Extract and write closed caption data (from ClosedCaptionObserver)
-    auto cc_present_obs = context.get(field_id, "closed_caption", "present");
+    auto cc_present_obs = context.get(source_field_id, "closed_caption", "present");
     if (cc_present_obs && std::holds_alternative<bool>(*cc_present_obs) && std::get<bool>(*cc_present_obs)) {
-        auto data0_obs = context.get(field_id, "closed_caption", "data0");
-        auto data1_obs = context.get(field_id, "closed_caption", "data1");
+        auto data0_obs = context.get(source_field_id, "closed_caption", "data0");
+        auto data1_obs = context.get(source_field_id, "closed_caption", "data1");
         
         if (data0_obs && data1_obs &&
             std::holds_alternative<int32_t>(*data0_obs) &&
@@ -658,13 +671,13 @@ bool TBCMetadataWriter::write_observations(FieldID field_id, const IObservationC
             cc.in_use = true;
             cc.data0 = std::get<int32_t>(*data0_obs);
             cc.data1 = std::get<int32_t>(*data1_obs);
-            any_written |= write_closed_caption(field_id, cc);
+            any_written |= write_closed_caption(db_field_id, cc);
         }
     }
     
     // Extract and write VITS metrics (from WhiteSNRObserver and BlackPSNRObserver)
-    auto white_snr_obs = context.get(field_id, "white_snr", "snr_db");
-    auto black_psnr_obs = context.get(field_id, "black_psnr", "psnr_db");
+    auto white_snr_obs = context.get(source_field_id, "white_snr", "snr_db");
+    auto black_psnr_obs = context.get(source_field_id, "black_psnr", "psnr_db");
     
     if (white_snr_obs || black_psnr_obs) {
         VitsMetrics metrics;
@@ -673,7 +686,7 @@ bool TBCMetadataWriter::write_observations(FieldID field_id, const IObservationC
                             ? std::get<double>(*white_snr_obs) : 0.0;
         metrics.black_psnr = (black_psnr_obs && std::holds_alternative<double>(*black_psnr_obs)) 
                              ? std::get<double>(*black_psnr_obs) : 0.0;
-        any_written |= write_vits_metrics(field_id, metrics);
+        any_written |= write_vits_metrics(db_field_id, metrics);
     }
     
     return any_written;

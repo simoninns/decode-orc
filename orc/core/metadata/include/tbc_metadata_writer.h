@@ -58,7 +58,7 @@ public:
     bool write_dropout(FieldID field_id, const DropoutInfo& dropout);
     
     // Write all observations from an IObservationContext
-    bool write_observations(FieldID field_id, const IObservationContext& context);
+    bool write_observations(FieldID source_field_id, FieldID db_field_id, const IObservationContext& context);
     
     // Transaction support for bulk writes
     bool begin_transaction();

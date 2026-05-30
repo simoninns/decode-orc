@@ -120,15 +120,11 @@ namespace orc
                 tbc_writer->close();
                 return false;
             }
-            video_params->decoder = "orc";
-            if (!metadata_writer_->write_video_parameters(*video_params)) {
-                ORC_LOG_ERROR("Failed to write video parameters");
-                metadata_writer_->close();
-                tbc_writer->close();
-                return false;
-            }
+            video_params->decoder = "ld-decode";
 
-            // Build sorted list of field IDs
+            // Build sorted list of field IDs before writing capture record so
+            // number_of_sequential_fields reflects the actual export count, not
+            // the full source count (which differs when a field_map stage is upstream).
             std::vector<FieldID> field_ids;
             field_ids.reserve(field_count);
             for (FieldID field_id = range.start; field_id < range.end; field_id = field_id + 1) {
@@ -137,6 +133,14 @@ namespace orc
                 }
             }
             std::sort(field_ids.begin(), field_ids.end());
+            video_params->number_of_sequential_fields = static_cast<int32_t>(field_ids.size());
+
+            if (!metadata_writer_->write_video_parameters(*video_params)) {
+                ORC_LOG_ERROR("Failed to write video parameters");
+                metadata_writer_->close();
+                tbc_writer->close();
+                return false;
+            }
 
             ORC_LOG_DEBUG("Processing {} fields (TBC + metadata) in single pass", field_ids.size());
 
@@ -221,8 +225,10 @@ namespace orc
 
                 // ===== Write metadata =====
                 // Create minimal field record
+                // seq_no must be the 1-based position in the exported TBC file,
+                // not the source field_id (which may be non-contiguous after field_map).
                 FieldMetadata field_meta;
-                field_meta.seq_no = static_cast<int32_t>(field_id.value() + 1);  // seq_no is 1-based
+                field_meta.seq_no = static_cast<int32_t>(fields_processed + 1);  // seq_no is 1-based
 
                 // Use parity hint (already fetched above for padding logic)
                 if (parity_hint.has_value()) {
@@ -254,7 +260,10 @@ namespace orc
                 }
 
                 // Write observations to metadata
-                metadata_writer_->write_observations(field_id, observation_context);
+                // export_field_id is the 0-based position in the output TBC file;
+                // field_id is the source representation ID used to read from the context.
+                FieldID export_field_id(fields_processed);
+                metadata_writer_->write_observations(field_id, export_field_id, observation_context);
 
                 // Write dropout hints
                 auto dropout_hints = representation->get_dropout_hints(field_id);
@@ -263,7 +272,7 @@ namespace orc
                     dropout.line = hint.line;
                     dropout.start_sample = hint.start_sample;
                     dropout.end_sample = hint.end_sample;
-                    metadata_writer_->write_dropout(field_id, dropout);
+                    metadata_writer_->write_dropout(export_field_id, dropout);
                 }
 
                 fields_processed++;

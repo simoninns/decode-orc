@@ -36,8 +36,11 @@ public:
     virtual bool write_field_metadata(const FieldMetadata& field) = 0;
 
     // Write observer data for a field
-    virtual bool write_observations(FieldID field_id, const IObservationContext& context) = 0;
-    virtual bool write_dropout(FieldID field_id, const DropoutInfo& dropout) = 0;
+    // Write observer data for a field.
+    // source_field_id: used to look up observations in the context (the representation's field id)
+    // db_field_id:     0-based export position written as the field_id column in the database
+    virtual bool write_observations(FieldID source_field_id, FieldID db_field_id, const IObservationContext& context) = 0;
+    virtual bool write_dropout(FieldID db_field_id, const DropoutInfo& dropout) = 0;
 
     // Transaction support for bulk writes
     virtual bool begin_transaction() = 0;

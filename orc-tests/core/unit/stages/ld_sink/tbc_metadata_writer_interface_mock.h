@@ -39,8 +39,8 @@ namespace orc_unit_test
         // virtual bool write_field_metadata(const FieldMetadata& field) = 0;
         MOCK_METHOD(bool, write_field_metadata, (const FieldMetadata&), (override));
 
-        // virtual bool write_observations(FieldID field_id, const IObservationContext& context) = 0;
-        MOCK_METHOD(bool, write_observations, (FieldID, const IObservationContext&), (override));
+        // virtual bool write_observations(FieldID source_field_id, FieldID db_field_id, const IObservationContext& context) = 0;
+        MOCK_METHOD(bool, write_observations, (FieldID, FieldID, const IObservationContext&), (override));
 
         // virtual bool write_dropout(FieldID field_id, const DropoutInfo& dropout) = 0;
         MOCK_METHOD(bool, write_dropout, (FieldID, const DropoutInfo&), (override));

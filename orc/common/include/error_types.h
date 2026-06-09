@@ -15,20 +15,18 @@
 namespace orc {
 
 /**
- * @brief Expected user/data error that should not be treated as an application crash.
+ * @brief Expected user/data error that should not be treated as an application
+ * crash.
  *
- * Use this for recoverable failures caused by invalid/missing user-provided inputs
- * (for example, missing files or incompatible source file formats).
+ * Use this for recoverable failures caused by invalid/missing user-provided
+ * inputs (for example, missing files or incompatible source file formats).
  */
 class UserDataError : public std::runtime_error {
-public:
-    explicit UserDataError(const std::string& message)
-        : std::runtime_error(message)
-    {}
+ public:
+  explicit UserDataError(const std::string& message)
+      : std::runtime_error(message) {}
 
-    explicit UserDataError(const char* message)
-        : std::runtime_error(message)
-    {}
+  explicit UserDataError(const char* message) : std::runtime_error(message) {}
 };
 
-} // namespace orc
+}  // namespace orc

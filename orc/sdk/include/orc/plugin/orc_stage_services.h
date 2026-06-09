@@ -25,32 +25,34 @@
 namespace orc {
 
 class IFileWriterUint8 {
-public:
-    virtual ~IFileWriterUint8() = default;
-    virtual bool open(const std::string& filepath) = 0;
-    virtual void write(const uint8_t* data, size_t count) = 0;
-    virtual void write(const std::vector<uint8_t>& data) = 0;
-    virtual void flush() = 0;
-    virtual void close() = 0;
+ public:
+  virtual ~IFileWriterUint8() = default;
+  virtual bool open(const std::string& filepath) = 0;
+  virtual void write(const uint8_t* data, size_t count) = 0;
+  virtual void write(const std::vector<uint8_t>& data) = 0;
+  virtual void flush() = 0;
+  virtual void close() = 0;
 };
 
 class IFileWriterUint16 {
-public:
-    virtual ~IFileWriterUint16() = default;
-    virtual bool open(const std::string& filepath) = 0;
-    virtual void write(const uint16_t* data, size_t count) = 0;
-    virtual void write(const std::vector<uint16_t>& data) = 0;
-    virtual void flush() = 0;
-    virtual void close() = 0;
+ public:
+  virtual ~IFileWriterUint16() = default;
+  virtual bool open(const std::string& filepath) = 0;
+  virtual void write(const uint16_t* data, size_t count) = 0;
+  virtual void write(const std::vector<uint16_t>& data) = 0;
+  virtual void flush() = 0;
+  virtual void close() = 0;
 };
 
 class IStageServices {
-public:
-    virtual ~IStageServices() = default;
+ public:
+  virtual ~IStageServices() = default;
 
-    // Canonical sink/file output factory entry points.
-    virtual std::shared_ptr<IFileWriterUint8> create_buffered_file_writer_uint8(size_t buffer_size) = 0;
-    virtual std::shared_ptr<IFileWriterUint16> create_buffered_file_writer_uint16(size_t buffer_size) = 0;
+  // Canonical sink/file output factory entry points.
+  virtual std::shared_ptr<IFileWriterUint8> create_buffered_file_writer_uint8(
+      size_t buffer_size) = 0;
+  virtual std::shared_ptr<IFileWriterUint16> create_buffered_file_writer_uint16(
+      size_t buffer_size) = 0;
 };
 
-} // namespace orc
+}  // namespace orc

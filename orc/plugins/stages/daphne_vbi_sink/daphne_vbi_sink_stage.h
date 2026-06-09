@@ -10,20 +10,20 @@
 #ifndef ORC_CORE_VBI_SINK_STAGE_H
 #define ORC_CORE_VBI_SINK_STAGE_H
 
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
-#include "stage_parameter.h"
 #include <node_type.h>
-#include "video_field_representation.h"
-#include "triggerable_stage.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
-#include <string>
-#include <memory>
-#include <functional>
+
 #include <atomic>
+#include <functional>
+#include <memory>
+#include <string>
 #include <utility>
 
-namespace orc
-{
+#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
+#include "stage_parameter.h"
+#include "triggerable_stage.h"
+#include "video_field_representation.h"
+
+namespace orc {
 
 class IStageServices;
 class IDaphneVBISinkStageDeps;
@@ -31,8 +31,9 @@ class IDaphneVBISinkStageDeps;
 /**
  * @brief .VBI binary Sink Stage
  *
- * Writes VBI data from each field to a binary file according to the specification at https://www.daphne-emu.com:9443/mediawiki/index.php/VBIInfo .
- * This is a SINK stage - it has inputs but no outputs.
+ * Writes VBI data from each field to a binary file according to the
+ * specification at https://www.daphne-emu.com:9443/mediawiki/index.php/VBIInfo
+ * . This is a SINK stage - it has inputs but no outputs.
  *
  * When triggered, it reads all fields from its input and writes them to:
  * - .vbi file: Binary data.
@@ -42,63 +43,66 @@ class IDaphneVBISinkStageDeps;
  * Parameters:
  * - output_path: Output file path
  */
-class DaphneVBISinkStage : public DAGStage, public ParameterizedStage, public TriggerableStage {
-public:
-    explicit DaphneVBISinkStage(IStageServices* stage_services);
+class DaphneVBISinkStage : public DAGStage,
+                           public ParameterizedStage,
+                           public TriggerableStage {
+ public:
+  explicit DaphneVBISinkStage(IStageServices* stage_services);
 
-    /// Testing seam: inject a pre-built deps instance to substitute concrete dep creation in trigger().
-    void set_deps_override(std::shared_ptr<IDaphneVBISinkStageDeps> deps) { deps_override_ = std::move(deps); }
-    ~DaphneVBISinkStage() override = default;
+  /// Testing seam: inject a pre-built deps instance to substitute concrete dep
+  /// creation in trigger().
+  void set_deps_override(std::shared_ptr<IDaphneVBISinkStageDeps> deps) {
+    deps_override_ = std::move(deps);
+  }
+  ~DaphneVBISinkStage() override = default;
 
-    // DAGStage interface
-    std::string version() const override { return "1.0"; }
-    NodeTypeInfo get_node_type_info() const override;
+  // DAGStage interface
+  std::string version() const override { return "1.0"; }
+  NodeTypeInfo get_node_type_info() const override;
 
-    std::vector<ArtifactPtr> execute(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters,
-        ObservationContext& observation_context
-    ) override;
+  std::vector<ArtifactPtr> execute(
+      const std::vector<ArtifactPtr>& inputs,
+      const std::map<std::string, ParameterValue>& parameters,
+      ObservationContext& observation_context) override;
 
-    size_t required_input_count() const override { return 1; }
-    size_t output_count() const override { return 0; }  // Sink has no outputs
+  size_t required_input_count() const override { return 1; }
+  size_t output_count() const override { return 0; }  // Sink has no outputs
 
-    // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
-    std::map<std::string, ParameterValue> get_parameters() const override;
-    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+  // ParameterizedStage interface
+  std::vector<ParameterDescriptor> get_parameter_descriptors(
+      VideoSystem project_format, SourceType source_type) const override;
+  using ParameterizedStage::get_parameter_descriptors;
+  std::map<std::string, ParameterValue> get_parameters() const override;
+  bool set_parameters(
+      const std::map<std::string, ParameterValue>& params) override;
 
-    // TriggerableStage interface
-    bool trigger(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters,
-        IObservationContext& observation_context
-    ) override;
+  // TriggerableStage interface
+  bool trigger(const std::vector<ArtifactPtr>& inputs,
+               const std::map<std::string, ParameterValue>& parameters,
+               IObservationContext& observation_context) override;
 
-    std::string get_trigger_status() const override;
+  std::string get_trigger_status() const override;
 
-    void set_progress_callback(TriggerProgressCallback callback) override {
-        progress_callback_ = callback;
-    }
+  void set_progress_callback(TriggerProgressCallback callback) override {
+    progress_callback_ = callback;
+  }
 
-    bool is_trigger_in_progress() const override {
-        return is_processing_.load();
-    }
+  bool is_trigger_in_progress() const override { return is_processing_.load(); }
 
-    void cancel_trigger() override {
-        cancel_requested_.store(true);
-    }
+  void cancel_trigger() override { cancel_requested_.store(true); }
 
-private:
-    std::string output_path_;
-    std::string trigger_status_;
-    mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;  // For preview
-    TriggerProgressCallback progress_callback_;  // Progress callback for trigger operations
-    std::atomic<bool> is_processing_{false};
-    std::atomic<bool> cancel_requested_{false};
-    IStageServices* stage_services_{nullptr};
-    std::shared_ptr<IDaphneVBISinkStageDeps> deps_override_;
+ private:
+  std::string output_path_;
+  std::string trigger_status_;
+  mutable std::shared_ptr<const VideoFieldRepresentation>
+      cached_input_;  // For preview
+  TriggerProgressCallback
+      progress_callback_;  // Progress callback for trigger operations
+  std::atomic<bool> is_processing_{false};
+  std::atomic<bool> cancel_requested_{false};
+  IStageServices* stage_services_{nullptr};
+  std::shared_ptr<IDaphneVBISinkStageDeps> deps_override_;
 };
-} // orc
+}  // namespace orc
 
-#endif //ORC_CORE_VBI_SINK_STAGE_H
+#endif  // ORC_CORE_VBI_SINK_STAGE_H

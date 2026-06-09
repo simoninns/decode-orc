@@ -29,8 +29,8 @@
  *   };
  *   } // namespace
  *
- *   ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor* orc_get_stage_plugin_descriptor() {
- *       return &kDescriptor;
+ *   ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor*
+ * orc_get_stage_plugin_descriptor() { return &kDescriptor;
  *   }
  *
  *   ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
@@ -66,7 +66,8 @@
 // Host ABI contract: entrypoints, descriptor, versioning, export macro.
 #include <orc/plugin/orc_plugin_abi.h>
 
-// Stage API: parameter types, node metadata, ParameterizedStage, TriggerableStage.
+// Stage API: parameter types, node metadata, ParameterizedStage,
+// TriggerableStage.
 #include <orc/plugin/orc_stage_api.h>
 
 // Stage runtime helpers for plugin stage implementations.
@@ -75,20 +76,22 @@
 // Preview capability and carrier contracts for preview-capable stages.
 #include <orc/plugin/orc_stage_preview.h>
 
-// SDK Stage API includes key stage infrastructure: ParameterizedStage, TriggerableStage,
-// and access to PreviewableStage via includes for preview-enabled stages.
-// Consolidated stage services API: canonical host services for sink/file output
-// and related stage runtime helpers.
+// SDK Stage API includes key stage infrastructure: ParameterizedStage,
+// TriggerableStage, and access to PreviewableStage via includes for
+// preview-enabled stages. Consolidated stage services API: canonical host
+// services for sink/file output and related stage runtime helpers.
 #include <orc/plugin/orc_stage_services.h>
 
 // Canonical stage helper/tooling descriptors used by GUI/CLI integrations.
 #include <orc/plugin/orc_stage_tooling.h>
 
 // Host service table: OrcPluginServices, OrcPluginLogLevel.
-// (Must come after orc_stage_api.h so that forward declarations of preview types work.)
+// (Must come after orc_stage_api.h so that forward declarations of preview
+// types work.)
 #include <orc/plugin/orc_plugin_services.h>
 
-// Plugin service helpers: ORC_PLUGIN_LOG_* macros, render_colour_preview() wrapper.
-// (Must come after all other includes so that preview types are fully defined when
+// Plugin service helpers: ORC_PLUGIN_LOG_* macros, render_colour_preview()
+// wrapper. (Must come after all other includes so that preview types are fully
+// defined when
 //  inline functions are instantiated.)
 #include <orc/plugin/orc_plugin_services_helpers.h>

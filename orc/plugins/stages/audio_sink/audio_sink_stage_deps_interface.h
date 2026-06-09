@@ -10,28 +10,26 @@
 #ifndef ORC_CORE_AUDIO_SINK_STAGE_DEPS_INTERFACE_H
 #define ORC_CORE_AUDIO_SINK_STAGE_DEPS_INTERFACE_H
 
-#include "video_field_representation.h"
 #include <cstdint>
 #include <string>
 
-namespace orc
-{
-    struct AudioSinkWriteResult
-    {
-        bool success{false};
-        uint64_t frames_written{0};
-        std::string error_message;
-    };
+#include "video_field_representation.h"
 
-    class IAudioSinkStageDeps
-    {
-    public:
-        virtual ~IAudioSinkStageDeps() = default;
+namespace orc {
+struct AudioSinkWriteResult {
+  bool success{false};
+  uint64_t frames_written{0};
+  std::string error_message;
+};
 
-        virtual AudioSinkWriteResult write_audio_wav(
-            const VideoFieldRepresentation* representation,
-            const std::string& output_path) = 0;
-    };
-} // namespace orc
+class IAudioSinkStageDeps {
+ public:
+  virtual ~IAudioSinkStageDeps() = default;
 
-#endif // ORC_CORE_AUDIO_SINK_STAGE_DEPS_INTERFACE_H
+  virtual AudioSinkWriteResult write_audio_wav(
+      const VideoFieldRepresentation* representation,
+      const std::string& output_path) = 0;
+};
+}  // namespace orc
+
+#endif  // ORC_CORE_AUDIO_SINK_STAGE_DEPS_INTERFACE_H

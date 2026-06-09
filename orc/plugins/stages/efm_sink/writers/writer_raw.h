@@ -9,27 +9,26 @@
 #ifndef WRITER_RAW_H
 #define WRITER_RAW_H
 
-#include <string>
 #include <fstream>
+#include <string>
 
 #include "section.h"
 
-class WriterRaw
-{
-public:
-    WriterRaw();
-    ~WriterRaw();
+class WriterRaw {
+ public:
+  WriterRaw();
+  ~WriterRaw();
 
-    bool open(const std::string &filename);
-    void write(const AudioSection &audioSection);
-    void close();
-    int64_t size();
-    bool isOpen() const { return m_file.is_open(); };
-    bool isStdout() const;
+  bool open(const std::string& filename);
+  void write(const AudioSection& audioSection);
+  void close();
+  int64_t size();
+  bool isOpen() const { return m_file.is_open(); };
+  bool isStdout() const;
 
-private:
-    std::ofstream m_file;
-    bool m_usingStdout;
+ private:
+  std::ofstream m_file;
+  bool m_usingStdout;
 };
 
-#endif // WRITER_RAW_H
+#endif  // WRITER_RAW_H

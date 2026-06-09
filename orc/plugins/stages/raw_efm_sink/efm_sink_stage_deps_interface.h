@@ -10,33 +10,31 @@
 #ifndef ORC_CORE_RAW_EFM_SINK_STAGE_DEPS_INTERFACE_H
 #define ORC_CORE_RAW_EFM_SINK_STAGE_DEPS_INTERFACE_H
 
-#include "video_field_representation.h"
-#include "triggerable_stage.h"
-
 #include <atomic>
 #include <cstdint>
 #include <string>
 
-namespace orc
-{
-    struct RawEFMSinkWriteResult
-    {
-        bool success{false};
-        uint64_t tvalues_written{0};
-        std::string status_message;
-    };
+#include "triggerable_stage.h"
+#include "video_field_representation.h"
 
-    class IRawEFMSinkStageDeps
-    {
-    public:
-        virtual ~IRawEFMSinkStageDeps() = default;
+namespace orc {
+struct RawEFMSinkWriteResult {
+  bool success{false};
+  uint64_t tvalues_written{0};
+  std::string status_message;
+};
 
-        virtual void init(TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested) = 0;
+class IRawEFMSinkStageDeps {
+ public:
+  virtual ~IRawEFMSinkStageDeps() = default;
 
-        virtual RawEFMSinkWriteResult write_raw_efm(
-            const VideoFieldRepresentation* representation,
-            const std::string& output_path) = 0;
-    };
-} // namespace orc
+  virtual void init(TriggerProgressCallback progress_callback,
+                    std::atomic<bool>* cancel_requested) = 0;
 
-#endif // ORC_CORE_RAW_EFM_SINK_STAGE_DEPS_INTERFACE_H
+  virtual RawEFMSinkWriteResult write_raw_efm(
+      const VideoFieldRepresentation* representation,
+      const std::string& output_path) = 0;
+};
+}  // namespace orc
+
+#endif  // ORC_CORE_RAW_EFM_SINK_STAGE_DEPS_INTERFACE_H

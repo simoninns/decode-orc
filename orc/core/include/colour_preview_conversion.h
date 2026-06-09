@@ -20,6 +20,7 @@ namespace orc {
  * Conversion target is BT.709 primaries with sRGB transfer characteristics.
  * The source colorimetry is taken from carrier.colorimetry.
  */
-PreviewImage render_preview_from_colour_carrier(const ColourFrameCarrier& carrier);
+PreviewImage render_preview_from_colour_carrier(
+    const ColourFrameCarrier& carrier);
 
-} // namespace orc
+}  // namespace orc

@@ -13,21 +13,20 @@
 #include <string>
 #include <vector>
 
-class Tvalues
-{
-public:
-    Tvalues();
+class Tvalues {
+ public:
+  Tvalues();
 
-    std::string tvaluesToBitString(const std::vector<uint8_t> &tvalues);
+  std::string tvaluesToBitString(const std::vector<uint8_t>& tvalues);
 
-    uint32_t invalidHighTValuesCount() const { return m_invalidHighTValuesCount; }
-    uint32_t invalidLowTValuesCount() const { return m_invalidLowTValuesCount; }
-    uint32_t validTValuesCount() const { return m_validTValuesCount; }
+  uint32_t invalidHighTValuesCount() const { return m_invalidHighTValuesCount; }
+  uint32_t invalidLowTValuesCount() const { return m_invalidLowTValuesCount; }
+  uint32_t validTValuesCount() const { return m_validTValuesCount; }
 
-private:
-    uint32_t m_invalidHighTValuesCount;
-    uint32_t m_invalidLowTValuesCount;
-    uint32_t m_validTValuesCount;
+ private:
+  uint32_t m_invalidHighTValuesCount;
+  uint32_t m_invalidLowTValuesCount;
+  uint32_t m_validTValuesCount;
 };
 
-#endif // TVALUES_H
+#endif  // TVALUES_H

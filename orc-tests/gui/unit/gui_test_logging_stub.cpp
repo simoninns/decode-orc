@@ -11,17 +11,13 @@
 
 namespace orc {
 
-std::shared_ptr<spdlog::logger> get_gui_logger()
-{
-    return spdlog::default_logger();
+std::shared_ptr<spdlog::logger> get_gui_logger() {
+  return spdlog::default_logger();
 }
 
-void reset_gui_logger()
-{
-}
+void reset_gui_logger() {}
 
-void init_gui_logging(const std::string&, const std::string&, const std::string&)
-{
-}
+void init_gui_logging(const std::string&, const std::string&,
+                      const std::string&) {}
 
-} // namespace orc
+}  // namespace orc

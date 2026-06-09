@@ -10,20 +10,21 @@
 #ifndef ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
 #define ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
 
-#include <QDialog>
-#include <QLabel>
-#include <QCheckBox>
-#include <QRadioButton>
-#include <QButtonGroup>
-#include <QPushButton>
-#include <QSlider>
-#include <QSpinBox>
-#include <QImage>
-#include <string>
-#include <optional>
-#include <memory>
 #include <node_id.h>
 #include <orc_vectorscope.h>  // Public API types
+
+#include <QButtonGroup>
+#include <QCheckBox>
+#include <QDialog>
+#include <QImage>
+#include <QLabel>
+#include <QPushButton>
+#include <QRadioButton>
+#include <QSlider>
+#include <QSpinBox>
+#include <memory>
+#include <optional>
+#include <string>
 
 // Forward declaration for pimpl
 class VectorscopeDialogPrivate;
@@ -32,106 +33,106 @@ class VectorscopeDialogPrivate;
  * @brief QLabel subclass that maintains aspect ratio of the displayed pixmap
  */
 class AspectRatioLabel : public QLabel {
-    Q_OBJECT
+  Q_OBJECT
 
-public:
-    explicit AspectRatioLabel(QWidget* parent = nullptr);
-    
-    void setPixmap(const QPixmap& pixmap);
-    
-protected:
-    void resizeEvent(QResizeEvent* event) override;
-    
-private:
-    void updateScaledPixmap();
-    
-    QPixmap original_pixmap_;
+ public:
+  explicit AspectRatioLabel(QWidget* parent = nullptr);
+
+  void setPixmap(const QPixmap& pixmap);
+
+ protected:
+  void resizeEvent(QResizeEvent* event) override;
+
+ private:
+  void updateScaledPixmap();
+
+  QPixmap original_pixmap_;
 };
 
 /**
  * @brief Live vectorscope visualization for chroma decoder output
- * 
+ *
  * This dialog displays U/V color components on a vectorscope for decoded
  * chroma output from a ChromaSinkStage. It's a live visualization tool that
  * updates in real-time as the user navigates through fields.
  */
 class VectorscopeDialog : public QDialog {
-    Q_OBJECT
+  Q_OBJECT
 
-public:
-    explicit VectorscopeDialog(QWidget *parent = nullptr);
-    ~VectorscopeDialog() override;
-    
-    void setScopeLabel(const QString& scope_label);
-    void setStage(orc::NodeID node_id);
-    bool isActiveAreaOnly() const;
-    
-    /**
-     * @brief Update vectorscope with new data
-     * @param data Vectorscope data from renderer
-     */
-    void updateVectorscope(const orc::VectorscopeData& data);
-    
-    /**
-     * @brief Render vectorscope from extracted U/V data
-     * @param data Vectorscope data containing U/V samples
-     */
-    void renderVectorscope(const orc::VectorscopeData& data);
-    
-    /**
-     * @brief Clear the vectorscope display
-     */
-    void clearDisplay();
+ public:
+  explicit VectorscopeDialog(QWidget* parent = nullptr);
+  ~VectorscopeDialog() override;
 
-Q_SIGNALS:
-    void closed();
-    void dataRefreshRequested();
+  void setScopeLabel(const QString& scope_label);
+  void setStage(orc::NodeID node_id);
+  bool isActiveAreaOnly() const;
 
-protected:
-    void closeEvent(QCloseEvent* event) override;
+  /**
+   * @brief Update vectorscope with new data
+   * @param data Vectorscope data from renderer
+   */
+  void updateVectorscope(const orc::VectorscopeData& data);
 
-private slots:
-    void onBlendColorToggled();
-    void onDefocusToggled();
-    void onFieldSelectionChanged();
-    void onGraticuleChanged();
-    void onDrawLinesToggled();
-    void onPointSizeChanged();
-    void onActiveAreaOnlyToggled();
+  /**
+   * @brief Render vectorscope from extracted U/V data
+   * @param data Vectorscope data containing U/V samples
+   */
+  void renderVectorscope(const orc::VectorscopeData& data);
 
-private:
-    friend class VectorscopeDialogPrivate;
-    
-    void setupUI();
-    void connectSignals();
-    int getGraticuleMode() const;
-    void updateWindowTitle();
-    
-    // Pimpl - hides core types from header
-    std::unique_ptr<VectorscopeDialogPrivate> d_;
-    
-    // UI components
-    AspectRatioLabel* scope_label_;
-    QLabel* info_label_;
-    
-    // Display options
-    QCheckBox* blend_color_checkbox_;
-    QCheckBox* defocus_checkbox_;
-    QCheckBox* draw_lines_checkbox_;
-    QCheckBox* active_area_only_checkbox_;
-    QSpinBox* point_size_spinbox_;
-    
-    // Field selection options
-    QRadioButton* field_select_all_radio_;
-    QRadioButton* field_select_first_radio_;
-    QRadioButton* field_select_second_radio_;
-    QButtonGroup* field_select_group_;
-    
-    // Graticule options
-    QRadioButton* graticule_none_radio_;
-    QRadioButton* graticule_full_radio_;
-    QRadioButton* graticule_75_radio_;
-    QButtonGroup* graticule_group_;
+  /**
+   * @brief Clear the vectorscope display
+   */
+  void clearDisplay();
+
+ Q_SIGNALS:
+  void closed();
+  void dataRefreshRequested();
+
+ protected:
+  void closeEvent(QCloseEvent* event) override;
+
+ private slots:
+  void onBlendColorToggled();
+  void onDefocusToggled();
+  void onFieldSelectionChanged();
+  void onGraticuleChanged();
+  void onDrawLinesToggled();
+  void onPointSizeChanged();
+  void onActiveAreaOnlyToggled();
+
+ private:
+  friend class VectorscopeDialogPrivate;
+
+  void setupUI();
+  void connectSignals();
+  int getGraticuleMode() const;
+  void updateWindowTitle();
+
+  // Pimpl - hides core types from header
+  std::unique_ptr<VectorscopeDialogPrivate> d_;
+
+  // UI components
+  AspectRatioLabel* scope_label_;
+  QLabel* info_label_;
+
+  // Display options
+  QCheckBox* blend_color_checkbox_;
+  QCheckBox* defocus_checkbox_;
+  QCheckBox* draw_lines_checkbox_;
+  QCheckBox* active_area_only_checkbox_;
+  QSpinBox* point_size_spinbox_;
+
+  // Field selection options
+  QRadioButton* field_select_all_radio_;
+  QRadioButton* field_select_first_radio_;
+  QRadioButton* field_select_second_radio_;
+  QButtonGroup* field_select_group_;
+
+  // Graticule options
+  QRadioButton* graticule_none_radio_;
+  QRadioButton* graticule_full_radio_;
+  QRadioButton* graticule_75_radio_;
+  QButtonGroup* graticule_group_;
 };
 
-#endif // ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H
+#endif  // ORC_GUI_ANALYSIS_VECTORSCOPE_DIALOG_H

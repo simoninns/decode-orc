@@ -14,24 +14,22 @@
 
 #include "palcolour.h"
 
-#include "transformpal2d.h"
-#include "transformpal3d.h"
-
-#include "firfilter.h"
-
-#include "deemp.h"
-
 #include <array>
 #include <cassert>
-
 #include <cmath>
+#include <cstddef>
+
+#include "deemp.h"
+#include "firfilter.h"
+#include "transformpal2d.h"
+#include "transformpal3d.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-#include "logging.h"  // ORC logging
 #include "../video_parameter_safety.h"
+#include "logging.h"  // ORC logging
 
 /*!
     \class PalColour
@@ -40,554 +38,611 @@
     decoder using 2D FIR filters.
 
     For a good overview of line-locked PAL decoding techniques, see
-    BBC Research Department Report 1986/02 (https://www.bbc.co.uk/rd/publications/rdreport_1986_02),
-    "Colour encoding and decoding techniques for line-locked sampled PAL and
-    NTSC television signals" by C.K.P. Clarke. PALcolour uses the architecture
-    shown in Figure 23(c), except that it has three separate baseband filters,
-    one each for Y, U and V, with different characteristics. Rather than
-    tracking the colour subcarrier using a PLL, PALcolour detects the phase of
-    the subcarrier at the colourburst, and rotates the U/V output to
-    compensate when decoding.
+    BBC Research Department Report 1986/02
+   (https://www.bbc.co.uk/rd/publications/rdreport_1986_02), "Colour encoding
+   and decoding techniques for line-locked sampled PAL and NTSC television
+   signals" by C.K.P. Clarke. PALcolour uses the architecture shown in Figure
+   23(c), except that it has three separate baseband filters, one each for Y, U
+   and V, with different characteristics. Rather than tracking the colour
+   subcarrier using a PLL, PALcolour detects the phase of the subcarrier at the
+   colourburst, and rotates the U/V output to compensate when decoding.
 
-    BBC Research Department Report 1988/11 (https://www.bbc.co.uk/rd/publications/rdreport_1988_11),
-    "PAL decoding: Multi-dimensional filter design for chrominance-luminance
-    separation", also by C.K.P. Clarke, describes the design concerns behind
-    these filters. As PALcolour is a software implementation, it can use larger
-    filters with more complex coefficients than the report describes.
+    BBC Research Department Report 1988/11
+   (https://www.bbc.co.uk/rd/publications/rdreport_1988_11), "PAL decoding:
+   Multi-dimensional filter design for chrominance-luminance separation", also
+   by C.K.P. Clarke, describes the design concerns behind these filters. As
+   PALcolour is a software implementation, it can use larger filters with more
+   complex coefficients than the report describes.
  */
 
-PalColour::PalColour()
-    : configurationSet(false)
-{
+PalColour::PalColour() : configurationSet(false) {}
+
+int32_t PalColour::Configuration::getThresholdsSize() const {
+  if (chromaFilter == transform2DFilter) {
+    return TransformPal2D::getThresholdsSize();
+  } else if (chromaFilter == transform3DFilter) {
+    return TransformPal3D::getThresholdsSize();
+  } else {
+    return 0;
+  }
 }
 
-int32_t PalColour::Configuration::getThresholdsSize() const
-{
-    if (chromaFilter == transform2DFilter) {
-        return TransformPal2D::getThresholdsSize();
-    } else if (chromaFilter == transform3DFilter) {
-        return TransformPal3D::getThresholdsSize();
-    } else {
-        return 0;
-    }
+int32_t PalColour::Configuration::getLookBehind() const {
+  if (chromaFilter == transform3DFilter) {
+    return TransformPal3D::getLookBehind();
+  } else {
+    return 0;
+  }
 }
 
-int32_t PalColour::Configuration::getLookBehind() const
-{
-    if (chromaFilter == transform3DFilter) {
-        return TransformPal3D::getLookBehind();
-    } else {
-        return 0;
-    }
-}
-
-int32_t PalColour::Configuration::getLookAhead() const
-{
-    if (chromaFilter == transform3DFilter) {
-        return TransformPal3D::getLookAhead();
-    } else {
-        return 0;
-    }
+int32_t PalColour::Configuration::getLookAhead() const {
+  if (chromaFilter == transform3DFilter) {
+    return TransformPal3D::getLookAhead();
+  } else {
+    return 0;
+  }
 }
 
 // Return the current configuration
-const PalColour::Configuration &PalColour::getConfiguration() const {
-    return configuration;
+const PalColour::Configuration& PalColour::getConfiguration() const {
+  return configuration;
 }
 
-void PalColour::updateConfiguration(const ::orc::SourceParameters &_videoParameters,
-                                    const Configuration &_configuration)
-{
-    configuration = _configuration;
+void PalColour::updateConfiguration(
+    const ::orc::SourceParameters& _videoParameters,
+    const Configuration& _configuration) {
+  configuration = _configuration;
 
-    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
-        _videoParameters,
-        ::orc::chroma_sink::DecoderVideoProfile::PalColour);
+  const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+      _videoParameters, ::orc::chroma_sink::DecoderVideoProfile::PalColour);
 
-    if (!safety.warnings.empty()) {
-        ORC_LOG_WARN("PalColour::updateConfiguration(): Adjusted unsafe video parameters: {}",
-                     ::orc::chroma_sink::join_issues(safety.warnings));
+  if (!safety.warnings.empty()) {
+    ORC_LOG_WARN(
+        "PalColour::updateConfiguration(): Adjusted unsafe video parameters: "
+        "{}",
+        ::orc::chroma_sink::join_issues(safety.warnings));
+  }
+
+  if (!safety.ok) {
+    ORC_LOG_ERROR(
+        "PalColour::updateConfiguration(): Invalid video parameters: {}",
+        ::orc::chroma_sink::join_issues(safety.errors));
+    configurationSet = false;
+    transformPal.reset();
+    return;
+  }
+
+  videoParameters = safety.params;
+
+  // Build the look-up tables
+  buildLookUpTables();
+
+  if (configuration.chromaFilter == transform2DFilter ||
+      configuration.chromaFilter == transform3DFilter) {
+    // Create the Transform PAL filter
+    if (configuration.chromaFilter == transform2DFilter) {
+      transformPal = std::make_unique<TransformPal2D>();
+    } else {
+      transformPal = std::make_unique<TransformPal3D>();
     }
 
-    if (!safety.ok) {
-        ORC_LOG_ERROR("PalColour::updateConfiguration(): Invalid video parameters: {}",
-                      ::orc::chroma_sink::join_issues(safety.errors));
-        configurationSet = false;
-        transformPal.reset();
-        return;
-    }
+    // Configure the filter
+    transformPal->updateConfiguration(videoParameters,
+                                      configuration.transformThreshold,
+                                      configuration.transformThresholds);
+  }
 
-    videoParameters = safety.params;
-
-    // Build the look-up tables
-    buildLookUpTables();
-
-    if (configuration.chromaFilter == transform2DFilter || configuration.chromaFilter == transform3DFilter) {
-        // Create the Transform PAL filter
-        if (configuration.chromaFilter == transform2DFilter) {
-            transformPal = std::make_unique<TransformPal2D>();
-        } else {
-            transformPal = std::make_unique<TransformPal3D>();
-        }
-
-        // Configure the filter
-        transformPal->updateConfiguration(videoParameters, configuration.transformThreshold,
-                                          configuration.transformThresholds);
-    }
-
-    configurationSet = true;
+  configurationSet = true;
 }
 
 // Rebuild the lookup tables based on the configuration
-void PalColour::buildLookUpTables()
-{
-    // Generate the reference carrier: quadrature samples of a sine wave at the
-    // subcarrier frequency. We'll use this for two purposes below:
-    // - product-detecting the line samples, to give us quadrature samples of
-    //   the chroma information centred on 0 Hz
-    // - working out what the phase of the subcarrier is on each line,
-    //   so we can rotate the chroma samples to put U/V on the right axes
-    if(videoParameters.field_height != 263) {
-        for (int32_t i = 0; i < videoParameters.field_width; i++) {
-            const double rad = 2 * M_PI * i * videoParameters.fsc / videoParameters.sample_rate;
-            sine[i] = sin(rad);
-            cosine[i] = cos(rad);
-        }
+void PalColour::buildLookUpTables() {
+  // Generate the reference carrier: quadrature samples of a sine wave at the
+  // subcarrier frequency. We'll use this for two purposes below:
+  // - product-detecting the line samples, to give us quadrature samples of
+  //   the chroma information centred on 0 Hz
+  // - working out what the phase of the subcarrier is on each line,
+  //   so we can rotate the chroma samples to put U/V on the right axes
+  if (videoParameters.field_height != 263) {
+    for (int32_t i = 0; i < videoParameters.field_width; i++) {
+      const double rad =
+          2 * M_PI * i * videoParameters.fsc / videoParameters.sample_rate;
+      sine[i] = sin(rad);
+      cosine[i] = cos(rad);
     }
-    else {
-        // HACK - For whatever reason Pal-M ends up with the vectors swapped and out of phase
-        // swapping the cos and sin references seem to work around that.
-        // TODO: Find a proper solution to this.
-        for (int32_t i = 0; i < videoParameters.field_width; i++) {
-            const double rad = 2 * M_PI * i * videoParameters.fsc / videoParameters.sample_rate;
-            sine[i] = cos(rad);
-            cosine[i] = sin(rad);
-        }
+  } else {
+    // HACK - For whatever reason Pal-M ends up with the vectors swapped and out
+    // of phase swapping the cos and sin references seem to work around that.
+    // TODO: Find a proper solution to this.
+    for (int32_t i = 0; i < videoParameters.field_width; i++) {
+      const double rad =
+          2 * M_PI * i * videoParameters.fsc / videoParameters.sample_rate;
+      sine[i] = cos(rad);
+      cosine[i] = sin(rad);
     }
+  }
 
-    // Create filter profiles for colour filtering.
+  // Create filter profiles for colour filtering.
+  //
+  // One can argue over merits of different filters, but I stick with simple
+  // raised cosine unless there's compelling reason to do otherwise.
+  // PAL-I colour bandwidth should be around 1.1 or 1.2 MHz:
+  // acc to Rec.470, +1066 or -1300kHz span of colour sidebands!
+  // The width of the filter window should scale with the sample rate.
+  //
+  // chromaBandwidthHz values between 1.1MHz and 1.3MHz can be tried. Some
+  // specific values in that range may work best at minimising residual dot
+  // pattern at given sample rates due to the discrete nature of the filters.
+  // It'd be good to find ways to optimise this more rigourously.
+  //
+  // Note in principle you could have different bandwidths for extracting the
+  // luma and chroma, according to aesthetic tradeoffs. Not really very
+  // justifyable though. Keeping the Y and C bandwidth the same (or at least
+  // similar enough for the filters to be the same size) allows them to be
+  // computed together later.
+  //
+  // The 0.93 is a bit empirical for the 4Fsc sampled LaserDisc scans.
+  const double chromaBandwidthHz = 1100000.0 / 0.93;
+
+  // Compute filter widths based on chroma bandwidth.
+  // FILTER_SIZE must be wide enough to hold both filters (and ideally no
+  // wider, else we're doing more computation than we need to).
+  // XXX where does the 0.5* come from?
+  const double ca = 0.5 * videoParameters.sample_rate / chromaBandwidthHz;
+  const double ya = 0.5 * videoParameters.sample_rate / chromaBandwidthHz;
+  assert(FILTER_SIZE >= static_cast<int32_t>(ca));
+  assert(FILTER_SIZE >= static_cast<int32_t>(ya));
+
+  // Note that we choose to make the y-filter *much* less selective in the
+  // vertical direction: this is to prevent castellation on horizontal colour
+  // boundaries.
+  //
+  // We may wish to broaden vertical bandwidth *slightly* so as to better
+  // pass one- or two-line colour bars - underlines/graphics etc.
+
+  double cdiv = 0, ydiv = 0;
+  for (int32_t f = 0; f <= FILTER_SIZE; f++) {
+    // 0-2-4-6 sequence here because we're only processing one field.
+    const double fc = std::min(ca, static_cast<double>(f));
+    const double ff = std::min(ca, sqrt(f * f + 2 * 2));
+    const double fff = std::min(ca, sqrt(f * f + 4 * 4));
+    const double ffff = std::min(ca, sqrt(f * f + 6 * 6));
+
+    // We will sum the zero-th horizontal tap twice later (when b == 0 in
+    // the filter loop), so halve the coefficient to compensate
+    const int32_t d = (f == 0) ? 2 : 1;
+
+    // For U/V.
+    // 0, 2, 1, 3 are vertical taps 0, +/- 1, +/- 2, +/- 3 (see filter loop
+    // below).
+    cfilt[f][0] = (1 + cos(M_PI * fc / ca)) / d;
+    cfilt[f][2] = (1 + cos(M_PI * ff / ca)) / d;
+    cfilt[f][1] = (1 + cos(M_PI * fff / ca)) / d;
+    cfilt[f][3] = (1 + cos(M_PI * ffff / ca)) / d;
+
+    // Each horizontal coefficient is applied to 2 columns (when b == 0,
+    // it's the same column twice).
+    // The zero-th vertical coefficient is applied to 1 line, and the
+    // others are applied to pairs of lines.
+    cdiv += 2 * (1 * cfilt[f][0] + 2 * cfilt[f][2] + 2 * cfilt[f][1] +
+                 2 * cfilt[f][3]);
+
+    const double fy = std::min(ya, static_cast<double>(f));
+    const double fffy = std::min(ya, sqrt(f * f + 4 * 4));
+
+    // For Y, only use lines n, n+/-2: the others cancel!!!
+    //  *have tried* using lines +/-1 & 3 --- can be made to work, but
+    //  introduces *phase-sensitivity* to the filter -> leaks too much
+    //  subcarrier if *any* phase-shifts!
+    // note omission of yfilt taps 1 and 3 for PAL
     //
-    // One can argue over merits of different filters, but I stick with simple
-    // raised cosine unless there's compelling reason to do otherwise.
-    // PAL-I colour bandwidth should be around 1.1 or 1.2 MHz:
-    // acc to Rec.470, +1066 or -1300kHz span of colour sidebands!
-    // The width of the filter window should scale with the sample rate.
+    // Tap 2 is only used for PAL; 0.2 factor makes it much less sensitive
+    // to adjacent lines and reduces castellations and residual dot
+    // patterning.
     //
-    // chromaBandwidthHz values between 1.1MHz and 1.3MHz can be tried. Some
-    // specific values in that range may work best at minimising residual dot
-    // pattern at given sample rates due to the discrete nature of the filters.
-    // It'd be good to find ways to optimise this more rigourously.
-    //
-    // Note in principle you could have different bandwidths for extracting the
-    // luma and chroma, according to aesthetic tradeoffs. Not really very
-    // justifyable though. Keeping the Y and C bandwidth the same (or at least
-    // similar enough for the filters to be the same size) allows them to be
-    // computed together later.
-    //
-    // The 0.93 is a bit empirical for the 4Fsc sampled LaserDisc scans.
-    const double chromaBandwidthHz = 1100000.0 / 0.93;
+    // 0, 1 are vertical taps 0, +/- 2 (see filter loop below).
+    yfilt[f][0] = (1 + cos(M_PI * fy / ya)) / d;
+    yfilt[f][1] = 0.2 * (1 + cos(M_PI * fffy / ya)) / d;
 
-    // Compute filter widths based on chroma bandwidth.
-    // FILTER_SIZE must be wide enough to hold both filters (and ideally no
-    // wider, else we're doing more computation than we need to).
-    // XXX where does the 0.5* come from?
-    const double ca = 0.5 * videoParameters.sample_rate / chromaBandwidthHz;
-    const double ya = 0.5 * videoParameters.sample_rate / chromaBandwidthHz;
-    assert(FILTER_SIZE >= static_cast<int32_t>(ca));
-    assert(FILTER_SIZE >= static_cast<int32_t>(ya));
+    ydiv += 2 * (1 * yfilt[f][0] + 2 * 0 + 2 * yfilt[f][1] + 2 * 0);
+  }
 
-    // Note that we choose to make the y-filter *much* less selective in the
-    // vertical direction: this is to prevent castellation on horizontal colour
-    // boundaries.
-    //
-    // We may wish to broaden vertical bandwidth *slightly* so as to better
-    // pass one- or two-line colour bars - underlines/graphics etc.
-
-    double cdiv = 0, ydiv = 0;
-    for (int32_t f = 0; f <= FILTER_SIZE; f++) {
-        // 0-2-4-6 sequence here because we're only processing one field.
-        const double fc   = std::min(ca, static_cast<double>(f));
-        const double ff   = std::min(ca, sqrt(f * f + 2 * 2));
-        const double fff  = std::min(ca, sqrt(f * f + 4 * 4));
-        const double ffff = std::min(ca, sqrt(f * f + 6 * 6));
-
-        // We will sum the zero-th horizontal tap twice later (when b == 0 in
-        // the filter loop), so halve the coefficient to compensate
-        const int32_t d = (f == 0) ? 2 : 1;
-
-        // For U/V.
-        // 0, 2, 1, 3 are vertical taps 0, +/- 1, +/- 2, +/- 3 (see filter loop below).
-        cfilt[f][0] = (1 + cos(M_PI * fc   / ca)) / d;
-        cfilt[f][2] = (1 + cos(M_PI * ff   / ca)) / d;
-        cfilt[f][1] = (1 + cos(M_PI * fff  / ca)) / d;
-        cfilt[f][3] = (1 + cos(M_PI * ffff / ca)) / d;
-
-        // Each horizontal coefficient is applied to 2 columns (when b == 0,
-        // it's the same column twice).
-        // The zero-th vertical coefficient is applied to 1 line, and the
-        // others are applied to pairs of lines.
-        cdiv += 2 * (1 * cfilt[f][0] + 2 * cfilt[f][2] + 2 * cfilt[f][1] + 2 * cfilt[f][3]);
-
-        const double fy   = std::min(ya, static_cast<double>(f));
-        const double fffy = std::min(ya, sqrt(f * f + 4 * 4));
-
-        // For Y, only use lines n, n+/-2: the others cancel!!!
-        //  *have tried* using lines +/-1 & 3 --- can be made to work, but
-        //  introduces *phase-sensitivity* to the filter -> leaks too much
-        //  subcarrier if *any* phase-shifts!
-        // note omission of yfilt taps 1 and 3 for PAL
-        //
-        // Tap 2 is only used for PAL; 0.2 factor makes it much less sensitive
-        // to adjacent lines and reduces castellations and residual dot
-        // patterning.
-        //
-        // 0, 1 are vertical taps 0, +/- 2 (see filter loop below).
-        yfilt[f][0] =       (1 + cos(M_PI * fy   / ya)) / d;
-        yfilt[f][1] = 0.2 * (1 + cos(M_PI * fffy / ya)) / d;
-
-        ydiv += 2 * (1 * yfilt[f][0] + 2 * 0 + 2 * yfilt[f][1] + 2 * 0);
+  // Normalise the filter coefficients.
+  for (int32_t f = 0; f <= FILTER_SIZE; f++) {
+    for (int32_t i = 0; i < 4; i++) {
+      cfilt[f][i] /= cdiv;
     }
-
-    // Normalise the filter coefficients.
-    for (int32_t f = 0; f <= FILTER_SIZE; f++) {
-        for (int32_t i = 0; i < 4; i++) {
-            cfilt[f][i] /= cdiv;
-        }
-        for (int32_t i = 0; i < 2; i++) {
-            yfilt[f][i] /= ydiv;
-        }
+    for (int32_t i = 0; i < 2; i++) {
+      yfilt[f][i] /= ydiv;
     }
+  }
 }
 
-void PalColour::decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                             std::vector<ComponentFrame> &componentFrames)
-{
-    if (!configurationSet) {
-        ORC_LOG_ERROR("PalColour::decodeFrames(): Decoder configuration is invalid");
-        return;
-    }
-    assert((componentFrames.size() * 2) == (endIndex - startIndex));
-    
-    // Check if we have YC sources (separate Y and C channels)
-    bool is_yc_source = !inputFields.empty() && inputFields[0].is_yc;
-    
-    if (is_yc_source) {
-        // YC DECODE PATH - simplified decoding for separate Y/C
-        // For YC sources:
-        // - Y is already clean (no filtering needed)
-        // - C only needs demodulation (no Y/C separation needed)
-        ORC_LOG_INFO("PalColour: Using YC decode path (separate Y/C channels)");
-        
-        for (int32_t i = startIndex, k = 0; i < endIndex; i += 2, k++) {
-            // Initialize and clear the component frame
-            componentFrames[k].init(videoParameters);
-            
-            // Decode both fields directly - Y is clean, C needs demodulation
-            decodeFieldYC(inputFields[i], componentFrames[k]);
-            decodeFieldYC(inputFields[i + 1], componentFrames[k]);
-        }
-        return;
-    }
-    
-    // COMPOSITE DECODE PATH - full PAL color decoding with Y/C separation
-    std::vector<const double *> chromaData(endIndex - startIndex);
-    if (configuration.chromaFilter != palColourFilter) {
-        // Use Transform PAL filter to extract chroma
-        transformPal->filterFields(inputFields, startIndex, endIndex, chromaData);
-    }
+void PalColour::decodeFrames(const std::vector<SourceField>& inputFields,
+                             int32_t startIndex, int32_t endIndex,
+                             std::vector<ComponentFrame>& componentFrames) {
+  if (!configurationSet) {
+    ORC_LOG_ERROR(
+        "PalColour::decodeFrames(): Decoder configuration is invalid");
+    return;
+  }
+  assert((componentFrames.size() * 2) == (endIndex - startIndex));
 
-    for (int32_t i = startIndex, j = 0, k = 0; i < endIndex; i += 2, j += 2, k++) {
-        // Initialise and clear the component frame
-        componentFrames[k].init(videoParameters);
+  // Check if we have YC sources (separate Y and C channels)
+  bool is_yc_source = !inputFields.empty() && inputFields[0].is_yc;
 
-        decodeField(inputFields[i], chromaData[j], componentFrames[k]);
-        decodeField(inputFields[i + 1], chromaData[j + 1], componentFrames[k]);
-    }
+  if (is_yc_source) {
+    // YC DECODE PATH - simplified decoding for separate Y/C
+    // For YC sources:
+    // - Y is already clean (no filtering needed)
+    // - C only needs demodulation (no Y/C separation needed)
+    ORC_LOG_INFO("PalColour: Using YC decode path (separate Y/C channels)");
 
-    if (configuration.showFFTs && configuration.chromaFilter != palColourFilter) {
-        // Overlay the FFT visualisation
-        transformPal->overlayFFT(configuration.showPositionX, configuration.showPositionY,
-                                 inputFields, startIndex, endIndex, componentFrames);
+    for (int32_t i = startIndex, k = 0; i < endIndex; i += 2, k++) {
+      // Initialize and clear the component frame
+      componentFrames[k].init(videoParameters);
+
+      // Decode both fields directly - Y is clean, C needs demodulation
+      decodeFieldYC(inputFields[i], componentFrames[k]);
+      decodeFieldYC(inputFields[i + 1], componentFrames[k]);
     }
+    return;
+  }
+
+  // COMPOSITE DECODE PATH - full PAL color decoding with Y/C separation
+  std::vector<const double*> chromaData(endIndex - startIndex);
+  if (configuration.chromaFilter != palColourFilter) {
+    // Use Transform PAL filter to extract chroma
+    transformPal->filterFields(inputFields, startIndex, endIndex, chromaData);
+  }
+
+  for (int32_t i = startIndex, j = 0, k = 0; i < endIndex;
+       i += 2, j += 2, k++) {
+    // Initialise and clear the component frame
+    componentFrames[k].init(videoParameters);
+
+    decodeField(inputFields[i], chromaData[j], componentFrames[k]);
+    decodeField(inputFields[i + 1], chromaData[j + 1], componentFrames[k]);
+  }
+
+  if (configuration.showFFTs && configuration.chromaFilter != palColourFilter) {
+    // Overlay the FFT visualisation
+    transformPal->overlayFFT(configuration.showPositionX,
+                             configuration.showPositionY, inputFields,
+                             startIndex, endIndex, componentFrames);
+  }
 }
 
 // Decode one field into componentFrame
-void PalColour::decodeField(const SourceField &inputField, const double *chromaData, ComponentFrame &componentFrame)
-{
-    // Pointer to the composite signal data
-    const uint16_t *compPtr = inputField.data.data();
+void PalColour::decodeField(const SourceField& inputField,
+                            const double* chromaData,
+                            ComponentFrame& componentFrame) {
+  // Pointer to the composite signal data
+  const uint16_t* compPtr = inputField.data.data();
 
-    // Convert frame-based active area limits to field-based coordinates
-    // This ensures proper indexing when active area cropping is applied
-    const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
-    const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
-    for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {
-        LineInfo line(fieldLine);
+  // Convert frame-based active area limits to field-based coordinates
+  // This ensures proper indexing when active area cropping is applied
+  const int32_t firstLine =
+      (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) /
+      2;
+  const int32_t lastLine =
+      (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
+  for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {
+    LineInfo line(fieldLine);
 
-        // Detect the colourburst from the composite signal
-        detectBurst(line, compPtr);
+    // Detect the colourburst from the composite signal
+    detectBurst(line, compPtr);
 
-        // Rotate and scale line.bp/line.bq to apply gain and phase adjustment
-        const double oldBp = line.bp, oldBq = line.bq;
-        const double theta = (configuration.chromaPhase * M_PI) / 180;
-        line.bp = (oldBp * cos(theta) - oldBq * sin(theta)) * configuration.chromaGain;
-        line.bq = (oldBp * sin(theta) + oldBq * cos(theta)) * configuration.chromaGain;
+    // Rotate and scale line.bp/line.bq to apply gain and phase adjustment
+    const double oldBp = line.bp, oldBq = line.bq;
+    const double theta = (configuration.chromaPhase * M_PI) / 180;
+    line.bp =
+        (oldBp * cos(theta) - oldBq * sin(theta)) * configuration.chromaGain;
+    line.bq =
+        (oldBp * sin(theta) + oldBq * cos(theta)) * configuration.chromaGain;
 
-        if (configuration.chromaFilter == palColourFilter) {
-            // Decode chroma and luma from the composite signal
-            decodeLine<uint16_t, false>(inputField, compPtr, line, componentFrame);
-        } else {
-            // Decode chroma and luma from the Transform PAL output
-            decodeLine<double, true>(inputField, chromaData, line, componentFrame);
-        }
+    if (configuration.chromaFilter == palColourFilter) {
+      // Decode chroma and luma from the composite signal
+      decodeLine<uint16_t, false>(inputField, compPtr, line, componentFrame);
+    } else {
+      // Decode chroma and luma from the Transform PAL output
+      decodeLine<double, true>(inputField, chromaData, line, componentFrame);
     }
+  }
 }
 
 // Decode one YC field into componentFrame
 // For YC sources: Y is already clean, C needs demodulation with 2D filtering
-void PalColour::decodeFieldYC(const SourceField &inputField, ComponentFrame &componentFrame)
-{
-    // Pointers to separate Y and C data
-    const uint16_t *yPtr = inputField.luma_data.data();
-    const uint16_t *cPtr = inputField.chroma_data.data();
+void PalColour::decodeFieldYC(const SourceField& inputField,
+                              ComponentFrame& componentFrame) {
+  // Pointers to separate Y and C data
+  const uint16_t* yPtr = inputField.luma_data.data();
+  const uint16_t* cPtr = inputField.chroma_data.data();
 
-    // Convert frame-based active area limits to field-based coordinates
-    const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
-    const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
-    
-    for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {
-        LineInfo line(fieldLine);
+  // Convert frame-based active area limits to field-based coordinates
+  const int32_t firstLine =
+      (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) /
+      2;
+  const int32_t lastLine =
+      (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
 
-        // Detect the colourburst from the C channel (not composite)
-        // This also detects the V-switch state for PAL
-        detectBurst(line, cPtr);
+  for (int32_t fieldLine = firstLine; fieldLine < lastLine; fieldLine++) {
+    LineInfo line(fieldLine);
 
-        // Rotate and scale burst to apply gain and phase adjustment
-        const double oldBp = line.bp, oldBq = line.bq;
-        const double theta = (configuration.chromaPhase * M_PI) / 180;
-        line.bp = (oldBp * cos(theta) - oldBq * sin(theta)) * configuration.chromaGain;
-        line.bq = (oldBp * sin(theta) + oldBq * cos(theta)) * configuration.chromaGain;
+    // Detect the colourburst from the C channel (not composite)
+    // This also detects the V-switch state for PAL
+    detectBurst(line, cPtr);
 
-        // Calculate frame line number
-        const int32_t absoluteLineNumber = (fieldLine * 2) + inputField.getOffset();
-        const int32_t lineNumber = videoParameters.active_area_cropping_applied ? 
-                                   (absoluteLineNumber - videoParameters.first_active_frame_line) : absoluteLineNumber;
-        
-        // Get output pointers
-        double *outY = componentFrame.y(lineNumber);
-        double *outU = componentFrame.u(lineNumber);
-        double *outV = componentFrame.v(lineNumber);
+    // Rotate and scale burst to apply gain and phase adjustment
+    const double oldBp = line.bp, oldBq = line.bq;
+    const double theta = (configuration.chromaPhase * M_PI) / 180;
+    line.bp =
+        (oldBp * cos(theta) - oldBq * sin(theta)) * configuration.chromaGain;
+    line.bq =
+        (oldBp * sin(theta) + oldBq * cos(theta)) * configuration.chromaGain;
 
-        // Apply 2D chroma filter to extract U and V from the C channel
-        apply2DChromaFilter(cPtr, line, inputField, fieldLine, firstLine, lastLine, outU, outV);
+    // Calculate frame line number
+    const int32_t absoluteLineNumber = (fieldLine * 2) + inputField.getOffset();
+    const int32_t lineNumber =
+        videoParameters.active_area_cropping_applied
+            ? (absoluteLineNumber - videoParameters.first_active_frame_line)
+            : absoluteLineNumber;
 
-        // Copy clean Y data directly (no filtering needed for YC sources)
-        const uint16_t *yLine = yPtr + (fieldLine * videoParameters.field_width);
-        const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
-        for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
-            int32_t outIdx = videoParameters.active_area_cropping_applied ? 
-                             (i - videoParameters.active_video_start) : i;
-            outY[outIdx] = static_cast<double>(yLine[i]);
-        }
-        
-        // Apply luma noise reduction to this line if enabled
-        if (configuration.yNRLevel > 0.0) {
-            doYNR(outY);
-        }
+    // Get output pointers
+    double* outY = componentFrame.y(lineNumber);
+    double* outU = componentFrame.u(lineNumber);
+    double* outV = componentFrame.v(lineNumber);
+
+    // Apply 2D chroma filter to extract U and V from the C channel
+    apply2DChromaFilter(cPtr, line, inputField, fieldLine, firstLine, lastLine,
+                        outU, outV);
+
+    // Copy clean Y data directly (no filtering needed for YC sources)
+    const uint16_t* yLine = yPtr + (static_cast<ptrdiff_t>(fieldLine * videoParameters.field_width));
+    const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
+    for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+      int32_t outIdx = videoParameters.active_area_cropping_applied
+                           ? (i - videoParameters.active_video_start)
+                           : i;
+      outY[outIdx] = static_cast<double>(yLine[i]);
     }
+
+    // Apply luma noise reduction to this line if enabled
+    if (configuration.yNRLevel > 0.0) {
+      doYNR(outY);
+    }
+  }
 }
 
 // Apply 2D chroma filter to extract U and V components from chroma data
 // This is shared between composite and YC decode paths
-void PalColour::apply2DChromaFilter(const uint16_t *chromaData, const LineInfo &line,
-                                   const SourceField &inputField, int32_t fieldLine,
-                                   int32_t firstLine, int32_t lastLine,
-                                   double *outU, double *outV)
-{
-    // Dummy black line for out-of-bounds access
-    static constexpr uint16_t blackLine[MAX_WIDTH] = {0};
+void PalColour::apply2DChromaFilter(const uint16_t* chromaData,
+                                    const LineInfo& line,
+                                    const SourceField& inputField,
+                                    int32_t fieldLine, int32_t firstLine,
+                                    int32_t lastLine, double* outU,
+                                    double* outV) {
+  // Dummy black line for out-of-bounds access
+  static constexpr uint16_t blackLine[MAX_WIDTH] = {0};
 
-    // Get pointers to the surrounding lines of chroma data
-    // If a line we need is outside the active area, use blackLine instead
-    const uint16_t *in0, *in1, *in2, *in3, *in4, *in5, *in6;
-    in0 =                              chromaData + (fieldLine      * videoParameters.field_width);
-    in1 = (fieldLine - 1) <  firstLine ? blackLine : (chromaData + ((fieldLine - 1) * videoParameters.field_width));
-    in2 = (fieldLine + 1) >= lastLine  ? blackLine : (chromaData + ((fieldLine + 1) * videoParameters.field_width));
-    in3 = (fieldLine - 2) <  firstLine ? blackLine : (chromaData + ((fieldLine - 2) * videoParameters.field_width));
-    in4 = (fieldLine + 2) >= lastLine  ? blackLine : (chromaData + ((fieldLine + 2) * videoParameters.field_width));
-    in5 = (fieldLine - 3) <  firstLine ? blackLine : (chromaData + ((fieldLine - 3) * videoParameters.field_width));
-    in6 = (fieldLine + 3) >= lastLine  ? blackLine : (chromaData + ((fieldLine + 3) * videoParameters.field_width));
+  // Get pointers to the surrounding lines of chroma data
+  // If a line we need is outside the active area, use blackLine instead
+  const uint16_t *in0, *in1, *in2, *in3, *in4, *in5, *in6;
+  in0 = chromaData + (static_cast<ptrdiff_t>(fieldLine * videoParameters.field_width));
+  in1 = (fieldLine - 1) < firstLine
+            ? blackLine
+            : (chromaData + (static_cast<ptrdiff_t>((fieldLine - 1) * videoParameters.field_width)));
+  in2 = (fieldLine + 1) >= lastLine
+            ? blackLine
+            : (chromaData + (static_cast<ptrdiff_t>((fieldLine + 1) * videoParameters.field_width)));
+  in3 = (fieldLine - 2) < firstLine
+            ? blackLine
+            : (chromaData + (static_cast<ptrdiff_t>((fieldLine - 2) * videoParameters.field_width)));
+  in4 = (fieldLine + 2) >= lastLine
+            ? blackLine
+            : (chromaData + (static_cast<ptrdiff_t>((fieldLine + 2) * videoParameters.field_width)));
+  in5 = (fieldLine - 3) < firstLine
+            ? blackLine
+            : (chromaData + (static_cast<ptrdiff_t>((fieldLine - 3) * videoParameters.field_width)));
+  in6 = (fieldLine + 3) >= lastLine
+            ? blackLine
+            : (chromaData + (static_cast<ptrdiff_t>((fieldLine + 3) * videoParameters.field_width)));
 
-    // Multiply the chroma signal by the reference carrier, giving quadrature samples
-    // where the colour subcarrier is now at 0 Hz
-    double m[4][MAX_WIDTH], n[4][MAX_WIDTH];
-    const auto endPos2 = std::min(videoParameters.active_video_end + FILTER_SIZE + 1, MAX_WIDTH);
-    for (int32_t i = videoParameters.active_video_start - FILTER_SIZE; i < endPos2; i++) {
-        m[0][i] =  in0[i] * sine[i];
-        m[2][i] =  in1[i] * sine[i] - in2[i] * sine[i];
-        m[1][i] = -in3[i] * sine[i] - in4[i] * sine[i];
-        m[3][i] = -in5[i] * sine[i] + in6[i] * sine[i];
+  // Multiply the chroma signal by the reference carrier, giving quadrature
+  // samples where the colour subcarrier is now at 0 Hz
+  double m[4][MAX_WIDTH], n[4][MAX_WIDTH];
+  const auto endPos2 =
+      std::min(videoParameters.active_video_end + FILTER_SIZE + 1, MAX_WIDTH);
+  for (int32_t i = videoParameters.active_video_start - FILTER_SIZE;
+       i < endPos2; i++) {
+    m[0][i] = in0[i] * sine[i];
+    m[2][i] = in1[i] * sine[i] - in2[i] * sine[i];
+    m[1][i] = -in3[i] * sine[i] - in4[i] * sine[i];
+    m[3][i] = -in5[i] * sine[i] + in6[i] * sine[i];
 
-        n[0][i] =  in0[i] * cosine[i];
-        n[2][i] =  in1[i] * cosine[i] - in2[i] * cosine[i];
-        n[1][i] = -in3[i] * cosine[i] - in4[i] * cosine[i];
-        n[3][i] = -in5[i] * cosine[i] + in6[i] * cosine[i];
+    n[0][i] = in0[i] * cosine[i];
+    n[2][i] = in1[i] * cosine[i] - in2[i] * cosine[i];
+    n[1][i] = -in3[i] * cosine[i] - in4[i] * cosine[i];
+    n[3][i] = -in5[i] * cosine[i] + in6[i] * cosine[i];
+  }
+
+  // Apply 2D filters to get U and V components
+  double pu[MAX_WIDTH], qu[MAX_WIDTH], pv[MAX_WIDTH], qv[MAX_WIDTH];
+  const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
+
+  for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+    double PU = 0, QU = 0, PV = 0, QV = 0;
+
+    // Apply 2D filter coefficients
+    for (int32_t b = 0; b <= FILTER_SIZE; b++) {
+      const int32_t l = i - b;
+      const int32_t r = i + b;
+
+      PU += (m[0][r] + m[0][l]) * cfilt[b][0] +
+            (m[1][r] + m[1][l]) * cfilt[b][1] +
+            (n[2][r] + n[2][l]) * cfilt[b][2] +
+            (n[3][r] + n[3][l]) * cfilt[b][3];
+      QU += (n[0][r] + n[0][l]) * cfilt[b][0] +
+            (n[1][r] + n[1][l]) * cfilt[b][1] -
+            (m[2][r] + m[2][l]) * cfilt[b][2] -
+            (m[3][r] + m[3][l]) * cfilt[b][3];
+      PV += (m[0][r] + m[0][l]) * cfilt[b][0] +
+            (m[1][r] + m[1][l]) * cfilt[b][1] -
+            (n[2][r] + n[2][l]) * cfilt[b][2] -
+            (n[3][r] + n[3][l]) * cfilt[b][3];
+      QV += (n[0][r] + n[0][l]) * cfilt[b][0] +
+            (n[1][r] + n[1][l]) * cfilt[b][1] +
+            (m[2][r] + m[2][l]) * cfilt[b][2] +
+            (m[3][r] + m[3][l]) * cfilt[b][3];
     }
 
-    // Apply 2D filters to get U and V components
-    double pu[MAX_WIDTH], qu[MAX_WIDTH], pv[MAX_WIDTH], qv[MAX_WIDTH];
-    const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
+    pu[i] = PU;
+    qu[i] = QU;
+    pv[i] = PV;
+    qv[i] = QV;
+  }
 
-    for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
-        double PU = 0, QU = 0, PV = 0, QV = 0;
+  // Rotate filtered quadrature components by burst phase to recover U and V
+  // Apply V-switch for PAL alternating lines
+  // Multiply by 2.0 because filtering extracts chroma at half amplitude
+  for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+    int32_t outIdx = videoParameters.active_area_cropping_applied
+                         ? (i - videoParameters.active_video_start)
+                         : i;
 
-        // Apply 2D filter coefficients
-        for (int32_t b = 0; b <= FILTER_SIZE; b++) {
-            const int32_t l = i - b;
-            const int32_t r = i + b;
-
-            PU += (m[0][r] + m[0][l]) * cfilt[b][0] + (m[1][r] + m[1][l]) * cfilt[b][1]
-                    + (n[2][r] + n[2][l]) * cfilt[b][2] + (n[3][r] + n[3][l]) * cfilt[b][3];
-            QU += (n[0][r] + n[0][l]) * cfilt[b][0] + (n[1][r] + n[1][l]) * cfilt[b][1]
-                    - (m[2][r] + m[2][l]) * cfilt[b][2] - (m[3][r] + m[3][l]) * cfilt[b][3];
-            PV += (m[0][r] + m[0][l]) * cfilt[b][0] + (m[1][r] + m[1][l]) * cfilt[b][1]
-                    - (n[2][r] + n[2][l]) * cfilt[b][2] - (n[3][r] + n[3][l]) * cfilt[b][3];
-            QV += (n[0][r] + n[0][l]) * cfilt[b][0] + (n[1][r] + n[1][l]) * cfilt[b][1]
-                    + (m[2][r] + m[2][l]) * cfilt[b][2] + (m[3][r] + m[3][l]) * cfilt[b][3];
-        }
-
-        pu[i] = PU;
-        qu[i] = QU;
-        pv[i] = PV;
-        qv[i] = QV;
-    }
-
-    // Rotate filtered quadrature components by burst phase to recover U and V
-    // Apply V-switch for PAL alternating lines
-    // Multiply by 2.0 because filtering extracts chroma at half amplitude
-    for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
-        int32_t outIdx = videoParameters.active_area_cropping_applied ? 
-                         (i - videoParameters.active_video_start) : i;
-        
-        outU[outIdx] =            -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
-        outV[outIdx] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
-    }
+    outU[outIdx] = -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
+    outV[outIdx] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
+  }
 }
 
-PalColour::LineInfo::LineInfo(int32_t _number)
-    : number(_number)
-{
-}
+PalColour::LineInfo::LineInfo(int32_t _number) : number(_number) {}
 
 // Detect the colourburst on a line.
 // Stores the burst details into line.
-void PalColour::detectBurst(LineInfo &line, const uint16_t *inputData)
-{
-    // Dummy black line, used when the filter needs to look outside the field.
-    static constexpr uint16_t blackLine[MAX_WIDTH] = {0};
+void PalColour::detectBurst(LineInfo& line, const uint16_t* inputData) {
+  // Dummy black line, used when the filter needs to look outside the field.
+  static constexpr uint16_t blackLine[MAX_WIDTH] = {0};
 
-    // Get pointers to the surrounding lines of input data.
-    // If a line we need is outside the field, use blackLine instead.
-    // (Unlike below, we don't need to stay in the active area, since we're
-    // only looking at the colourburst.)
-    const uint16_t *in0, *in1, *in2, *in3, *in4;
-    in0 =                                                                 inputData +  (line.number      * videoParameters.field_width);
-    in1 = (line.number - 1) <  0                           ? blackLine : (inputData + ((line.number - 1) * videoParameters.field_width));
-    in2 = (line.number + 1) >= videoParameters.field_height ? blackLine : (inputData + ((line.number + 1) * videoParameters.field_width));
-    in3 = (line.number - 2) <  0                           ? blackLine : (inputData + ((line.number - 2) * videoParameters.field_width));
-    in4 = (line.number + 2) >= videoParameters.field_height ? blackLine : (inputData + ((line.number + 2) * videoParameters.field_width));
+  // Get pointers to the surrounding lines of input data.
+  // If a line we need is outside the field, use blackLine instead.
+  // (Unlike below, we don't need to stay in the active area, since we're
+  // only looking at the colourburst.)
+  const uint16_t *in0, *in1, *in2, *in3, *in4;
+  in0 = inputData + (static_cast<ptrdiff_t>(line.number * videoParameters.field_width));
+  in1 = (line.number - 1) < 0
+            ? blackLine
+            : (inputData + (static_cast<ptrdiff_t>((line.number - 1) * videoParameters.field_width)));
+  in2 = (line.number + 1) >= videoParameters.field_height
+            ? blackLine
+            : (inputData + (static_cast<ptrdiff_t>((line.number + 1) * videoParameters.field_width)));
+  in3 = (line.number - 2) < 0
+            ? blackLine
+            : (inputData + (static_cast<ptrdiff_t>((line.number - 2) * videoParameters.field_width)));
+  in4 = (line.number + 2) >= videoParameters.field_height
+            ? blackLine
+            : (inputData + (static_cast<ptrdiff_t>((line.number + 2) * videoParameters.field_width)));
 
-    // Find absolute burst phase relative to the reference carrier by
-    // product detection.
-    //
-    // To avoid hue-shifts on alternate lines, the phase is determined by
-    // averaging the phase on the current-line with the average of two
-    // other lines, one above and one below the current line.
-    //
-    // For PAL we use the next-but-one line above and below (in the field),
-    // which will have the same V-switch phase as the current-line (and 180
-    // degree change of phase), and we also analyse the average (bpo/bqo
-    // 'old') of the line immediately above and below, which have the
-    // opposite V-switch phase (and a 90 degree subcarrier phase shift).
-    double bp = 0, bq = 0, bpo = 0, bqo = 0;
-    for (int32_t i = videoParameters.colour_burst_start; i < videoParameters.colour_burst_end; i++) {
-        bp += ((in0[i] - ((in3[i] + in4[i]) / 2.0)) / 2.0) * sine[i];
-        bq += ((in0[i] - ((in3[i] + in4[i]) / 2.0)) / 2.0) * cosine[i];
-        bpo += ((in2[i] - in1[i]) / 2.0) * sine[i];
-        bqo += ((in2[i] - in1[i]) / 2.0) * cosine[i];
-    }
+  // Find absolute burst phase relative to the reference carrier by
+  // product detection.
+  //
+  // To avoid hue-shifts on alternate lines, the phase is determined by
+  // averaging the phase on the current-line with the average of two
+  // other lines, one above and one below the current line.
+  //
+  // For PAL we use the next-but-one line above and below (in the field),
+  // which will have the same V-switch phase as the current-line (and 180
+  // degree change of phase), and we also analyse the average (bpo/bqo
+  // 'old') of the line immediately above and below, which have the
+  // opposite V-switch phase (and a 90 degree subcarrier phase shift).
+  double bp = 0, bq = 0, bpo = 0, bqo = 0;
+  for (int32_t i = videoParameters.colour_burst_start;
+       i < videoParameters.colour_burst_end; i++) {
+    bp += ((in0[i] - ((in3[i] + in4[i]) / 2.0)) / 2.0) * sine[i];
+    bq += ((in0[i] - ((in3[i] + in4[i]) / 2.0)) / 2.0) * cosine[i];
+    bpo += ((in2[i] - in1[i]) / 2.0) * sine[i];
+    bqo += ((in2[i] - in1[i]) / 2.0) * cosine[i];
+  }
 
-    // Normalise the sums above
-    const int32_t colourBurstLength = videoParameters.colour_burst_end - videoParameters.colour_burst_start;
-    bp /= colourBurstLength;
-    bq /= colourBurstLength;
-    bpo /= colourBurstLength;
-    bqo /= colourBurstLength;
+  // Normalise the sums above
+  const int32_t colourBurstLength =
+      videoParameters.colour_burst_end - videoParameters.colour_burst_start;
+  bp /= colourBurstLength;
+  bq /= colourBurstLength;
+  bpo /= colourBurstLength;
+  bqo /= colourBurstLength;
 
-    // Detect the V-switch state on this line.
-    //
-    // I forget exactly why this works, but it's essentially comparing the
-    // vector magnitude /difference/ between the phases of the burst on the
-    // present line and previous line to the magnitude of the burst. This
-    // may effectively be a dot-product operation...
-    line.Vsw = -1;
-    if ((((bp - bpo) * (bp - bpo) + (bq - bqo) * (bq - bqo)) < (bp * bp + bq * bq) * 2)) {
-        line.Vsw = 1;
-    }
+  // Detect the V-switch state on this line.
+  //
+  // I forget exactly why this works, but it's essentially comparing the
+  // vector magnitude /difference/ between the phases of the burst on the
+  // present line and previous line to the magnitude of the burst. This
+  // may effectively be a dot-product operation...
+  line.Vsw = -1;
+  if ((((bp - bpo) * (bp - bpo) + (bq - bqo) * (bq - bqo)) <
+       (bp * bp + bq * bq) * 2)) {
+    line.Vsw = 1;
+  }
 
-    // Average the burst phase to get -U (reference) phase out -- burst
-    // phase is (-U +/-V). bp and bq will be of the order of 1000.
-    line.bp = (bp - bqo) / 2;
-    line.bq = (bq + bpo) / 2;
+  // Average the burst phase to get -U (reference) phase out -- burst
+  // phase is (-U +/-V). bp and bq will be of the order of 1000.
+  line.bp = (bp - bqo) / 2;
+  line.bq = (bq + bpo) / 2;
 
-    // Normalise the magnitude of the bp/bq vector to 1.
-    // Kill colour if burst too weak.
-    // XXX magic number 130000 !!! check!
-    const double burstNorm = std::max(sqrt(line.bp * line.bp + line.bq * line.bq), 130000.0 / 128);
-    line.bp /= burstNorm;
-    line.bq /= burstNorm;
+  // Normalise the magnitude of the bp/bq vector to 1.
+  // Kill colour if burst too weak.
+  // XXX magic number 130000 !!! check!
+  const double burstNorm =
+      std::max(sqrt(line.bp * line.bp + line.bq * line.bq), 130000.0 / 128);
+  line.bp /= burstNorm;
+  line.bq /= burstNorm;
 }
 
 // Perform analog-style noise coring.
-void PalColour::doYNR(double *Yline)
-{
-    // nr_y is the coring level
-    const double irescale = (videoParameters.white_16b_ire - videoParameters.black_16b_ire) / 100;
-    double nr_y = configuration.yNRLevel * irescale;
+void PalColour::doYNR(double* Yline) {
+  // nr_y is the coring level
+  const double irescale =
+      (videoParameters.white_16b_ire - videoParameters.black_16b_ire) / 100;
+  double nr_y = configuration.yNRLevel * irescale;
 
-    // High-pass filter for Y
-    auto yFilter(f_nrpal);
+  // High-pass filter for Y
+  auto yFilter(f_nrpal);
 
-    // Filter delay (since it's a symmetric FIR filter)
-    const int32_t delay = c_nrpal_b.size() / 2;
-    
-    const int32_t xOffset = videoParameters.active_area_cropping_applied ? 0 : videoParameters.active_video_start;
+  // Filter delay (since it's a symmetric FIR filter)
+  const int32_t delay = c_nrpal_b.size() / 2;
 
-    // High-pass result
-    std::vector<double> hpY(videoParameters.active_video_end + delay);
+  const int32_t xOffset = videoParameters.active_area_cropping_applied
+                              ? 0
+                              : videoParameters.active_video_start;
 
-    // Feed zeros into the filter before the active area
-    for (int32_t h = videoParameters.active_video_start - delay; h < videoParameters.active_video_start; h++) {
-        yFilter.feed(0.0);
+  // High-pass result
+  std::vector<double> hpY(videoParameters.active_video_end + delay);
+
+  // Feed zeros into the filter before the active area
+  for (int32_t h = videoParameters.active_video_start - delay;
+       h < videoParameters.active_video_start; h++) {
+    yFilter.feed(0.0);
+  }
+  for (int32_t h = videoParameters.active_video_start;
+       h < videoParameters.active_video_end; h++) {
+    hpY[h] = yFilter.feed(Yline[h - xOffset]);
+  }
+  for (int32_t h = videoParameters.active_video_end;
+       h < videoParameters.active_video_end + delay; h++) {
+    hpY[h] = yFilter.feed(0.0);
+  }
+
+  for (int32_t h = videoParameters.active_video_start;
+       h < videoParameters.active_video_end; h++) {
+    // Offset to cover the filter delay
+    double a = hpY[h + delay];
+
+    // Clip the filter strength
+    if (fabs(a) > nr_y) {
+      a = (a > 0) ? nr_y : -nr_y;
     }
-    for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-        hpY[h] = yFilter.feed(Yline[h - xOffset]);
-    }
-    for (int32_t h = videoParameters.active_video_end; h < videoParameters.active_video_end + delay; h++) {
-        hpY[h] = yFilter.feed(0.0);
-    }
 
-    for (int32_t h = videoParameters.active_video_start; h < videoParameters.active_video_end; h++) {
-        // Offset to cover the filter delay
-        double a = hpY[h + delay];
-
-        // Clip the filter strength
-        if (fabs(a) > nr_y) {
-            a = (a > 0) ? nr_y : -nr_y;
-        }
-
-        Yline[h - xOffset] -= a;
-    }
+    Yline[h - xOffset] -= a;
+  }
 }
 
 // Decode one line into componentFrame.
@@ -595,189 +650,226 @@ void PalColour::doYNR(double *Yline)
 // the chroma demodulator; this may be the composite signal from
 // inputField, or it may be pre-filtered down to chroma.
 template <typename ChromaSample, bool PREFILTERED_CHROMA>
-void PalColour::decodeLine(const SourceField &inputField, const ChromaSample *chromaData, const LineInfo &line,
-                           ComponentFrame &componentFrame)
-{
-    // Dummy black line, used when the filter needs to look outside the active region.
-    static constexpr ChromaSample blackLine[MAX_WIDTH] = {0};
+void PalColour::decodeLine(const SourceField& inputField,
+                           const ChromaSample* chromaData, const LineInfo& line,
+                           ComponentFrame& componentFrame) {
+  // Dummy black line, used when the filter needs to look outside the active
+  // region.
+  static constexpr ChromaSample blackLine[MAX_WIDTH] = {0};
 
-    // Get pointers to the surrounding lines of input data.
-    // If a line we need is outside the active area, use blackLine instead.
-    // Convert frame-based active area limits to field-based coordinates
-    const int32_t firstLine = (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) / 2;
-    const int32_t lastLine = (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
-    const ChromaSample *in0, *in1, *in2, *in3, *in4, *in5, *in6;
-    in0 =                                               chromaData +  (line.number      * videoParameters.field_width);
-    in1 = (line.number - 1) <  firstLine ? blackLine : (chromaData + ((line.number - 1) * videoParameters.field_width));
-    in2 = (line.number + 1) >= lastLine  ? blackLine : (chromaData + ((line.number + 1) * videoParameters.field_width));
-    in3 = (line.number - 2) <  firstLine ? blackLine : (chromaData + ((line.number - 2) * videoParameters.field_width));
-    in4 = (line.number + 2) >= lastLine  ? blackLine : (chromaData + ((line.number + 2) * videoParameters.field_width));
-    in5 = (line.number - 2) <  firstLine ? blackLine : (chromaData + ((line.number - 3) * videoParameters.field_width));
-    in6 = (line.number + 3) >= lastLine  ? blackLine : (chromaData + ((line.number + 3) * videoParameters.field_width));
+  // Get pointers to the surrounding lines of input data.
+  // If a line we need is outside the active area, use blackLine instead.
+  // Convert frame-based active area limits to field-based coordinates
+  const int32_t firstLine =
+      (videoParameters.first_active_frame_line + 1 - inputField.getOffset()) /
+      2;
+  const int32_t lastLine =
+      (videoParameters.last_active_frame_line + 1 - inputField.getOffset()) / 2;
+  const ChromaSample *in0, *in1, *in2, *in3, *in4, *in5, *in6;
+  in0 = chromaData + (line.number * videoParameters.field_width);
+  in1 = (line.number - 1) < firstLine
+            ? blackLine
+            : (chromaData + ((line.number - 1) * videoParameters.field_width));
+  in2 = (line.number + 1) >= lastLine
+            ? blackLine
+            : (chromaData + ((line.number + 1) * videoParameters.field_width));
+  in3 = (line.number - 2) < firstLine
+            ? blackLine
+            : (chromaData + ((line.number - 2) * videoParameters.field_width));
+  in4 = (line.number + 2) >= lastLine
+            ? blackLine
+            : (chromaData + ((line.number + 2) * videoParameters.field_width));
+  in5 = (line.number - 2) < firstLine
+            ? blackLine
+            : (chromaData + ((line.number - 3) * videoParameters.field_width));
+  in6 = (line.number + 3) >= lastLine
+            ? blackLine
+            : (chromaData + ((line.number + 3) * videoParameters.field_width));
 
-    // Clamp end position to max width so we don't go out of bounds.
-    const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
-    if (endPos < videoParameters.active_video_end) {
-        ORC_LOG_WARN("Tried to decode video outside max width!");
+  // Clamp end position to max width so we don't go out of bounds.
+  const auto endPos = std::min(videoParameters.active_video_end, MAX_WIDTH);
+  if (endPos < videoParameters.active_video_end) {
+    ORC_LOG_WARN("Tried to decode video outside max width!");
+  }
+
+  double pu[MAX_WIDTH], qu[MAX_WIDTH], pv[MAX_WIDTH], qv[MAX_WIDTH],
+      py[MAX_WIDTH], qy[MAX_WIDTH];
+  if (PREFILTERED_CHROMA && configuration.simplePAL) {
+    // Use Simple PAL 1D filter.
+    // (Only for Transform PAL mode, since we don't have a 1D notch filter.)
+
+    // LPF equivalent to the BBC Transform PAL implementation's UV postfilter.
+    // Generated by: sps.remez(17, [0.0, 2.15e6, 4.6e6, rate/2], [1.0, 0.0],
+    // [1.0, 1.0], fs=rate)
+    static constexpr std::array<double, 17> palUvFilterCoeffs{
+        -0.00199265, 0.01226292,  0.01767698,  -0.01034077, -0.05538487,
+        -0.03793064, 0.09913768,  0.29007115,  0.38112572,  0.29007115,
+        0.09913768,  -0.03793064, -0.05538487, -0.01034077, 0.01767698,
+        0.01226292,  -0.00199265};
+    static constexpr auto palUvFilter = makeFIRFilter(palUvFilterCoeffs);
+
+    // As above, but at PAL-M's sample rate.
+    static constexpr std::array<double, 17> palMUvFilterCoeffs{
+        -0.00304101, -0.00750668, 0.01028936,  0.02719209, -0.01941656,
+        -0.07939037, 0.02759901,  0.30843697,  0.4691384,  0.30843697,
+        0.02759901,  -0.07939037, -0.01941656, 0.02719209, 0.01028936,
+        -0.00750668, -0.00304101};
+    static constexpr auto palMUvFilter = makeFIRFilter(palMUvFilterCoeffs);
+
+    const auto& uvFilter = (videoParameters.system == orc::VideoSystem::PAL)
+                               ? palUvFilter
+                               : palMUvFilter;
+
+    const int32_t overlap = palUvFilterCoeffs.size() / 2;
+    const int32_t startPos = videoParameters.active_video_start - overlap;
+    const int32_t endPos = videoParameters.active_video_end + overlap + 1;
+
+    // Multiply the composite input signal by the reference carrier, giving
+    // quadrature samples where the colour subcarrier is now at 0 Hz
+    double m[MAX_WIDTH], n[MAX_WIDTH];
+    for (int32_t i = startPos; i < endPos; i++) {
+      m[i] = in0[i] * sine[i];
+      n[i] = in0[i] * cosine[i];
     }
 
-    double pu[MAX_WIDTH], qu[MAX_WIDTH], pv[MAX_WIDTH], qv[MAX_WIDTH], py[MAX_WIDTH], qy[MAX_WIDTH];
-    if (PREFILTERED_CHROMA && configuration.simplePAL) {
-        // Use Simple PAL 1D filter.
-        // (Only for Transform PAL mode, since we don't have a 1D notch filter.)
+    // Apply the filter to U, and copy the result to V
+    uvFilter.apply(&m[startPos], &pu[startPos], endPos - startPos);
+    uvFilter.apply(&n[startPos], &qu[startPos], endPos - startPos);
+    for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+      pv[i] = pu[i];
+      qv[i] = qu[i];
+    }
+  } else {
+    // Use PALcolour's 2D filter
+    // For composite (uint16_t) input, we need to also compute py/qy for luma
+    // extraction
 
-        // LPF equivalent to the BBC Transform PAL implementation's UV postfilter.
-        // Generated by: sps.remez(17, [0.0, 2.15e6, 4.6e6, rate/2], [1.0, 0.0], [1.0, 1.0], fs=rate)
-        static constexpr std::array<double, 17> palUvFilterCoeffs {
-            -0.00199265, 0.01226292, 0.01767698, -0.01034077, -0.05538487, -0.03793064,
-            0.09913768, 0.29007115, 0.38112572, 0.29007115, 0.09913768, -0.03793064,
-            -0.05538487, -0.01034077, 0.01767698, 0.01226292, -0.00199265
-        };
-        static constexpr auto palUvFilter = makeFIRFilter(palUvFilterCoeffs);
+    // Multiply the composite input signal by the reference carrier, giving
+    // quadrature samples where the colour subcarrier is now at 0 Hz.
+    // There will be a considerable amount of energy at higher frequencies
+    // resulting from the luma information and aliases of the signal, so
+    // we need to low-pass filter it before extracting the colour
+    // components.
+    //
+    // After filtering -- i.e. removing all the terms with sin(i) and sin^2(i)
+    // from the product -- we'll be left with just the chroma signal, at half
+    // its original amplitude. Phase errors will cancel between lines with
+    // opposite Vsw sense, giving correct phase (hue) but lower amplitude
+    // (saturation).
+    //
+    // As the 2D filters are vertically symmetrical, we can pre-compute the
+    // sums of pairs of lines above and below line.number to save some work
+    // in the inner loop below.
+    //
+    // Vertical taps 1 and 2 are swapped in the array to save one addition
+    // in the filter loop, as U and V use the same sign for taps 0 and 2.
+    double m[4][MAX_WIDTH], n[4][MAX_WIDTH];
+    const auto endPos2 =
+        std::min(videoParameters.active_video_end + FILTER_SIZE + 1, MAX_WIDTH);
+    for (int32_t i = videoParameters.active_video_start - FILTER_SIZE;
+         i < endPos2; i++) {
+      m[0][i] = in0[i] * sine[i];
+      m[2][i] = in1[i] * sine[i] - in2[i] * sine[i];
+      m[1][i] = -in3[i] * sine[i] - in4[i] * sine[i];
+      m[3][i] = -in5[i] * sine[i] + in6[i] * sine[i];
 
-        // As above, but at PAL-M's sample rate.
-        static constexpr std::array<double, 17> palMUvFilterCoeffs {
-            -0.00304101, -0.00750668,  0.01028936,  0.02719209, -0.01941656, -0.07939037,
-            0.02759901,  0.30843697,  0.4691384 ,  0.30843697, 0.02759901, -0.07939037,
-            -0.01941656,  0.02719209,  0.01028936, -0.00750668, -0.00304101
-        };
-        static constexpr auto palMUvFilter = makeFIRFilter(palMUvFilterCoeffs);
-
-        const auto& uvFilter = (videoParameters.system == orc::VideoSystem::PAL) ? palUvFilter : palMUvFilter;
-
-        const int32_t overlap = palUvFilterCoeffs.size() / 2;
-        const int32_t startPos = videoParameters.active_video_start - overlap;
-        const int32_t endPos = videoParameters.active_video_end + overlap + 1;
-
-        // Multiply the composite input signal by the reference carrier, giving
-        // quadrature samples where the colour subcarrier is now at 0 Hz
-        double m[MAX_WIDTH], n[MAX_WIDTH];
-        for (int32_t i = startPos; i < endPos; i++) {
-            m[i] = in0[i] * sine[i];
-            n[i] = in0[i] * cosine[i];
-        }
-
-        // Apply the filter to U, and copy the result to V
-        uvFilter.apply(&m[startPos], &pu[startPos], endPos - startPos);
-        uvFilter.apply(&n[startPos], &qu[startPos], endPos - startPos);
-        for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
-            pv[i] = pu[i];
-            qv[i] = qu[i];
-        }
-    } else {
-        // Use PALcolour's 2D filter
-        // For composite (uint16_t) input, we need to also compute py/qy for luma extraction
-        
-        // Multiply the composite input signal by the reference carrier, giving
-        // quadrature samples where the colour subcarrier is now at 0 Hz.
-        // There will be a considerable amount of energy at higher frequencies
-        // resulting from the luma information and aliases of the signal, so
-        // we need to low-pass filter it before extracting the colour
-        // components.
-        //
-        // After filtering -- i.e. removing all the terms with sin(i) and sin^2(i)
-        // from the product -- we'll be left with just the chroma signal, at half
-        // its original amplitude. Phase errors will cancel between lines with
-        // opposite Vsw sense, giving correct phase (hue) but lower amplitude
-        // (saturation).
-        //
-        // As the 2D filters are vertically symmetrical, we can pre-compute the
-        // sums of pairs of lines above and below line.number to save some work
-        // in the inner loop below.
-        //
-        // Vertical taps 1 and 2 are swapped in the array to save one addition
-        // in the filter loop, as U and V use the same sign for taps 0 and 2.
-        double m[4][MAX_WIDTH], n[4][MAX_WIDTH];
-        const auto endPos2 = std::min(videoParameters.active_video_end + FILTER_SIZE + 1, MAX_WIDTH);
-        for (int32_t i = videoParameters.active_video_start - FILTER_SIZE; i < endPos2; i++) {
-            m[0][i] =  in0[i] * sine[i];
-            m[2][i] =  in1[i] * sine[i] - in2[i] * sine[i];
-            m[1][i] = -in3[i] * sine[i] - in4[i] * sine[i];
-            m[3][i] = -in5[i] * sine[i] + in6[i] * sine[i];
-
-            n[0][i] =  in0[i] * cosine[i];
-            n[2][i] =  in1[i] * cosine[i] - in2[i] * cosine[i];
-            n[1][i] = -in3[i] * cosine[i] - in4[i] * cosine[i];
-            n[3][i] = -in5[i] * cosine[i] + in6[i] * cosine[i];
-        }
-
-        // p & q should be sine/cosine components' amplitudes
-        // NB: Multiline averaging/filtering assumes perfect
-        //     inter-line phase registration...
-
-        for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
-            double PU = 0, QU = 0, PV = 0, QV = 0, PY = 0, QY = 0;
-
-            // Carry out 2D filtering. P and Q are the two arbitrary SINE & COS
-            // phases components. U filters for U, V for V, and Y for Y.
-            //
-            // U and V are the same for lines n ([0]), n+/-2 ([1]), but
-            // differ in sign for n+/-1 ([2]), n+/-3 ([3]) owing to the
-            // forward/backward axis slant.
-
-            for (int32_t b = 0; b <= FILTER_SIZE; b++) {
-                const int32_t l = i - b;
-                const int32_t r = i + b;
-
-                PY += (m[0][r] + m[0][l]) * yfilt[b][0] + (m[1][r] + m[1][l]) * yfilt[b][1];
-                QY += (n[0][r] + n[0][l]) * yfilt[b][0] + (n[1][r] + n[1][l]) * yfilt[b][1];
-
-                PU += (m[0][r] + m[0][l]) * cfilt[b][0] + (m[1][r] + m[1][l]) * cfilt[b][1]
-                        + (n[2][r] + n[2][l]) * cfilt[b][2] + (n[3][r] + n[3][l]) * cfilt[b][3];
-                QU += (n[0][r] + n[0][l]) * cfilt[b][0] + (n[1][r] + n[1][l]) * cfilt[b][1]
-                        - (m[2][r] + m[2][l]) * cfilt[b][2] - (m[3][r] + m[3][l]) * cfilt[b][3];
-                PV += (m[0][r] + m[0][l]) * cfilt[b][0] + (m[1][r] + m[1][l]) * cfilt[b][1]
-                        - (n[2][r] + n[2][l]) * cfilt[b][2] - (n[3][r] + n[3][l]) * cfilt[b][3];
-                QV += (n[0][r] + n[0][l]) * cfilt[b][0] + (n[1][r] + n[1][l]) * cfilt[b][1]
-                        + (m[2][r] + m[2][l]) * cfilt[b][2] + (m[3][r] + m[3][l]) * cfilt[b][3];
-            }
-
-            pu[i] = PU;
-            qu[i] = QU;
-            pv[i] = PV;
-            qv[i] = QV;
-            py[i] = PY;
-            qy[i] = QY;
-        }
+      n[0][i] = in0[i] * cosine[i];
+      n[2][i] = in1[i] * cosine[i] - in2[i] * cosine[i];
+      n[1][i] = -in3[i] * cosine[i] - in4[i] * cosine[i];
+      n[3][i] = -in5[i] * cosine[i] + in6[i] * cosine[i];
     }
 
-    // Pointer to composite signal data
-    const uint16_t *comp = inputField.data.data() + (line.number * videoParameters.field_width);
-
-    // Pointers to component output
-    const int32_t absoluteLineNumber = (line.number * 2) + inputField.getOffset();
-    const int32_t lineNumber = videoParameters.active_area_cropping_applied ? 
-                               (absoluteLineNumber - videoParameters.first_active_frame_line) : absoluteLineNumber;
-    double *outY = componentFrame.y(lineNumber);
-    double *outU = componentFrame.u(lineNumber);
-    double *outV = componentFrame.v(lineNumber);
+    // p & q should be sine/cosine components' amplitudes
+    // NB: Multiline averaging/filtering assumes perfect
+    //     inter-line phase registration...
 
     for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
-        int32_t outIdx = videoParameters.active_area_cropping_applied ? 
-                         (i - videoParameters.active_video_start) : i;
-        
-        // Compute luma by...
-        if (PREFILTERED_CHROMA) {
-            // ... subtracting pre-filtered chroma from the composite input
-            outY[outIdx] = comp[i] - in0[i];
-        } else {
-            // ... resynthesising the chroma signal that the Y filter
-            // extracted (at half amplitude), and subtracting it from the
-            // composite input
-            outY[outIdx] = comp[i] - ((py[i] * sine[i] + qy[i] * cosine[i]) * 2.0);
-        }
+      double PU = 0, QU = 0, PV = 0, QV = 0, PY = 0, QY = 0;
 
-        // Rotate the p&q components (at the arbitrary sine/cosine
-        // reference phase) backwards by the burst phase (relative to the
-        // reference phase), in order to recover U and V. The Vswitch is
-        // applied to flip the V-phase on alternate lines for PAL.
-        // The result is doubled because the filter extracts the chroma signal
-        // at half amplitude.
-        outU[outIdx] =            -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
-        outV[outIdx] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
+      // Carry out 2D filtering. P and Q are the two arbitrary SINE & COS
+      // phases components. U filters for U, V for V, and Y for Y.
+      //
+      // U and V are the same for lines n ([0]), n+/-2 ([1]), but
+      // differ in sign for n+/-1 ([2]), n+/-3 ([3]) owing to the
+      // forward/backward axis slant.
+
+      for (int32_t b = 0; b <= FILTER_SIZE; b++) {
+        const int32_t l = i - b;
+        const int32_t r = i + b;
+
+        PY += (m[0][r] + m[0][l]) * yfilt[b][0] +
+              (m[1][r] + m[1][l]) * yfilt[b][1];
+        QY += (n[0][r] + n[0][l]) * yfilt[b][0] +
+              (n[1][r] + n[1][l]) * yfilt[b][1];
+
+        PU += (m[0][r] + m[0][l]) * cfilt[b][0] +
+              (m[1][r] + m[1][l]) * cfilt[b][1] +
+              (n[2][r] + n[2][l]) * cfilt[b][2] +
+              (n[3][r] + n[3][l]) * cfilt[b][3];
+        QU += (n[0][r] + n[0][l]) * cfilt[b][0] +
+              (n[1][r] + n[1][l]) * cfilt[b][1] -
+              (m[2][r] + m[2][l]) * cfilt[b][2] -
+              (m[3][r] + m[3][l]) * cfilt[b][3];
+        PV += (m[0][r] + m[0][l]) * cfilt[b][0] +
+              (m[1][r] + m[1][l]) * cfilt[b][1] -
+              (n[2][r] + n[2][l]) * cfilt[b][2] -
+              (n[3][r] + n[3][l]) * cfilt[b][3];
+        QV += (n[0][r] + n[0][l]) * cfilt[b][0] +
+              (n[1][r] + n[1][l]) * cfilt[b][1] +
+              (m[2][r] + m[2][l]) * cfilt[b][2] +
+              (m[3][r] + m[3][l]) * cfilt[b][3];
+      }
+
+      pu[i] = PU;
+      qu[i] = QU;
+      pv[i] = PV;
+      qv[i] = QV;
+      py[i] = PY;
+      qy[i] = QY;
+    }
+  }
+
+  // Pointer to composite signal data
+  const uint16_t* comp =
+      inputField.data.data() + (static_cast<ptrdiff_t>(line.number * videoParameters.field_width));
+
+  // Pointers to component output
+  const int32_t absoluteLineNumber = (line.number * 2) + inputField.getOffset();
+  const int32_t lineNumber =
+      videoParameters.active_area_cropping_applied
+          ? (absoluteLineNumber - videoParameters.first_active_frame_line)
+          : absoluteLineNumber;
+  double* outY = componentFrame.y(lineNumber);
+  double* outU = componentFrame.u(lineNumber);
+  double* outV = componentFrame.v(lineNumber);
+
+  for (int32_t i = videoParameters.active_video_start; i < endPos; i++) {
+    int32_t outIdx = videoParameters.active_area_cropping_applied
+                         ? (i - videoParameters.active_video_start)
+                         : i;
+
+    // Compute luma by...
+    if (PREFILTERED_CHROMA) {
+      // ... subtracting pre-filtered chroma from the composite input
+      outY[outIdx] = comp[i] - in0[i];
+    } else {
+      // ... resynthesising the chroma signal that the Y filter
+      // extracted (at half amplitude), and subtracting it from the
+      // composite input
+      outY[outIdx] = comp[i] - ((py[i] * sine[i] + qy[i] * cosine[i]) * 2.0);
     }
 
-    if (configuration.yNRLevel > 0.0) {
-        doYNR(outY);
-    }
+    // Rotate the p&q components (at the arbitrary sine/cosine
+    // reference phase) backwards by the burst phase (relative to the
+    // reference phase), in order to recover U and V. The Vswitch is
+    // applied to flip the V-phase on alternate lines for PAL.
+    // The result is doubled because the filter extracts the chroma signal
+    // at half amplitude.
+    outU[outIdx] = -(pu[i] * line.bp + qu[i] * line.bq) * 2.0;
+    outV[outIdx] = line.Vsw * -(qv[i] * line.bp - pv[i] * line.bq) * 2.0;
+  }
+
+  if (configuration.yNRLevel > 0.0) {
+    doYNR(outY);
+  }
 }

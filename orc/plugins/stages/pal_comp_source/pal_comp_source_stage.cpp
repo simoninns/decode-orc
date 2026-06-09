@@ -7,522 +7,565 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-
 #include "pal_comp_source_stage.h"
-#include "../sources/common/tbc_source_loader.h"
-#include "logging.h"
-#include "error_types.h"
-#include "preview_renderer.h"
-#include "preview_helpers.h"
-#include <stdexcept>
+
 #include <fstream>
+#include <stdexcept>
+
+#include "../sources/common/tbc_source_loader.h"
+#include "error_types.h"
+#include "logging.h"
+#include "preview_helpers.h"
+#include "preview_renderer.h"
 
 namespace orc {
 
 namespace {
 
 class DefaultPALCompSourceLoader final : public IPALCompSourceLoader {
-public:
-    std::shared_ptr<VideoFieldRepresentation> load(
-        const std::string& input_path,
-        const std::string& db_path,
-        const std::string& pcm_path,
-        const std::string& efm_path,
-        const std::string& ac3rf_path = "") const override
-    {
-        return source_loader_shared::load_tbc_composite(
-            input_path, db_path, pcm_path, efm_path, ac3rf_path);
-    }
+ public:
+  std::shared_ptr<VideoFieldRepresentation> load(
+      const std::string& input_path, const std::string& db_path,
+      const std::string& pcm_path, const std::string& efm_path,
+      const std::string& ac3rf_path) const override {
+    return source_loader_shared::load_tbc_composite(
+        input_path, db_path, pcm_path, efm_path, ac3rf_path);
+  }
 };
 
-} // namespace
+}  // namespace
 
-PALCompSourceStage::PALCompSourceStage(std::shared_ptr<IPALCompSourceLoader> loader)
-    : loader_(std::move(loader))
-{
-    if (!loader_) {
-        loader_ = std::make_shared<DefaultPALCompSourceLoader>();
-    }
+PALCompSourceStage::PALCompSourceStage(
+    std::shared_ptr<IPALCompSourceLoader> loader)
+    : loader_(std::move(loader)) {
+  if (!loader_) {
+    loader_ = std::make_shared<DefaultPALCompSourceLoader>();
+  }
 }
 
-std::shared_ptr<VideoFieldRepresentation> PALCompSourceStage::load_representation(
-    const std::string& input_path,
-    const std::string& db_path,
-    const std::string& pcm_path,
-    const std::string& efm_path,
-    const std::string& ac3rf_path) const
-{
-    return loader_->load(input_path, db_path, pcm_path, efm_path, ac3rf_path);
+std::shared_ptr<VideoFieldRepresentation>
+PALCompSourceStage::load_representation(const std::string& input_path,
+                                        const std::string& db_path,
+                                        const std::string& pcm_path,
+                                        const std::string& efm_path,
+                                        const std::string& ac3rf_path) const {
+  return loader_->load(input_path, db_path, pcm_path, efm_path, ac3rf_path);
 }
 
 std::vector<ArtifactPtr> PALCompSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    ObservationContext& observation_context
-) {
-    (void)observation_context; // Unused for now
-    // Source stage should have no inputs
-    if (!inputs.empty()) {
-        throw std::runtime_error("PAL_Comp_Source stage should have no inputs");
+    ObservationContext& observation_context) {
+  (void)observation_context;  // Unused for now
+  // Source stage should have no inputs
+  if (!inputs.empty()) {
+    throw std::runtime_error("PAL_Comp_Source stage should have no inputs");
+  }
+
+  // Get input_path parameter
+  auto input_path_it = parameters.find("input_path");
+  if (input_path_it == parameters.end() ||
+      std::get<std::string>(input_path_it->second).empty()) {
+    // No file path configured - return empty artifact (0 fields)
+    // This allows the node to exist in the DAG without a file, acting as a
+    // placeholder
+    ORC_LOG_DEBUG(
+        "PAL_Comp_Source: No input_path configured, returning empty output");
+    return {};
+  }
+  std::string input_path = std::get<std::string>(input_path_it->second);
+
+  // Get db_path parameter (optional)
+  std::string db_path;
+  auto db_path_it = parameters.find("db_path");
+  if (db_path_it != parameters.end()) {
+    db_path = std::get<std::string>(db_path_it->second);
+  } else {
+    // Default: input_path + ".db"
+    db_path = input_path + ".db";
+  }
+
+  // Get optional PCM audio path
+  std::string pcm_path;
+  auto pcm_path_it = parameters.find("pcm_path");
+  if (pcm_path_it != parameters.end()) {
+    pcm_path = std::get<std::string>(pcm_path_it->second);
+  }
+
+  // Get optional EFM data path
+  std::string efm_path;
+  auto efm_path_it = parameters.find("efm_path");
+  if (efm_path_it != parameters.end()) {
+    efm_path = std::get<std::string>(efm_path_it->second);
+  }
+
+  // Get optional AC3 RF symbols path
+  std::string ac3rf_path;
+  auto ac3rf_path_it = parameters.find("ac3rf_path");
+  if (ac3rf_path_it != parameters.end()) {
+    ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+  }
+
+  // Check cache
+  if (cached_representation_ && cached_input_path_ == input_path) {
+    ORC_LOG_DEBUG("PAL_Comp_Source: Using cached representation for {}",
+                  input_path);
+    return {cached_representation_};
+  }
+
+  // Load the TBC file
+  ORC_LOG_INFO("PAL_Comp_Source: Loading TBC file: {}", input_path);
+  ORC_LOG_DEBUG("  Database: {}", db_path);
+  if (!pcm_path.empty()) {
+    ORC_LOG_DEBUG("  PCM Audio: {}", pcm_path);
+  }
+  if (!efm_path.empty()) {
+    ORC_LOG_DEBUG("  EFM Data: {}", efm_path);
+  }
+  if (!ac3rf_path.empty()) {
+    ORC_LOG_DEBUG("  AC3 RF Symbols: {}", ac3rf_path);
+  }
+
+  try {
+    auto tbc_representation = load_representation(input_path, db_path, pcm_path,
+                                                  efm_path, ac3rf_path);
+    if (!tbc_representation) {
+      throw UserDataError(
+          "Failed to load TBC file (validation failed - see logs above)");
     }
 
-    // Get input_path parameter
-    auto input_path_it = parameters.find("input_path");
-    if (input_path_it == parameters.end() || std::get<std::string>(input_path_it->second).empty()) {
-        // No file path configured - return empty artifact (0 fields)
-        // This allows the node to exist in the DAG without a file, acting as a placeholder
-        ORC_LOG_DEBUG("PAL_Comp_Source: No input_path configured, returning empty output");
-        return {};
-    }
-    std::string input_path = std::get<std::string>(input_path_it->second);
-
-    // Get db_path parameter (optional)
-    std::string db_path;
-    auto db_path_it = parameters.find("db_path");
-    if (db_path_it != parameters.end()) {
-        db_path = std::get<std::string>(db_path_it->second);
-    } else {
-        // Default: input_path + ".db"
-        db_path = input_path + ".db";
+    // Get video parameters for logging
+    auto video_params = tbc_representation->get_video_parameters();
+    if (!video_params) {
+      throw UserDataError("No video parameters found in TBC file");
     }
 
-    // Get optional PCM audio path
-    std::string pcm_path;
-    auto pcm_path_it = parameters.find("pcm_path");
-    if (pcm_path_it != parameters.end()) {
-        pcm_path = std::get<std::string>(pcm_path_it->second);
+    std::string system_str;
+    switch (video_params->system) {
+      case VideoSystem::PAL:
+        system_str = "PAL";
+        break;
+      case VideoSystem::PAL_M:
+        system_str = "PAL-M";
+        break;
+      case VideoSystem::NTSC:
+        system_str = "NTSC";
+        break;
+      default:
+        system_str = "UNKNOWN";
+        break;
     }
-    
-    // Get optional EFM data path
-    std::string efm_path;
-    auto efm_path_it = parameters.find("efm_path");
-    if (efm_path_it != parameters.end()) {
-        efm_path = std::get<std::string>(efm_path_it->second);
+    ORC_LOG_DEBUG("  Decoder: {}", video_params->decoder);
+    ORC_LOG_DEBUG("  System: {}", system_str);
+    ORC_LOG_DEBUG("  Fields: {} ({}x{} pixels)",
+                  video_params->number_of_sequential_fields,
+                  video_params->field_width, video_params->field_height);
+
+    // Check decoder
+    if (video_params->decoder != "ld-decode" &&
+        video_params->decoder != "encode-orc") {
+      throw UserDataError(
+          "TBC file was not created by ld-decode or encode-orc (decoder: " +
+          video_params->decoder + "). Use the appropriate source type.");
     }
 
-    // Get optional AC3 RF symbols path
-    std::string ac3rf_path;
-    auto ac3rf_path_it = parameters.find("ac3rf_path");
-    if (ac3rf_path_it != parameters.end()) {
-        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+    // Check system
+    if (video_params->system != VideoSystem::PAL &&
+        video_params->system != VideoSystem::PAL_M) {
+      throw UserDataError(
+          "TBC file is not PAL or PAL-M format. Use 'Add NTSC Composite "
+          "Source' for NTSC files.");
     }
 
-    // Check cache
-    if (cached_representation_ && cached_input_path_ == input_path) {
-        ORC_LOG_DEBUG("PAL_Comp_Source: Using cached representation for {}", input_path);
-        return {cached_representation_};
-    }
+    // Cache the representation (observations will be generated lazily per-field
+    // during rendering)
+    cached_representation_ = tbc_representation;
+    cached_input_path_ = input_path;
 
-    // Load the TBC file
-    ORC_LOG_INFO("PAL_Comp_Source: Loading TBC file: {}", input_path);
-    ORC_LOG_DEBUG("  Database: {}", db_path);
-    if (!pcm_path.empty()) {
-        ORC_LOG_DEBUG("  PCM Audio: {}", pcm_path);
-    }
-    if (!efm_path.empty()) {
-        ORC_LOG_DEBUG("  EFM Data: {}", efm_path);
-    }
-    if (!ac3rf_path.empty()) {
-        ORC_LOG_DEBUG("  AC3 RF Symbols: {}", ac3rf_path);
-    }
-
-    try {
-        auto tbc_representation = load_representation(input_path, db_path, pcm_path, efm_path, ac3rf_path);
-        if (!tbc_representation) {
-            throw UserDataError("Failed to load TBC file (validation failed - see logs above)");
-        }
-        
-        // Get video parameters for logging
-        auto video_params = tbc_representation->get_video_parameters();
-        if (!video_params) {
-            throw UserDataError("No video parameters found in TBC file");
-        }
-        
-        std::string system_str;
-        switch (video_params->system) {
-            case VideoSystem::PAL: system_str = "PAL"; break;
-            case VideoSystem::PAL_M: system_str = "PAL-M"; break;
-            case VideoSystem::NTSC: system_str = "NTSC"; break;
-            default: system_str = "UNKNOWN"; break;
-        }
-        ORC_LOG_DEBUG("  Decoder: {}", video_params->decoder);
-        ORC_LOG_DEBUG("  System: {}", system_str);
-        ORC_LOG_DEBUG("  Fields: {} ({}x{} pixels)", 
-                    video_params->number_of_sequential_fields,
-                    video_params->field_width, 
-                    video_params->field_height);
-        
-        // Check decoder
-        if (video_params->decoder != "ld-decode" && video_params->decoder != "encode-orc") {
-            throw UserDataError(
-                "TBC file was not created by ld-decode or encode-orc (decoder: " + 
-                video_params->decoder + "). Use the appropriate source type."
-            );
-        }
-        
-        // Check system
-        if (video_params->system != VideoSystem::PAL && 
-            video_params->system != VideoSystem::PAL_M) {
-            throw UserDataError(
-                "TBC file is not PAL or PAL-M format. Use 'Add NTSC Composite Source' for NTSC files."
-            );
-        }
-        
-        // Cache the representation (observations will be generated lazily per-field during rendering)
-        cached_representation_ = tbc_representation;
-        cached_input_path_ = input_path;
-        
-        return {cached_representation_};
-    } catch (const UserDataError&) {
-        throw;
-    } catch (const std::exception& e) {
-        throw UserDataError(
-            std::string("Failed to load PAL-family TBC file '") + input_path + "': " + e.what()
-        );
-    }
+    return {cached_representation_};
+  } catch (const UserDataError&) {
+    throw;
+  } catch (const std::exception& e) {
+    throw UserDataError(std::string("Failed to load PAL-family TBC file '") +
+                        input_path + "': " + e.what());
+  }
 }
 
-std::vector<ParameterDescriptor> PALCompSourceStage::get_parameter_descriptors(VideoSystem project_format, SourceType source_type) const
-{
-    (void)project_format;  // Unused - source stages don't need project format
-    (void)source_type;     // Unused - source stages define the source type
-    std::vector<ParameterDescriptor> descriptors;
-    
-    // input_path parameter
-    {
-        ParameterDescriptor desc;
-        desc.name = "input_path";
-        desc.display_name = "TBC File Path";
-        desc.description = "Path to the PAL or PAL-M .tbc file from ld-decode (database file is automatically located)";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.required = false;  // Optional - source provides 0 fields until path is set
-        desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".tbc";
-        descriptors.push_back(desc);
-    }
-    
-    // pcm_path parameter
-    {
-        ParameterDescriptor desc;
-        desc.name = "pcm_path";
-        desc.display_name = "PCM Audio File Path";
-        desc.description = "Path to the analogue audio .pcm file (raw 16-bit stereo PCM at 44.1kHz)";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.required = false;  // Optional
-        desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".pcm";
-        descriptors.push_back(desc);
-    }
-    
-    // efm_path parameter
-    {
-        ParameterDescriptor desc;
-        desc.name = "efm_path";
-        desc.display_name = "EFM Data File Path";
-        desc.description = "Path to the EFM data .efm file (8-bit t-values from 3-11)";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.required = false;  // Optional
-        desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".efm";
-        descriptors.push_back(desc);
-    }
+std::vector<ParameterDescriptor> PALCompSourceStage::get_parameter_descriptors(
+    VideoSystem project_format, SourceType source_type) const {
+  (void)project_format;  // Unused - source stages don't need project format
+  (void)source_type;     // Unused - source stages define the source type
+  std::vector<ParameterDescriptor> descriptors;
 
-    // ac3rf_path parameter
-    {
-        ParameterDescriptor desc;
-        desc.name = "ac3rf_path";
-        desc.display_name = "AC3 RF Symbols File Path";
-        desc.description = "Path to the AC3 RF symbols .ac3sym file (demodulated QPSK dibits from ld-decode)";
-        desc.type = ParameterType::FILE_PATH;
-        desc.constraints.required = false;  // Optional
-        desc.constraints.default_value = std::string("");
-        desc.file_extension_hint = ".ac3sym";
-        descriptors.push_back(desc);
-    }
+  // input_path parameter
+  {
+    ParameterDescriptor desc;
+    desc.name = "input_path";
+    desc.display_name = "TBC File Path";
+    desc.description =
+        "Path to the PAL or PAL-M .tbc file from ld-decode (database file is "
+        "automatically located)";
+    desc.type = ParameterType::FILE_PATH;
+    desc.constraints.required =
+        false;  // Optional - source provides 0 fields until path is set
+    desc.constraints.default_value = std::string("");
+    desc.file_extension_hint = ".tbc";
+    descriptors.push_back(desc);
+  }
 
-    return descriptors;
+  // pcm_path parameter
+  {
+    ParameterDescriptor desc;
+    desc.name = "pcm_path";
+    desc.display_name = "PCM Audio File Path";
+    desc.description =
+        "Path to the analogue audio .pcm file (raw 16-bit stereo PCM at "
+        "44.1kHz)";
+    desc.type = ParameterType::FILE_PATH;
+    desc.constraints.required = false;  // Optional
+    desc.constraints.default_value = std::string("");
+    desc.file_extension_hint = ".pcm";
+    descriptors.push_back(desc);
+  }
+
+  // efm_path parameter
+  {
+    ParameterDescriptor desc;
+    desc.name = "efm_path";
+    desc.display_name = "EFM Data File Path";
+    desc.description =
+        "Path to the EFM data .efm file (8-bit t-values from 3-11)";
+    desc.type = ParameterType::FILE_PATH;
+    desc.constraints.required = false;  // Optional
+    desc.constraints.default_value = std::string("");
+    desc.file_extension_hint = ".efm";
+    descriptors.push_back(desc);
+  }
+
+  // ac3rf_path parameter
+  {
+    ParameterDescriptor desc;
+    desc.name = "ac3rf_path";
+    desc.display_name = "AC3 RF Symbols File Path";
+    desc.description =
+        "Path to the AC3 RF symbols .ac3sym file (demodulated QPSK dibits from "
+        "ld-decode)";
+    desc.type = ParameterType::FILE_PATH;
+    desc.constraints.required = false;  // Optional
+    desc.constraints.default_value = std::string("");
+    desc.file_extension_hint = ".ac3sym";
+    descriptors.push_back(desc);
+  }
+
+  return descriptors;
 }
 
-std::map<std::string, ParameterValue> PALCompSourceStage::get_parameters() const
-{
-    return parameters_;
+std::map<std::string, ParameterValue> PALCompSourceStage::get_parameters()
+    const {
+  return parameters_;
 }
 
-bool PALCompSourceStage::set_parameters(const std::map<std::string, ParameterValue>& params)
-{
-    // Validate that input_path has correct type if present
-    auto input_path_it = params.find("input_path");
-    if (input_path_it != params.end() && !std::holds_alternative<std::string>(input_path_it->second)) {
-        return false;
-    }
-    
-    parameters_ = params;
-    return true;
+bool PALCompSourceStage::set_parameters(
+    const std::map<std::string, ParameterValue>& params) {
+  // Validate that input_path has correct type if present
+  auto input_path_it = params.find("input_path");
+  if (input_path_it != params.end() &&
+      !std::holds_alternative<std::string>(input_path_it->second)) {
+    return false;
+  }
+
+  parameters_ = params;
+  return true;
 }
 
 std::optional<StageReport> PALCompSourceStage::generate_report() const {
-    StageReport report;
-    report.summary = "PAL Source Status";
-    
-    // Get input_path from parameters
-    std::string input_path;
-    auto input_path_it = parameters_.find("input_path");
-    if (input_path_it != parameters_.end()) {
-        input_path = std::get<std::string>(input_path_it->second);
-    }
-    
-    if (input_path.empty()) {
-        report.items.push_back({"Source File", "Not configured"});
-        report.items.push_back({"Status", "No TBC file path set"});
-        return report;
-    }
-    
-    report.items.push_back({"Source File", input_path});
-    
-    // Get db_path
-    std::string db_path;
-    auto db_path_it = parameters_.find("db_path");
-    if (db_path_it != parameters_.end()) {
-        db_path = std::get<std::string>(db_path_it->second);
-    } else {
-        db_path = input_path + ".db";
-    }
-    
-    // Get optional PCM audio path
-    std::string pcm_path;
-    auto pcm_path_it = parameters_.find("pcm_path");
-    if (pcm_path_it != parameters_.end()) {
-        pcm_path = std::get<std::string>(pcm_path_it->second);
-    }
-    
-    // Get optional EFM data path
-    std::string efm_path;
-    auto efm_path_it = parameters_.find("efm_path");
-    if (efm_path_it != parameters_.end()) {
-        efm_path = std::get<std::string>(efm_path_it->second);
-    }
+  StageReport report;
+  report.summary = "PAL Source Status";
 
-    // Get optional AC3 RF symbols path
-    std::string ac3rf_path;
-    auto ac3rf_path_it = parameters_.find("ac3rf_path");
-    if (ac3rf_path_it != parameters_.end()) {
-        ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
-    }
+  // Get input_path from parameters
+  std::string input_path;
+  auto input_path_it = parameters_.find("input_path");
+  if (input_path_it != parameters_.end()) {
+    input_path = std::get<std::string>(input_path_it->second);
+  }
 
-    // Display PCM file path if configured
-    if (!pcm_path.empty()) {
-        report.items.push_back({"PCM Audio File", pcm_path});
-    } else {
-        report.items.push_back({"PCM Audio File", "Not configured"});
-    }
-
-    // Display EFM file path if configured
-    if (!efm_path.empty()) {
-        report.items.push_back({"EFM Data File", efm_path});
-    } else {
-        report.items.push_back({"EFM Data File", "Not configured"});
-    }
-
-    // Display AC3 RF symbols file path if configured
-    if (!ac3rf_path.empty()) {
-        report.items.push_back({"AC3 RF Symbols File", ac3rf_path});
-    }
-
-    // Try to load the file to get actual information
-    try {
-        auto representation = load_representation(input_path, db_path, pcm_path, efm_path, ac3rf_path);
-        if (representation) {
-            auto video_params = representation->get_video_parameters();
-            
-            report.items.push_back({"Status", "File accessible"});
-            
-            if (video_params) {
-                report.items.push_back({"Decoder", video_params->decoder});
-                
-                std::string system_str;
-                switch (video_params->system) {
-                    case VideoSystem::PAL: system_str = "PAL"; break;
-                    case VideoSystem::PAL_M: system_str = "PAL-M"; break;
-                    default: system_str = "Unknown"; break;
-                }
-                report.items.push_back({"Video System", system_str});
-                
-                report.items.push_back({"Field Dimensions", 
-                    std::to_string(video_params->field_width) + " x " + 
-                    std::to_string(video_params->field_height)});
-                report.items.push_back({"Total Fields", 
-                    std::to_string(video_params->number_of_sequential_fields)});
-                report.items.push_back({"Total Frames", 
-                    std::to_string(video_params->number_of_sequential_fields / 2)});
-                
-                // Calculate total audio samples and EFM t-values from metadata
-                uint64_t total_audio_samples = 0;
-                uint64_t total_efm_tvalues = 0;
-                auto field_range = representation->field_range();
-                
-                for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
-                    total_audio_samples += representation->get_audio_sample_count(fid);
-                    total_efm_tvalues += representation->get_efm_sample_count(fid);
-                }
-                
-                // Display audio information
-                if (representation->has_audio() && total_audio_samples > 0) {
-                    report.items.push_back({"Audio Samples", std::to_string(total_audio_samples)});
-                    // Calculate approximate duration (44.1kHz stereo)
-                    double duration_seconds = static_cast<double>(total_audio_samples) / 44100.0;
-                    int minutes = static_cast<int>(duration_seconds / 60.0);
-                    int seconds = static_cast<int>(duration_seconds) % 60;
-                    report.items.push_back({"Audio Duration", 
-                        std::to_string(minutes) + "m " + std::to_string(seconds) + "s"});
-                } else {
-                    report.items.push_back({"Audio Samples", "0 (no audio)"});
-                }
-                
-                // Display EFM information
-                if (representation->has_efm() && total_efm_tvalues > 0) {
-                    report.items.push_back({"EFM T-Values", std::to_string(total_efm_tvalues)});
-                } else {
-                    report.items.push_back({"EFM T-Values", "0 (no EFM)"});
-                }
-                
-                // Metrics
-                report.metrics["field_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields);
-                report.metrics["frame_count"] = static_cast<int64_t>(video_params->number_of_sequential_fields / 2);
-                report.metrics["field_width"] = static_cast<int64_t>(video_params->field_width);
-                report.metrics["field_height"] = static_cast<int64_t>(video_params->field_height);
-                report.metrics["audio_samples"] = static_cast<int64_t>(total_audio_samples);
-                report.metrics["efm_tvalues"] = static_cast<int64_t>(total_efm_tvalues);
-            }
-        } else {
-            report.items.push_back({"Status", "Error loading file"});
-        }
-    } catch (const std::exception& e) {
-        report.items.push_back({"Status", "Error"});
-        report.items.push_back({"Error", e.what()});
-    }
-    
+  if (input_path.empty()) {
+    report.items.push_back({"Source File", "Not configured"});
+    report.items.push_back({"Status", "No TBC file path set"});
     return report;
+  }
+
+  report.items.push_back({"Source File", input_path});
+
+  // Get db_path
+  std::string db_path;
+  auto db_path_it = parameters_.find("db_path");
+  if (db_path_it != parameters_.end()) {
+    db_path = std::get<std::string>(db_path_it->second);
+  } else {
+    db_path = input_path + ".db";
+  }
+
+  // Get optional PCM audio path
+  std::string pcm_path;
+  auto pcm_path_it = parameters_.find("pcm_path");
+  if (pcm_path_it != parameters_.end()) {
+    pcm_path = std::get<std::string>(pcm_path_it->second);
+  }
+
+  // Get optional EFM data path
+  std::string efm_path;
+  auto efm_path_it = parameters_.find("efm_path");
+  if (efm_path_it != parameters_.end()) {
+    efm_path = std::get<std::string>(efm_path_it->second);
+  }
+
+  // Get optional AC3 RF symbols path
+  std::string ac3rf_path;
+  auto ac3rf_path_it = parameters_.find("ac3rf_path");
+  if (ac3rf_path_it != parameters_.end()) {
+    ac3rf_path = std::get<std::string>(ac3rf_path_it->second);
+  }
+
+  // Display PCM file path if configured
+  if (!pcm_path.empty()) {
+    report.items.push_back({"PCM Audio File", pcm_path});
+  } else {
+    report.items.push_back({"PCM Audio File", "Not configured"});
+  }
+
+  // Display EFM file path if configured
+  if (!efm_path.empty()) {
+    report.items.push_back({"EFM Data File", efm_path});
+  } else {
+    report.items.push_back({"EFM Data File", "Not configured"});
+  }
+
+  // Display AC3 RF symbols file path if configured
+  if (!ac3rf_path.empty()) {
+    report.items.push_back({"AC3 RF Symbols File", ac3rf_path});
+  }
+
+  // Try to load the file to get actual information
+  try {
+    auto representation = load_representation(input_path, db_path, pcm_path,
+                                              efm_path, ac3rf_path);
+    if (representation) {
+      auto video_params = representation->get_video_parameters();
+
+      report.items.push_back({"Status", "File accessible"});
+
+      if (video_params) {
+        report.items.push_back({"Decoder", video_params->decoder});
+
+        std::string system_str;
+        switch (video_params->system) {
+          case VideoSystem::PAL:
+            system_str = "PAL";
+            break;
+          case VideoSystem::PAL_M:
+            system_str = "PAL-M";
+            break;
+          default:
+            system_str = "Unknown";
+            break;
+        }
+        report.items.push_back({"Video System", system_str});
+
+        report.items.push_back(
+            {"Field Dimensions",
+             std::to_string(video_params->field_width) + " x " +
+                 std::to_string(video_params->field_height)});
+        report.items.push_back(
+            {"Total Fields",
+             std::to_string(video_params->number_of_sequential_fields)});
+        report.items.push_back(
+            {"Total Frames",
+             std::to_string(video_params->number_of_sequential_fields / 2)});
+
+        // Calculate total audio samples and EFM t-values from metadata
+        uint64_t total_audio_samples = 0;
+        uint64_t total_efm_tvalues = 0;
+        auto field_range = representation->field_range();
+
+        for (FieldID fid = field_range.start; fid < field_range.end; ++fid) {
+          total_audio_samples += representation->get_audio_sample_count(fid);
+          total_efm_tvalues += representation->get_efm_sample_count(fid);
+        }
+
+        // Display audio information
+        if (representation->has_audio() && total_audio_samples > 0) {
+          report.items.push_back(
+              {"Audio Samples", std::to_string(total_audio_samples)});
+          // Calculate approximate duration (44.1kHz stereo)
+          double duration_seconds =
+              static_cast<double>(total_audio_samples) / 44100.0;
+          int minutes = static_cast<int>(duration_seconds / 60.0);
+          int seconds = static_cast<int>(duration_seconds) % 60;
+          report.items.push_back(
+              {"Audio Duration",
+               std::to_string(minutes) + "m " + std::to_string(seconds) + "s"});
+        } else {
+          report.items.push_back({"Audio Samples", "0 (no audio)"});
+        }
+
+        // Display EFM information
+        if (representation->has_efm() && total_efm_tvalues > 0) {
+          report.items.push_back(
+              {"EFM T-Values", std::to_string(total_efm_tvalues)});
+        } else {
+          report.items.push_back({"EFM T-Values", "0 (no EFM)"});
+        }
+
+        // Metrics
+        report.metrics["field_count"] =
+            static_cast<int64_t>(video_params->number_of_sequential_fields);
+        report.metrics["frame_count"] =
+            static_cast<int64_t>(video_params->number_of_sequential_fields / 2);
+        report.metrics["field_width"] =
+            static_cast<int64_t>(video_params->field_width);
+        report.metrics["field_height"] =
+            static_cast<int64_t>(video_params->field_height);
+        report.metrics["audio_samples"] =
+            static_cast<int64_t>(total_audio_samples);
+        report.metrics["efm_tvalues"] = static_cast<int64_t>(total_efm_tvalues);
+      }
+    } else {
+      report.items.push_back({"Status", "Error loading file"});
+    }
+  } catch (const std::exception& e) {
+    report.items.push_back({"Status", "Error"});
+    report.items.push_back({"Error", e.what()});
+  }
+
+  return report;
 }
 
-bool PALCompSourceStage::supports_preview() const
-{
-    // Preview is available if we have a loaded TBC
-    return cached_representation_ != nullptr;
+bool PALCompSourceStage::supports_preview() const {
+  // Preview is available if we have a loaded TBC
+  return cached_representation_ != nullptr;
 }
 
-std::vector<PreviewOption> PALCompSourceStage::get_preview_options() const
-{
-    std::vector<PreviewOption> options;
-    
-    if (!cached_representation_) {
-        return options;  // No TBC loaded, no preview
-    }
-    
-    // Get video parameters
-    auto video_params = cached_representation_->get_video_parameters();
-    if (!video_params) {
-        return options;
-    }
-    
-    uint64_t field_count = cached_representation_->field_count();
-    if (field_count == 0) {
-        return options;
-    }
-    
-    uint32_t width = video_params->field_width;
-    uint32_t height = video_params->field_height;
-    
-    // Calculate DAR correction based on active video region (same as PreviewHelpers)
-    double dar_correction = 0.7;  // Default fallback
-    if (video_params->active_video_start >= 0 && video_params->active_video_end > video_params->active_video_start &&
-        video_params->first_active_frame_line >= 0 && video_params->last_active_frame_line > video_params->first_active_frame_line) {
-        uint32_t active_width = video_params->active_video_end - video_params->active_video_start;
-        uint32_t active_height = video_params->last_active_frame_line - video_params->first_active_frame_line;
-        double active_ratio = static_cast<double>(active_width) / static_cast<double>(active_height);
-        double target_ratio = 4.0 / 3.0;
-        dar_correction = target_ratio / active_ratio;
-    }
-    
-    // Option 1: Individual fields (Y component with IRE scaling)
-    options.push_back(PreviewOption{
-        "field",                // id
-        "Field (Clamped)",      // display_name
-        false,                  // is_rgb (this is luma/YUV data)
-        width,                  // width
-        height,                 // height
-        field_count,            // count
-        dar_correction          // dar_aspect_correction
-    });
-    
-    // Option 2: Individual fields (raw 16-bit samples, no IRE scaling)
-    options.push_back(PreviewOption{
-        "field_raw",            // id
-        "Field (Raw)",          // display_name
-        false,                  // is_rgb
-        width,                  // width
-        height,                 // height
-        field_count,            // count
-        dar_correction          // dar_aspect_correction
-    });
-    
-    // Option 3: Split fields (both fields stacked vertically, with IRE scaling)
-    if (field_count >= 2) {
-        uint64_t pair_count = field_count / 2;
-        
-        options.push_back(PreviewOption{
-            "split",            // id
-            "Split (Clamped)",  // display_name
-            false,              // is_rgb
-            width,              // width
-            height * 2,         // height (two fields stacked)
-            pair_count,         // count (number of field pairs)
-            dar_correction      // dar_aspect_correction
-        });
-        
-        options.push_back(PreviewOption{
-            "split_raw",        // id
-            "Split (Raw)",      // display_name
-            false,              // is_rgb
-            width,              // width
-            height * 2,         // height (two fields stacked)
-            pair_count,         // count (number of field pairs)
-            dar_correction      // dar_aspect_correction
-        });
-    }
-    
-    // Option 4: Frames (if we have at least 2 fields)
-    if (field_count >= 2) {
-        uint64_t frame_count = field_count / 2;
-        
-        options.push_back(PreviewOption{
-            "frame",            // id
-            "Frame (Clamped)",  // display_name
-            false,              // is_rgb
-            width,              // width
-            height * 2,         // height (two fields woven)
-            frame_count,        // count
-            dar_correction      // dar_aspect_correction
-        });
-        
-        options.push_back(PreviewOption{
-            "frame_raw",        // id
-            "Frame (Raw)",      // display_name
-            false,              // is_rgb
-            width,              // width
-            height * 2,         // height (two fields woven)
-            frame_count,        // count
-            dar_correction      // dar_aspect_correction
-        });
-    }
-    
+std::vector<PreviewOption> PALCompSourceStage::get_preview_options() const {
+  std::vector<PreviewOption> options;
+
+  if (!cached_representation_) {
+    return options;  // No TBC loaded, no preview
+  }
+
+  // Get video parameters
+  auto video_params = cached_representation_->get_video_parameters();
+  if (!video_params) {
     return options;
+  }
+
+  uint64_t field_count = cached_representation_->field_count();
+  if (field_count == 0) {
+    return options;
+  }
+
+  uint32_t width = video_params->field_width;
+  uint32_t height = video_params->field_height;
+
+  // Calculate DAR correction based on active video region (same as
+  // PreviewHelpers)
+  double dar_correction = 0.7;  // Default fallback
+  if (video_params->active_video_start >= 0 &&
+      video_params->active_video_end > video_params->active_video_start &&
+      video_params->first_active_frame_line >= 0 &&
+      video_params->last_active_frame_line >
+          video_params->first_active_frame_line) {
+    uint32_t active_width =
+        video_params->active_video_end - video_params->active_video_start;
+    uint32_t active_height = video_params->last_active_frame_line -
+                             video_params->first_active_frame_line;
+    double active_ratio =
+        static_cast<double>(active_width) / static_cast<double>(active_height);
+    double target_ratio = 4.0 / 3.0;
+    dar_correction = target_ratio / active_ratio;
+  }
+
+  // Option 1: Individual fields (Y component with IRE scaling)
+  options.push_back(PreviewOption{
+      "field",            // id
+      "Field (Clamped)",  // display_name
+      false,              // is_rgb (this is luma/YUV data)
+      width,              // width
+      height,             // height
+      field_count,        // count
+      dar_correction      // dar_aspect_correction
+  });
+
+  // Option 2: Individual fields (raw 16-bit samples, no IRE scaling)
+  options.push_back(PreviewOption{
+      "field_raw",    // id
+      "Field (Raw)",  // display_name
+      false,          // is_rgb
+      width,          // width
+      height,         // height
+      field_count,    // count
+      dar_correction  // dar_aspect_correction
+  });
+
+  // Option 3: Split fields (both fields stacked vertically, with IRE scaling)
+  if (field_count >= 2) {
+    uint64_t pair_count = field_count / 2;
+
+    options.push_back(PreviewOption{
+        "split",            // id
+        "Split (Clamped)",  // display_name
+        false,              // is_rgb
+        width,              // width
+        height * 2,         // height (two fields stacked)
+        pair_count,         // count (number of field pairs)
+        dar_correction      // dar_aspect_correction
+    });
+
+    options.push_back(PreviewOption{
+        "split_raw",    // id
+        "Split (Raw)",  // display_name
+        false,          // is_rgb
+        width,          // width
+        height * 2,     // height (two fields stacked)
+        pair_count,     // count (number of field pairs)
+        dar_correction  // dar_aspect_correction
+    });
+  }
+
+  // Option 4: Frames (if we have at least 2 fields)
+  if (field_count >= 2) {
+    uint64_t frame_count = field_count / 2;
+
+    options.push_back(PreviewOption{
+        "frame",            // id
+        "Frame (Clamped)",  // display_name
+        false,              // is_rgb
+        width,              // width
+        height * 2,         // height (two fields woven)
+        frame_count,        // count
+        dar_correction      // dar_aspect_correction
+    });
+
+    options.push_back(PreviewOption{
+        "frame_raw",    // id
+        "Frame (Raw)",  // display_name
+        false,          // is_rgb
+        width,          // width
+        height * 2,     // height (two fields woven)
+        frame_count,    // count
+        dar_correction  // dar_aspect_correction
+    });
+  }
+
+  return options;
 }
 
-PreviewImage PALCompSourceStage::render_preview(const std::string& option_id, uint64_t index,
-                                            PreviewNavigationHint hint) const
-{
-    (void)hint;  // Unused for now
-    return PreviewHelpers::render_standard_preview(cached_representation_, option_id, index);
+PreviewImage PALCompSourceStage::render_preview(
+    const std::string& option_id, uint64_t index,
+    PreviewNavigationHint hint) const {
+  (void)hint;  // Unused for now
+  return PreviewHelpers::render_standard_preview(cached_representation_,
+                                                 option_id, index);
 }
 
-} // namespace orc
+}  // namespace orc

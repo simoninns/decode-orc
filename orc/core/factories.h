@@ -1,9 +1,9 @@
 /*
-* File:        factories.h
+ * File:        factories.h
  * Module:      orc-core
- * Purpose:     Implement abstract factory design pattern ( https://en.wikipedia.org/wiki/Abstract_factory_pattern ) to
- *                  a) encourage encapsulation in the architecture and
- *                  b) make mocking in unit tests easier
+ * Purpose:     Implement abstract factory design pattern (
+ * https://en.wikipedia.org/wiki/Abstract_factory_pattern ) to a) encourage
+ * encapsulation in the architecture and b) make mocking in unit tests easier
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Matt Ownby
@@ -14,41 +14,40 @@
 #include "factories_interface.h"
 #include "stages/stage_factories.h"
 
-namespace orc
-{
-    /**
-     * @brief Concrete implementation of IFactories interface.
-     *
-     * Purpose: Increase encapsulation and testability
-     */
-    class Factories : public IFactories
-    {
-    public:
+namespace orc {
+/**
+ * @brief Concrete implementation of IFactories interface.
+ *
+ * Purpose: Increase encapsulation and testability
+ */
+class Factories : public IFactories {
+ public:
+  /**
+   * @brief Get singleton instance of factories
+   *
+   * @return Shared singleton instance as IFactories
+   */
+  static std::shared_ptr<IFactories> instance();
 
-        /**
-         * @brief Get singleton instance of factories
-         *
-         * @return Shared singleton instance as IFactories
-         */
-        static std::shared_ptr<IFactories> instance();
+  Factories() : factoriesStage_(*this) {}
 
-        Factories() : factoriesStage_(*this) {}
+  IStageFactories& get_instance_stage_factories() override;
 
-        IStageFactories& get_instance_stage_factories() override;
+  /**
+   * @brief Create instance of BufferedFileWriter<uint8_t>
+   */
+  std::shared_ptr<IFileWriter<uint8_t>>
+  create_instance_buffered_file_writer_uint8(size_t buffer_size) override;
 
-        /**
-         * @brief Create instance of BufferedFileWriter<uint8_t>
-         */
-        std::shared_ptr<IFileWriter<uint8_t>> create_instance_buffered_file_writer_uint8(size_t buffer_size) override;
+  /**
+   * @brief Create instance of BufferedFileWriter<uint16_t>
+   */
+  std::shared_ptr<IFileWriter<uint16_t>>
+  create_instance_buffered_file_writer_uint16(size_t buffer_size) override;
 
-        /**
-         * @brief Create instance of BufferedFileWriter<uint16_t>
-         */
-        std::shared_ptr<IFileWriter<uint16_t>> create_instance_buffered_file_writer_uint16(size_t buffer_size) override;
+ private:
+  StageFactories factoriesStage_;
+};
+}  // namespace orc
 
-    private:
-        StageFactories factoriesStage_;
-    };
-} // orc
-
-#endif //DECODE_ORC_ROOT_FACTORIES_H
+#endif  // DECODE_ORC_ROOT_FACTORIES_H

@@ -1,5 +1,5 @@
 /*
-* File:        triggerable_stage.h
+ * File:        triggerable_stage.h
  * Module:      orc-core/stages
  * Purpose:     Triggerable interface for stages that can be manually executed
  *
@@ -9,17 +9,17 @@
 
 #pragma once
 
-#include "../include/artifact.h"
-#include "../include/stage_parameter.h"
-#include "../include/observation_context_interface.h"
-#include <memory>
-#include <vector>
 #include <map>
+#include <memory>
 #include <string>
 #include <variant>
+#include <vector>
 
-namespace orc
-{
+#include "../include/artifact.h"
+#include "../include/observation_context_interface.h"
+#include "../include/stage_parameter.h"
+
+namespace orc {
 
 /**
  * @brief Progress callback for triggerable stages
@@ -28,7 +28,8 @@ namespace orc
  * @param total Total work to be done (e.g., total frames)
  * @param message Status message describing current operation
  */
-using TriggerProgressCallback = std::function<void(size_t current, size_t total, const std::string& message)>;
+using TriggerProgressCallback = std::function<void(size_t current, size_t total,
+                                                   const std::string& message)>;
 
 /**
  * @brief Triggerable interface for stages that can be manually executed
@@ -37,24 +38,23 @@ using TriggerProgressCallback = std::function<void(size_t current, size_t total,
  * causing them to process their entire input range and perform their action.
  */
 class TriggerableStage {
-public:
+ public:
   virtual ~TriggerableStage() = default;
 
   /**
    * @brief Trigger the stage to process its input
    *
-   * For sinks, this means reading all fields from input and writing to output file.
+   * For sinks, this means reading all fields from input and writing to output
+   * file.
    *
    * @param inputs Input artifacts (typically one VideoFieldRepresentation)
    * @param parameters Stage parameters
    * @param observation_context The observation context interface
    * @return True if trigger succeeded, false otherwise
    */
-  virtual bool trigger(
-      const std::vector<ArtifactPtr>& inputs,
-      const std::map<std::string, ParameterValue>& parameters,
-      IObservationContext& observation_context
-  ) = 0;
+  virtual bool trigger(const std::vector<ArtifactPtr>& inputs,
+                       const std::map<std::string, ParameterValue>& parameters,
+                       IObservationContext& observation_context) = 0;
 
   /**
    * @brief Get status message after trigger
@@ -65,10 +65,11 @@ public:
   /**
    * @brief Set progress callback for long-running trigger operations
    *
-   * @param callback Function to call with progress updates (current, total, message)
+   * @param callback Function to call with progress updates (current, total,
+   * message)
    */
   virtual void set_progress_callback(TriggerProgressCallback callback) {
-   (void)callback; // Default implementation does nothing
+    (void)callback;  // Default implementation does nothing
   }
 
   /**
@@ -76,7 +77,7 @@ public:
    * @return True if trigger is running, false otherwise
    */
   virtual bool is_trigger_in_progress() const {
-   return false; // Default implementation assumes no async operation
+    return false;  // Default implementation assumes no async operation
   }
 
   /**
@@ -86,8 +87,8 @@ public:
    * Default implementation does nothing.
    */
   virtual void cancel_trigger() {
-   // Default implementation does nothing
+    // Default implementation does nothing
   }
 };
 
-}
+}  // namespace orc

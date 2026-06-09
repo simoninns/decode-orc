@@ -16,10 +16,11 @@ namespace orc {
 
 /**
  * @brief FFmpeg export preset configuration tool
- * 
+ *
  * Provides convenient presets for video export without requiring users
- * to understand codec details. Based on profiles from legacy tbc-video-export tool.
- * 
+ * to understand codec details. Based on profiles from legacy tbc-video-export
+ * tool.
+ *
  * This tool generates parameters for the FFmpegVideoSink stage based on
  * common export scenarios:
  * - Lossless archival (FFV1, ProRes, lossless H.264/H.265/AV1)
@@ -29,31 +30,33 @@ namespace orc {
  * - Hardware-accelerated encoding
  */
 class FFmpegPresetAnalysisTool : public AnalysisTool {
-public:
-    std::string id() const override;
-    std::string name() const override;
-    std::string description() const override;
-    std::string category() const override;
-    
-    std::vector<ParameterDescriptor> parameters() const override;
-    std::vector<ParameterDescriptor> parametersForContext(const AnalysisContext& ctx) const override;
-    
-    bool canAnalyze(AnalysisSourceType source_type) const override;
-    bool isApplicableToStage(const std::string& stage_name) const override;
-    int priority() const override { return 1; }  // Stage-specific tool
-    
-    AnalysisResult analyze(const AnalysisContext& ctx,
-                          AnalysisProgress* progress) override;
-    
-    bool canApplyToGraph() const override;
-    bool applyToGraph(AnalysisResult& result,
-                     const Project& project,
-                     NodeID node_id) override;
-    
-    // This is a configuration tool - no analysis needed (instant)
-    int estimateDurationSeconds(const AnalysisContext& /*ctx*/) const override { return 0; }
+ public:
+  std::string id() const override;
+  std::string name() const override;
+  std::string description() const override;
+  std::string category() const override;
+
+  std::vector<ParameterDescriptor> parameters() const override;
+  std::vector<ParameterDescriptor> parametersForContext(
+      const AnalysisContext& ctx) const override;
+
+  bool canAnalyze(AnalysisSourceType source_type) const override;
+  bool isApplicableToStage(const std::string& stage_name) const override;
+  int priority() const override { return 1; }  // Stage-specific tool
+
+  AnalysisResult analyze(const AnalysisContext& ctx,
+                         AnalysisProgress* progress) override;
+
+  bool canApplyToGraph() const override;
+  bool applyToGraph(AnalysisResult& result, const Project& project,
+                    NodeID node_id) override;
+
+  // This is a configuration tool - no analysis needed (instant)
+  int estimateDurationSeconds(const AnalysisContext& /*ctx*/) const override {
+    return 0;
+  }
 };
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_CORE_ANALYSIS_FFMPEG_PRESET_ANALYSIS_H
+#endif  // ORC_CORE_ANALYSIS_FFMPEG_PRESET_ANALYSIS_H

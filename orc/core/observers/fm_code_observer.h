@@ -22,38 +22,36 @@ namespace orc {
  * - field_flag (bool, optional): field indicator bit
  */
 class FmCodeObserver : public Observer {
-public:
-	FmCodeObserver() = default;
-	~FmCodeObserver() override = default;
-    
-	std::string observer_name() const override { return "FmCodeObserver"; }
-	std::string observer_version() const override { return "1.0.0"; }
-    
-	void process_field(
-		const VideoFieldRepresentation& representation,
-		FieldID field_id,
-		IObservationContext &context) override;
-    
-	std::vector<ObservationKey> get_provided_observations() const override {
-		return {
-			{"fm_code", "present", ObservationType::BOOL, "True when FM code decoded", true},
-			{"fm_code", "data_value", ObservationType::INT32, "20-bit FM code payload", true},
-			{"fm_code", "field_flag", ObservationType::BOOL, "Field indicator bit", true},
-		};
-	}
+ public:
+  FmCodeObserver() = default;
+  ~FmCodeObserver() override = default;
 
-private:
-	struct DecodedFmCode {
-		uint32_t data_value = 0;
-		bool field_flag = false;
-	};
-    
-	bool decode_line(const uint16_t* line_data,
-					 size_t sample_count,
-					 uint16_t zero_crossing,
-					 size_t active_start,
-					 double jump_samples,
-					 DecodedFmCode& out) const;
+  std::string observer_name() const override { return "FmCodeObserver"; }
+  std::string observer_version() const override { return "1.0.0"; }
+
+  void process_field(const VideoFieldRepresentation& representation,
+                     FieldID field_id, IObservationContext& context) override;
+
+  std::vector<ObservationKey> get_provided_observations() const override {
+    return {
+        {"fm_code", "present", ObservationType::BOOL,
+         "True when FM code decoded", true},
+        {"fm_code", "data_value", ObservationType::INT32,
+         "20-bit FM code payload", true},
+        {"fm_code", "field_flag", ObservationType::BOOL, "Field indicator bit",
+         true},
+    };
+  }
+
+ private:
+  struct DecodedFmCode {
+    uint32_t data_value = 0;
+    bool field_flag = false;
+  };
+
+  bool decode_line(const uint16_t* line_data, size_t sample_count,
+                   uint16_t zero_crossing, size_t active_start,
+                   double jump_samples, DecodedFmCode& out) const;
 };
 
-} // namespace orc
+}  // namespace orc

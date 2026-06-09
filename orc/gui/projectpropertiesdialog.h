@@ -19,27 +19,26 @@ class QTextEdit;
 /**
  * Dialog for editing project name and description
  */
-class ProjectPropertiesDialog : public QDialog
-{
-    Q_OBJECT
+class ProjectPropertiesDialog : public QDialog {
+  Q_OBJECT
 
-public:
-    explicit ProjectPropertiesDialog(QWidget *parent = nullptr);
-    ~ProjectPropertiesDialog();
-    
-    // Get/set project name
-    QString projectName() const;
-    void setProjectName(const QString& name);
-    
-    // Get/set project description
-    QString projectDescription() const;
-    void setProjectDescription(const QString& description);
+ public:
+  explicit ProjectPropertiesDialog(QWidget* parent = nullptr);
+  ~ProjectPropertiesDialog();
 
-private:
-    void setupUI();
-    
-    QLineEdit* name_edit_;
-    QTextEdit* description_edit_;
+  // Get/set project name
+  QString projectName() const;
+  void setProjectName(const QString& name);
+
+  // Get/set project description
+  QString projectDescription() const;
+  void setProjectDescription(const QString& description);
+
+ private:
+  void setupUI();
+
+  QLineEdit* name_edit_;
+  QTextEdit* description_edit_;
 };
 
-#endif // PROJECTPROPERTIESDIALOG_H
+#endif  // PROJECTPROPERTIESDIALOG_H

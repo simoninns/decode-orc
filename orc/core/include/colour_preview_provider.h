@@ -12,8 +12,8 @@
 #include <cstdint>
 #include <optional>
 
-#include "previewable_stage.h"
 #include "orc_preview_carriers.h"
+#include "previewable_stage.h"
 
 namespace orc {
 
@@ -24,19 +24,25 @@ namespace orc {
  * structured carrier. The render layer is responsible for display conversion.
  */
 class IColourPreviewProvider {
-public:
-    virtual ~IColourPreviewProvider() = default;
+ public:
+  virtual ~IColourPreviewProvider() = default;
 
-    /**
-     * @brief Return a colour-domain carrier for the requested frame index.
-     *
-     * @param frame_index Frame index in the stage's navigation domain.
-     * @param hint Navigation hint from preview consumers.
-     * @return Carrier when available; std::nullopt on decode/fetch failure.
-     */
-    virtual std::optional<ColourFrameCarrier> get_colour_preview_carrier(
-        uint64_t frame_index,
-        PreviewNavigationHint hint = PreviewNavigationHint::Random) const = 0;
+  /**
+   * @brief Return a colour-domain carrier for the requested frame index.
+   *
+   * @param frame_index Frame index in the stage's navigation domain.
+   * @param hint Navigation hint from preview consumers.
+   * @return Carrier when available; std::nullopt on decode/fetch failure.
+   */
+  virtual std::optional<ColourFrameCarrier> get_colour_preview_carrier(
+      uint64_t frame_index, PreviewNavigationHint hint) const = 0;
+
+  /// Convenience overload — defaults hint to Random
+  std::optional<ColourFrameCarrier> get_colour_preview_carrier(
+      uint64_t frame_index) const {
+    return get_colour_preview_carrier(frame_index,
+                                     PreviewNavigationHint::Random);
+  }
 };
 
-} // namespace orc
+}  // namespace orc

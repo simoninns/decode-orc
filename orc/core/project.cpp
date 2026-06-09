@@ -9,331 +9,346 @@
  * ARCHITECTURE NOTE - STRICT ENCAPSULATION:
  * ==========================================
  * This file implements the ONLY functions that can modify Project state.
- * 
+ *
  * All Project fields are PRIVATE. This file accesses them via friend
  * declarations in project.h.
- * 
+ *
  * CRITICAL RULES:
  * 1. ALL Project modifications MUST go through project_io:: functions
  * 2. GUI/CLI code CANNOT directly modify Project fields
  * 3. All project_io functions MUST set is_modified_ = true when changing state
  * 4. Project fields can ONLY be read via public const getters externally
- * 
+ *
  * When adding new functionality:
  * - Add a new project_io:: function here
  * - Add friend declaration in project.h
  * - Forward-declare the function in project.h before the Project class
  * - Update GUI/CLI to use the new function
- * 
+ *
  * DO NOT bypass this architecture by making Project fields public.
  */
 
 #include "project.h"
+
 #include <tbc_metadata.h>
-#include "logging.h"
-#include "stage_registry.h"
-#include "include/stage_plugin_registry.h"
-#include "project_to_dag.h"
-#include "dag_executor.h"
-#include "stages/triggerable_stage.h"
-#include "observation_context.h"
-#include <fstream>
-#include <filesystem>
-#include <optional>
-#include <stdexcept>
-#include <sstream>
-#include <iomanip>
+#include <yaml-cpp/yaml.h>
+
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <future>
+#include <iomanip>
+#include <optional>
 #include <queue>
 #include <set>
-#include <future>
-#include <yaml-cpp/yaml.h>
+#include <sstream>
+#include <stdexcept>
+
+#include "dag_executor.h"
+#include "include/stage_plugin_registry.h"
+#include "logging.h"
+#include "observation_context.h"
+#include "project_to_dag.h"
+#include "stage_registry.h"
+#include "stages/triggerable_stage.h"
 
 namespace orc {
 
 namespace {
 
-std::filesystem::path resolve_project_root_for_filename(const std::string& filename)
-{
-    std::filesystem::path yaml_path;
-    try {
-        yaml_path = std::filesystem::absolute(filename);
-    } catch (const std::filesystem::filesystem_error& e) {
-        throw std::runtime_error("Failed to resolve project file path '" + filename + "': " + e.what());
-    }
+std::filesystem::path resolve_project_root_for_filename(
+    const std::string& filename) {
+  std::filesystem::path yaml_path;
+  try {
+    yaml_path = std::filesystem::absolute(filename);
+  } catch (const std::filesystem::filesystem_error& e) {
+    throw std::runtime_error("Failed to resolve project file path '" +
+                             filename + "': " + e.what());
+  }
 
-    return yaml_path.parent_path();
+  return yaml_path.parent_path();
 }
 
-ProjectPluginRequirement requirement_from_registry_entry(const StagePluginRegistryEntry& entry)
-{
-    ProjectPluginRequirement requirement;
-    requirement.plugin_id = entry.plugin_id;
-    requirement.plugin_version = entry.plugin_version;
-    requirement.source_repo_url = entry.source_repo_url;
-    requirement.artifact_source = entry.artifact_source;
-    requirement.release_asset_url = entry.release_asset_url;
-    requirement.release_tag = entry.release_tag;
-    requirement.release_asset_name = entry.release_asset_name;
-    requirement.target_platform = entry.target_platform;
-    requirement.local_dev_path = entry.local_dev_path;
-    requirement.license_spdx = entry.license_spdx;
-    requirement.is_core_plugin = entry.is_core_plugin;
-    requirement.required_host_abi = entry.required_host_abi;
-    return requirement;
+ProjectPluginRequirement requirement_from_registry_entry(
+    const StagePluginRegistryEntry& entry) {
+  ProjectPluginRequirement requirement;
+  requirement.plugin_id = entry.plugin_id;
+  requirement.plugin_version = entry.plugin_version;
+  requirement.source_repo_url = entry.source_repo_url;
+  requirement.artifact_source = entry.artifact_source;
+  requirement.release_asset_url = entry.release_asset_url;
+  requirement.release_tag = entry.release_tag;
+  requirement.release_asset_name = entry.release_asset_name;
+  requirement.target_platform = entry.target_platform;
+  requirement.local_dev_path = entry.local_dev_path;
+  requirement.license_spdx = entry.license_spdx;
+  requirement.is_core_plugin = entry.is_core_plugin;
+  requirement.required_host_abi = entry.required_host_abi;
+  return requirement;
 }
 
-ProjectPluginRequirement requirement_from_loaded_plugin(const LoadedStagePlugin& plugin)
-{
-    ProjectPluginRequirement requirement;
-    requirement.plugin_id = plugin.plugin_id;
-    requirement.plugin_version = plugin.plugin_version;
-    requirement.license_spdx = plugin.license_spdx;
-    requirement.is_core_plugin = plugin.is_core_plugin;
-    return requirement;
+ProjectPluginRequirement requirement_from_loaded_plugin(
+    const LoadedStagePlugin& plugin) {
+  ProjectPluginRequirement requirement;
+  requirement.plugin_id = plugin.plugin_id;
+  requirement.plugin_version = plugin.plugin_version;
+  requirement.license_spdx = plugin.license_spdx;
+  requirement.is_core_plugin = plugin.is_core_plugin;
+  return requirement;
 }
 
-void merge_requirement_metadata(ProjectPluginRequirement& target, const ProjectPluginRequirement& source)
-{
-    if (target.plugin_version.empty()) {
-        target.plugin_version = source.plugin_version;
-    }
-    if (target.source_repo_url.empty()) {
-        target.source_repo_url = source.source_repo_url;
-    }
-    if (target.artifact_source == "local_path" && source.artifact_source != "local_path") {
-        target.artifact_source = source.artifact_source;
-    }
-    if (target.release_asset_url.empty()) {
-        target.release_asset_url = source.release_asset_url;
-    }
-    if (target.release_tag.empty()) {
-        target.release_tag = source.release_tag;
-    }
-    if (target.release_asset_name.empty()) {
-        target.release_asset_name = source.release_asset_name;
-    }
-    if (target.target_platform.empty()) {
-        target.target_platform = source.target_platform;
-    }
-    if (target.local_dev_path.empty()) {
-        target.local_dev_path = source.local_dev_path;
-    }
-    if (target.license_spdx.empty()) {
-        target.license_spdx = source.license_spdx;
-    }
-    if (target.required_host_abi == 0) {
-        target.required_host_abi = source.required_host_abi;
-    }
-    target.is_core_plugin = target.is_core_plugin || source.is_core_plugin;
+void merge_requirement_metadata(ProjectPluginRequirement& target,
+                                const ProjectPluginRequirement& source) {
+  if (target.plugin_version.empty()) {
+    target.plugin_version = source.plugin_version;
+  }
+  if (target.source_repo_url.empty()) {
+    target.source_repo_url = source.source_repo_url;
+  }
+  if (target.artifact_source == "local_path" &&
+      source.artifact_source != "local_path") {
+    target.artifact_source = source.artifact_source;
+  }
+  if (target.release_asset_url.empty()) {
+    target.release_asset_url = source.release_asset_url;
+  }
+  if (target.release_tag.empty()) {
+    target.release_tag = source.release_tag;
+  }
+  if (target.release_asset_name.empty()) {
+    target.release_asset_name = source.release_asset_name;
+  }
+  if (target.target_platform.empty()) {
+    target.target_platform = source.target_platform;
+  }
+  if (target.local_dev_path.empty()) {
+    target.local_dev_path = source.local_dev_path;
+  }
+  if (target.license_spdx.empty()) {
+    target.license_spdx = source.license_spdx;
+  }
+  if (target.required_host_abi == 0) {
+    target.required_host_abi = source.required_host_abi;
+  }
+  target.is_core_plugin = target.is_core_plugin || source.is_core_plugin;
 }
 
-void add_unique_stage_name(ProjectPluginRequirement& requirement, const std::string& stage_name)
-{
-    if (std::find(requirement.stage_names.begin(), requirement.stage_names.end(), stage_name) == requirement.stage_names.end()) {
-        requirement.stage_names.push_back(stage_name);
-    }
+void add_unique_stage_name(ProjectPluginRequirement& requirement,
+                           const std::string& stage_name) {
+  if (std::find(requirement.stage_names.begin(), requirement.stage_names.end(),
+                stage_name) == requirement.stage_names.end()) {
+    requirement.stage_names.push_back(stage_name);
+  }
 }
 
-std::vector<ProjectPluginRequirement> collect_required_plugins_for_project(const Project& project)
-{
-    std::set<std::string> used_stage_names;
-    for (const auto& node : project.get_nodes()) {
-        if (!node.stage_name.empty()) {
-            used_stage_names.insert(node.stage_name);
-        }
+std::vector<ProjectPluginRequirement> collect_required_plugins_for_project(
+    const Project& project) {
+  std::set<std::string> used_stage_names;
+  for (const auto& node : project.get_nodes()) {
+    if (!node.stage_name.empty()) {
+      used_stage_names.insert(node.stage_name);
+    }
+  }
+
+  const auto& registry = StageRegistry::instance();
+  std::map<std::string, std::string> stage_to_plugin_id;
+  std::map<std::string, ProjectPluginRequirement>
+      current_requirement_by_plugin_id;
+
+  for (const auto& plugin : registry.get_loaded_plugins()) {
+    if (plugin.is_core_plugin || plugin.plugin_id.empty()) {
+      continue;
     }
 
-    const auto& registry = StageRegistry::instance();
-    std::map<std::string, std::string> stage_to_plugin_id;
-    std::map<std::string, ProjectPluginRequirement> current_requirement_by_plugin_id;
+    current_requirement_by_plugin_id.emplace(
+        plugin.plugin_id, requirement_from_loaded_plugin(plugin));
+    for (const auto& stage_name : plugin.registered_stage_names) {
+      stage_to_plugin_id[stage_name] = plugin.plugin_id;
+    }
+  }
 
-    for (const auto& plugin : registry.get_loaded_plugins()) {
-        if (plugin.is_core_plugin || plugin.plugin_id.empty()) {
-            continue;
-        }
-
-        current_requirement_by_plugin_id.emplace(plugin.plugin_id, requirement_from_loaded_plugin(plugin));
-        for (const auto& stage_name : plugin.registered_stage_names) {
-            stage_to_plugin_id[stage_name] = plugin.plugin_id;
-        }
+  for (const auto& entry : registry.get_plugin_registry_entries()) {
+    if (entry.is_core_plugin || entry.plugin_id.empty()) {
+      continue;
     }
 
-    for (const auto& entry : registry.get_plugin_registry_entries()) {
-        if (entry.is_core_plugin || entry.plugin_id.empty()) {
-            continue;
-        }
+    auto [it, inserted] = current_requirement_by_plugin_id.emplace(
+        entry.plugin_id, requirement_from_registry_entry(entry));
+    if (!inserted) {
+      merge_requirement_metadata(it->second,
+                                 requirement_from_registry_entry(entry));
+    }
+  }
 
-        auto [it, inserted] = current_requirement_by_plugin_id.emplace(
-            entry.plugin_id,
-            requirement_from_registry_entry(entry));
-        if (!inserted) {
-            merge_requirement_metadata(it->second, requirement_from_registry_entry(entry));
-        }
+  std::map<std::string, ProjectPluginRequirement> required_by_plugin_id;
+  for (const auto& stage_name : used_stage_names) {
+    const auto stage_it = stage_to_plugin_id.find(stage_name);
+    if (stage_it == stage_to_plugin_id.end()) {
+      continue;
     }
 
-    std::map<std::string, ProjectPluginRequirement> required_by_plugin_id;
-    for (const auto& stage_name : used_stage_names) {
-        const auto stage_it = stage_to_plugin_id.find(stage_name);
-        if (stage_it == stage_to_plugin_id.end()) {
-            continue;
-        }
-
-        const std::string& plugin_id = stage_it->second;
-        auto current_requirement_it = current_requirement_by_plugin_id.find(plugin_id);
-        if (current_requirement_it == current_requirement_by_plugin_id.end()) {
-            continue;
-        }
-
-        auto [required_it, inserted] = required_by_plugin_id.emplace(plugin_id, current_requirement_it->second);
-        if (!inserted) {
-            merge_requirement_metadata(required_it->second, current_requirement_it->second);
-        }
-        add_unique_stage_name(required_it->second, stage_name);
+    const std::string& plugin_id = stage_it->second;
+    auto current_requirement_it =
+        current_requirement_by_plugin_id.find(plugin_id);
+    if (current_requirement_it == current_requirement_by_plugin_id.end()) {
+      continue;
     }
 
-    for (const auto& loaded_requirement : project.get_required_plugins()) {
-        if (loaded_requirement.is_core_plugin || loaded_requirement.plugin_id.empty()) {
-            continue;
-        }
+    auto [required_it, inserted] = required_by_plugin_id.emplace(
+        plugin_id, current_requirement_it->second);
+    if (!inserted) {
+      merge_requirement_metadata(required_it->second,
+                                 current_requirement_it->second);
+    }
+    add_unique_stage_name(required_it->second, stage_name);
+  }
 
-        std::vector<std::string> surviving_stage_names;
-        for (const auto& stage_name : loaded_requirement.stage_names) {
-            if (used_stage_names.find(stage_name) != used_stage_names.end()) {
-                surviving_stage_names.push_back(stage_name);
-            }
-        }
-
-        if (surviving_stage_names.empty()) {
-            continue;
-        }
-
-        auto [required_it, inserted] = required_by_plugin_id.emplace(loaded_requirement.plugin_id, loaded_requirement);
-        if (!inserted) {
-            merge_requirement_metadata(required_it->second, loaded_requirement);
-            required_it->second.stage_names.clear();
-        }
-
-        required_it->second.stage_names.clear();
-        for (const auto& stage_name : surviving_stage_names) {
-            add_unique_stage_name(required_it->second, stage_name);
-        }
-
-        auto current_requirement_it = current_requirement_by_plugin_id.find(loaded_requirement.plugin_id);
-        if (current_requirement_it != current_requirement_by_plugin_id.end()) {
-            merge_requirement_metadata(required_it->second, current_requirement_it->second);
-        }
+  for (const auto& loaded_requirement : project.get_required_plugins()) {
+    if (loaded_requirement.is_core_plugin ||
+        loaded_requirement.plugin_id.empty()) {
+      continue;
     }
 
-    std::vector<ProjectPluginRequirement> requirements;
-    requirements.reserve(required_by_plugin_id.size());
-    for (auto& [plugin_id, requirement] : required_by_plugin_id) {
-        std::sort(requirement.stage_names.begin(), requirement.stage_names.end());
-        requirements.push_back(std::move(requirement));
+    std::vector<std::string> surviving_stage_names;
+    for (const auto& stage_name : loaded_requirement.stage_names) {
+      if (used_stage_names.find(stage_name) != used_stage_names.end()) {
+        surviving_stage_names.push_back(stage_name);
+      }
     }
 
-    std::sort(requirements.begin(), requirements.end(), [](const auto& left, const auto& right) {
-        return left.plugin_id < right.plugin_id;
-    });
-    return requirements;
-}
-
-YAML::Node to_yaml_node(const ProjectPluginRequirement& requirement)
-{
-    YAML::Node node;
-    node["plugin_id"] = requirement.plugin_id;
-    node["plugin_version"] = requirement.plugin_version;
-    node["source_repo_url"] = requirement.source_repo_url;
-    node["artifact_source"] = requirement.artifact_source;
-    node["release_asset_url"] = requirement.release_asset_url;
-    node["release_tag"] = requirement.release_tag;
-    node["release_asset_name"] = requirement.release_asset_name;
-    node["target_platform"] = requirement.target_platform;
-    node["local_dev_path"] = requirement.local_dev_path;
-    node["license_spdx"] = requirement.license_spdx;
-    node["is_core_plugin"] = requirement.is_core_plugin;
-    node["required_host_abi"] = requirement.required_host_abi;
-
-    YAML::Node stage_names(YAML::NodeType::Sequence);
-    for (const auto& stage_name : requirement.stage_names) {
-        stage_names.push_back(stage_name);
-    }
-    node["stage_names"] = stage_names;
-    return node;
-}
-
-std::optional<ProjectPluginRequirement> parse_required_plugin_node(const YAML::Node& node)
-{
-    if (!node.IsMap()) {
-        return std::nullopt;
+    if (surviving_stage_names.empty()) {
+      continue;
     }
 
-    ProjectPluginRequirement requirement;
-    requirement.plugin_id = node["plugin_id"].as<std::string>("");
-    requirement.plugin_version = node["plugin_version"].as<std::string>("");
-    requirement.source_repo_url = node["source_repo_url"].as<std::string>("");
-    requirement.artifact_source = node["artifact_source"].as<std::string>("local_path");
-    requirement.release_asset_url = node["release_asset_url"].as<std::string>("");
-    requirement.release_tag = node["release_tag"].as<std::string>("");
-    requirement.release_asset_name = node["release_asset_name"].as<std::string>("");
-    requirement.target_platform = node["target_platform"].as<std::string>("");
-    requirement.local_dev_path = node["local_dev_path"].as<std::string>("");
-    requirement.license_spdx = node["license_spdx"].as<std::string>("");
-    requirement.is_core_plugin = node["is_core_plugin"].as<bool>(false);
-    requirement.required_host_abi = node["required_host_abi"].as<uint32_t>(0);
-
-    const auto stage_names = node["stage_names"];
-    if (stage_names && stage_names.IsSequence()) {
-        for (const auto& stage_name : stage_names) {
-            const auto value = stage_name.as<std::string>("");
-            if (!value.empty()) {
-                requirement.stage_names.push_back(value);
-            }
-        }
+    auto [required_it, inserted] = required_by_plugin_id.emplace(
+        loaded_requirement.plugin_id, loaded_requirement);
+    if (!inserted) {
+      merge_requirement_metadata(required_it->second, loaded_requirement);
+      required_it->second.stage_names.clear();
     }
 
-    if (requirement.plugin_id.empty() || requirement.stage_names.empty()) {
-        return std::nullopt;
+    required_it->second.stage_names.clear();
+    for (const auto& stage_name : surviving_stage_names) {
+      add_unique_stage_name(required_it->second, stage_name);
     }
 
+    auto current_requirement_it =
+        current_requirement_by_plugin_id.find(loaded_requirement.plugin_id);
+    if (current_requirement_it != current_requirement_by_plugin_id.end()) {
+      merge_requirement_metadata(required_it->second,
+                                 current_requirement_it->second);
+    }
+  }
+
+  std::vector<ProjectPluginRequirement> requirements;
+  requirements.reserve(required_by_plugin_id.size());
+  for (auto& [plugin_id, requirement] : required_by_plugin_id) {
     std::sort(requirement.stage_names.begin(), requirement.stage_names.end());
-    requirement.stage_names.erase(
-        std::unique(requirement.stage_names.begin(), requirement.stage_names.end()),
-        requirement.stage_names.end());
-    return requirement;
+    requirements.push_back(std::move(requirement));
+  }
+
+  std::sort(requirements.begin(), requirements.end(),
+            [](const auto& left, const auto& right) {
+              return left.plugin_id < right.plugin_id;
+            });
+  return requirements;
 }
 
-} // namespace
+YAML::Node to_yaml_node(const ProjectPluginRequirement& requirement) {
+  YAML::Node node;
+  node["plugin_id"] = requirement.plugin_id;
+  node["plugin_version"] = requirement.plugin_version;
+  node["source_repo_url"] = requirement.source_repo_url;
+  node["artifact_source"] = requirement.artifact_source;
+  node["release_asset_url"] = requirement.release_asset_url;
+  node["release_tag"] = requirement.release_tag;
+  node["release_asset_name"] = requirement.release_asset_name;
+  node["target_platform"] = requirement.target_platform;
+  node["local_dev_path"] = requirement.local_dev_path;
+  node["license_spdx"] = requirement.license_spdx;
+  node["is_core_plugin"] = requirement.is_core_plugin;
+  node["required_host_abi"] = requirement.required_host_abi;
+
+  YAML::Node stage_names(YAML::NodeType::Sequence);
+  for (const auto& stage_name : requirement.stage_names) {
+    stage_names.push_back(stage_name);
+  }
+  node["stage_names"] = stage_names;
+  return node;
+}
+
+std::optional<ProjectPluginRequirement> parse_required_plugin_node(
+    const YAML::Node& node) {
+  if (!node.IsMap()) {
+    return std::nullopt;
+  }
+
+  ProjectPluginRequirement requirement;
+  requirement.plugin_id = node["plugin_id"].as<std::string>("");
+  requirement.plugin_version = node["plugin_version"].as<std::string>("");
+  requirement.source_repo_url = node["source_repo_url"].as<std::string>("");
+  requirement.artifact_source =
+      node["artifact_source"].as<std::string>("local_path");
+  requirement.release_asset_url = node["release_asset_url"].as<std::string>("");
+  requirement.release_tag = node["release_tag"].as<std::string>("");
+  requirement.release_asset_name =
+      node["release_asset_name"].as<std::string>("");
+  requirement.target_platform = node["target_platform"].as<std::string>("");
+  requirement.local_dev_path = node["local_dev_path"].as<std::string>("");
+  requirement.license_spdx = node["license_spdx"].as<std::string>("");
+  requirement.is_core_plugin = node["is_core_plugin"].as<bool>(false);
+  requirement.required_host_abi = node["required_host_abi"].as<uint32_t>(0);
+
+  const auto stage_names = node["stage_names"];
+  if (stage_names && stage_names.IsSequence()) {
+    for (const auto& stage_name : stage_names) {
+      const auto value = stage_name.as<std::string>("");
+      if (!value.empty()) {
+        requirement.stage_names.push_back(value);
+      }
+    }
+  }
+
+  if (requirement.plugin_id.empty() || requirement.stage_names.empty()) {
+    return std::nullopt;
+  }
+
+  std::sort(requirement.stage_names.begin(), requirement.stage_names.end());
+  requirement.stage_names.erase(std::unique(requirement.stage_names.begin(),
+                                            requirement.stage_names.end()),
+                                requirement.stage_names.end());
+  return requirement;
+}
+
+}  // namespace
 
 // Project class method implementations
-bool Project::has_source() const
-{
-    for (const auto& node : nodes_) {
-        if (node.node_type == NodeType::SOURCE) {
-            return true;
-        }
+bool Project::has_source() const {
+  for (const auto& node : nodes_) {
+    if (node.node_type == NodeType::SOURCE) {
+      return true;
     }
-    return false;
+  }
+  return false;
 }
 
-SourceType Project::get_source_type() const
-{
-    // Check all source nodes to determine the type
-    for (const auto& node : nodes_) {
-        if (node.node_type == NodeType::SOURCE) {
-            // YC sources have "YC" in their stage name
-            if (node.stage_name.find("YC") != std::string::npos ||
-                node.stage_name.find("Yc") != std::string::npos ||
-                node.stage_name.find("yc") != std::string::npos) {
-                return SourceType::YC;
-            }
-            // Composite sources (PAL_Comp_Source, NTSC_Comp_Source, etc.)
-            else if (node.stage_name.find("Source") != std::string::npos) {
-                return SourceType::Composite;
-            }
-        }
+SourceType Project::get_source_type() const {
+  // Check all source nodes to determine the type
+  for (const auto& node : nodes_) {
+    if (node.node_type == NodeType::SOURCE) {
+      // YC sources have "YC" in their stage name
+      if (node.stage_name.find("YC") != std::string::npos ||
+          node.stage_name.find("Yc") != std::string::npos ||
+          node.stage_name.find("yc") != std::string::npos) {
+        return SourceType::YC;
+      }
+      // Composite sources (PAL_Comp_Source, NTSC_Comp_Source, etc.)
+      else if (node.stage_name.find("Source") != std::string::npos) {
+        return SourceType::Composite;
+      }
     }
-    return SourceType::Unknown;
+  }
+  return SourceType::Unknown;
 }
 
 namespace project_io {
@@ -343,1048 +358,1151 @@ namespace {
 // Convert NodeType to string for serialization
 // We save the node type as its enum name for clarity
 std::string node_type_to_string(NodeType type) {
-    switch (type) {
-        case NodeType::SOURCE: return "SOURCE";
-        case NodeType::SINK: return "SINK";
-        case NodeType::TRANSFORM: return "TRANSFORM";
-        case NodeType::MERGER: return "MERGER";
-        case NodeType::COMPLEX: return "COMPLEX";
-        case NodeType::ANALYSIS_SINK: return "ANALYSIS_SINK";
-        default: return "UNKNOWN";
-    }
+  switch (type) {
+    case NodeType::SOURCE:
+      return "SOURCE";
+    case NodeType::SINK:
+      return "SINK";
+    case NodeType::TRANSFORM:
+      return "TRANSFORM";
+    case NodeType::MERGER:
+      return "MERGER";
+    case NodeType::COMPLEX:
+      return "COMPLEX";
+    case NodeType::ANALYSIS_SINK:
+      return "ANALYSIS_SINK";
+    default:
+      return "UNKNOWN";
+  }
 }
 
 // Convert SourceType to string for serialization
 std::string source_type_to_string(SourceType type) {
-    switch (type) {
-        case SourceType::Composite: return "Composite";
-        case SourceType::YC: return "YC";
-        case SourceType::Unknown: return "Unknown";
-        default: return "Unknown";
-    }
+  switch (type) {
+    case SourceType::Composite:
+      return "Composite";
+    case SourceType::YC:
+      return "YC";
+    case SourceType::Unknown:
+    default:
+      return "Unknown";
+  }
 }
 
 // Convert string to SourceType for deserialization
 SourceType source_type_from_string(const std::string& str) {
-    if (str == "Composite") return SourceType::Composite;
-    if (str == "YC") return SourceType::YC;
-    return SourceType::Unknown;
+  if (str == "Composite") return SourceType::Composite;
+  if (str == "YC") return SourceType::YC;
+  return SourceType::Unknown;
 }
 
 // Convert string to NodeType for deserialization
 NodeType string_to_node_type(const std::string& str) {
-    if (str == "SOURCE") return NodeType::SOURCE;
-    if (str == "SINK") return NodeType::SINK;
-    if (str == "TRANSFORM") return NodeType::TRANSFORM;
-    if (str == "MERGER") return NodeType::MERGER;
-    if (str == "COMPLEX") return NodeType::COMPLEX;
-    if (str == "ANALYSIS_SINK") return NodeType::ANALYSIS_SINK;
-    // Default to TRANSFORM for unknown types (backward compatibility)
-    return NodeType::TRANSFORM;
+  if (str == "SOURCE") return NodeType::SOURCE;
+  if (str == "SINK") return NodeType::SINK;
+  if (str == "TRANSFORM") return NodeType::TRANSFORM;
+  if (str == "MERGER") return NodeType::MERGER;
+  if (str == "COMPLEX") return NodeType::COMPLEX;
+  if (str == "ANALYSIS_SINK") return NodeType::ANALYSIS_SINK;
+  // Default to TRANSFORM for unknown types (backward compatibility)
+  return NodeType::TRANSFORM;
 }
 
-} // anonymous namespace
+}  // anonymous namespace
 
 Project load_project(const std::string& filename) {
-    std::filesystem::path yaml_path;
-    try {
-        yaml_path = std::filesystem::weakly_canonical(filename);
-    } catch (const std::filesystem::filesystem_error& e) {
-        throw std::runtime_error("Failed to resolve project file path '" + filename + "': " + e.what());
-    }
+  std::filesystem::path yaml_path;
+  try {
+    yaml_path = std::filesystem::weakly_canonical(filename);
+  } catch (const std::filesystem::filesystem_error& e) {
+    throw std::runtime_error("Failed to resolve project file path '" +
+                             filename + "': " + e.what());
+  }
 
-    ORC_LOG_DEBUG("Loading project from: {}", yaml_path.string());
-    ORC_LOG_DEBUG("Project root directory: {}", yaml_path.parent_path().string());
+  ORC_LOG_DEBUG("Loading project from: {}", yaml_path.string());
+  ORC_LOG_DEBUG("Project root directory: {}", yaml_path.parent_path().string());
 
-    std::string yaml_text;
-    try {
-        YAML::Node root = YAML::LoadFile(yaml_path.string());
-        YAML::Emitter emitter;
-        emitter << root;
-        yaml_text = emitter.c_str();
-    } catch (const YAML::Exception& e) {
-        throw std::runtime_error("Failed to parse YAML file '" + filename + "': " + e.what());
-    }
+  std::string yaml_text;
+  try {
+    YAML::Node root = YAML::LoadFile(yaml_path.string());
+    YAML::Emitter emitter;
+    emitter << root;
+    yaml_text = emitter.c_str();
+  } catch (const YAML::Exception& e) {
+    throw std::runtime_error("Failed to parse YAML file '" + filename +
+                             "': " + e.what());
+  }
 
-    return load_project_from_yaml(yaml_text, yaml_path.string());
+  return load_project_from_yaml(yaml_text, yaml_path.string());
 }
 
-Project load_project_from_yaml(const std::string& yaml_text, const std::string& filename_hint) {
-    std::filesystem::path yaml_path;
-    try {
-        yaml_path = std::filesystem::absolute(filename_hint);
-    } catch (const std::filesystem::filesystem_error& e) {
-        throw std::runtime_error("Failed to resolve project file path '" + filename_hint + "': " + e.what());
+Project load_project_from_yaml(const std::string& yaml_text,
+                               const std::string& filename_hint) {
+  std::filesystem::path yaml_path;
+  try {
+    yaml_path = std::filesystem::absolute(filename_hint);
+  } catch (const std::filesystem::filesystem_error& e) {
+    throw std::runtime_error("Failed to resolve project file path '" +
+                             filename_hint + "': " + e.what());
+  }
+
+  Project project;
+  project.project_root_ = yaml_path.parent_path().string();
+
+  YAML::Node root;
+  try {
+    root = YAML::Load(yaml_text);
+  } catch (const YAML::Exception& e) {
+    throw std::runtime_error("Failed to parse YAML file '" + filename_hint +
+                             "': " + e.what());
+  }
+
+  // Validate project section exists
+  if (!root["project"]) {
+    throw std::runtime_error("Invalid project file '" + filename_hint +
+                             "': missing required 'project' section");
+  }
+
+  // Validate project name (required)
+  project.name_ = root["project"]["name"].as<std::string>("");
+  if (project.name_.empty()) {
+    throw std::runtime_error("Invalid project file '" + filename_hint +
+                             "': project name is required");
+  }
+
+  project.description_ = root["project"]["description"].as<std::string>("");
+  project.version_ = root["project"]["version"].as<std::string>("1.0");
+
+  // Validate video format (required)
+  if (!root["project"]["video_format"]) {
+    throw std::runtime_error(
+        "Invalid project file '" + filename_hint +
+        "': missing required 'video_format' field. "
+        "Please create a new project or manually add 'video_format: NTSC' or "
+        "'video_format: PAL' to the project section.");
+  }
+
+  std::string format_str = root["project"]["video_format"].as<std::string>();
+  project.video_format_ = video_system_from_string(format_str);
+  if (project.video_format_ == VideoSystem::Unknown &&
+      format_str != "Unknown") {
+    throw std::runtime_error("Invalid project file '" + filename_hint +
+                             "': invalid video_format '" + format_str +
+                             "'. "
+                             "Valid values are: NTSC, PAL, PAL-M, or Unknown");
+  }
+
+  // Load source format (required)
+  if (!root["project"]["source_format"]) {
+    throw std::runtime_error(
+        "Invalid project file '" + filename_hint +
+        "': missing required 'source_format' field. "
+        "Please create a new project or manually add 'source_format: "
+        "Composite' or 'source_format: YC' to the project section.");
+  }
+
+  std::string source_format_str =
+      root["project"]["source_format"].as<std::string>();
+  project.source_format_ = source_type_from_string(source_format_str);
+  if (project.source_format_ == SourceType::Unknown &&
+      source_format_str != "Unknown") {
+    throw std::runtime_error("Invalid project file '" + filename_hint +
+                             "': invalid source_format '" + source_format_str +
+                             "'. "
+                             "Valid values are: Composite, YC, or Unknown");
+  }
+
+  // Load DAG nodes
+  if (root["dag"] && root["dag"]["nodes"] &&
+      root["dag"]["nodes"].IsSequence()) {
+    for (const auto& node_yaml : root["dag"]["nodes"]) {
+      ProjectDAGNode node;
+      node.node_id = NodeID(node_yaml["id"].as<int32_t>(0));
+      node.stage_name = node_yaml["stage"].as<std::string>("");
+      node.display_name = node_yaml["display_name"].as<std::string>("");
+      node.user_label = node_yaml["user_label"].as<std::string>(
+          node.display_name);  // Default to display_name if not present
+      node.x_position = node_yaml["x"].as<double>(0.0);
+      node.y_position = node_yaml["y"].as<double>(0.0);
+
+      // Parse node_type if present (required field)
+      if (node_yaml["node_type"]) {
+        node.node_type = string_to_node_type(
+            node_yaml["node_type"].as<std::string>("TRANSFORM"));
+      } else {
+        // Default to TRANSFORM if not specified
+        node.node_type = NodeType::TRANSFORM;
+      }
+
+      // Load parameters
+      if (node_yaml["parameters"]) {
+        for (const auto& param : node_yaml["parameters"]) {
+          std::string param_name = param.first.as<std::string>();
+          auto param_map = param.second;
+          std::string type = param_map["type"].as<std::string>("string");
+
+          ORC_LOG_DEBUG("Loading parameter '{}' for node '{}', type={}",
+                        param_name, node.node_id.to_string(), type);
+
+          if (type == "int32" || type == "int" || type == "integer") {
+            int value = param_map["value"].as<int>();
+            node.parameters[param_name] = value;
+            ORC_LOG_DEBUG("  Set to int: {}", value);
+          } else if (type == "uint32") {
+            node.parameters[param_name] = param_map["value"].as<uint32_t>();
+          } else if (type == "double") {
+            node.parameters[param_name] = param_map["value"].as<double>();
+          } else if (type == "bool") {
+            node.parameters[param_name] = param_map["value"].as<bool>();
+          } else {
+            // String parameter - store as-is to preserve original format
+            // (relative/absolute/${PROJECT_ROOT})
+            std::string value = param_map["value"].as<std::string>();
+            node.parameters[param_name] = value;
+          }
+        }
+      }
+
+      project.nodes_.push_back(node);
+    }
+  }
+
+  // Load DAG edges
+  if (root["dag"] && root["dag"]["edges"] &&
+      root["dag"]["edges"].IsSequence()) {
+    for (const auto& edge_yaml : root["dag"]["edges"]) {
+      ProjectDAGEdge edge;
+      edge.source_node_id = NodeID(edge_yaml["from"].as<int32_t>(0));
+      edge.target_node_id = NodeID(edge_yaml["to"].as<int32_t>(0));
+      project.edges_.push_back(edge);
+    }
+  }
+
+  if (root["required_plugins"] && root["required_plugins"].IsSequence()) {
+    for (const auto& plugin_yaml : root["required_plugins"]) {
+      auto requirement = parse_required_plugin_node(plugin_yaml);
+      if (requirement.has_value()) {
+        project.required_plugins_.push_back(std::move(*requirement));
+      }
+    }
+  }
+
+  // Validate all loaded edges to ensure they comply with current connection
+  // rules
+  std::vector<std::string> validation_errors;
+  for (const auto& edge : project.edges_) {
+    // Find source and target nodes
+    auto source_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+                                  [&edge](const ProjectDAGNode& n) {
+                                    return n.node_id == edge.source_node_id;
+                                  });
+    auto target_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+                                  [&edge](const ProjectDAGNode& n) {
+                                    return n.node_id == edge.target_node_id;
+                                  });
+
+    if (source_it == project.nodes_.end()) {
+      validation_errors.push_back("Edge references non-existent source node: " +
+                                  edge.source_node_id.to_string());
+      continue;
+    }
+    if (target_it == project.nodes_.end()) {
+      validation_errors.push_back("Edge references non-existent target node: " +
+                                  edge.target_node_id.to_string());
+      continue;
     }
 
-    Project project;
-    project.project_root_ = yaml_path.parent_path().string();
-
-    YAML::Node root;
-    try {
-        root = YAML::Load(yaml_text);
-    } catch (const YAML::Exception& e) {
-        throw std::runtime_error("Failed to parse YAML file '" + filename_hint + "': " + e.what());
-    }
-    
-    // Validate project section exists
-    if (!root["project"]) {
-        throw std::runtime_error("Invalid project file '" + filename_hint + "': missing required 'project' section");
-    }
-    
-    // Validate project name (required)
-    project.name_ = root["project"]["name"].as<std::string>("");
-    if (project.name_.empty()) {
-        throw std::runtime_error("Invalid project file '" + filename_hint + "': project name is required");
-    }
-    
-    project.description_ = root["project"]["description"].as<std::string>("");
-    project.version_ = root["project"]["version"].as<std::string>("1.0");
-    
-    // Validate video format (required)
-    if (!root["project"]["video_format"]) {
-        throw std::runtime_error("Invalid project file '" + filename_hint + "': missing required 'video_format' field. "
-                               "Please create a new project or manually add 'video_format: NTSC' or 'video_format: PAL' to the project section.");
-    }
-    
-    std::string format_str = root["project"]["video_format"].as<std::string>();
-    project.video_format_ = video_system_from_string(format_str);
-    if (project.video_format_ == VideoSystem::Unknown && format_str != "Unknown") {
-        throw std::runtime_error("Invalid project file '" + filename_hint + "': invalid video_format '" + format_str + "'. "
-                               "Valid values are: NTSC, PAL, PAL-M, or Unknown");
-    }
-    
-    // Load source format (required)
-    if (!root["project"]["source_format"]) {
-        throw std::runtime_error("Invalid project file '" + filename_hint + "': missing required 'source_format' field. "
-                               "Please create a new project or manually add 'source_format: Composite' or 'source_format: YC' to the project section.");
-    }
-    
-    std::string source_format_str = root["project"]["source_format"].as<std::string>();
-    project.source_format_ = source_type_from_string(source_format_str);
-    if (project.source_format_ == SourceType::Unknown && source_format_str != "Unknown") {
-        throw std::runtime_error("Invalid project file '" + filename_hint + "': invalid source_format '" + source_format_str + "'. "
-                               "Valid values are: Composite, YC, or Unknown");
-    }
-    
-    // Load DAG nodes
-    if (root["dag"] && root["dag"]["nodes"] && root["dag"]["nodes"].IsSequence()) {
-        for (const auto& node_yaml : root["dag"]["nodes"]) {
-            ProjectDAGNode node;
-            node.node_id = NodeID(node_yaml["id"].as<int32_t>(0));
-            node.stage_name = node_yaml["stage"].as<std::string>("");
-            node.display_name = node_yaml["display_name"].as<std::string>("");
-            node.user_label = node_yaml["user_label"].as<std::string>(node.display_name);  // Default to display_name if not present
-            node.x_position = node_yaml["x"].as<double>(0.0);
-            node.y_position = node_yaml["y"].as<double>(0.0);
-            
-            // Parse node_type if present (required field)
-            if (node_yaml["node_type"]) {
-                node.node_type = string_to_node_type(node_yaml["node_type"].as<std::string>("TRANSFORM"));
-            } else {
-                // Default to TRANSFORM if not specified
-                node.node_type = NodeType::TRANSFORM;
-            }
-            
-            // Load parameters
-            if (node_yaml["parameters"]) {
-                for (const auto& param : node_yaml["parameters"]) {
-                    std::string param_name = param.first.as<std::string>();
-                    auto param_map = param.second;
-                    std::string type = param_map["type"].as<std::string>("string");
-                    
-                    ORC_LOG_DEBUG("Loading parameter '{}' for node '{}', type={}", 
-                                 param_name, node.node_id.to_string(), type);
-                    
-                    if (type == "int32" || type == "int" || type == "integer") {
-                        int value = param_map["value"].as<int>();
-                        node.parameters[param_name] = value;
-                        ORC_LOG_DEBUG("  Set to int: {}", value);
-                    } else if (type == "uint32") {
-                        node.parameters[param_name] = param_map["value"].as<uint32_t>();
-                    } else if (type == "double") {
-                        node.parameters[param_name] = param_map["value"].as<double>();
-                    } else if (type == "bool") {
-                        node.parameters[param_name] = param_map["value"].as<bool>();
-                    } else {
-                        // String parameter - store as-is to preserve original format (relative/absolute/${PROJECT_ROOT})
-                        std::string value = param_map["value"].as<std::string>();
-                        node.parameters[param_name] = value;
-                    }
-                }
-            }
-            
-            project.nodes_.push_back(node);
-        }
-    }
-    
-    // Load DAG edges
-    if (root["dag"] && root["dag"]["edges"] && root["dag"]["edges"].IsSequence()) {
-        for (const auto& edge_yaml : root["dag"]["edges"]) {
-            ProjectDAGEdge edge;
-            edge.source_node_id = NodeID(edge_yaml["from"].as<int32_t>(0));
-            edge.target_node_id = NodeID(edge_yaml["to"].as<int32_t>(0));
-            project.edges_.push_back(edge);
-        }
+    // Validate connection type compatibility
+    if (!is_connection_valid(source_it->stage_name, target_it->stage_name)) {
+      validation_errors.push_back(
+          "Invalid connection: " + source_it->stage_name + " (" +
+          edge.source_node_id.to_string() + ") -> " + target_it->stage_name +
+          " (" + edge.target_node_id.to_string() +
+          ") - incompatible stage types");
     }
 
-    if (root["required_plugins"] && root["required_plugins"].IsSequence()) {
-        for (const auto& plugin_yaml : root["required_plugins"]) {
-            auto requirement = parse_required_plugin_node(plugin_yaml);
-            if (requirement.has_value()) {
-                project.required_plugins_.push_back(std::move(*requirement));
-            }
+    // Check fan-out constraint for MANY output stages
+    const NodeTypeInfo* source_info = get_node_type_info(source_it->stage_name);
+    if (source_info && source_info->min_outputs > 1) {
+      // Count outgoing connections from this source
+      uint32_t output_count = 0;
+      for (const auto& e : project.edges_) {
+        if (e.source_node_id == edge.source_node_id) {
+          output_count++;
         }
+      }
+      if (output_count > 1) {
+        validation_errors.push_back(
+            "MANY output stage " + source_it->stage_name + " (" +
+            edge.source_node_id.to_string() +
+            ") has multiple outgoing connections (fan-out not allowed)");
+      }
     }
-    
-    // Validate all loaded edges to ensure they comply with current connection rules
-    std::vector<std::string> validation_errors;
-    for (const auto& edge : project.edges_) {
-        // Find source and target nodes
-        auto source_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-            [&edge](const ProjectDAGNode& n) { return n.node_id == edge.source_node_id; });
-        auto target_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-            [&edge](const ProjectDAGNode& n) { return n.node_id == edge.target_node_id; });
-        
-        if (source_it == project.nodes_.end()) {
-            validation_errors.push_back("Edge references non-existent source node: " + edge.source_node_id.to_string());
-            continue;
-        }
-        if (target_it == project.nodes_.end()) {
-            validation_errors.push_back("Edge references non-existent target node: " + edge.target_node_id.to_string());
-            continue;
-        }
-        
-        // Validate connection type compatibility
-        if (!is_connection_valid(source_it->stage_name, target_it->stage_name)) {
-            validation_errors.push_back("Invalid connection: " + source_it->stage_name + 
-                                      " (" + edge.source_node_id.to_string() + ") -> " + 
-                                      target_it->stage_name + " (" + edge.target_node_id.to_string() + 
-                                      ") - incompatible stage types");
-        }
-        
-        // Check fan-out constraint for MANY output stages
-        const NodeTypeInfo* source_info = get_node_type_info(source_it->stage_name);
-        if (source_info && source_info->min_outputs > 1) {
-            // Count outgoing connections from this source
-            uint32_t output_count = 0;
-            for (const auto& e : project.edges_) {
-                if (e.source_node_id == edge.source_node_id) {
-                    output_count++;
-                }
-            }
-            if (output_count > 1) {
-                validation_errors.push_back("MANY output stage " + source_it->stage_name + 
-                                          " (" + edge.source_node_id.to_string() + 
-                                          ") has multiple outgoing connections (fan-out not allowed)");
-            }
-        }
+  }
+
+  // If there are validation errors, throw exception with details
+  if (!validation_errors.empty()) {
+    std::string error_msg = "Project file contains invalid connections:\n";
+    for (const auto& err : validation_errors) {
+      error_msg += "  - " + err + "\n";
     }
-    
-    // If there are validation errors, throw exception with details
-    if (!validation_errors.empty()) {
-        std::string error_msg = "Project file contains invalid connections:\n";
-        for (const auto& err : validation_errors) {
-            error_msg += "  - " + err + "\n";
-        }
-        error_msg += "\nPlease fix these connections in the project file or recreate the project.";
-        throw std::runtime_error(error_msg);
-    }
-    
-    // Clear modification flag - project is freshly loaded
-    project.clear_modified_flag();
-    
-    return project;
+    error_msg +=
+        "\nPlease fix these connections in the project file or recreate the "
+        "project.";
+    throw std::runtime_error(error_msg);
+  }
+
+  // Clear modification flag - project is freshly loaded
+  project.clear_modified_flag();
+
+  return project;
 }
 
-std::string serialize_project_to_yaml(const Project& project, const std::string& filename_hint) {
-    (void)resolve_project_root_for_filename(filename_hint);
+std::string serialize_project_to_yaml(const Project& project,
+                                      const std::string& filename_hint) {
+  (void)resolve_project_root_for_filename(filename_hint);
 
-    YAML::Emitter out;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+
+  // Project metadata
+  out << YAML::Key << "project";
+  out << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "name" << YAML::Value << project.name_;
+  if (!project.description_.empty()) {
+    out << YAML::Key << "description" << YAML::Value << project.description_;
+  }
+  out << YAML::Key << "version" << YAML::Value << project.version_;
+
+  // Save video format if set
+  if (project.video_format_ != VideoSystem::Unknown) {
+    out << YAML::Key << "video_format" << YAML::Value
+        << video_system_to_string(project.video_format_);
+  }
+
+  // Save source format if set
+  if (project.source_format_ != SourceType::Unknown) {
+    out << YAML::Key << "source_format" << YAML::Value
+        << source_type_to_string(project.source_format_);
+  }
+
+  out << YAML::EndMap;
+
+  // DAG
+  out << YAML::Key << "dag";
+  out << YAML::Value << YAML::BeginMap;
+
+  // Nodes
+  out << YAML::Key << "nodes";
+  out << YAML::Value << YAML::BeginSeq;
+  for (const auto& node : project.nodes_) {
     out << YAML::BeginMap;
-    
-    // Project metadata
-    out << YAML::Key << "project";
-    out << YAML::Value << YAML::BeginMap;
-    out << YAML::Key << "name" << YAML::Value << project.name_;
-    if (!project.description_.empty()) {
-        out << YAML::Key << "description" << YAML::Value << project.description_;
+    out << YAML::Key << "id" << YAML::Value << node.node_id.value();
+    out << YAML::Key << "stage" << YAML::Value << node.stage_name;
+    out << YAML::Key << "node_type" << YAML::Value
+        << node_type_to_string(node.node_type);
+    if (!node.display_name.empty()) {
+      out << YAML::Key << "display_name" << YAML::Value << node.display_name;
     }
-    out << YAML::Key << "version" << YAML::Value << project.version_;
-    
-    // Save video format if set
-    if (project.video_format_ != VideoSystem::Unknown) {
-        out << YAML::Key << "video_format" << YAML::Value << video_system_to_string(project.video_format_);
+    if (!node.user_label.empty()) {
+      out << YAML::Key << "user_label" << YAML::Value << node.user_label;
     }
-    
-    // Save source format if set
-    if (project.source_format_ != SourceType::Unknown) {
-        out << YAML::Key << "source_format" << YAML::Value << source_type_to_string(project.source_format_);
+    out << YAML::Key << "x" << YAML::Value << node.x_position;
+    out << YAML::Key << "y" << YAML::Value << node.y_position;
+
+    // Parameters (if any)
+    if (!node.parameters.empty()) {
+      out << YAML::Key << "parameters";
+      out << YAML::Value << YAML::BeginMap;
+      for (const auto& [param_name, param_value] : node.parameters) {
+        out << YAML::Key << param_name;
+        out << YAML::Value << YAML::BeginMap;
+
+        // Write parameter value based on type
+        if (std::holds_alternative<int32_t>(param_value)) {
+          out << YAML::Key << "type" << YAML::Value << "int32";
+          out << YAML::Key << "value" << YAML::Value
+              << std::get<int32_t>(param_value);
+        } else if (std::holds_alternative<uint32_t>(param_value)) {
+          out << YAML::Key << "type" << YAML::Value << "uint32";
+          out << YAML::Key << "value" << YAML::Value
+              << std::get<uint32_t>(param_value);
+        } else if (std::holds_alternative<double>(param_value)) {
+          out << YAML::Key << "type" << YAML::Value << "double";
+          out << YAML::Key << "value" << YAML::Value
+              << std::get<double>(param_value);
+        } else if (std::holds_alternative<bool>(param_value)) {
+          out << YAML::Key << "type" << YAML::Value << "bool";
+          out << YAML::Key << "value" << YAML::Value
+              << std::get<bool>(param_value);
+        } else if (std::holds_alternative<std::string>(param_value)) {
+          std::string value = std::get<std::string>(param_value);
+
+          // Save string parameters as-is to preserve their original format
+          // (relative paths, absolute paths, or ${PROJECT_ROOT} variables)
+          out << YAML::Key << "type" << YAML::Value << "string";
+          out << YAML::Key << "value" << YAML::Value << value;
+        }
+        out << YAML::EndMap;
+      }
+      out << YAML::EndMap;
     }
-    
     out << YAML::EndMap;
-    
-    // DAG
-    out << YAML::Key << "dag";
-    out << YAML::Value << YAML::BeginMap;
-    
-    // Nodes
-    out << YAML::Key << "nodes";
+  }
+  out << YAML::EndSeq;
+
+  // Edges
+  out << YAML::Key << "edges";
+  out << YAML::Value << YAML::BeginSeq;
+  for (const auto& edge : project.edges_) {
+    out << YAML::BeginMap;
+    out << YAML::Key << "from" << YAML::Value << edge.source_node_id.value();
+    out << YAML::Key << "to" << YAML::Value << edge.target_node_id.value();
+    out << YAML::EndMap;
+  }
+  out << YAML::EndSeq;
+
+  out << YAML::EndMap;  // end dag
+
+  const auto required_plugins = collect_required_plugins_for_project(project);
+  if (!required_plugins.empty()) {
+    out << YAML::Key << "required_plugins";
     out << YAML::Value << YAML::BeginSeq;
-    for (const auto& node : project.nodes_) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "id" << YAML::Value << node.node_id.value();
-        out << YAML::Key << "stage" << YAML::Value << node.stage_name;
-        out << YAML::Key << "node_type" << YAML::Value << node_type_to_string(node.node_type);
-        if (!node.display_name.empty()) {
-            out << YAML::Key << "display_name" << YAML::Value << node.display_name;
-        }
-        if (!node.user_label.empty()) {
-            out << YAML::Key << "user_label" << YAML::Value << node.user_label;
-        }
-        out << YAML::Key << "x" << YAML::Value << node.x_position;
-        out << YAML::Key << "y" << YAML::Value << node.y_position;
-        
-        // Parameters (if any)
-        if (!node.parameters.empty()) {
-            out << YAML::Key << "parameters";
-            out << YAML::Value << YAML::BeginMap;
-            for (const auto& [param_name, param_value] : node.parameters) {
-                out << YAML::Key << param_name;
-                out << YAML::Value << YAML::BeginMap;
-                
-                // Write parameter value based on type
-                if (std::holds_alternative<int32_t>(param_value)) {
-                    out << YAML::Key << "type" << YAML::Value << "int32";
-                    out << YAML::Key << "value" << YAML::Value << std::get<int32_t>(param_value);
-                } else if (std::holds_alternative<uint32_t>(param_value)) {
-                    out << YAML::Key << "type" << YAML::Value << "uint32";
-                    out << YAML::Key << "value" << YAML::Value << std::get<uint32_t>(param_value);
-                } else if (std::holds_alternative<double>(param_value)) {
-                    out << YAML::Key << "type" << YAML::Value << "double";
-                    out << YAML::Key << "value" << YAML::Value << std::get<double>(param_value);
-                } else if (std::holds_alternative<bool>(param_value)) {
-                    out << YAML::Key << "type" << YAML::Value << "bool";
-                    out << YAML::Key << "value" << YAML::Value << std::get<bool>(param_value);
-                } else if (std::holds_alternative<std::string>(param_value)) {
-                    std::string value = std::get<std::string>(param_value);
-                    
-                    // Save string parameters as-is to preserve their original format
-                    // (relative paths, absolute paths, or ${PROJECT_ROOT} variables)
-                    out << YAML::Key << "type" << YAML::Value << "string";
-                    out << YAML::Key << "value" << YAML::Value << value;
-                }
-                out << YAML::EndMap;
-            }
-            out << YAML::EndMap;
-        }
-        out << YAML::EndMap;
+    for (const auto& requirement : required_plugins) {
+      out << to_yaml_node(requirement);
     }
     out << YAML::EndSeq;
-    
-    // Edges
-    out << YAML::Key << "edges";
-    out << YAML::Value << YAML::BeginSeq;
-    for (const auto& edge : project.edges_) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "from" << YAML::Value << edge.source_node_id.value();
-        out << YAML::Key << "to" << YAML::Value << edge.target_node_id.value();
-        out << YAML::EndMap;
-    }
-    out << YAML::EndSeq;
+  }
 
-    out << YAML::EndMap; // end dag
+  out << YAML::EndMap;  // end root
 
-    const auto required_plugins = collect_required_plugins_for_project(project);
-    if (!required_plugins.empty()) {
-        out << YAML::Key << "required_plugins";
-        out << YAML::Value << YAML::BeginSeq;
-        for (const auto& requirement : required_plugins) {
-            out << to_yaml_node(requirement);
-        }
-        out << YAML::EndSeq;
-    }
-
-    out << YAML::EndMap; // end root
-
-    std::ostringstream file_text;
-    file_text << "# ORC Project File\n";
-    file_text << "# Version: " << project.version_ << "\n\n";
-    file_text << out.c_str();
-    return file_text.str();
+  std::ostringstream file_text;
+  file_text << "# ORC Project File\n";
+  file_text << "# Version: " << project.version_ << "\n\n";
+  file_text << out.c_str();
+  return file_text.str();
 }
 
 void save_project(const Project& project, const std::string& filename) {
-    std::string yaml_text = serialize_project_to_yaml(project, filename);
-    
-    // Write to file
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file for writing: " + filename);
-    }
-    file << yaml_text;
-    file.close();
-    
-    // Clear modification flag - project has been saved
-    project.clear_modified_flag();
+  std::string yaml_text = serialize_project_to_yaml(project, filename);
+
+  // Write to file
+  std::ofstream file(filename);
+  if (!file.is_open()) {
+    throw std::runtime_error("Failed to open file for writing: " + filename);
+  }
+  file << yaml_text;
+  file.close();
+
+  // Clear modification flag - project has been saved
+  project.clear_modified_flag();
 }
 
-Project create_empty_project(const std::string& project_name, VideoSystem video_format, SourceType source_format) {
-    Project project;
-    project.name_ = project_name;
-    project.version_ = "1.0";
-    project.video_format_ = video_format;
-    project.source_format_ = source_format;
-    // Empty sources, nodes_, and edges
-    // Mark as modified since it's a newly created project
-    project.is_modified_ = true;
-    return project;
+Project create_empty_project(const std::string& project_name,
+                             VideoSystem video_format,
+                             SourceType source_format) {
+  Project project;
+  project.name_ = project_name;
+  project.version_ = "1.0";
+  project.video_format_ = video_format;
+  project.source_format_ = source_format;
+  // Empty sources, nodes_, and edges
+  // Mark as modified since it's a newly created project
+  project.is_modified_ = true;
+  return project;
 }
 
-void update_project_dag(
-    Project& project,
-    const std::vector<ProjectDAGNode>& nodes_,
-    const std::vector<ProjectDAGEdge>& edges
-) {
-    // Preserve SOURCE nodes_
-    std::vector<ProjectDAGNode> source_nodes;
-    for (const auto& node : project.nodes_) {
-        if (node.node_type == NodeType::SOURCE) {
-            source_nodes.push_back(node);
-        }
+void update_project_dag(Project& project,
+                        const std::vector<ProjectDAGNode>& nodes_,
+                        const std::vector<ProjectDAGEdge>& edges) {
+  // Preserve SOURCE nodes_
+  std::vector<ProjectDAGNode> source_nodes;
+  for (const auto& node : project.nodes_) {
+    if (node.node_type == NodeType::SOURCE) {
+      source_nodes.push_back(node);
     }
-    
-    // Clear all nodes_ and edges
-    project.nodes_.clear();
-    project.edges_.clear();
-    
-    // Restore SOURCE nodes_
-    for (const auto& source_node : source_nodes) {
-        project.nodes_.push_back(source_node);
+  }
+
+  // Clear all nodes_ and edges
+  project.nodes_.clear();
+  project.edges_.clear();
+
+  // Restore SOURCE nodes_
+  for (const auto& source_node : source_nodes) {
+    project.nodes_.push_back(source_node);
+  }
+
+  // Add new nodes_ (should not include SOURCE nodes_ - those are managed
+  // separately)
+  for (const auto& node : nodes_) {
+    if (node.node_type != NodeType::SOURCE) {
+      project.nodes_.push_back(node);
     }
-    
-    // Add new nodes_ (should not include SOURCE nodes_ - those are managed separately)
-    for (const auto& node : nodes_) {
-        if (node.node_type != NodeType::SOURCE) {
-            project.nodes_.push_back(node);
-        }
-    }
-    
-    // Add new edges
-    for (const auto& edge : edges) {
-        project.edges_.push_back(edge);
-    }
-    
-    project.is_modified_ = true;
+  }
+
+  // Add new edges
+  for (const auto& edge : edges) {
+    project.edges_.push_back(edge);
+  }
+
+  project.is_modified_ = true;
 }
 
 NodeID generate_unique_node_id(const Project& project) {
-    int32_t max_id = 0;
-    
-    // Scan all existing nodes to find the highest ID
-    for (const auto& node : project.nodes_) {
-        if (node.node_id.value() > max_id) {
-            max_id = node.node_id.value();
-        }
+  int32_t max_id = 0;
+
+  // Scan all existing nodes to find the highest ID
+  for (const auto& node : project.nodes_) {
+    if (node.node_id.value() > max_id) {
+      max_id = node.node_id.value();
     }
-    
-    // Return next available ID
-    return NodeID(max_id + 1);
+  }
+
+  // Return next available ID
+  return NodeID(max_id + 1);
 }
 
-NodeID add_node(Project& project, const std::string& stage_name, double x_position, double y_position) {
-    // Validate that project has been initialized
-    if (project.name_.empty()) {
-        throw std::runtime_error("Cannot add node to uninitialized project. Create or load a project first.");
+NodeID add_node(Project& project, const std::string& stage_name,
+                double x_position, double y_position) {
+  // Validate that project has been initialized
+  if (project.name_.empty()) {
+    throw std::runtime_error(
+        "Cannot add node to uninitialized project. Create or load a project "
+        "first.");
+  }
+
+  // Validate stage name
+  const NodeTypeInfo* type_info = get_node_type_info(stage_name);
+  if (!type_info) {
+    throw std::runtime_error("Invalid stage name: " + stage_name);
+  }
+
+  // Validate source stage compatibility with project's video and source format
+  if (type_info->type == NodeType::SOURCE) {
+    // Check source_format if set
+    if (project.source_format_ != SourceType::Unknown) {
+      bool is_yc_stage = (stage_name.find("YC") != std::string::npos);
+      SourceType stage_type =
+          is_yc_stage ? SourceType::YC : SourceType::Composite;
+      if (stage_type != project.source_format_) {
+        std::string expected_name =
+            (project.source_format_ == SourceType::YC) ? "YC" : "Composite";
+        std::string stage_type_name = is_yc_stage ? "YC" : "Composite";
+        throw std::runtime_error(
+            "Cannot add " + stage_type_name + " source stage '" + stage_name +
+            "' to a project configured for " + expected_name + " sources.");
+      }
     }
-    
-    // Validate stage name
-    const NodeTypeInfo* type_info = get_node_type_info(stage_name);
-    if (!type_info) {
-        throw std::runtime_error("Invalid stage name: " + stage_name);
+
+    // Check video_format if set
+    if (project.video_format_ != VideoSystem::Unknown) {
+      bool is_ntsc_stage = (stage_name.find("NTSC") != std::string::npos);
+      bool is_pal_stage = (stage_name.find("PAL") != std::string::npos);
+      if (is_ntsc_stage && project.video_format_ != VideoSystem::NTSC) {
+        throw std::runtime_error("Cannot add NTSC source stage '" + stage_name +
+                                 "' to a PAL project.");
+      }
+      if (is_pal_stage && !(project.video_format_ == VideoSystem::PAL ||
+                            project.video_format_ == VideoSystem::PAL_M)) {
+        throw std::runtime_error("Cannot add PAL source stage '" + stage_name +
+                                 "' to an NTSC project.");
+      }
     }
-    
-    // Validate source stage compatibility with project's video and source format
-    if (type_info->type == NodeType::SOURCE) {
-        // Check source_format if set
-        if (project.source_format_ != SourceType::Unknown) {
-            bool is_yc_stage = (stage_name.find("YC") != std::string::npos);
-            SourceType stage_type = is_yc_stage ? SourceType::YC : SourceType::Composite;
-            if (stage_type != project.source_format_) {
-                std::string expected_name = (project.source_format_ == SourceType::YC) ? "YC" : "Composite";
-                std::string stage_type_name = is_yc_stage ? "YC" : "Composite";
-                throw std::runtime_error(
-                    "Cannot add " + stage_type_name + " source stage '" + stage_name +
-                    "' to a project configured for " + expected_name + " sources."
-                );
-            }
-        }
-        
-        // Check video_format if set
-        if (project.video_format_ != VideoSystem::Unknown) {
-            bool is_ntsc_stage = (stage_name.find("NTSC") != std::string::npos);
-            bool is_pal_stage = (stage_name.find("PAL") != std::string::npos);
-            if (is_ntsc_stage && project.video_format_ != VideoSystem::NTSC) {
-                throw std::runtime_error(
-                    "Cannot add NTSC source stage '" + stage_name + "' to a PAL project."
-                );
-            }
-            if (is_pal_stage && !(project.video_format_ == VideoSystem::PAL || project.video_format_ == VideoSystem::PAL_M)) {
-                throw std::runtime_error(
-                    "Cannot add PAL source stage '" + stage_name + "' to an NTSC project."
-                );
-            }
-        }
-    }
-    
-    // Generate unique node ID
-    NodeID node_id = generate_unique_node_id(project);
-    
-    // Create node
-    ProjectDAGNode node;
-    node.node_id = node_id;
-    node.stage_name = stage_name;
-    node.node_type = type_info->type;
-    node.display_name = type_info->display_name;
-    node.user_label = type_info->display_name;  // Initialize user label
-    node.x_position = x_position;
-    node.y_position = y_position;
-    
-    project.nodes_.push_back(node);
-    project.is_modified_ = true;
-    return node_id;
+  }
+
+  // Generate unique node ID
+  NodeID node_id = generate_unique_node_id(project);
+
+  // Create node
+  ProjectDAGNode node;
+  node.node_id = node_id;
+  node.stage_name = stage_name;
+  node.node_type = type_info->type;
+  node.display_name = type_info->display_name;
+  node.user_label = type_info->display_name;  // Initialize user label
+  node.x_position = x_position;
+  node.y_position = y_position;
+
+  project.nodes_.push_back(node);
+  project.is_modified_ = true;
+  return node_id;
 }
 
 void remove_node(Project& project, NodeID node_id) {
-    // Find the node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id.to_string());
-    }
-    
-    // Check if node can be removed
-    std::string reason;
-    if (!can_remove_node(project, node_id, &reason)) {
-        throw std::runtime_error(reason);
-    }
-    
-    // Remove all edges connected to this node
-    project.edges_.erase(
-        std::remove_if(project.edges_.begin(), project.edges_.end(),
-            [&node_id](const ProjectDAGEdge& e) {
-                return e.source_node_id == node_id || e.target_node_id == node_id;
-            }),
-        project.edges_.end()
-    );
-    
-    // Remove the node
-    project.nodes_.erase(node_it);
-    
-    project.is_modified_ = true;
+  // Find the node
+  auto node_it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+
+  if (node_it == project.nodes_.end()) {
+    throw std::runtime_error("Node not found: " + node_id.to_string());
+  }
+
+  // Check if node can be removed
+  std::string reason;
+  if (!can_remove_node(project, node_id, &reason)) {
+    throw std::runtime_error(reason);
+  }
+
+  // Remove all edges connected to this node
+  project.edges_.erase(
+      std::remove_if(project.edges_.begin(), project.edges_.end(),
+                     [&node_id](const ProjectDAGEdge& e) {
+                       return e.source_node_id == node_id ||
+                              e.target_node_id == node_id;
+                     }),
+      project.edges_.end());
+
+  // Remove the node
+  project.nodes_.erase(node_it);
+
+  project.is_modified_ = true;
 }
 
-bool can_remove_node(const Project& project, NodeID node_id, std::string* reason) {
-    // Find the node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        if (reason) *reason = "Node not found";
-        return false;
+bool can_remove_node(const Project& project, NodeID node_id,
+                     std::string* reason) {
+  // Find the node
+  auto node_it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+
+  if (node_it == project.nodes_.end()) {
+    if (reason) *reason = "Node not found";
+    return false;
+  }
+
+  // Check if node has any connections
+  for (const auto& edge : project.edges_) {
+    if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
+      if (reason) {
+        *reason =
+            "Cannot delete node with connections - disconnect all edges first";
+}
+      return false;
     }
-    
-    // Check if node has any connections
-    for (const auto& edge : project.edges_) {
-        if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
-            if (reason) *reason = "Cannot delete node with connections - disconnect all edges first";
-            return false;
+  }
+
+  // Node can be removed
+  if (reason) *reason = "";
+  return true;
+}
+
+void set_node_parameters(
+    Project& project, NodeID node_id,
+    const std::map<std::string, ParameterValue>& parameters) {
+  // Find the node
+  auto node_it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+
+  if (node_it == project.nodes_.end()) {
+    throw std::runtime_error("Node not found: " + node_id.to_string());
+  }
+
+  // Only TBC composite sources derive metadata from input_path at persist time.
+  const bool requires_tbc_metadata_sidecar =
+      (node_it->stage_name == "PAL_Comp_Source" ||
+       node_it->stage_name == "NTSC_Comp_Source");
+
+  if (requires_tbc_metadata_sidecar) {
+    auto input_path_it = parameters.find("input_path");
+    if (input_path_it != parameters.end() &&
+        std::holds_alternative<std::string>(input_path_it->second)) {
+      std::string input_path = std::get<std::string>(input_path_it->second);
+
+      // Only validate if a path is provided (empty is allowed)
+      if (!input_path.empty()) {
+        // Check that a metadata file exists (either .tbc.db or legacy
+        // .tbc.json). Full decoder/system validation is deferred to the source
+        // stage on first execution, which calls create_tbc_representation() →
+        // open_tbc_metadata() and reports any mismatch with a clear error at
+        // that point. input_path is the .tbc file; metadata lives alongside as
+        // .tbc.db or .tbc.json
+        std::string db_path = input_path + ".db";
+        std::string json_path = input_path + ".json";
+        bool metadata_exists = std::filesystem::exists(db_path) ||
+                               std::filesystem::exists(json_path);
+        if (!metadata_exists) {
+          throw std::runtime_error(
+              "Failed to validate TBC file: metadata file not found "
+              "(expected " +
+              db_path + " or " + json_path + ")");
         }
+      }
     }
-    
-    // Node can be removed
-    if (reason) *reason = "";
-    return true;
+  }
+
+  node_it->parameters = parameters;
+
+  // Source stages handle their own caching via set_parameters()
+
+  project.is_modified_ = true;
 }
 
-void set_node_parameters(Project& project, NodeID node_id, 
-                        const std::map<std::string, ParameterValue>& parameters) {
-    // Find the node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id.to_string());
-    }
-    
-    // Only TBC composite sources derive metadata from input_path at persist time.
-    const bool requires_tbc_metadata_sidecar =
-        (node_it->stage_name == "PAL_Comp_Source" || node_it->stage_name == "NTSC_Comp_Source");
+void set_node_position(Project& project, NodeID node_id, double x_position,
+                       double y_position) {
+  // Find the node
+  auto node_it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
 
-    if (requires_tbc_metadata_sidecar) {
-        auto input_path_it = parameters.find("input_path");
-        if (input_path_it != parameters.end() && std::holds_alternative<std::string>(input_path_it->second)) {
-            std::string input_path = std::get<std::string>(input_path_it->second);
-            
-            // Only validate if a path is provided (empty is allowed)
-            if (!input_path.empty()) {
-                // Check that a metadata file exists (either .tbc.db or legacy .tbc.json).
-                // Full decoder/system validation is deferred to the source stage on first
-                // execution, which calls create_tbc_representation() → open_tbc_metadata()
-                // and reports any mismatch with a clear error at that point.
-                // input_path is the .tbc file; metadata lives alongside as .tbc.db or .tbc.json
-                std::string db_path   = input_path + ".db";
-                std::string json_path = input_path + ".json";
-                bool metadata_exists = std::filesystem::exists(db_path) ||
-                                       std::filesystem::exists(json_path);
-                if (!metadata_exists) {
-                    throw std::runtime_error(
-                        "Failed to validate TBC file: metadata file not found (expected "
-                        + db_path + " or " + json_path + ")");
-                }
-            }
-        }
-    }
-    
-    node_it->parameters = parameters;
-    
-    // Source stages handle their own caching via set_parameters()
-    
-    project.is_modified_ = true;
+  if (node_it == project.nodes_.end()) {
+    throw std::runtime_error("Node not found: " + node_id.to_string());
+  }
+
+  node_it->x_position = x_position;
+  node_it->y_position = y_position;
+  project.is_modified_ = true;
 }
 
-void set_node_position(Project& project, NodeID node_id, double x_position, double y_position) {
-    // Find the node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id.to_string());
-    }
-    
-    node_it->x_position = x_position;
-    node_it->y_position = y_position;
-    project.is_modified_ = true;
-}
+void set_node_label(Project& project, NodeID node_id,
+                    const std::string& label) {
+  // Find the node
+  auto node_it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
 
-void set_node_label(Project& project, NodeID node_id, const std::string& label) {
-    // Find the node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        throw std::runtime_error("Node not found: " + node_id.to_string());
-    }
-    
-    node_it->user_label = label;
-    project.is_modified_ = true;
+  if (node_it == project.nodes_.end()) {
+    throw std::runtime_error("Node not found: " + node_id.to_string());
+  }
+
+  node_it->user_label = label;
+  project.is_modified_ = true;
 }
 
 void add_edge(Project& project, NodeID source_node_id, NodeID target_node_id) {
-    // Validate that project has been initialized
-    if (project.name_.empty()) {
-        throw std::runtime_error("Cannot add edge to uninitialized project. Create or load a project first.");
+  // Validate that project has been initialized
+  if (project.name_.empty()) {
+    throw std::runtime_error(
+        "Cannot add edge to uninitialized project. Create or load a project "
+        "first.");
+  }
+
+  // Find source and target nodes_
+  auto source_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+                                [&source_node_id](const ProjectDAGNode& n) {
+                                  return n.node_id == source_node_id;
+                                });
+  auto target_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+                                [&target_node_id](const ProjectDAGNode& n) {
+                                  return n.node_id == target_node_id;
+                                });
+
+  if (source_it == project.nodes_.end()) {
+    throw std::runtime_error("Source node not found: " +
+                             source_node_id.to_string());
+  }
+  if (target_it == project.nodes_.end()) {
+    throw std::runtime_error("Target node not found: " +
+                             target_node_id.to_string());
+  }
+
+  // Validate connection
+  if (!is_connection_valid(source_it->stage_name, target_it->stage_name)) {
+    throw std::runtime_error("Invalid connection between " +
+                             source_it->stage_name + " and " +
+                             target_it->stage_name);
+  }
+
+  // Check if edge already exists
+  for (const auto& edge : project.edges_) {
+    if (edge.source_node_id == source_node_id &&
+        edge.target_node_id == target_node_id) {
+      throw std::runtime_error("Edge already exists");
     }
-    
-    // Find source and target nodes_
-    auto source_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&source_node_id](const ProjectDAGNode& n) { return n.node_id == source_node_id; });
-    auto target_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&target_node_id](const ProjectDAGNode& n) { return n.node_id == target_node_id; });
-    
-    if (source_it == project.nodes_.end()) {
-        throw std::runtime_error("Source node not found: " + source_node_id.to_string());
-    }
-    if (target_it == project.nodes_.end()) {
-        throw std::runtime_error("Target node not found: " + target_node_id.to_string());
-    }
-    
-    // Validate connection
-    if (!is_connection_valid(source_it->stage_name, target_it->stage_name)) {
-        throw std::runtime_error("Invalid connection between " + source_it->stage_name + 
-                               " and " + target_it->stage_name);
-    }
-    
-    // Check if edge already exists
-    for (const auto& edge : project.edges_) {
-        if (edge.source_node_id == source_node_id && edge.target_node_id == target_node_id) {
-            throw std::runtime_error("Edge already exists");
-        }
-    }
-    
-    // Count existing connections to check limits
-    uint32_t source_output_count = 0;
-    uint32_t target_input_count = 0;
-    for (const auto& edge : project.edges_) {
-        if (edge.source_node_id == source_node_id) source_output_count++;
-        if (edge.target_node_id == target_node_id) target_input_count++;
-    }
-    
-    // Get node type info to check limits
-    const NodeTypeInfo* source_info = get_node_type_info(source_it->stage_name);
-    const NodeTypeInfo* target_info = get_node_type_info(target_it->stage_name);
-    
-    // MANY output stages (min_outputs > 1) cannot fan-out
-    // They can only have ONE outgoing connection
-    if (source_info && source_info->min_outputs > 1 && source_output_count > 0) {
-        throw std::runtime_error("MANY output stages cannot fan-out (already has outgoing connection)");
-    }
-    
-    if (source_info && source_output_count >= source_info->max_outputs) {
-        throw std::runtime_error("Source node has reached maximum outputs");
-    }
-    if (target_info && target_input_count >= target_info->max_inputs) {
-        throw std::runtime_error("Target node has reached maximum inputs");
-    }
-    
-    // Add edge
-    ProjectDAGEdge edge;
-    edge.source_node_id = source_node_id;
-    edge.target_node_id = target_node_id;
-    project.edges_.push_back(edge);
-    project.is_modified_ = true;
+  }
+
+  // Count existing connections to check limits
+  uint32_t source_output_count = 0;
+  uint32_t target_input_count = 0;
+  for (const auto& edge : project.edges_) {
+    if (edge.source_node_id == source_node_id) source_output_count++;
+    if (edge.target_node_id == target_node_id) target_input_count++;
+  }
+
+  // Get node type info to check limits
+  const NodeTypeInfo* source_info = get_node_type_info(source_it->stage_name);
+  const NodeTypeInfo* target_info = get_node_type_info(target_it->stage_name);
+
+  // MANY output stages (min_outputs > 1) cannot fan-out
+  // They can only have ONE outgoing connection
+  if (source_info && source_info->min_outputs > 1 && source_output_count > 0) {
+    throw std::runtime_error(
+        "MANY output stages cannot fan-out (already has outgoing connection)");
+  }
+
+  if (source_info && source_output_count >= source_info->max_outputs) {
+    throw std::runtime_error("Source node has reached maximum outputs");
+  }
+  if (target_info && target_input_count >= target_info->max_inputs) {
+    throw std::runtime_error("Target node has reached maximum inputs");
+  }
+
+  // Add edge
+  ProjectDAGEdge edge;
+  edge.source_node_id = source_node_id;
+  edge.target_node_id = target_node_id;
+  project.edges_.push_back(edge);
+  project.is_modified_ = true;
 }
 
-void remove_edge(Project& project, NodeID source_node_id, NodeID target_node_id) {
-    // Find and remove the edge
-    auto edge_it = std::find_if(project.edges_.begin(), project.edges_.end(),
-        [&source_node_id, &target_node_id](const ProjectDAGEdge& e) {
-            return e.source_node_id == source_node_id && e.target_node_id == target_node_id;
-        });
-    
-    if (edge_it == project.edges_.end()) {
-        throw std::runtime_error("Edge not found");
-    }
-    
-    project.edges_.erase(edge_it);
-    project.is_modified_ = true;
+void remove_edge(Project& project, NodeID source_node_id,
+                 NodeID target_node_id) {
+  // Find and remove the edge
+  auto edge_it =
+      std::find_if(project.edges_.begin(), project.edges_.end(),
+                   [&source_node_id, &target_node_id](const ProjectDAGEdge& e) {
+                     return e.source_node_id == source_node_id &&
+                            e.target_node_id == target_node_id;
+                   });
+
+  if (edge_it == project.edges_.end()) {
+    throw std::runtime_error("Edge not found");
+  }
+
+  project.edges_.erase(edge_it);
+  project.is_modified_ = true;
 }
 
 void clear_project(Project& project) {
-    project.name_.clear();
-    project.version_.clear();
-    project.nodes_.clear();
-    project.edges_.clear();
-    project.clear_modified_flag();
+  project.name_.clear();
+  project.version_.clear();
+  project.nodes_.clear();
+  project.edges_.clear();
+  project.clear_modified_flag();
 }
 
 void set_project_name(Project& project, const std::string& name) {
-    if (name.empty()) {
-        throw std::invalid_argument("Project name cannot be empty");
-    }
-    project.name_ = name;
-    project.is_modified_ = true;
+  if (name.empty()) {
+    throw std::invalid_argument("Project name cannot be empty");
+  }
+  project.name_ = name;
+  project.is_modified_ = true;
 }
 
 void set_project_description(Project& project, const std::string& description) {
-    project.description_ = description;
-    project.is_modified_ = true;
+  project.description_ = description;
+  project.is_modified_ = true;
 }
 
 void set_video_format(Project& project, VideoSystem video_format) {
-    project.video_format_ = video_format;
-    project.is_modified_ = true;
+  project.video_format_ = video_format;
+  project.is_modified_ = true;
 }
 
 void set_source_format(Project& project, SourceType source_format) {
-    project.source_format_ = source_format;
-    project.is_modified_ = true;
+  project.source_format_ = source_format;
+  project.is_modified_ = true;
 }
 
-bool can_trigger_node(const Project& project, NodeID node_id, std::string* reason) {
-    // Find the node
-    auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (it == project.nodes_.end()) {
-        if (reason) *reason = "Node not found";
-        return false;
-    }
-    
-    // Check if stage is triggerable
-    try {
-        auto stage = StageRegistry::instance().create_stage(it->stage_name);
-        if (!stage) {
-            if (reason) *reason = "Failed to create stage";
-            return false;
-        }
-        
-        auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
-        if (!trigger_stage) {
-            if (reason) *reason = "Stage is not triggerable";
-            return false;
-        }
-        
-        if (reason) *reason = "";
-        return true;
-    } catch (const std::exception& e) {
-        if (reason) *reason = std::string("Error: ") + e.what();
-        return false;
-    }
-}
+bool can_trigger_node(const Project& project, NodeID node_id,
+                      std::string* reason) {
+  // Find the node
+  auto it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
 
-bool trigger_node(Project& project, NodeID node_id, std::string& status_out, TriggerProgressCallback progress_callback) {
-    // Find the node
-    auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (it == project.nodes_.end()) {
-        status_out = "Node not found";
-        throw std::runtime_error("Node '" + node_id.to_string() + "' not found");
-    }
-    
-    // Get stage instance
+  if (it == project.nodes_.end()) {
+    if (reason) *reason = "Node not found";
+    return false;
+  }
+
+  // Check if stage is triggerable
+  try {
     auto stage = StageRegistry::instance().create_stage(it->stage_name);
     if (!stage) {
-        status_out = "Failed to create stage";
-        throw std::runtime_error("Failed to create stage '" + it->stage_name + "'");
+      if (reason) *reason = "Failed to create stage";
+      return false;
     }
-    
-    // Check if triggerable
+
     auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
     if (!trigger_stage) {
-        status_out = "Stage is not triggerable";
-        throw std::runtime_error("Stage is not triggerable");
+      if (reason) *reason = "Stage is not triggerable";
+      return false;
     }
-    
-    // Set progress callback if provided
-    if (progress_callback) {
-        trigger_stage->set_progress_callback(progress_callback);
-    }
-    
-    // Build DAG
-    auto dag = project_to_dag(project);
-    
-    // CRITICAL: Keep executor alive during trigger to prevent dangling pointers
-    // Artifacts from execute_to_node may contain representations (like CorrectedVideoFieldRepresentation)
-    // that hold raw pointers to stages owned by the executor/DAG. These stages must outlive the trigger operation.
-    auto executor = std::make_shared<DAGExecutor>();
-    
-    // Get inputs by executing to predecessor nodes
-    std::vector<ArtifactPtr> inputs;
-    for (const auto& edge : project.edges_) {
-        if (edge.target_node_id == node_id) {
-            auto node_outputs = executor->execute_to_node(*dag, edge.source_node_id);
-            if (node_outputs.find(edge.source_node_id) != node_outputs.end()) {
-                auto& outputs = node_outputs[edge.source_node_id];
-                // For now, assume single output per stage (most common case)
-                if (!outputs.empty()) {
-                    inputs.push_back(outputs[0]);
-                }
-            }
+
+    if (reason) *reason = "";
+    return true;
+  } catch (const std::exception& e) {
+    if (reason) *reason = std::string("Error: ") + e.what();
+    return false;
+  }
+}
+
+bool trigger_node(Project& project, NodeID node_id, std::string& status_out,
+                  TriggerProgressCallback progress_callback) {
+  // Find the node
+  auto it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+
+  if (it == project.nodes_.end()) {
+    status_out = "Node not found";
+    throw std::runtime_error("Node '" + node_id.to_string() + "' not found");
+  }
+
+  // Get stage instance
+  auto stage = StageRegistry::instance().create_stage(it->stage_name);
+  if (!stage) {
+    status_out = "Failed to create stage";
+    throw std::runtime_error("Failed to create stage '" + it->stage_name + "'");
+  }
+
+  // Check if triggerable
+  auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
+  if (!trigger_stage) {
+    status_out = "Stage is not triggerable";
+    throw std::runtime_error("Stage is not triggerable");
+  }
+
+  // Set progress callback if provided
+  if (progress_callback) {
+    trigger_stage->set_progress_callback(progress_callback);
+  }
+
+  // Build DAG
+  auto dag = project_to_dag(project);
+
+  // CRITICAL: Keep executor alive during trigger to prevent dangling pointers
+  // Artifacts from execute_to_node may contain representations (like
+  // CorrectedVideoFieldRepresentation) that hold raw pointers to stages owned
+  // by the executor/DAG. These stages must outlive the trigger operation.
+  auto executor = std::make_shared<DAGExecutor>();
+
+  // Get inputs by executing to predecessor nodes
+  std::vector<ArtifactPtr> inputs;
+  for (const auto& edge : project.edges_) {
+    if (edge.target_node_id == node_id) {
+      auto node_outputs = executor->execute_to_node(*dag, edge.source_node_id);
+      if (node_outputs.find(edge.source_node_id) != node_outputs.end()) {
+        auto& outputs = node_outputs[edge.source_node_id];
+        // For now, assume single output per stage (most common case)
+        if (!outputs.empty()) {
+          inputs.push_back(outputs[0]);
         }
+      }
     }
-    
-    if (inputs.empty()) {
-        status_out = "No inputs available";
-        throw std::runtime_error("No inputs for node '" + node_id.to_string() + "'");
-    }
-    
-    // Trigger (DAG and executor stay alive, keeping stage instances valid)
-    ObservationContext observation_context;
-    bool success = trigger_stage->trigger(inputs, it->parameters, observation_context);
-    status_out = trigger_stage->get_trigger_status();
-    
-    // DAG and executor destroyed here AFTER trigger completes, ensuring stages outlive artifacts
-    return success;
+  }
+
+  if (inputs.empty()) {
+    status_out = "No inputs available";
+    throw std::runtime_error("No inputs for node '" + node_id.to_string() +
+                             "'");
+  }
+
+  // Trigger (DAG and executor stay alive, keeping stage instances valid)
+  ObservationContext observation_context;
+  bool success =
+      trigger_stage->trigger(inputs, it->parameters, observation_context);
+  status_out = trigger_stage->get_trigger_status();
+
+  // DAG and executor destroyed here AFTER trigger completes, ensuring stages
+  // outlive artifacts
+  return success;
 }
 
 std::future<std::pair<bool, std::string>> trigger_node_async(
-    Project& project,
-    NodeID node_id,
-    TriggerProgressCallback progress_callback)
-{
-    // Build DAG and get inputs BEFORE launching async task
-    // This ensures the DAG's lifetime is managed by the async task
-    auto dag = project_to_dag(project);
-    auto executor = std::make_shared<DAGExecutor>();
-    
-    // Get inputs by executing to predecessor nodes
-    std::vector<ArtifactPtr> inputs;
-    const auto& edges = project.get_edges();
-    for (const auto& edge : edges) {
-        if (edge.target_node_id == node_id) {
-            auto node_outputs = executor->execute_to_node(*dag, edge.source_node_id);
-            if (node_outputs.find(edge.source_node_id) != node_outputs.end()) {
-                auto& outputs = node_outputs[edge.source_node_id];
-                if (!outputs.empty()) {
-                    inputs.push_back(outputs[0]);
-                }
-            }
+    Project& project, NodeID node_id,
+    TriggerProgressCallback progress_callback) {
+  // Build DAG and get inputs BEFORE launching async task
+  // This ensures the DAG's lifetime is managed by the async task
+  auto dag = project_to_dag(project);
+  auto executor = std::make_shared<DAGExecutor>();
+
+  // Get inputs by executing to predecessor nodes
+  std::vector<ArtifactPtr> inputs;
+  const auto& edges = project.get_edges();
+  for (const auto& edge : edges) {
+    if (edge.target_node_id == node_id) {
+      auto node_outputs = executor->execute_to_node(*dag, edge.source_node_id);
+      if (node_outputs.find(edge.source_node_id) != node_outputs.end()) {
+        auto& outputs = node_outputs[edge.source_node_id];
+        if (!outputs.empty()) {
+          inputs.push_back(outputs[0]);
         }
+      }
     }
-    
-    // Launch async task, capturing DAG and inputs to keep stages alive
-    return std::async(std::launch::async, [dag, node_id, inputs, progress_callback]() -> std::pair<bool, std::string> {
+  }
+
+  // Launch async task, capturing DAG and inputs to keep stages alive
+  return std::async(
+      std::launch::async,
+      [dag, node_id, inputs,
+       progress_callback]() -> std::pair<bool, std::string> {
         try {
-            // Find the target node in the DAG
-            const DAGNode* target_node = nullptr;
-            for (const auto& node : dag->nodes()) {
-                if (node.node_id == node_id) {
-                    target_node = &node;
-                    break;
-                }
+          // Find the target node in the DAG
+          const DAGNode* target_node = nullptr;
+          for (const auto& node : dag->nodes()) {
+            if (node.node_id == node_id) {
+              target_node = &node;
+              break;
             }
-            
-            if (!target_node) {
-                return {false, "Node not found in DAG"};
-            }
-            
-            auto trigger_stage = dynamic_cast<TriggerableStage*>(target_node->stage.get());
-            if (!trigger_stage) {
-                return {false, "Stage is not triggerable"};
-            }
-            
-            if (progress_callback) {
-                trigger_stage->set_progress_callback(progress_callback);
-            }
-            
-            ObservationContext observation_context;
-            bool success = trigger_stage->trigger(inputs, target_node->parameters, observation_context);
-            std::string status = trigger_stage->get_trigger_status();
-            
-            // DAG will be destroyed here, keeping stages alive throughout trigger
-            return {success, status};
-            
+          }
+
+          if (!target_node) {
+            return {false, "Node not found in DAG"};
+          }
+
+          auto trigger_stage =
+              dynamic_cast<TriggerableStage*>(target_node->stage.get());
+          if (!trigger_stage) {
+            return {false, "Stage is not triggerable"};
+          }
+
+          if (progress_callback) {
+            trigger_stage->set_progress_callback(progress_callback);
+          }
+
+          ObservationContext observation_context;
+          bool success = trigger_stage->trigger(inputs, target_node->parameters,
+                                                observation_context);
+          std::string status = trigger_stage->get_trigger_status();
+
+          // DAG will be destroyed here, keeping stages alive throughout trigger
+          return {success, status};
+
         } catch (const std::exception& e) {
-            return {false, std::string("Exception: ") + e.what()};
+          return {false, std::string("Exception: ") + e.what()};
         }
-    });
+      });
 }
 
 std::string find_source_file_for_node(const Project& project, NodeID node_id) {
-    // Find node
-    auto node_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (node_it == project.nodes_.end()) {
-        return "";
-    }
-    
-    // Check if this node has input_path
-    auto param_it = node_it->parameters.find("input_path");
-    if (param_it != node_it->parameters.end()) {
-        if (auto* path = std::get_if<std::string>(&param_it->second)) {
-            return *path;
-        }
-    }
-    
-    // Trace back through DAG
-    std::queue<NodeID> to_visit;
-    std::set<NodeID> visited;
-    
-    for (const auto& edge : project.edges_) {
-        if (edge.target_node_id == node_id) {
-            to_visit.push(edge.source_node_id);
-        }
-    }
-    
-    while (!to_visit.empty()) {
-        NodeID current_id = to_visit.front();
-        to_visit.pop();
-        
-        if (visited.count(current_id)) continue;
-        visited.insert(current_id);
-        
-        auto current_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-            [&current_id](const ProjectDAGNode& n) { return n.node_id == current_id; });
-        
-        if (current_it != project.nodes_.end()) {
-            auto path_param = current_it->parameters.find("input_path");
-            if (path_param != current_it->parameters.end()) {
-                if (auto* path = std::get_if<std::string>(&path_param->second)) {
-                    return *path;
-                }
-            }
-            
-            for (const auto& edge : project.edges_) {
-                if (edge.target_node_id == current_id) {
-                    to_visit.push(edge.source_node_id);
-                }
-            }
-        }
-    }
-    
+  // Find node
+  auto node_it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+
+  if (node_it == project.nodes_.end()) {
     return "";
+  }
+
+  // Check if this node has input_path
+  auto param_it = node_it->parameters.find("input_path");
+  if (param_it != node_it->parameters.end()) {
+    if (auto* path = std::get_if<std::string>(&param_it->second)) {
+      return *path;
+    }
+  }
+
+  // Trace back through DAG
+  std::queue<NodeID> to_visit;
+  std::set<NodeID> visited;
+
+  for (const auto& edge : project.edges_) {
+    if (edge.target_node_id == node_id) {
+      to_visit.push(edge.source_node_id);
+    }
+  }
+
+  while (!to_visit.empty()) {
+    NodeID current_id = to_visit.front();
+    to_visit.pop();
+
+    if (visited.count(current_id)) continue;
+    visited.insert(current_id);
+
+    auto current_it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
+                                   [&current_id](const ProjectDAGNode& n) {
+                                     return n.node_id == current_id;
+                                   });
+
+    if (current_it != project.nodes_.end()) {
+      auto path_param = current_it->parameters.find("input_path");
+      if (path_param != current_it->parameters.end()) {
+        if (auto* path = std::get_if<std::string>(&path_param->second)) {
+          return *path;
+        }
+      }
+
+      for (const auto& edge : project.edges_) {
+        if (edge.target_node_id == current_id) {
+          to_visit.push(edge.source_node_id);
+        }
+      }
+    }
+  }
+
+  return "";
 }
 
 NodeCapabilities get_node_capabilities(const Project& project, NodeID node_id) {
-    NodeCapabilities caps;
-    caps.node_id = node_id;
-    
-    // Find the node
-    auto it = std::find_if(project.nodes_.begin(), project.nodes_.end(),
-        [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
-    
-    if (it == project.nodes_.end()) {
-        caps.remove_reason = "Node not found";
-        caps.trigger_reason = "Node not found";
-        caps.inspect_reason = "Node not found";
-        return caps;
-    }
-    
-    caps.stage_name = it->stage_name;
-    caps.node_label = it->user_label.empty() ? it->display_name : it->user_label;
-    
-    // Check can_remove - cannot remove if node has connections
-    bool has_connections = false;
-    for (const auto& edge : project.edges_) {
-        if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
-            has_connections = true;
-            break;
-        }
-    }
-    caps.can_remove = !has_connections;
-    if (has_connections) {
-        caps.remove_reason = "Cannot remove connected node";
-    }
-    
-    // Check can_trigger - must be TriggerableStage
-    try {
-        auto stage = StageRegistry::instance().create_stage(it->stage_name);
-        if (stage) {
-            auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
-            caps.can_trigger = (trigger_stage != nullptr);
-            if (!caps.can_trigger) {
-                caps.trigger_reason = "Stage is not triggerable";
-            } else {
-                // For sink stages, check if output filename is set
-                auto node_type = stage->get_node_type_info().type;
-                if (node_type == NodeType::SINK) {
-                    // All sink stages use "output_path" parameter
-                    auto param_it = it->parameters.find("output_path");
-                    bool has_output = false;
-                    
-                    if (param_it != it->parameters.end() && 
-                        std::holds_alternative<std::string>(param_it->second)) {
-                        std::string path = std::get<std::string>(param_it->second);
-                        has_output = !path.empty();
-                    }
-                    
-                    if (!has_output) {
-                        caps.can_trigger = false;
-                        caps.trigger_reason = "No output filename specified";
-                    }
-                }
-            }
-            
-            // Check can_inspect - must have generate_report
-            caps.can_inspect = stage->generate_report().has_value();
-            if (!caps.can_inspect) {
-                caps.inspect_reason = "Stage does not support inspection";
-            }
-        } else {
-            caps.trigger_reason = "Failed to create stage";
-            caps.inspect_reason = "Failed to create stage";
-        }
-    } catch (const std::exception& e) {
-        caps.trigger_reason = std::string("Error: ") + e.what();
-        caps.inspect_reason = std::string("Error: ") + e.what();
-    }
-    
+  NodeCapabilities caps;
+  caps.node_id = node_id;
+
+  // Find the node
+  auto it = std::find_if(
+      project.nodes_.begin(), project.nodes_.end(),
+      [&node_id](const ProjectDAGNode& n) { return n.node_id == node_id; });
+
+  if (it == project.nodes_.end()) {
+    caps.remove_reason = "Node not found";
+    caps.trigger_reason = "Node not found";
+    caps.inspect_reason = "Node not found";
     return caps;
+  }
+
+  caps.stage_name = it->stage_name;
+  caps.node_label = it->user_label.empty() ? it->display_name : it->user_label;
+
+  // Check can_remove - cannot remove if node has connections
+  bool has_connections = false;
+  for (const auto& edge : project.edges_) {
+    if (edge.source_node_id == node_id || edge.target_node_id == node_id) {
+      has_connections = true;
+      break;
+    }
+  }
+  caps.can_remove = !has_connections;
+  if (has_connections) {
+    caps.remove_reason = "Cannot remove connected node";
+  }
+
+  // Check can_trigger - must be TriggerableStage
+  try {
+    auto stage = StageRegistry::instance().create_stage(it->stage_name);
+    if (stage) {
+      auto* trigger_stage = dynamic_cast<TriggerableStage*>(stage.get());
+      caps.can_trigger = (trigger_stage != nullptr);
+      if (!caps.can_trigger) {
+        caps.trigger_reason = "Stage is not triggerable";
+      } else {
+        // For sink stages, check if output filename is set
+        auto node_type = stage->get_node_type_info().type;
+        if (node_type == NodeType::SINK) {
+          // All sink stages use "output_path" parameter
+          auto param_it = it->parameters.find("output_path");
+          bool has_output = false;
+
+          if (param_it != it->parameters.end() &&
+              std::holds_alternative<std::string>(param_it->second)) {
+            std::string path = std::get<std::string>(param_it->second);
+            has_output = !path.empty();
+          }
+
+          if (!has_output) {
+            caps.can_trigger = false;
+            caps.trigger_reason = "No output filename specified";
+          }
+        }
+      }
+
+      // Check can_inspect - must have generate_report
+      caps.can_inspect = stage->generate_report().has_value();
+      if (!caps.can_inspect) {
+        caps.inspect_reason = "Stage does not support inspection";
+      }
+    } else {
+      caps.trigger_reason = "Failed to create stage";
+      caps.inspect_reason = "Failed to create stage";
+    }
+  } catch (const std::exception& e) {
+    caps.trigger_reason = std::string("Error: ") + e.what();
+    caps.inspect_reason = std::string("Error: ") + e.what();
+  }
+
+  return caps;
 }
 
-} // namespace project_io
-} // namespace orc
+}  // namespace project_io
+}  // namespace orc

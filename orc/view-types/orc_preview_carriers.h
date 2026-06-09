@@ -10,8 +10,8 @@
 #pragma once
 
 #include <cstdint>
-#include <vector>
 #include <optional>
+#include <vector>
 
 #include "orc_preview_types.h"
 #include "orc_vectorscope.h"
@@ -27,42 +27,43 @@ namespace orc {
  * the rendering boundary.
  */
 struct ColourFrameCarrier {
-    VideoDataType          data_type{VideoDataType::ColourNTSC};
-    ColorimetricMetadata   colorimetry{};
-    VideoSystem            system{VideoSystem::Unknown};
+  VideoDataType data_type{VideoDataType::ColourNTSC};
+  ColorimetricMetadata colorimetry{};
+  VideoSystem system{VideoSystem::Unknown};
 
-    uint64_t               frame_index{0};
-    uint32_t               width{0};
-    uint32_t               height{0};
-    uint32_t               active_x_start{0};
-    uint32_t               active_x_end{0};
-    uint32_t               active_y_start{0};
-    uint32_t               active_y_end{0};
+  uint64_t frame_index{0};
+  uint32_t width{0};
+  uint32_t height{0};
+  uint32_t active_x_start{0};
+  uint32_t active_x_end{0};
+  uint32_t active_y_start{0};
+  uint32_t active_y_end{0};
 
-    // Decoder-domain component planes. Each plane is width * height samples.
-    std::vector<double>    y_plane;
-    std::vector<double>    u_plane;
-    std::vector<double>    v_plane;
+  // Decoder-domain component planes. Each plane is width * height samples.
+  std::vector<double> y_plane;
+  std::vector<double> u_plane;
+  std::vector<double> v_plane;
 
-    std::optional<VectorscopeData> vectorscope_data;
+  std::optional<VectorscopeData> vectorscope_data;
 
-    // Signal anchor points used to normalize Y/U/V before matrix conversion.
-    double                 black_16b_ire{0.0};
-    double                 white_16b_ire{65535.0};
+  // Signal anchor points used to normalize Y/U/V before matrix conversion.
+  double black_16b_ire{0.0};
+  double white_16b_ire{65535.0};
 
-    bool is_valid() const
-    {
-        if (width == 0 || height == 0) {
-            return false;
-        }
-
-        const size_t expected = static_cast<size_t>(width) * static_cast<size_t>(height);
-        if (y_plane.size() != expected || u_plane.size() != expected || v_plane.size() != expected) {
-            return false;
-        }
-
-        return white_16b_ire > black_16b_ire;
+  bool is_valid() const {
+    if (width == 0 || height == 0) {
+      return false;
     }
+
+    const size_t expected =
+        static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (y_plane.size() != expected || u_plane.size() != expected ||
+        v_plane.size() != expected) {
+      return false;
+    }
+
+    return white_16b_ire > black_16b_ire;
+  }
 };
 
-} // namespace orc
+}  // namespace orc

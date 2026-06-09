@@ -9,23 +9,23 @@
 
 #pragma once
 
-#include <string>
 #include <functional>
+#include <string>
 
 namespace orc {
 
 struct CrashHandlerConfig {
-    std::string application_name;
-    std::string version;
-    std::string output_directory;
-    std::string primary_log_file;
-    bool enable_coredump{false};
-    bool auto_upload_info{false};
-    std::function<std::string()> custom_info_callback;
+  std::string application_name;
+  std::string version;
+  std::string output_directory;
+  std::string primary_log_file;
+  bool enable_coredump{false};
+  bool auto_upload_info{false};
+  std::function<std::string()> custom_info_callback;
 };
 
 bool init_crash_handler(const CrashHandlerConfig& config);
 std::string create_crash_bundle(const std::string& description);
 void cleanup_crash_handler();
 
-} // namespace orc
+}  // namespace orc

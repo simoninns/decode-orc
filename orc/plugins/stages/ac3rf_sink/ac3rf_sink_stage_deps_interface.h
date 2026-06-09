@@ -10,28 +10,26 @@
 #ifndef ORC_CORE_AC3RF_SINK_STAGE_DEPS_INTERFACE_H
 #define ORC_CORE_AC3RF_SINK_STAGE_DEPS_INTERFACE_H
 
-#include "video_field_representation.h"
 #include <cstdint>
 #include <string>
 
-namespace orc
-{
-    struct AC3RFSinkDecodeResult
-    {
-        bool success{false};
-        uint64_t frames_written{0};
-        std::string status_message;
-    };
+#include "video_field_representation.h"
 
-    class IAC3RFSinkStageDeps
-    {
-    public:
-        virtual ~IAC3RFSinkStageDeps() = default;
+namespace orc {
+struct AC3RFSinkDecodeResult {
+  bool success{false};
+  uint64_t frames_written{0};
+  std::string status_message;
+};
 
-        virtual AC3RFSinkDecodeResult decode_and_write_ac3(
-            const VideoFieldRepresentation* representation,
-            const std::string& output_path) = 0;
-    };
-} // namespace orc
+class IAC3RFSinkStageDeps {
+ public:
+  virtual ~IAC3RFSinkStageDeps() = default;
 
-#endif // ORC_CORE_AC3RF_SINK_STAGE_DEPS_INTERFACE_H
+  virtual AC3RFSinkDecodeResult decode_and_write_ac3(
+      const VideoFieldRepresentation* representation,
+      const std::string& output_path) = 0;
+};
+}  // namespace orc
+
+#endif  // ORC_CORE_AC3RF_SINK_STAGE_DEPS_INTERFACE_H

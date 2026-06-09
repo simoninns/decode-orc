@@ -14,4 +14,4 @@
 // This header exists for backward compatibility with core code
 #include <common_types.h>
 
-#endif // ORC_CORE_BURST_LEVEL_ANALYSIS_TYPES_H
+#endif  // ORC_CORE_BURST_LEVEL_ANALYSIS_TYPES_H

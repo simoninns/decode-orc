@@ -11,52 +11,53 @@
 
 #include <deque>
 #include <vector>
+
 #include "decoders.h"
 #include "sector.h"
 
-class Data24ToRawSector : public Decoder
-{
-public:
-    Data24ToRawSector();
-    void pushSection(const Data24Section &data24Section);
-    RawSector popSector();
-    bool isReady() const;
+class Data24ToRawSector : public Decoder {
+ public:
+  Data24ToRawSector();
+  void pushSection(const Data24Section& data24Section);
+  RawSector popSector();
+  bool isReady() const;
 
-    void showStatistics() const;
+  void showStatistics() const;
 
-private:
-    void processStateMachine();
+ private:
+  void processStateMachine();
 
-    std::deque<Data24Section> m_inputBuffer;
-    std::deque<RawSector> m_outputBuffer;
+  std::deque<Data24Section> m_inputBuffer;
+  std::deque<RawSector> m_outputBuffer;
 
-    // State machine states
-    enum State { WaitingForSync, InSync, LostSync };
+  // State machine states
+  enum State { WaitingForSync, InSync, LostSync };
 
-    State m_currentState;
+  State m_currentState;
 
-    // 12 byte sync pattern
-    const std::vector<uint8_t> m_syncPattern{0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
+  // 12 byte sync pattern
+  const std::vector<uint8_t> m_syncPattern{0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                                           0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00};
 
-    // Sector data buffer
-    std::vector<uint8_t> m_sectorData;
-    std::vector<uint8_t> m_sectorErrorData;
-    std::vector<uint8_t> m_sectorPaddedData;
+  // Sector data buffer
+  std::vector<uint8_t> m_sectorData;
+  std::vector<uint8_t> m_sectorErrorData;
+  std::vector<uint8_t> m_sectorPaddedData;
 
-    // State machine state processing functions
-    State waitingForSync();
-    State inSync();
-    State lostSync();
+  // State machine state processing functions
+  State waitingForSync();
+  State inSync();
+  State lostSync();
 
-    uint32_t m_missedSyncPatternCount;
-    uint32_t m_goodSyncPatternCount;
-    uint32_t m_badSyncPatternCount;
+  uint32_t m_missedSyncPatternCount;
+  uint32_t m_goodSyncPatternCount;
+  uint32_t m_badSyncPatternCount;
 
-    // Statistics
-    uint32_t m_validSectorCount;
-    uint32_t m_discardedBytes;
-    uint32_t m_discardedPaddingBytes;
-    uint32_t m_syncLostCount;
+  // Statistics
+  uint32_t m_validSectorCount;
+  uint32_t m_discardedBytes;
+  uint32_t m_discardedPaddingBytes;
+  uint32_t m_syncLostCount;
 };
 
-#endif // DEC_DATA24TORAWSECTOR_H
+#endif  // DEC_DATA24TORAWSECTOR_H

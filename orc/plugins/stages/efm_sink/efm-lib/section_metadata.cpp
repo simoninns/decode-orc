@@ -7,26 +7,27 @@
  */
 
 #include "section_metadata.h"
-#include "hex_utils.h"
-#include "logging.h"
+
 #include <cstdlib>
 #include <iomanip>
 #include <sstream>
 
+#include "hex_utils.h"
+#include "logging.h"
+
 // SectionType class
 // ---------------------------------------------------------------------------------------------------
-std::string SectionType::toString() const
-{
-    switch (m_type) {
+std::string SectionType::toString() const {
+  switch (m_type) {
     case LeadIn:
-        return "LEAD_IN";
+      return "LEAD_IN";
     case LeadOut:
-        return "LEAD_OUT";
+      return "LEAD_OUT";
     case UserData:
-        return "USER_DATA";
+      return "USER_DATA";
     default:
-        return "UNKNOWN";
-    }
+      return "UNKNOWN";
+  }
 }
 
 // Stream operators for SectionType
@@ -49,100 +50,103 @@ QDataStream &operator<<(QDataStream &out, const SectionType &type)
 
 // Section time class
 // ---------------------------------------------------------------------------------------------------
-SectionTime::SectionTime() : m_frames(0)
-{
-    // There are 75 frames per second, 60 seconds per minute, and 60 minutes per hour
-    // so the maximum number of frames is 75 * 60 * 60 = 270000
-    if (m_frames < 0 || m_frames >= 270000) {
-        ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}", m_frames);
-        std::exit(1);
-    }
+SectionTime::SectionTime() : m_frames(0) {
+  // There are 75 frames per second, 60 seconds per minute, and 60 minutes per
+  // hour so the maximum number of frames is 75 * 60 * 60 = 270000
+  if (m_frames < 0 || m_frames >= 270000) {
+    ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}",
+                  m_frames);
+    std::exit(1);
+  }
 }
 
-SectionTime::SectionTime(int32_t frames) : m_frames(frames)
-{
-    if (m_frames < 0 || m_frames >= 270000) {
-        ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}", m_frames);
-        std::exit(1);
-    }
+SectionTime::SectionTime(int32_t frames) : m_frames(frames) {
+  if (m_frames < 0 || m_frames >= 270000) {
+    ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}",
+                  m_frames);
+    std::exit(1);
+  }
 }
 
-SectionTime::SectionTime(uint8_t minutes, uint8_t seconds, uint8_t frames)
-{
-    setTime(minutes, seconds, frames);
+SectionTime::SectionTime(uint8_t minutes, uint8_t seconds, uint8_t frames) {
+  setTime(minutes, seconds, frames);
 }
 
-void SectionTime::setFrames(int32_t frames)
-{
-    if (frames < 0 || frames >= 270000) {
-        ORC_LOG_ERROR("SectionTime::setFrames(): Invalid frame value of {}", frames);
-        std::exit(1);
-    }
+void SectionTime::setFrames(int32_t frames) {
+  if (frames < 0 || frames >= 270000) {
+    ORC_LOG_ERROR("SectionTime::setFrames(): Invalid frame value of {}",
+                  frames);
+    std::exit(1);
+  }
 
-    m_frames = frames;
+  m_frames = frames;
 }
 
-void SectionTime::setTime(uint8_t minutes, uint8_t seconds, uint8_t frames)
-{
-    // Set the time in minutes, seconds, and frames
+void SectionTime::setTime(uint8_t minutes, uint8_t seconds, uint8_t frames) {
+  // Set the time in minutes, seconds, and frames
 
-    // Ensure the time is sane
-    if (minutes >= 60) {
-        ORC_LOG_DEBUG("SectionTime::setTime(): Invalid minutes value {}, setting to 59", minutes);
-        minutes = 59;
-    }
-    if (seconds >= 60) {
-        ORC_LOG_DEBUG("SectionTime::setTime(): Invalid seconds value {}, setting to 59", seconds);
-        seconds = 59;
-    }
-    if (frames >= 75) {
-        ORC_LOG_DEBUG("SectionTime::setTime(): Invalid frames value {}, setting to 74", frames);
-        frames = 74;
-    }
+  // Ensure the time is sane
+  if (minutes >= 60) {
+    ORC_LOG_DEBUG(
+        "SectionTime::setTime(): Invalid minutes value {}, setting to 59",
+        minutes);
+    minutes = 59;
+  }
+  if (seconds >= 60) {
+    ORC_LOG_DEBUG(
+        "SectionTime::setTime(): Invalid seconds value {}, setting to 59",
+        seconds);
+    seconds = 59;
+  }
+  if (frames >= 75) {
+    ORC_LOG_DEBUG(
+        "SectionTime::setTime(): Invalid frames value {}, setting to 74",
+        frames);
+    frames = 74;
+  }
 
-    m_frames = (minutes * 60 + seconds) * 75 + frames;
+  m_frames = (minutes * 60 + seconds) * 75 + frames;
 }
 
-std::string SectionTime::toString() const
-{
-    // Return the time in the format MM:SS:FF
-    return HexUtils::formatTime(m_frames / (75 * 60), (m_frames / 75) % 60, m_frames % 75);
+std::string SectionTime::toString() const {
+  // Return the time in the format MM:SS:FF
+  return HexUtils::formatTime(m_frames / (75 * 60), (m_frames / 75) % 60,
+                              m_frames % 75);
 }
 
-std::vector<uint8_t> SectionTime::toBcd() const
-{
-    // Return 3 bytes of BCD data representing the time as MM:SS:FF
-    std::vector<uint8_t> bcd;
+std::vector<uint8_t> SectionTime::toBcd() const {
+  // Return 3 bytes of BCD data representing the time as MM:SS:FF
+  std::vector<uint8_t> bcd;
 
-    uint32_t mins = m_frames / (75 * 60);
-    uint32_t secs = (m_frames / 75) % 60;
-    uint32_t frms = m_frames % 75;
+  uint32_t mins = m_frames / (75 * 60);
+  uint32_t secs = (m_frames / 75) % 60;
+  uint32_t frms = m_frames % 75;
 
-    bcd.push_back(intToBcd(mins));
-    bcd.push_back(intToBcd(secs));
-    bcd.push_back(intToBcd(frms));
+  bcd.push_back(intToBcd(mins));
+  bcd.push_back(intToBcd(secs));
+  bcd.push_back(intToBcd(frms));
 
-    return bcd;
+  return bcd;
 }
 
-uint8_t SectionTime::intToBcd(uint32_t value)
-{
-    if (value > 99) {
-        ORC_LOG_ERROR("SectionTime::intToBcd(): Value must be in the range 0 to 99.");
-        std::exit(1);
-    }
+uint8_t SectionTime::intToBcd(uint32_t value) {
+  if (value > 99) {
+    ORC_LOG_ERROR(
+        "SectionTime::intToBcd(): Value must be in the range 0 to 99.");
+    std::exit(1);
+  }
 
-    uint16_t bcd = 0;
-    uint16_t factor = 1;
+  uint16_t bcd = 0;
+  uint16_t factor = 1;
 
-    while (value > 0) {
-        bcd += (value % 10) * factor;
-        value /= 10;
-        factor *= 16;
-    }
+  while (value > 0) {
+    bcd += (value % 10) * factor;
+    value /= 10;
+    factor *= 16;
+  }
 
-    // Ensure the result is always 1 byte (00-99)
-    return bcd & 0xFF;
+  // Ensure the result is always 1 byte (00-99)
+  return bcd & 0xFF;
 }
 
 // Stream operators for SectionTime
@@ -165,51 +169,70 @@ QDataStream &operator<<(QDataStream &out, const SectionTime &time)
 
 // Section metadata class
 // -----------------------------------------------------------------------------------------------
-void SectionMetadata::setSectionType(const SectionType &sectionType, uint8_t trackNumber)
-{
-    m_trackNumber = trackNumber;
-    m_sectionType = sectionType;
+void SectionMetadata::setSectionType(const SectionType& sectionType,
+                                     uint8_t trackNumber) {
+  m_trackNumber = trackNumber;
+  m_sectionType = sectionType;
 
-    // Ensure track number is sane
-    if (m_sectionType.type() == SectionType::LeadIn) {
-        if (m_trackNumber != 0) {
-            ORC_LOG_DEBUG("SectionMetadata::setSectionType(): Setting track number to 0 for LeadIn section (was {})", m_trackNumber);
-            m_trackNumber = 0;
-        }
+  // Ensure track number is sane
+  if (m_sectionType.type() == SectionType::LeadIn) {
+    if (m_trackNumber != 0) {
+      ORC_LOG_DEBUG(
+          "SectionMetadata::setSectionType(): Setting track number to 0 for "
+          "LeadIn section (was {})",
+          m_trackNumber);
+      m_trackNumber = 0;
     }
-    if (m_sectionType.type() == SectionType::LeadOut) {
-        if (m_trackNumber != 0) {
-            ORC_LOG_DEBUG("SectionMetadata::setSectionType(): Setting track number to 0 for LeadOut section (was {})", m_trackNumber);
-            m_trackNumber = 0;
-        }
+  }
+  if (m_sectionType.type() == SectionType::LeadOut) {
+    if (m_trackNumber != 0) {
+      ORC_LOG_DEBUG(
+          "SectionMetadata::setSectionType(): Setting track number to 0 for "
+          "LeadOut section (was {})",
+          m_trackNumber);
+      m_trackNumber = 0;
     }
-    if ((m_sectionType.type() == SectionType::UserData) && (m_trackNumber < 1 || m_trackNumber > 98)) {
-        ORC_LOG_DEBUG("SectionMetadata::setSectionType(): Setting track number to 1 for UserData section (was {})", m_trackNumber);
-        m_trackNumber = 1;
-    }
+  }
+  if ((m_sectionType.type() == SectionType::UserData) &&
+      (m_trackNumber < 1 || m_trackNumber > 98)) {
+    ORC_LOG_DEBUG(
+        "SectionMetadata::setSectionType(): Setting track number to 1 for "
+        "UserData section (was {})",
+        m_trackNumber);
+    m_trackNumber = 1;
+  }
 }
 
-void SectionMetadata::setTrackNumber(uint8_t trackNumber)
-{
-    m_trackNumber = trackNumber;
+void SectionMetadata::setTrackNumber(uint8_t trackNumber) {
+  m_trackNumber = trackNumber;
 
-    // Ensure track number is sane
-    if (m_sectionType.type() == SectionType::LeadIn) {
-        if (m_trackNumber != 0) {
-            ORC_LOG_DEBUG("SectionMetadata::setSectionType(): Setting track number to 0 for LeadIn section (was {})", m_trackNumber);
-            m_trackNumber = 0;
-        }
+  // Ensure track number is sane
+  if (m_sectionType.type() == SectionType::LeadIn) {
+    if (m_trackNumber != 0) {
+      ORC_LOG_DEBUG(
+          "SectionMetadata::setSectionType(): Setting track number to 0 for "
+          "LeadIn section (was {})",
+          m_trackNumber);
+      m_trackNumber = 0;
     }
-    if (m_sectionType.type() == SectionType::LeadOut) {
-        if (m_trackNumber != 0) {
-            ORC_LOG_DEBUG("SectionMetadata::setSectionType(): Setting track number to 0 for LeadOut section (was {})", m_trackNumber);
-            m_trackNumber = 0;
-        }
+  }
+  if (m_sectionType.type() == SectionType::LeadOut) {
+    if (m_trackNumber != 0) {
+      ORC_LOG_DEBUG(
+          "SectionMetadata::setSectionType(): Setting track number to 0 for "
+          "LeadOut section (was {})",
+          m_trackNumber);
+      m_trackNumber = 0;
     }
-    if ((m_sectionType.type() == SectionType::UserData) && (m_trackNumber < 1 || m_trackNumber > 98)) {
-        ORC_LOG_DEBUG("SectionMetadata::setSectionType(): Setting track number to 1 for UserData section (was {})", m_trackNumber);
-        m_trackNumber = 1;
-    }
+  }
+  if ((m_sectionType.type() == SectionType::UserData) &&
+      (m_trackNumber < 1 || m_trackNumber > 98)) {
+    ORC_LOG_DEBUG(
+        "SectionMetadata::setSectionType(): Setting track number to 1 for "
+        "UserData section (was {})",
+        m_trackNumber);
+    m_trackNumber = 1;
+  }
 }
 
 // Stream operators for SectionMetadata
@@ -221,10 +244,10 @@ QDataStream &operator>>(QDataStream &in, SectionMetadata &metadata)
     in >> metadata.m_sectionType;
     in >> metadata.m_sectionTime;
     in >> metadata.m_absoluteSectionTime;
-    
+
     // Read track number
     in >> metadata.m_trackNumber;
-    
+
     // Read boolean flags
     in >> metadata.m_isValid;
     in >> metadata.m_isAudio;
@@ -236,12 +259,12 @@ QDataStream &operator>>(QDataStream &in, SectionMetadata &metadata)
     // Read qmode 1 and 2 parameters
     in >> metadata.m_upcEanCode;
     in >> metadata.m_isrcCode;
-    
+
     // Read Q mode
     int32_t qMode;
     in >> qMode;
     metadata.m_qMode = static_cast<SectionMetadata::QMode>(qMode);
-    
+
     return in;
 }
 
@@ -251,10 +274,10 @@ QDataStream &operator<<(QDataStream &out, const SectionMetadata &metadata)
     out << metadata.m_sectionType;
     out << metadata.m_sectionTime;
     out << metadata.m_absoluteSectionTime;
-    
+
     // Write track number
     out << metadata.m_trackNumber;
-    
+
     // Write boolean flags
     out << metadata.m_isValid;
     out << metadata.m_isAudio;
@@ -266,10 +289,10 @@ QDataStream &operator<<(QDataStream &out, const SectionMetadata &metadata)
     // Write qmode 1 and 2 parameters
     out << metadata.m_upcEanCode;
     out << metadata.m_isrcCode;
-    
+
     // Write Q mode
     out << static_cast<int32_t>(metadata.m_qMode);
-    
+
     return out;
 }
 */

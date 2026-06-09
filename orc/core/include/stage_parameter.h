@@ -16,16 +16,19 @@
 // GUI/CLI code should use parameter_types.h from orc/common instead.
 // =============================================================================
 #if defined(ORC_GUI_BUILD)
-#error "GUI code cannot include core/include/stage_parameter.h. Use parameter_types.h from orc/common instead."
+#error \
+    "GUI code cannot include core/include/stage_parameter.h. Use parameter_types.h from orc/common instead."
 #endif
 #if defined(ORC_CLI_BUILD)
-#error "CLI code cannot include core/include/stage_parameter.h. Use parameter_types.h from orc/common instead."
+#error \
+    "CLI code cannot include core/include/stage_parameter.h. Use parameter_types.h from orc/common instead."
 #endif
 
-#include <common_types.h>  // For VideoSystem and SourceType enums
+#include <common_types.h>     // For VideoSystem and SourceType enums
 #include <parameter_types.h>  // For parameter type definitions
-#include <string>
+
 #include <map>
+#include <string>
 
 namespace orc {
 
@@ -34,22 +37,27 @@ namespace orc {
 
 /// Interface for stages that expose configurable parameters
 class ParameterizedStage {
-public:
-    virtual ~ParameterizedStage() = default;
-    
-    /// Get list of parameters this stage supports
-    /// @param project_format Optional video format from project context for filtering options
-    /// @param source_type Optional source type (Composite/YC) from project context for filtering options
-    virtual std::vector<ParameterDescriptor> get_parameter_descriptors(
-        VideoSystem project_format = VideoSystem::Unknown,
-        SourceType source_type = SourceType::Unknown) const = 0;
-    
-    /// Get current parameter values
-    virtual std::map<std::string, ParameterValue> get_parameters() const = 0;
-    
-    /// Set parameter values
-    /// Returns true if all parameters were valid and set successfully
-    virtual bool set_parameters(const std::map<std::string, ParameterValue>& params) = 0;
+ public:
+  virtual ~ParameterizedStage() = default;
+
+  /// Get list of parameters this stage supports
+  /// @param project_format Video format from project context for filtering
+  /// @param source_type Source type (Composite/YC) from project context
+  virtual std::vector<ParameterDescriptor> get_parameter_descriptors(
+      VideoSystem project_format, SourceType source_type) const = 0;
+
+  /// Convenience overload — returns descriptors with Unknown format/source
+  std::vector<ParameterDescriptor> get_parameter_descriptors() const {
+    return get_parameter_descriptors(VideoSystem::Unknown, SourceType::Unknown);
+  }
+
+  /// Get current parameter values
+  virtual std::map<std::string, ParameterValue> get_parameters() const = 0;
+
+  /// Set parameter values
+  /// Returns true if all parameters were valid and set successfully
+  virtual bool set_parameters(
+      const std::map<std::string, ParameterValue>& params) = 0;
 };
 
-} // namespace orc
+}  // namespace orc

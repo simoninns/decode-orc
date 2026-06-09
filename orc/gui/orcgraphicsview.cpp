@@ -8,228 +8,235 @@
  */
 
 #include "orcgraphicsview.h"
-#include "orcgraphicsscene.h"
-#include "orcgraphmodel.h"
-#include "logging.h"
+
 #include <node_id.h>
-#include "presenters/include/project_presenter.h"
-#include <QtNodes/internal/NodeGraphicsObject.hpp>
-#include <QtNodes/internal/ConnectionGraphicsObject.hpp>
-#include <QKeySequence>
+
 #include <QAction>
-#include <QMessageBox>
-#include <QWheelEvent>
-#include <QShowEvent>
 #include <QContextMenuEvent>
+#include <QFont>
+#include <QKeySequence>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPaintEvent>
 #include <QPainter>
-#include <QFont>
+#include <QShowEvent>
+#include <QWheelEvent>
+#include <QtNodes/internal/ConnectionGraphicsObject.hpp>
+#include <QtNodes/internal/NodeGraphicsObject.hpp>
 #include <cmath>
 
+#include "logging.h"
+#include "orcgraphicsscene.h"
+#include "orcgraphmodel.h"
+#include "presenters/include/project_presenter.h"
+
 using orc::NodeID;
-#include <QKeySequence>
 #include <QAction>
+#include <QKeySequence>
 #include <QMessageBox>
-#include <QWheelEvent>
 #include <QShowEvent>
+#include <QWheelEvent>
 #include <cmath>
 
 OrcGraphicsView::OrcGraphicsView(QWidget* parent)
-    : QtNodes::GraphicsView(parent)
-    , welcome_message_(
-        QStringLiteral(
-            "Welcome to decode-orc. To get started use the 'Quick Project...' option in the File menu to select a source TBC file for processing.\n\n"
-            "TBC files ending in .tbc will be treated as composite video and TBC file pairs ending in .tbcy and .tbcc will be treated as Y/C sources. NTSC, NTSC-J, PAL and PAL-M are currently supported for both LaserDisc, tape and other capture sources.\n\n"
-            "Please see the decode-orc documentation for a detailed user-guide and reference."))
-{
-    // Find and disconnect the default delete action
-    for (QAction* action : actions()) {
-        if (action->shortcut() == QKeySequence::Delete) {
-            action->setShortcuts({QKeySequence::Delete, QKeySequence(Qt::Key_Backspace)});
-            // Disconnect all connections from this action
-            disconnect(action, nullptr, nullptr, nullptr);
-            // Connect to our custom handler
-            connect(action, &QAction::triggered, this, &OrcGraphicsView::onDeleteSelectedObjects);
-            break;
+    : QtNodes::GraphicsView(parent),
+      welcome_message_(QStringLiteral(
+          "Welcome to decode-orc. To get started use the 'Quick Project...' "
+          "option in the File menu to select a source TBC file for "
+          "processing.\n\n"
+          "TBC files ending in .tbc will be treated as composite video and TBC "
+          "file pairs ending in .tbcy and .tbcc will be treated as Y/C "
+          "sources. NTSC, NTSC-J, PAL and PAL-M are currently supported for "
+          "both LaserDisc, tape and other capture sources.\n\n"
+          "Please see the decode-orc documentation for a detailed user-guide "
+          "and reference.")) {
+  // Find and disconnect the default delete action
+  for (QAction* action : actions()) {
+    if (action->shortcut() == QKeySequence::Delete) {
+      action->setShortcuts(
+          {QKeySequence::Delete, QKeySequence(Qt::Key_Backspace)});
+      // Disconnect all connections from this action
+      disconnect(action, nullptr, nullptr, nullptr);
+      // Connect to our custom handler
+      connect(action, &QAction::triggered, this,
+              &OrcGraphicsView::onDeleteSelectedObjects);
+      break;
+    }
+  }
+}
+
+void OrcGraphicsView::setShowWelcomeMessage(bool show) {
+  if (show_welcome_message_ == show) {
+    return;
+  }
+
+  show_welcome_message_ = show;
+  viewport()->update();
+}
+
+void OrcGraphicsView::paintEvent(QPaintEvent* event) {
+  QtNodes::GraphicsView::paintEvent(event);
+
+  if (!show_welcome_message_) {
+    return;
+  }
+
+  QPainter painter(viewport());
+  painter.setRenderHint(QPainter::Antialiasing, true);
+  painter.setRenderHint(QPainter::TextAntialiasing, true);
+
+  const QRect view_rect = viewport()->rect();
+  const int max_text_width =
+      std::min(560, std::max(320, view_rect.width() - 120));
+  const int horizontal_padding = 24;
+  const int vertical_padding = 18;
+
+  QFont text_font = painter.font();
+  text_font.setPointSize(text_font.pointSize() + 1);
+  painter.setFont(text_font);
+
+  const QRect text_rect = painter.boundingRect(
+      QRect(0, 0, max_text_width, 1000),
+      Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, welcome_message_);
+
+  const QSize box_size(text_rect.width() + horizontal_padding * 2,
+                       text_rect.height() + vertical_padding * 2);
+  const int box_margin = 24;
+  const QRect box_rect(box_margin, box_margin, box_size.width(),
+                       box_size.height());
+
+  painter.setPen(QPen(QColor(145, 150, 156, 210), 1));
+  painter.setBrush(QColor(248, 250, 252, 240));
+  painter.drawRoundedRect(box_rect, 10, 10);
+
+  painter.setPen(QColor(40, 44, 52));
+  painter.drawText(box_rect.adjusted(horizontal_padding, vertical_padding,
+                                     -horizontal_padding, -vertical_padding),
+                   Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
+                   welcome_message_);
+}
+
+void OrcGraphicsView::showEvent(QShowEvent* event) {
+  // Set scale limits: 70% to 100%
+  setScaleRange(0.7, 1.0);
+  QtNodes::GraphicsView::showEvent(event);
+}
+
+void OrcGraphicsView::wheelEvent(QWheelEvent* event) {
+  QPoint delta = event->angleDelta();
+
+  if (delta.y() == 0) {
+    event->ignore();
+    return;
+  }
+
+  // Reduced sensitivity: use 1.1 (10% per scroll) instead of default 1.2 (20%)
+  double const step = 1.1;
+  double const d = delta.y() / std::abs(delta.y());
+  double const factor = std::pow(step, d);
+
+  // Get current scale and apply limits
+  double currentScale = transform().m11();
+  double newScale = currentScale * factor;
+
+  // Clamp to 70%-100% range
+  newScale = std::max(0.7, std::min(1.0, newScale));
+
+  // Only apply if there's a meaningful change
+  if (std::abs(newScale - currentScale) > 0.001) {
+    setupScale(newScale);
+  }
+
+  event->accept();
+}
+
+void OrcGraphicsView::contextMenuEvent(QContextMenuEvent* event) {
+  if (itemAt(event->pos())) {
+    // Call QGraphicsView directly, bypassing
+    // QtNodes::GraphicsView::contextMenuEvent(). Newer versions of the QtNodes
+    // library (used on Windows) call createStdMenu() inside their
+    // contextMenuEvent(), which adds a second menu with grouping actions ("Add
+    // to group", "Create group from selection") on top of ORC's own node
+    // context menu. QGraphicsView::contextMenuEvent() propagates the event to
+    // the item under the cursor, which causes
+    // NodeGraphicsObject::contextMenuEvent() to emit nodeContextMenu(), handled
+    // by OrcGraphicsScene::onNodeContextMenu() -- showing only the single ORC
+    // context menu.
+    QGraphicsView::contextMenuEvent(event);
+    return;
+  }
+
+  auto* orc_scene = dynamic_cast<OrcGraphicsScene*>(scene());
+  if (!orc_scene) {
+    return;
+  }
+
+  const auto scene_pos = mapToScene(event->pos());
+  QMenu* menu = orc_scene->createSceneMenu(scene_pos);
+  if (menu) {
+    menu->popup(event->globalPos());
+  }
+}
+
+void OrcGraphicsView::onDeleteSelectedObjects() {
+  auto* orc_scene = dynamic_cast<OrcGraphicsScene*>(scene());
+  if (!orc_scene) {
+    return;
+  }
+
+  // Check if anything is selected at all
+  auto selected_items = scene()->selectedItems();
+  if (selected_items.isEmpty()) {
+    ORC_LOG_DEBUG("Nothing selected, ignoring delete request");
+    return;
+  }
+
+  auto& graph_model = dynamic_cast<OrcGraphModel&>(orc_scene->graphModel());
+
+  // Check if any selected nodes have connections
+  std::vector<NodeID> cannot_delete;
+  bool has_selected_nodes = false;
+
+  for (QGraphicsItem* item : selected_items) {
+    auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
+    if (node_graphics) {
+      has_selected_nodes = true;
+      QtNodes::NodeId qt_node_id = node_graphics->nodeId();
+      NodeID orc_node_id = graph_model.getOrcNodeId(qt_node_id);
+
+      ORC_LOG_DEBUG("Delete check: QtNode {} -> ORC node '{}'", qt_node_id,
+                    orc_node_id.to_string());
+
+      if (orc_node_id.is_valid()) {
+        std::string reason;
+        if (!graph_model.presenter().canRemoveNode(orc_node_id, &reason)) {
+          ORC_LOG_DEBUG("Cannot delete '{}': {}", orc_node_id.to_string(),
+                        reason);
+          cannot_delete.push_back(orc_node_id);
         }
+      }
     }
-}
+  }
 
-void OrcGraphicsView::setShowWelcomeMessage(bool show)
-{
-    if (show_welcome_message_ == show) {
-        return;
+  if (!cannot_delete.empty()) {
+    // Prevent deletion - show message with stage IDs
+    QString msg = "Cannot delete stage";
+    if (cannot_delete.size() > 1) {
+      msg += "s";
     }
-
-    show_welcome_message_ = show;
-    viewport()->update();
-}
-
-void OrcGraphicsView::paintEvent(QPaintEvent* event)
-{
-    QtNodes::GraphicsView::paintEvent(event);
-
-    if (!show_welcome_message_) {
-        return;
+    msg += " with connections (";
+    for (size_t i = 0; i < cannot_delete.size(); ++i) {
+      if (i > 0) msg += ", ";
+      msg += QString::fromStdString(cannot_delete[i].to_string());
     }
+    msg += "). Disconnect all edges first.";
 
-    QPainter painter(viewport());
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    QMessageBox::warning(this, "Cannot Delete Stage", msg);
+    return;  // Don't proceed with deletion
+  }
 
-    const QRect view_rect = viewport()->rect();
-    const int max_text_width = std::min(560, std::max(320, view_rect.width() - 120));
-    const int horizontal_padding = 24;
-    const int vertical_padding = 18;
-
-    QFont text_font = painter.font();
-    text_font.setPointSize(text_font.pointSize() + 1);
-    painter.setFont(text_font);
-
-    const QRect text_rect = painter.boundingRect(
-        QRect(0, 0, max_text_width, 1000),
-        Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap,
-        welcome_message_);
-
-    const QSize box_size(text_rect.width() + horizontal_padding * 2,
-                         text_rect.height() + vertical_padding * 2);
-    const int box_margin = 24;
-    const QRect box_rect(box_margin,
-                         box_margin,
-                         box_size.width(),
-                         box_size.height());
-
-    painter.setPen(QPen(QColor(145, 150, 156, 210), 1));
-    painter.setBrush(QColor(248, 250, 252, 240));
-    painter.drawRoundedRect(box_rect, 10, 10);
-
-    painter.setPen(QColor(40, 44, 52));
-    painter.drawText(box_rect.adjusted(horizontal_padding, vertical_padding,
-                                       -horizontal_padding, -vertical_padding),
-                     Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap,
-                     welcome_message_);
-}
-
-void OrcGraphicsView::showEvent(QShowEvent *event)
-{
-    // Set scale limits: 70% to 100%
-    setScaleRange(0.7, 1.0);
-    QtNodes::GraphicsView::showEvent(event);
-}
-
-void OrcGraphicsView::wheelEvent(QWheelEvent *event)
-{
-    QPoint delta = event->angleDelta();
-
-    if (delta.y() == 0) {
-        event->ignore();
-        return;
-    }
-
-    // Reduced sensitivity: use 1.1 (10% per scroll) instead of default 1.2 (20%)
-    double const step = 1.1;
-    double const d = delta.y() / std::abs(delta.y());
-    double const factor = std::pow(step, d);
-
-    // Get current scale and apply limits
-    double currentScale = transform().m11();
-    double newScale = currentScale * factor;
-    
-    // Clamp to 70%-100% range
-    newScale = std::max(0.7, std::min(1.0, newScale));
-    
-    // Only apply if there's a meaningful change
-    if (std::abs(newScale - currentScale) > 0.001) {
-        setupScale(newScale);
-    }
-    
-    event->accept();
-}
-
-void OrcGraphicsView::contextMenuEvent(QContextMenuEvent* event)
-{
-    if (itemAt(event->pos())) {
-        // Call QGraphicsView directly, bypassing QtNodes::GraphicsView::contextMenuEvent().
-        // Newer versions of the QtNodes library (used on Windows) call createStdMenu() inside
-        // their contextMenuEvent(), which adds a second menu with grouping actions ("Add to group",
-        // "Create group from selection") on top of ORC's own node context menu.
-        // QGraphicsView::contextMenuEvent() propagates the event to the item under the cursor,
-        // which causes NodeGraphicsObject::contextMenuEvent() to emit nodeContextMenu(), handled
-        // by OrcGraphicsScene::onNodeContextMenu() -- showing only the single ORC context menu.
-        QGraphicsView::contextMenuEvent(event);
-        return;
-    }
-
-    auto* orc_scene = dynamic_cast<OrcGraphicsScene*>(scene());
-    if (!orc_scene) {
-        return;
-    }
-
-    const auto scene_pos = mapToScene(event->pos());
-    QMenu* menu = orc_scene->createSceneMenu(scene_pos);
-    if (menu) {
-        menu->popup(event->globalPos());
-    }
-}
-
-void OrcGraphicsView::onDeleteSelectedObjects()
-{
-    auto* orc_scene = dynamic_cast<OrcGraphicsScene*>(scene());
-    if (!orc_scene) {
-        return;
-    }
-    
-    // Check if anything is selected at all
-    auto selected_items = scene()->selectedItems();
-    if (selected_items.isEmpty()) {
-        ORC_LOG_DEBUG("Nothing selected, ignoring delete request");
-        return;
-    }
-    
-    auto& graph_model = dynamic_cast<OrcGraphModel&>(orc_scene->graphModel());
-    
-    // Check if any selected nodes have connections
-    std::vector<NodeID> cannot_delete;
-    bool has_selected_nodes = false;
-    
-    for (QGraphicsItem* item : selected_items) {
-        auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
-        if (node_graphics) {
-            has_selected_nodes = true;
-            QtNodes::NodeId qt_node_id = node_graphics->nodeId();
-            NodeID orc_node_id = graph_model.getOrcNodeId(qt_node_id);
-            
-            ORC_LOG_DEBUG("Delete check: QtNode {} -> ORC node '{}'", qt_node_id, orc_node_id.to_string());
-            
-            if (orc_node_id.is_valid()) {
-                std::string reason;
-                if (!graph_model.presenter().canRemoveNode(orc_node_id, &reason)) {
-                    ORC_LOG_DEBUG("Cannot delete '{}': {}", orc_node_id.to_string(), reason);
-                    cannot_delete.push_back(orc_node_id);
-                }
-            }
-        }
-    }
-    
-    if (!cannot_delete.empty()) {
-        // Prevent deletion - show message with stage IDs
-        QString msg = "Cannot delete stage";
-        if (cannot_delete.size() > 1) {
-            msg += "s";
-        }
-        msg += " with connections (";
-        for (size_t i = 0; i < cannot_delete.size(); ++i) {
-            if (i > 0) msg += ", ";
-            msg += QString::fromStdString(cannot_delete[i].to_string());
-        }
-        msg += "). Disconnect all edges first.";
-        
-        QMessageBox::warning(this, "Cannot Delete Stage", msg);
-        return;  // Don't proceed with deletion
-    }
-    
-    // All checks passed - call parent implementation
-    ORC_LOG_DEBUG("All validation passed, calling parent onDeleteSelectedObjects");
-    QtNodes::GraphicsView::onDeleteSelectedObjects();
+  // All checks passed - call parent implementation
+  ORC_LOG_DEBUG(
+      "All validation passed, calling parent onDeleteSelectedObjects");
+  QtNodes::GraphicsView::onDeleteSelectedObjects();
 }

@@ -10,52 +10,46 @@
 #ifndef ORC_CORE_SNR_ANALYSIS_SINK_DEPS_INTERFACE_H
 #define ORC_CORE_SNR_ANALYSIS_SINK_DEPS_INTERFACE_H
 
-#include "observation_context_interface.h"
-#include "snr_analysis_types.h"
-#include "triggerable_stage.h"
-#include "video_field_representation.h"
-
 #include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace orc
-{
-    struct SNRAnalysisComputeOptions
-    {
-        std::string output_path;
-        bool write_csv{false};
-        size_t max_frames{0};
-        SNRAnalysisMode snr_mode{SNRAnalysisMode::BOTH};
-    };
+#include "observation_context_interface.h"
+#include "snr_analysis_types.h"
+#include "triggerable_stage.h"
+#include "video_field_representation.h"
 
-    struct SNRAnalysisComputeResult
-    {
-        bool success{false};
-        std::string message;
-        std::vector<FrameSNRStats> frame_stats;
-        int32_t total_frames{0};
-    };
+namespace orc {
+struct SNRAnalysisComputeOptions {
+  std::string output_path;
+  bool write_csv{false};
+  size_t max_frames{0};
+  SNRAnalysisMode snr_mode{SNRAnalysisMode::BOTH};
+};
 
-    class ISNRAnalysisSinkStageDeps
-    {
-    public:
-        virtual ~ISNRAnalysisSinkStageDeps() = default;
+struct SNRAnalysisComputeResult {
+  bool success{false};
+  std::string message;
+  std::vector<FrameSNRStats> frame_stats;
+  int32_t total_frames{0};
+};
 
-        virtual void init(
-            TriggerProgressCallback progress_callback,
-            std::atomic<bool>* cancel_requested) = 0;
+class ISNRAnalysisSinkStageDeps {
+ public:
+  virtual ~ISNRAnalysisSinkStageDeps() = default;
 
-        virtual SNRAnalysisComputeResult compute_and_analyze(
-            VideoFieldRepresentation* representation,
-            IObservationContext& observation_context,
-            SNRAnalysisComputeOptions options) = 0;
+  virtual void init(TriggerProgressCallback progress_callback,
+                    std::atomic<bool>* cancel_requested) = 0;
 
-        virtual bool write_csv(
-            const std::string& path,
-            const std::vector<FrameSNRStats>& frame_stats) = 0;
-    };
-} // namespace orc
+  virtual SNRAnalysisComputeResult compute_and_analyze(
+      VideoFieldRepresentation* representation,
+      IObservationContext& observation_context,
+      SNRAnalysisComputeOptions options) = 0;
 
-#endif // ORC_CORE_SNR_ANALYSIS_SINK_DEPS_INTERFACE_H
+  virtual bool write_csv(const std::string& path,
+                         const std::vector<FrameSNRStats>& frame_stats) = 0;
+};
+}  // namespace orc
+
+#endif  // ORC_CORE_SNR_ANALYSIS_SINK_DEPS_INTERFACE_H

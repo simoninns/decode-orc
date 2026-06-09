@@ -9,77 +9,75 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
-#include <map>
-#include <memory>
+#include <common_types.h>  // PreviewOutputType
+#include <field_id.h>
+#include <node_id.h>
+#include <orc_preview_views.h>
+#include <orc_rendering.h>          // Public API rendering types
+#include <orc_source_parameters.h>  // Public API SourceParameters
+#include <parameter_types.h>        // ParameterValue
+
 #include <cstdint>
 #include <functional>
+#include <map>
+#include <memory>
 #include <optional>
-#include <node_id.h>
-#include <field_id.h>
-#include <orc_rendering.h>  // Public API rendering types
-#include <orc_preview_views.h>
-#include <orc_source_parameters.h>  // Public API SourceParameters
-#include <common_types.h>   // PreviewOutputType
-#include <parameter_types.h>  // ParameterValue
+#include <string>
+#include <vector>
+
 #include "vbi_view_models.h"  // VBIFieldInfoView
 
 // Forward declare core types
 namespace orc {
-    class Project;
-    class DAG;
-}
+class Project;
+class DAG;
+}  // namespace orc
 
 namespace orc::presenters {
 
 // Forward declarations
 class Project;
 struct QualityMetrics;  // From metrics_presenter.h
-using ProgressCallback = std::function<void(size_t, size_t, const std::string&)>;  // From project_presenter.h
+using ProgressCallback = std::function<void(
+    size_t, size_t, const std::string&)>;  // From project_presenter.h
 
 /**
  * @brief VBI data for a single field
  */
 struct VBIData {
-    bool has_vbi;
-    bool is_clv;
-    std::string chapter_number;
-    std::string frame_number;
-    std::string picture_number;
-    std::string picture_stop_code;
-    std::string user_code;
-    std::vector<std::string> raw_vbi_lines;
+  bool has_vbi;
+  bool is_clv;
+  std::string chapter_number;
+  std::string frame_number;
+  std::string picture_number;
+  std::string picture_stop_code;
+  std::string user_code;
+  std::vector<std::string> raw_vbi_lines;
 };
 
 /**
  * @brief Observation data for debugging/analysis
  */
 struct ObservationData {
-    bool is_valid;
-    std::string json_data;  // JSON representation of observations
+  bool is_valid;
+  std::string json_data;  // JSON representation of observations
 };
 
 /**
  * @brief Export format options
  */
-enum class ExportFormat {
-    PNG,
-    TIFF,
-    FFV1,
-    ProRes
-};
+enum class ExportFormat { PNG, TIFF, FFV1, ProRes };
 
 /**
  * @brief Export options for sequence rendering
  */
 struct ExportOptions {
-    std::string output_path;        ///< Output file/directory path
-    ExportFormat format;             ///< Export format
-    int start_field;                 ///< First field to export (-1 for all)
-    int end_field;                   ///< Last field to export (-1 for all)
-    bool deinterlace;                ///< Whether to deinterlace
-    int quality;                     ///< Quality setting (0-100)
+  std::string output_path;  ///< Output file/directory path
+  ExportFormat format;      ///< Export format
+  int start_field;          ///< First field to export (-1 for all)
+  int end_field;            ///< Last field to export (-1 for all)
+  bool deinterlace;         ///< Whether to deinterlace
+  int quality;              ///< Quality setting (0-100)
 };
 
 // Use public API types
@@ -87,7 +85,7 @@ using RenderProgress = orc::RenderProgress;
 
 /**
  * @brief RenderPresenter - Manages preview and export rendering
- * 
+ *
  * This presenter extracts rendering logic from the GUI layer.
  * It provides a clean interface for:
  * - Rendering preview images for specific nodes/fields
@@ -95,581 +93,551 @@ using RenderProgress = orc::RenderProgress;
  * - VBI data extraction
  * - Analysis data requests (dropout, SNR, burst level)
  * - Managing render cache
- * 
+ *
  * The presenter uses the core rendering pipeline but provides
  * a simplified interface suitable for GUI consumption.
- * 
+ *
  * Thread safety: Methods are thread-safe when explicitly noted.
  * Preview rendering should be done from a worker thread.
  */
 class RenderPresenter {
-public:
-    /**
-     * @brief Construct presenter for a project
-     * @param project_handle Opaque handle to project
-     */
-    explicit RenderPresenter(void* project_handle);
-    
-    /**
-     * @brief Destructor
-     */
-    ~RenderPresenter();
-    
-    // Disable copy, enable move
-    RenderPresenter(const RenderPresenter&) = delete;
-    RenderPresenter& operator=(const RenderPresenter&) = delete;
-    RenderPresenter(RenderPresenter&&) noexcept;
-    RenderPresenter& operator=(RenderPresenter&&) noexcept;
-    
-    // === DAG Management ===
-    
-    /**
-     * @brief Update the internal DAG from the current project state
-     * 
-     * Call this whenever the project changes (nodes added/removed/modified).
-     * This rebuilds the internal DAG and rendering state.
-     * 
-     * @return true if DAG was built successfully
-     */
-    bool updateDAG();
-    
-    /**
-     * @brief Set the DAG directly (for coordination with external DAG management)
-     * @param dag_handle Opaque handle to DAG
-     * 
-     * @note Used for coordination with external DAG management.
-     * The DAG is typically obtained from ProjectPresenter.
-     */
-    void setDAG(std::shared_ptr<void> dag_handle);
-    
-    // === Preview Rendering ===
-    
-    /**
-     * @brief Render a preview image for a specific output
-     * 
-     * @param node_id Node to render from
-     * @param output_type Type of output (Field, Frame, Luma, etc.)
-     * @param output_index Index of the output (0-based)
-     * @param option_id Optional rendering option ID
-     * @return Preview render result with RGB image
-     * 
-     * Thread-safe: Yes (uses internal DAG)
-     */
-    orc::PreviewRenderResult renderPreview(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index,
-        const std::string& option_id = ""
-    );
-    
-    /**
-     * @brief Get available output types for a node
-     * 
-     * @param node_id Node to query
-     * @return Vector of available output info
-     * 
-     * Thread-safe: Yes
-     */
-    std::vector<orc::PreviewOutputInfo> getAvailableOutputs(NodeID node_id);
-    
-    /**
-     * @brief Get the count of outputs for a specific type
-     * 
-     * @param node_id Node to query
-     * @param output_type Type of output
-     * @return Number of outputs (0 if not available)
-     * 
-     * Thread-safe: Yes
-     */
-    uint64_t getOutputCount(NodeID node_id, orc::PreviewOutputType output_type);
-    
-    /**
-     * @brief Save a preview as PNG file
-     * 
-     * @param node_id Node to render from
-     * @param output_type Type of output
-     * @param output_index Index of output
-     * @param filename Path to save PNG
-     * @param option_id Optional rendering option ID
-     * @return true on success
-     */
-    bool savePNG(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index,
-        const std::string& filename,
-        const std::string& option_id = "",
-        double aspect_correction = 1.0
-    );
+ public:
+  /**
+   * @brief Construct presenter for a project
+   * @param project_handle Opaque handle to project
+   */
+  explicit RenderPresenter(void* project_handle);
 
-    /**
-     * @brief Get registry-driven preview views applicable to a node/data type.
-     */
-    std::vector<orc::PreviewViewDescriptor> getAvailablePreviewViews(
-        NodeID node_id,
-        orc::VideoDataType data_type
-    );
+  /**
+   * @brief Destructor
+   */
+  ~RenderPresenter();
 
-    /**
-     * @brief Request preview-view data via the Phase 3 registry contract.
-     */
-    orc::PreviewViewDataResult requestPreviewViewData(
-        NodeID node_id,
-        const std::string& view_id,
-        orc::VideoDataType data_type,
-        const orc::PreviewCoordinate& coordinate
-    );
+  // Disable copy, enable move
+  RenderPresenter(const RenderPresenter&) = delete;
+  RenderPresenter& operator=(const RenderPresenter&) = delete;
+  RenderPresenter(RenderPresenter&&) noexcept;
+  RenderPresenter& operator=(RenderPresenter&&) noexcept;
 
-    /**
-     * @brief Export the most recently requested data for a preview view.
-     */
-    orc::PreviewViewExportResult exportPreviewViewData(
-        NodeID node_id,
-        const std::string& view_id,
-        const std::string& format,
-        const std::string& path
-    );
-    
-    // === VBI Data Extraction ===
-    
-    /**
-     * @brief Get VBI data for a specific field (fully decoded)
-     * 
-     * @param node_id Node to extract from
-     * @param field_id Field to decode
-     * @return Full VBI field info view with all decoded data, or empty optional if no VBI found
-     */
-    std::optional<VBIFieldInfoView> getVBIData(NodeID node_id, FieldID field_id);
-    
-    // === Analysis Data Access ===
-    
-    /**
-     * @brief Get dropout analysis data from a sink stage
-     * 
-     * The node must be a DropoutAnalysisSinkStage that has been triggered.
-     * This method abstracts DAG traversal from the GUI layer.
-     * 
-     * @param node_id Node to get data from
-     * @param frame_stats Output vector of frame statistics
-     * @param total_frames Output total frames count
-     * @return true if data was retrieved successfully
-     */
-    bool getDropoutAnalysisData(
-        NodeID node_id,
-        std::vector<void*>& frame_stats,  // Actually vector<FrameDropoutStats>
-        int32_t& total_frames
-    );
-    
-    /**
-     * @brief Get SNR analysis data from a sink stage
-     * 
-     * @param node_id Node to get data from
-     * @param frame_stats Output vector of frame statistics
-     * @param total_frames Output total frames count
-     * @return true if data was retrieved successfully
-     */
-    bool getSNRAnalysisData(
-        NodeID node_id,
-        std::vector<void*>& frame_stats,  // Actually vector<FrameSNRStats>
-        int32_t& total_frames
-    );
-    
-    /**
-     * @brief Get burst level analysis data from a sink stage
-     * 
-     * @param node_id Node to get data from
-     * @param frame_stats Output vector of frame statistics
-     * @param total_frames Output total frames count
-     * @return true if data was retrieved successfully
-     */
-    bool getBurstLevelAnalysisData(
-        NodeID node_id,
-        std::vector<void*>& frame_stats,  // Actually vector<FrameBurstLevelStats>
-        int32_t& total_frames
-    );
-    
-    /**
-     * @brief Request dropout analysis data from a sink node (deprecated - use getDropoutAnalysisData)
-     * 
-     * The node must be a DropoutAnalysisSinkStage that has been triggered.
-     * 
-     * @param node_id Node to get data from
-     * @param request_id Unique request ID for async tracking
-     * @param callback Callback when data is ready
-     * @return true if request was queued
-     */
-    bool requestDropoutData(
-        NodeID node_id,
-        uint64_t request_id,
-        std::function<void(uint64_t id, bool success, const std::string& error)> callback
-    );
-    
-    /**
-     * @brief Request SNR analysis data from a sink node (deprecated - use getSNRAnalysisData)
-     * 
-     * @param node_id Node to get data from
-     * @param request_id Unique request ID
-     * @param callback Callback when data is ready
-     * @return true if request was queued
-     */
-    bool requestSNRData(
-        NodeID node_id,
-        uint64_t request_id,
-        std::function<void(uint64_t id, bool success, const std::string& error)> callback
-    );
-    
-    /**
-     * @brief Request burst level analysis data from a sink node (deprecated - use getBurstLevelAnalysisData)
-     * 
-     * @param node_id Node to get data from
-     * @param request_id Unique request ID
-     * @param callback Callback when data is ready
-     * @return true if request was queued
-     */
-    bool requestBurstLevelData(
-        NodeID node_id,
-        uint64_t request_id,
-        std::function<void(uint64_t id, bool success, const std::string& error)> callback
-    );
-    
-    // === Batch Rendering (Triggering) ===
-    
-    /**
-     * @brief Trigger a triggerable stage (start batch processing)
-     * 
-     * This method synchronously executes the trigger operation.
-     * It should be called from a worker thread to avoid blocking the UI.
-     * 
-     * @param node_id Node to trigger
-     * @param callback Progress callback (called from the same thread)
-     * @return Request ID for tracking
-     * @throws std::runtime_error if triggering fails
-     */
-    uint64_t triggerStage(NodeID node_id, ProgressCallback callback);
-    
-    /**
-     * @brief Cancel ongoing trigger operation
-     * 
-     * This sets a cancellation flag that the trigger operation will check.
-     * The operation may not stop immediately.
-     */
-    void cancelTrigger();
-    
-    /**
-     * @brief Check if a trigger is in progress
-     * @return true if triggering
-     */
-    bool isTriggerActive() const;
-    
-    // === Dropout Visualization ===
-    
-    /**
-     * @brief Enable/disable dropout highlighting in previews
-     * @param show Whether to show dropouts
-     */
-    void setShowDropouts(bool show);
-    
-    /**
-     * @brief Get current dropout highlighting state
-     * @return true if showing dropouts
-     */
-    bool getShowDropouts() const;
-    
-    // === Coordinate Mapping (for interactive features) ===
-    
-    /**
-     * @brief Map image coordinates to field coordinates
-     * 
-     * Used for determining which field/line user clicked on in preview.
-     * 
-     * @param node_id Node being previewed
-     * @param output_type Output type being displayed
-     * @param output_index Output index being displayed
-     * @param image_y Y coordinate in preview image
-     * @param image_height Height of preview image
-     * @return Mapping result with field index and line number
-     */
-    struct ImageToFieldMapping {
-        bool is_valid;
-        uint64_t field_index;
-        int field_line;
-    };
-    
-    ImageToFieldMapping mapImageToField(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index,
-        int image_y,
-        int image_height
-    );
-    
-    /**
-     * @brief Map field coordinates to image coordinates
-     * 
-     * @param node_id Node being previewed
-     * @param output_type Output type being displayed
-     * @param output_index Output index being displayed  
-     * @param field_index Field index
-     * @param field_line Line within field
-     * @param image_height Height of preview image
-     * @return Image Y coordinate (is_valid=false if out of bounds)
-     */
-    struct FieldToImageMapping {
-        bool is_valid;
-        int image_y;
-    };
-    
-    FieldToImageMapping mapFieldToImage(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index,
-        uint64_t field_index,
-        int field_line,
-        int image_height
-    );
-    
-    /**
-     * @brief Get which fields comprise a frame
-     * 
-     * @param node_id Node being queried
-     * @param frame_index Frame index
-     * @return Field indices (is_valid=false if invalid)
-     */
-    struct FrameFields {
-        bool is_valid;
-        uint64_t first_field;
-        uint64_t second_field;
-    };
-    
-    FrameFields getFrameFields(NodeID node_id, uint64_t frame_index);
-    
-    /**
-     * @brief Navigate to next/previous line in frame preview
-     * 
-     * @param node_id Node being previewed
-     * @param output_type Output type
-     * @param current_field Current field index
-     * @param current_line Current line in field
-     * @param direction +1 for down, -1 for up
-     * @param field_height Height of a single field
-     * @return New field index and line number
-     */
-    struct FrameLineNavigation {
-        bool is_valid;
-        uint64_t new_field_index;
-        int new_line_number;
-    };
-    
-    FrameLineNavigation navigateFrameLine(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t current_field,
-        int current_line,
-        int direction,
-        int field_height
-    );
-    
-    // === Line Samples (for waveform display) ===
-    
-    /**
-     * @brief Line sample data with optional Y/C separation
-     * 
-     * For frame outputs (two fields), heights reflect the actual field heights
-     * from the VFR descriptors, which may be different for first vs second field.
-     * For single field outputs, only first_field_height is used.
-     */
-    struct LineSampleData {
-        std::vector<uint16_t> composite_samples;  ///< Composite/combined samples (always populated)
-        std::vector<uint16_t> y_samples;          ///< Luma samples (only for Y/C sources)
-        std::vector<uint16_t> c_samples;          ///< Chroma samples (only for Y/C sources)
-        bool has_separate_channels;               ///< True if Y/C separation is available
-        int first_field_height = 0;               ///< Height of first field from VFR descriptor
-        int second_field_height = 0;              ///< Height of second field (0 if single field)
-    };
+  // === DAG Management ===
 
-    /**
-     * @brief Get line samples for oscilloscope display
-     * 
-     * @param node_id Node to get samples from
-     * @param output_type Output type
-     * @param output_index Output index
-     * @param line_number Line number in the field/frame
-     * @param sample_x X coordinate hint (for field selection in frames)
-     * @param preview_width Width of preview image (for coordinate mapping)
-     * @return Vector of 16-bit sample values
-     */
-    std::vector<uint16_t> getLineSamples(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index,
-        int line_number,
-        int sample_x,
-        int preview_width
-    );
+  /**
+   * @brief Update the internal DAG from the current project state
+   *
+   * Call this whenever the project changes (nodes added/removed/modified).
+   * This rebuilds the internal DAG and rendering state.
+   *
+   * @return true if DAG was built successfully
+   */
+  bool updateDAG();
 
-    /**
-     * @brief Get line samples with Y/C separation for oscilloscope display
-     * 
-     * For Y/C sources, returns separate Y and C samples in addition to composite.
-     * For composite sources, only composite_samples is populated.
-     * 
-     * @param node_id Node to get samples from
-     * @param output_type Output type
-     * @param output_index Output index
-     * @param line_number Line number in the field/frame
-     * @param sample_x X coordinate hint (for field selection in frames)
-     * @param preview_width Width of preview image (for coordinate mapping)
-     * @return LineSampleData with composite and optional Y/C samples
-     */
-    LineSampleData getLineSamplesWithYC(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index,
-        int line_number,
-        int sample_x,
-        int preview_width
-    );
-    
-    /**
-     * @brief Get all field samples for timing display
-     * 
-     * Returns all samples from one or two fields (depending on output type).
-     * For field output: returns samples from single field.
-     * For frame outputs: returns samples from both fields in field order.
-     * 
-     * @param node_id Node to get samples from
-     * @param output_type Output type
-     * @param output_index Output index
-     * @return LineSampleData with all field samples concatenated
-     */
-    LineSampleData getFieldSamplesForTiming(
-        NodeID node_id,
-        orc::PreviewOutputType output_type,
-        uint64_t output_index
-    );
-    
-    /**
-     * @brief Get video parameters for a node
-     * 
-     * @param node_id Node to get parameters from
-     * @return Video parameters if available
-     */
-    std::optional<orc::SourceParameters> getVideoParameters(NodeID node_id);
-    
-    // === Observations (for debugging) ===
-    
-    /**
-     * @brief Get observation data for a field
-     * 
-     * @param node_id Node to get observations from
-     * @param field_id Field to query
-     * @return Observation data as JSON
-     */
-    ObservationData getObservations(NodeID node_id, FieldID field_id);
-    
-    /**
-     * @brief Render field and get quality metrics
-     * 
-     * This renders the field at the specified node and extracts quality metrics
-     * from the observation context. This is the preferred method for GUI code
-     * that needs quality metrics without direct access to core types.
-     * 
-     * @param node_id Node to render at
-     * @param field_id Field to render
-     * @return Quality metrics (use MetricsPresenter types)
-     */
-    QualityMetrics getFieldQualityMetrics(NodeID node_id, FieldID field_id);
-    
-    /**
-     * @brief Render both fields of a frame and get combined quality metrics
-     * 
-     * This renders both fields and averages their quality metrics.
-     * 
-     * @param node_id Node to render at
-     * @param field1_id First field
-     * @param field2_id Second field
-     * @return Combined quality metrics
-     */
-    QualityMetrics getFrameQualityMetrics(NodeID node_id, FieldID field1_id, FieldID field2_id);
-    
-    /**
-     * @brief Execute DAG to a specific node and return field representation
-     * 
-     * This executes the DAG up to (not including) the specified node and returns
-     * the field representation output. This is used for analysis tools that need
-     * access to intermediate field data.
-     * 
-     * @param node_id Node to execute to
-     * @return Shared pointer to field representation (as void* for encapsulation)
-     * 
-     * @note Returns core VideoFieldRepresentation. Analysis tools should
-     * eventually migrate to presenter-based data access.
-     */
-    std::shared_ptr<const void> executeToNode(NodeID node_id);
-    
-    /**
-     * @brief Get observation context after rendering a field
-     * 
-     * This renders the field and returns the observation context which can be
-     * used by presenters to extract various metrics and observations.
-     * 
-     * @param node_id Node to render at
-     * @param field_id Field to render
-     * @return Pointer to observation context (as void* for encapsulation)
-     * 
-     * @note Returns core ObservationContext. Metric presenters use this
-     * to extract quality data without GUI having direct core access.
-     */
-    const void* getObservationContext(NodeID node_id, FieldID field_id);
-    
-    // === Cache Management ===
-    
-    /**
-     * @brief Clear the preview cache
-     */
-    void clearCache();
-    
-    /**
-     * @brief Get cache statistics
-     * @return String describing cache usage
-     */
-    std::string getCacheStats() const;
+  /**
+   * @brief Set the DAG directly (for coordination with external DAG management)
+   * @param dag_handle Opaque handle to DAG
+   *
+   * @note Used for coordination with external DAG management.
+   * The DAG is typically obtained from ProjectPresenter.
+   */
+  void setDAG(std::shared_ptr<void> dag_handle);
 
-    // === Live Preview Tweak Panel ===
+  // === Preview Rendering ===
 
-    /**
-     * @brief Apply updated parameters to the live stage instance without rebuilding the DAG.
-     *
-     * For DecodePhase tweaks this invalidates the decoder cache so the next
-     * renderPreview() call produces a fresh frame with the new parameters.
-     * Never triggers a full DAG rebuild.
-     *
-     * @param node_id  Node whose stage should receive the parameter update.
-     * @param params   Parameters to apply (only tweakable keys need be present).
-     * @return true if the stage was found and accepted the parameters.
-     */
-    bool applyStageParameters(
-        NodeID node_id,
-        const std::map<std::string, ParameterValue>& params
-    );
+  /**
+   * @brief Render a preview image for a specific output
+   *
+   * @param node_id Node to render from
+   * @param output_type Type of output (Field, Frame, Luma, etc.)
+   * @param output_index Index of the output (0-based)
+   * @param option_id Optional rendering option ID
+   * @return Preview render result with RGB image
+   *
+   * Thread-safe: Yes (uses internal DAG)
+   */
+  orc::PreviewRenderResult renderPreview(NodeID node_id,
+                                         orc::PreviewOutputType output_type,
+                                         uint64_t output_index,
+                                         const std::string& option_id = "");
 
-    /**
-     * @brief Return the live-tweakable parameter declarations for a node's stage.
-     *
-     * Returns a view-model list suitable for building the preview tweak panel.
-     * Returns an empty vector if the stage does not implement IStagePreviewCapability
-     * or has not yet loaded any input data.
-     *
-     * @param node_id Node to query.
-     * @return View-model list of tweakable parameters (may be empty).
-     */
-    std::vector<orc::LiveTweakableParameterView> getStageTweakableParameters(NodeID node_id);
+  /**
+   * @brief Get available output types for a node
+   *
+   * @param node_id Node to query
+   * @return Vector of available output info
+   *
+   * Thread-safe: Yes
+   */
+  std::vector<orc::PreviewOutputInfo> getAvailableOutputs(NodeID node_id);
 
-    std::map<std::string, ParameterValue> getStageCurrentParameters(NodeID node_id);
+  /**
+   * @brief Get the count of outputs for a specific type
+   *
+   * @param node_id Node to query
+   * @param output_type Type of output
+   * @return Number of outputs (0 if not available)
+   *
+   * Thread-safe: Yes
+   */
+  uint64_t getOutputCount(NodeID node_id, orc::PreviewOutputType output_type);
 
-private:
-    class Impl;
-    std::unique_ptr<Impl> impl_;
+  /**
+   * @brief Save a preview as PNG file
+   *
+   * @param node_id Node to render from
+   * @param output_type Type of output
+   * @param output_index Index of output
+   * @param filename Path to save PNG
+   * @param option_id Optional rendering option ID
+   * @return true on success
+   */
+  bool savePNG(NodeID node_id, orc::PreviewOutputType output_type,
+               uint64_t output_index, const std::string& filename,
+               const std::string& option_id = "",
+               double aspect_correction = 1.0);
+
+  /**
+   * @brief Get registry-driven preview views applicable to a node/data type.
+   */
+  std::vector<orc::PreviewViewDescriptor> getAvailablePreviewViews(
+      NodeID node_id, orc::VideoDataType data_type);
+
+  /**
+   * @brief Request preview-view data via the Phase 3 registry contract.
+   */
+  orc::PreviewViewDataResult requestPreviewViewData(
+      NodeID node_id, const std::string& view_id, orc::VideoDataType data_type,
+      const orc::PreviewCoordinate& coordinate);
+
+  /**
+   * @brief Export the most recently requested data for a preview view.
+   */
+  orc::PreviewViewExportResult exportPreviewViewData(NodeID node_id,
+                                                     const std::string& view_id,
+                                                     const std::string& format,
+                                                     const std::string& path);
+
+  // === VBI Data Extraction ===
+
+  /**
+   * @brief Get VBI data for a specific field (fully decoded)
+   *
+   * @param node_id Node to extract from
+   * @param field_id Field to decode
+   * @return Full VBI field info view with all decoded data, or empty optional
+   * if no VBI found
+   */
+  std::optional<VBIFieldInfoView> getVBIData(NodeID node_id, FieldID field_id);
+
+  // === Analysis Data Access ===
+
+  /**
+   * @brief Get dropout analysis data from a sink stage
+   *
+   * The node must be a DropoutAnalysisSinkStage that has been triggered.
+   * This method abstracts DAG traversal from the GUI layer.
+   *
+   * @param node_id Node to get data from
+   * @param frame_stats Output vector of frame statistics
+   * @param total_frames Output total frames count
+   * @return true if data was retrieved successfully
+   */
+  bool getDropoutAnalysisData(
+      NodeID node_id,
+      std::vector<void*>& frame_stats,  // Actually vector<FrameDropoutStats>
+      int32_t& total_frames);
+
+  /**
+   * @brief Get SNR analysis data from a sink stage
+   *
+   * @param node_id Node to get data from
+   * @param frame_stats Output vector of frame statistics
+   * @param total_frames Output total frames count
+   * @return true if data was retrieved successfully
+   */
+  bool getSNRAnalysisData(
+      NodeID node_id,
+      std::vector<void*>& frame_stats,  // Actually vector<FrameSNRStats>
+      int32_t& total_frames);
+
+  /**
+   * @brief Get burst level analysis data from a sink stage
+   *
+   * @param node_id Node to get data from
+   * @param frame_stats Output vector of frame statistics
+   * @param total_frames Output total frames count
+   * @return true if data was retrieved successfully
+   */
+  bool getBurstLevelAnalysisData(
+      NodeID node_id,
+      std::vector<void*>& frame_stats,  // Actually vector<FrameBurstLevelStats>
+      int32_t& total_frames);
+
+  /**
+   * @brief Request dropout analysis data from a sink node (deprecated - use
+   * getDropoutAnalysisData)
+   *
+   * The node must be a DropoutAnalysisSinkStage that has been triggered.
+   *
+   * @param node_id Node to get data from
+   * @param request_id Unique request ID for async tracking
+   * @param callback Callback when data is ready
+   * @return true if request was queued
+   */
+  bool requestDropoutData(
+      NodeID node_id, uint64_t request_id,
+      std::function<void(uint64_t id, bool success, const std::string& error)>
+          callback);
+
+  /**
+   * @brief Request SNR analysis data from a sink node (deprecated - use
+   * getSNRAnalysisData)
+   *
+   * @param node_id Node to get data from
+   * @param request_id Unique request ID
+   * @param callback Callback when data is ready
+   * @return true if request was queued
+   */
+  bool requestSNRData(
+      NodeID node_id, uint64_t request_id,
+      std::function<void(uint64_t id, bool success, const std::string& error)>
+          callback);
+
+  /**
+   * @brief Request burst level analysis data from a sink node (deprecated - use
+   * getBurstLevelAnalysisData)
+   *
+   * @param node_id Node to get data from
+   * @param request_id Unique request ID
+   * @param callback Callback when data is ready
+   * @return true if request was queued
+   */
+  bool requestBurstLevelData(
+      NodeID node_id, uint64_t request_id,
+      std::function<void(uint64_t id, bool success, const std::string& error)>
+          callback);
+
+  // === Batch Rendering (Triggering) ===
+
+  /**
+   * @brief Trigger a triggerable stage (start batch processing)
+   *
+   * This method synchronously executes the trigger operation.
+   * It should be called from a worker thread to avoid blocking the UI.
+   *
+   * @param node_id Node to trigger
+   * @param callback Progress callback (called from the same thread)
+   * @return Request ID for tracking
+   * @throws std::runtime_error if triggering fails
+   */
+  uint64_t triggerStage(NodeID node_id, ProgressCallback callback);
+
+  /**
+   * @brief Cancel ongoing trigger operation
+   *
+   * This sets a cancellation flag that the trigger operation will check.
+   * The operation may not stop immediately.
+   */
+  void cancelTrigger();
+
+  /**
+   * @brief Check if a trigger is in progress
+   * @return true if triggering
+   */
+  bool isTriggerActive() const;
+
+  // === Dropout Visualization ===
+
+  /**
+   * @brief Enable/disable dropout highlighting in previews
+   * @param show Whether to show dropouts
+   */
+  void setShowDropouts(bool show);
+
+  /**
+   * @brief Get current dropout highlighting state
+   * @return true if showing dropouts
+   */
+  bool getShowDropouts() const;
+
+  // === Coordinate Mapping (for interactive features) ===
+
+  /**
+   * @brief Map image coordinates to field coordinates
+   *
+   * Used for determining which field/line user clicked on in preview.
+   *
+   * @param node_id Node being previewed
+   * @param output_type Output type being displayed
+   * @param output_index Output index being displayed
+   * @param image_y Y coordinate in preview image
+   * @param image_height Height of preview image
+   * @return Mapping result with field index and line number
+   */
+  struct ImageToFieldMapping {
+    bool is_valid;
+    uint64_t field_index;
+    int field_line;
+  };
+
+  ImageToFieldMapping mapImageToField(NodeID node_id,
+                                      orc::PreviewOutputType output_type,
+                                      uint64_t output_index, int image_y,
+                                      int image_height);
+
+  /**
+   * @brief Map field coordinates to image coordinates
+   *
+   * @param node_id Node being previewed
+   * @param output_type Output type being displayed
+   * @param output_index Output index being displayed
+   * @param field_index Field index
+   * @param field_line Line within field
+   * @param image_height Height of preview image
+   * @return Image Y coordinate (is_valid=false if out of bounds)
+   */
+  struct FieldToImageMapping {
+    bool is_valid;
+    int image_y;
+  };
+
+  FieldToImageMapping mapFieldToImage(NodeID node_id,
+                                      orc::PreviewOutputType output_type,
+                                      uint64_t output_index,
+                                      uint64_t field_index, int field_line,
+                                      int image_height);
+
+  /**
+   * @brief Get which fields comprise a frame
+   *
+   * @param node_id Node being queried
+   * @param frame_index Frame index
+   * @return Field indices (is_valid=false if invalid)
+   */
+  struct FrameFields {
+    bool is_valid;
+    uint64_t first_field;
+    uint64_t second_field;
+  };
+
+  FrameFields getFrameFields(NodeID node_id, uint64_t frame_index);
+
+  /**
+   * @brief Navigate to next/previous line in frame preview
+   *
+   * @param node_id Node being previewed
+   * @param output_type Output type
+   * @param current_field Current field index
+   * @param current_line Current line in field
+   * @param direction +1 for down, -1 for up
+   * @param field_height Height of a single field
+   * @return New field index and line number
+   */
+  struct FrameLineNavigation {
+    bool is_valid;
+    uint64_t new_field_index;
+    int new_line_number;
+  };
+
+  FrameLineNavigation navigateFrameLine(NodeID node_id,
+                                        orc::PreviewOutputType output_type,
+                                        uint64_t current_field,
+                                        int current_line, int direction,
+                                        int field_height);
+
+  // === Line Samples (for waveform display) ===
+
+  /**
+   * @brief Line sample data with optional Y/C separation
+   *
+   * For frame outputs (two fields), heights reflect the actual field heights
+   * from the VFR descriptors, which may be different for first vs second field.
+   * For single field outputs, only first_field_height is used.
+   */
+  struct LineSampleData {
+    std::vector<uint16_t>
+        composite_samples;  ///< Composite/combined samples (always populated)
+    std::vector<uint16_t> y_samples;  ///< Luma samples (only for Y/C sources)
+    std::vector<uint16_t> c_samples;  ///< Chroma samples (only for Y/C sources)
+    bool has_separate_channels;       ///< True if Y/C separation is available
+    int first_field_height = 0;  ///< Height of first field from VFR descriptor
+    int second_field_height =
+        0;  ///< Height of second field (0 if single field)
+  };
+
+  /**
+   * @brief Get line samples for oscilloscope display
+   *
+   * @param node_id Node to get samples from
+   * @param output_type Output type
+   * @param output_index Output index
+   * @param line_number Line number in the field/frame
+   * @param sample_x X coordinate hint (for field selection in frames)
+   * @param preview_width Width of preview image (for coordinate mapping)
+   * @return Vector of 16-bit sample values
+   */
+  std::vector<uint16_t> getLineSamples(NodeID node_id,
+                                       orc::PreviewOutputType output_type,
+                                       uint64_t output_index, int line_number,
+                                       int sample_x, int preview_width);
+
+  /**
+   * @brief Get line samples with Y/C separation for oscilloscope display
+   *
+   * For Y/C sources, returns separate Y and C samples in addition to composite.
+   * For composite sources, only composite_samples is populated.
+   *
+   * @param node_id Node to get samples from
+   * @param output_type Output type
+   * @param output_index Output index
+   * @param line_number Line number in the field/frame
+   * @param sample_x X coordinate hint (for field selection in frames)
+   * @param preview_width Width of preview image (for coordinate mapping)
+   * @return LineSampleData with composite and optional Y/C samples
+   */
+  LineSampleData getLineSamplesWithYC(NodeID node_id,
+                                      orc::PreviewOutputType output_type,
+                                      uint64_t output_index, int line_number,
+                                      int sample_x, int preview_width);
+
+  /**
+   * @brief Get all field samples for timing display
+   *
+   * Returns all samples from one or two fields (depending on output type).
+   * For field output: returns samples from single field.
+   * For frame outputs: returns samples from both fields in field order.
+   *
+   * @param node_id Node to get samples from
+   * @param output_type Output type
+   * @param output_index Output index
+   * @return LineSampleData with all field samples concatenated
+   */
+  LineSampleData getFieldSamplesForTiming(NodeID node_id,
+                                          orc::PreviewOutputType output_type,
+                                          uint64_t output_index);
+
+  /**
+   * @brief Get video parameters for a node
+   *
+   * @param node_id Node to get parameters from
+   * @return Video parameters if available
+   */
+  std::optional<orc::SourceParameters> getVideoParameters(NodeID node_id);
+
+  // === Observations (for debugging) ===
+
+  /**
+   * @brief Get observation data for a field
+   *
+   * @param node_id Node to get observations from
+   * @param field_id Field to query
+   * @return Observation data as JSON
+   */
+  ObservationData getObservations(NodeID node_id, FieldID field_id);
+
+  /**
+   * @brief Render field and get quality metrics
+   *
+   * This renders the field at the specified node and extracts quality metrics
+   * from the observation context. This is the preferred method for GUI code
+   * that needs quality metrics without direct access to core types.
+   *
+   * @param node_id Node to render at
+   * @param field_id Field to render
+   * @return Quality metrics (use MetricsPresenter types)
+   */
+  QualityMetrics getFieldQualityMetrics(NodeID node_id, FieldID field_id);
+
+  /**
+   * @brief Render both fields of a frame and get combined quality metrics
+   *
+   * This renders both fields and averages their quality metrics.
+   *
+   * @param node_id Node to render at
+   * @param field1_id First field
+   * @param field2_id Second field
+   * @return Combined quality metrics
+   */
+  QualityMetrics getFrameQualityMetrics(NodeID node_id, FieldID field1_id,
+                                        FieldID field2_id);
+
+  /**
+   * @brief Execute DAG to a specific node and return field representation
+   *
+   * This executes the DAG up to (not including) the specified node and returns
+   * the field representation output. This is used for analysis tools that need
+   * access to intermediate field data.
+   *
+   * @param node_id Node to execute to
+   * @return Shared pointer to field representation (as void* for encapsulation)
+   *
+   * @note Returns core VideoFieldRepresentation. Analysis tools should
+   * eventually migrate to presenter-based data access.
+   */
+  std::shared_ptr<const void> executeToNode(NodeID node_id);
+
+  /**
+   * @brief Get observation context after rendering a field
+   *
+   * This renders the field and returns the observation context which can be
+   * used by presenters to extract various metrics and observations.
+   *
+   * @param node_id Node to render at
+   * @param field_id Field to render
+   * @return Pointer to observation context (as void* for encapsulation)
+   *
+   * @note Returns core ObservationContext. Metric presenters use this
+   * to extract quality data without GUI having direct core access.
+   */
+  const void* getObservationContext(NodeID node_id, FieldID field_id);
+
+  // === Cache Management ===
+
+  /**
+   * @brief Clear the preview cache
+   */
+  void clearCache();
+
+  /**
+   * @brief Get cache statistics
+   * @return String describing cache usage
+   */
+  std::string getCacheStats() const;
+
+  // === Live Preview Tweak Panel ===
+
+  /**
+   * @brief Apply updated parameters to the live stage instance without
+   * rebuilding the DAG.
+   *
+   * For DecodePhase tweaks this invalidates the decoder cache so the next
+   * renderPreview() call produces a fresh frame with the new parameters.
+   * Never triggers a full DAG rebuild.
+   *
+   * @param node_id  Node whose stage should receive the parameter update.
+   * @param params   Parameters to apply (only tweakable keys need be present).
+   * @return true if the stage was found and accepted the parameters.
+   */
+  bool applyStageParameters(
+      NodeID node_id, const std::map<std::string, ParameterValue>& params);
+
+  /**
+   * @brief Return the live-tweakable parameter declarations for a node's stage.
+   *
+   * Returns a view-model list suitable for building the preview tweak panel.
+   * Returns an empty vector if the stage does not implement
+   * IStagePreviewCapability or has not yet loaded any input data.
+   *
+   * @param node_id Node to query.
+   * @return View-model list of tweakable parameters (may be empty).
+   */
+  std::vector<orc::LiveTweakableParameterView> getStageTweakableParameters(
+      NodeID node_id);
+
+  std::map<std::string, ParameterValue> getStageCurrentParameters(
+      NodeID node_id);
+
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
-} // namespace orc::presenters
+}  // namespace orc::presenters

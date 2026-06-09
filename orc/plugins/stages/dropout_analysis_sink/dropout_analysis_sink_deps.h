@@ -10,71 +10,61 @@
 #ifndef ORC_CORE_DROPOUT_ANALYSIS_SINK_DEPS_H
 #define ORC_CORE_DROPOUT_ANALYSIS_SINK_DEPS_H
 
-#include "dropout_analysis_sink_deps_interface.h"
-#include "logging.h"
-
 #include <atomic>
 #include <utility>
 
-namespace orc
-{
-    class DropoutAnalysisSinkStageDeps : public IDropoutAnalysisSinkStageDeps
-    {
-    public:
-        DropoutAnalysisSinkStageDeps() = default;
+#include "dropout_analysis_sink_deps_interface.h"
+#include "logging.h"
 
-        void init(
-            TriggerProgressCallback progress_callback,
+namespace orc {
+class DropoutAnalysisSinkStageDeps : public IDropoutAnalysisSinkStageDeps {
+ public:
+  DropoutAnalysisSinkStageDeps() = default;
+
+  void init(TriggerProgressCallback progress_callback,
             std::atomic<bool>* cancel_requested) override;
 
-        DropoutAnalysisComputeResult compute_and_analyze(
-            VideoFieldRepresentation* representation,
-            IObservationContext& observation_context,
-            DropoutAnalysisComputeOptions options) override;
+  DropoutAnalysisComputeResult compute_and_analyze(
+      VideoFieldRepresentation* representation,
+      IObservationContext& observation_context,
+      DropoutAnalysisComputeOptions options) override;
 
-        bool write_csv(
-            const std::string& path,
-            const std::vector<FrameDropoutStats>& frame_stats) override;
+  bool write_csv(const std::string& path,
+                 const std::vector<FrameDropoutStats>& frame_stats) override;
 
-    private:
-        class SpdlogLoggerAdapter
-        {
-        public:
-            template <typename... Args>
-            void trace(const char* fmt, Args&&... args) const
-            {
-                ORC_LOG_TRACE(fmt, std::forward<Args>(args)...);
-            }
+ private:
+  class SpdlogLoggerAdapter {
+   public:
+    template <typename... Args>
+    void trace(const char* fmt, Args&&... args) const {
+      ORC_LOG_TRACE(fmt, std::forward<Args>(args)...);
+    }
 
-            template <typename... Args>
-            void debug(const char* fmt, Args&&... args) const
-            {
-                ORC_LOG_DEBUG(fmt, std::forward<Args>(args)...);
-            }
+    template <typename... Args>
+    void debug(const char* fmt, Args&&... args) const {
+      ORC_LOG_DEBUG(fmt, std::forward<Args>(args)...);
+    }
 
-            template <typename... Args>
-            void info(const char* fmt, Args&&... args) const
-            {
-                ORC_LOG_INFO(fmt, std::forward<Args>(args)...);
-            }
+    template <typename... Args>
+    void info(const char* fmt, Args&&... args) const {
+      ORC_LOG_INFO(fmt, std::forward<Args>(args)...);
+    }
 
-            template <typename... Args>
-            void warn(const char* fmt, Args&&... args) const
-            {
-                ORC_LOG_WARN(fmt, std::forward<Args>(args)...);
-            }
+    template <typename... Args>
+    void warn(const char* fmt, Args&&... args) const {
+      ORC_LOG_WARN(fmt, std::forward<Args>(args)...);
+    }
 
-            template <typename... Args>
-            void error(const char* fmt, Args&&... args) const
-            {
-                ORC_LOG_ERROR(fmt, std::forward<Args>(args)...);
-            }
-        };
+    template <typename... Args>
+    void error(const char* fmt, Args&&... args) const {
+      ORC_LOG_ERROR(fmt, std::forward<Args>(args)...);
+    }
+  };
 
-        TriggerProgressCallback progress_callback_;
-        std::atomic<bool>* cancel_requested_{nullptr};
-        SpdlogLoggerAdapter logger_;
-    };
-} // namespace orc
+  TriggerProgressCallback progress_callback_;
+  std::atomic<bool>* cancel_requested_{nullptr};
+  SpdlogLoggerAdapter logger_;
+};
+}  // namespace orc
 
-#endif // ORC_CORE_DROPOUT_ANALYSIS_SINK_DEPS_H
+#endif  // ORC_CORE_DROPOUT_ANALYSIS_SINK_DEPS_H

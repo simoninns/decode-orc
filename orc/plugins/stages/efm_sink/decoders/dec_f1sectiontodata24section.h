@@ -12,29 +12,28 @@
 #include "decoders.h"
 #include "section.h"
 
-class F1SectionToData24Section : public Decoder
-{
-public:
-    F1SectionToData24Section();
-    void pushSection(const F1Section &f1Section);
-    Data24Section popSection();
-    bool isReady() const;
+class F1SectionToData24Section : public Decoder {
+ public:
+  F1SectionToData24Section();
+  void pushSection(const F1Section& f1Section);
+  Data24Section popSection();
+  bool isReady() const;
 
-    void showStatistics() const;
+  void showStatistics() const;
 
-private:
-    void processQueue();
+ private:
+  void processQueue();
 
-    std::deque<F1Section> m_inputBuffer;
-    std::deque<Data24Section> m_outputBuffer;
+  std::deque<F1Section> m_inputBuffer;
+  std::deque<Data24Section> m_outputBuffer;
 
-    uint64_t m_invalidF1FramesCount;
-    uint64_t m_validF1FramesCount;
-    uint64_t m_corruptBytesCount;
+  uint64_t m_invalidF1FramesCount;
+  uint64_t m_validF1FramesCount;
+  uint64_t m_corruptBytesCount;
 
-    uint64_t m_paddedBytesCount;
-    uint64_t m_unpaddedF1FramesCount;
-    uint64_t m_paddedF1FramesCount;
+  uint64_t m_paddedBytesCount;
+  uint64_t m_unpaddedF1FramesCount;
+  uint64_t m_paddedF1FramesCount;
 };
 
-#endif // DEC_F1SECTIONTODATA24SECTION_H
+#endif  // DEC_F1SECTIONTODATA24SECTION_H

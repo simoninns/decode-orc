@@ -9,11 +9,12 @@
 
 #include "stage_parameter.h"
 
-// Note: parameter_util functions are now implemented in orc-common/parameter_util.cpp
-// This file is kept for potential future core-specific parameter functionality
+// Note: parameter_util functions are now implemented in
+// orc-common/parameter_util.cpp This file is kept for potential future
+// core-specific parameter functionality
 
 namespace orc {
 
 // No implementation needed - parameter_util functions moved to common
 
-} // namespace orc
+}  // namespace orc

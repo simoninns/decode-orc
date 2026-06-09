@@ -12,11 +12,12 @@
 #include <cstdint>
 #include <vector>
 
-class Interleave
-{
-public:
-    Interleave();
-    void deinterleave(std::vector<uint8_t> &inputData, std::vector<uint8_t> &inputError, std::vector<uint8_t> &inputPadded);
+class Interleave {
+ public:
+  Interleave();
+  void deinterleave(std::vector<uint8_t>& inputData,
+                    std::vector<uint8_t>& inputError,
+                    std::vector<uint8_t>& inputPadded);
 };
 
-#endif // INTERLEAVE_H
+#endif  // INTERLEAVE_H

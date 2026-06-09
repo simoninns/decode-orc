@@ -28,5 +28,5 @@ namespace cli {
  */
 int plugins_command(int argc, char* argv[]);
 
-} // namespace cli
-} // namespace orc
+}  // namespace cli
+}  // namespace orc

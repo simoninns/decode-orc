@@ -14,12 +14,12 @@ namespace orc {
 
 /**
  * @brief Force linking of all analysis tool object files
- * 
+ *
  * This function must be called before any analysis tool lookups occur
  * to ensure all analysis tools are properly registered.
  */
 void force_analysis_tool_linking();
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_CORE_ANALYSIS_INIT_H
+#endif  // ORC_CORE_ANALYSIS_INIT_H

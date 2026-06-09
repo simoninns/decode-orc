@@ -20,23 +20,22 @@ namespace orc {
  * - present (bool, optional): true when white flag detected on the field
  */
 class WhiteFlagObserver : public Observer {
-public:
-	WhiteFlagObserver() = default;
-	~WhiteFlagObserver() override = default;
-    
-	std::string observer_name() const override { return "WhiteFlagObserver"; }
-	std::string observer_version() const override { return "1.0.0"; }
-    
-	void process_field(
-		const VideoFieldRepresentation& representation,
-		FieldID field_id,
-		IObservationContext &context) override;
-    
-	std::vector<ObservationKey> get_provided_observations() const override {
-		return {
-			{"white_flag", "present", ObservationType::BOOL, "White flag detected", true},
-		};
-	}
+ public:
+  WhiteFlagObserver() = default;
+  ~WhiteFlagObserver() override = default;
+
+  std::string observer_name() const override { return "WhiteFlagObserver"; }
+  std::string observer_version() const override { return "1.0.0"; }
+
+  void process_field(const VideoFieldRepresentation& representation,
+                     FieldID field_id, IObservationContext& context) override;
+
+  std::vector<ObservationKey> get_provided_observations() const override {
+    return {
+        {"white_flag", "present", ObservationType::BOOL, "White flag detected",
+         true},
+    };
+  }
 };
 
-} // namespace orc
+}  // namespace orc

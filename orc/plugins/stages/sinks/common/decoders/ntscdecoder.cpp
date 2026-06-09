@@ -8,53 +8,46 @@
  * SPDX-FileCopyrightText: 2019-2020 Adam Sampson
  */
 
-
 #include "ntscdecoder.h"
-#include "logging.h"
+
 #include "../video_parameter_safety.h"
+#include "logging.h"
 
-
-NtscDecoder::NtscDecoder(const Comb::Configuration &combConfig)
-{
-    config.combConfig = combConfig;
+NtscDecoder::NtscDecoder(const Comb::Configuration& combConfig) {
+  config.combConfig = combConfig;
 }
 
-bool NtscDecoder::configure(const ::orc::SourceParameters &videoParameters) {
-    // Ensure the source video is NTSC
-    if (videoParameters.system != orc::VideoSystem::NTSC) {
-        ORC_LOG_ERROR("This decoder is for NTSC video sources only");
-        return false;
-    }
+bool NtscDecoder::configure(const ::orc::SourceParameters& videoParameters) {
+  // Ensure the source video is NTSC
+  if (videoParameters.system != orc::VideoSystem::NTSC) {
+    ORC_LOG_ERROR("This decoder is for NTSC video sources only");
+    return false;
+  }
 
-    const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
-        videoParameters,
-        ::orc::chroma_sink::DecoderVideoProfile::NtscColour);
+  const auto safety = ::orc::chroma_sink::sanitize_video_parameters(
+      videoParameters, ::orc::chroma_sink::DecoderVideoProfile::NtscColour);
 
-    if (!safety.warnings.empty()) {
-        ORC_LOG_WARN("NtscDecoder::configure(): Adjusted unsafe video parameters: {}",
-                     ::orc::chroma_sink::join_issues(safety.warnings));
-    }
+  if (!safety.warnings.empty()) {
+    ORC_LOG_WARN(
+        "NtscDecoder::configure(): Adjusted unsafe video parameters: {}",
+        ::orc::chroma_sink::join_issues(safety.warnings));
+  }
 
-    if (!safety.ok) {
-        ORC_LOG_ERROR("NtscDecoder::configure(): Invalid video parameters: {}",
-                      ::orc::chroma_sink::join_issues(safety.errors));
-        return false;
-    }
+  if (!safety.ok) {
+    ORC_LOG_ERROR("NtscDecoder::configure(): Invalid video parameters: {}",
+                  ::orc::chroma_sink::join_issues(safety.errors));
+    return false;
+  }
 
-    config.videoParameters = safety.params;
+  config.videoParameters = safety.params;
 
-    return true;
+  return true;
 }
 
-int32_t NtscDecoder::getLookBehind() const
-{
-    return config.combConfig.getLookBehind();
+int32_t NtscDecoder::getLookBehind() const {
+  return config.combConfig.getLookBehind();
 }
 
-int32_t NtscDecoder::getLookAhead() const
-{
-    return config.combConfig.getLookAhead();
+int32_t NtscDecoder::getLookAhead() const {
+  return config.combConfig.getLookAhead();
 }
-
-
-

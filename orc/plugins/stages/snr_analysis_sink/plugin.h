@@ -27,15 +27,20 @@ inline constexpr uint32_t kStageMinInputs = 1;
 inline constexpr uint32_t kStageMaxInputs = 1;
 inline constexpr uint32_t kStageMinOutputs = 0;
 inline constexpr uint32_t kStageMaxOutputs = 0;
-inline constexpr orc::VideoFormatCompatibility kStageCompatibleFormats = VideoFormatCompatibility::ALL;
+inline constexpr orc::VideoFormatCompatibility kStageCompatibleFormats =
+    VideoFormatCompatibility::ALL;
 inline constexpr orc::SinkCategory kStageSinkCategory = SinkCategory::ANALYSIS;
 
 static_assert(kStageName[0] != '\0', "kStageName must not be empty");
-static_assert(kStageDisplayName[0] != '\0', "kStageDisplayName must not be empty");
-static_assert(kStageMenuCategory[0] != '\0', "kStageMenuCategory must not be empty");
+static_assert(kStageDisplayName[0] != '\0',
+              "kStageDisplayName must not be empty");
+static_assert(kStageMenuCategory[0] != '\0',
+              "kStageMenuCategory must not be empty");
 
-static_assert(kStageMaxInputs >= kStageMinInputs, "kStageMaxInputs must be >= kStageMinInputs");
-static_assert(kStageMaxOutputs >= kStageMinOutputs, "kStageMaxOutputs must be >= kStageMinOutputs");
+static_assert(kStageMaxInputs >= kStageMinInputs,
+              "kStageMaxInputs must be >= kStageMinInputs");
+static_assert(kStageMaxOutputs >= kStageMinOutputs,
+              "kStageMaxOutputs must be >= kStageMinOutputs");
 
 inline constexpr orc::StagePluginDescriptor kPluginDescriptor{
     "decode-orc.stage.snr_analysis_sink",
@@ -46,4 +51,4 @@ inline constexpr orc::StagePluginDescriptor kPluginDescriptor{
     true,
 };
 
-} // namespace orc::plugins::snr_analysis_sink
+}  // namespace orc::plugins::snr_analysis_sink

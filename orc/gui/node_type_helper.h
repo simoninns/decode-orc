@@ -7,12 +7,12 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-
 #pragma once
 
 #include <node_type.h>
-#include <QString>
+
 #include <QPointF>
+#include <QString>
 #include <vector>
 
 /**
@@ -24,10 +24,11 @@ namespace NodeTypeHelper {
  * @brief Get visual representation info for a node type
  */
 struct NodeVisualInfo {
-    bool has_input;         // Whether node has input port
-    bool has_output;        // Whether node has output port
-    bool input_is_many;     // True if max_inputs > 1 (renders as concentric circles)
-    bool output_is_many;    // True if max_outputs > 1 (renders as concentric circles)
+  bool has_input;      // Whether node has input port
+  bool has_output;     // Whether node has output port
+  bool input_is_many;  // True if max_inputs > 1 (renders as concentric circles)
+  bool output_is_many;  // True if max_outputs > 1 (renders as concentric
+                        // circles)
 };
 
 /**
@@ -61,10 +62,8 @@ QPointF getOutputPortPosition(double node_width, double node_height);
  * @param existing_output_count Number of outputs already connected from source
  * @return true if connection is allowed
  */
-bool canConnect(
-    const std::string& source_stage,
-    const std::string& target_stage,
-    uint32_t existing_input_count,
-    uint32_t existing_output_count);
+bool canConnect(const std::string& source_stage,
+                const std::string& target_stage, uint32_t existing_input_count,
+                uint32_t existing_output_count);
 
-} // namespace NodeTypeHelper
+}  // namespace NodeTypeHelper

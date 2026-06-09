@@ -9,70 +9,70 @@
 #ifndef DEC_F2SECTIONCORRECTION_H
 #define DEC_F2SECTIONCORRECTION_H
 
+#include <cstdint>
 #include <deque>
 #include <queue>
 #include <vector>
-#include <cstdint>
+
 #include "decoders.h"
 #include "section_metadata.h"
 
-class F2SectionCorrection : public Decoder
-{
-public:
-    F2SectionCorrection();
-    void pushSection(const F2Section &data);
-    F2Section popSection();
-    bool isReady() const;
-    bool isValid() const;
-    void flush();
-    void setNoTimecodes(bool noTimecodes);
-    void showStatistics() const;
+class F2SectionCorrection : public Decoder {
+ public:
+  F2SectionCorrection();
+  void pushSection(const F2Section& data);
+  F2Section popSection();
+  bool isReady() const;
+  bool isValid() const;
+  void flush();
+  void setNoTimecodes(bool noTimecodes);
+  void showStatistics() const;
 
-private:
-    void processQueue();
+ private:
+  void processQueue();
 
-    void waitForInputToSettle(F2Section &f2Section);
-    void waitingForSection(F2Section &f2Section);
-    SectionTime getExpectedAbsoluteTime() const;
+  void waitForInputToSettle(F2Section& f2Section);
+  void waitingForSection(F2Section& f2Section);
+  SectionTime getExpectedAbsoluteTime() const;
 
-    void processInternalBuffer();
-    void outputSections();
+  void processInternalBuffer();
+  void outputSections();
 
-    std::queue<F2Section> m_inputBuffer;
-    std::deque<F2Section> m_leadinBuffer;
-    std::queue<F2Section> m_outputBuffer;
+  std::queue<F2Section> m_inputBuffer;
+  std::deque<F2Section> m_leadinBuffer;
+  std::queue<F2Section> m_outputBuffer;
 
-    std::deque<F2Section> m_internalBuffer;
+  std::deque<F2Section> m_internalBuffer;
 
-    bool m_leadinComplete;
+  bool m_leadinComplete;
 
-    std::deque<F2Section> m_window;
-    int32_t m_maximumGapSize;
-    int32_t m_paddingWatermark;
+  std::deque<F2Section> m_window;
+  int32_t m_maximumGapSize;
+  int32_t m_paddingWatermark;
 
-    // Statistics
-    uint32_t m_totalSections;
-    uint32_t m_correctedSections;
-    uint32_t m_uncorrectableSections;
-    uint32_t m_preLeadinSections;
-    uint32_t m_missingSections;
-    uint32_t m_paddingSections;
-    uint32_t m_outOfOrderSections;
+  // Statistics
+  uint32_t m_totalSections;
+  uint32_t m_correctedSections;
+  uint32_t m_uncorrectableSections;
+  uint32_t m_preLeadinSections;
+  uint32_t m_missingSections;
+  uint32_t m_paddingSections;
+  uint32_t m_outOfOrderSections;
 
-    uint32_t m_qmode1Sections;
-    uint32_t m_qmode2Sections;
-    uint32_t m_qmode3Sections;
-    uint32_t m_qmode4Sections;
+  uint32_t m_qmode1Sections;
+  uint32_t m_qmode2Sections;
+  uint32_t m_qmode3Sections;
+  uint32_t m_qmode4Sections;
 
-    // Time statistics
-    SectionTime m_absoluteStartTime;
-    SectionTime m_absoluteEndTime;
-    std::vector<uint8_t> m_trackNumbers;
-    std::vector<SectionTime> m_trackStartTimes;
-    std::vector<SectionTime> m_trackEndTimes;
+  // Time statistics
+  SectionTime m_absoluteStartTime;
+  SectionTime m_absoluteEndTime;
+  std::vector<uint8_t> m_trackNumbers;
+  std::vector<SectionTime> m_trackStartTimes;
+  std::vector<SectionTime> m_trackEndTimes;
 
-    // Timecode handling
-    bool m_noTimecodes;
+  // Timecode handling
+  bool m_noTimecodes;
 };
 
-#endif // DEC_F2SECTIONCORRECTION_H
+#endif  // DEC_F2SECTIONCORRECTION_H

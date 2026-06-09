@@ -1,7 +1,8 @@
 /*
  * File:        orc_stage_runtime.h
  * Module:      decode-orc Plugin SDK
- * Purpose:     Public stage runtime include surface for plugin stage implementations
+ * Purpose:     Public stage runtime include surface for plugin stage
+ * implementations
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors

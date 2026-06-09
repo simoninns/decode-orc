@@ -37,16 +37,16 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
-#include <cstddef>
 
 #if __has_include(<fmt/format.h>)
 #include <fmt/format.h>
 #endif
 
-// Forward declarations for preview types. Full definitions come from orc_rendering.h
-// (included by orc_stage_api.h in the SDK umbrella).
+// Forward declarations for preview types. Full definitions come from
+// orc_rendering.h (included by orc_stage_api.h in the SDK umbrella).
 namespace orc {
 struct PreviewImage;
 struct ColourFrameCarrier;
@@ -59,58 +59,59 @@ class IStageServices;
 /// Log severity levels for the OrcPluginServices.log callback.
 /// Values intentionally match spdlog::level::level_enum.
 enum class OrcPluginLogLevel : int {
-    Trace    = 0,
-    Debug    = 1,
-    Info     = 2,
-    Warn     = 3,
-    Error    = 4,
-    Critical = 5,
+  Trace = 0,
+  Debug = 1,
+  Info = 2,
+  Warn = 3,
+  Error = 4,
+  Critical = 5,
 };
 
 // =============================================================================
 // Service table
 // =============================================================================
 
-/// Service function pointers injected by the host into orc_register_stage_plugin().
+/// Service function pointers injected by the host into
+/// orc_register_stage_plugin().
 ///
 /// ABI rule: fields are append-only.  Plugins must check services_size before
 /// accessing any field that was not present in the ABI version the plugin was
 /// compiled against.
 struct OrcPluginServices {
-    /// sizeof(OrcPluginServices) at host build time.  Plugins use this to
-    /// guard access to fields introduced in later ABI revisions.
-    uint32_t services_size;
+  /// sizeof(OrcPluginServices) at host build time.  Plugins use this to
+  /// guard access to fields introduced in later ABI revisions.
+  uint32_t services_size;
 
-    // -------------------------------------------------------------------------
-    // v3 fields (ABI version 3)
-    // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // v3 fields (ABI version 3)
+  // -------------------------------------------------------------------------
 
-    /// Log a pre-formatted message at the given severity level.
-    /// @param level    Severity.
-    /// @param message  Null-terminated UTF-8 message string.
-    ///                 Must not be nullptr.  Ownership is not transferred.
-    void (*log)(OrcPluginLogLevel level, const char* message);
+  /// Log a pre-formatted message at the given severity level.
+  /// @param level    Severity.
+  /// @param message  Null-terminated UTF-8 message string.
+  ///                 Must not be nullptr.  Ownership is not transferred.
+  void (*log)(OrcPluginLogLevel level, const char* message);
 
-    /// Convert a decoded ColourFrameCarrier to a display-ready PreviewImage.
-    ///
-    /// Equivalent to the host-internal render_preview_from_colour_carrier().
-    /// @param carrier  Pointer to the carrier to convert.  Must not be nullptr.
-    ///                 The carrier's is_valid() must return true.
-    /// @return A filled PreviewImage on success; an empty PreviewImage on error
-    ///         (check width == 0 && height == 0).
-    PreviewImage (*render_colour_preview)(const ColourFrameCarrier* carrier);
+  /// Convert a decoded ColourFrameCarrier to a display-ready PreviewImage.
+  ///
+  /// Equivalent to the host-internal render_preview_from_colour_carrier().
+  /// @param carrier  Pointer to the carrier to convert.  Must not be nullptr.
+  ///                 The carrier's is_valid() must return true.
+  /// @return A filled PreviewImage on success; an empty PreviewImage on error
+  ///         (check width == 0 && height == 0).
+  PreviewImage (*render_colour_preview)(const ColourFrameCarrier* carrier);
 
-    // -------------------------------------------------------------------------
-    // v3 extension fields (append-only; guarded by services_size)
-    // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // v3 extension fields (append-only; guarded by services_size)
+  // -------------------------------------------------------------------------
 
-    /// Optional consolidated stage services interface.
-    ///
-    /// When present, plugins should prefer this interface over any private host
-    /// include-path workarounds for sink/file service requirements.
-    ///
-    /// Host may set this to nullptr when the capability is not available.
-    IStageServices* stage_services;
+  /// Optional consolidated stage services interface.
+  ///
+  /// When present, plugins should prefer this interface over any private host
+  /// include-path workarounds for sink/file service requirements.
+  ///
+  /// Host may set this to nullptr when the capability is not available.
+  IStageServices* stage_services;
 };
 
 // =============================================================================
@@ -129,24 +130,23 @@ inline const OrcPluginServices* g_services{nullptr};
 /// Called by plugin.cpp inside orc_register_stage_plugin() to store the host-
 /// supplied services table.  Must be called before any stage factory is
 /// invoked.
-inline void set_services(const OrcPluginServices* services)
-{
-    g_services = services;
+inline void set_services(const OrcPluginServices* services) {
+  g_services = services;
 }
 
-inline IStageServices* get_stage_services()
-{
-    if (!g_services) {
-        return nullptr;
-    }
+inline IStageServices* get_stage_services() {
+  if (!g_services) {
+    return nullptr;
+  }
 
-    const auto required_size = static_cast<uint32_t>(offsetof(OrcPluginServices, stage_services) + sizeof(IStageServices*));
-    if (g_services->services_size < required_size) {
-        return nullptr;
-    }
+  const auto required_size = static_cast<uint32_t>(
+      offsetof(OrcPluginServices, stage_services) + sizeof(IStageServices*));
+  if (g_services->services_size < required_size) {
+    return nullptr;
+  }
 
-    return g_services->stage_services;
+  return g_services->stage_services;
 }
 
-} // namespace plugin
-} // namespace orc
+}  // namespace plugin
+}  // namespace orc

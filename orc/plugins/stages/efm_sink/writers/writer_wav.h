@@ -9,25 +9,24 @@
 #ifndef WRITER_WAV_H
 #define WRITER_WAV_H
 
-#include <string>
 #include <fstream>
+#include <string>
 
 #include "section.h"
 
-class WriterWav
-{
-public:
-    WriterWav();
-    ~WriterWav();
+class WriterWav {
+ public:
+  WriterWav();
+  ~WriterWav();
 
-    bool open(const std::string &filename);
-    void write(const AudioSection &audioSection);
-    void close();
-    int64_t size();
-    bool isOpen() const { return m_file.is_open(); };
+  bool open(const std::string& filename);
+  void write(const AudioSection& audioSection);
+  void close();
+  int64_t size();
+  bool isOpen() const { return m_file.is_open(); };
 
-private:
-    std::ofstream m_file;
+ private:
+  std::ofstream m_file;
 };
 
-#endif // WRITER_WAV_H
+#endif  // WRITER_WAV_H

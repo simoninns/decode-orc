@@ -18,42 +18,41 @@ namespace gui_unit_test {
 
 namespace {
 
-QApplication& ensureApplication()
-{
-    if (auto* existing_app = qobject_cast<QApplication*>(QCoreApplication::instance())) {
-        return *existing_app;
-    }
+QApplication& ensureApplication() {
+  if (auto* existing_app =
+          qobject_cast<QApplication*>(QCoreApplication::instance())) {
+    return *existing_app;
+  }
 
-    static int argc = 3;
-    static char app_name[] = "orc-gui-widget-test";
-    static char platform_opt[] = "-platform";
-    static char platform_val[] = "offscreen";
-    static char* argv[] = {app_name, platform_opt, platform_val, nullptr};
-    static QApplication* app = [] {
-        auto* created_app = new QApplication(argc, argv);
-        created_app->setQuitOnLastWindowClosed(false);
-        return created_app;
-    }();
-    return *app;
+  static int argc = 3;
+  static char app_name[] = "orc-gui-widget-test";
+  static char platform_opt[] = "-platform";
+  static char platform_val[] = "offscreen";
+  static char* argv[] = {app_name, platform_opt, platform_val, nullptr};
+  static QApplication* app = [] {
+    auto* created_app = new QApplication(argc, argv);
+    created_app->setQuitOnLastWindowClosed(false);
+    return created_app;
+  }();
+  return *app;
 }
 
-} // namespace
+}  // namespace
 
-TEST(GUIWidgetHarnessSmokeTest, fieldPreviewWidget_canShowAndCloseOffscreen)
-{
-    (void)ensureApplication();
+TEST(GUIWidgetHarnessSmokeTest, fieldPreviewWidgetCanShowAndCloseOffscreen) {
+  (void)ensureApplication();
 
-    FieldPreviewWidget widget;
+  FieldPreviewWidget widget;
 
-    widget.show();
-    QCoreApplication::processEvents();
+  widget.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(widget.isVisible());
+  EXPECT_TRUE(widget.isVisible());
 
-    widget.close();
-    QCoreApplication::processEvents();
+  widget.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(widget.isVisible());
+  EXPECT_FALSE(widget.isVisible());
 }
 
-} // namespace gui_unit_test
+}  // namespace gui_unit_test

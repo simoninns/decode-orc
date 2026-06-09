@@ -10,52 +10,46 @@
 #ifndef ORC_CORE_CC_SINK_STAGE_DEPS_INTERFACE_H
 #define ORC_CORE_CC_SINK_STAGE_DEPS_INTERFACE_H
 
-#include "observation_context_interface.h"
-#include "triggerable_stage.h"
-#include "video_field_representation.h"
-
 #include <atomic>
 #include <cstdint>
 #include <string>
 
-namespace orc
-{
-    /**
-     * @brief Closed Caption output format
-     */
-    enum class CCExportFormat {
-        SCC,        ///< Scenarist SCC V1.0 format (industry standard)
-        PLAIN_TEXT  ///< Plain text with control codes stripped
-    };
+#include "observation_context_interface.h"
+#include "triggerable_stage.h"
+#include "video_field_representation.h"
 
-    struct CCExportOptions
-    {
-        std::string output_path;
-        CCExportFormat export_format{CCExportFormat::SCC};
-        bool write_csv{false};
-    };
+namespace orc {
+/**
+ * @brief Closed Caption output format
+ */
+enum class CCExportFormat {
+  SCC,        ///< Scenarist SCC V1.0 format (industry standard)
+  PLAIN_TEXT  ///< Plain text with control codes stripped
+};
 
-    struct CCExportResult
-    {
-        bool success{false};
-        std::string message;
-        int32_t cc_frames_exported{0};
-    };
+struct CCExportOptions {
+  std::string output_path;
+  CCExportFormat export_format{CCExportFormat::SCC};
+  bool write_csv{false};
+};
 
-    class ICCSinkStageDeps
-    {
-    public:
-        virtual ~ICCSinkStageDeps() = default;
+struct CCExportResult {
+  bool success{false};
+  std::string message;
+  int32_t cc_frames_exported{0};
+};
 
-        virtual void init(
-            TriggerProgressCallback progress_callback,
-            std::atomic<bool>* cancel_requested) = 0;
+class ICCSinkStageDeps {
+ public:
+  virtual ~ICCSinkStageDeps() = default;
 
-        virtual CCExportResult export_cc(
-            VideoFieldRepresentation* representation,
-            IObservationContext& observation_context,
-            CCExportOptions options) = 0;
-    };
-} // namespace orc
+  virtual void init(TriggerProgressCallback progress_callback,
+                    std::atomic<bool>* cancel_requested) = 0;
 
-#endif // ORC_CORE_CC_SINK_STAGE_DEPS_INTERFACE_H
+  virtual CCExportResult export_cc(VideoFieldRepresentation* representation,
+                                   IObservationContext& observation_context,
+                                   CCExportOptions options) = 0;
+};
+}  // namespace orc
+
+#endif  // ORC_CORE_CC_SINK_STAGE_DEPS_INTERFACE_H

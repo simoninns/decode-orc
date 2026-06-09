@@ -9,14 +9,16 @@
 
 #pragma once
 
-#include <QtNodes/BasicGraphicsScene>
-#include <QMenu>
 #include <node_id.h>
 #include <orc_analysis.h>  // For AnalysisToolInfo
+
+#include <QMenu>
+#include <QtNodes/BasicGraphicsScene>
+
 #include "orcgraphmodel.h"
 
 namespace orc {
-    class AnalysisTool;
+class AnalysisTool;
 }
 
 // Use orc::NodeID for Qt signals/slots
@@ -24,61 +26,68 @@ using orc::NodeID;
 
 /**
  * @brief Custom QtNodes graphics scene with DAG-specific context menus
- * 
+ *
  * Extends QtNodes::BasicGraphicsScene to provide:
  * - Context menus for adding new nodes
  * - Node selection signals
  * - Stage inspection, triggering, and analysis integration
- * 
+ *
  * Manages the visual representation of the processing DAG and handles
  * user interactions for node manipulation.
  */
-class OrcGraphicsScene : public QtNodes::BasicGraphicsScene
-{
-    Q_OBJECT
+class OrcGraphicsScene : public QtNodes::BasicGraphicsScene {
+  Q_OBJECT
 
-public:
-    /**
-     * @brief Construct a new graphics scene
-     * @param graphModel The DAG model to visualize
-     * @param parent Parent QObject
-     */
-    explicit OrcGraphicsScene(OrcGraphModel& graphModel, QObject* parent = nullptr);
-    ~OrcGraphicsScene() override;
+ public:
+  /**
+   * @brief Construct a new graphics scene
+   * @param graphModel The DAG model to visualize
+   * @param parent Parent QObject
+   */
+  explicit OrcGraphicsScene(OrcGraphModel& graphModel,
+                            QObject* parent = nullptr);
+  ~OrcGraphicsScene() override;
 
-    /**
-     * @brief Programmatically select a node in the scene
-     * @param nodeId QtNodes node identifier
-     */
-    void selectNode(QtNodes::NodeId nodeId);
+  /**
+   * @brief Programmatically select a node in the scene
+   * @param nodeId QtNodes node identifier
+   */
+  void selectNode(QtNodes::NodeId nodeId);
 
-    /**
-     * @brief Create context menu for scene background
-     * @param scenePos Position where menu was requested
-     * @return Context menu with node creation options
-     */
-    QMenu* createSceneMenu(QPointF const scenePos) override;
+  /**
+   * @brief Create context menu for scene background
+   * @param scenePos Position where menu was requested
+   * @return Context menu with node creation options
+   */
+  QMenu* createSceneMenu(QPointF const scenePos) override;
 
-signals:
-    void nodeSelected(QtNodes::NodeId nodeId);  ///< Emitted when a node is selected
-    void editParametersRequested(const NodeID& node_id);  ///< Emitted when user wants to edit node parameters
-    void triggerStageRequested(const NodeID& node_id);  ///< Emitted when user wants to trigger a stage
-    void inspectStageRequested(const NodeID& node_id);  ///< Emitted when user wants to inspect a stage
-    
-    /**
-     * @brief Emitted when user requests to run an analysis tool on a node
-     * @param tool_info The analysis tool information
-     * @param node_id Node to analyze
-     * @param stage_name Stage type name
-     */
-    void runAnalysisRequested(const orc::AnalysisToolInfo& tool_info, const NodeID& node_id, const std::string& stage_name);
+ signals:
+  void nodeSelected(
+      QtNodes::NodeId nodeId);  ///< Emitted when a node is selected
+  void editParametersRequested(
+      const NodeID&
+          node_id);  ///< Emitted when user wants to edit node parameters
+  void triggerStageRequested(
+      const NodeID& node_id);  ///< Emitted when user wants to trigger a stage
+  void inspectStageRequested(
+      const NodeID& node_id);  ///< Emitted when user wants to inspect a stage
 
-private slots:
-    void onSelectionChanged();
-    void onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const pos);
+  /**
+   * @brief Emitted when user requests to run an analysis tool on a node
+   * @param tool_info The analysis tool information
+   * @param node_id Node to analyze
+   * @param stage_name Stage type name
+   */
+  void runAnalysisRequested(const orc::AnalysisToolInfo& tool_info,
+                            const NodeID& node_id,
+                            const std::string& stage_name);
 
-private:
-    OrcGraphModel& graph_model_;
-    QtNodes::NodeId last_selected_node_id_ = QtNodes::InvalidNodeId;
-    bool restoring_selection_ = false;
+ private slots:
+  void onSelectionChanged();
+  void onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const pos);
+
+ private:
+  OrcGraphModel& graph_model_;
+  QtNodes::NodeId last_selected_node_id_ = QtNodes::InvalidNodeId;
+  bool restoring_selection_ = false;
 };

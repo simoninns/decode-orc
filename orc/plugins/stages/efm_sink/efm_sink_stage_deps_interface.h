@@ -10,44 +10,41 @@
 #ifndef ORC_CORE_EFM_SINK_STAGE_DEPS_INTERFACE_H
 #define ORC_CORE_EFM_SINK_STAGE_DEPS_INTERFACE_H
 
-#include "video_field_representation.h"
-#include "triggerable_stage.h"
-
 #include <atomic>
 #include <string>
 
-namespace orc
-{
-    struct EFMSinkOptions
-    {
-        std::string output_path;
-        bool audio_mode{true};
-        bool no_timecodes{false};
-        bool audacity_labels{false};
-        bool no_audio_concealment{false};
-        bool zero_pad{false};
-        bool no_wav_header{false};
-        bool output_metadata{false};
-        bool report{false};
-    };
+#include "triggerable_stage.h"
+#include "video_field_representation.h"
 
-    struct EFMSinkDecodeResult
-    {
-        bool success{false};
-        std::string status_message;
-    };
+namespace orc {
+struct EFMSinkOptions {
+  std::string output_path;
+  bool audio_mode{true};
+  bool no_timecodes{false};
+  bool audacity_labels{false};
+  bool no_audio_concealment{false};
+  bool zero_pad{false};
+  bool no_wav_header{false};
+  bool output_metadata{false};
+  bool report{false};
+};
 
-    class IEFMSinkStageDeps
-    {
-    public:
-        virtual ~IEFMSinkStageDeps() = default;
+struct EFMSinkDecodeResult {
+  bool success{false};
+  std::string status_message;
+};
 
-        virtual void init(TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested) = 0;
+class IEFMSinkStageDeps {
+ public:
+  virtual ~IEFMSinkStageDeps() = default;
 
-        virtual EFMSinkDecodeResult decode_efm(
-            const VideoFieldRepresentation* representation,
-            const EFMSinkOptions& options) = 0;
-    };
-} // namespace orc
+  virtual void init(TriggerProgressCallback progress_callback,
+                    std::atomic<bool>* cancel_requested) = 0;
 
-#endif // ORC_CORE_EFM_SINK_STAGE_DEPS_INTERFACE_H
+  virtual EFMSinkDecodeResult decode_efm(
+      const VideoFieldRepresentation* representation,
+      const EFMSinkOptions& options) = 0;
+};
+}  // namespace orc
+
+#endif  // ORC_CORE_EFM_SINK_STAGE_DEPS_INTERFACE_H

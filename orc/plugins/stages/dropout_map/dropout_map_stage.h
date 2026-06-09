@@ -9,16 +9,17 @@
 
 #pragma once
 
-#include "video_field_representation.h"
+#include <map>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
+#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
+#include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
 #include "dropout_decision.h"
 #include "stage_parameter.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
-#include <memory>
-#include <vector>
-#include <map>
-#include <string>
+#include "video_field_representation.h"
 
 namespace orc {
 
@@ -27,164 +28,172 @@ class DropoutMapStage;
 
 /**
  * @brief Per-field dropout override specification
- * 
+ *
  * Each entry specifies dropouts to add or remove for a specific field.
  */
 struct FieldDropoutMap {
-    FieldID field_id;
-    std::vector<DropoutRegion> additions;    ///< Dropouts to add
-    std::vector<DropoutRegion> removals;     ///< Dropouts to remove
-    
-    FieldDropoutMap() : field_id(0) {}
-    FieldDropoutMap(FieldID id) : field_id(id) {}
+  FieldID field_id;
+  std::vector<DropoutRegion> additions;  ///< Dropouts to add
+  std::vector<DropoutRegion> removals;   ///< Dropouts to remove
+
+  FieldDropoutMap() : field_id(0) {}
+  FieldDropoutMap(FieldID id) : field_id(id) {}
 };
 
 /**
  * @brief Video field representation with overridden dropout hints
- * 
+ *
  * This wrapper modifies dropout hints based on per-field specifications,
  * allowing users to add, remove, or modify dropout regions.
  */
 class DropoutMappedRepresentation : public VideoFieldRepresentationWrapper {
-public:
-    DropoutMappedRepresentation(
-        std::shared_ptr<const VideoFieldRepresentation> source,
-        const std::map<uint64_t, FieldDropoutMap>& dropout_map);
-    
-    ~DropoutMappedRepresentation() = default;
-    
-    /// Override dropout hints to apply the field-specific modifications
-    std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
-    
-    // Required virtual methods (forward to source)
-    const sample_type* get_line(FieldID id, size_t line) const override {
-        return source_ ? source_->get_line(id, line) : nullptr;
-    }
-    
-    std::vector<sample_type> get_field(FieldID id) const override {
-        return source_ ? source_->get_field(id) : std::vector<sample_type>{};
-    }
-    
-    // YC source support - forward dual-channel interface
-    bool has_separate_channels() const override {
-        return source_ ? source_->has_separate_channels() : false;
-    }
-    
-    const sample_type* get_line_luma(FieldID id, size_t line) const override {
-        return source_ ? source_->get_line_luma(id, line) : nullptr;
-    }
-    
-    const sample_type* get_line_chroma(FieldID id, size_t line) const override {
-        return source_ ? source_->get_line_chroma(id, line) : nullptr;
-    }
-    
-    std::vector<sample_type> get_field_luma(FieldID id) const override {
-        return source_ ? source_->get_field_luma(id) : std::vector<sample_type>{};
-    }
-    
-    std::vector<sample_type> get_field_chroma(FieldID id) const override {
-        return source_ ? source_->get_field_chroma(id) : std::vector<sample_type>{};
-    }
-    
-private:
-    std::map<uint64_t, FieldDropoutMap> dropout_map_;
+ public:
+  DropoutMappedRepresentation(
+      std::shared_ptr<const VideoFieldRepresentation> source,
+      const std::map<uint64_t, FieldDropoutMap>& dropout_map);
+
+  ~DropoutMappedRepresentation() = default;
+
+  /// Override dropout hints to apply the field-specific modifications
+  std::vector<DropoutRegion> get_dropout_hints(FieldID id) const override;
+
+  // Required virtual methods (forward to source)
+  const sample_type* get_line(FieldID id, size_t line) const override {
+    return source_ ? source_->get_line(id, line) : nullptr;
+  }
+
+  std::vector<sample_type> get_field(FieldID id) const override {
+    return source_ ? source_->get_field(id) : std::vector<sample_type>{};
+  }
+
+  // YC source support - forward dual-channel interface
+  bool has_separate_channels() const override {
+    return source_ ? source_->has_separate_channels() : false;
+  }
+
+  const sample_type* get_line_luma(FieldID id, size_t line) const override {
+    return source_ ? source_->get_line_luma(id, line) : nullptr;
+  }
+
+  const sample_type* get_line_chroma(FieldID id, size_t line) const override {
+    return source_ ? source_->get_line_chroma(id, line) : nullptr;
+  }
+
+  std::vector<sample_type> get_field_luma(FieldID id) const override {
+    return source_ ? source_->get_field_luma(id) : std::vector<sample_type>{};
+  }
+
+  std::vector<sample_type> get_field_chroma(FieldID id) const override {
+    return source_ ? source_->get_field_chroma(id) : std::vector<sample_type>{};
+  }
+
+ private:
+  std::map<uint64_t, FieldDropoutMap> dropout_map_;
 };
 
 /**
  * @brief Dropout map stage - override dropout hints on per-field basis
- * 
+ *
  * This stage allows manual override of dropout hints from the source.
  * Users can add new dropouts, remove false positives, or modify existing
  * dropout boundaries on a per-field basis.
- * 
+ *
  * The stage does NOT modify the actual video data - it only modifies the
  * dropout hints that downstream stages (like dropout_correct) will see.
- * 
+ *
  * Connection: ONE input, ONE output with fan-out support.
  * - Accepts exactly one input (only from stages with ONE output)
  * - Produces one output that can fan-out to multiple downstream stages
- * 
+ *
  * Parameters:
  * - dropout_map: String encoding of per-field dropout modifications
  *   Format: JSON-like structure with field-specific dropout lists
- *   Example: "[{field:0,add:[{line:10,start:100,end:200}],remove:[{line:15,start:50,end:75}]}]"
- * 
+ *   Example:
+ * "[{field:0,add:[{line:10,start:100,end:200}],remove:[{line:15,start:50,end:75}]}]"
+ *
  * Use cases:
  * - Manually marking dropouts that were not detected
  * - Removing false positive dropout detections
  * - Adjusting boundaries of detected dropouts
  * - Creating custom dropout patterns for testing
  */
-class DropoutMapStage : public DAGStage, public ParameterizedStage, public PreviewableStage, public StageToolProvider {
-public:
-    DropoutMapStage() = default;
-    
-    // DAGStage interface
-    std::string version() const override { return "1.0"; }
-    
-    NodeTypeInfo get_node_type_info() const override {
-        return NodeTypeInfo{
-            NodeType::TRANSFORM,
-            "dropout_map",
-            "Dropout Map",
-            "Override dropout hints on per-field basis - add, remove, or modify dropout regions",
-            1, 1,  // Exactly one input
-            1, UINT32_MAX,  // One output, supports fan-out to multiple targets
-            VideoFormatCompatibility::ALL,
+class DropoutMapStage : public DAGStage,
+                        public ParameterizedStage,
+                        public PreviewableStage,
+                        public StageToolProvider {
+ public:
+  DropoutMapStage() = default;
+
+  // DAGStage interface
+  std::string version() const override { return "1.0"; }
+
+  NodeTypeInfo get_node_type_info() const override {
+    return NodeTypeInfo{
+        NodeType::TRANSFORM,
+        "dropout_map",
+        "Dropout Map",
+        "Override dropout hints on per-field basis - add, remove, or modify "
+        "dropout regions",
+        1,
+        1,  // Exactly one input
+        1,
+        UINT32_MAX,  // One output, supports fan-out to multiple targets
+        VideoFormatCompatibility::ALL,
         SinkCategory::CORE,
-        "Transform"
-        };
-    }
-    
-    std::vector<ArtifactPtr> execute(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters, ObservationContext& observation_context) override;
-    
-    size_t required_input_count() const override { return 1; }
-    size_t output_count() const override { return 1; }
-    
-    // PreviewableStage interface
-    bool supports_preview() const override { return true; }
-    std::vector<PreviewOption> get_preview_options() const override;
-    PreviewImage render_preview(const std::string& option_id, uint64_t index,
-                               PreviewNavigationHint hint = PreviewNavigationHint::Random) const override;
-    
-    // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
-    std::map<std::string, ParameterValue> get_parameters() const override;
-    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
-    
-    /// Apply additions and removals to a list of dropout regions (public for DropoutMappedRepresentation)
-    static std::vector<DropoutRegion> apply_modifications(
-        const std::vector<DropoutRegion>& source_dropouts,
-        const FieldDropoutMap& modifications);
+        "Transform"};
+  }
 
-    /// Parse dropout map string into structured data (public for GUI editor)
-    /// Format: "[{field:0,add:[{line:10,start:100,end:200}],remove:[...]},{field:1,...}]"
-    static std::map<uint64_t, FieldDropoutMap> parse_dropout_map(const std::string& map_str);
-    
-    /// Encode dropout map to string format (public for GUI editor)
-    static std::string encode_dropout_map(const std::map<uint64_t, FieldDropoutMap>& map);
+  std::vector<ArtifactPtr> execute(
+      const std::vector<ArtifactPtr>& inputs,
+      const std::map<std::string, ParameterValue>& parameters,
+      ObservationContext& observation_context) override;
 
-    std::vector<StageToolDescriptor> get_stage_tools() const override {
-        return {
-            StageToolDescriptor{
-                "dropout_editor",
-                "Dropout Editor",
-                "Open interactive dropout map editor",
-                StageToolKind::NonModalEditor,
-                true,
-                "decode-orc.stage-tools.dropout-editor.v1"
-            }
-        };
-    }
+  size_t required_input_count() const override { return 1; }
+  size_t output_count() const override { return 1; }
 
-private:
-    // Current parameters
-    std::string dropout_map_str_ = "[]";
-    
-    // Cached output for preview rendering
-    mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
+  // PreviewableStage interface
+  bool supports_preview() const override { return true; }
+  std::vector<PreviewOption> get_preview_options() const override;
+  PreviewImage render_preview(const std::string& option_id, uint64_t index,
+                              PreviewNavigationHint hint) const override;
+
+  // ParameterizedStage interface
+  std::vector<ParameterDescriptor> get_parameter_descriptors(
+      VideoSystem project_format, SourceType source_type) const override;
+  using ParameterizedStage::get_parameter_descriptors;
+  std::map<std::string, ParameterValue> get_parameters() const override;
+  bool set_parameters(
+      const std::map<std::string, ParameterValue>& params) override;
+
+  /// Apply additions and removals to a list of dropout regions (public for
+  /// DropoutMappedRepresentation)
+  static std::vector<DropoutRegion> apply_modifications(
+      const std::vector<DropoutRegion>& source_dropouts,
+      const FieldDropoutMap& modifications);
+
+  /// Parse dropout map string into structured data (public for GUI editor)
+  /// Format:
+  /// "[{field:0,add:[{line:10,start:100,end:200}],remove:[...]},{field:1,...}]"
+  static std::map<uint64_t, FieldDropoutMap> parse_dropout_map(
+      const std::string& map_str);
+
+  /// Encode dropout map to string format (public for GUI editor)
+  static std::string encode_dropout_map(
+      const std::map<uint64_t, FieldDropoutMap>& map);
+
+  std::vector<StageToolDescriptor> get_stage_tools() const override {
+    return {StageToolDescriptor{"dropout_editor", "Dropout Editor",
+                                "Open interactive dropout map editor",
+                                StageToolKind::NonModalEditor, true,
+                                "decode-orc.stage-tools.dropout-editor.v1"}};
+  }
+
+ private:
+  // Current parameters
+  std::string dropout_map_str_ = "[]";
+
+  // Cached output for preview rendering
+  mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
 };
 
-} // namespace orc
+}  // namespace orc

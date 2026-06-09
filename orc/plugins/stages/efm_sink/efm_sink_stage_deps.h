@@ -12,23 +12,21 @@
 
 #include "efm_sink_stage_deps_interface.h"
 
-namespace orc
-{
-    class EFMSinkStageDeps : public IEFMSinkStageDeps
-    {
-    public:
-        EFMSinkStageDeps() = default;
+namespace orc {
+class EFMSinkStageDeps : public IEFMSinkStageDeps {
+ public:
+  EFMSinkStageDeps() = default;
 
-        void init(TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested) override;
+  void init(TriggerProgressCallback progress_callback,
+            std::atomic<bool>* cancel_requested) override;
 
-        EFMSinkDecodeResult decode_efm(
-            const VideoFieldRepresentation* representation,
-            const EFMSinkOptions& options) override;
+  EFMSinkDecodeResult decode_efm(const VideoFieldRepresentation* representation,
+                                 const EFMSinkOptions& options) override;
 
-    private:
-        TriggerProgressCallback progress_callback_;
-        std::atomic<bool>* cancel_requested_{nullptr};
-    };
-} // namespace orc
+ private:
+  TriggerProgressCallback progress_callback_;
+  std::atomic<bool>* cancel_requested_{nullptr};
+};
+}  // namespace orc
 
-#endif // ORC_CORE_EFM_SINK_STAGE_DEPS_H
+#endif  // ORC_CORE_EFM_SINK_STAGE_DEPS_H

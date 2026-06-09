@@ -1,0 +1,3 @@
+Checks: '-*,google-*,bugprone-*,-bugprone-easily-swappable-parameters,-bugprone-suspicious-include,modernize-use-override'
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(include|src|tests)/'

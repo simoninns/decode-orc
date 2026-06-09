@@ -9,78 +9,75 @@
 #ifndef SECTION_H
 #define SECTION_H
 
-#include <vector>
 #include <fstream>
-#include "frame.h"
+#include <vector>
+
 #include "audio.h"
+#include "frame.h"
 #include "section_metadata.h"
 
-class F2Section
-{
-public:
-    F2Section();
-    void pushFrame(const F2Frame &inFrame);
-    const F2Frame& frame(int32_t index) const;
-    void setFrame(int index, const F2Frame &inFrame);
-    bool isComplete() const;
-    void clear();
-    void showData();
+class F2Section {
+ public:
+  F2Section();
+  void pushFrame(const F2Frame& inFrame);
+  const F2Frame& frame(int32_t index) const;
+  void setFrame(int index, const F2Frame& inFrame);
+  bool isComplete() const;
+  void clear();
+  void showData();
 
-    SectionMetadata metadata;
+  SectionMetadata metadata;
 
-private:
-    std::vector<F2Frame> m_frames;
+ private:
+  std::vector<F2Frame> m_frames;
 };
 
-class F1Section
-{
-public:
-    F1Section();
-    void pushFrame(const F1Frame &inFrame);
-    const F1Frame& frame(int32_t index) const;
-    void setFrame(int index, const F1Frame &inFrame);
-    bool isComplete() const;
-    void clear();
-    void showData();
+class F1Section {
+ public:
+  F1Section();
+  void pushFrame(const F1Frame& inFrame);
+  const F1Frame& frame(int32_t index) const;
+  void setFrame(int index, const F1Frame& inFrame);
+  bool isComplete() const;
+  void clear();
+  void showData();
 
-    SectionMetadata metadata;
+  SectionMetadata metadata;
 
-private:
-    std::vector<F1Frame> m_frames;
+ private:
+  std::vector<F1Frame> m_frames;
 };
 
-class Data24Section
-{
-public:
-    Data24Section();
-    void pushFrame(const Data24 &inFrame);
-    const Data24& frame(int32_t index) const;
-    void setFrame(int index, const Data24 &inFrame);
-    bool isComplete() const;
-    void clear();
-    void showData();
+class Data24Section {
+ public:
+  Data24Section();
+  void pushFrame(const Data24& inFrame);
+  const Data24& frame(int32_t index) const;
+  void setFrame(int index, const Data24& inFrame);
+  bool isComplete() const;
+  void clear();
+  void showData();
 
-    SectionMetadata metadata;
+  SectionMetadata metadata;
 
-private:
-    std::vector<Data24> m_frames;
+ private:
+  std::vector<Data24> m_frames;
 };
 
-class AudioSection
-{
-public:
-    AudioSection();
-    void pushFrame(const Audio &inFrame);
-    const Audio& frame(int32_t index) const;
-    void setFrame(int index, const Audio &inFrame);
-    bool isComplete() const;
-    void clear();
-    void showData();
+class AudioSection {
+ public:
+  AudioSection();
+  void pushFrame(const Audio& inFrame);
+  const Audio& frame(int32_t index) const;
+  void setFrame(int index, const Audio& inFrame);
+  bool isComplete() const;
+  void clear();
+  void showData();
 
-    SectionMetadata metadata;
+  SectionMetadata metadata;
 
-private:
-    std::vector<Audio> m_frames;
+ private:
+  std::vector<Audio> m_frames;
 };
 
-#endif // SECTION_H
+#endif  // SECTION_H

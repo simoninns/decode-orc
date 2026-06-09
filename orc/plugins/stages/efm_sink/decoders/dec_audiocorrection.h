@@ -12,32 +12,33 @@
 #include "decoders.h"
 #include "section.h"
 
-class AudioCorrection : public Decoder
-{
-public:
-    AudioCorrection();
-    void pushSection(const AudioSection &audioSection);
-    AudioSection popSection();
-    bool isReady() const;
-    void flush();
+class AudioCorrection : public Decoder {
+ public:
+  AudioCorrection();
+  void pushSection(const AudioSection& audioSection);
+  AudioSection popSection();
+  bool isReady() const;
+  void flush();
 
-    void showStatistics() const;
+  void showStatistics() const;
 
-private:
-    void processQueue();
-    std::string convertToAudacityTimestamp(int32_t minutes, int32_t seconds, int32_t frames, int32_t subsection, int32_t sample);
+ private:
+  void processQueue();
+  std::string convertToAudacityTimestamp(int32_t minutes, int32_t seconds,
+                                         int32_t frames, int32_t subsection,
+                                         int32_t sample);
 
-    std::deque<AudioSection> m_inputBuffer;
-    std::deque<AudioSection> m_outputBuffer;
+  std::deque<AudioSection> m_inputBuffer;
+  std::deque<AudioSection> m_outputBuffer;
 
-    std::vector<AudioSection> m_correctionBuffer;
+  std::vector<AudioSection> m_correctionBuffer;
 
-    bool m_firstSectionFlag;
+  bool m_firstSectionFlag;
 
-    // Statistics
-    uint32_t m_concealedSamplesCount;
-    uint32_t m_silencedSamplesCount;
-    uint32_t m_validSamplesCount;
+  // Statistics
+  uint32_t m_concealedSamplesCount;
+  uint32_t m_silencedSamplesCount;
+  uint32_t m_validSamplesCount;
 };
 
-#endif // DEC_AUDIOCORRECTION_H
+#endif  // DEC_AUDIOCORRECTION_H

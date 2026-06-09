@@ -8,86 +8,84 @@
  * SPDX-FileCopyrightText: 2019-2021 Adam Sampson
  */
 
-
 #ifndef OUTPUTWRITER_H
 #define OUTPUTWRITER_H
 
-#include <cstdint>
-#include <vector>
-#include <string>
-
 #include <orc_source_parameters.h>
+
+#include <cstdint>
+#include <string>
+#include <vector>
 
 class ComponentFrame;
 
-// A frame (two interlaced fields), converted to one of the supported output formats.
-// Since all the formats currently supported use 16-bit samples, this is just a
-// vector of 16-bit numbers.
+// A frame (two interlaced fields), converted to one of the supported output
+// formats. Since all the formats currently supported use 16-bit samples, this
+// is just a vector of 16-bit numbers.
 using OutputFrame = std::vector<uint16_t>;
 
 class OutputWriter {
-public:
-    // Output pixel formats
-    enum PixelFormat {
-        RGB48 = 0,
-        YUV444P16,
-        GRAY16
-    };
+ public:
+  // Output pixel formats
+  enum PixelFormat { RGB48 = 0, YUV444P16, GRAY16 };
 
-    // Output settings
-    struct Configuration {
-        int32_t paddingAmount = 8;
-        PixelFormat pixelFormat = RGB48;
-        bool outputY4m = false;
-        // Crop offsets to apply when reading from ComponentFrame
-        int32_t cropLeft = 0;
-        int32_t cropTop = 0;
-        int32_t cropWidth = 0;   // 0 = use full width
-        int32_t cropHeight = 0;  // 0 = use full height
-    };
+  // Output settings
+  struct Configuration {
+    int32_t paddingAmount = 8;
+    PixelFormat pixelFormat = RGB48;
+    bool outputY4m = false;
+    // Crop offsets to apply when reading from ComponentFrame
+    int32_t cropLeft = 0;
+    int32_t cropTop = 0;
+    int32_t cropWidth = 0;   // 0 = use full width
+    int32_t cropHeight = 0;  // 0 = use full height
+  };
 
-    // Set the output configuration, and adjust the SourceParameters to suit.
-    // (If usePadding is disabled, this will not change the SourceParameters.)
-    void updateConfiguration(::orc::SourceParameters &videoParameters, const Configuration &config);
+  // Set the output configuration, and adjust the SourceParameters to suit.
+  // (If usePadding is disabled, this will not change the SourceParameters.)
+  void updateConfiguration(::orc::SourceParameters& videoParameters,
+                           const Configuration& config);
 
-    // Print an info message about the output format
-    void printOutputInfo() const;
+  // Print an info message about the output format
+  void printOutputInfo() const;
 
-    // Get the header data to be written at the start of the stream
-    std::string getStreamHeader() const;
+  // Get the header data to be written at the start of the stream
+  std::string getStreamHeader() const;
 
-    // Get the header data to be written before each frame
-    std::string getFrameHeader() const;
+  // Get the header data to be written before each frame
+  std::string getFrameHeader() const;
 
-    // For worker threads: convert a component frame to the configured output format
-    void convert(const ComponentFrame &componentFrame, OutputFrame &outputFrame) const;
+  // For worker threads: convert a component frame to the configured output
+  // format
+  void convert(const ComponentFrame& componentFrame,
+               OutputFrame& outputFrame) const;
 
-    PixelFormat getPixelFormat() const {
-        return config.pixelFormat;
-    }
+  PixelFormat getPixelFormat() const { return config.pixelFormat; }
 
-private:
-    // Configuration parameters
-    Configuration config;
-    ::orc::SourceParameters videoParameters;
+ private:
+  // Configuration parameters
+  Configuration config;
+  ::orc::SourceParameters videoParameters;
 
-    // Number of blank lines to add at the top and bottom of the output
-    int32_t topPadLines;
-    int32_t bottomPadLines;
+  // Number of blank lines to add at the top and bottom of the output
+  int32_t topPadLines;
+  int32_t bottomPadLines;
 
-    // Output size
-    int32_t activeWidth;
-    int32_t activeHeight;
-    int32_t outputHeight;
+  // Output size
+  int32_t activeWidth;
+  int32_t activeHeight;
+  int32_t outputHeight;
 
-    // Get a string representing the pixel format
-    const char *getPixelName() const;
+  // Get a string representing the pixel format
+  const char* getPixelName() const;
 
-    // Clear padding lines
-    void clearPadLines(int32_t firstLine, int32_t numLines, OutputFrame &outputFrame) const;
+  // Clear padding lines
+  void clearPadLines(int32_t firstLine, int32_t numLines,
+                     OutputFrame& outputFrame) const;
 
-    // Convert one line
-    void convertLine(int32_t lineNumber, const ComponentFrame &componentFrame, OutputFrame &outputFrame) const;
+  // Convert one line
+  void convertLine(int32_t lineNumber, const ComponentFrame& componentFrame,
+                   OutputFrame& outputFrame) const;
 };
 
-#endif // OUTPUTWRITER_H
+#endif  // OUTPUTWRITER_H

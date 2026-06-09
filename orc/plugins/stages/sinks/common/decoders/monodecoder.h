@@ -8,46 +8,45 @@
  * SPDX-FileCopyrightText: 2019-2021 Adam Sampson
  */
 
-
 #ifndef MONODECODER_H
 #define MONODECODER_H
 
-#include <atomic>
-#include <thread>
-#include <iostream>
-
-#include "componentframe.h"
 #include <orc_source_parameters.h>
 
+#include <atomic>
+#include <iostream>
+#include <thread>
+
 #include "comb.h"
+#include "componentframe.h"
 #include "decoder.h"
 #include "sourcefield.h"
 
 // Decoder that passes all input through as luma, for purely monochrome sources
 class MonoDecoder : public Decoder {
-public:
+ public:
+  struct MonoConfiguration {
+    double yNRLevel = 0.0;
+    bool filterChroma = false;  // If true, use comb filter to remove chroma
+                                // subcarrier (ld-chroma-decoder -b mode)
+    ::orc::SourceParameters videoParameters;
+  };
+  MonoDecoder();
+  MonoDecoder(const MonoDecoder::MonoConfiguration& config);
+  bool updateConfiguration(const ::orc::SourceParameters& videoParameters,
+                           const MonoDecoder::MonoConfiguration& configuration);
+  bool configure(const ::orc::SourceParameters& videoParameters) override;
 
-	struct MonoConfiguration {
-		double yNRLevel = 0.0;
-		bool filterChroma = false;  // If true, use comb filter to remove chroma subcarrier (ld-chroma-decoder -b mode)
-		::orc::SourceParameters videoParameters;
-	};
-	MonoDecoder();
-	MonoDecoder(const MonoDecoder::MonoConfiguration &config);
-	bool updateConfiguration(const ::orc::SourceParameters &videoParameters, const MonoDecoder::MonoConfiguration &configuration);
-	bool configure(const ::orc::SourceParameters &videoParameters) override;
-
-	/// Decode luma-only frames (optionally filtering out chroma)
-	void decodeFrames(const std::vector<SourceField>& inputFields,
-                    int32_t startIndex,
-                    int32_t endIndex,
+  /// Decode luma-only frames (optionally filtering out chroma)
+  void decodeFrames(const std::vector<SourceField>& inputFields,
+                    int32_t startIndex, int32_t endIndex,
                     std::vector<ComponentFrame>& componentFrames) override;
-	void doYNR(ComponentFrame &componentFrame);				
+  void doYNR(ComponentFrame& componentFrame);
 
-private:
-    MonoConfiguration monoConfig;
-    std::unique_ptr<Comb> combFilter;  // Used when filterChroma is true
-	bool configurationValid_ = false;
+ private:
+  MonoConfiguration monoConfig;
+  std::unique_ptr<Comb> combFilter;  // Used when filterChroma is true
+  bool configurationValid_ = false;
 };
 
-#endif // MONODECODER
+#endif  // MONODECODER

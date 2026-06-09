@@ -9,10 +9,10 @@
 
 #pragma once
 
-#include <string>
 #include <cstdint>
-#include <vector>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace orc {
 
@@ -21,13 +21,13 @@ enum class VideoSystem;
 
 /**
  * @brief Video format compatibility for stages
- * 
+ *
  * Defines which video formats (NTSC/PAL) a stage supports.
  */
 enum class VideoFormatCompatibility {
-    ALL,        // Works with any format (NTSC, PAL, PAL-M, etc.)
-    NTSC_ONLY,  // Only works with NTSC
-    PAL_ONLY,   // Only works with PAL or PAL-M
+  ALL,        // Works with any format (NTSC, PAL, PAL-M, etc.)
+  NTSC_ONLY,  // Only works with NTSC
+  PAL_ONLY,   // Only works with PAL or PAL-M
 };
 
 /**
@@ -36,88 +36,83 @@ enum class VideoFormatCompatibility {
  * Used by UI/presenter layers to organize sink stages into menus.
  * Meaningful for sink-like stages (NodeType::SINK and NodeType::ANALYSIS_SINK).
  */
-enum class SinkCategory {
-    CORE,
-    ANALYSIS,
-    THIRD_PARTY
-};
+enum class SinkCategory { CORE, ANALYSIS, THIRD_PARTY };
 
 /**
  * @brief Node connectivity pattern
- * 
+ *
  * Defines the input/output structure of a DAG node type.
  * This determines how nodes can be connected and how the GUI renders them.
  */
 enum class NodeType {
-    /// Source node - no inputs, produces outputs (e.g., START nodes for TBC sources)
-    SOURCE,
-    
-    /// Sink node - consumes inputs, no outputs (e.g., export to file, display output)
-    SINK,
-    
-    /// Transform node - one input, one output (most common processing stages)
-    TRANSFORM,
-    
-    /// Merger node - multiple inputs, one output (stacking, blending)
-    MERGER,
-    
-    /// Complex node - multiple inputs, multiple outputs (advanced processing)
-    COMPLEX,
-    
-    /// Analysis sink - consumes inputs, triggers batch analysis, produces no frame outputs
-    ANALYSIS_SINK
+  /// Source node - no inputs, produces outputs (e.g., START nodes for TBC
+  /// sources)
+  SOURCE,
+
+  /// Sink node - consumes inputs, no outputs (e.g., export to file, display
+  /// output)
+  SINK,
+
+  /// Transform node - one input, one output (most common processing stages)
+  TRANSFORM,
+
+  /// Merger node - multiple inputs, one output (stacking, blending)
+  MERGER,
+
+  /// Complex node - multiple inputs, multiple outputs (advanced processing)
+  COMPLEX,
+
+  /// Analysis sink - consumes inputs, triggers batch analysis, produces no
+  /// frame outputs
+  ANALYSIS_SINK
 };
 
 /**
  * @brief Metadata about a node type
- * 
+ *
  * Describes the characteristics of a processing stage for GUI rendering
  * and DAG validation.
  */
 struct NodeTypeInfo {
-    NodeType type;              // Connectivity pattern
-    std::string stage_name;     // Type identifier (e.g., "START", "DropoutCorrect")
-    std::string display_name;   // Human-readable name (e.g., "Source", "Dropout Correction")
-    std::string description;    // Detailed description for tooltips
-    uint32_t min_inputs;        // Minimum number of inputs (0 for SOURCE)
-    uint32_t max_inputs;        // Maximum number of inputs (0 for SOURCE, UINT32_MAX for unlimited)
-    uint32_t min_outputs;       // Minimum number of outputs (0 for SINK)
-    uint32_t max_outputs;       // Maximum number of outputs (0 for SINK, UINT32_MAX for unlimited)
-    VideoFormatCompatibility compatible_formats;  // Video format compatibility
-    SinkCategory sink_category;  // Sink grouping metadata
-    std::string menu_category;  // Required Add Stage menu group label (plugin-provided)
+  NodeType type;           // Connectivity pattern
+  std::string stage_name;  // Type identifier (e.g., "START", "DropoutCorrect")
+  std::string display_name;  // Human-readable name (e.g., "Source", "Dropout
+                             // Correction")
+  std::string description;   // Detailed description for tooltips
+  uint32_t min_inputs;       // Minimum number of inputs (0 for SOURCE)
+  uint32_t max_inputs;   // Maximum number of inputs (0 for SOURCE, UINT32_MAX
+                         // for unlimited)
+  uint32_t min_outputs;  // Minimum number of outputs (0 for SINK)
+  uint32_t max_outputs;  // Maximum number of outputs (0 for SINK, UINT32_MAX
+                         // for unlimited)
+  VideoFormatCompatibility compatible_formats;  // Video format compatibility
+  SinkCategory sink_category;                   // Sink grouping metadata
+  std::string
+      menu_category;  // Required Add Stage menu group label (plugin-provided)
 
-    NodeTypeInfo(
-        NodeType type,
-        std::string stage_name,
-        std::string display_name,
-        std::string description,
-        uint32_t min_inputs,
-        uint32_t max_inputs,
-        uint32_t min_outputs,
-        uint32_t max_outputs,
-        VideoFormatCompatibility compatible_formats,
-        SinkCategory sink_category,
-        std::string menu_category)
-        : type(type)
-        , stage_name(std::move(stage_name))
-        , display_name(std::move(display_name))
-        , description(std::move(description))
-        , min_inputs(min_inputs)
-        , max_inputs(max_inputs)
-        , min_outputs(min_outputs)
-        , max_outputs(max_outputs)
-        , compatible_formats(compatible_formats)
-        , sink_category(sink_category)
-        , menu_category(std::move(menu_category))
-    {}
+  NodeTypeInfo(NodeType type, std::string stage_name, std::string display_name,
+               std::string description, uint32_t min_inputs,
+               uint32_t max_inputs, uint32_t min_outputs, uint32_t max_outputs,
+               VideoFormatCompatibility compatible_formats,
+               SinkCategory sink_category, std::string menu_category)
+      : type(type),
+        stage_name(std::move(stage_name)),
+        display_name(std::move(display_name)),
+        description(std::move(description)),
+        min_inputs(min_inputs),
+        max_inputs(max_inputs),
+        min_outputs(min_outputs),
+        max_outputs(max_outputs),
+        compatible_formats(compatible_formats),
+        sink_category(sink_category),
+        menu_category(std::move(menu_category)) {}
 
-    NodeTypeInfo() = delete;
+  NodeTypeInfo() = delete;
 };
 
 /**
  * @brief Get node type information by stage name
- * 
+ *
  * @param stage_name Stage identifier (e.g., "START", "Passthrough")
  * @return Node type info, or nullptr if stage_name not recognized
  */
@@ -125,27 +120,29 @@ const NodeTypeInfo* get_node_type_info(const std::string& stage_name);
 
 /**
  * @brief Get list of all available node types
- * 
+ *
  * @return Vector of all registered node type info
  */
 const std::vector<NodeTypeInfo>& get_all_node_types();
 
 /**
  * @brief Check if a connection is valid between two node types
- * 
+ *
  * @param source_stage Source node stage name
  * @param target_stage Target node stage name
  * @return true if connection is allowed
  */
-bool is_connection_valid(const std::string& source_stage, const std::string& target_stage);
+bool is_connection_valid(const std::string& source_stage,
+                         const std::string& target_stage);
 
 /**
  * @brief Check if a stage is compatible with a video format
- * 
+ *
  * @param stage_name Stage identifier
  * @param format Video format to check
  * @return true if stage is compatible with the format
  */
-bool is_stage_compatible_with_format(const std::string& stage_name, VideoSystem format);
+bool is_stage_compatible_with_format(const std::string& stage_name,
+                                     VideoSystem format);
 
-} // namespace orc
+}  // namespace orc

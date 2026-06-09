@@ -10,8 +10,9 @@
 #ifndef ORC_PRESENTERS_DISC_MAPPER_PRESENTER_H
 #define ORC_PRESENTERS_DISC_MAPPER_PRESENTER_H
 
-#include "analysis_tool_presenter.h"
 #include <functional>
+
+#include "analysis_tool_presenter.h"
 
 namespace orc::presenters {
 
@@ -21,20 +22,19 @@ namespace orc::presenters {
  * Prepares DAG/project context and maps progress/results for the GUI.
  */
 class DiscMapperPresenter : public AnalysisToolPresenter {
-public:
-    explicit DiscMapperPresenter(void* project_handle);
+ public:
+  explicit DiscMapperPresenter(void* project_handle);
 
-    orc::AnalysisResult runAnalysis(
-        NodeID node_id,
-        const std::map<std::string, orc::ParameterValue>& parameters,
-        std::function<void(int, const std::string&)> progress_callback = nullptr
-    );
+  orc::AnalysisResult runAnalysis(
+      NodeID node_id,
+      const std::map<std::string, orc::ParameterValue>& parameters,
+      std::function<void(int, const std::string&)> progress_callback = nullptr);
 
-protected:
-    std::string toolId() const override;
-    std::string toolName() const override;
+ protected:
+  std::string toolId() const override;
+  std::string toolName() const override;
 };
 
-} // namespace orc::presenters
+}  // namespace orc::presenters
 
-#endif // ORC_PRESENTERS_DISC_MAPPER_PRESENTER_H
+#endif  // ORC_PRESENTERS_DISC_MAPPER_PRESENTER_H

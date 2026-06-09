@@ -16,39 +16,41 @@
 #include "daphne_vbi_sink_stage_deps_interface.h"
 #include "daphne_vbi_writer_util_interface.h"
 #include "observation_context_interface.h"
-#include "video_field_representation.h"
 #include "triggerable_stage.h"
+#include "video_field_representation.h"
 
-namespace orc
-{
-    class IStageServices;
+namespace orc {
+class IStageServices;
 
-    class DaphneVBISinkStageDeps : public IDaphneVBISinkStageDeps
-    {
-    public:
-        // This class needs IStageServices to create file writers and other runtime dependencies.
-        explicit DaphneVBISinkStageDeps(IStageServices* stage_services) : stage_services_(stage_services) {}
+class DaphneVBISinkStageDeps : public IDaphneVBISinkStageDeps {
+ public:
+  // This class needs IStageServices to create file writers and other runtime
+  // dependencies.
+  explicit DaphneVBISinkStageDeps(IStageServices* stage_services)
+      : stage_services_(stage_services) {}
 
-        /**
-         * @brief Sets dependencies that aren't interfaces.
-         *
-         * @param progress_callback The progress callback
-         * @param pIsProcessing Pointer to is_processing bool
-         * @param pCancelRequested Pointer to cancel_requested bool
-         */
-        void init(TriggerProgressCallback progress_callback, std::atomic<bool> *pIsProcessing, std::atomic<bool> *pCancelRequested);
+  /**
+   * @brief Sets dependencies that aren't interfaces.
+   *
+   * @param progress_callback The progress callback
+   * @param pIsProcessing Pointer to is_processing bool
+   * @param pCancelRequested Pointer to cancel_requested bool
+   */
+  void init(TriggerProgressCallback progress_callback,
+            std::atomic<bool>* pIsProcessing,
+            std::atomic<bool>* pCancelRequested);
 
-        bool write_vbi(
-            const VideoFieldRepresentation* representation,
-            const std::string& vbi_path,
-            IObservationContext &observation_context) override;
+  bool write_vbi(const VideoFieldRepresentation* representation,
+                 const std::string& vbi_path,
+                 IObservationContext& observation_context) override;
 
-    private:
-        TriggerProgressCallback progress_callback_;  // Progress callback for trigger operations
-        std::atomic<bool> *pIsProcessing_{};
-        std::atomic<bool> *pCancelRequested_{};
-        IStageServices* stage_services_{};
-    };
-}
+ private:
+  TriggerProgressCallback
+      progress_callback_;  // Progress callback for trigger operations
+  std::atomic<bool>* pIsProcessing_{};
+  std::atomic<bool>* pCancelRequested_{};
+  IStageServices* stage_services_{};
+};
+}  // namespace orc
 
-#endif //DECODE_ORC_ROOT_DAPHNE_VBI_SINK_STAGE_DEPS_H
+#endif  // DECODE_ORC_ROOT_DAPHNE_VBI_SINK_STAGE_DEPS_H

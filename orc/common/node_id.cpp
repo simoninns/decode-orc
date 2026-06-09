@@ -12,10 +12,10 @@
 namespace orc {
 
 std::string NodeID::to_string() const {
-    if (!is_valid()) {
-        return "invalid";
-    }
-    return std::to_string(id_);
+  if (!is_valid()) {
+    return "invalid";
+  }
+  return std::to_string(id_);
 }
 
-} // namespace orc
+}  // namespace orc

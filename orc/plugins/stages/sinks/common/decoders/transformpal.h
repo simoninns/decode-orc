@@ -9,12 +9,10 @@
  * SPDX-FileCopyrightText: 2019-2021 Adam Sampson
  */
 
-
 #ifndef TRANSFORMPAL_H
 #define TRANSFORMPAL_H
 
 #include <fftw3.h>
-
 #include <orc_source_parameters.h>
 
 #include "componentframe.h"
@@ -24,54 +22,58 @@
 
 // Abstract base class for Transform PAL filters.
 class TransformPal {
-public:
-    TransformPal(int32_t xComplex, int32_t yComplex, int32_t zComplex);
-    virtual ~TransformPal();
+ public:
+  TransformPal(int32_t xComplex, int32_t yComplex, int32_t zComplex);
+  virtual ~TransformPal();
 
-    // Configure TransformPal.
-    //
-    // threshold is the similarity threshold for the filter. Values from 0-1
-    // are meaningful, with higher values requiring signals to be more similar
-    // to be considered chroma.
-    void updateConfiguration(const ::orc::SourceParameters &videoParameters,
-                             double threshold, const std::vector<double> &thresholds);
+  // Configure TransformPal.
+  //
+  // threshold is the similarity threshold for the filter. Values from 0-1
+  // are meaningful, with higher values requiring signals to be more similar
+  // to be considered chroma.
+  void updateConfiguration(const ::orc::SourceParameters& videoParameters,
+                           double threshold,
+                           const std::vector<double>& thresholds);
 
-    // Filter input fields.
-    //
-    // For each input frame between startFieldIndex and endFieldIndex, a
-    // pointer will be placed in outputFields to an array of the same size
-    // (owned by this object) containing the chroma signal.
-    virtual void filterFields(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                              std::vector<const double *> &outputFields) = 0;
+  // Filter input fields.
+  //
+  // For each input frame between startFieldIndex and endFieldIndex, a
+  // pointer will be placed in outputFields to an array of the same size
+  // (owned by this object) containing the chroma signal.
+  virtual void filterFields(const std::vector<SourceField>& inputFields,
+                            int32_t startIndex, int32_t endIndex,
+                            std::vector<const double*>& outputFields) = 0;
 
-    // Draw a visualisation of the FFT over component frames.
-    //
-    // The FFT is computed for each field, so this visualises only the first
-    // field in each frame. positionX/Y specify the location to visualise in
-    // frame coordinates.
-    void overlayFFT(int32_t positionX, int32_t positionY,
-                    const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                    std::vector<ComponentFrame> &componentFrames);
+  // Draw a visualisation of the FFT over component frames.
+  //
+  // The FFT is computed for each field, so this visualises only the first
+  // field in each frame. positionX/Y specify the location to visualise in
+  // frame coordinates.
+  void overlayFFT(int32_t positionX, int32_t positionY,
+                  const std::vector<SourceField>& inputFields,
+                  int32_t startIndex, int32_t endIndex,
+                  std::vector<ComponentFrame>& componentFrames);
 
-protected:
-    // Overlay a visualisation of one field's FFT.
-    // Calls back to overlayFFTArrays to draw the arrays.
-    virtual void overlayFFTFrame(int32_t positionX, int32_t positionY,
-                                 const std::vector<SourceField> &inputFields, int32_t fieldIndex,
-                                 ComponentFrame &componentFrame) = 0;
+ protected:
+  // Overlay a visualisation of one field's FFT.
+  // Calls back to overlayFFTArrays to draw the arrays.
+  virtual void overlayFFTFrame(int32_t positionX, int32_t positionY,
+                               const std::vector<SourceField>& inputFields,
+                               int32_t fieldIndex,
+                               ComponentFrame& componentFrame) = 0;
 
-    void overlayFFTArrays(const fftw_complex *fftIn, const fftw_complex *fftOut,
-                          FrameCanvas &canvas);
+  void overlayFFTArrays(const fftw_complex* fftIn, const fftw_complex* fftOut,
+                        FrameCanvas& canvas);
 
-    // FFT size
-    int32_t xComplex;
-    int32_t yComplex;
-    int32_t zComplex;
+  // FFT size
+  int32_t xComplex;
+  int32_t yComplex;
+  int32_t zComplex;
 
-    // Configuration parameters
-    bool configurationSet;
-    ::orc::SourceParameters videoParameters;
-    std::vector<double> thresholds;
+  // Configuration parameters
+  bool configurationSet;
+  ::orc::SourceParameters videoParameters;
+  std::vector<double> thresholds;
 };
 
 #endif

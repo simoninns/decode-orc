@@ -9,35 +9,34 @@
 
 #pragma once
 
-#include <QtNodes/GraphicsView>
 #include <QString>
+#include <QtNodes/GraphicsView>
 
 class OrcGraphModel;
 
 /**
  * Custom graphics view that validates node deletion before allowing it
  */
-class OrcGraphicsView : public QtNodes::GraphicsView
-{
-    Q_OBJECT
+class OrcGraphicsView : public QtNodes::GraphicsView {
+  Q_OBJECT
 
-public:
-    explicit OrcGraphicsView(QWidget* parent = nullptr);
-    ~OrcGraphicsView() override = default;
+ public:
+  explicit OrcGraphicsView(QWidget* parent = nullptr);
+  ~OrcGraphicsView() override = default;
 
-protected:
-    void paintEvent(QPaintEvent* event) override;
-    void wheelEvent(QWheelEvent *event) override;
-    void showEvent(QShowEvent *event) override;
-    void contextMenuEvent(QContextMenuEvent* event) override;
+ protected:
+  void paintEvent(QPaintEvent* event) override;
+  void wheelEvent(QWheelEvent* event) override;
+  void showEvent(QShowEvent* event) override;
+  void contextMenuEvent(QContextMenuEvent* event) override;
 
-public:
-    void setShowWelcomeMessage(bool show);
+ public:
+  void setShowWelcomeMessage(bool show);
 
-private slots:
-    void onDeleteSelectedObjects() override;
+ private slots:
+  void onDeleteSelectedObjects() override;
 
-private:
-    bool show_welcome_message_{true};
-    QString welcome_message_;
+ private:
+  bool show_welcome_message_{true};
+  QString welcome_message_;
 };

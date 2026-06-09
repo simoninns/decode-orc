@@ -9,57 +9,62 @@
 
 #pragma once
 
+#include <field_id.h>
+#include <node_id.h>
+
 #include <functional>
 #include <memory>
 #include <optional>
-#include <node_id.h>
-#include <field_id.h>
+
 #include "vbi_view_models.h"
 
 namespace orc {
-    class DAG;
-    enum class VbiSoundMode;
-}
+class DAG;
+enum class VbiSoundMode;
+}  // namespace orc
 
 namespace orc::presenters {
 
 class VbiPresenter {
-public:
-    explicit VbiPresenter(std::function<std::shared_ptr<void>()> dag_provider);
-    ~VbiPresenter();
+ public:
+  explicit VbiPresenter(std::function<std::shared_ptr<void>()> dag_provider);
+  ~VbiPresenter();
 
-    VbiPresenter(const VbiPresenter&) = delete;
-    VbiPresenter& operator=(const VbiPresenter&) = delete;
-    VbiPresenter(VbiPresenter&&) noexcept;
-    VbiPresenter& operator=(VbiPresenter&&) noexcept;
+  VbiPresenter(const VbiPresenter&) = delete;
+  VbiPresenter& operator=(const VbiPresenter&) = delete;
+  VbiPresenter(VbiPresenter&&) noexcept;
+  VbiPresenter& operator=(VbiPresenter&&) noexcept;
 
-    // Fetch VBI for a single field; returns empty if unavailable
-    std::optional<VBIFieldInfoView> getVbiForField(NodeID node_id, FieldID field_id) const;
+  // Fetch VBI for a single field; returns empty if unavailable
+  std::optional<VBIFieldInfoView> getVbiForField(NodeID node_id,
+                                                 FieldID field_id) const;
 
-    // Fetch VBI for both fields of a frame; if only one available, returns the available ones
-    struct FrameVbiResult {
-        std::optional<VBIFieldInfoView> field1;
-        std::optional<VBIFieldInfoView> field2;
-    };
-    FrameVbiResult getVbiForFrame(NodeID node_id, FieldID field1, FieldID field2) const;
+  // Fetch VBI for both fields of a frame; if only one available, returns the
+  // available ones
+  struct FrameVbiResult {
+    std::optional<VBIFieldInfoView> field1;
+    std::optional<VBIFieldInfoView> field2;
+  };
+  FrameVbiResult getVbiForFrame(NodeID node_id, FieldID field1,
+                                FieldID field2) const;
 
-    // Public helper for sound mode conversion (for use in callbacks)
-    static VbiSoundModeView mapSoundMode(orc::VbiSoundMode mode);
+  // Public helper for sound mode conversion (for use in callbacks)
+  static VbiSoundModeView mapSoundMode(orc::VbiSoundMode mode);
 
-    // Static method for decoding VBI from observation context
-    // This allows render_coordinator to decode VBI without including core headers
-    static std::optional<VBIFieldInfoView> decodeVbiFromObservation(
-        const void* observation_context_ptr,  ///< Opaque handle to observation context
-        FieldID field_id);
+  // Static method for decoding VBI from observation context
+  // This allows render_coordinator to decode VBI without including core headers
+  static std::optional<VBIFieldInfoView> decodeVbiFromObservation(
+      const void*
+          observation_context_ptr,  ///< Opaque handle to observation context
+      FieldID field_id);
 
-    // Merge two field VBI views into a single frame-level interpretation
-    static VBIFieldInfoView mergeFrameVbiViews(
-        const VBIFieldInfoView& field1,
-        const VBIFieldInfoView& field2);
+  // Merge two field VBI views into a single frame-level interpretation
+  static VBIFieldInfoView mergeFrameVbiViews(const VBIFieldInfoView& field1,
+                                             const VBIFieldInfoView& field2);
 
-private:
-    class Impl;
-    std::unique_ptr<Impl> impl_;
+ private:
+  class Impl;
+  std::unique_ptr<Impl> impl_;
 };
 
-} // namespace orc::presenters
+}  // namespace orc::presenters

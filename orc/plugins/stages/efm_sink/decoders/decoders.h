@@ -9,25 +9,23 @@
 #ifndef DECODERS_H
 #define DECODERS_H
 
-#include <vector>
-#include <queue>
-#include <deque>
-#include <string>
 #include <cstdint>
+#include <deque>
+#include <queue>
+#include <string>
+#include <vector>
 
-#include "logging.h"
 #include "frame.h"
+#include "logging.h"
 #include "section.h"
 #include "sector.h"
 
-class Decoder
-{
-public:
-    Decoder() = default;
-    virtual void showStatistics() const
-    {
-        ORC_LOG_INFO("Decoder::showStatistics(): No statistics available");
-    };
+class Decoder {
+ public:
+  Decoder() = default;
+  virtual void showStatistics() const {
+    ORC_LOG_INFO("Decoder::showStatistics(): No statistics available");
+  };
 };
 
-#endif // DECODERS_H
+#endif  // DECODERS_H

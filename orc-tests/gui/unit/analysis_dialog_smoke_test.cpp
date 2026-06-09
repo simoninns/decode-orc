@@ -14,228 +14,221 @@
 
 #include "burstlevelanalysisdialog.h"
 #include "dropoutanalysisdialog.h"
-#include "snranalysisdialog.h"
-#include "ntscobserverdialog.h"
-#include "qualitymetricsdialog.h"
-#include "vbidialog.h"
-#include "linescopedialog.h"
-#include "hintsdialog.h"
 #include "fieldtimingdialog.h"
+#include "hintsdialog.h"
 #include "inspection_dialog.h"
+#include "linescopedialog.h"
+#include "ntscobserverdialog.h"
 #include "presenters/include/stage_inspection_view_models.h"
+#include "qualitymetricsdialog.h"
+#include "snranalysisdialog.h"
+#include "vbidialog.h"
 
 // GenericAnalysisDialog and DropoutEditorDialog are intentionally omitted:
-// - GenericAnalysisDialog requires a live AnalysisPresenter* and AnalysisToolInfo, which
-//   cannot be constructed without a running pipeline. An integration-level test would be
-//   appropriate once a mock AnalysisPresenter seam is extracted.
-// - DropoutEditorDialog requires a DropoutPresenter* and a shared_ptr field representation,
-//   which similarly require presenter infrastructure beyond the scope of offscreen smoke tests.
+// - GenericAnalysisDialog requires a live AnalysisPresenter* and
+// AnalysisToolInfo, which
+//   cannot be constructed without a running pipeline. An integration-level test
+//   would be appropriate once a mock AnalysisPresenter seam is extracted.
+// - DropoutEditorDialog requires a DropoutPresenter* and a shared_ptr field
+// representation,
+//   which similarly require presenter infrastructure beyond the scope of
+//   offscreen smoke tests.
 
 namespace gui_unit_test {
 
 namespace {
 
-QApplication& ensureApplication()
-{
-    if (auto* existing_app = qobject_cast<QApplication*>(QCoreApplication::instance())) {
-        return *existing_app;
-    }
+QApplication& ensureApplication() {
+  if (auto* existing_app =
+          qobject_cast<QApplication*>(QCoreApplication::instance())) {
+    return *existing_app;
+  }
 
-    static int argc = 3;
-    static char app_name[] = "orc-gui-analysis-dialog-smoke-test";
-    static char platform_opt[] = "-platform";
-    static char platform_val[] = "offscreen";
-    static char* argv[] = {app_name, platform_opt, platform_val, nullptr};
-    static QApplication* app = [] {
-        auto* created_app = new QApplication(argc, argv);
-        created_app->setQuitOnLastWindowClosed(false);
-        return created_app;
-    }();
-    return *app;
+  static int argc = 3;
+  static char app_name[] = "orc-gui-analysis-dialog-smoke-test";
+  static char platform_opt[] = "-platform";
+  static char platform_val[] = "offscreen";
+  static char* argv[] = {app_name, platform_opt, platform_val, nullptr};
+  static QApplication* app = [] {
+    auto* created_app = new QApplication(argc, argv);
+    created_app->setQuitOnLastWindowClosed(false);
+    return created_app;
+  }();
+  return *app;
 }
 
-} // namespace
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // AnalysisDialogBase subclasses
 // ---------------------------------------------------------------------------
 
-TEST(AnalysisDialogSmokeTest, burstLevelAnalysisDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, burstLevelAnalysisDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    BurstLevelAnalysisDialog dialog;
+  BurstLevelAnalysisDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, dropoutAnalysisDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, dropoutAnalysisDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    DropoutAnalysisDialog dialog;
+  DropoutAnalysisDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, snrAnalysisDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, snrAnalysisDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    SNRAnalysisDialog dialog;
+  SNRAnalysisDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
 // ---------------------------------------------------------------------------
 // Analysis and observation dialogs (simple QWidget* parent constructors)
 // ---------------------------------------------------------------------------
 
-TEST(AnalysisDialogSmokeTest, ntscObserverDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, ntscObserverDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    NtscObserverDialog dialog;
+  NtscObserverDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, qualityMetricsDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, qualityMetricsDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    QualityMetricsDialog dialog;
+  QualityMetricsDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, vbiDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, vbiDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    VBIDialog dialog;
+  VBIDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, lineScopeDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, lineScopeDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    LineScopeDialog dialog;
+  LineScopeDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, hintsDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, hintsDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    HintsDialog dialog;
+  HintsDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, fieldTimingDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, fieldTimingDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    FieldTimingDialog dialog;
+  FieldTimingDialog dialog;
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, inspectionDialog_canShowAndClose)
-{
-    (void)ensureApplication();
+TEST(AnalysisDialogSmokeTest, inspectionDialogCanShowAndClose) {
+  (void)ensureApplication();
 
-    orc::presenters::StageInspectionView report;
-    report.summary = "smoke test report";
-    report.items.emplace_back("key", "value");
+  orc::presenters::StageInspectionView report;
+  report.summary = "smoke test report";
+  report.items.emplace_back("key", "value");
 
-    orc::InspectionDialog dialog(report);
+  orc::InspectionDialog dialog(report);
 
-    dialog.show();
-    QCoreApplication::processEvents();
+  dialog.show();
+  QCoreApplication::processEvents();
 
-    EXPECT_TRUE(dialog.isVisible());
+  EXPECT_TRUE(dialog.isVisible());
 
-    dialog.close();
-    QCoreApplication::processEvents();
+  dialog.close();
+  QCoreApplication::processEvents();
 
-    EXPECT_FALSE(dialog.isVisible());
+  EXPECT_FALSE(dialog.isVisible());
 }
 
-} // namespace gui_unit_test
+}  // namespace gui_unit_test

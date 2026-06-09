@@ -12,32 +12,29 @@
 
 #include "hackdac_sink_stage_deps_interface.h"
 
-namespace orc
-{
-    class HackdacSinkStageDeps : public IHackdacSinkStageDeps
-    {
-    public:
-        HackdacSinkStageDeps() = default;
+namespace orc {
+class HackdacSinkStageDeps : public IHackdacSinkStageDeps {
+ public:
+  HackdacSinkStageDeps() = default;
 
-        void init(TriggerProgressCallback progress_callback, std::atomic<bool>* cancel_requested) override;
+  void init(TriggerProgressCallback progress_callback,
+            std::atomic<bool>* cancel_requested) override;
 
-        HackdacSinkExportResult export_hackdac(
-            const VideoFieldRepresentation* representation,
-            const HackdacSinkExportOptions& options) override;
+  HackdacSinkExportResult export_hackdac(
+      const VideoFieldRepresentation* representation,
+      const HackdacSinkExportOptions& options) override;
 
-    private:
-        bool write_report(const std::string& report_path,
-                          VideoSystem resolved_system,
-                          size_t input_line_width,
-                          size_t processed_fields,
-                          const std::optional<SourceParameters>& video_params) const;
+ private:
+  bool write_report(const std::string& report_path, VideoSystem resolved_system,
+                    size_t input_line_width, size_t processed_fields,
+                    const std::optional<SourceParameters>& video_params) const;
 
-        static std::string system_to_string(VideoSystem system);
-        static int16_t to_signed_sample(uint16_t sample);
+  static std::string system_to_string(VideoSystem system);
+  static int16_t to_signed_sample(uint16_t sample);
 
-        TriggerProgressCallback progress_callback_;
-        std::atomic<bool>* cancel_requested_{nullptr};
-    };
-} // namespace orc
+  TriggerProgressCallback progress_callback_;
+  std::atomic<bool>* cancel_requested_{nullptr};
+};
+}  // namespace orc
 
-#endif // ORC_CORE_HACKDAC_SINK_STAGE_DEPS_H
+#endif  // ORC_CORE_HACKDAC_SINK_STAGE_DEPS_H

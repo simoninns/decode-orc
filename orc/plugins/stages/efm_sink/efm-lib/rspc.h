@@ -12,12 +12,13 @@
 #include <cstdint>
 #include <vector>
 
-class Rspc
-{
-public:
-    Rspc();
-    void qParityEcc(std::vector<uint8_t> &inputData, std::vector<uint8_t> &errorData);
-    void pParityEcc(std::vector<uint8_t> &inputData, std::vector<uint8_t> &errorData);
+class Rspc {
+ public:
+  Rspc();
+  void qParityEcc(std::vector<uint8_t>& inputData,
+                  std::vector<uint8_t>& errorData);
+  void pParityEcc(std::vector<uint8_t>& inputData,
+                  std::vector<uint8_t>& errorData);
 };
 
-#endif // RSPC_H
+#endif  // RSPC_H

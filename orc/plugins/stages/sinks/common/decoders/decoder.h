@@ -8,18 +8,17 @@
  * SPDX-FileCopyrightText: 2019-2020 Adam Sampson
  */
 
-
 #ifndef DECODER_H
 #define DECODER_H
 
-#include <vector>
-#include <cstdint>
-#include <atomic>
-#include <thread>
-#include <iostream>
-#include <cassert>
-
 #include <orc_source_parameters.h>
+
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <iostream>
+#include <thread>
+#include <vector>
 
 #include "componentframe.h"
 #include "outputwriter.h"
@@ -35,32 +34,35 @@
 // For multi-threading, ChromaSinkStage creates multiple decoder instances
 // (one per worker thread), each operating independently.
 class Decoder {
-public:
-    virtual ~Decoder() = default;
+ public:
+  virtual ~Decoder() = default;
 
-    // Configure the decoder given input video parameters.
-    // If the video is not compatible, print an error message and return false.
-    virtual bool configure(const ::orc::SourceParameters &videoParameters) = 0;
+  // Configure the decoder given input video parameters.
+  // If the video is not compatible, print an error message and return false.
+  virtual bool configure(const ::orc::SourceParameters& videoParameters) = 0;
 
-    // After configuration, return the number of frames that the decoder needs
-    // to be able to see into the past (each frame being two SourceFields).
-    // The default implementation returns 0, which is appropriate for 1D/2D decoders.
-    virtual int32_t getLookBehind() const;
+  // After configuration, return the number of frames that the decoder needs
+  // to be able to see into the past (each frame being two SourceFields).
+  // The default implementation returns 0, which is appropriate for 1D/2D
+  // decoders.
+  virtual int32_t getLookBehind() const;
 
-    // After configuration, return the number of frames that the decoder needs
-    // to be able to see into the future (each frame being two SourceFields).
-    // The default implementation returns 0, which is appropriate for 1D/2D decoders.
-    virtual int32_t getLookAhead() const;
+  // After configuration, return the number of frames that the decoder needs
+  // to be able to see into the future (each frame being two SourceFields).
+  // The default implementation returns 0, which is appropriate for 1D/2D
+  // decoders.
+  virtual int32_t getLookAhead() const;
 
-    // Decode a sequence of composite fields into a sequence of component frames
-    virtual void decodeFrames(const std::vector<SourceField> &inputFields, int32_t startIndex, int32_t endIndex,
-                              std::vector<ComponentFrame> &componentFrames) = 0;
+  // Decode a sequence of composite fields into a sequence of component frames
+  virtual void decodeFrames(const std::vector<SourceField>& inputFields,
+                            int32_t startIndex, int32_t endIndex,
+                            std::vector<ComponentFrame>& componentFrames) = 0;
 
-    // Parameters used by the decoder and its threads.
-    // This may be subclassed by decoders to add extra parameters.
-    struct Configuration {
-        ::orc::SourceParameters videoParameters;
-    };
+  // Parameters used by the decoder and its threads.
+  // This may be subclassed by decoders to add extra parameters.
+  struct Configuration {
+    ::orc::SourceParameters videoParameters;
+  };
 };
 
 #endif

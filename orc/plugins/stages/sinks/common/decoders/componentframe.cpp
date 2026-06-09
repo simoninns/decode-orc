@@ -8,44 +8,40 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-
 #include "componentframe.h"
+
 #include <algorithm>
 
-ComponentFrame::ComponentFrame()
-    : width(-1), height(-1)
-{
+ComponentFrame::ComponentFrame() : width(-1), height(-1) {}
+
+void ComponentFrame::merge_luma_from(const ComponentFrame& luma_source) {
+  assert(width == luma_source.width);
+  assert(height == luma_source.height);
+  yData = luma_source.yData;
 }
 
-void ComponentFrame::merge_luma_from(const ComponentFrame& luma_source)
-{
-    assert(width == luma_source.width);
-    assert(height == luma_source.height);
-    yData = luma_source.yData;
-}
+void ComponentFrame::init(const ::orc::SourceParameters& videoParameters,
+                          bool mono) {
+  width = videoParameters.field_width;
+  height = (videoParameters.field_height * 2) - 1;
 
-void ComponentFrame::init(const ::orc::SourceParameters &videoParameters, bool mono)
-{
-    width = videoParameters.field_width;
-    height = (videoParameters.field_height * 2) - 1;
+  const int32_t size = width * height;
 
-    const int32_t size = width * height;
+  yData.resize(size);
+  std::fill(yData.begin(), yData.end(), 0.0);
 
-    yData.resize(size);
-    std::fill(yData.begin(), yData.end(), 0.0);
+  if (!mono) {
+    uData.resize(size);
+    std::fill(uData.begin(), uData.end(), 0.0);
 
-    if(!mono) {
-        uData.resize(size);
-        std::fill(uData.begin(), uData.end(), 0.0);
+    vData.resize(size);
+    std::fill(vData.begin(), vData.end(), 0.0);
+  } else {
+    // Clear and deallocate U/V if they're not used.
+    uData.clear();
+    uData.shrink_to_fit();
 
-        vData.resize(size);
-        std::fill(vData.begin(), vData.end(), 0.0);
-    } else {
-        // Clear and deallocate U/V if they're not used.
-        uData.clear();
-        uData.shrink_to_fit();
-
-        vData.clear();
-        vData.shrink_to_fit();
-    }
+    vData.clear();
+    vData.shrink_to_fit();
+  }
 }

@@ -80,10 +80,12 @@ inline constexpr uint32_t kStagePluginApiVersion = 1;
 // =============================================================================
 
 /// Symbol name of the descriptor query entrypoint exported by every plugin.
-inline constexpr const char* kGetStagePluginDescriptorSymbol = "orc_get_stage_plugin_descriptor";
+inline constexpr const char* kGetStagePluginDescriptorSymbol =
+    "orc_get_stage_plugin_descriptor";
 
 /// Symbol name of the stage registration entrypoint exported by every plugin.
-inline constexpr const char* kRegisterStagePluginSymbol = "orc_register_stage_plugin";
+inline constexpr const char* kRegisterStagePluginSymbol =
+    "orc_register_stage_plugin";
 
 // =============================================================================
 // Plugin descriptor
@@ -97,12 +99,17 @@ inline constexpr const char* kRegisterStagePluginSymbol = "orc_register_stage_pl
 /// ABI note: fields must not be reordered. New fields are always appended.
 /// Any layout change requires a host_abi_version bump.
 struct StagePluginDescriptor {
-    const char* plugin_id;       ///< Reverse-domain unique ID, e.g. "com.example.stage.my_filter"
-    const char* plugin_version;  ///< Semantic version string, e.g. "1.2.3"
-    uint32_t host_abi_version;   ///< Must equal orc::kStagePluginHostAbiVersion at load time
-    uint32_t plugin_api_version; ///< Must equal orc::kStagePluginApiVersion at load time
-    const char* license_spdx;    ///< SPDX license expression, e.g. "GPL-3.0-or-later"
-    bool is_core_plugin;         ///< true only for stages bundled with the Decode-Orc distribution
+  const char* plugin_id;       ///< Reverse-domain unique ID, e.g.
+                               ///< "com.example.stage.my_filter"
+  const char* plugin_version;  ///< Semantic version string, e.g. "1.2.3"
+  uint32_t host_abi_version;  ///< Must equal orc::kStagePluginHostAbiVersion at
+                              ///< load time
+  uint32_t plugin_api_version;  ///< Must equal orc::kStagePluginApiVersion at
+                                ///< load time
+  const char*
+      license_spdx;     ///< SPDX license expression, e.g. "GPL-3.0-or-later"
+  bool is_core_plugin;  ///< true only for stages bundled with the Decode-Orc
+                        ///< distribution
 };
 
 // =============================================================================
@@ -111,10 +118,10 @@ struct StagePluginDescriptor {
 
 /// Factory function that allocates and returns a new stage instance.
 /// The host calls this to create stage objects on demand.
-using OrcStageFactoryFn = std::shared_ptr<DAGStage>(*)();
+using OrcStageFactoryFn = std::shared_ptr<DAGStage> (*)();
 
 /// Signature of the orc_get_stage_plugin_descriptor() entrypoint.
-using OrcGetStagePluginDescriptorFn = const StagePluginDescriptor*(*)();
+using OrcGetStagePluginDescriptorFn = const StagePluginDescriptor* (*)();
 
 /// Signature of the orc_register_stage_plugin() entrypoint.
 ///
@@ -131,11 +138,11 @@ using OrcGetStagePluginDescriptorFn = const StagePluginDescriptor*(*)();
 /// @param error_message Optional: plugin may set this to a static error string
 ///                      on failure. Must point to static storage.
 /// @return true if all stages were registered successfully; false otherwise.
-using OrcRegisterStagePluginFn = bool(*)(
-    const OrcPluginServices* services,
-    void* context,
-    bool(*register_stage)(void* context, const char* stage_name, OrcStageFactoryFn factory),
-    const char** error_message);
+using OrcRegisterStagePluginFn =
+    bool (*)(const OrcPluginServices* services, void* context,
+             bool (*register_stage)(void* context, const char* stage_name,
+                                    OrcStageFactoryFn factory),
+             const char** error_message);
 
 // =============================================================================
 // Platform export macro
@@ -145,12 +152,14 @@ using OrcRegisterStagePluginFn = bool(*)(
 /// them with C linkage and default visibility.
 ///
 /// Example:
-///   ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor* orc_get_stage_plugin_descriptor() { ... }
-///   ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(void*, ...) { ... }
+///   ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor*
+///   orc_get_stage_plugin_descriptor() { ... } ORC_STAGE_PLUGIN_EXPORT bool
+///   orc_register_stage_plugin(void*, ...) { ... }
 #if defined(_WIN32)
 #define ORC_STAGE_PLUGIN_EXPORT extern "C" __declspec(dllexport)
 #else
-#define ORC_STAGE_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
+#define ORC_STAGE_PLUGIN_EXPORT \
+  extern "C" __attribute__((visibility("default")))
 #endif
 
-} // namespace orc
+}  // namespace orc

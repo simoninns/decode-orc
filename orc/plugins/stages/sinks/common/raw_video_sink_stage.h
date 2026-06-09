@@ -16,25 +16,26 @@ namespace orc {
 
 /**
  * @brief Raw Video Sink Stage
- * 
+ *
  * Specialized video sink for raw output formats (RGB, YUV, Y4M).
- * Uses the same chroma decoder as FFmpeg Video Sink but outputs uncompressed raw files.
- * 
+ * Uses the same chroma decoder as FFmpeg Video Sink but outputs uncompressed
+ * raw files.
+ *
  * Supported Formats:
  * - rgb: RGB48 (16-bit per channel, planar)
  * - yuv: YUV444P16 (16-bit per channel, planar)
  * - y4m: YUV444P16 with Y4M headers (for compatibility with other tools)
- * 
+ *
  * Supported Decoders:
  * - PAL: pal2d, transform2d, transform3d
  * - NTSC: ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt
  * - Other: mono
- * 
+ *
  * This sink does NOT support:
  * - Audio embedding (use FFmpeg Video Sink for that)
  * - Subtitle embedding (use FFmpeg Video Sink for that)
  * - Video compression (use FFmpeg Video Sink for that)
- * 
+ *
  * Parameters:
  * - output_path: Output file path (.rgb, .yuv, or .y4m)
  * - decoder_type: Which decoder to use (pal2d, ntsc2d, etc.)
@@ -49,23 +50,26 @@ namespace orc {
  * - output_padding: Padding for alignment (default: 8)
  */
 class RawVideoSinkStage : public ChromaSinkStage {
-public:
-    RawVideoSinkStage();
-    ~RawVideoSinkStage() override = default;
-    
-    // Override node type info to provide specific identity
-    NodeTypeInfo get_node_type_info() const override;
-    
-    // Override parameter descriptors to exclude FFmpeg-specific parameters
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
-    
-    // Override get_parameters to exclude FFmpeg-specific parameters
-    std::map<std::string, ParameterValue> get_parameters() const override;
-    
-    // Override set_parameters to restrict output format to raw formats only
-    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+ public:
+  RawVideoSinkStage();
+  ~RawVideoSinkStage() override = default;
+
+  // Override node type info to provide specific identity
+  NodeTypeInfo get_node_type_info() const override;
+
+  // Override parameter descriptors to exclude FFmpeg-specific parameters
+  std::vector<ParameterDescriptor> get_parameter_descriptors(
+      VideoSystem project_format, SourceType source_type) const override;
+  using ParameterizedStage::get_parameter_descriptors;
+
+  // Override get_parameters to exclude FFmpeg-specific parameters
+  std::map<std::string, ParameterValue> get_parameters() const override;
+
+  // Override set_parameters to restrict output format to raw formats only
+  bool set_parameters(
+      const std::map<std::string, ParameterValue>& params) override;
 };
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_CORE_RAW_VIDEO_SINK_STAGE_H
+#endif  // ORC_CORE_RAW_VIDEO_SINK_STAGE_H

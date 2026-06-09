@@ -10,15 +10,17 @@
 #ifndef ORC_CORE_AC3RF_SINK_STAGE_H
 #define ORC_CORE_AC3RF_SINK_STAGE_H
 
+#include <node_type.h>
+
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <string>
+
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_parameter.h"
-#include <node_type.h>
-#include "video_field_representation.h"
 #include "triggerable_stage.h"
-#include <string>
-#include <memory>
-#include <functional>
-#include <atomic>
+#include "video_field_representation.h"
 
 namespace orc {
 
@@ -42,61 +44,60 @@ class IAC3RFSinkStageDeps;
 class AC3RFSinkStage : public DAGStage,
                        public ParameterizedStage,
                        public TriggerableStage {
-public:
-    AC3RFSinkStage();
-    /// Testing seam: inject a pre-built deps instance to substitute concrete dep creation in trigger().
-    void set_deps_override(std::shared_ptr<IAC3RFSinkStageDeps> deps) { deps_override_ = std::move(deps); }
-    ~AC3RFSinkStage() override = default;
+ public:
+  AC3RFSinkStage();
+  /// Testing seam: inject a pre-built deps instance to substitute concrete dep
+  /// creation in trigger().
+  void set_deps_override(std::shared_ptr<IAC3RFSinkStageDeps> deps) {
+    deps_override_ = std::move(deps);
+  }
+  ~AC3RFSinkStage() override = default;
 
-    // DAGStage interface
-    std::string version() const override { return "1.0"; }
-    NodeTypeInfo get_node_type_info() const override;
+  // DAGStage interface
+  std::string version() const override { return "1.0"; }
+  NodeTypeInfo get_node_type_info() const override;
 
-    std::vector<ArtifactPtr> execute(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters,
-        ObservationContext& observation_context) override;
+  std::vector<ArtifactPtr> execute(
+      const std::vector<ArtifactPtr>& inputs,
+      const std::map<std::string, ParameterValue>& parameters,
+      ObservationContext& observation_context) override;
 
-    size_t required_input_count() const override { return 1; }
-    size_t output_count() const override { return 0; }  // Sink has no outputs
+  size_t required_input_count() const override { return 1; }
+  size_t output_count() const override { return 0; }  // Sink has no outputs
 
-    // ParameterizedStage interface
-    std::vector<ParameterDescriptor> get_parameter_descriptors(
-        VideoSystem project_format = VideoSystem::Unknown,
-        SourceType source_type = SourceType::Unknown) const override;
-    std::map<std::string, ParameterValue> get_parameters() const override;
-    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
+  // ParameterizedStage interface
+  std::vector<ParameterDescriptor> get_parameter_descriptors(
+      VideoSystem project_format, SourceType source_type) const override;
+  using ParameterizedStage::get_parameter_descriptors;
+  std::map<std::string, ParameterValue> get_parameters() const override;
+  bool set_parameters(
+      const std::map<std::string, ParameterValue>& params) override;
 
-    // TriggerableStage interface
-    bool trigger(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters,
-        IObservationContext& observation_context) override;
+  // TriggerableStage interface
+  bool trigger(const std::vector<ArtifactPtr>& inputs,
+               const std::map<std::string, ParameterValue>& parameters,
+               IObservationContext& observation_context) override;
 
-    std::string get_trigger_status() const override;
+  std::string get_trigger_status() const override;
 
-    void set_progress_callback(TriggerProgressCallback callback) override {
-        progress_callback_ = callback;
-    }
+  void set_progress_callback(TriggerProgressCallback callback) override {
+    progress_callback_ = callback;
+  }
 
-    bool is_trigger_in_progress() const override {
-        return is_processing_.load();
-    }
+  bool is_trigger_in_progress() const override { return is_processing_.load(); }
 
-    void cancel_trigger() override {
-        cancel_requested_.store(true);
-    }
+  void cancel_trigger() override { cancel_requested_.store(true); }
 
-private:
-    std::map<std::string, ParameterValue> parameters_;
+ private:
+  std::map<std::string, ParameterValue> parameters_;
 
-    TriggerProgressCallback progress_callback_;
-    std::atomic<bool> is_processing_{false};
-    std::shared_ptr<IAC3RFSinkStageDeps> deps_override_;
-    std::atomic<bool> cancel_requested_{false};
-    std::string last_status_;
+  TriggerProgressCallback progress_callback_;
+  std::atomic<bool> is_processing_{false};
+  std::shared_ptr<IAC3RFSinkStageDeps> deps_override_;
+  std::atomic<bool> cancel_requested_{false};
+  std::string last_status_;
 };
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_CORE_AC3RF_SINK_STAGE_H
+#endif  // ORC_CORE_AC3RF_SINK_STAGE_H

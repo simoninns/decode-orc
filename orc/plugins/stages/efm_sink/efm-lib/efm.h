@@ -10,31 +10,30 @@
 #define EFM_H
 
 #include <cstdint>
-#include <unordered_map>
 #include <string>
+#include <unordered_map>
 
-class Efm
-{
-public:
-    Efm() noexcept;
-    ~Efm() = default;
+class Efm {
+ public:
+  Efm() noexcept;
+  ~Efm() = default;
 
-    // Delete copy operations to prevent accidental copies
-    Efm(const Efm&) = delete;
-    Efm& operator=(const Efm&) = delete;
+  // Delete copy operations to prevent accidental copies
+  Efm(const Efm&) = delete;
+  Efm& operator=(const Efm&) = delete;
 
-    // Make move operations default
-    Efm(Efm&&) = default;
-    Efm& operator=(Efm&&) = default;
+  // Make move operations default
+  Efm(Efm&&) = default;
+  Efm& operator=(Efm&&) = default;
 
-    // Convert methods made const as they don't modify state
-    uint16_t fourteenToEight(uint16_t efm) const noexcept;
-    std::string eightToFourteen(uint16_t value) const;
+  // Convert methods made const as they don't modify state
+  uint16_t fourteenToEight(uint16_t efm) const noexcept;
+  std::string eightToFourteen(uint16_t value) const;
 
-private:
-    static constexpr size_t EFM_LUT_SIZE = 258; // 256 + 2 sync symbols
-    static constexpr uint16_t INVALID_EFM = 300;
-    std::unordered_map<uint16_t, uint16_t> m_efmHash;
+ private:
+  static constexpr size_t EFM_LUT_SIZE = 258;  // 256 + 2 sync symbols
+  static constexpr uint16_t INVALID_EFM = 300;
+  std::unordered_map<uint16_t, uint16_t> m_efmHash;
 };
 
-#endif // EFM_H
+#endif  // EFM_H

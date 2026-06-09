@@ -16,10 +16,10 @@ namespace orc {
 
 /**
  * @brief Line masking configuration tool
- * 
+ *
  * Provides convenient checkboxes for common line masking scenarios,
  * particularly for hiding visible VBI data like closed captions.
- * 
+ *
  * This tool generates parameters for the MaskLine stage based on
  * common use cases, making it easy to:
  * - Mask NTSC closed caption line (field line 21, first field)
@@ -27,31 +27,33 @@ namespace orc {
  * - Configure custom line masking
  */
 class MaskLineAnalysisTool : public AnalysisTool {
-public:
-    std::string id() const override;
-    std::string name() const override;
-    std::string description() const override;
-    std::string category() const override;
-    
-    std::vector<ParameterDescriptor> parameters() const override;
-    std::vector<ParameterDescriptor> parametersForContext(const AnalysisContext& ctx) const override;
-    
-    bool canAnalyze(AnalysisSourceType source_type) const override;
-    bool isApplicableToStage(const std::string& stage_name) const override;
-    int priority() const override { return 1; }  // Stage-specific tool
-    
-    AnalysisResult analyze(const AnalysisContext& ctx,
-                          AnalysisProgress* progress) override;
-    
-    bool canApplyToGraph() const override;
-    bool applyToGraph(AnalysisResult& result,
-                     const Project& project,
-                     NodeID node_id) override;
-    
-    // This is a configuration tool - no analysis needed (instant)
-    int estimateDurationSeconds(const AnalysisContext& /*ctx*/) const override { return 0; }
+ public:
+  std::string id() const override;
+  std::string name() const override;
+  std::string description() const override;
+  std::string category() const override;
+
+  std::vector<ParameterDescriptor> parameters() const override;
+  std::vector<ParameterDescriptor> parametersForContext(
+      const AnalysisContext& ctx) const override;
+
+  bool canAnalyze(AnalysisSourceType source_type) const override;
+  bool isApplicableToStage(const std::string& stage_name) const override;
+  int priority() const override { return 1; }  // Stage-specific tool
+
+  AnalysisResult analyze(const AnalysisContext& ctx,
+                         AnalysisProgress* progress) override;
+
+  bool canApplyToGraph() const override;
+  bool applyToGraph(AnalysisResult& result, const Project& project,
+                    NodeID node_id) override;
+
+  // This is a configuration tool - no analysis needed (instant)
+  int estimateDurationSeconds(const AnalysisContext& /*ctx*/) const override {
+    return 0;
+  }
 };
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_CORE_ANALYSIS_MASK_LINE_ANALYSIS_H
+#endif  // ORC_CORE_ANALYSIS_MASK_LINE_ANALYSIS_H

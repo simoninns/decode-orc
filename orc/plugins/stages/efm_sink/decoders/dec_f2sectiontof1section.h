@@ -9,56 +9,57 @@
 #ifndef DEC_F2SECTIONTOF1SECTION_H
 #define DEC_F2SECTIONTOF1SECTION_H
 
+#include <string>
+
 #include "decoders.h"
-#include "reedsolomon.h"
 #include "delay_lines.h"
 #include "interleave.h"
 #include "inverter.h"
-#include <string>
+#include "reedsolomon.h"
 
-class F2SectionToF1Section : public Decoder
-{
-public:
-    F2SectionToF1Section();
-    void pushSection(const F2Section &f2Section);
-    F1Section popSection();
-    bool isReady() const;
+class F2SectionToF1Section : public Decoder {
+ public:
+  F2SectionToF1Section();
+  void pushSection(const F2Section& f2Section);
+  F1Section popSection();
+  bool isReady() const;
 
-    void showStatistics() const;
+  void showStatistics() const;
 
-private:
-    void processQueue();
-    void showData(const std::string &description, int32_t index, const std::string &timeString,
-                  std::vector<uint8_t> &data, std::vector<uint8_t> &dataError);
+ private:
+  void processQueue();
+  void showData(const std::string& description, int32_t index,
+                const std::string& timeString, std::vector<uint8_t>& data,
+                std::vector<uint8_t>& dataError);
 
-    std::deque<F2Section> m_inputBuffer;
-    std::deque<F1Section> m_outputBuffer;
+  std::deque<F2Section> m_inputBuffer;
+  std::deque<F1Section> m_outputBuffer;
 
-    ReedSolomon m_circ;
+  ReedSolomon m_circ;
 
-    DelayLines m_delayLine1;
-    DelayLines m_delayLine2;
-    DelayLines m_delayLineM;
+  DelayLines m_delayLine1;
+  DelayLines m_delayLine2;
+  DelayLines m_delayLineM;
 
-    Interleave m_interleave;
-    Inverter m_inverter;
+  Interleave m_interleave;
+  Inverter m_inverter;
 
-    // Statistics
-    uint64_t m_invalidInputF2FramesCount;
-    uint64_t m_validInputF2FramesCount;
-    uint64_t m_invalidOutputF1FramesCount;
-    uint64_t m_validOutputF1FramesCount;
-    uint64_t m_dlLostFramesCount;
-    uint64_t m_continuityErrorCount;
+  // Statistics
+  uint64_t m_invalidInputF2FramesCount;
+  uint64_t m_validInputF2FramesCount;
+  uint64_t m_invalidOutputF1FramesCount;
+  uint64_t m_validOutputF1FramesCount;
+  uint64_t m_dlLostFramesCount;
+  uint64_t m_continuityErrorCount;
 
-    uint64_t m_inputByteErrors;
-    uint64_t m_outputByteErrors;
+  uint64_t m_inputByteErrors;
+  uint64_t m_outputByteErrors;
 
-    uint64_t m_invalidPaddedF1FramesCount;
-    uint64_t m_invalidNonPaddedF1FramesCount;
+  uint64_t m_invalidPaddedF1FramesCount;
+  uint64_t m_invalidNonPaddedF1FramesCount;
 
-    // Continuity check
-    int32_t m_lastFrameNumber;
+  // Continuity check
+  int32_t m_lastFrameNumber;
 };
 
-#endif // DEC_F2SECTIONTOF1SECTION_H
+#endif  // DEC_F2SECTIONTOF1SECTION_H

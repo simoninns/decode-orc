@@ -9,42 +9,48 @@
 
 #pragma once
 
-#include "tbc_metadata.h"
 #include <field_id.h>
 #include <observation_context_interface.h>
+
 #include <string>
+
+#include "tbc_metadata.h"
 
 namespace orc {
 
 /**
  * @brief Interface for writing TBC metadata (SQLite database)
  *
- * Abstracts the TBCMetadataWriter to enable dependency injection and unit testing.
+ * Abstracts the TBCMetadataWriter to enable dependency injection and unit
+ * testing.
  */
 class ITBCMetadataWriter {
-public:
-    virtual ~ITBCMetadataWriter() = default;
+ public:
+  virtual ~ITBCMetadataWriter() = default;
 
-    // Open/create a metadata database file
-    virtual bool open(const std::string& filename) = 0;
-    virtual void close() = 0;
+  // Open/create a metadata database file
+  virtual bool open(const std::string& filename) = 0;
+  virtual void close() = 0;
 
-    // Write video parameters (creates capture record)
-    virtual bool write_video_parameters(const SourceParameters& params) = 0;
+  // Write video parameters (creates capture record)
+  virtual bool write_video_parameters(const SourceParameters& params) = 0;
 
-    // Write field metadata
-    virtual bool write_field_metadata(const FieldMetadata& field) = 0;
+  // Write field metadata
+  virtual bool write_field_metadata(const FieldMetadata& field) = 0;
 
-    // Write observer data for a field
-    // Write observer data for a field.
-    // source_field_id: used to look up observations in the context (the representation's field id)
-    // db_field_id:     0-based export position written as the field_id column in the database
-    virtual bool write_observations(FieldID source_field_id, FieldID db_field_id, const IObservationContext& context) = 0;
-    virtual bool write_dropout(FieldID db_field_id, const DropoutInfo& dropout) = 0;
+  // Write observer data for a field
+  // Write observer data for a field.
+  // source_field_id: used to look up observations in the context (the
+  // representation's field id) db_field_id:     0-based export position written
+  // as the field_id column in the database
+  virtual bool write_observations(FieldID source_field_id, FieldID db_field_id,
+                                  const IObservationContext& context) = 0;
+  virtual bool write_dropout(FieldID db_field_id,
+                             const DropoutInfo& dropout) = 0;
 
-    // Transaction support for bulk writes
-    virtual bool begin_transaction() = 0;
-    virtual bool commit_transaction() = 0;
+  // Transaction support for bulk writes
+  virtual bool begin_transaction() = 0;
+  virtual bool commit_transaction() = 0;
 };
 
-} // namespace orc
+}  // namespace orc

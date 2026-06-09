@@ -10,12 +10,12 @@
 #ifndef ORC_GUI_PLUGINMANAGERDIALOG_H
 #define ORC_GUI_PLUGINMANAGERDIALOG_H
 
+#include <QDialog>
+#include <QLabel>
+#include <QPushButton>
+#include <QTableWidget>
 #include <string>
 #include <unordered_set>
-#include <QDialog>
-#include <QTableWidget>
-#include <QPushButton>
-#include <QLabel>
 
 namespace orc {
 
@@ -26,42 +26,41 @@ namespace orc {
  * user to add, remove, enable, and disable plugins via the ProjectPresenter
  * mutation API.  Registry changes take effect on the next application launch.
  */
-class PluginManagerDialog : public QDialog
-{
-    Q_OBJECT
+class PluginManagerDialog : public QDialog {
+  Q_OBJECT
 
-public:
-    explicit PluginManagerDialog(QWidget* parent = nullptr);
-    ~PluginManagerDialog() override = default;
+ public:
+  explicit PluginManagerDialog(QWidget* parent = nullptr);
+  ~PluginManagerDialog() override = default;
 
-protected:
-    void accept() override;
-    void reject() override;
+ protected:
+  void accept() override;
+  void reject() override;
 
-private slots:
-    void onAddPlugin();
-    void onRemovePlugin();
-    void onSelectionChanged();
-    void onTableItemChanged(QTableWidgetItem* item);
+ private slots:
+  void onAddPlugin();
+  void onRemovePlugin();
+  void onSelectionChanged();
+  void onTableItemChanged(QTableWidgetItem* item);
 
-private:
-    void buildUI();
-    void refresh();
-    void captureInitialRegistrySnapshot();
-    bool restoreInitialRegistrySnapshot(QString* error_message);
+ private:
+  void buildUI();
+  void refresh();
+  void captureInitialRegistrySnapshot();
+  bool restoreInitialRegistrySnapshot(QString* error_message);
 
-    QLabel*       registry_path_label_;
-    QTableWidget* table_;
-    QPushButton*  add_button_;
-    QPushButton*  remove_button_;
-    bool          refreshing_table_ = false;
-    bool          plugin_changes_made_ = false;
-    std::unordered_set<std::string> removed_paths_this_session_;
-    std::string   initial_registry_path_;
-    std::string   initial_registry_contents_;
-    bool          initial_registry_exists_ = false;
+  QLabel* registry_path_label_;
+  QTableWidget* table_;
+  QPushButton* add_button_;
+  QPushButton* remove_button_;
+  bool refreshing_table_ = false;
+  bool plugin_changes_made_ = false;
+  std::unordered_set<std::string> removed_paths_this_session_;
+  std::string initial_registry_path_;
+  std::string initial_registry_contents_;
+  bool initial_registry_exists_ = false;
 };
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_GUI_PLUGINMANAGERDIALOG_H
+#endif  // ORC_GUI_PLUGINMANAGERDIALOG_H

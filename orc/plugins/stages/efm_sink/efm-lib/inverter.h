@@ -12,11 +12,10 @@
 #include <cstdint>
 #include <vector>
 
-class Inverter
-{
-public:
-    Inverter();
-    void invertParity(std::vector<uint8_t> &inputData);
+class Inverter {
+ public:
+  Inverter();
+  void invertParity(std::vector<uint8_t>& inputData);
 };
 
-#endif // INVERTER_H
+#endif  // INVERTER_H

@@ -7,652 +7,699 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "mainwindow.h"
-#include "logging.h"
 #include <QMessageBox>
 #include <QStatusBar>
-#include "vbidialog.h"
-#include "previewdialog.h"
-#include "fieldpreviewwidget.h"
-#include "dropoutanalysisdialog.h"
-#include "snranalysisdialog.h"
-#include "burstlevelanalysisdialog.h"
 #include <algorithm>
 #include <limits>
-#include "presenters/include/vbi_view_models.h"
-#include "presenters/include/vbi_presenter.h"
 
+#include "burstlevelanalysisdialog.h"
+#include "dropoutanalysisdialog.h"
+#include "fieldpreviewwidget.h"
+#include "logging.h"
+#include "mainwindow.h"
+#include "presenters/include/vbi_presenter.h"
+#include "presenters/include/vbi_view_models.h"
+#include "previewdialog.h"
+#include "snranalysisdialog.h"
+#include "vbidialog.h"
 
 // Coordinator response slot implementations
 
-void MainWindow::onPreviewReady(uint64_t request_id, orc::PreviewRenderResult result)
-{
-    // Ignore stale responses
-    if (request_id != pending_preview_request_id_) {
-        ORC_LOG_DEBUG("Ignoring stale preview response (id {} != {})", request_id, pending_preview_request_id_);
-        return;
-    }
-    
-    ORC_LOG_DEBUG("onPreviewReady: request_id={}, success={}", request_id, result.success);
-    
-    if (result.success) {
-        // Use public API image directly - no conversion needed
-        preview_dialog_->previewWidget()->setImage(result.image);
-    } else {
-        preview_dialog_->previewWidget()->clearImage();
-        statusBar()->showMessage(
-            QString("Render ERROR at stage %1: %2")
-                .arg(QString::fromStdString(current_view_node_id_.to_string()))
-                .arg(QString::fromStdString(result.error_message)),
-            5000
-        );
-    }
+void MainWindow::onPreviewReady(uint64_t request_id,
+                                orc::PreviewRenderResult result) {
+  // Ignore stale responses
+  if (request_id != pending_preview_request_id_) {
+    ORC_LOG_DEBUG("Ignoring stale preview response (id {} != {})", request_id,
+                  pending_preview_request_id_);
+    return;
+  }
 
-    // Get the index we just rendered.
-    const int rendered_index = pending_render_index_;
+  ORC_LOG_DEBUG("onPreviewReady: request_id={}, success={}", request_id,
+                result.success);
 
+  if (result.success) {
+    // Use public API image directly - no conversion needed
+    preview_dialog_->previewWidget()->setImage(result.image);
+  } else {
+    preview_dialog_->previewWidget()->clearImage();
+    statusBar()->showMessage(
+        QString("Render ERROR at stage %1: %2")
+            .arg(QString::fromStdString(current_view_node_id_.to_string()))
+            .arg(QString::fromStdString(result.error_message)),
+        5000);
+  }
+
+  // Get the index we just rendered.
+  const int rendered_index = pending_render_index_;
+
+  endPreviewRenderInFlight();
+
+  // If the user navigated while we were rendering, the dialog's current
+  // index will already differ from what we just rendered — issue a follow-up.
+  if (preview_dialog_->currentIndex() != rendered_index) {
+    ORC_LOG_DEBUG(
+        "Render queue clear - re-rendering for latest position: {} (just "
+        "rendered {})",
+        preview_dialog_->currentIndex(), rendered_index);
+    updateAllPreviewComponents();
+    return;
+  }
+
+  // Keep shared coordinate in sync with the currently displayed preview before
+  // requesting vectorscope data for this settled frame/field.
+  preview_dialog_->setSharedPreviewCoordinate(buildCurrentPreviewCoordinate());
+  refreshVectorscopeForCurrentCoordinate();
+}
+
+void MainWindow::onStageParametersApplied(uint64_t request_id, bool success) {
+  // On failure the worker never emits previewReady, so
+  // preview_render_in_flight_ would stay true permanently.  Clear it here so
+  // the normal render path recovers.
+  if (!success && request_id == pending_preview_request_id_) {
+    ORC_LOG_WARN(
+        "onStageParametersApplied: apply failed for request {}; clearing "
+        "in-flight flag",
+        request_id);
     endPreviewRenderInFlight();
-
-    // If the user navigated while we were rendering, the dialog's current
-    // index will already differ from what we just rendered — issue a follow-up.
-    if (preview_dialog_->currentIndex() != rendered_index) {
-        ORC_LOG_DEBUG("Render queue clear - re-rendering for latest position: {} (just rendered {})",
-                      preview_dialog_->currentIndex(), rendered_index);
-        updateAllPreviewComponents();
-        return;
-    }
-
-    // Keep shared coordinate in sync with the currently displayed preview before
-    // requesting vectorscope data for this settled frame/field.
-    preview_dialog_->setSharedPreviewCoordinate(buildCurrentPreviewCoordinate());
-    refreshVectorscopeForCurrentCoordinate();
+  }
 }
 
-void MainWindow::onStageParametersApplied(uint64_t request_id, bool success)
-{
-    // On failure the worker never emits previewReady, so preview_render_in_flight_
-    // would stay true permanently.  Clear it here so the normal render path recovers.
-    if (!success && request_id == pending_preview_request_id_) {
-        ORC_LOG_WARN("onStageParametersApplied: apply failed for request {}; clearing in-flight flag",
-                     request_id);
-        endPreviewRenderInFlight();
+void MainWindow::onVBIDataReady(uint64_t request_id,
+                                orc::presenters::VBIFieldInfoView info) {
+  if (request_id != pending_vbi_request_id_ &&
+      request_id != pending_vbi_request_id_field2_) {
+    return;
+  }
+
+  ORC_LOG_DEBUG("onVBIDataReady: request_id={}", request_id);
+
+  if (!vbi_dialog_ || !vbi_presenter_) {
+    return;
+  }
+
+  // Process VBI data whether or not the dialog is currently visible,
+  // so that when it is shown, it has the latest data
+
+  if (pending_vbi_is_frame_mode_) {
+    // Frame mode - need both fields
+    if (request_id == pending_vbi_request_id_) {
+      // First field received - cache it
+      pending_vbi_field1_info_ = info;
+      pending_vbi_request_id_ = 0;  // Mark first request as processed
+    } else if (request_id == pending_vbi_request_id_field2_) {
+      // Second field received - update dialog with both fields
+      if (vbi_dialog_->isVisible()) {
+        vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
+      }
+      pending_vbi_is_frame_mode_ = false;
+      pending_vbi_request_id_field2_ = 0;
+      pending_vbi_request_id_ = 0;
     }
+  } else {
+    // Field mode - single field display
+    if (vbi_dialog_->isVisible()) {
+      vbi_dialog_->updateVBIInfo(info);
+    }
+    pending_vbi_request_id_ = 0;
+  }
 }
 
-void MainWindow::onVBIDataReady(uint64_t request_id, orc::presenters::VBIFieldInfoView info)
-{
-    if (request_id != pending_vbi_request_id_ && request_id != pending_vbi_request_id_field2_) {
-        return;
+void MainWindow::onAvailableOutputsReady(
+    uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs) {
+  if (request_id != pending_outputs_request_id_) {
+    return;
+  }
+
+  ORC_LOG_DEBUG("onAvailableOutputsReady: request_id={}, count={}", request_id,
+                outputs.size());
+
+  available_outputs_ = std::move(outputs);
+
+  // Try to preserve current option_id AND output_type across node switches
+  bool found_match = false;
+  for (const auto& output : available_outputs_) {
+    if (output.option_id == current_option_id_ &&
+        output.type == current_output_type_) {
+      found_match = true;
+      ORC_LOG_DEBUG("Preserved option_id '{}' and output_type={}",
+                    current_option_id_, static_cast<int>(current_output_type_));
+      break;
     }
-    
-    ORC_LOG_DEBUG("onVBIDataReady: request_id={}", request_id);
-    
-    if (!vbi_dialog_ || !vbi_presenter_) {
-        return;
+  }
+  // Fallback: preserve option_id only if exact type match is unavailable
+  if (!found_match) {
+    for (const auto& output : available_outputs_) {
+      if (output.option_id == current_option_id_) {
+        current_output_type_ = output.type;
+        found_match = true;
+        ORC_LOG_DEBUG("Preserved option_id '{}' with fallback output_type={}",
+                      current_option_id_,
+                      static_cast<int>(current_output_type_));
+        break;
+      }
     }
-    
-    // Process VBI data whether or not the dialog is currently visible,
-    // so that when it is shown, it has the latest data
-    
-    if (pending_vbi_is_frame_mode_) {
-        // Frame mode - need both fields
-        if (request_id == pending_vbi_request_id_) {
-            // First field received - cache it
-            pending_vbi_field1_info_ = info;
-            pending_vbi_request_id_ = 0;  // Mark first request as processed
-        } else if (request_id == pending_vbi_request_id_field2_) {
-            // Second field received - update dialog with both fields
-            if (vbi_dialog_->isVisible()) {
-                vbi_dialog_->updateVBIInfoFrame(pending_vbi_field1_info_, info);
-            }
-            pending_vbi_is_frame_mode_ = false;
-            pending_vbi_request_id_field2_ = 0;
-            pending_vbi_request_id_ = 0;
-        }
+  }
+  // Fallback: preserve output type if possible, even if option_id changes
+  if (!found_match) {
+    for (const auto& output : available_outputs_) {
+      if (output.type == current_output_type_) {
+        current_option_id_ = output.option_id;
+        found_match = true;
+        ORC_LOG_DEBUG("Preserved output_type {} with fallback option_id='{}'",
+                      static_cast<int>(current_output_type_),
+                      current_option_id_);
+        break;
+      }
+    }
+  }
+
+  // If current option not available, try to find a sensible default
+  if (!found_match && !available_outputs_.empty()) {
+    // Prefer "frame" (Frame (Y)) if available, otherwise use first output
+    bool found_frame = false;
+    for (const auto& output : available_outputs_) {
+      if (output.option_id == "frame") {
+        current_output_type_ = output.type;
+        current_option_id_ = output.option_id;
+        found_frame = true;
+        break;
+      }
+    }
+    if (!found_frame) {
+      current_output_type_ = available_outputs_[0].type;
+      current_option_id_ = available_outputs_[0].option_id;
+    }
+  }
+
+  // Check if we should show preview dialog
+  bool is_real_node = current_view_node_id_.is_valid();
+  bool has_valid_content = false;
+  for (const auto& output : available_outputs_) {
+    if (output.is_available) {
+      has_valid_content = true;
+      break;
+    }
+  }
+
+  bool auto_show_enabled =
+      auto_show_preview_action_ && auto_show_preview_action_->isChecked();
+
+  // Enable the Show Preview menu action whenever there's valid content
+  if (is_real_node && has_valid_content) {
+    show_preview_action_->setEnabled(true);
+  }
+
+  // Auto-show the preview dialog only if the setting is enabled
+  if (!preview_dialog_->isVisible() && is_real_node && has_valid_content &&
+      auto_show_enabled) {
+    preview_dialog_->show();
+  }
+
+  // Update preview dialog to show current node
+  // Get node label from project (prefer label, fallback to stage_name)
+  const auto nodes = project_.presenter()->getNodes();
+  auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                              [this](const orc::presenters::NodeInfo& n) {
+                                return n.node_id == current_view_node_id_;
+                              });
+  QString node_label;
+  if (node_it != nodes.end()) {
+    if (!node_it->label.empty()) {
+      node_label = QString::fromStdString(node_it->label);
+    } else if (!node_it->stage_name.empty()) {
+      node_label = QString::fromStdString(node_it->stage_name);
     } else {
-        // Field mode - single field display
-        if (vbi_dialog_->isVisible()) {
-            vbi_dialog_->updateVBIInfo(info);
-        }
-        pending_vbi_request_id_ = 0;
+      node_label = QString::fromStdString(current_view_node_id_.to_string());
     }
+  } else {
+    node_label = QString::fromStdString(current_view_node_id_.to_string());
+  }
+  preview_dialog_->setCurrentNode(
+      node_label, QString::fromStdString(current_view_node_id_.to_string()));
+  preview_dialog_->setCurrentNodeId(current_view_node_id_);
+
+  // Update status bar to show which stage is being viewed
+  QString node_display =
+      QString::fromStdString(current_view_node_id_.to_string());
+  statusBar()->showMessage(
+      QString("Viewing output from stage: %1").arg(node_display), 5000);
+
+  // Update UI controls
+  updatePreviewModeCombo();
+  refreshViewerControls();
+  refreshPreviewViewAvailability();
+  updateUIState();
+
+  // If line scope is visible, refresh it after outputs and controls are updated
+  refreshLineScopeForCurrentStage();
+
+  // Update dropouts button state based on current output's availability
+  // Find the current output info to check if dropouts are available
+  bool dropouts_available = false;
+  for (const auto& output : available_outputs_) {
+    if (output.option_id == current_option_id_ &&
+        output.type == current_output_type_) {
+      dropouts_available = output.dropouts_available;
+      break;
+    }
+  }
+
+  // Update dropouts button - disable and turn off if not available
+  if (preview_dialog_ && preview_dialog_->dropoutsButton()) {
+    if (!dropouts_available) {
+      // Disable and turn off dropouts for stages where they're not available
+      // (e.g., chroma decoder)
+      preview_dialog_->dropoutsButton()->setEnabled(false);
+      preview_dialog_->dropoutsButton()->setChecked(false);
+      render_coordinator_->setShowDropouts(false);
+    } else {
+      // Re-enable dropouts button for stages that support it
+      preview_dialog_->dropoutsButton()->setEnabled(true);
+    }
+  }
+
+  // Request initial preview
+  updatePreview();
 }
 
-void MainWindow::onAvailableOutputsReady(uint64_t request_id, std::vector<orc::PreviewOutputInfo> outputs)
-{
-    if (request_id != pending_outputs_request_id_) {
-        return;
-    }
-    
-    ORC_LOG_DEBUG("onAvailableOutputsReady: request_id={}, count={}", request_id, outputs.size());
-    
-    available_outputs_ = std::move(outputs);
-    
-    // Try to preserve current option_id AND output_type across node switches
-    bool found_match = false;
-    for (const auto& output : available_outputs_) {
-        if (output.option_id == current_option_id_ && output.type == current_output_type_) {
-            found_match = true;
-            ORC_LOG_DEBUG("Preserved option_id '{}' and output_type={}", 
-                          current_option_id_, static_cast<int>(current_output_type_));
-            break;
-        }
-    }
-    // Fallback: preserve option_id only if exact type match is unavailable
-    if (!found_match) {
-        for (const auto& output : available_outputs_) {
-            if (output.option_id == current_option_id_) {
-                current_output_type_ = output.type;
-                found_match = true;
-                ORC_LOG_DEBUG("Preserved option_id '{}' with fallback output_type={}", 
-                              current_option_id_, static_cast<int>(current_output_type_));
-                break;
-            }
-        }
-    }
-    // Fallback: preserve output type if possible, even if option_id changes
-    if (!found_match) {
-        for (const auto& output : available_outputs_) {
-            if (output.type == current_output_type_) {
-                current_option_id_ = output.option_id;
-                found_match = true;
-                ORC_LOG_DEBUG("Preserved output_type {} with fallback option_id='{}'",
-                              static_cast<int>(current_output_type_), current_option_id_);
-                break;
-            }
-        }
-    }
-    
-    // If current option not available, try to find a sensible default
-    if (!found_match && !available_outputs_.empty()) {
-        // Prefer "frame" (Frame (Y)) if available, otherwise use first output
-        bool found_frame = false;
-        for (const auto& output : available_outputs_) {
-            if (output.option_id == "frame") {
-                current_output_type_ = output.type;
-                current_option_id_ = output.option_id;
-                found_frame = true;
-                break;
-            }
-        }
-        if (!found_frame) {
-            current_output_type_ = available_outputs_[0].type;
-            current_option_id_ = available_outputs_[0].option_id;
-        }
-    }
-    
-    // Check if we should show preview dialog
-    bool is_real_node = current_view_node_id_.is_valid();
-    bool has_valid_content = false;
-    for (const auto& output : available_outputs_) {
-        if (output.is_available) {
-            has_valid_content = true;
-            break;
-        }
-    }
-    
-    bool auto_show_enabled = auto_show_preview_action_ && auto_show_preview_action_->isChecked();
-    
-    // Enable the Show Preview menu action whenever there's valid content
-    if (is_real_node && has_valid_content) {
-        show_preview_action_->setEnabled(true);
-    }
-    
-    // Auto-show the preview dialog only if the setting is enabled
-    if (!preview_dialog_->isVisible() && is_real_node && has_valid_content && auto_show_enabled) {
-        preview_dialog_->show();
-    }
-    
-    // Update preview dialog to show current node
-    // Get node label from project (prefer label, fallback to stage_name)
+void MainWindow::onTriggerProgress(size_t current, size_t total,
+                                   QString message) {
+  // Ignore progress updates if we're not waiting for a trigger
+  // This prevents race conditions where progress arrives after completion
+  if (pending_trigger_request_id_ == 0) {
+    return;
+  }
+
+  // Check validity - don't make a local copy of QPointer as it won't track
+  // deletion We must check the member variable directly each time to ensure
+  // Qt's tracking works
+  if (!trigger_progress_dialog_ || total == 0) {
+    return;
+  }
+
+  int percentage = static_cast<int>((current * 100) / total);
+
+  // Prevent setting value to 100 which would trigger reset() - let
+  // onTriggerComplete handle cleanup QProgressDialog calls reset() internally
+  // when value reaches maximum, which can cause crashes if the dialog is being
+  // deleted or is in an invalid state
+  if (percentage >= 100) {
+    percentage = 99;  // Cap at 99% to prevent automatic reset()
+  }
+
+  // Re-check member variable directly before each call in case dialog was
+  // deleted
+  if (trigger_progress_dialog_) {
+    trigger_progress_dialog_->setValue(percentage);
+  }
+  if (trigger_progress_dialog_) {
+    trigger_progress_dialog_->setLabelText(message);
+  }
+}
+
+void MainWindow::onTriggerComplete(uint64_t request_id, bool success,
+                                   QString status) {
+  if (request_id != pending_trigger_request_id_) {
+    return;
+  }
+
+  ORC_LOG_DEBUG("onTriggerComplete: success={}, status={}", success,
+                status.toStdString());
+
+  // CRITICAL: Clear pending request ID FIRST to stop any racing progress
+  // updates This ensures onTriggerProgress will ignore any queued signals
+  pending_trigger_request_id_ = 0;
+
+  // Close and delete progress dialog safely
+  if (trigger_progress_dialog_) {
+    // Disconnect and block all signals from the dialog to prevent any callbacks
+    // during destruction
+    disconnect(trigger_progress_dialog_, nullptr, this, nullptr);
+    trigger_progress_dialog_->blockSignals(true);
+    // Reset to 0 before deletion to prevent any internal reset() call
+    trigger_progress_dialog_->setValue(0);
+    trigger_progress_dialog_->hide();
+    trigger_progress_dialog_
+        ->deleteLater();  // Use deleteLater for safe asynchronous deletion
+                          // QPointer will be nulled when dialog is deleted
+  }
+
+  // If trigger was successful, automatically create dialog and request analysis
+  // data for display
+  if (success && pending_trigger_node_id_.is_valid()) {
+    // Descriptor-driven analysis routing: resolve the node stage and defer
+    // tool selection to createAndShowAnalysisDialog().
     const auto nodes = project_.presenter()->getNodes();
     auto node_it = std::find_if(nodes.begin(), nodes.end(),
-        [this](const orc::presenters::NodeInfo& n) { return n.node_id == current_view_node_id_; });
-    QString node_label;
+                                [this](const orc::presenters::NodeInfo& n) {
+                                  return n.node_id == pending_trigger_node_id_;
+                                });
+
     if (node_it != nodes.end()) {
-        if (!node_it->label.empty()) {
-            node_label = QString::fromStdString(node_it->label);
-        } else if (!node_it->stage_name.empty()) {
-            node_label = QString::fromStdString(node_it->stage_name);
-        } else {
-            node_label = QString::fromStdString(current_view_node_id_.to_string());
-        }
-    } else {
-        node_label = QString::fromStdString(current_view_node_id_.to_string());
+      createAndShowAnalysisDialog(pending_trigger_node_id_,
+                                  node_it->stage_name);
     }
-    preview_dialog_->setCurrentNode(node_label, QString::fromStdString(current_view_node_id_.to_string()));
-    preview_dialog_->setCurrentNodeId(current_view_node_id_);
-    
-    // Update status bar to show which stage is being viewed
-    QString node_display = QString::fromStdString(current_view_node_id_.to_string());
-    statusBar()->showMessage(QString("Viewing output from stage: %1").arg(node_display), 5000);
-    
-    // Update UI controls
-    updatePreviewModeCombo();
-    refreshViewerControls();
-    refreshPreviewViewAvailability();
-    updateUIState();
+  }
 
-    // If line scope is visible, refresh it after outputs and controls are updated
-    refreshLineScopeForCurrentStage();
-    
-    // Update dropouts button state based on current output's availability
-    // Find the current output info to check if dropouts are available
-    bool dropouts_available = false;
-    for (const auto& output : available_outputs_) {
-        if (output.option_id == current_option_id_ && output.type == current_output_type_) {
-            dropouts_available = output.dropouts_available;
-            break;
-        }
-    }
-    
-    // Update dropouts button - disable and turn off if not available
-    if (preview_dialog_ && preview_dialog_->dropoutsButton()) {
-        if (!dropouts_available) {
-            // Disable and turn off dropouts for stages where they're not available (e.g., chroma decoder)
-            preview_dialog_->dropoutsButton()->setEnabled(false);
-            preview_dialog_->dropoutsButton()->setChecked(false);
-            render_coordinator_->setShowDropouts(false);
-        } else {
-            // Re-enable dropouts button for stages that support it
-            preview_dialog_->dropoutsButton()->setEnabled(true);
-        }
-    }
-    
-    // Request initial preview
-    updatePreview();
+  // Show result
+  if (success) {
+    statusBar()->showMessage(status, 5000);
+  } else {
+    QMessageBox::warning(this, "Trigger Failed", status);
+  }
+
+  // Clear trigger state
+  pending_trigger_node_id_ = orc::NodeID();
 }
 
-void MainWindow::onTriggerProgress(size_t current, size_t total, QString message)
-{
-    // Ignore progress updates if we're not waiting for a trigger
-    // This prevents race conditions where progress arrives after completion
-    if (pending_trigger_request_id_ == 0) {
-        return;
+void MainWindow::onCoordinatorError(uint64_t request_id, QString message) {
+  // Check if this is a line sample request error
+  if (request_id == pending_line_sample_request_id_) {
+    pending_line_sample_request_id_ = 0;
+
+    // Line sample errors are expected for sink stages - log at DEBUG
+    ORC_LOG_DEBUG(
+        "Coordinator line sample error (request {}): {} (expected for sink "
+        "stages)",
+        request_id, message.toStdString());
+
+    // Show empty line scope with appropriate message
+    if (preview_dialog_ && preview_dialog_->isLineScopeVisible()) {
+      ORC_LOG_DEBUG(
+          "Line samples not available for this stage, showing empty line "
+          "scope");
+
+      QString node_id_str =
+          QString::fromStdString(current_view_node_id_.to_string());
+
+      // Calculate stage index (1-based) from the current node
+      int stage_index = 1;
+      const auto nodes = project_.presenter()->getNodes();
+      for (size_t i = 0; i < nodes.size(); ++i) {
+        if (nodes[i].node_id == current_view_node_id_) {
+          stage_index = static_cast<int>(i) + 1;  // Convert to 1-based
+          break;
+        }
+      }
+
+      // Show empty line scope (no samples) - this will display "No data
+      // available for this line"
+      preview_dialog_->showLineScope(node_id_str, stage_index, 0, 0, 0,
+                                     std::vector<uint16_t>(),  // Empty samples
+                                     std::nullopt, 0, 0, 0,
+                                     current_output_type_);
     }
-    
-    // Check validity - don't make a local copy of QPointer as it won't track deletion
-    // We must check the member variable directly each time to ensure Qt's tracking works
-    if (!trigger_progress_dialog_ || total == 0) {
-        return;
-    }
-    
-    int percentage = static_cast<int>((current * 100) / total);
-    
-    // Prevent setting value to 100 which would trigger reset() - let onTriggerComplete handle cleanup
-    // QProgressDialog calls reset() internally when value reaches maximum, which can cause crashes
-    // if the dialog is being deleted or is in an invalid state
-    if (percentage >= 100) {
-        percentage = 99;  // Cap at 99% to prevent automatic reset()
-    }
-    
-    // Re-check member variable directly before each call in case dialog was deleted
-    if (trigger_progress_dialog_) {
-        trigger_progress_dialog_->setValue(percentage);
-    }
-    if (trigger_progress_dialog_) {
-        trigger_progress_dialog_->setLabelText(message);
-    }
+
+    // Show brief message in status bar
+    statusBar()->showMessage(QString("Line data not available for this stage"),
+                             3000);
+    return;
+  }
+
+  // For other errors, log at ERROR level
+  ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id,
+                message.toStdString());
+
+  // Show error in status bar for other errors
+  statusBar()->showMessage(QString("Error: %1").arg(message), 5000);
 }
 
-void MainWindow::onTriggerComplete(uint64_t request_id, bool success, QString status)
-{
-    if (request_id != pending_trigger_request_id_) {
-        return;
-    }
-    
-    ORC_LOG_DEBUG("onTriggerComplete: success={}, status={}", success, status.toStdString());
-    
-    // CRITICAL: Clear pending request ID FIRST to stop any racing progress updates
-    // This ensures onTriggerProgress will ignore any queued signals
-    pending_trigger_request_id_ = 0;
-    
-    // Close and delete progress dialog safely
-    if (trigger_progress_dialog_) {
-        // Disconnect and block all signals from the dialog to prevent any callbacks during destruction
-        disconnect(trigger_progress_dialog_, nullptr, this, nullptr);
-        trigger_progress_dialog_->blockSignals(true);
-        // Reset to 0 before deletion to prevent any internal reset() call
-        trigger_progress_dialog_->setValue(0);
-        trigger_progress_dialog_->hide();
-        trigger_progress_dialog_->deleteLater();  // Use deleteLater for safe asynchronous deletion
-        // QPointer will be nulled when dialog is deleted
-    }
-    
-    // If trigger was successful, automatically create dialog and request analysis data for display
-    if (success && pending_trigger_node_id_.is_valid()) {
-        // Descriptor-driven analysis routing: resolve the node stage and defer
-        // tool selection to createAndShowAnalysisDialog().
-        const auto nodes = project_.presenter()->getNodes();
-        auto node_it = std::find_if(nodes.begin(), nodes.end(),
-            [this](const orc::presenters::NodeInfo& n) { return n.node_id == pending_trigger_node_id_; });
-        
-        if (node_it != nodes.end()) {
-            createAndShowAnalysisDialog(pending_trigger_node_id_, node_it->stage_name);
-        }
-    }
-    
-    // Show result
-    if (success) {
-        statusBar()->showMessage(status, 5000);
-    } else {
-        QMessageBox::warning(this, "Trigger Failed", status);
-    }
-    
-    // Clear trigger state
-    pending_trigger_node_id_ = orc::NodeID();
-}
+void MainWindow::onDropoutDataReady(
+    uint64_t request_id, std::vector<orc::FrameDropoutStats> frame_stats,
+    int32_t total_frames) {
+  // Find which node this request was for
+  auto req_it = pending_dropout_requests_.find(request_id);
+  if (req_it == pending_dropout_requests_.end()) {
+    ORC_LOG_DEBUG(
+        "Ignoring stale dropout data response (unknown request_id {})",
+        request_id);
+    return;
+  }
 
-void MainWindow::onCoordinatorError(uint64_t request_id, QString message)
-{
-    // Check if this is a line sample request error
-    if (request_id == pending_line_sample_request_id_) {
-        pending_line_sample_request_id_ = 0;
-        
-        // Line sample errors are expected for sink stages - log at DEBUG
-        ORC_LOG_DEBUG("Coordinator line sample error (request {}): {} (expected for sink stages)",
-                     request_id, message.toStdString());
-        
-        // Show empty line scope with appropriate message
-        if (preview_dialog_ && preview_dialog_->isLineScopeVisible()) {
-            ORC_LOG_DEBUG("Line samples not available for this stage, showing empty line scope");
-            
-            QString node_id_str = QString::fromStdString(current_view_node_id_.to_string());
-            
-            // Calculate stage index (1-based) from the current node
-            int stage_index = 1;
-            const auto nodes = project_.presenter()->getNodes();
-            for (size_t i = 0; i < nodes.size(); ++i) {
-                if (nodes[i].node_id == current_view_node_id_) {
-                    stage_index = static_cast<int>(i) + 1;  // Convert to 1-based
-                    break;
-                }
-            }
-            
-            // Show empty line scope (no samples) - this will display "No data available for this line"
-            preview_dialog_->showLineScope(node_id_str, stage_index, 0, 0, 0, 
-                                          std::vector<uint16_t>(),  // Empty samples
-                                          std::nullopt, 0, 0, 0, current_output_type_);
-        }
-        
-        // Show brief message in status bar
-        statusBar()->showMessage(QString("Line data not available for this stage"), 3000);
-        return;
-    }
-    
-    // For other errors, log at ERROR level
-    ORC_LOG_ERROR("Coordinator error (request {}): {}", request_id, message.toStdString());
-    
-    // Show error in status bar for other errors
-    statusBar()->showMessage(QString("Error: %1").arg(message), 5000);
-}
+  orc::NodeID node_id = req_it->second;
+  pending_dropout_requests_.erase(req_it);
 
-void MainWindow::onDropoutDataReady(uint64_t request_id, 
-                                    std::vector<orc::FrameDropoutStats> frame_stats, 
-                                    int32_t total_frames)
-{
-    // Find which node this request was for
-    auto req_it = pending_dropout_requests_.find(request_id);
-    if (req_it == pending_dropout_requests_.end()) {
-        ORC_LOG_DEBUG("Ignoring stale dropout data response (unknown request_id {})", request_id);
-        return;
-    }
-    
-    orc::NodeID node_id = req_it->second;
-    pending_dropout_requests_.erase(req_it);
-    
-    ORC_LOG_DEBUG("onDropoutDataReady for node '{}': {} frames, total={}", 
-                  node_id.to_string(), frame_stats.size(), total_frames);
-    
-    // Close progress dialog safely (matches onTriggerComplete pattern)
-    // Erase from map FIRST so any re-entrant onDropoutProgress calls see an empty map.
-    // Do NOT call setValue() before hide() — modal QProgressDialog::setValue() calls
-    // QCoreApplication::processEvents() internally, which can re-entrantly modify the map.
-    auto prog_it = dropout_progress_dialogs_.find(node_id);
-    if (prog_it != dropout_progress_dialogs_.end() && prog_it->second) {
-        QProgressDialog* pd = prog_it->second.data();
-        dropout_progress_dialogs_.erase(prog_it);
-        pd->blockSignals(true);
-        pd->hide();
-        pd->deleteLater();
-    }
-    
-    // Find the dialog for this stage
-    auto dialog_it = dropout_analysis_dialogs_.find(node_id);
-    if (dialog_it == dropout_analysis_dialogs_.end() || !dialog_it->second || !dialog_it->second->isVisible()) {
-        return;
-    }
-    
-    auto* dialog = dialog_it->second;
-    
-    // If no data available, show message
-    if (frame_stats.empty() || total_frames == 0) {
-        dialog->showNoDataMessage(
-            "No dropout analysis data available.\n\n"
-            "Make sure dropout detection is enabled in the pipeline."
-        );
-        return;
-    }
-    
-    // Start update cycle
-    dialog->startUpdate(total_frames);
-    
-    // Add all data points
-    for (const auto& stats : frame_stats) {
-        if (stats.has_data) {
-            dialog->addDataPoint(stats.frame_number, stats.total_dropout_length);
-        }
-    }
-    
-    // Finish update with current frame marker
-    int32_t current_frame = 1;  // Default to first frame
-    if (preview_dialog_ && preview_dialog_->previewSlider()) {
-        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
-    }
-    
-    dialog->finishUpdate(current_frame);
+  ORC_LOG_DEBUG("onDropoutDataReady for node '{}': {} frames, total={}",
+                node_id.to_string(), frame_stats.size(), total_frames);
 
-    // Bring the graph window to the front now that it has data
-    dialog->raise();
-    dialog->activateWindow();
+  // Close progress dialog safely (matches onTriggerComplete pattern)
+  // Erase from map FIRST so any re-entrant onDropoutProgress calls see an empty
+  // map. Do NOT call setValue() before hide() — modal
+  // QProgressDialog::setValue() calls QCoreApplication::processEvents()
+  // internally, which can re-entrantly modify the map.
+  auto prog_it = dropout_progress_dialogs_.find(node_id);
+  if (prog_it != dropout_progress_dialogs_.end() && prog_it->second) {
+    QProgressDialog* pd = prog_it->second.data();
+    dropout_progress_dialogs_.erase(prog_it);
+    pd->blockSignals(true);
+    pd->hide();
+    pd->deleteLater();
+  }
+
+  // Find the dialog for this stage
+  auto dialog_it = dropout_analysis_dialogs_.find(node_id);
+  if (dialog_it == dropout_analysis_dialogs_.end() || !dialog_it->second ||
+      !dialog_it->second->isVisible()) {
+    return;
+  }
+
+  auto* dialog = dialog_it->second;
+
+  // If no data available, show message
+  if (frame_stats.empty() || total_frames == 0) {
+    dialog->showNoDataMessage(
+        "No dropout analysis data available.\n\n"
+        "Make sure dropout detection is enabled in the pipeline.");
+    return;
+  }
+
+  // Start update cycle
+  dialog->startUpdate(total_frames);
+
+  // Add all data points
+  for (const auto& stats : frame_stats) {
+    if (stats.has_data) {
+      dialog->addDataPoint(stats.frame_number, stats.total_dropout_length);
+    }
+  }
+
+  // Finish update with current frame marker
+  int32_t current_frame = 1;  // Default to first frame
+  if (preview_dialog_ && preview_dialog_->previewSlider()) {
+    current_frame =
+        static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+  }
+
+  dialog->finishUpdate(current_frame);
+
+  // Bring the graph window to the front now that it has data
+  dialog->raise();
+  dialog->activateWindow();
 }
 
 void MainWindow::onSNRDataReady(uint64_t request_id,
-                               std::vector<orc::FrameSNRStats> frame_stats,
-                               int32_t total_frames)
-{
-    // Find which node this request was for
-    auto req_it = pending_snr_requests_.find(request_id);
-    if (req_it == pending_snr_requests_.end()) {
-        ORC_LOG_DEBUG("Ignoring stale SNR data response (unknown request_id {})", request_id);
-        return;
-    }
-    
-    orc::NodeID node_id = req_it->second;
-    pending_snr_requests_.erase(req_it);
-    
-    ORC_LOG_DEBUG("onSNRDataReady for node '{}': {} frames, total={}", 
-                  node_id.to_string(), frame_stats.size(), total_frames);
-    
-    // Close progress dialog safely (matches onTriggerComplete pattern)
-    // Erase from map FIRST. Do NOT call setValue() before hide() — modal
-    // QProgressDialog::setValue() calls processEvents() internally, which can
-    // re-entrantly modify the map and invalidate live references.
-    auto prog_it = snr_progress_dialogs_.find(node_id);
-    if (prog_it != snr_progress_dialogs_.end() && prog_it->second) {
-        QProgressDialog* pd = prog_it->second.data();
-        snr_progress_dialogs_.erase(prog_it);
-        pd->blockSignals(true);
-        pd->hide();
-        pd->deleteLater();
-    }
-    
-    // Find the dialog for this stage
-    auto dialog_it = snr_analysis_dialogs_.find(node_id);
-    if (dialog_it == snr_analysis_dialogs_.end() || !dialog_it->second || !dialog_it->second->isVisible()) {
-        return;
-    }
-    
-    auto* dialog = dialog_it->second;
-    
-    // If no data available, show message
-    if (frame_stats.empty() || total_frames == 0) {
-        dialog->showNoDataMessage(
-            "No SNR analysis data available.\n\n"
-            "Make sure VITS (Vertical Interval Test Signal) is present in the source."
-        );
-        return;
-    }
-    
-    // Start update cycle
-    dialog->startUpdate(total_frames);
-    
-    // Add all data points
-    for (const auto& stats : frame_stats) {
-        if (stats.has_data) {
-            double white_snr = stats.has_white_snr ? stats.white_snr : std::numeric_limits<double>::quiet_NaN();
-            double black_psnr = stats.has_black_psnr ? stats.black_psnr : std::numeric_limits<double>::quiet_NaN();
-            dialog->addDataPoint(stats.frame_number, white_snr, black_psnr);
-        }
-    }
-    
-    // Finish update with current frame marker
-    int32_t current_frame = 1;  // Default to first frame
-    if (preview_dialog_ && preview_dialog_->previewSlider()) {
-        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
-    }
-    
-    dialog->finishUpdate(current_frame);
+                                std::vector<orc::FrameSNRStats> frame_stats,
+                                int32_t total_frames) {
+  // Find which node this request was for
+  auto req_it = pending_snr_requests_.find(request_id);
+  if (req_it == pending_snr_requests_.end()) {
+    ORC_LOG_DEBUG("Ignoring stale SNR data response (unknown request_id {})",
+                  request_id);
+    return;
+  }
 
-    // Bring the graph window to the front now that it has data
-    dialog->raise();
-    dialog->activateWindow();
+  orc::NodeID node_id = req_it->second;
+  pending_snr_requests_.erase(req_it);
+
+  ORC_LOG_DEBUG("onSNRDataReady for node '{}': {} frames, total={}",
+                node_id.to_string(), frame_stats.size(), total_frames);
+
+  // Close progress dialog safely (matches onTriggerComplete pattern)
+  // Erase from map FIRST. Do NOT call setValue() before hide() — modal
+  // QProgressDialog::setValue() calls processEvents() internally, which can
+  // re-entrantly modify the map and invalidate live references.
+  auto prog_it = snr_progress_dialogs_.find(node_id);
+  if (prog_it != snr_progress_dialogs_.end() && prog_it->second) {
+    QProgressDialog* pd = prog_it->second.data();
+    snr_progress_dialogs_.erase(prog_it);
+    pd->blockSignals(true);
+    pd->hide();
+    pd->deleteLater();
+  }
+
+  // Find the dialog for this stage
+  auto dialog_it = snr_analysis_dialogs_.find(node_id);
+  if (dialog_it == snr_analysis_dialogs_.end() || !dialog_it->second ||
+      !dialog_it->second->isVisible()) {
+    return;
+  }
+
+  auto* dialog = dialog_it->second;
+
+  // If no data available, show message
+  if (frame_stats.empty() || total_frames == 0) {
+    dialog->showNoDataMessage(
+        "No SNR analysis data available.\n\n"
+        "Make sure VITS (Vertical Interval Test Signal) is present in the "
+        "source.");
+    return;
+  }
+
+  // Start update cycle
+  dialog->startUpdate(total_frames);
+
+  // Add all data points
+  for (const auto& stats : frame_stats) {
+    if (stats.has_data) {
+      double white_snr = stats.has_white_snr
+                             ? stats.white_snr
+                             : std::numeric_limits<double>::quiet_NaN();
+      double black_psnr = stats.has_black_psnr
+                              ? stats.black_psnr
+                              : std::numeric_limits<double>::quiet_NaN();
+      dialog->addDataPoint(stats.frame_number, white_snr, black_psnr);
+    }
+  }
+
+  // Finish update with current frame marker
+  int32_t current_frame = 1;  // Default to first frame
+  if (preview_dialog_ && preview_dialog_->previewSlider()) {
+    current_frame =
+        static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+  }
+
+  dialog->finishUpdate(current_frame);
+
+  // Bring the graph window to the front now that it has data
+  dialog->raise();
+  dialog->activateWindow();
 }
 
-void MainWindow::onDropoutProgress(size_t current, size_t total, QString message)
-{
-    if (total == 0) return;
-    int percentage = static_cast<int>((current * 100) / total);
-    if (percentage >= 100) percentage = 99;
+void MainWindow::onDropoutProgress(size_t current, size_t total,
+                                   QString message) {
+  if (total == 0) return;
+  int percentage = static_cast<int>((current * 100) / total);
+  if (percentage >= 100) percentage = 99;
 
-    // Snapshot QPointers by value before calling setValue().
-    // Modal QProgressDialog::setValue() calls QCoreApplication::processEvents()
-    // internally, which can re-entrantly invoke onDropoutDataReady() and erase
-    // entries from dropout_progress_dialogs_ — invalidating any reference or
-    // iterator into the map that is live on this call stack.
-    std::vector<QPointer<QProgressDialog>> snapshot;
-    snapshot.reserve(dropout_progress_dialogs_.size());
-    for (auto& [id, pd] : dropout_progress_dialogs_) {
-        if (pd) snapshot.push_back(pd);
-    }
-    for (QPointer<QProgressDialog>& pd : snapshot) {
-        if (pd) pd->setValue(percentage);
-        if (pd) pd->setLabelText(message);
-    }
+  // Snapshot QPointers by value before calling setValue().
+  // Modal QProgressDialog::setValue() calls QCoreApplication::processEvents()
+  // internally, which can re-entrantly invoke onDropoutDataReady() and erase
+  // entries from dropout_progress_dialogs_ — invalidating any reference or
+  // iterator into the map that is live on this call stack.
+  std::vector<QPointer<QProgressDialog>> snapshot;
+  snapshot.reserve(dropout_progress_dialogs_.size());
+  for (auto& [id, pd] : dropout_progress_dialogs_) {
+    if (pd) snapshot.push_back(pd);
+  }
+  for (QPointer<QProgressDialog>& pd : snapshot) {
+    if (pd) pd->setValue(percentage);
+    if (pd) pd->setLabelText(message);
+  }
 }
 
-void MainWindow::onSNRProgress(size_t current, size_t total, QString message)
-{
-    if (total == 0) return;
-    int percentage = static_cast<int>((current * 100) / total);
-    if (percentage >= 100) percentage = 99;
+void MainWindow::onSNRProgress(size_t current, size_t total, QString message) {
+  if (total == 0) return;
+  int percentage = static_cast<int>((current * 100) / total);
+  if (percentage >= 100) percentage = 99;
 
-    // Snapshot QPointers by value — see onDropoutProgress for reasoning.
-    std::vector<QPointer<QProgressDialog>> snapshot;
-    snapshot.reserve(snr_progress_dialogs_.size());
-    for (auto& [id, pd] : snr_progress_dialogs_) {
-        if (pd) snapshot.push_back(pd);
-    }
-    for (QPointer<QProgressDialog>& pd : snapshot) {
-        if (pd) pd->setValue(percentage);
-        if (pd) pd->setLabelText(message);
-    }
+  // Snapshot QPointers by value — see onDropoutProgress for reasoning.
+  std::vector<QPointer<QProgressDialog>> snapshot;
+  snapshot.reserve(snr_progress_dialogs_.size());
+  for (auto& [id, pd] : snr_progress_dialogs_) {
+    if (pd) snapshot.push_back(pd);
+  }
+  for (QPointer<QProgressDialog>& pd : snapshot) {
+    if (pd) pd->setValue(percentage);
+    if (pd) pd->setLabelText(message);
+  }
 }
 
-void MainWindow::onBurstLevelDataReady(uint64_t request_id,
-                                      std::vector<orc::FrameBurstLevelStats> frame_stats,
-                                      int32_t total_frames)
-{
-    // Find which node this request was for
-    auto req_it = pending_burst_level_requests_.find(request_id);
-    if (req_it == pending_burst_level_requests_.end()) {
-        ORC_LOG_DEBUG("Ignoring stale burst level data response (unknown request_id {})", request_id);
-        return;
-    }
-    
-    orc::NodeID node_id = req_it->second;
-    pending_burst_level_requests_.erase(req_it);
-    
-    ORC_LOG_DEBUG("onBurstLevelDataReady for node '{}': {} frames, total={}", 
-                  node_id.to_string(), frame_stats.size(), total_frames);
-    
-    // Close progress dialog safely (matches onTriggerComplete pattern)
-    // Erase from map FIRST. Do NOT call setValue() before hide() — modal
-    // QProgressDialog::setValue() calls processEvents() internally, which can
-    // re-entrantly modify the map and invalidate live references.
-    auto prog_it = burst_level_progress_dialogs_.find(node_id);
-    if (prog_it != burst_level_progress_dialogs_.end() && prog_it->second) {
-        QProgressDialog* pd = prog_it->second.data();
-        burst_level_progress_dialogs_.erase(prog_it);
-        pd->blockSignals(true);
-        pd->hide();
-        pd->deleteLater();
-    }
-    
-    // Find the dialog for this stage
-    auto dialog_it = burst_level_analysis_dialogs_.find(node_id);
-    if (dialog_it == burst_level_analysis_dialogs_.end() || !dialog_it->second || !dialog_it->second->isVisible()) {
-        return;
-    }
-    
-    auto* dialog = dialog_it->second;
-    
-    // If no data available, show message
-    if (frame_stats.empty() || total_frames == 0) {
-        dialog->showNoDataMessage(
-            "No burst level data available.\n\n"
-            "Color burst detection may have failed."
-        );
-        return;
-    }
-    
-    // Start update cycle
-    dialog->startUpdate(total_frames);
-    
-    // Add all data points
-    for (const auto& stats : frame_stats) {
-        if (stats.has_data) {
-            dialog->addDataPoint(stats.frame_number, stats.median_burst_ire);
-        }
-    }
-    
-    // Finish update with current frame marker
-    int32_t current_frame = 1;
-    if (preview_dialog_ && preview_dialog_->previewSlider()) {
-        current_frame = static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
-    }
-    
-    dialog->finishUpdate(current_frame);
+void MainWindow::onBurstLevelDataReady(
+    uint64_t request_id, std::vector<orc::FrameBurstLevelStats> frame_stats,
+    int32_t total_frames) {
+  // Find which node this request was for
+  auto req_it = pending_burst_level_requests_.find(request_id);
+  if (req_it == pending_burst_level_requests_.end()) {
+    ORC_LOG_DEBUG(
+        "Ignoring stale burst level data response (unknown request_id {})",
+        request_id);
+    return;
+  }
 
-    // Bring the graph window to the front now that it has data
-    dialog->raise();
-    dialog->activateWindow();
+  orc::NodeID node_id = req_it->second;
+  pending_burst_level_requests_.erase(req_it);
+
+  ORC_LOG_DEBUG("onBurstLevelDataReady for node '{}': {} frames, total={}",
+                node_id.to_string(), frame_stats.size(), total_frames);
+
+  // Close progress dialog safely (matches onTriggerComplete pattern)
+  // Erase from map FIRST. Do NOT call setValue() before hide() — modal
+  // QProgressDialog::setValue() calls processEvents() internally, which can
+  // re-entrantly modify the map and invalidate live references.
+  auto prog_it = burst_level_progress_dialogs_.find(node_id);
+  if (prog_it != burst_level_progress_dialogs_.end() && prog_it->second) {
+    QProgressDialog* pd = prog_it->second.data();
+    burst_level_progress_dialogs_.erase(prog_it);
+    pd->blockSignals(true);
+    pd->hide();
+    pd->deleteLater();
+  }
+
+  // Find the dialog for this stage
+  auto dialog_it = burst_level_analysis_dialogs_.find(node_id);
+  if (dialog_it == burst_level_analysis_dialogs_.end() || !dialog_it->second ||
+      !dialog_it->second->isVisible()) {
+    return;
+  }
+
+  auto* dialog = dialog_it->second;
+
+  // If no data available, show message
+  if (frame_stats.empty() || total_frames == 0) {
+    dialog->showNoDataMessage(
+        "No burst level data available.\n\n"
+        "Color burst detection may have failed.");
+    return;
+  }
+
+  // Start update cycle
+  dialog->startUpdate(total_frames);
+
+  // Add all data points
+  for (const auto& stats : frame_stats) {
+    if (stats.has_data) {
+      dialog->addDataPoint(stats.frame_number, stats.median_burst_ire);
+    }
+  }
+
+  // Finish update with current frame marker
+  int32_t current_frame = 1;
+  if (preview_dialog_ && preview_dialog_->previewSlider()) {
+    current_frame =
+        static_cast<int32_t>(preview_dialog_->previewSlider()->value()) + 1;
+  }
+
+  dialog->finishUpdate(current_frame);
+
+  // Bring the graph window to the front now that it has data
+  dialog->raise();
+  dialog->activateWindow();
 }
 
-void MainWindow::onBurstLevelProgress(size_t current, size_t total, QString message)
-{
-    if (total == 0) return;
-    int percentage = static_cast<int>((current * 100) / total);
-    if (percentage >= 100) percentage = 99;
+void MainWindow::onBurstLevelProgress(size_t current, size_t total,
+                                      QString message) {
+  if (total == 0) return;
+  int percentage = static_cast<int>((current * 100) / total);
+  if (percentage >= 100) percentage = 99;
 
-    // Snapshot QPointers by value — see onDropoutProgress for reasoning.
-    std::vector<QPointer<QProgressDialog>> snapshot;
-    snapshot.reserve(burst_level_progress_dialogs_.size());
-    for (auto& [id, pd] : burst_level_progress_dialogs_) {
-        if (pd) snapshot.push_back(pd);
-    }
-    for (QPointer<QProgressDialog>& pd : snapshot) {
-        if (pd) pd->setValue(percentage);
-        if (pd) pd->setLabelText(message);
-    }
+  // Snapshot QPointers by value — see onDropoutProgress for reasoning.
+  std::vector<QPointer<QProgressDialog>> snapshot;
+  snapshot.reserve(burst_level_progress_dialogs_.size());
+  for (auto& [id, pd] : burst_level_progress_dialogs_) {
+    if (pd) snapshot.push_back(pd);
+  }
+  for (QPointer<QProgressDialog>& pd : snapshot) {
+    if (pd) pd->setValue(percentage);
+    if (pd) pd->setLabelText(message);
+  }
 }

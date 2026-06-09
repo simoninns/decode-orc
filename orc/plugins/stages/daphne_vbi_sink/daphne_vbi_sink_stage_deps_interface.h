@@ -13,18 +13,15 @@
 #include "observation_context_interface.h"
 #include "video_field_representation.h"
 
-namespace orc
-{
-    class IDaphneVBISinkStageDeps
-    {
-    public:
-        virtual ~IDaphneVBISinkStageDeps() = default;
+namespace orc {
+class IDaphneVBISinkStageDeps {
+ public:
+  virtual ~IDaphneVBISinkStageDeps() = default;
 
-        virtual bool write_vbi(
-            const VideoFieldRepresentation* representation,
-            const std::string& vbi_path,
-            IObservationContext &observation_context) = 0;
-    };
-}
+  virtual bool write_vbi(const VideoFieldRepresentation* representation,
+                         const std::string& vbi_path,
+                         IObservationContext& observation_context) = 0;
+};
+}  // namespace orc
 
-#endif //DECODE_ORC_ROOT_DAPHNE_VBI_SINK_STAGE_DEPS_INTERFACE_H
+#endif  // DECODE_ORC_ROOT_DAPHNE_VBI_SINK_STAGE_DEPS_INTERFACE_H

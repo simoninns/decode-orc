@@ -10,33 +10,33 @@
 #ifndef ORC_CORE_FFMPEG_VIDEO_SINK_STAGE_H
 #define ORC_CORE_FFMPEG_VIDEO_SINK_STAGE_H
 
-#include "chroma_sink_stage.h"
 #include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
+#include "chroma_sink_stage.h"
 
 namespace orc {
 
 /**
  * @brief FFmpeg Video Sink Stage
- * 
+ *
  * Specialized video sink for FFmpeg-encoded output formats (MP4, MKV).
  * Uses the same chroma decoder as Raw Video Sink but outputs compressed video
  * and supports embedding audio, subtitles, and metadata.
- * 
+ *
  * Supported Formats:
  * - mp4-h264: H.264/AVC encoding in MP4 container
  * - mkv-ffv1: FFV1 lossless encoding in MKV container
- * 
+ *
  * Supported Decoders:
  * - PAL: pal2d, transform2d, transform3d
  * - NTSC: ntsc1d, ntsc2d, ntsc3d, ntsc3dnoadapt
  * - Other: mono
- * 
+ *
  * FFmpeg-specific Features:
  * - Embed analogue audio from source (if available)
  * - Embed closed captions as mov_text subtitles (MP4 only, converts EIA-608)
  * - Encoder quality control (preset, CRF, bitrate)
  * - Multiple container formats and codecs
- * 
+ *
  * Parameters:
  * - output_path: Output file path (.mp4, .mkv)
  * - decoder_type: Which decoder to use (pal2d, ntsc2d, etc.)
@@ -50,48 +50,45 @@ namespace orc {
  * - threads: Number of worker threads (default: auto)
  * - output_padding: Padding for codec requirements (default: 8)
  * - encoder_preset: Encoder speed/quality preset (fast, medium, slow, veryslow)
- * - encoder_crf: Constant Rate Factor for quality (0-51, lower=better, default 18)
+ * - encoder_crf: Constant Rate Factor for quality (0-51, lower=better, default
+ * 18)
  * - encoder_bitrate: Bitrate in bits/sec (0 = use CRF, default 0)
  * - embed_audio: Embed analogue audio in output (requires audio in source)
  * - embed_closed_captions: Embed closed captions as mov_text (MP4 only)
  */
 class FFmpegVideoSinkStage : public ChromaSinkStage, public StageToolProvider {
-public:
-    FFmpegVideoSinkStage();
-    ~FFmpegVideoSinkStage() override = default;
-    
-    // Override node type info to provide specific identity
-    NodeTypeInfo get_node_type_info() const override;
-    
-    // Override parameter descriptors to exclude raw format parameters
-    std::vector<ParameterDescriptor> get_parameter_descriptors(VideoSystem project_format = VideoSystem::Unknown, SourceType source_type = SourceType::Unknown) const override;
-    
-    // Override get_parameters to include only FFmpeg-relevant parameters
-    std::map<std::string, ParameterValue> get_parameters() const override;
-    
-    // Override set_parameters to restrict output format to FFmpeg formats only
-    bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
-    
-    // Override trigger to support closed caption extraction from observations
-    bool trigger(
-        const std::vector<ArtifactPtr>& inputs,
-        const std::map<std::string, ParameterValue>& parameters,
-        IObservationContext& observation_context) override;
+ public:
+  FFmpegVideoSinkStage();
+  ~FFmpegVideoSinkStage() override = default;
 
-    std::vector<StageToolDescriptor> get_stage_tools() const override {
-        return {
-            StageToolDescriptor{
-                "ffmpeg_preset_config",
-                "FFmpeg Preset Config",
-                "Open FFmpeg preset helper dialog",
-                StageToolKind::ConfigDialog,
-                false,
-                "decode-orc.stage-tools.ffmpeg-preset.v1"
-            }
-        };
-    }
+  // Override node type info to provide specific identity
+  NodeTypeInfo get_node_type_info() const override;
+
+  // Override parameter descriptors to exclude raw format parameters
+  std::vector<ParameterDescriptor> get_parameter_descriptors(
+      VideoSystem project_format, SourceType source_type) const override;
+  using ParameterizedStage::get_parameter_descriptors;
+
+  // Override get_parameters to include only FFmpeg-relevant parameters
+  std::map<std::string, ParameterValue> get_parameters() const override;
+
+  // Override set_parameters to restrict output format to FFmpeg formats only
+  bool set_parameters(
+      const std::map<std::string, ParameterValue>& params) override;
+
+  // Override trigger to support closed caption extraction from observations
+  bool trigger(const std::vector<ArtifactPtr>& inputs,
+               const std::map<std::string, ParameterValue>& parameters,
+               IObservationContext& observation_context) override;
+
+  std::vector<StageToolDescriptor> get_stage_tools() const override {
+    return {StageToolDescriptor{"ffmpeg_preset_config", "FFmpeg Preset Config",
+                                "Open FFmpeg preset helper dialog",
+                                StageToolKind::ConfigDialog, false,
+                                "decode-orc.stage-tools.ffmpeg-preset.v1"}};
+  }
 };
 
-} // namespace orc
+}  // namespace orc
 
-#endif // ORC_CORE_FFMPEG_VIDEO_SINK_STAGE_H
+#endif  // ORC_CORE_FFMPEG_VIDEO_SINK_STAGE_H

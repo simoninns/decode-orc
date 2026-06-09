@@ -1,7 +1,8 @@
 /*
  * File:        project_plugin_metadata_test.cpp
  * Module:      orc-core unit tests
- * Purpose:     Unit tests for per-project plugin metadata persistence and guidance
+ * Purpose:     Unit tests for per-project plugin metadata persistence and
+ * guidance
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -19,11 +20,11 @@ namespace {
 using testing::ElementsAre;
 using testing::HasSubstr;
 
-} // namespace
+}  // namespace
 
-TEST(ProjectPluginMetadataTest, saveFiltersLoadedPluginMetadataToStillUsedStages)
-{
-    const std::string yaml_text = R"yaml(
+TEST(ProjectPluginMetadataTest,
+     saveFiltersLoadedPluginMetadataToStillUsedStages) {
+  const std::string yaml_text = R"yaml(
 project:
   name: plugin-metadata-test
   version: "1.0"
@@ -53,23 +54,27 @@ required_plugins:
       - removed-stage
 )yaml";
 
-    auto project = orc::project_io::load_project_from_yaml(yaml_text, "/tmp/plugin-metadata.orcprj");
+  auto project = orc::project_io::load_project_from_yaml(
+      yaml_text, "/tmp/plugin-metadata.orcprj");
 
-    std::vector<orc::ProjectDAGNode> nodes;
-    nodes.push_back(project.get_nodes().front());
-    orc::project_io::update_project_dag(project, nodes, {});
+  std::vector<orc::ProjectDAGNode> nodes;
+  nodes.push_back(project.get_nodes().front());
+  orc::project_io::update_project_dag(project, nodes, {});
 
-    const auto serialized = orc::project_io::serialize_project_to_yaml(project, "/tmp/plugin-metadata.orcprj");
-    const auto reparsed = orc::project_io::load_project_from_yaml(serialized, "/tmp/plugin-metadata.orcprj");
+  const auto serialized = orc::project_io::serialize_project_to_yaml(
+      project, "/tmp/plugin-metadata.orcprj");
+  const auto reparsed = orc::project_io::load_project_from_yaml(
+      serialized, "/tmp/plugin-metadata.orcprj");
 
-    ASSERT_EQ(reparsed.get_required_plugins().size(), 1u);
-    EXPECT_EQ(reparsed.get_required_plugins().front().plugin_id, "example.kept");
-    EXPECT_THAT(reparsed.get_required_plugins().front().stage_names, ElementsAre("kept-stage"));
+  ASSERT_EQ(reparsed.get_required_plugins().size(), 1u);
+  EXPECT_EQ(reparsed.get_required_plugins().front().plugin_id, "example.kept");
+  EXPECT_THAT(reparsed.get_required_plugins().front().stage_names,
+              ElementsAre("kept-stage"));
 }
 
-TEST(ProjectPluginMetadataTest, missingStageErrorReferencesSavedPluginMetadata)
-{
-    const std::string yaml_text = R"yaml(
+TEST(ProjectPluginMetadataTest,
+     missingStageErrorReferencesSavedPluginMetadata) {
+  const std::string yaml_text = R"yaml(
 project:
   name: plugin-metadata-test
   version: "1.0"
@@ -90,15 +95,18 @@ required_plugins:
       - missing-third-party-stage
 )yaml";
 
-    const auto project = orc::project_io::load_project_from_yaml(yaml_text, "/tmp/missing-stage.orcprj");
+  const auto project = orc::project_io::load_project_from_yaml(
+      yaml_text, "/tmp/missing-stage.orcprj");
 
-    try {
-        (void)orc::project_to_dag(project);
-        FAIL() << "Expected ProjectConversionError";
-    } catch (const orc::ProjectConversionError& error) {
-        EXPECT_THAT(std::string(error.what()), HasSubstr("Required plugin: example.missing"));
-        EXPECT_THAT(std::string(error.what()), HasSubstr("https://example.invalid/orc-plugin_missing"));
-    }
+  try {
+    (void)orc::project_to_dag(project);
+    FAIL() << "Expected ProjectConversionError";
+  } catch (const orc::ProjectConversionError& error) {
+    EXPECT_THAT(std::string(error.what()),
+                HasSubstr("Required plugin: example.missing"));
+    EXPECT_THAT(std::string(error.what()),
+                HasSubstr("https://example.invalid/orc-plugin_missing"));
+  }
 }
 
-} // namespace orc_unit_test
+}  // namespace orc_unit_test

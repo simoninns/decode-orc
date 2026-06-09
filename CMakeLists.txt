@@ -46,6 +46,12 @@ if(NOT EZPWD_INCLUDE_DIR)
     endif()
 endif()
 
+# clang-format check (optional; skipped silently when clang-format is absent)
+include(cmake/ClangFormat.cmake)
+
+# clang-tidy analysis (optional; skipped silently when clang-tidy is absent)
+include(cmake/ClangTidy.cmake)
+
 # Add the orc subdirectory which contains the main project
 add_subdirectory(orc)
 

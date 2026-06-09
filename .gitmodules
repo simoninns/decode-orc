@@ -1,3 +1,6 @@
 [submodule "docs-tech/cvbs-file-format-specification"]
 	path = docs-tech/cvbs-file-format-specification
 	url = https://github.com/simoninns/cvbs-file-format-specification
+[submodule "docs-tech/analogue-video-specifications"]
+	path = docs-tech/analogue-video-specifications
+	url = https://github.com/simoninns/analogue-video-specifications

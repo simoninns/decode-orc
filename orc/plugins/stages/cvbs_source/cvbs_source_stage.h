@@ -14,6 +14,7 @@
 #include <video_field_representation.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -171,6 +172,7 @@ class FixedFormatCVBSSourceStage : public DAGStage,
       sample_encoding_;  // "CVBS_TPG21_4FSC" or "CVBS_U16_4FSC" (manual mode)
 
   // Cache the loaded representation to avoid reloading
+  mutable std::mutex execute_mutex_;
   mutable std::string cached_input_path_;
   mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
   std::shared_ptr<ICVBSSourceStageDeps> deps_override_;

@@ -114,9 +114,10 @@ TEST_P(PublicStageContractTest, Parameter_DefaultsMatchRuntimeState) {
   const auto parameters = parameterized->get_parameters();
 
   for (const auto& [name, value] : parameters) {
+    const auto& param_name = name;
     auto it = std::find_if(descriptors.begin(), descriptors.end(),
-                           [&](const orc::ParameterDescriptor& descriptor) {
-                             return descriptor.name == name;
+                           [&param_name](const orc::ParameterDescriptor& descriptor) {
+                             return descriptor.name == param_name;
                            });
     EXPECT_NE(it, descriptors.end())
         << spec().inventory_id

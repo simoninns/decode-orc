@@ -1047,6 +1047,12 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context) {
+  // Serialize concurrent execute() calls. The GUI thread can reach execute()
+  // via RenderCoordinator::mapFieldToImage → get_representation_at_node while
+  // the worker thread is also executing, causing a data race on
+  // cached_representation_.
+  std::lock_guard<std::mutex> execute_lock(execute_mutex_);
+
   (void)observation_context;  // Unused for now
 
   // Source stage should have no inputs
@@ -1065,6 +1071,13 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
     return {};
   }
   std::string input_path = std::get<std::string>(input_path_it->second);
+
+  // Return cached representation if the same file is already loaded. A second
+  // thread may reach here after blocking on execute_mutex_ while the first
+  // thread completed the load.
+  if (cached_representation_ && cached_input_path_ == input_path) {
+    return {cached_representation_};
+  }
 
   // Get use_metadata parameter
   auto use_metadata_it = parameters.find("use_metadata");

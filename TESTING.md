@@ -13,7 +13,24 @@ Good software should have the following traits:
 
 #### Architecture
 
-![](assets/DependencyInversionPattern.png)
+```
+MONOLITH PATTERN                    DEPENDENCY INVERSION PATTERN
+  ┌─────────────────────┐             ┌────────────────┐   ┌──────────────────────┐   ┌──────────────────────┐
+  │                     │             │                │   │  «Interface»         │   │  «Interface»         │
+  │  ┌───────────────┐  │             │                ├──►│  public method B()   │   │  public method C()   │
+  │  │ public        │  │             │  Class         │   ├──────────────────────┤   ├──────────────────────┤
+  │  │ method A()    │  │             │  public        │   │  Class               ├──►│  Class               │
+  │  ├───────────────┤  │    ════►    │  method A()    │   │  public method B()   │   │  public method C()   │
+  │  │ private       │  │             │                │   └──────────────────────┘   └──────────────────────┘
+  │  │ method B()    │  │             │                │
+  │  ├───────────────┤  │             └────────────────┘
+  │  │ private       │  │
+  │  │ method C()    │  │                  class 1          class 2 (with interface)    class 3 (with interface)
+  │  └───────────────┘  │
+  │                     │
+  │  monolithic class 1 │
+  └─────────────────────┘
+  ```
 
 Instead of writing monolithic classes (as in the above example), we architect classes that are smaller that depend upon abstractions (interfaces) rather than concrete objects.
 In C++, an interface is a class composed entirely of pure virtual methods.  An example of an interface in the code is *IFactories*.
@@ -51,7 +68,32 @@ Any object created by such an interface should be wrapped in std::shared_ptr to 
 
 #### Testing architecture
 
-![](assets/UnitTestPattern.png)
+```
+INTEGRATION TEST PATTERN                    UNIT TEST PATTERN
+  ┌──────────────────────────┐               ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
+  │ Integration test for     │               │ Unit test for       │   │ Unit test for       │   │ Unit test for       │
+  │ method C. Must also      │               │ method A            │   │ method B            │   │ method C            │
+  │ test method A and B.     │               └──────────┬──────────┘   └──────────┬──────────┘   └──────────┬──────────┘
+  └────────────┬─────────────┘                          │                         │                         │
+               │                                        ▼                         ▼                         ▼
+               ▼                              ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
+  ┌────────────────────────┐                  │  «Class»            │   │  «Class»            │   │  «Class»            │
+  │  ┌──────────────────┐  │    ════►         │  public method A()  │   │  public method B()  │   │  public method C()  │
+  │  │ public           │  │                  └──────────┬──────────┘   └──────────┬──────────┘   └─────────────────────┘
+  │  │ method A()       │  │                             │                         │
+  │  ├──────────────────┤  │                             ▼                         ▼
+  │  │ private          │  │                  ┌─────────────────────┐   ┌─────────────────────┐
+  │  │ method B()       │  │                  │ Mock of interface   │   │ Mock of interface   │
+  │  ├──────────────────┤  │                  │ containing          │   │ containing method   │
+  │  │ private          │  │                  │ method B()          │   │ C()                 │
+  │  │ method C()       │  │                  └─────────────────────┘   └─────────────────────┘
+  │  └──────────────────┘  │
+  │                        │                   unit test for only        unit test for only       unit test for only
+  │  complicated,          │                   method A                  method B                 method C
+  │  hard-to-maintain test │
+  └────────────────────────┘
+
+```
 
 ##### Encapsulation
 

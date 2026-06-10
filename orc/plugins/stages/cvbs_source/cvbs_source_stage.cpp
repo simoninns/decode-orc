@@ -211,14 +211,22 @@ std::vector<uint16_t> resample_sequence_sinc_soxr(
 
 int32_t normalize_sample_to_internal_domain(uint16_t raw_word,
                                             const std::string& sample_encoding,
+                                            int32_t blanking_10bit,
                                             size_t& clamped_low_count) {
   int32_t value_10bit = 0;
 
   if (sample_encoding == "CVBS_TPG21_4FSC") {
+    // CVBS file format spec: CVBS_TPG21_4FSC — fixed device offset 508, ×64 scale.
     const int16_t signed_word = static_cast<int16_t>(raw_word);
     const auto decoded = static_cast<int32_t>(
         std::lround(static_cast<double>(signed_word) / 64.0));
     value_10bit = decoded + 508;
+  } else if (sample_encoding == "CVBS_S16_FSC") {
+    // CVBS file format spec: CVBS_S16_FSC — blanking-centred, ×32 scale.
+    // value_10bit = int16 / 32 + blanking_10bit
+    // The five LSBs of every stored word are structural zeros, so division is exact.
+    const int16_t signed_word = static_cast<int16_t>(raw_word);
+    value_10bit = static_cast<int32_t>(signed_word) / 32 + blanking_10bit;
   } else {
     value_10bit = static_cast<int32_t>(raw_word) / 64;
   }
@@ -397,10 +405,12 @@ class CVBSDecodedFieldRepresentation final : public VideoFieldRepresentation {
     size_t clamped_low_count = 0;
     std::vector<uint16_t> normalized_words;
     normalized_words.reserve(raw_frame_words.size());
+    const int32_t blanking_10bit =
+        geometry_.blanking_ire_16b / kInternalSampleScale;
     for (uint16_t raw_word : raw_frame_words) {
       normalized_words.push_back(
           static_cast<uint16_t>(normalize_sample_to_internal_domain(
-              raw_word, sample_encoding_, clamped_low_count)));
+              raw_word, sample_encoding_, blanking_10bit, clamped_low_count)));
     }
 
     if (clamped_low_count > 0) {
@@ -676,7 +686,7 @@ FixedFormatCVBSSourceStage::FixedFormatCVBSSourceStage(
     CVBSStageIdentity identity, std::shared_ptr<ICVBSSourceStageDeps> deps)
     : identity_(identity),
       input_path_(""),
-      use_metadata_(false),
+      use_metadata_(true),
       sample_encoding_("CVBS_U16_4FSC"),
       deps_override_(std::move(deps)) {
   if (!deps_override_) {
@@ -912,7 +922,7 @@ FixedFormatCVBSSourceStage::get_parameter_descriptors(
         "that metadata matches this stage's fixed video standard.";
     desc.type = ParameterType::BOOL;
     desc.constraints.required = false;
-    desc.constraints.default_value = false;
+    desc.constraints.default_value = true;
     descriptors.push_back(desc);
   }
 
@@ -925,11 +935,17 @@ FixedFormatCVBSSourceStage::get_parameter_descriptors(
         "Sample encoding preset for manual mode (ignored if use_metadata is "
         "enabled). "
         "Supported: CVBS_U16_4FSC (16-bit unsigned direct encoding), "
-        "CVBS_TPG21_4FSC (device-encoded with offset/scale).";
+        "CVBS_TPG21_4FSC (device-encoded with offset/scale), "
+        "CVBS_S16_FSC (blanking-centred signed 16-bit, x32 scale).";
     desc.type = ParameterType::STRING;
     desc.constraints.required = false;
     desc.constraints.default_value = std::string("CVBS_U16_4FSC");
-    desc.constraints.allowed_strings = {"CVBS_U16_4FSC", "CVBS_TPG21_4FSC"};
+    desc.constraints.allowed_strings = {"CVBS_U16_4FSC", "CVBS_TPG21_4FSC",
+                                        "CVBS_S16_FSC"};
+    // Grayed out (not hidden) when use_metadata is checked: encoding comes
+    // from the metadata file and the manual selection is ignored.
+    desc.constraints.depends_on =
+        ParameterDependency{"use_metadata", {"false"}, false};
     descriptors.push_back(desc);
   }
 
@@ -1125,10 +1141,12 @@ std::string FixedFormatCVBSSourceStage::validate_metadata_mode(
   }
 
   if (record.sample_encoding_preset != "CVBS_U16_4FSC" &&
-      record.sample_encoding_preset != "CVBS_TPG21_4FSC") {
+      record.sample_encoding_preset != "CVBS_TPG21_4FSC" &&
+      record.sample_encoding_preset != "CVBS_S16_FSC") {
     return "Unsupported metadata sample_encoding_preset '" +
            record.sample_encoding_preset + "' in '" + meta_path +
-           "'. Supported encodings: CVBS_U16_4FSC, CVBS_TPG21_4FSC";
+           "'. Supported encodings: CVBS_U16_4FSC, CVBS_TPG21_4FSC, "
+           "CVBS_S16_FSC";
   }
   resolved_sample_encoding = record.sample_encoding_preset;
 
@@ -1151,9 +1169,10 @@ std::string FixedFormatCVBSSourceStage::validate_manual_mode(
     const std::string& sample_encoding) const {
   // Validate sample_encoding
   if (sample_encoding != "CVBS_U16_4FSC" &&
-      sample_encoding != "CVBS_TPG21_4FSC") {
+      sample_encoding != "CVBS_TPG21_4FSC" &&
+      sample_encoding != "CVBS_S16_FSC") {
     return "Invalid sample_encoding '" + sample_encoding +
-           "'. Supported: CVBS_U16_4FSC, CVBS_TPG21_4FSC";
+           "'. Supported: CVBS_U16_4FSC, CVBS_TPG21_4FSC, CVBS_S16_FSC";
   }
 
   // Signal state is implicitly STANDARD_TBC_LOCKED (validated in Phase 2 for

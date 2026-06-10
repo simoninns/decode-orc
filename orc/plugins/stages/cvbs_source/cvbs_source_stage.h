@@ -77,6 +77,7 @@ class ICVBSSourceStageDeps {
  * - `CVBS_TPG21_4FSC` - Device-encoded composite (requires offset/scale
  * reversal)
  * - `CVBS_U16_4FSC` - 16-bit unsigned linear composite encoding
+ * - `CVBS_S16_FSC` - Blanking-centred signed 16-bit encoding (×32 scale)
  *
  * **Operating Modes:**
  *
@@ -167,9 +168,9 @@ class FixedFormatCVBSSourceStage : public DAGStage,
 
   // Storage for current parameter values
   std::string input_path_;
-  bool use_metadata_ = false;
-  std::string
-      sample_encoding_;  // "CVBS_TPG21_4FSC" or "CVBS_U16_4FSC" (manual mode)
+  bool use_metadata_ = true;
+  // "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", or "CVBS_S16_FSC" (manual mode)
+  std::string sample_encoding_;
 
   // Cache the loaded representation to avoid reloading
   mutable std::mutex execute_mutex_;

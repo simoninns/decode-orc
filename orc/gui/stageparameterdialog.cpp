@@ -823,12 +823,19 @@ void StageParameterDialog::update_dependencies() {
                     current_val) != dep.required_values.end();
     }
 
-    // Show or hide the widget and its label row
+    // Show/hide or enable/disable the widget and its label row
     auto widget_it = parameter_widgets_.find(desc.name);
     if (widget_it != parameter_widgets_.end()) {
-      widget_it->second.widget->setVisible(should_enable);
-      if (widget_it->second.label) {
-        widget_it->second.label->setVisible(should_enable);
+      if (dep.hide_when_disabled) {
+        widget_it->second.widget->setVisible(should_enable);
+        if (widget_it->second.label) {
+          widget_it->second.label->setVisible(should_enable);
+        }
+      } else {
+        widget_it->second.widget->setEnabled(should_enable);
+        if (widget_it->second.label) {
+          widget_it->second.label->setEnabled(should_enable);
+        }
       }
     }
   }

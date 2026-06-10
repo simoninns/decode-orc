@@ -42,6 +42,9 @@ struct ParameterDependency {
   std::vector<std::string>
       required_values;  // Values that enable this parameter (empty = any
                         // non-default)
+  // When true (default), hides the widget when dependency is not met.
+  // When false, keeps it visible but grays it out (disabled).
+  bool hide_when_disabled = true;
 };
 
 /// Parameter constraints

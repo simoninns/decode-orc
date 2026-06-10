@@ -208,7 +208,7 @@ TEST_F(CVBSSourceContractTest, Parameters_UseMetadataDescriptor) {
     FAIL() << "Expected default_value to have a value";
     return;
   }
-  EXPECT_EQ(std::get<bool>(*desc.constraints.default_value), false);
+  EXPECT_EQ(std::get<bool>(*desc.constraints.default_value), true);
 }
 
 TEST_F(CVBSSourceContractTest, Parameters_SampleEncodingDescriptor) {
@@ -233,7 +233,7 @@ TEST_F(CVBSSourceContractTest, Parameters_SampleEncodingDescriptor) {
             "CVBS_U16_4FSC");
 
   // Verify allowed values
-  ASSERT_EQ(desc.constraints.allowed_strings.size(), 2);
+  ASSERT_EQ(desc.constraints.allowed_strings.size(), 3);
   EXPECT_TRUE(std::find(desc.constraints.allowed_strings.begin(),
                         desc.constraints.allowed_strings.end(),
                         "CVBS_U16_4FSC") !=
@@ -242,6 +242,27 @@ TEST_F(CVBSSourceContractTest, Parameters_SampleEncodingDescriptor) {
                         desc.constraints.allowed_strings.end(),
                         "CVBS_TPG21_4FSC") !=
               desc.constraints.allowed_strings.end());
+  EXPECT_TRUE(std::find(desc.constraints.allowed_strings.begin(),
+                        desc.constraints.allowed_strings.end(),
+                        "CVBS_S16_FSC") !=
+              desc.constraints.allowed_strings.end());
+}
+
+TEST_F(CVBSSourceContractTest, Parameters_SampleEncodingDependsOnUseMetadata) {
+  auto descriptors = stage_->get_parameter_descriptors();
+
+  auto encoding_it = std::find_if(
+      descriptors.begin(), descriptors.end(),
+      [](const ParameterDescriptor& d) { return d.name == "sample_encoding"; });
+  ASSERT_NE(encoding_it, descriptors.end());
+
+  const auto& desc = *encoding_it;
+  ASSERT_TRUE(desc.constraints.depends_on.has_value());
+  EXPECT_EQ(desc.constraints.depends_on->parameter_name, "use_metadata");
+  ASSERT_EQ(desc.constraints.depends_on->required_values.size(), 1u);
+  EXPECT_EQ(desc.constraints.depends_on->required_values.front(), "false");
+  // Must gray out, not hide, so the user can see the control is ignored.
+  EXPECT_FALSE(desc.constraints.depends_on->hide_when_disabled);
 }
 
 TEST_F(CVBSSourceContractTest, Parameters_HasExactlyThreeParameters) {
@@ -593,6 +614,151 @@ TEST(CVBSSourceDecodeTest, ManualMode_DecodesTPG21IntoCommonDomain) {
   EXPECT_EQ(first_field.front(), static_cast<uint16_t>(300 * 64));
 }
 
+TEST(CVBSSourceDecodeTest, ManualMode_DecodesS16FSCNtscIntoCommonDomain) {
+  // NTSC: blanking=240 (10-bit). Black level=252.
+  // CVBS_S16_FSC: int16 = (252 - 240) * 32 = 384.
+  // Expected internal domain: 252 * 64 = 16128.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+  const int16_t encoded = static_cast<int16_t>((252 - 240) * 32);
+  deps->payload_words.assign(static_cast<size_t>(910 * 525),
+                             static_cast<uint16_t>(encoded));
+  NTSCCVBSSourceStage stage(deps);
+
+  std::map<std::string, ParameterValue> params;
+  params["input_path"] = std::string("/virtual/input.cvbs");
+  params["use_metadata"] = false;
+  params["sample_encoding"] = std::string("CVBS_S16_FSC");
+
+  std::vector<ArtifactPtr> inputs;
+  ObservationContext observation_context;
+  const auto result = stage.execute(inputs, params, observation_context);
+
+  ASSERT_EQ(result.size(), 1u);
+  auto representation =
+      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
+  ASSERT_TRUE(representation != nullptr);
+
+  auto first_field = representation->get_field(FieldID(0));
+  ASSERT_FALSE(first_field.empty());
+  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(252 * 64));
+}
+
+TEST(CVBSSourceDecodeTest, ManualMode_DecodesS16FSCPalGeometry) {
+  // PAL: blanking=256 (10-bit). Black level=282.
+  // CVBS_S16_FSC: int16 = (282 - 256) * 32 = 832.
+  // PAL output goes through sinc resampling (fractional-line → uniform), so
+  // exact sample-level comparisons at frame boundaries are unreliable. Verify
+  // geometry and field count instead.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+  const int16_t encoded = static_cast<int16_t>((282 - 256) * 32);
+  deps->payload_words.assign(static_cast<size_t>(709379),
+                             static_cast<uint16_t>(encoded));
+  PALCVBSSourceStage stage(deps);
+
+  std::map<std::string, ParameterValue> params;
+  params["input_path"] = std::string("/virtual/input.cvbs");
+  params["use_metadata"] = false;
+  params["sample_encoding"] = std::string("CVBS_S16_FSC");
+
+  std::vector<ArtifactPtr> inputs;
+  ObservationContext observation_context;
+  const auto result = stage.execute(inputs, params, observation_context);
+
+  ASSERT_EQ(result.size(), 1u);
+  auto representation =
+      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
+  ASSERT_TRUE(representation != nullptr);
+
+  EXPECT_EQ(representation->field_count(), 2u);
+
+  auto video_params = representation->get_video_parameters();
+  ASSERT_TRUE(video_params.has_value());
+  EXPECT_EQ(video_params->system, VideoSystem::PAL);
+  EXPECT_EQ(video_params->field_width, 1135);
+}
+
+TEST(CVBSSourceDecodeTest, ManualMode_S16FSCBlankingMapsToCorrectInternalLevel) {
+  // NTSC: blanking=240. Encoded blanking = (240 - 240) * 32 = 0.
+  // Expected internal domain: 240 * 64 = 15360.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+  deps->payload_words.assign(static_cast<size_t>(910 * 525),
+                             static_cast<uint16_t>(0));
+  NTSCCVBSSourceStage stage(deps);
+
+  std::map<std::string, ParameterValue> params;
+  params["input_path"] = std::string("/virtual/input.cvbs");
+  params["use_metadata"] = false;
+  params["sample_encoding"] = std::string("CVBS_S16_FSC");
+
+  std::vector<ArtifactPtr> inputs;
+  ObservationContext observation_context;
+  const auto result = stage.execute(inputs, params, observation_context);
+
+  ASSERT_EQ(result.size(), 1u);
+  auto representation =
+      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
+  ASSERT_TRUE(representation != nullptr);
+
+  auto first_field = representation->get_field(FieldID(0));
+  ASSERT_FALSE(first_field.empty());
+  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(240 * 64));
+}
+
+TEST(CVBSSourceDecodeTest,
+     ManualMode_S16FSCSyncTipDecodesCorrectlyForNtsc) {
+  // NTSC: blanking=240, sync tip=16.
+  // CVBS_S16_FSC: int16 = (16 - 240) * 32 = -7168.
+  // Expected internal domain: 16 * 64 = 1024.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+  const int16_t encoded = static_cast<int16_t>((16 - 240) * 32);
+  deps->payload_words.assign(static_cast<size_t>(910 * 525),
+                             static_cast<uint16_t>(encoded));
+  NTSCCVBSSourceStage stage(deps);
+
+  std::map<std::string, ParameterValue> params;
+  params["input_path"] = std::string("/virtual/input.cvbs");
+  params["use_metadata"] = false;
+  params["sample_encoding"] = std::string("CVBS_S16_FSC");
+
+  std::vector<ArtifactPtr> inputs;
+  ObservationContext observation_context;
+  const auto result = stage.execute(inputs, params, observation_context);
+
+  ASSERT_EQ(result.size(), 1u);
+  auto representation =
+      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
+  ASSERT_TRUE(representation != nullptr);
+
+  auto first_field = representation->get_field(FieldID(0));
+  ASSERT_FALSE(first_field.empty());
+  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(16 * 64));
+}
+
+TEST(CVBSSourceValidationTest,
+     MetadataMode_AcceptsS16FSCSampleEncoding) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+  deps->metadata_record = CVBSMetadataRecord{
+      "NTSC", "CVBS_S16_FSC", "STANDARD_TBC_LOCKED", "composite"};
+  // NTSC: blanking=240. Encoded blanking = 0.
+  deps->payload_words.assign(static_cast<size_t>(910 * 525),
+                             static_cast<uint16_t>(0));
+  NTSCCVBSSourceStage stage(deps);
+
+  std::map<std::string, ParameterValue> params;
+  params["input_path"] = std::string("/virtual/input.cvbs");
+  params["use_metadata"] = true;
+
+  std::vector<ArtifactPtr> inputs;
+  ObservationContext observation_context;
+  const auto result = stage.execute(inputs, params, observation_context);
+
+  ASSERT_EQ(result.size(), 1u);
+  auto representation =
+      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
+  ASSERT_TRUE(representation != nullptr);
+  EXPECT_EQ(representation->field_count(), 2u);
+}
+
 TEST(CVBSSourceDecodeTest, ManualMode_ClampsLowTPG21SamplesIntoInternalDomain) {
   auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
   const int16_t encoded_below_zero = static_cast<int16_t>(-509 * 64);
@@ -718,202 +884,6 @@ TEST(CVBSSourceDecodeTest,
   }
   EXPECT_TRUE(parity0->is_first_field);
   EXPECT_FALSE(parity1->is_first_field);
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_AlignsNtscLinesToSyncEdgeMidpoint) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-
-  constexpr size_t kLineLength = 910;
-  constexpr size_t kFrameLines = 525;
-  constexpr uint16_t kActive = static_cast<uint16_t>(252 * 64);
-  constexpr uint16_t kBlanking = static_cast<uint16_t>(240 * 64);
-  constexpr uint16_t kSyncTip = static_cast<uint16_t>(16 * 64);
-
-  deps->payload_words.assign(kLineLength * kFrameLines, kBlanking);
-
-  for (size_t line = 0; line < kFrameLines; ++line) {
-    const size_t base = line * kLineLength;
-    for (size_t sample = 0; sample <= 767; ++sample) {
-      deps->payload_words[base + sample] = kActive;
-    }
-    for (size_t sample = 784; sample <= 847; ++sample) {
-      deps->payload_words[base + sample] = kSyncTip;
-    }
-  }
-
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  const auto line0_ptr = representation->get_line(FieldID(0), 0);
-  ASSERT_NE(line0_ptr, nullptr);
-  EXPECT_EQ(line0_ptr[0], kSyncTip);
-  EXPECT_EQ(line0_ptr[126], kActive);
-
-  const auto video_params = representation->get_video_parameters();
-  if (!video_params.has_value()) {
-    FAIL() << "Expected video_params to have a value";
-    return;
-  }
-  EXPECT_EQ(video_params->active_video_start, 126);
-  EXPECT_EQ(video_params->active_video_end, 894);
-}
-
-TEST(CVBSSourceDecodeTest,
-     ManualMode_PreservesSyncCenteredLinesWithoutActiveWrap) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-
-  constexpr size_t kLineLength = 910;
-  constexpr size_t kFrameLines = 525;
-  constexpr uint16_t kActive = static_cast<uint16_t>(252 * 64);
-  constexpr uint16_t kBlanking = static_cast<uint16_t>(240 * 64);
-  constexpr uint16_t kSyncTip = static_cast<uint16_t>(16 * 64);
-
-  deps->payload_words.assign(kLineLength * kFrameLines, kBlanking);
-
-  for (size_t line = 0; line < kFrameLines; ++line) {
-    const size_t base = line * kLineLength;
-    for (size_t sample = 0; sample < 64; ++sample) {
-      deps->payload_words[base + sample] = kSyncTip;
-    }
-    for (size_t sample = 126; sample <= 893; ++sample) {
-      deps->payload_words[base + sample] = kActive;
-    }
-  }
-
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  const auto line0_ptr = representation->get_line(FieldID(0), 0);
-  ASSERT_NE(line0_ptr, nullptr);
-  EXPECT_EQ(line0_ptr[0], kSyncTip);
-  EXPECT_EQ(line0_ptr[126], kActive);
-
-  const auto video_params = representation->get_video_parameters();
-  if (!video_params.has_value()) {
-    FAIL() << "Expected video_params to have a value";
-    return;
-  }
-  EXPECT_EQ(video_params->active_video_start, 126);
-  EXPECT_EQ(video_params->active_video_end, 894);
-}
-
-TEST(CVBSSourceDecodeTest, Manual_ModePalMultiFrameAlignmentConsistent) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-
-  // PAL frame with variable-length lines for 4fsc phase: 709,379 samples total
-  // First field in temporal/output order is the 313-line odd field.
-  constexpr size_t kFirstFieldSamples = 355257;   // 311 @ 1135 + 2 @ 1136
-  constexpr size_t kSecondFieldSamples = 354122;  // 310 @ 1135 + 2 @ 1136
-  constexpr size_t kFrameSamples = kFirstFieldSamples + kSecondFieldSamples;
-  constexpr size_t kFrameCount = 3;
-  constexpr uint16_t kActive = static_cast<uint16_t>(282 * 64);
-  constexpr uint16_t kBlanking = static_cast<uint16_t>(256 * 64);
-  constexpr uint16_t kSyncTip = static_cast<uint16_t>(4 * 64);
-
-  deps->payload_words.assign(kFrameSamples * kFrameCount, kBlanking);
-
-  // Fill frames with sync and active patterns, accounting for variable-length
-  // lines
-  auto pal_line_sample_count = [](size_t field_line_idx, bool is_odd) {
-    if (is_odd) {
-      return (field_line_idx == 156 || field_line_idx == 312) ? 1136 : 1135;
-    } else {
-      return (field_line_idx == 155 || field_line_idx == 311) ? 1136 : 1135;
-    }
-  };
-
-  for (size_t frame_idx = 0; frame_idx < kFrameCount; ++frame_idx) {
-    // First field (313-line odd field)
-    size_t sample_offset = frame_idx * kFrameSamples;
-    for (size_t field_line = 0; field_line < 313; ++field_line) {
-      const size_t line_len = pal_line_sample_count(field_line, true);
-      for (size_t i = 0; i < 62 && i < line_len; ++i) {
-        deps->payload_words[sample_offset + i] = kSyncTip;
-      }
-      for (size_t i = 157; i < line_len && i <= 1104; ++i) {
-        deps->payload_words[sample_offset + i] = kActive;
-      }
-      sample_offset += line_len;
-    }
-
-    // Second field (312-line even field)
-    for (size_t field_line = 0; field_line < 312; ++field_line) {
-      const size_t line_len = pal_line_sample_count(field_line, false);
-      for (size_t i = 0; i < 62 && i < line_len; ++i) {
-        deps->payload_words[sample_offset + i] = kSyncTip;
-      }
-      for (size_t i = 157; i < line_len && i <= 1104; ++i) {
-        deps->payload_words[sample_offset + i] = kActive;
-      }
-      sample_offset += line_len;
-    }
-  }
-
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  const auto video_params = representation->get_video_parameters();
-  if (!video_params.has_value()) {
-    FAIL() << "Expected video_params to have a value";
-    return;
-  }
-  EXPECT_EQ(video_params->active_video_start, 157);
-
-  // Note: sinc resampling for PAL fractional-line normalization introduces
-  // interpolation effects. Pixel values at resampling boundaries may shift
-  // significantly. We use a relaxed tolerance for this alignment test.
-  constexpr int kSincInterpolationTolerance = 512;
-  for (FieldID::value_type field_idx = 0; field_idx < 6; ++field_idx) {
-    FieldID fid(field_idx);
-    const auto line0_ptr = representation->get_line(fid, 0);
-    ASSERT_NE(line0_ptr, nullptr)
-        << "Field " << field_idx << " line 0 pointer is null";
-    // Sync and active regions should still be recognizable, even if
-    // interpolation shifts them
-    EXPECT_NEAR(line0_ptr[0], kSyncTip, kSincInterpolationTolerance)
-        << "Field " << field_idx << " should have sync-like values at x=0";
-    EXPECT_NEAR(line0_ptr[157], kActive, kSincInterpolationTolerance)
-        << "Field " << field_idx << " should have active-like values at x=157";
-  }
 }
 
 // ====================

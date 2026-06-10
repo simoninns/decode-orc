@@ -14,9 +14,7 @@
 #include <fstream>
 #include <stdexcept>
 
-#include "../../plugins/stages/burst_level_analysis_sink/burst_level_analysis_sink_stage.h"
-#include "../../plugins/stages/dropout_analysis_sink/dropout_analysis_sink_stage.h"
-#include "../../plugins/stages/snr_analysis_sink/snr_analysis_sink_stage.h"
+#include "analysis_sink_results.h"
 #include "../core/include/dag_executor.h"
 #include "../core/include/dag_field_renderer.h"
 #include "../core/include/logging.h"
@@ -331,7 +329,7 @@ bool RenderPresenter::requestDropoutData(
   }
 
   auto* sink =
-      dynamic_cast<orc::DropoutAnalysisSinkStage*>(target_node->stage.get());
+      dynamic_cast<orc::IDropoutAnalysisResults*>(target_node->stage.get());
   if (!sink) {
     if (callback) {
       callback(request_id, false, "Node is not a DropoutAnalysisSinkStage");
@@ -373,7 +371,7 @@ bool RenderPresenter::requestSNRData(
   }
 
   auto* sink =
-      dynamic_cast<orc::SNRAnalysisSinkStage*>(target_node->stage.get());
+      dynamic_cast<orc::ISNRAnalysisResults*>(target_node->stage.get());
   if (!sink) {
     if (callback) {
       callback(request_id, false, "Node is not a SNRAnalysisSinkStage");
@@ -414,7 +412,7 @@ bool RenderPresenter::requestBurstLevelData(
   }
 
   auto* sink =
-      dynamic_cast<orc::BurstLevelAnalysisSinkStage*>(target_node->stage.get());
+      dynamic_cast<orc::IBurstLevelAnalysisResults*>(target_node->stage.get());
   if (!sink) {
     if (callback) {
       callback(request_id, false, "Node is not a BurstLevelAnalysisSinkStage");
@@ -1022,9 +1020,8 @@ bool RenderPresenter::getDropoutAnalysisData(NodeID node_id,
     return false;
   }
 
-  // Cast to DropoutAnalysisSinkStage
   auto* sink =
-      dynamic_cast<orc::DropoutAnalysisSinkStage*>(target_node->stage.get());
+      dynamic_cast<orc::IDropoutAnalysisResults*>(target_node->stage.get());
   if (!sink || !sink->has_results()) {
     return false;
   }
@@ -1061,9 +1058,8 @@ bool RenderPresenter::getSNRAnalysisData(NodeID node_id,
     return false;
   }
 
-  // Cast to SNRAnalysisSinkStage
   auto* sink =
-      dynamic_cast<orc::SNRAnalysisSinkStage*>(target_node->stage.get());
+      dynamic_cast<orc::ISNRAnalysisResults*>(target_node->stage.get());
   if (!sink || !sink->has_results()) {
     return false;
   }
@@ -1097,9 +1093,8 @@ bool RenderPresenter::getBurstLevelAnalysisData(NodeID node_id,
     return false;
   }
 
-  // Cast to BurstLevelAnalysisSinkStage
   auto* sink =
-      dynamic_cast<orc::BurstLevelAnalysisSinkStage*>(target_node->stage.get());
+      dynamic_cast<orc::IBurstLevelAnalysisResults*>(target_node->stage.get());
   if (!sink || !sink->has_results()) {
     return false;
   }

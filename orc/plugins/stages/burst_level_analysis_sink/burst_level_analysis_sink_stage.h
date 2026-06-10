@@ -24,6 +24,7 @@
 #include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
+#include "analysis_sink_results.h"
 #include "burst_level_analysis_sink_deps_interface.h"
 #include "burst_level_analysis_types.h"
 #include "stage_parameter.h"
@@ -42,7 +43,8 @@ class BurstLevelAnalysisSinkStage : public DAGStage,
                                     public ParameterizedStage,
                                     public TriggerableStage,
                                     public StageToolProvider,
-                                    public PreviewableStage {
+                                    public PreviewableStage,
+                                    public IBurstLevelAnalysisResults {
  public:
   BurstLevelAnalysisSinkStage();
   ~BurstLevelAnalysisSinkStage() override = default;
@@ -91,12 +93,12 @@ class BurstLevelAnalysisSinkStage : public DAGStage,
   PreviewImage render_preview(const std::string& option_id, uint64_t index,
                               PreviewNavigationHint hint) const override;
 
-  // Result accessors
-  const std::vector<FrameBurstLevelStats>& frame_stats() const {
+  // IBurstLevelAnalysisResults interface
+  const std::vector<FrameBurstLevelStats>& frame_stats() const override {
     return frame_stats_;
   }
-  int32_t total_frames() const { return total_frames_; }
-  bool has_results() const { return has_results_; }
+  int32_t total_frames() const override { return total_frames_; }
+  bool has_results() const override { return has_results_; }
 
   std::vector<StageToolDescriptor> get_stage_tools() const override {
     return {StageToolDescriptor{

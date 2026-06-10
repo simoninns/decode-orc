@@ -43,13 +43,11 @@ struct CVBSGeometry {
   double fsc = 0.0;
   int32_t active_samples = -1;
   int32_t active_video_start = -1;
-  int32_t sync_tip_ire_16b = -1;
   int32_t blanking_ire_16b = -1;
   int32_t black_ire_16b = -1;
   int32_t white_ire_16b = -1;
   int32_t colour_burst_start = -1;
   int32_t colour_burst_end = -1;
-  size_t fallback_sync_start_sample = 0;
   int32_t first_active_field_line = -1;
   int32_t last_active_field_line = -1;
   int32_t first_active_frame_line = -1;
@@ -94,13 +92,11 @@ CVBSGeometry geometry_for_standard(const std::string& video_standard) {
         fsc,
         948,
         157,
-        4 * kInternalSampleScale,
         256 * kInternalSampleScale,
         282 * kInternalSampleScale,
         844 * kInternalSampleScale,
         93,
         137,
-        978,
         22,
         310,
         44,
@@ -118,13 +114,11 @@ CVBSGeometry geometry_for_standard(const std::string& video_standard) {
       fsc,
       768,
       126,
-      16 * kInternalSampleScale,
       240 * kInternalSampleScale,
       252 * kInternalSampleScale,
       800 * kInternalSampleScale,
       74,
       110,
-      784,
       20,
       259,
       40,
@@ -150,294 +144,6 @@ std::string derive_metadata_sidecar_path(const std::string& input_path) {
   fs::path meta_path = source_path;
   meta_path.replace_extension(".meta");
   return meta_path.string();
-}
-
-std::optional<size_t> detect_sync_start_sample(const uint16_t* line_data,
-                                               size_t line_length,
-                                               int32_t blanking_ire_16b,
-                                               int32_t sync_tip_ire_16b) {
-  if (line_data == nullptr || line_length < 4) {
-    return std::nullopt;
-  }
-
-  const int32_t threshold =
-      sync_tip_ire_16b + ((blanking_ire_16b - sync_tip_ire_16b) / 2);
-  constexpr size_t kMinimumSyncRun = 16;
-  const size_t search_begin = 0;
-  const size_t search_end = line_length;
-
-  for (size_t sample = search_begin; sample < search_end; ++sample) {
-    const int32_t current = static_cast<int32_t>(line_data[sample]);
-    const size_t next_index = (sample + 1) % line_length;
-    const int32_t next = static_cast<int32_t>(line_data[next_index]);
-    if (current > threshold && next <= threshold) {
-      size_t low_run = 0;
-      for (size_t offset = 0; offset < line_length; ++offset) {
-        const size_t probe_index = (next_index + offset) % line_length;
-        if (static_cast<int32_t>(line_data[probe_index]) <= threshold) {
-          ++low_run;
-        } else {
-          break;
-        }
-      }
-
-      if (low_run >= kMinimumSyncRun) {
-        return next_index;
-      }
-    }
-  }
-
-  return std::nullopt;
-}
-
-size_t detect_global_sync_start_sample(
-    const std::vector<uint16_t>& normalized_words, const CVBSGeometry& geometry,
-    size_t full_frame_count) {
-  const size_t frame_samples =
-      geometry.samples_per_line *
-      (geometry.first_field_lines + geometry.second_field_lines);
-  std::vector<size_t> detections;
-  detections.reserve(
-      std::min(full_frame_count, static_cast<size_t>(8)) *
-      (geometry.first_field_lines + geometry.second_field_lines));
-
-  const size_t probe_frame_count =
-      std::min(full_frame_count, static_cast<size_t>(8));
-
-  for (size_t frame_index = 0; frame_index < probe_frame_count; ++frame_index) {
-    const size_t frame_offset = frame_index * frame_samples;
-    const size_t lines_in_frame =
-        geometry.first_field_lines + geometry.second_field_lines;
-
-    for (size_t line_index = 0; line_index < lines_in_frame; ++line_index) {
-      const size_t line_offset =
-          frame_offset + (line_index * geometry.samples_per_line);
-      const uint16_t* line_ptr = normalized_words.data() + line_offset;
-      const auto detected = detect_sync_start_sample(
-          line_ptr, geometry.samples_per_line, geometry.blanking_ire_16b,
-          geometry.sync_tip_ire_16b);
-      if (detected.has_value()) {
-        detections.push_back(*detected);
-      }
-    }
-  }
-
-  if (detections.empty()) {
-    return geometry.fallback_sync_start_sample;
-  }
-
-  std::sort(detections.begin(), detections.end());
-  return detections[detections.size() / 2];
-}
-
-// Rotate uniform-length lines to sync start (used for NTSC and standard PAL
-// processing).
-void rotate_field_lines_to_sync_start(std::vector<uint16_t>& field_samples,
-                                      size_t line_length,
-                                      int32_t blanking_ire_16b,
-                                      int32_t sync_tip_ire_16b) {
-  if (line_length == 0) {
-    return;
-  }
-
-  const size_t line_count = field_samples.size() / line_length;
-
-  for (size_t line_index = 0; line_index < line_count; ++line_index) {
-    const size_t offset = line_index * line_length;
-    uint16_t* line_ptr = field_samples.data() + offset;
-
-    const auto detected_sync = detect_sync_start_sample(
-        line_ptr, line_length, blanking_ire_16b, sync_tip_ire_16b);
-
-    if (detected_sync.has_value()) {
-      const size_t shift = *detected_sync % line_length;
-      if (shift > 0) {
-        auto line_begin =
-            field_samples.begin() + static_cast<std::ptrdiff_t>(offset);
-        std::rotate(line_begin, line_begin + static_cast<std::ptrdiff_t>(shift),
-                    line_begin + static_cast<std::ptrdiff_t>(line_length));
-      }
-    }
-  }
-}
-
-std::optional<size_t> detect_field_median_sync_start_sample(
-    const std::vector<uint16_t>& field_samples, size_t line_length,
-    int32_t blanking_ire_16b, int32_t sync_tip_ire_16b) {
-  if (line_length == 0) {
-    return std::nullopt;
-  }
-
-  const size_t line_count = field_samples.size() / line_length;
-  if (line_count == 0) {
-    return std::nullopt;
-  }
-
-  std::vector<size_t> detections;
-  detections.reserve(line_count);
-
-  for (size_t line_index = 0; line_index < line_count; ++line_index) {
-    const size_t offset = line_index * line_length;
-    const uint16_t* line_ptr = field_samples.data() + offset;
-    const auto detected_sync = detect_sync_start_sample(
-        line_ptr, line_length, blanking_ire_16b, sync_tip_ire_16b);
-
-    if (detected_sync.has_value()) {
-      detections.push_back(*detected_sync);
-    }
-  }
-
-  if (detections.empty()) {
-    return std::nullopt;
-  }
-
-  std::sort(detections.begin(), detections.end());
-  return detections[detections.size() / 2];
-}
-
-std::optional<size_t> detect_shared_frame_sync_start_sample(
-    const std::vector<uint16_t>& first_field_samples,
-    const std::vector<uint16_t>& second_field_samples, size_t line_length,
-    int32_t blanking_ire_16b, int32_t sync_tip_ire_16b) {
-  if (line_length == 0) {
-    return std::nullopt;
-  }
-
-  std::vector<size_t> detections;
-  detections.reserve(
-      (first_field_samples.size() + second_field_samples.size()) / line_length);
-
-  const auto append_detections =
-      [&](const std::vector<uint16_t>& field_samples) {
-        const size_t line_count = field_samples.size() / line_length;
-        for (size_t line_index = 0; line_index < line_count; ++line_index) {
-          const size_t offset = line_index * line_length;
-          const uint16_t* line_ptr = field_samples.data() + offset;
-          const auto detected_sync = detect_sync_start_sample(
-              line_ptr, line_length, blanking_ire_16b, sync_tip_ire_16b);
-          if (detected_sync.has_value()) {
-            detections.push_back(*detected_sync);
-          }
-        }
-      };
-
-  append_detections(first_field_samples);
-  append_detections(second_field_samples);
-
-  if (detections.empty()) {
-    return std::nullopt;
-  }
-
-  std::sort(detections.begin(), detections.end());
-  return detections[detections.size() / 2];
-}
-
-std::optional<size_t> detect_pal_field_median_sync_start_sample_variable(
-    const std::vector<uint16_t>& field_samples, bool is_odd_field,
-    int32_t blanking_ire_16b, int32_t sync_tip_ire_16b) {
-  std::vector<size_t> detections;
-  detections.reserve(is_odd_field ? 313u : 312u);
-
-  size_t sample_offset = 0;
-  const size_t max_field_lines = is_odd_field ? 313u : 312u;
-  for (size_t field_line_index = 0; field_line_index < max_field_lines;
-       ++field_line_index) {
-    const size_t actual_line_length =
-        pal_line_sample_count(field_line_index, is_odd_field);
-    if (sample_offset + actual_line_length > field_samples.size()) {
-      break;
-    }
-
-    const uint16_t* line_ptr = field_samples.data() + sample_offset;
-    const auto detected_sync = detect_sync_start_sample(
-        line_ptr, actual_line_length, blanking_ire_16b, sync_tip_ire_16b);
-    if (detected_sync.has_value()) {
-      detections.push_back(*detected_sync);
-    }
-
-    sample_offset += actual_line_length;
-  }
-
-  if (detections.empty()) {
-    return std::nullopt;
-  }
-
-  std::sort(detections.begin(), detections.end());
-  return detections[detections.size() / 2];
-}
-
-std::optional<size_t> detect_shared_pal_frame_sync_start_sample_variable(
-    const std::vector<uint16_t>& odd_field_samples,
-    const std::vector<uint16_t>& even_field_samples, int32_t blanking_ire_16b,
-    int32_t sync_tip_ire_16b) {
-  std::vector<size_t> detections;
-
-  const auto odd_sync = detect_pal_field_median_sync_start_sample_variable(
-      odd_field_samples, true, blanking_ire_16b, sync_tip_ire_16b);
-  if (odd_sync.has_value()) {
-    detections.push_back(*odd_sync);
-  }
-
-  const auto even_sync = detect_pal_field_median_sync_start_sample_variable(
-      even_field_samples, false, blanking_ire_16b, sync_tip_ire_16b);
-  if (even_sync.has_value()) {
-    detections.push_back(*even_sync);
-  }
-
-  if (detections.empty()) {
-    return std::nullopt;
-  }
-
-  std::sort(detections.begin(), detections.end());
-  return detections[detections.size() / 2];
-}
-
-void rotate_field_lines_by_fixed_shift(std::vector<uint16_t>& field_samples,
-                                       size_t line_length, size_t shift) {
-  if (line_length == 0) {
-    return;
-  }
-
-  const size_t normalized_shift = shift % line_length;
-  if (normalized_shift == 0) {
-    return;
-  }
-
-  const size_t line_count = field_samples.size() / line_length;
-  for (size_t line_index = 0; line_index < line_count; ++line_index) {
-    const size_t offset = line_index * line_length;
-    auto line_begin =
-        field_samples.begin() + static_cast<std::ptrdiff_t>(offset);
-    std::rotate(line_begin,
-                line_begin + static_cast<std::ptrdiff_t>(normalized_shift),
-                line_begin + static_cast<std::ptrdiff_t>(line_length));
-  }
-}
-
-void rotate_pal_field_lines_by_fixed_shift(std::vector<uint16_t>& field_samples,
-                                           bool is_odd_field, size_t shift) {
-  size_t sample_offset = 0;
-  const size_t max_field_lines = is_odd_field ? 313u : 312u;
-
-  for (size_t field_line_index = 0; field_line_index < max_field_lines;
-       ++field_line_index) {
-    const size_t actual_line_length =
-        pal_line_sample_count(field_line_index, is_odd_field);
-    if (sample_offset + actual_line_length > field_samples.size()) {
-      break;
-    }
-
-    const size_t normalized_shift = shift % actual_line_length;
-    if (normalized_shift > 0) {
-      auto line_begin =
-          field_samples.begin() + static_cast<std::ptrdiff_t>(sample_offset);
-      std::rotate(line_begin,
-                  line_begin + static_cast<std::ptrdiff_t>(normalized_shift),
-                  line_begin + static_cast<std::ptrdiff_t>(actual_line_length));
-    }
-
-    sample_offset += actual_line_length;
-  }
 }
 
 std::vector<uint16_t> resample_sequence_sinc_soxr(
@@ -501,45 +207,6 @@ std::vector<uint16_t> resample_sequence_sinc_soxr(
   }
 
   return output;
-}
-
-// Rotate PAL field lines accounting for variable line lengths (fractional 4fsc
-// lines). Each line gets rotated independently based on its actual sample count
-// (1135 or 1136).
-void rotate_pal_field_lines_to_sync_start(std::vector<uint16_t>& field_samples,
-                                          bool is_odd_field,
-                                          int32_t blanking_ire_16b,
-                                          int32_t sync_tip_ire_16b) {
-  size_t sample_offset = 0;
-  const size_t max_field_lines = is_odd_field ? 313 : 312;
-
-  for (size_t field_line_index = 0; field_line_index < max_field_lines;
-       ++field_line_index) {
-    const size_t actual_line_length =
-        pal_line_sample_count(field_line_index, is_odd_field);
-
-    if (sample_offset + actual_line_length > field_samples.size()) {
-      break;  // Incomplete line at end of field
-    }
-
-    uint16_t* line_ptr = field_samples.data() + sample_offset;
-
-    const auto detected_sync = detect_sync_start_sample(
-        line_ptr, actual_line_length, blanking_ire_16b, sync_tip_ire_16b);
-
-    if (detected_sync.has_value()) {
-      const size_t shift = *detected_sync % actual_line_length;
-      if (shift > 0) {
-        auto line_begin =
-            field_samples.begin() + static_cast<std::ptrdiff_t>(sample_offset);
-        std::rotate(
-            line_begin, line_begin + static_cast<std::ptrdiff_t>(shift),
-            line_begin + static_cast<std::ptrdiff_t>(actual_line_length));
-      }
-    }
-
-    sample_offset += actual_line_length;
-  }
 }
 
 int32_t normalize_sample_to_internal_domain(uint16_t raw_word,
@@ -756,18 +423,6 @@ class CVBSDecodedFieldRepresentation final : public VideoFieldRepresentation {
               static_cast<std::ptrdiff_t>(first_field_samples_ +
                                           second_field_samples_));
 
-      auto& odd_field = first_field;
-      auto& even_field = second_field;
-
-      const auto shared_sync =
-          detect_shared_pal_frame_sync_start_sample_variable(
-              odd_field, even_field, geometry_.blanking_ire_16b,
-              geometry_.sync_tip_ire_16b);
-      if (shared_sync.has_value()) {
-        rotate_pal_field_lines_by_fixed_shift(even_field, false, *shared_sync);
-        rotate_pal_field_lines_by_fixed_shift(odd_field, true, *shared_sync);
-      }
-
       std::vector<uint16_t> frame_samples_aligned;
       frame_samples_aligned.reserve(first_field.size() + second_field.size());
       frame_samples_aligned.insert(frame_samples_aligned.end(),
@@ -796,9 +451,6 @@ class CVBSDecodedFieldRepresentation final : public VideoFieldRepresentation {
           normalized_words.begin(),
           normalized_words.begin() +
               static_cast<std::ptrdiff_t>(first_field_samples_));
-      rotate_field_lines_to_sync_start(
-          result.first_field, geometry_.samples_per_line,
-          geometry_.blanking_ire_16b, geometry_.sync_tip_ire_16b);
 
       result.second_field.assign(
           normalized_words.begin() +
@@ -806,9 +458,6 @@ class CVBSDecodedFieldRepresentation final : public VideoFieldRepresentation {
           normalized_words.begin() +
               static_cast<std::ptrdiff_t>(first_field_samples_ +
                                           second_field_samples_));
-      rotate_field_lines_to_sync_start(
-          result.second_field, geometry_.samples_per_line,
-          geometry_.blanking_ire_16b, geometry_.sync_tip_ire_16b);
     }
 
     return result;
@@ -1169,8 +818,8 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
         geometry.samples_per_line * geometry.second_field_lines;
   }
 
-  ORC_LOG_DEBUG("{}: Horizontal sync alignment per-line (active {}..{})",
-                identity_.stage_name, active_video_start, active_video_end);
+  ORC_LOG_DEBUG("{}: Active video region {}..{}", identity_.stage_name,
+                active_video_start, active_video_end);
 
   if (trailing_samples > 0) {
     ORC_LOG_WARN(

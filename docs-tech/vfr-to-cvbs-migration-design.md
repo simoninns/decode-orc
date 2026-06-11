@@ -35,8 +35,8 @@ This is a breaking change affecting every module of Decode-Orc. The high-level a
 | `orc/core/tbc_source_internal/` | TBC VFR implementations replaced with CVBS VFrameR converters |
 | `orc/view-types/orc_source_parameters.h` | `SourceParameters` updated to frame-based geometry and spec-defined levels |
 | `orc/plugins/stages/cvbs_source/` | Updated to emit VFrameR; adds dropout sidecar loading |
-| `orc/plugins/stages/pal_comp_source/`, `pal_yc_source/` | TBC → CVBS_U10_4FSC frame conversion |
-| `orc/plugins/stages/ntsc_comp_source/`, `ntsc_yc_source/` | TBC → CVBS_U10_4FSC frame conversion |
+| `orc/plugins/stages/pal_tbc_comp_source/`, `pal_tbc_yc_source/` | TBC → CVBS_U10_4FSC frame conversion |
+| `orc/plugins/stages/ntsc_tbc_comp_source/`, `ntsc_tbc_yc_source/` | TBC → CVBS_U10_4FSC frame conversion |
 | `orc/plugins/stages/ld_sink/` | CVBS_U10_4FSC → TBC inverse conversion |
 | `orc/plugins/stages/sinks/common/` | Chroma decoder updated for CVBS domain |
 | All other transform and sink stages | VFrameR wrapper pattern |
@@ -85,7 +85,10 @@ All internal sample data uses `CVBS_U10_4FSC` as defined in [sample-encoding-pre
 - **Domain:** the unsigned 10-bit value (0–1023) maps directly to the int16 range (0–1023). Value 0 = int16 0; value 1023 = int16 1023.
 - **Negative headroom:** values below 0 (down to −32768) are valid and represent signal content below sync tip — for example PAL pilot bursts, chroma excursions.
 - **Positive headroom:** values above 1023 (up to 32767) are valid and represent signal content above the peak level — for example 100% yellow or super-white.
-- **Protected values:** 10-bit values 0–3 and 1020–1023 must never appear in conformant output from sources that claim `STANDARD_TBC_LOCKED`. Consuming code must tolerate them without crashing.
+- **`has_nonstandard_values` flag** (from `SourceParameters`, read from CVBS metadata): governs whether headroom and protected values may be present:
+  - `has_nonstandard_values = false`: the source is strictly conformant. All sample values lie within [4, 1019] — protected values (0–3 and 1020–1023) are absent and headroom values (negative or above 1023) do not occur.
+  - `has_nonstandard_values = true`: the source still uses the standard signal levels (sync tip, blanking, black, white, peak) for the declared video format, but sample values may extend outside [0, 1023] (sub-sync or super-peak content) and protected values (0–3 and 1020–1023) may also appear.
+  Consuming code must tolerate protected values and out-of-range samples without crashing regardless of this flag.
 
 This is a breaking change from the current `uint16_t` TBC sample domain.
 
@@ -174,10 +177,11 @@ These constants must be placed in a single shared header (e.g., `orc/core/includ
 
 ### 3.5 Headroom Implications for All Display and Analysis Tools
 
-The `CVBS_U10_4FSC` signed container permits values outside [0, 1023]. Every display tool, every analysis tool, and every chroma decoder must:
+The `CVBS_U10_4FSC` signed container permits values outside [4, 1019] when `has_nonstandard_values = true`. Every display tool, every analysis tool, and every chroma decoder must:
 - Accept and correctly process headroom values without clamping or treating them as errors.
 - Use the normative levels from §3.2 as the calibration reference for all display mappings.
 - Display PAL pilot burst content (negative values, below sync tip) and chroma excursions above peak faithfully.
+- **Auto-scale their display range**: the default scale must be set to the range expected by the video format (sync tip to peak, per §3.2), but when samples outside that range are present the display must expand its scale to include them. This prevents the standard signal range from appearing as a small portion of an unnecessarily large fixed axis. The normative level markers (§3.2) remain visible at their correct positions regardless of the current scale.
 
 ---
 
@@ -209,7 +213,7 @@ struct FrameIDRange { FrameID first; FrameID last; };
 
 ### 4.3 FrameDescriptor
 
-Replaces `FieldDescriptor`. Frame-level metadata. Field ordering and colour sequence position are frame properties:
+Replaces `FieldDescriptor`. Frame-level metadata. Field ordering is always field 1 first (enforced by source stages); colour sequence position is a frame property:
 
 ```cpp
 struct FrameDescriptor {
@@ -219,21 +223,23 @@ struct FrameDescriptor {
   size_t samples_total;                  // Exact samples in frame (709379 / 477750 / 477225)
   size_t samples_per_line_nominal;       // 1135 / 910 / 909
 
-  // Field ordering within this frame
-  bool field1_is_first_in_file;          // Layout: true = [field1][field2], CVBS convention
-
   // Colour frame sequence position; -1 if unknown
   // PAL/PAL_M: 1–4 per EBU 3280-E §1.1.1 / BT.1700 Annex 1
   // NTSC: 0 (frame A) or 1 (frame B) per SMPTE 244M-2003 §3.2
   int colour_frame_index;
 
-  // Optional VBI-derived metadata
+  // Optional frame addressing metadata (may be derived from VBI, CLV metadata, or other sources)
   std::optional<int32_t> frame_number;
   std::optional<uint32_t> timecode;
 
   // NTSC-J black level override: populated when black_level != 252
   // Value is in CVBS_U10_4FSC 10-bit domain
   std::optional<int32_t> black_level_override;
+
+  // Set true for synthetic padding frames inserted by FrameMapStage to fill gaps.
+  // Downstream stages must check this flag and skip signal processing on padding frames —
+  // their sample data is not real signal content.
+  bool is_padding_frame = false;
 };
 ```
 
@@ -339,7 +345,7 @@ The hint semantics are unchanged: hints describe the **output** of a stage, not 
 
 ### 4.6 Frame-Native Stage Design
 
-All transform stages must be refactored to reason natively at the frame level. Providing field-extraction utility functions would preserve field-centric thinking in a frame-based system — the opposite of the design goal.
+All stages (source, transform, and sink) must be designed to reason natively at the frame level. Providing field-extraction utility functions would preserve field-centric thinking in a frame-based system — the opposite of the design goal.
 
 The VFrameR `get_line(FrameID, line)` method provides direct access to any frame line by its 0-based index. The CVBS frame layout is `[field 1 lines][field 2 lines]` sequentially, so any stage that needs to distinguish the two fields does so by addressing the correct line range directly:
 
@@ -369,7 +375,7 @@ The chroma decoder (`SourceField`, `ChromaSinkStage`) is addressed separately in
 **Removed fields:**
 - `field_width`, `field_height` — replaced by frame geometry
 - `number_of_sequential_fields` — replaced by `number_of_sequential_frames`
-- `is_first_field_first` — replaced by per-frame `FrameDescriptor.field1_is_first_in_file`
+- `is_first_field_first` — removed; TBC source stages are responsible for ensuring correct field ordering during frame assembly, so all frames entering the pipeline always have field 1 first. CVBS sources are already correct by definition of the CVBS file format. No per-frame ordering flag is needed.
 - `blanking_16b_ire`, `black_16b_ire`, `white_16b_ire` — replaced by normative 10-bit levels
 
 **Added fields:**
@@ -392,7 +398,7 @@ The chroma decoder (`SourceField`, `ChromaSinkStage`) is addressed separately in
 | Stage role | Levels (`black_level`, `white_level`) | Geometry (`active_video_*`, `first/last_active_frame_line`) |
 |---|---|---|
 | Signal processing (chroma decoder internals, burst analysis, SNR, vectorscope) | `cvbs_signal_constants.h` — always spec, never overridden | `cvbs_signal_constants.h` — always spec |
-| Output and presentation (FFmpeg sink, raw sink, HackDAC, preview renderer) | `SourceParameters` — respects user overrides | `SourceParameters` — respects user overrides |
+| Output and presentation (FFmpeg sink, raw sink, CVBS sink, preview renderer) | `SourceParameters` — respects user overrides | `SourceParameters` — respects user overrides |
 | Chroma decoder output luma scaling | `SourceParameters` — user override controls the decoded result | `SourceParameters` — user override controls decode window |
 
 The practical implication: if a user sets a `black_level` override, the FFmpeg output backend scales luma to that level, but the SNR observer still measures against the spec-defined black level. These are correct independent behaviours — the user changed the presentation, not the signal.
@@ -439,15 +445,15 @@ where:
 | `cvbs_source` (NTSC composite) | `NTSC CVBS Composite` | §5.1 |
 | `cvbs_source` (NTSC YC) | `NTSC CVBS YC` | §5.1 |
 | `cvbs_source` (PAL-M composite) | `PAL-M CVBS Composite` | §5.1 |
-| `pal_comp_source` | `PAL TBC Composite` | §5.2 |
-| `pal_yc_source` | `PAL TBC YC` | §5.2 |
-| `ntsc_comp_source` | `NTSC TBC Composite` | §5.3 |
-| `ntsc_yc_source` | `NTSC TBC YC` | §5.3 |
-| `pal_m_comp_source` | `PAL-M TBC Composite` | §5.4 |
+| `tbc_source` (PAL composite) | `PAL TBC Composite` | §5.2 |
+| `tbc_source` (PAL YC) | `PAL TBC YC` | §5.2 |
+| `tbc_source` (NTSC composite) | `NTSC TBC Composite` | §5.3 |
+| `tbc_source` (NTSC YC) | `NTSC TBC YC` | §5.3 |
+| `tbc_source` (PAL-M composite) | `PAL-M TBC Composite` | §5.4 |
 
 **CVBS source naming**: the `cvbs_source` plugin uses a single plugin identifier for all CVBS input formats. The display name is resolved at load time from the `.meta` file: the `video_standard_preset` field determines `PAL` / `NTSC` / `PAL-M`, and the presence of a `.y`/`.c` file pair vs. a `.composite` file determines `YC` vs. `Composite`. The resolved display name is set on the stage instance and shown in the pipeline view and project YAML stage label.
 
-**TBC source naming**: the TBC source plugins have a fixed display name baked into the plugin descriptor because each plugin handles only one video system and signal type combination.
+**TBC source naming**: the `tbc_source` plugin uses a single plugin identifier for all TBC input formats, following the same pattern as `cvbs_source`. The display name is resolved at load time from the `.tbc.json.db` metadata: the video system field determines `PAL` / `NTSC` / `PAL-M`, and the presence of a `.tbc`/`.chroma.tbc` file pair vs. a single `.tbc` file determines `YC` vs. `Composite`. Internally, the plugin dispatches to format-specific conversion classes (PAL, NTSC, PAL-M) to handle the differing frame assembly and level-mapping logic, but this is an implementation detail hidden behind the unified plugin ID. The existing separate plugin identifiers (`pal_tbc_comp_source`, `pal_tbc_yc_source`, `ntsc_tbc_comp_source`, `ntsc_tbc_yc_source`, `pal_m_tbc_comp_source`) are retired.
 
 **Project type enforcement**: a project's `video_format` (PAL / NTSC / PAL-M) and `source_type` (Composite / YC) together define its type. Only source stages whose video system **and** signal type both match the project may be added. Composite and YC source stages may not coexist in the same project, just as PAL and NTSC sources may not. The full enforcement contract — covering project creation, stage addition, project load validation, and runtime assertion — is specified in §12.3.
 
@@ -468,23 +474,25 @@ The CVBS source already decodes frame-at-a-time and currently exposes fields by 
 
 2. **Signal state enforcement**: the CVBS source must read `signal_state_preset` from the `.meta` file and **reject** the file with a hard error if the value is not `STANDARD_TBC_LOCKED`. No partial-open, no display-only fallback. The user must supply a properly processed CVBS file. This is a non-negotiable precondition for all downstream code.
 
-3. **Sample encoding normalisation**: the source accepts any of the four defined CVBS sample encodings and translates them to `CVBS_U10_4FSC` before exposing samples through VFrameR. The `signal_state_preset` check (item 2) is performed first; normalisation only happens for accepted files.
+3. **No resampling**: the current CVBS source resamples the 4FSC signal to match the TBC format before exposing it. This step is entirely removed. The internal representation is now native 4FSC (`CVBS_U10_4FSC`); CVBS files are already at 4FSC and require no spatial resampling of any kind.
+
+4. **Sample encoding normalisation**: the source accepts any of the four defined CVBS sample encodings and translates them to `CVBS_U10_4FSC` before exposing samples through VFrameR. The `signal_state_preset` check (item 2) is performed first; normalisation only happens for accepted files.
    - `CVBS_U10_4FSC`: identity (file already stores int16 in the 10-bit domain)
    - `CVBS_U16_4FSC`: `value_10bit = uint16_value / 64`
    - `CVBS_TPG21_4FSC`: `value_10bit = int16_value / 64 + 508`
    - `CVBS_S16_FSC`: `value_10bit = int16_value / 32 + blanking_10bit` where `blanking_10bit` is 256 (PAL) or 240 (NTSC/PAL_M)
    - `RAW_S16_28M`, `RAW_S16_40M`: these raw-capture encodings are inherently incompatible with `STANDARD_TBC_LOCKED` and will be caught by the signal state check above. No special handling required.
 
-4. **Dropout sidecar**: load dropout data from `<basename>.dropouts.meta` SQLite file per the [dropout extension format](cvbs-file-format-specification/docs/extensions/dropout-extension-format.md). Populate `DropoutRun` entries for `get_dropout_hints(FrameID)`.
+5. **Dropout sidecar**: load dropout data from `<basename>.dropouts.meta` SQLite file per the [dropout extension format](cvbs-file-format-specification/docs/extensions/dropout-extension-format.md). Populate `DropoutRun` entries for `get_dropout_hints(FrameID)`.
 
-5. **Audio**: load `<basename>_audio_00.wav` (WAV sidecar) if present and read `audio_locked` from the `cvbs_file` metadata table. Expose via `audio_locked()` and `has_audio()`:
+6. **Audio**: load `<basename>_audio_00.wav` (WAV sidecar) if present and read `audio_locked` from the `cvbs_file` metadata table. Expose via `audio_locked()` and `has_audio()`:
    - `audio_locked = TRUE`: `audio_locked()` returns `true`; per-frame access via `get_audio_samples(FrameID)` is valid. PAL: 1764 stereo samples/frame at 44100 Hz; NTSC/PAL_M: 1470 stereo samples/frame at 44100000/1001 Hz.
    - `audio_locked = FALSE`: `audio_locked()` returns `false`; `has_audio()` is `true` but `get_audio_samples(FrameID)` returns empty. The WAV stream is available for full-stream passthrough to audio sinks.
    - `audio_locked = NULL` or no WAV present: `has_audio()` returns `false`.
 
-6. **Video format presets supported**: `PAL`, `NTSC`, `PAL_M`. The existing `PALCVBSSourceStage` and `NTSCCVBSSourceStage` classes may be expanded to include `PALMCVBSSourceStage`, or the format may be read from metadata and dispatched at runtime.
+7. **Video format presets supported**: `PAL`, `NTSC`, `PAL_M`. The existing `PALCVBSSourceStage` and `NTSCCVBSSourceStage` classes may be expanded to include `PALMCVBSSourceStage`, or the format may be read from metadata and dispatched at runtime.
 
-7. **NTSC-J**: when the CVBS metadata `.meta` has a non-NULL `black_level` field and the video system is NTSC, populate `FrameDescriptor.black_level_override` with that value (in the 10-bit domain of the declared sample encoding preset, converted to `CVBS_U10_4FSC` domain at load time).
+8. **NTSC-J**: when the CVBS metadata `.meta` has a non-NULL `black_level` field and the video system is NTSC, populate `FrameDescriptor.black_level_override` with that value (in the 10-bit domain of the declared sample encoding preset, converted to `CVBS_U10_4FSC` domain at load time).
 
 ### 5.2 PAL TBC Source Stage
 
@@ -492,8 +500,8 @@ The CVBS source already decodes frame-at-a-time and currently exposes fields by 
 
 | File | Role |
 |------|------|
-| `orc/plugins/stages/pal_comp_source/pal_comp_source_stage.h` | PAL composite source |
-| `orc/plugins/stages/pal_yc_source/pal_yc_source_stage.h` | PAL YC source |
+| `orc/plugins/stages/pal_tbc_comp_source/pal_tbc_comp_source_stage.h` | PAL composite source |
+| `orc/plugins/stages/pal_tbc_yc_source/pal_tbc_yc_source_stage.h` | PAL YC source |
 | `orc/core/tbc_source_internal/tbc_video_field_representation.h` | Composite TBC VFR implementation |
 | `orc/core/tbc_source_internal/tbc_yc_video_field_representation.h` | YC TBC VFR implementation |
 | `orc/core/tbc_source_internal/tbc_audio_efm_handler.h` | Audio/EFM handler (44.1 kHz PCM) |
@@ -523,11 +531,11 @@ int16_t tbc_to_cvbs_pal(uint16_t tbc_sample,
 
 #### 5.2.3 PAL Frame Structure Assembly
 
-Converting two unpadded TBC PAL fields to a CVBS frame:
+Converting two unpadded TBC PAL fields to a CVBS_U10_4FSC frame. The correct mechanism for bridging the TBC and 4FSC sample counts is **sample insertion at the spec-defined positions** — not resampling. The native 4FSC sample grid is authoritative; the TBC format omits the non-orthogonal samples that 4FSC requires.
 
 1. **Input**: field 1 (312 lines × 1135 samples = 354,120 samples) + field 2 (313 lines × 1135 samples = 355,255 samples) = 709,375 samples total.
 2. **CVBS requirement**: 709,379 samples (EBU Tech. 3280-E normative).
-3. **Difference**: 4 extra samples must be inserted.
+3. **Difference**: 4 extra samples must be inserted at the spec-defined positions (see below) — no resampling of the signal is performed.
 4. **Insertion positions** (EBU Tech. 3280-E §1.3.1 non-orthogonal structure): the 4 extra samples are inserted at the end of the following 0-indexed field lines:
    - Field 1, line 155 → becomes 1136 samples
    - Field 1, line 311 → becomes 1136 samples
@@ -566,8 +574,8 @@ EFM t-values and AC3 RF symbols were previously associated per-field. The new as
 
 | File | Role |
 |------|------|
-| `orc/plugins/stages/ntsc_comp_source/ntsc_comp_source_stage.h` | NTSC composite source |
-| `orc/plugins/stages/ntsc_yc_source/ntsc_yc_source_stage.h` | NTSC YC source |
+| `orc/plugins/stages/ntsc_tbc_comp_source/ntsc_tbc_comp_source_stage.h` | NTSC composite source |
+| `orc/plugins/stages/ntsc_tbc_yc_source/ntsc_tbc_yc_source_stage.h` | NTSC YC source |
 
 Same internal TBC implementation as PAL. Different geometry constants.
 
@@ -744,7 +752,7 @@ The mV conversion factors must be derived from the signal levels, not hardcoded:
 
 7. **Headroom display**: the Y-axis must extend below 0 mV (to sync tip and below) and above 100 IRE (to peak and beyond). No arbitrary clamping of the display range.
 
-8. **Line numbering mode selector**: a drop-down or radio button group allowing the user to choose how the selected line is identified in the dialog. Four modes (see §14.14 for conversion formulae and rationale):
+8. **Line numbering mode selector**: a drop-down or radio button group allowing the user to choose how the selected line is identified in the dialog. Four modes (see §14.13 for conversion formulae and rationale):
 
    | Mode | Example (PAL line 313 internally) | Use case |
    |------|-----------------------------------|----------|
@@ -753,7 +761,7 @@ The mV conversion factors must be derived from the signal levels, not hardcoded:
    | Field-relative | `Field 1, Line 1` … `Field 2, Line 312` | Familiarity with legacy TBC field convention |
    | Broadcast interlaced | `Line 1` … `Line 625` (interlaced order) | VBI specification lookup (ITU-R BT.470-6 / SMPTE 170M-2004) |
 
-   The internal state (`frame_id`, `frame_line`) is always 0-based and does not change when the display mode is switched. Only the label shown to the user changes. The conversion logic belongs in a shared utility (see §14.14) used by the scope dialog, timing dialog, and preview hover display.
+   The internal state (`frame_id`, `frame_line`) is always 0-based and does not change when the display mode is switched. Only the label shown to the user changes. The conversion logic belongs in a shared utility (see §14.13) used by the scope dialog, timing dialog, and preview hover display.
 
 ### 7.3 Frame Timing Dialog (replaces Field Timing Dialog)
 
@@ -776,7 +784,7 @@ The mV conversion factors must be derived from the signal levels, not hardcoded:
 
 4. **NTSC sequence display**: Show 2-frame cycle position (A or B per SMPTE 244M-2003 §3.2).
 
-5. **Line numbering mode**: any line references shown in the timing dialog (e.g. cursor position, region boundaries) must use the same line numbering mode selected in `FrameScopeDialog`, or expose the same mode selector independently. The conversion utility described in §14.14 is shared between both dialogs and the preview hover display.
+5. **Line numbering mode**: any line references shown in the timing dialog (e.g. cursor position, region boundaries) must use the same line numbering mode selected in `FrameScopeDialog`, or expose the same mode selector independently. The conversion utility described in §14.13 is shared between both dialogs and the preview hover display.
 
 ### 7.4 Vectorscope
 
@@ -1123,6 +1131,7 @@ When a sequence break is detected in the upstream `colour_frame_index` values (a
   - `nearest`: repeat the last valid frame for each missing position.
   - `black`: insert a blank frame (all samples at blanking level) for each missing position.
 - Padding frames receive `colour_frame_index` values synthesised from the expected sequence progression, so downstream stages (stacker, 3D decoder) see a continuous colour frame sequence.
+- Padding frames have `FrameDescriptor.is_padding_frame = true`. Every downstream stage must check this flag before processing a frame's sample data. Stages that perform signal analysis or signal-dependent processing (chroma decoder, SNR, burst analysis, vectorscope, dropout correction) must skip padding frames entirely — their sample content is not real signal. Stages that produce output per frame (output sinks, preview) must handle padding frames gracefully (e.g. output a blank or repeated frame as appropriate).
 - Emit an observation recording gap positions and padding counts.
 
 **Parameters:**
@@ -1226,7 +1235,7 @@ These flags allow downstream stages to distinguish a source that conforms to spe
 | `OutputWriter` | All six parameters | Output frame dimensions; luma range scaling to 8-bit output |
 | FFmpeg output backend | All six parameters | Output frame width/height; interlacing (parity of `first_active_frame_line`); luma level scaling |
 | Raw output backend | Crop parameters | Output frame width/height |
-| HackDAC sink | `black_level`, `white_level` | Level scaling for DAC output |
+| CVBS sink | `black_level`, `white_level` | Level scaling for output |
 
 The `VideoParamsStage` approach — propagating overrides through `SourceParameters` hints — is the correct design because multiple unrelated output backends all depend on the same crop geometry and signal levels. Putting these as per-stage parameters on the chroma decoder would leave the output backends unaffected.
 
@@ -1235,6 +1244,15 @@ The `VideoParamsStage` approach — propagating overrides through `SourceParamet
 - It does not resample or scale samples. A level override changes only how downstream stages interpret the samples, not the sample values themselves.
 - It does not zero or blank samples outside the crop region. The full frame buffer remains accessible through the VFrameR; the crop is advisory metadata, not a data mask.
 - It does not re-measure burst phase or update `colour_frame_index`.
+
+#### 11.6.6 Observer Crop Independence
+
+The crop parameters in `SourceParameters` are advisory for **output and presentation** stages. Analysis and observer stages (biphase, CC, VBI, burst level, SNR, dropout) must make an explicit, documented decision about whether to respect the crop:
+
+- **Respect crop** (default for most analysis): the observer limits its work to the declared active region. This is appropriate when the analysis is only meaningful within the active picture area.
+- **Ignore crop** (required for line-data observers): observers that read data from specific line regions — biphase marks, closed captions, VBI content, VITC timecode — must always read from the full frame buffer using spec-defined line coordinates, regardless of the crop setting. Applying the crop to these observers would silently disable them whenever the user crops away the lines they operate on.
+
+The previous implementation had a bug where cropping the active area also cropped the observable range of all downstream stages, making it impossible to observe data in lines outside the crop window (for example, biphase data lines). This design explicitly prevents that: the full frame buffer is always accessible, and each observer independently decides whether the crop is relevant to its function. Observers that must ignore the crop must document this decision with a comment citing the reason.
 
 ---
 
@@ -1283,7 +1301,6 @@ Source stage names change:
 - `NTSC_Composite_Source` → `NTSC_CVBS_Source`
 - `PAL_YC_Source` → `PAL_CVBS_YC_Source`
 - `NTSC_YC_Source` → `NTSC_CVBS_YC_Source`
-- New: `CVBS_Source` (generic, reads preset from metadata)
 
 ### 12.3 Project Type Enforcement
 
@@ -1297,7 +1314,7 @@ A project has a fixed type defined by two fields that together fully characteris
 
 ```
 Project declares video_format 'PAL', source_type 'Composite' but stage
-'pal_yc_source' at node_id 'node_2' uses signal type 'YC'.
+'pal_tbc_yc_source' at node_id 'node_2' uses signal type 'YC'.
 The project file is invalid.
 ```
 
@@ -1397,17 +1414,13 @@ The analysis above has focussed on PAL. The NTSC chroma decoder chain (`comb.h`,
 
 ### 14.11 PAL/NTSC YC Source Stages
 
-`pal_yc_source` and `ntsc_yc_source` are not addressed explicitly in §5 — they are parallel to `pal_comp_source` and `ntsc_comp_source` respectively, and must undergo identical TBC → CVBS_U10_4FSC level mapping and frame assembly. The additional concern is Y/C colour frame alignment: the luma (`.y`) and chroma (`.c`) files must be paired on the same colour frame index throughout the source. Any phase mis-alignment between the two files at load time must be detected and reported as an error; silent mis-alignment would corrupt every decoded frame.
+`pal_tbc_yc_source` and `ntsc_tbc_yc_source` are not addressed explicitly in §5 — they are parallel to `pal_tbc_comp_source` and `ntsc_tbc_comp_source` respectively, and must undergo identical TBC → CVBS_U10_4FSC level mapping and frame assembly. The additional concern is Y/C colour frame alignment: the luma (`.y`) and chroma (`.c`) files must be paired on the same colour frame index throughout the source. Any phase mis-alignment between the two files at load time must be detected and reported as an error; silent mis-alignment would corrupt every decoded frame.
 
 ### 14.12 `source_align` Stage — Field Order Enforcement
 
 `source_align` currently enforces a "first field" ordering convention when synchronising multiple sources. In the frame-based model, both fields are always present in the frame; the concept of "enforcing first field" must be redefined. The stage must instead verify that `FrameDescriptor.field1_is_first_in_file` is consistent across all aligned sources and, if not, flag the misalignment. The VBI frame number extraction used for alignment (currently field-indexed) must be updated to frame-indexed access.
 
-### 14.13 `hackdac_sink` Output Domain
-
-The `hackdac_sink` currently outputs raw TBC samples as signed 16-bit without half-line padding. In v2.0, the internal domain is `CVBS_U10_4FSC` (signed 16-bit, 10-bit domain). Whether `hackdac_sink` should output the raw `CVBS_U10_4FSC` samples directly, or scale them to the full 16-bit range expected by the HackDAC hardware, must be determined by reviewing the hardware specification. The output domain and scaling must be documented and justified before implementation. The stage's report text must also be updated from TBC-domain to CVBS-domain level descriptions.
-
-### 14.14 Line Numbering Display Modes
+### 14.13 Line Numbering Display Modes
 
 The current TBC viewer uses field-relative line numbers with no clear indication of which numbering system is in use. v2.0 introduces a shared `LineNumberingMode` enum and a conversion utility that all GUI components (FrameScopeDialog, FrameTimingDialog, preview hover display) use consistently.
 
@@ -1466,14 +1479,16 @@ This section provides a per-stage migration classification for every stage in `o
 
 All source stage display names follow the `<VideoSystem> <SourceType> <SignalType>` convention defined in §5.0.
 
+The TBC source stages must be renamed throughout to include `tbc` in the directory name, source file names, and C++ class names — for example `pal_tbc_comp_source/pal_tbc_comp_source_stage.h` and class `PALTBCCompSourceStage`. The previous names (`pal_comp_source`, `ntsc_comp_source`, etc.) did not indicate they were TBC-specific, which was ambiguous once CVBS sources were introduced.
+
 | Stage | Display name | Classification | Notes |
 |-------|-------------|---------------|-------|
 | `cvbs_source` | Resolved at load time — see §5.0 | **Covered** | §5.1 |
-| `pal_comp_source` | `PAL TBC Composite` | **Covered** | §5.2 |
-| `pal_yc_source` | `PAL TBC YC` | **Specific attention** | Parallel to `pal_comp_source` (§5.2); additionally must verify Y/C colour frame alignment at load time — see §14.11 |
-| `ntsc_comp_source` | `NTSC TBC Composite` | **Covered** | §5.3 |
-| `ntsc_yc_source` | `NTSC TBC YC` | **Specific attention** | Parallel to `ntsc_comp_source` (§5.3); must verify Y/C colour frame alignment at load time — see §14.11 |
-| `pal_m_comp_source` | `PAL-M TBC Composite` | **Covered** | §5.4 |
+| `pal_tbc_comp_source` | `PAL TBC Composite` | **Covered** | §5.2 |
+| `pal_tbc_yc_source` | `PAL TBC YC` | **Specific attention** | Parallel to `pal_tbc_comp_source` (§5.2); additionally must verify Y/C colour frame alignment at load time — see §14.11 |
+| `ntsc_tbc_comp_source` | `NTSC TBC Composite` | **Covered** | §5.3 |
+| `ntsc_tbc_yc_source` | `NTSC TBC YC` | **Specific attention** | Parallel to `ntsc_tbc_comp_source` (§5.3); must verify Y/C colour frame alignment at load time — see §14.11 |
+| `pal_m_tbc_comp_source` | `PAL-M TBC Composite` | **Covered** | §5.4 |
 
 ### 15.2 Transform Stages
 
@@ -1520,7 +1535,7 @@ All source stage display names follow the `<VideoSystem> <SourceType> <SignalTyp
 | `chroma_sink` (common base) | **Covered** | §8 in full |
 | `ffmpeg_video_sink` | **Specific attention** | Inherits `chroma_sink` (§8); additionally: audio embedding must normalise to 44100 Hz — NTSC/PAL_M locked audio arrives internally at 44100000/1001 Hz and must be resampled using SoXR before passing to FFmpeg; PAL locked and free-running audio are already at 44100 Hz; closed caption line coordinates per §14.6 |
 | `raw_video_sink` | **Specific attention** | Inherits `chroma_sink` (§8); no audio/caption concerns beyond the base |
-| `hackdac_sink` | **Specific attention** | Output domain and scaling to be confirmed against HackDAC hardware specification — see §14.13; report text update required |
+| `hackdac_sink` | **Removed** | Replaced by `CVBSSinkStage` (§10) |
 | `daphne_vbi_sink` | **Specific attention** | VBI binary output currently iterates per field; must be updated to per-frame iteration; VBI line coordinates per §14.6 |
 | `ld_sink` | **Covered** | §9 |
 

@@ -299,12 +299,12 @@ class VideoFrameRepresentation : public Artifact {
   // nullopt = no audio or locking state unknown; true = frame-locked; false = free-running
   virtual std::optional<bool> audio_locked() const { return std::nullopt; }
 
-  // EFM t-values (per frame; LaserDisc extension, not in CVBS spec core)
+  // EFM t-values (per frame; CVBS EFM extension — efm-extension-format.md)
   virtual uint32_t get_efm_sample_count(FrameID /*id*/) const { return 0; }
   virtual std::vector<uint8_t> get_efm_samples(FrameID /*id*/) const { return {}; }
   virtual bool has_efm() const { return false; }
 
-  // AC3 RF symbols (per frame; LaserDisc extension)
+  // AC3 t-values (per frame; CVBS AC3 extension — ac3-extension-format.md)
   virtual uint32_t get_ac3_symbol_count(FrameID /*id*/) const { return 0; }
   virtual std::vector<uint8_t> get_ac3_symbols(FrameID /*id*/) const { return {}; }
   virtual bool has_ac3_rf() const { return false; }
@@ -494,6 +494,10 @@ The CVBS source already decodes frame-at-a-time and currently exposes fields by 
 
 8. **NTSC-J**: when the CVBS metadata `.meta` has a non-NULL `black_level` field and the video system is NTSC, populate `FrameDescriptor.black_level_override` with that value (in the 10-bit domain of the declared sample encoding preset, converted to `CVBS_U10_4FSC` domain at load time).
 
+9. **EFM sidecar**: load EFM t-value data from `<basename>.efm` (binary) and `<basename>.efm.meta` (SQLite) at stage initialisation per the [EFM extension format](cvbs-file-format-specification/docs/extensions/efm-extension-format.md). Both files must be present; if either is absent treat the extension as absent and return empty from `get_efm_samples(FrameID)`. Use the `efm_frame` table (`t_value_offset`, `t_value_count`) to map each `FrameID` to its byte range in `<basename>.efm`. Expose via `has_efm()`, `get_efm_sample_count(FrameID)`, and `get_efm_samples(FrameID)`.
+
+10. **AC3 sidecar**: load AC3 t-value data from `<basename>.ac3` (binary) and `<basename>.ac3.meta` (SQLite) at stage initialisation per the [AC3 extension format](cvbs-file-format-specification/docs/extensions/ac3-extension-format.md). Same absence contract as EFM (item 9). Use the `ac3_frame` table to map each `FrameID` to its byte range in `<basename>.ac3`. Expose via `has_ac3_rf()`, `get_ac3_symbol_count(FrameID)`, and `get_ac3_symbols(FrameID)`.
+
 ### 5.2 PAL TBC Source Stage
 
 #### 5.2.1 Preliminary Code Analysis
@@ -564,9 +568,11 @@ The `.pcm` sidecar stores 44.1 kHz 16-bit stereo interleaved raw PCM. TBC source
 
 #### 5.2.6 EFM and AC3 RF Frame Association
 
-EFM t-values and AC3 RF symbols were previously associated per-field. The new association is per-frame:
-- EFM samples per frame ≈ 2 × (previous samples per field).
-- The `TBCAudioEFMHandler` must be updated to provide frame-level access, merging two consecutive field reads.
+EFM t-values and AC3 RF symbols were previously associated per-field. The new association is per-frame, aligned with the [EFM extension format](cvbs-file-format-specification/docs/extensions/efm-extension-format.md) and [AC3 extension format](cvbs-file-format-specification/docs/extensions/ac3-extension-format.md):
+- EFM t-values per frame ≈ 2 × (previous t-values per field); the exact count is variable per the extension format definition.
+- AC3 t-values per frame ≈ 2 × (previous symbols per field); same variability applies.
+- The `TBCAudioEFMHandler` must be updated to provide frame-level access, merging two consecutive field reads into a single per-frame `std::vector<uint8_t>` of t-values.
+- For CVBS sources, EFM and AC3 t-values are read from the respective SQLite sidecars per items 9 and 10 of §5.1.2.
 
 ### 5.3 NTSC TBC Source Stage
 
@@ -1020,6 +1026,8 @@ The existing ld-decode sink is a legacy output. A native CVBS sink stage is the 
 - `<basename>.meta` — SQLite metadata with `preset`, `sample_encoding_preset = 'CVBS_U10_4FSC'`, `signal_state_preset`, `number_of_sequential_frames`, `decoder = 'cvbs-decode'`, `audio_locked` (TRUE/FALSE/NULL from `audio_locked()` / `has_audio()`)
 - `<basename>_audio_00.wav` — WAV sidecar at the source's locked/free-running rate (when `has_audio()` is true)
 - `<basename>.dropouts.meta` — SQLite dropout sidecar (when dropout hints present)
+- `<basename>.efm` + `<basename>.efm.meta` — EFM t-value binary and SQLite index sidecars per the [EFM extension format](cvbs-file-format-specification/docs/extensions/efm-extension-format.md) (when `has_efm()` is true)
+- `<basename>.ac3` + `<basename>.ac3.meta` — AC3 t-value binary and SQLite index sidecars per the [AC3 extension format](cvbs-file-format-specification/docs/extensions/ac3-extension-format.md) (when `has_ac3_rf()` is true)
 
 Parameters: `output_path`, `signal_type` (composite / yc), `capture_notes`. `signal_state_preset` is always written as `STANDARD_TBC_LOCKED` — it is an invariant of the pipeline and is not a user-configurable parameter.
 
@@ -1364,7 +1372,18 @@ The CVBS specification (index.md §Audio Data) defines audio via the `audio_lock
 
 ### 14.2 EFM and AC3 Frame Association Specification
 
-The CVBS spec does not define EFM or AC3 storage. Decode-Orc must define its own extension format for these. This should follow the same SQLite-sidecar pattern as the CVBS dropout extension (§6.3). A separate extension document (similar to `dropout-extension-format.md`) should be written before implementation.
+EFM and AC3 storage are now defined by the CVBS file format specification extensions:
+
+- **EFM**: [efm-extension-format.md](cvbs-file-format-specification/docs/extensions/efm-extension-format.md) — binary `<basename>.efm` t-value stream indexed by `<basename>.efm.meta` SQLite (`efm_frame` table: `cvbs_file_id`, `frame_id`, `t_value_offset`, `t_value_count`).
+- **AC3**: [ac3-extension-format.md](cvbs-file-format-specification/docs/extensions/ac3-extension-format.md) — binary `<basename>.ac3` t-value stream indexed by `<basename>.ac3.meta` SQLite (`ac3_frame` table: same schema as EFM).
+
+Both extensions are optional per their consumer requirements. The t-value count per frame is variable and not derivable from video standard or sample rate. Both use `PRAGMA user_version = 1`.
+
+Implementation requirements:
+- **CVBS source**: load both sidecars at stage initialisation (§5.1.2 items 9–10); missing or unreadable sidecars result in `has_efm()` / `has_ac3_rf()` returning false.
+- **TBC source**: merge per-field EFM/AC3 data from `TBCAudioEFMHandler` into per-frame `std::vector<uint8_t>` t-value vectors (§5.2.6).
+- **CVBS sink**: write both sidecars when the input VFrameR reports `has_efm()` or `has_ac3_rf()` (§10).
+- **`efm_sink` / `raw_efm_sink` / `ac3rf_sink`**: iterate by `FrameID`, reading `get_efm_samples(FrameID)` / `get_ac3_symbols(FrameID)` respectively (§15.4).
 
 ### 14.3 PAL Non-Orthogonal Sample Insertion Quality
 
@@ -1561,6 +1580,8 @@ The following table maps each design area to its normative specification source.
 | PAL colour frame sequence | EBU Tech. 3280-E §1.1.1 | Above |
 | NTSC colour frame sequence | SMPTE 244M-2003 §3.2 | Above |
 | Dropout extension | CVBS dropout extension | [dropout-extension-format.md](cvbs-file-format-specification/docs/extensions/dropout-extension-format.md) |
+| EFM t-value extension | CVBS EFM extension | [efm-extension-format.md](cvbs-file-format-specification/docs/extensions/efm-extension-format.md) |
+| AC3 t-value extension | CVBS AC3 extension | [ac3-extension-format.md](cvbs-file-format-specification/docs/extensions/ac3-extension-format.md) |
 | CVBS metadata schema | CVBS spec core | [index.md](cvbs-file-format-specification/docs/index.md) |
 | Signal state presets | CVBS spec | [signal-state-presets.md](cvbs-file-format-specification/docs/signal-state-presets.md) |
 | Audio format and `audio_locked` contract | CVBS spec §Audio | [index.md](cvbs-file-format-specification/docs/index.md) |

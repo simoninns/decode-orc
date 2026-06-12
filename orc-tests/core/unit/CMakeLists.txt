@@ -41,10 +41,7 @@ function(orc_add_core_unit_tests target labels)
         # Dedicated functional tests cover the runtime dlopen/LoadLibrary path
         # (ABI matching, missing symbols, etc.) alongside these registry links.
         foreach(_orc_stage_plugin_target
-                        orc-stage-plugin-ntsc-comp-source
-                        orc-stage-plugin-ntsc-yc-source
-                        orc-stage-plugin-pal-comp-source
-                        orc-stage-plugin-pal-yc-source
+                        orc-stage-plugin-tbc-source
                         orc-stage-plugin-cvbs-source
                         orc-stage-plugin-stacker
                         orc-stage-plugin-field-invert
@@ -88,10 +85,8 @@ orc_add_core_unit_tests(
         "unit;sources"
 
         stages/source_common/source_stage_contract_test.cpp
-        stages/ntsc_comp_source/ntsc_comp_source_stage_test.cpp
-        stages/ntsc_yc_source/ntsc_yc_source_stage_test.cpp
-        stages/pal_comp_source/pal_comp_source_stage_test.cpp
-        stages/pal_yc_source/pal_yc_source_stage_test.cpp
+        stages/tbc_source/tbc_source_stage_test.cpp
+        stages/tbc_source/pal_tbc_converter_test.cpp
         stages/cvbs_source/cvbs_source_stage_test.cpp
 )
 

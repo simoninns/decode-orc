@@ -42,21 +42,9 @@ struct PublicStageSpec {
 
 inline const std::vector<PublicStageSpec>& public_stage_specs() {
   static const std::vector<PublicStageSpec> specs = {
-      {"NTSC_Comp_Source", PublicStageFamily::Source, true,
+      {"tbc_source", PublicStageFamily::Source, true,
        [] {
-         return orc::StageRegistry::instance().create_stage("NTSC_Comp_Source");
-       }},
-      {"NTSC_YC_Source", PublicStageFamily::Source, true,
-       [] {
-         return orc::StageRegistry::instance().create_stage("NTSC_YC_Source");
-       }},
-      {"PAL_Comp_Source", PublicStageFamily::Source, true,
-       [] {
-         return orc::StageRegistry::instance().create_stage("PAL_Comp_Source");
-       }},
-      {"PAL_YC_Source", PublicStageFamily::Source, true,
-       [] {
-         return orc::StageRegistry::instance().create_stage("PAL_YC_Source");
+         return orc::StageRegistry::instance().create_stage("tbc_source");
        }},
       {"stacker", PublicStageFamily::Transform, true,
        [] { return orc::StageRegistry::instance().create_stage("stacker"); }},

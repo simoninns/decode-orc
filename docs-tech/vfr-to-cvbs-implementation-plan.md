@@ -11,6 +11,39 @@ Three open questions from the migration design were resolved before this plan wa
 - **PAL non-orthogonal sample insertion ([design §14.3](vfr-to-cvbs-migration-design.md))**: Use linear interpolation for the 4 extra samples inserted during PAL TBC frame assembly. Quality is measured empirically on real PAL source material after implementation; sinc-windowed interpolation replaces linear only if chroma artefacts are detected.
 - **Vectorscope PAL colour matrix ([design §14.4](vfr-to-cvbs-migration-design.md))**: BT.601 primaries for PAL vectorscope reference vectors. SD PAL analogue signals from LaserDisc and tape are conventionally measured against BT.601 colour bars.
 - **v1.x project file migration ([design §12.2](vfr-to-cvbs-migration-design.md))**: v1.x project files are hard-rejected with a clear, actionable error. No `migrate-project` command is implemented in v2.0. The rejection message must not reference a command that does not exist.
+- **`FieldID`/`FieldIDRange` immediate removal ([design §4.2](vfr-to-cvbs-migration-design.md))**: `FieldID` and `FieldIDRange` are removed immediately in Phase 1 rather than kept as deprecated aliases. Deprecated aliases would allow old code to compile silently while remaining semantically broken; immediate removal ensures every downstream consumer migrates to `FrameID` before the project will build. This creates a forced compile break between Phase 1 and Phase 4 (see Testability Review below).
+
+---
+
+## Testability Review
+
+*Read this section before beginning implementation. It identifies structural constraints on when manual testing is possible and recommends two ordering adjustments.*
+
+### Compile consistency at phase boundaries
+
+Phase 1 deletes `video_field_representation.h` and `DropoutRegion`. The five old source stage plugins (`pal_comp_source`, `pal_yc_source`, `ntsc_comp_source`, `ntsc_yc_source`, and their shared TBC internals) reference `VideoFieldRepresentation`; they will not compile after Phase 1 until replaced in Phase 4. Phase 2's `PreviewRenderer` task also deletes `tbc_sample_to_8bit`, breaking any remaining old-path rendering. The project will not produce a working binary between Phase 1 and the completion of Phase 4.
+
+Implementors must either:
+- Retire and replace the five old source plugin directories with stub implementations (that compile and satisfy the `VideoFrameRepresentation` interface but produce no output) within Phase 1, deferring full converter logic to Phases 4–5; or
+- Treat Phases 1–4 as a single implementation batch that must land together before the application builds again.
+
+Each merged state on the main branch must be a consistent compilation unit. If work is split across PRs, the stub approach is strongly preferred.
+
+### First manual test milestone
+
+The first meaningful manual test in orc-gui is possible only after Phase 3 (CVBS source) — or Phase 4 (PAL TBC source), depending on available test files. Phases 1 and 2 produce no user-visible output; their correctness is verified entirely through unit tests and successful compilation.
+
+### `FrameScopeDialog` arrives too late for source-stage level verification
+
+The updated `FrameScopeDialog` (Phase 10) is the primary tool for confirming source-stage level mapping is correct. During Phases 3–9, developers have only the unmigrated scope dialog, which displays values in the old TBC 16-bit domain and is uninformative for CVBS_U10_4FSC signals.
+
+**Recommendation:** Move the `FrameScopeDialog` task from Phase 10 to immediately after Phase 3. Its only upstream dependencies are Phase 1 (core types) and Phase 2 (`LineNumberingMode`, `cvbs_sample_to_8bit`). Having it available from the first testable phase means level-mapping errors in Phases 3–5 are detectable without waiting for all GUI work to complete.
+
+### Vectorscope VFrameR integration should track the chroma decoder
+
+The Phase 10 vectorscope task bundles the BT.601 constant audit together with the `extractFromCompositeRepresentation()` VFrameR integration. The VFrameR plumbing is required as soon as Phase 6 (chroma decoder) completes; leaving it in Phase 10 means the vectorscope is non-functional from Phase 6 through Phase 9.
+
+**Recommendation:** Split the vectorscope task: move the `extractFromCompositeRepresentation()` VFrameR integration into Phase 6, and keep only the constant audit and BT.601 reference vector derivation in Phase 10.
 
 ---
 
@@ -168,6 +201,10 @@ Implementations use `kPalField1Lines`, `kNtscField1Lines`, `kPalMField1Lines` an
 
 **Tests:** `orc-tests/core/unit/metadata/dropout_util_test.cpp` (label: `unit`). Cover all three systems; first and last sample in each field; PAL 1136-sample line boundaries.
 
+### Manual Testing in orc-gui
+
+No manual testing is possible after this phase. All changes are type definitions, constants, and header deletions with no user-visible behaviour in the application. Verify correctness through unit tests (`ctest -L unit`) and successful compilation.
+
 ---
 
 ## Phase 2: Navigation and Rendering Infrastructure
@@ -236,9 +273,19 @@ Update coordinate mapping methods (`navigate_frame_line`, `map_image_to_field`, 
 
 Update dropout overlay rendering: `DropoutRun.sample_start` and `.sample_count` are frame-flat; convert to (line, start_sample, count) via `dropout_util::frame_sample_to_field_line()` before rendering onto the image.
 
-**Acceptance criteria:** `tbc_sample_to_8bit` is deleted. Blanking maps to 0; white maps to 255; values outside [blanking, white] (headroom) clamp the output only. Old `Field` enum value is absent.
+**Acceptance criteria:** `tbc_sample_to_8bit` is deleted. Blanking maps to 0; white maps to 255; values outside [blanking, white] (headroom) clamp the output only. Old `Field` enum value is absent. Display aspect ratio is derived from `SourceParameters.active_video_start`, `active_video_end`, `first_active_frame_line`, and `last_active_frame_line` per BT.601-5 §2; no hardcoded PAL or NTSC pixel aspect ratio constants remain in the renderer. The preview auto-scales its vertical display range: the default axis spans `[sync_tip_level, peak_level]` from `SourceParameters`; it expands to include any sample value outside that range when such values are present, per [design §3.5](vfr-to-cvbs-migration-design.md).
 
-**Tests:** Unit tests for `cvbs_sample_to_8bit` at boundary values and headroom values; dropout coordinate conversion through `frame_sample_to_field_line`.
+**Tests:** Unit tests for `cvbs_sample_to_8bit` at boundary values and headroom values; dropout coordinate conversion through `frame_sample_to_field_line`; aspect ratio computation for PAL (59/54) and NTSC (10/11) from mock `SourceParameters`; auto-scale range expansion when a sample value outside `[sync_tip_level, peak_level]` is present in the input.
+
+### Manual Testing in orc-gui
+
+No meaningful manual testing is possible after this phase in isolation:
+
+- `LineNumberingMode` is not yet wired to any dialog (the `FrameScopeDialog` update is in Phase 10 unless moved earlier per the recommendation in the Testability Review).
+- `DAGFrameRenderer` is an internal rename with no functional change to the rendered output.
+- `cvbs_sample_to_8bit` has no caller until a migrated source stage (Phase 3 or 4) is in place.
+
+If old source stage stubs (see Testability Review) are present and the application builds, launching orc-gui and confirming it starts without crashing is the only available check.
 
 ---
 
@@ -260,6 +307,7 @@ At open time ([design §5.1.2](vfr-to-cvbs-migration-design.md)):
    - `CVBS_TPG21_4FSC`: `value = int16_value / 64 + 508`
    - `CVBS_S16_FSC`: `value = int16_value / 32 + blanking_10bit` where `blanking_10bit` is `kPalBlanking` (PAL) or `kNtscBlanking` (NTSC/PAL_M)
 3. Populate `SourceParameters` with spec-defined values from `cvbs_signal_constants.h` (not from metadata level fields).
+4. Measure colour burst phase from the signal for each frame to populate `FrameDescriptor.colour_frame_index` per [design §11.1.2](vfr-to-cvbs-migration-design.md). PAL: position within the 4-frame sequence (1–4) per EBU Tech. 3280-E §1.1.1; NTSC: 0 (frame A) or 1 (frame B) per SMPTE 244M-2003 §3.2; PAL_M: position within the 4-frame sequence (1–4) per ITU-R BT.1700-1 Annex 1 Part B. Set `colour_frame_index = -1` when burst is absent or unmeasurable.
 
 Display name: read `video_standard_preset` and file type (composite vs YC) from `.meta` at load time; set the stage instance display name per [design §5.0](vfr-to-cvbs-migration-design.md) pattern `<VideoSystem> CVBS <SignalType>`.
 
@@ -267,9 +315,9 @@ Remove all resampling of the 4FSC signal — the CVBS source requires none.
 
 Expand coverage to include PAL_M dispatch (alongside existing PAL and NTSC classes).
 
-**Acceptance criteria:** A CVBS file with any non-`STANDARD_TBC_LOCKED` state is rejected with an error before any frame data is returned. All four encoding normalisations are implemented. Frame count matches `number_of_sequential_frames` from `.meta`. `SourceParameters` level fields are populated from `cvbs_signal_constants.h`, not from metadata.
+**Acceptance criteria:** A CVBS file with any non-`STANDARD_TBC_LOCKED` state is rejected with an error before any frame data is returned. All four encoding normalisations are implemented. Frame count matches `number_of_sequential_frames` from `.meta`. `SourceParameters` level fields are populated from `cvbs_signal_constants.h`, not from metadata. `colour_frame_index` cycles correctly for each system on a standard-signal file; is `-1` for frames where burst is not detectable.
 
-**Tests:** `orc-tests/core/unit/stages/cvbs_source/` (labels: `unit`, `sources`). Mock the SQLite reader interface. Cover: signal state rejection for each non-standard value; each encoding normalisation formula at blanking and white input; `SourceParameters` population for PAL/NTSC/PAL_M.
+**Tests:** `orc-tests/core/unit/stages/cvbs_source/` (labels: `unit`, `sources`). Mock the SQLite reader interface. Cover: signal state rejection for each non-standard value; each encoding normalisation formula at blanking and white input; `SourceParameters` population for PAL/NTSC/PAL_M; burst phase measurement producing the correct `colour_frame_index` for each system; `colour_frame_index = -1` for frames with zero-valued burst samples.
 
 ---
 
@@ -295,6 +343,23 @@ Load all sidecars at stage initialisation per [design §5.1.2 items 5–10](vfr-
 **Acceptance criteria:** Absent sidecar files set `has_*()`→false without throwing. Frame-locked audio blocks have the correct stereo pair count for each system. EFM and AC3 `has_*()` are false when either sidecar file is missing.
 
 **Tests:** Unit tests with mock file I/O for each sidecar. Cover: dropout frame lookup; audio_locked=true, false, null; EFM absent-sidecar contract; AC3 frame range mapping; NTSC-J black_level_override conversion.
+
+### Manual Testing in orc-gui
+
+Phase 3 is the first phase where end-to-end manual testing is possible, provided a CVBS source file is available.
+
+**Stage loading and display name:**
+- Open a CVBS composite `.meta` file via the source picker. The stage display name should read `<System> CVBS Composite` (e.g., `PAL CVBS Composite`).
+- Navigate frames in the preview; frames should render with blanking regions at near-black and active picture at appropriate brightness.
+- The GUI frame count should match `number_of_sequential_frames` in the `.meta` file.
+
+**Error rejection:**
+- Open a CVBS `.meta` file whose `signal_state_preset` is set to any non-`STANDARD_TBC_LOCKED` value. The GUI must display a clear rejection error before showing any frame data, without crashing.
+
+**Sidecar data:**
+- Open a CVBS file with a `.dropouts.meta` sidecar; verify dropout overlay markers appear in the preview on the expected frames.
+- Open a CVBS file with an `_audio_00.wav` sidecar; verify the audio presence indicator shows correctly (`audio_locked` state visible in source properties).
+- If EFM or AC3 sidecars are present, verify the corresponding `has_efm` / `has_ac3_rf` status in source properties.
 
 ---
 
@@ -334,15 +399,15 @@ int16_t tbc_to_cvbs_pal(uint16_t tbc_sample, int32_t tbc_blanking, int32_t tbc_w
 ```
 
 Implement [design §5.2.3](vfr-to-cvbs-migration-design.md) PAL frame assembly:
-- Input: field 1 (313 lines × 1135 samples) + field 2 (312 lines × 1135 samples) = 709,375 samples
+- Input from TBC: field 1 (TBC) = **312** lines × 1135 samples (354,120 samples); field 2 (TBC) = **313** lines × 1135 samples (355,255 samples); total = 709,375 samples.
 - Required output: 709,379 samples (`kPalFrameSamples`)
 - Insert 4 extra samples at the positions in `kPalExtraSampleLines` (from `cvbs_signal_constants.h`) using **linear interpolation** between the last sample of the standard line and the first sample of the next line. Interpolation is performed in the CVBS_U10_4FSC domain after level mapping.
-- Field ordering: field 1 = 313 lines (CVBS convention — this differs from the old VFR `first field = 312 lines` convention). Document this explicitly with a comment citing [design §5.2.3](vfr-to-cvbs-migration-design.md).
-- Frame layout: `[field 1 lines][field 2 lines]` sequentially.
+- Field ordering reconciliation ([design §5.2.3](vfr-to-cvbs-migration-design.md) note): the TBC format stores the odd (earlier temporal) field as field 1 with 312 lines and the even field as field 2 with 313 lines. The CVBS convention places the 313-line block first (CVBS field 1). The implementation therefore maps **TBC field 2 → CVBS field 1** (313 lines) and **TBC field 1 → CVBS field 2** (312 lines). Document this inversion explicitly with a comment citing design §5.2.3 and EBU Tech. 3280-E §1.3.
+- Frame layout: `[CVBS field 1 = TBC field 2, 313 lines][CVBS field 2 = TBC field 1, 312 lines]` sequentially.
 
-**Acceptance criteria:** Output frame has exactly `kPalFrameSamples = 709,379` samples for every PAL frame. Level conversion maps TBC blanking exactly to `kPalBlanking = 256`; TBC white to `kPalWhite = 844`. Inserted samples are linear interpolations of their neighbours.
+**Acceptance criteria:** Output frame has exactly `kPalFrameSamples = 709,379` samples for every PAL frame. Level conversion maps TBC blanking exactly to `kPalBlanking = 256`; TBC white to `kPalWhite = 844`. Inserted samples are linear interpolations of their neighbours. CVBS field 1 in the output is the 313-line block (sourced from TBC field 2); CVBS field 2 is the 312-line block (sourced from TBC field 1).
 
-**Tests:** `orc-tests/core/unit/stages/tbc_source/pal_tbc_converter_test.cpp` (labels: `unit`, `sources`). Verify sample count. Verify level conversion at blanking, white, sync-tip (should map below 4 into negative range). Verify inserted sample positions and interpolated values.
+**Tests:** `orc-tests/core/unit/stages/tbc_source/pal_tbc_converter_test.cpp` (labels: `unit`, `sources`). Verify sample count. Verify level conversion at blanking, white, sync-tip (should map below 4 into negative range). Verify inserted sample positions and interpolated values. Verify that the 313-line TBC field (field 2) appears first in the output frame buffer.
 
 ---
 
@@ -538,7 +603,7 @@ Implement the level-context separation from [design §8.3](vfr-to-cvbs-migration
 
 **Files:** `orc/plugins/stages/dropout_correct/`; `orc/plugins/stages/source_align/`
 
-**`dropout_correct`**: update to `VideoFrameRepresentationWrapper`. Replacement-line search moves from `FieldID ± 1` arithmetic to `FrameID` + frame-line range arithmetic. Use `dropout_util::frame_sample_to_field_line()` for coordinate mapping when needed. Input and output dropout hints use `DropoutRun`.
+**`dropout_correct`**: update to `VideoFrameRepresentationWrapper`. Replacement-line search moves from `FieldID ± 1` arithmetic to `FrameID` + frame-line range arithmetic. Use `dropout_util::frame_sample_to_field_line()` for coordinate mapping when needed. Input and output dropout hints use `DropoutRun`. Correction operates on the full frame buffer regardless of `active_area_cropping_applied`; crop settings must not restrict which sample ranges are corrected. Document this decision with a comment citing [design §11.6.6](vfr-to-cvbs-migration-design.md).
 
 **`source_align`**: update to `VideoFrameRepresentationWrapper`. VBI frame number extraction moves from field-indexed to frame-indexed access. Field-order enforcement is redefined per [design §14.12](vfr-to-cvbs-migration-design.md): the stage verifies that `FrameDescriptor.colour_frame_index` is consistent across all aligned sources rather than enforcing field-pair ordering.
 
@@ -649,7 +714,9 @@ Implement [design §10](vfr-to-cvbs-migration-design.md). Write:
 - `<basename>.efm` + `<basename>.efm.meta`: when `has_efm() == true`, per the [EFM extension format](cvbs-file-format-specification/docs/extensions/efm-extension-format.md).
 - `<basename>.ac3` + `<basename>.ac3.meta`: when `has_ac3_rf() == true`, per the [AC3 extension format](cvbs-file-format-specification/docs/extensions/ac3-extension-format.md).
 
-**Acceptance criteria:** `.meta` always contains `signal_state_preset = 'STANDARD_TBC_LOCKED'`. Absent extensions produce no sidecar files. A CVBS file written by this stage can be round-tripped back through the CVBS source stage (open, read frame count, verify sample count).
+Parameters: `output_path` (string), `signal_type` (`composite` / `yc`), `capture_notes` (string, optional; written to `.meta` if non-empty). `signal_state_preset` is not a user parameter — always written as `STANDARD_TBC_LOCKED`.
+
+**Acceptance criteria:** `.meta` always contains `signal_state_preset = 'STANDARD_TBC_LOCKED'`. Absent extensions produce no sidecar files. A CVBS file written by this stage can be round-tripped back through the CVBS source stage (open, read frame count, verify sample count). `capture_notes` is written to `.meta` when provided and absent when not set.
 
 **Tests:** Unit tests for metadata table contents; audio_locked propagation; sidecar absence contract.
 
@@ -674,7 +741,7 @@ Per [design §11.5 and §15.4](vfr-to-cvbs-migration-design.md):
 
 **Files:** `orc/plugins/stages/sinks/ffmpeg_video_sink/`; `orc/plugins/stages/sinks/raw_video_sink/`; `orc/plugins/stages/sinks/daphne_vbi_sink/`; `orc/plugins/stages/burst_level_analysis_sink/`; `orc/plugins/stages/snr_analysis_sink/`; `orc/plugins/stages/cc_sink/`; remove `orc/plugins/stages/hackdac_sink/`
 
-- **`ffmpeg_video_sink`**: inherits `ChromaSinkStage` (updated in Chroma Decoder phase); add NTSC/PAL_M audio resampling to 44100 Hz (SoXR) before FFmpeg embed; update CC line coordinates using `broadcast_line_to_frame_line()` from the line numbering utility.
+- **`ffmpeg_video_sink`**: inherits `ChromaSinkStage` (updated in Chroma Decoder phase); add NTSC/PAL_M audio resampling to 44100 Hz (SoXR) before FFmpeg embed; update CC line coordinates using `broadcast_line_to_frame_line()` from the line numbering utility. Derive output display aspect ratio from `SourceParameters.active_video_start`, `active_video_end`, `first_active_frame_line`, and `last_active_frame_line` per BT.601-5 §2 (PAL: 59/54, NTSC: 10/11); do not hardcode these values.
 - **`raw_video_sink`**: inherits `ChromaSinkStage`; no audio concerns beyond the base.
 - **`daphne_vbi_sink`**: update field iteration → frame iteration; VBI line coordinates via `broadcast_line_to_frame_line()`.
 - **`burst_level_analysis_sink`**: frame iteration; burst amplitude references from `cvbs_signal_constants.h` (not `SourceParameters`) per [design §15.5](vfr-to-cvbs-migration-design.md).
@@ -682,9 +749,11 @@ Per [design §11.5 and §15.4](vfr-to-cvbs-migration-design.md):
 - **`cc_sink`**: frame iteration; VBI line coordinates via `broadcast_line_to_frame_line()`.
 - **`hackdac_sink`**: delete the entire stage directory; update the plugin registry to remove its entry.
 
-**Acceptance criteria:** `hackdac_sink` plugin ID is absent from the registry. `daphne_vbi_sink` iterates by `FrameID`. `cc_sink` uses `broadcast_line_to_frame_line()`. `burst_level_analysis_sink` uses spec constants for level calibration.
+All four analysis/VBI stages must document explicitly, with a comment citing [design §11.6.6](vfr-to-cvbs-migration-design.md), whether they respect or ignore `active_area_cropping_applied`: `cc_sink` and `daphne_vbi_sink` must **ignore** the crop and always read from spec-defined VBI line coordinates; `burst_level_analysis_sink` and `snr_analysis_sink` must **respect** the crop and restrict measurement to the declared active region.
 
-**Tests:** Label: `unit`, `sinks`. VBI broadcast line numbering conversion; CC sink frame iteration; burst level spec constant usage (verify no `SourceParameters` level access in SNR/burst analysis).
+**Acceptance criteria:** `hackdac_sink` plugin ID is absent from the registry. `daphne_vbi_sink` iterates by `FrameID`. `cc_sink` uses `broadcast_line_to_frame_line()`. `burst_level_analysis_sink` uses spec constants for level calibration. Every analysis sink carries a comment on crop independence per [design §11.6.6](vfr-to-cvbs-migration-design.md).
+
+**Tests:** Label: `unit`, `sinks`. VBI broadcast line numbering conversion; CC sink frame iteration; burst level spec constant usage (verify no `SourceParameters` level access in SNR/burst analysis); confirm `cc_sink` reads the correct VBI line even when `active_area_cropping_applied = true` and crop excludes that line.
 
 ---
 
@@ -746,9 +815,9 @@ Implement [design §7.4](vfr-to-cvbs-migration-design.md):
 - NTSC reference vectors: SMPTE 170M-2004 primaries.
 - `extractFromCompositeRepresentation()`: update to accept `VideoFrameRepresentation` and `FrameID`; process both fields; handle PAL V-axis alternation at the frame level.
 
-**Acceptance criteria:** Zero untraced constants remain in `vectorscope_geometry.h`. PAL demodulation phases match EBU Tech. 3280-E §1.2 exactly. A BT.601 citation is present for every PAL reference vector computation.
+**Acceptance criteria:** Zero untraced constants remain in `vectorscope_geometry.h`. PAL demodulation phases match EBU Tech. 3280-E §1.2 exactly. A BT.601 citation is present for every PAL reference vector computation. The display auto-scales when input samples carry values outside `[sync_tip, peak]` per [design §3.5](vfr-to-cvbs-migration-design.md); normative reference markers remain at their correct positions regardless of the current scale.
 
-**Tests:** Unit tests for PAL demodulation phases at known sample positions; PAL reference vector coordinates against analytically computed BT.601 values.
+**Tests:** Unit tests for PAL demodulation phases at known sample positions; PAL reference vector coordinates against analytically computed BT.601 values; display range expansion when headroom samples (below sync tip or above peak) are present in a synthetic input frame.
 
 ---
 
@@ -793,6 +862,26 @@ Per [design §13.2](vfr-to-cvbs-migration-design.md) and AGENTS.md §9:
 **Acceptance criteria:** SDK enforcement gates pass: `ctest --test-dir build -L sdk --output-on-failure`. Version tables in both documentation files are updated. v1.x plugins will not load (ABI version mismatch prevents this automatically).
 
 **Tests:** Run `ctest --test-dir build -R "StagePluginLoader" --output-on-failure` and `ctest --test-dir build -L sdk --output-on-failure`.
+
+---
+
+### Task: User-facing documentation review and update
+
+**Files:** `docs/user-guide/`; `docs/stages/`; in-app help strings in `orc/gui/`; `CHANGELOG.md` (or equivalent release notes file)
+
+Per [design §1.2](vfr-to-cvbs-migration-design.md), review and revise all user-facing documentation before the v2.0 release tag is applied:
+
+- Replace all field-based terminology with frame-based equivalents per the terminology table in [design §2](vfr-to-cvbs-migration-design.md): `FieldID` → `FrameID`, field scope → frame scope, field map → frame map, field timing → frame timing, and so on throughout every guide and help string.
+- Document the removed `hackdac_sink` stage and the five retired legacy TBC source plugin IDs (`pal_comp_source`, `pal_yc_source`, `ntsc_comp_source`, `ntsc_yc_source`, `pal_m_tbc_comp_source`).
+- Document renamed dialogs and stages: `LineScopeDialog` → `FrameScopeDialog`; `FieldTimingDialog` → `FrameTimingDialog`; `field_invert` → `frame_field_swap`; `field_map` → `frame_map`.
+- Document v2.0 project format requirements: `video_format` and `source_type` are required at project creation and are read-only thereafter; v1.x project files are hard-rejected with the specified error message.
+- Document the new `FramePhaseCorrectorStage` (parameters, observations, recommended pipeline position) and the updated `FrameMapStage` parameters (`remove_duplicates`, `pad_gaps`, `pad_strategy`).
+- Update in-application help strings in `orc/gui/` for all renamed dialogs and any parameter descriptions that reference field-level concepts.
+- Add a v2.0 entry to `CHANGELOG.md` noting the breaking change, all removed stages, all renamed stages, and the project file format change.
+
+**Acceptance criteria:** No user-facing text refers to `FieldID`, field scope, field map, `field_invert`, `hackdac_sink`, or any other removed or renamed entity by its old name. The v2.0 project format change and v1.x rejection are documented. `CHANGELOG.md` has a v2.0 entry. This task must be complete before the v2.0 release tag is applied.
+
+**Tests:** No automated tests. Review is manual; a documentation review checklist must be signed off before tagging.
 
 ---
 

@@ -193,6 +193,16 @@ orc_add_core_unit_tests(
         metadata/stage_plugin_registry_test.cpp
         metadata/plugin_remote_loader_test.cpp
         metadata/skeleton_plugin_registry_test.cpp
+        metadata/dropout_util_test.cpp
+)
+
+# Phase 1: core type and signal constant tests (label: unit)
+orc_add_core_unit_tests(
+        orc-core-unit-tests-types
+        "unit"
+
+        types/frame_id_test.cpp
+        types/cvbs_signal_constants_test.cpp
 )
 
         orc_add_core_unit_tests(

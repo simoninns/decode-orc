@@ -1,0 +1,230 @@
+/*
+ * File:        dropout_util_test.cpp
+ * Module:      orc-core-tests
+ * Purpose:     Unit tests for dropout_util coordinate conversion functions
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ * SPDX-FileCopyrightText: 2026 Simon Inns
+ */
+
+#include <cvbs_signal_constants.h>
+#include <dropout_util.h>
+
+#include <gtest/gtest.h>
+
+using namespace orc;
+using namespace orc::dropout_util;
+
+// ---------------------------------------------------------------------------
+// NTSC — orthogonal, constant 910 samples/line
+// ---------------------------------------------------------------------------
+
+TEST(DropoutUtil_NTSC, FirstSampleMapsToField1Line0Sample0) {
+  auto r = frame_sample_to_field_line(VideoSystem::NTSC, 0);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_NTSC, LastSampleOfFirstLineIsCorrect) {
+  // Last sample of line 0 (field 1) = sample 909
+  auto r = frame_sample_to_field_line(VideoSystem::NTSC, kNtscSamplesPerLine - 1);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, kNtscSamplesPerLine - 1);
+}
+
+TEST(DropoutUtil_NTSC, FirstSampleOfSecondLineIsCorrect) {
+  auto r = frame_sample_to_field_line(VideoSystem::NTSC, kNtscSamplesPerLine);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 1);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_NTSC, LastSampleOfField1IsCorrect) {
+  // Field 1 ends at frame-flat line 261, last sample = kNtscField1Lines * 910 - 1
+  uint64_t last_field1_sample =
+      static_cast<uint64_t>(kNtscField1Lines) * kNtscSamplesPerLine - 1;
+  auto r = frame_sample_to_field_line(VideoSystem::NTSC, last_field1_sample);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, kNtscField1Lines - 1);
+  EXPECT_EQ(r.sample, kNtscSamplesPerLine - 1);
+}
+
+TEST(DropoutUtil_NTSC, FirstSampleOfField2IsCorrect) {
+  uint64_t first_field2_sample =
+      static_cast<uint64_t>(kNtscField1Lines) * kNtscSamplesPerLine;
+  auto r = frame_sample_to_field_line(VideoSystem::NTSC, first_field2_sample);
+  EXPECT_EQ(r.field, 2);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_NTSC, LastFrameSampleIsCorrect) {
+  uint64_t last = kNtscFrameSamples - 1;
+  auto r = frame_sample_to_field_line(VideoSystem::NTSC, last);
+  EXPECT_EQ(r.field, 2);
+  int32_t field2_lines = kNtscFrameLines - kNtscField1Lines;  // 263
+  EXPECT_EQ(r.line, field2_lines - 1);
+  EXPECT_EQ(r.sample, kNtscSamplesPerLine - 1);
+}
+
+TEST(DropoutUtil_NTSC, RoundTripField1) {
+  uint64_t original = static_cast<uint64_t>(100) * kNtscSamplesPerLine + 55;
+  auto fls = frame_sample_to_field_line(VideoSystem::NTSC, original);
+  uint64_t reconstructed =
+      field_line_to_frame_sample(VideoSystem::NTSC, fls.field, fls.line, fls.sample);
+  EXPECT_EQ(reconstructed, original);
+}
+
+TEST(DropoutUtil_NTSC, RoundTripField2) {
+  uint64_t original =
+      static_cast<uint64_t>(kNtscField1Lines + 50) * kNtscSamplesPerLine + 200;
+  auto fls = frame_sample_to_field_line(VideoSystem::NTSC, original);
+  uint64_t reconstructed =
+      field_line_to_frame_sample(VideoSystem::NTSC, fls.field, fls.line, fls.sample);
+  EXPECT_EQ(reconstructed, original);
+}
+
+// ---------------------------------------------------------------------------
+// PAL_M — orthogonal, constant 909 samples/line
+// ---------------------------------------------------------------------------
+
+TEST(DropoutUtil_PALM, FirstSampleMapsToField1Line0Sample0) {
+  auto r = frame_sample_to_field_line(VideoSystem::PAL_M, 0);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_PALM, LastFrameSampleIsCorrect) {
+  uint64_t last = kPalMFrameSamples - 1;
+  auto r = frame_sample_to_field_line(VideoSystem::PAL_M, last);
+  EXPECT_EQ(r.field, 2);
+  int32_t field2_lines = kPalMFrameLines - kPalMField1Lines;  // 263
+  EXPECT_EQ(r.line, field2_lines - 1);
+  EXPECT_EQ(r.sample, kPalMSamplesPerLine - 1);
+}
+
+TEST(DropoutUtil_PALM, RoundTrip) {
+  uint64_t original =
+      static_cast<uint64_t>(kPalMField1Lines + 30) * kPalMSamplesPerLine + 444;
+  auto fls = frame_sample_to_field_line(VideoSystem::PAL_M, original);
+  uint64_t reconstructed =
+      field_line_to_frame_sample(VideoSystem::PAL_M, fls.field, fls.line, fls.sample);
+  EXPECT_EQ(reconstructed, original);
+}
+
+// ---------------------------------------------------------------------------
+// PAL — non-orthogonal, 4 lines with 1136 samples
+// ---------------------------------------------------------------------------
+
+TEST(DropoutUtil_PAL, FirstSampleMapsToField1Line0Sample0) {
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, 0);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_PAL, LastSampleOfFirstLineIsCorrect) {
+  // Line 0 is normal (1135 samples); last sample at offset 1134.
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, 1134);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, 1134);
+}
+
+TEST(DropoutUtil_PAL, FirstSampleOfSecondLineIsCorrect) {
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, 1135);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 1);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_PAL, NonOrthogonalLine155HasExtraSample) {
+  // Line 155 starts at: 155 × 1135 = 175,925 (no extra lines before it).
+  // It has 1136 samples.  Its last sample is at offset 175,925 + 1135 = 177,060.
+  uint64_t line155_start = 155ULL * 1135;
+  uint64_t line155_last = line155_start + 1135;  // 1136 samples, last = +1135
+
+  auto r_first = frame_sample_to_field_line(VideoSystem::PAL, line155_start);
+  EXPECT_EQ(r_first.field, 1);
+  EXPECT_EQ(r_first.line, 155);
+  EXPECT_EQ(r_first.sample, 0);
+
+  auto r_last = frame_sample_to_field_line(VideoSystem::PAL, line155_last);
+  EXPECT_EQ(r_last.field, 1);
+  EXPECT_EQ(r_last.line, 155);
+  EXPECT_EQ(r_last.sample, 1135);
+}
+
+TEST(DropoutUtil_PAL, SampleAfterNonOrthogonalLine155IsLine156) {
+  // After line 155's last sample (offset 155×1135 + 1135), the next sample
+  // belongs to line 156 sample 0.
+  uint64_t line156_start = 155ULL * 1135 + 1136;  // 1 extra sample on line 155
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, line156_start);
+  EXPECT_EQ(r.field, 1);
+  EXPECT_EQ(r.line, 156);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_PAL, FirstSampleOfField2IsCorrect) {
+  // Field 1 has 313 lines: 311 normal (1135) + 2 extra-sample (1136).
+  // kPalExtraSampleLines field-1 entries: {155, 311}
+  uint64_t field1_samples =
+      static_cast<uint64_t>(kPalField1Lines - 2) * 1135 + 2 * 1136;
+  // = 311 × 1135 + 2 × 1136 = 352,985 + 2,272 = 355,257
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, field1_samples);
+  EXPECT_EQ(r.field, 2);
+  EXPECT_EQ(r.line, 0);
+  EXPECT_EQ(r.sample, 0);
+}
+
+TEST(DropoutUtil_PAL, LastFrameSampleIsCorrect) {
+  uint64_t last = kPalFrameSamples - 1;
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, last);
+  EXPECT_EQ(r.field, 2);
+  // Field 2 has 312 lines (kPalFrameLines - kPalField1Lines = 312).
+  EXPECT_EQ(r.line, kPalFrameLines - kPalField1Lines - 1);
+  EXPECT_EQ(r.sample, 1135);  // Last line (624) is non-orthogonal (1136 samples)
+}
+
+TEST(DropoutUtil_PAL, RoundTripNormalLine) {
+  // A normal line well before the first non-orthogonal position.
+  uint64_t original =
+      field_line_to_frame_sample(VideoSystem::PAL, /*field=*/1, /*line=*/100, /*sample=*/500);
+  auto fls = frame_sample_to_field_line(VideoSystem::PAL, original);
+  EXPECT_EQ(fls.field, 1);
+  EXPECT_EQ(fls.line, 100);
+  EXPECT_EQ(fls.sample, 500);
+}
+
+TEST(DropoutUtil_PAL, RoundTripNonOrthogonalLine311) {
+  // Line 311 in field 1 is non-orthogonal (1136 samples).
+  uint64_t original =
+      field_line_to_frame_sample(VideoSystem::PAL, /*field=*/1, /*line=*/311, /*sample=*/1135);
+  auto fls = frame_sample_to_field_line(VideoSystem::PAL, original);
+  EXPECT_EQ(fls.field, 1);
+  EXPECT_EQ(fls.line, 311);
+  EXPECT_EQ(fls.sample, 1135);
+}
+
+TEST(DropoutUtil_PAL, RoundTripField2NonOrthogonalLine) {
+  // Frame-flat line 624 = field 2, line 311 (0-indexed) = last field-2 line.
+  // It is non-orthogonal (624 = 313+311 = kPalExtraSampleLines[3]).
+  uint64_t original =
+      field_line_to_frame_sample(VideoSystem::PAL, /*field=*/2, /*line=*/311, /*sample=*/700);
+  auto fls = frame_sample_to_field_line(VideoSystem::PAL, original);
+  EXPECT_EQ(fls.field, 2);
+  EXPECT_EQ(fls.line, 311);
+  EXPECT_EQ(fls.sample, 700);
+}
+
+TEST(DropoutUtil_PAL, TotalFrameSampleCountConsistency) {
+  // The last frame-flat offset (kPalFrameSamples - 1) should round-trip.
+  uint64_t last = kPalFrameSamples - 1;
+  auto fls = frame_sample_to_field_line(VideoSystem::PAL, last);
+  uint64_t reconstructed =
+      field_line_to_frame_sample(VideoSystem::PAL, fls.field, fls.line, fls.sample);
+  EXPECT_EQ(reconstructed, last);
+}

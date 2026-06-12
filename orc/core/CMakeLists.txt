@@ -2,6 +2,7 @@ add_library(orc-core SHARED
     # Phase 1: Foundations
     field_id.cpp
     video_field_representation.cpp
+    dropout_util.cpp
     artifact.cpp
     dag_executor.cpp
     dag_field_renderer.cpp

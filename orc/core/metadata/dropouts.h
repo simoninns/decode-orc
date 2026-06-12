@@ -34,6 +34,10 @@
 // Note: Copied from the TBC library so the JSON handling code is local to the
 // application
 
+// Re-export the new frame-flat dropout descriptor so consumers that include
+// this header also get DropoutRun without an additional include.
+#include <dropout_run.h>
+
 #ifndef DROPOUTS_H
 #define DROPOUTS_H
 

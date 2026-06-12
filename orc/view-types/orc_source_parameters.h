@@ -17,68 +17,101 @@
 
 namespace orc {
 
-/**
- * @brief Video parameters from TBC metadata
- *
- * Contains essential information about the video format, dimensions,
- * and technical parameters decoded from TBC files.
- */
+// ============================================================================
+// SourceParameters — CVBS_U10_4FSC signal geometry and level domain
+// ============================================================================
+// This struct carries the signal parameters that stages need to interpret
+// frame sample buffers correctly.  All level fields are in the
+// CVBS_U10_4FSC 10-bit domain (0–1023).
+//
+// Fields marked [DEPRECATED — Phase 1→4 migration] are retained only to keep
+// existing consumers compiling while they are migrated to the new fields in
+// subsequent phases.  They will be removed once all consumers have migrated.
 struct SourceParameters {
-  // Format
+  // ---------------------------------------------------------------------------
+  // Identity
+  // ---------------------------------------------------------------------------
   VideoSystem system = VideoSystem::Unknown;
-  bool is_subcarrier_locked = false;
   bool is_widescreen = false;
 
-  // Field/frame dimensions
-  int32_t field_width = -1;
-  int32_t field_height = -1;
-  int32_t number_of_sequential_fields = -1;
+  // ---------------------------------------------------------------------------
+  // Frame geometry (CVBS_U10_4FSC domain)
+  // ---------------------------------------------------------------------------
 
-  // Field ordering
-  bool is_first_field_first =
-      true;  // True if frame N uses fields (N*2-1, N*2), false if (N*2, N*2-1)
+  // Nominal samples per line (1135 PAL, 910 NTSC, 909 PAL_M).
+  // PAL frames may have up to 4 lines with one extra sample.
+  int32_t frame_width_nominal = -1;
 
-  // Sample ranges
-  int32_t colour_burst_start = -1;
-  int32_t colour_burst_end = -1;
+  // Total lines per frame (625 PAL, 525 NTSC/PAL_M).
+  int32_t frame_height = -1;
+
+  // Total number of frames available from this source.
+  int32_t number_of_sequential_frames = -1;
+
+  // ---------------------------------------------------------------------------
+  // Signal levels (CVBS_U10_4FSC 10-bit domain)
+  // ---------------------------------------------------------------------------
+  // Spec-defined normative values are in cvbs_signal_constants.h.
+  // These fields hold the values actually used by this source; for standard
+  // signals they equal the spec constants.  has_nonstandard_values is set when
+  // they differ.
+
+  int32_t sync_tip_level = -1;   // Sync tip (e.g., kPalSyncTip = 4)
+  int32_t blanking_level = -1;   // Blanking / 0 IRE (e.g., kPalBlanking = 256)
+  int32_t black_level = -1;      // Black level (e.g., kPalBlack = 282)
+  int32_t white_level = -1;      // White / 100 IRE (e.g., kPalWhite = 844)
+  int32_t peak_level = -1;       // Peak white (e.g., kPalPeak = 1019)
+
+  // True when black_level or white_level differs from the spec-defined
+  // constant for this system (e.g., NTSC-J, or a video_params override).
+  bool has_nonstandard_values = false;
+
+  // ---------------------------------------------------------------------------
+  // Active picture geometry
+  // ---------------------------------------------------------------------------
+  // Sample offsets within each line for the active video region.
   int32_t active_video_start = -1;
   int32_t active_video_end = -1;
 
-  // Active line ranges (field-based)
-  int32_t first_active_field_line = -1;
-  int32_t last_active_field_line = -1;
-
-  // Active line ranges (frame-based, interlaced)
+  // 0-based frame-flat line indices for the active picture area.
   int32_t first_active_frame_line = -1;
   int32_t last_active_frame_line = -1;
 
-  // IRE levels (16-bit)
-  int32_t blanking_16b_ire = -1;  // 0 IRE (blanking/pedestal level)
-  int32_t black_16b_ire =
-      -1;  // Black level (typically 7.5 IRE for NTSC, 0 IRE for PAL)
-  int32_t white_16b_ire = -1;  // White level (100 IRE)
-
-  // Sample rate (Hz)
-  double sample_rate = -1.0;
-
-  // Color subcarrier frequency (Hz)
-  double fsc = -1.0;
-
-  // Mapping and format
+  // ---------------------------------------------------------------------------
+  // Source metadata
+  // ---------------------------------------------------------------------------
   bool is_mapped = false;
   std::string tape_format;
-
-  // Source information
-  std::string decoder;  // Decoder used (e.g., "ld-decode", "vhs-decode")
+  std::string decoder;    // e.g., "ld-decode", "vhs-decode"
   std::string git_branch;
   std::string git_commit;
 
-  // Active area cropping flag - when true, decoders should write to 0-based
-  // ComponentFrame
+  // True when active_video_start/end and first/last_active_frame_line have
+  // been applied as a crop.  Decoder output stages write to 0-based
+  // ComponentFrame coordinates when this is set.
   bool active_area_cropping_applied = false;
 
+  // ---------------------------------------------------------------------------
+  // DEPRECATED — retained for compilation while consumers migrate to the
+  // CVBS_U10_4FSC field set above.  Will be removed in Phase 4.
+  // ---------------------------------------------------------------------------
+  bool is_subcarrier_locked = false;
+  int32_t field_width = -1;
+  int32_t field_height = -1;
+  int32_t number_of_sequential_fields = -1;
+  bool is_first_field_first = true;
+  int32_t colour_burst_start = -1;
+  int32_t colour_burst_end = -1;
+  int32_t first_active_field_line = -1;
+  int32_t last_active_field_line = -1;
+  int32_t blanking_16b_ire = -1;
+  int32_t black_16b_ire = -1;
+  int32_t white_16b_ire = -1;
+  double sample_rate = -1.0;
+  double fsc = -1.0;
+
   bool is_valid() const {
-    return system != VideoSystem::Unknown && field_width > 0;
+    return system != VideoSystem::Unknown && frame_width_nominal > 0;
   }
 };
 

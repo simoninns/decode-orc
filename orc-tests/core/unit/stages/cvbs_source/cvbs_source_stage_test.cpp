@@ -1,10 +1,12 @@
 /*
  * File:        cvbs_source_stage_test.cpp
  * Module:      orc-tests/core/unit/stages/cvbs_source
- * Purpose:     Unit tests for the PAL and NTSC CVBS source stages
+ * Purpose:     Unit tests for PAL, NTSC, and PAL_M CVBS source stages
  *
- * Tests stage contract, validation, decode behavior, preview/report support,
- * and PAL/NTSC concrete stage selection.
+ * Tests: stage identity, signal state validation, encoding normalisation,
+ * SourceParameters from spec constants, colour burst phase measurement,
+ * sidecar loading (dropout / audio / EFM / AC3), and NTSC-J black level.
+ * All I/O is fully mocked through ICVBSSourceStageDeps.
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Simon Inns
@@ -14,44 +16,153 @@
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "../../../../orc/common/include/common_types.h"
 #include "../../../../orc/common/include/error_types.h"
 #include "../../../../orc/common/include/parameter_types.h"
+#include "../../../../orc/core/include/cvbs_signal_constants.h"
+#include "../../../../orc/core/include/dropout_run.h"
 #include "../../../../orc/core/include/observation_context.h"
+#include "../../../../orc/core/include/video_frame_representation.h"
 
 namespace orc {
 namespace tests {
 
 namespace {
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Build a payload where every sample = blanking (normalised output = blanking).
+// Encoded as CVBS_U16_4FSC (blanking × 64).
+std::vector<uint16_t> make_blank_payload_u16(size_t word_count,
+                                              int32_t blanking_10bit) {
+  return std::vector<uint16_t>(
+      word_count, static_cast<uint16_t>(blanking_10bit * 64));
+}
+
+// Build a PAL frame payload (CVBS_U10_4FSC) with a colour burst at the
+// reference position (line 9, sample 93) at the given phase angle (degrees).
+// All other samples are at PAL blanking level (256).
+// Burst amplitude: amp ADU.  40 burst samples are written.
+std::vector<uint16_t> make_pal_frame_with_burst_u10(
+    double burst_phase_deg, int32_t amp) {
+  const size_t frame_words = static_cast<size_t>(kPalFrameSamples);
+  // Initialise at blanking level 256 encoded as int16_t in uint16_t bit-pattern.
+  const int16_t blanking = static_cast<int16_t>(kPalBlanking);
+  std::vector<uint16_t> words(frame_words,
+                               static_cast<uint16_t>(blanking));
+
+  // Offset of line 9 in the flat frame buffer: lines 0-8 each have 1135
+  // samples (none is a kPalExtraSampleLines line within 0..8).
+  // kPalExtraSampleLines = {155, 311, 468, 624} — all > 8.
+  const size_t line9_offset = static_cast<size_t>(9 * (kPalMaxSamplesPerLine - 1));
+  const size_t burst_abs_offset = line9_offset + 93;
+
+  // burst[n] = blanking + amp * cos((burst_abs_offset+n)*90° + burst_phase)
+  // Encoded as int16_t in the CVBS_U10_4FSC domain (uint16_t bit-pattern).
+  const double phi_rad = burst_phase_deg * (M_PI / 180.0);
+  for (int n = 0; n < 40; ++n) {
+    const double carrier_phase =
+        static_cast<double>((burst_abs_offset + static_cast<size_t>(n)) % 4) *
+        (M_PI / 2.0);
+    const double sample =
+        static_cast<double>(kPalBlanking) +
+        static_cast<double>(amp) * std::cos(carrier_phase + phi_rad);
+    const int16_t val = static_cast<int16_t>(std::lround(sample));
+    words[burst_abs_offset + static_cast<size_t>(n)] =
+        static_cast<uint16_t>(val);
+  }
+
+  return words;
+}
+
+// Build an NTSC frame payload (CVBS_U10_4FSC) with a colour burst at the
+// reference position (line 9, sample 74).
+std::vector<uint16_t> make_ntsc_frame_with_burst_u10(double burst_phase_deg,
+                                                      int32_t amp) {
+  const size_t frame_words = static_cast<size_t>(kNtscFrameSamples);
+  const int16_t blanking = static_cast<int16_t>(kNtscBlanking);
+  std::vector<uint16_t> words(frame_words, static_cast<uint16_t>(blanking));
+
+  const size_t line9_offset =
+      static_cast<size_t>(9 * kNtscSamplesPerLine);
+  const size_t burst_abs = line9_offset + 74;
+
+  const double phi_rad = burst_phase_deg * (M_PI / 180.0);
+  for (int n = 0; n < 40; ++n) {
+    const double carrier_phase =
+        static_cast<double>((burst_abs + static_cast<size_t>(n)) % 4) *
+        (M_PI / 2.0);
+    const double sample =
+        static_cast<double>(kNtscBlanking) +
+        static_cast<double>(amp) * std::cos(carrier_phase + phi_rad);
+    const int16_t val = static_cast<int16_t>(std::lround(sample));
+    words[burst_abs + static_cast<size_t>(n)] = static_cast<uint16_t>(val);
+  }
+  return words;
+}
+
+// ---------------------------------------------------------------------------
+// FakeCVBSSourceStageDeps — fully in-memory fake, no I/O
+// ---------------------------------------------------------------------------
+
 class FakeCVBSSourceStageDeps final : public ICVBSSourceStageDeps {
  public:
+  // --- validation ---
   bool input_file_valid = true;
   std::string input_file_error = "Input file error";
 
+  // --- metadata ---
   bool metadata_available = true;
   std::string metadata_error = "Metadata read error";
-  CVBSMetadataRecord metadata_record{"PAL", "CVBS_U16_4FSC",
-                                     "STANDARD_TBC_LOCKED", "composite"};
+  CVBSMetadataRecord metadata_record{};
   mutable std::string last_metadata_path;
 
-  bool payload_available = true;
-  std::string payload_error = "Payload read error";
+  // --- payload words ---
   std::vector<uint16_t> payload_words;
 
-  FakeCVBSSourceStageDeps() {
-    // One full NTSC frame at blanking level in CVBS_U16_4FSC format.
-    payload_words.assign(static_cast<size_t>(910 * 525),
-                         static_cast<uint16_t>(240 * 64));
+  // --- dropout sidecar ---
+  std::vector<DropoutRun> dropout_runs;
+
+  // --- audio sidecar ---
+  std::optional<CVBSAudioSidecarInfo> audio_info;  // nullopt = absent
+  std::vector<int16_t> audio_samples;  // flat buffer of all stereo pairs
+
+  // --- EFM sidecar ---
+  std::optional<std::vector<CVBSExtensionFrameRef>> efm_table;
+  std::vector<uint8_t> efm_data;
+
+  // --- AC3 sidecar ---
+  std::optional<std::vector<CVBSExtensionFrameRef>> ac3_table;
+  std::vector<uint8_t> ac3_data;
+
+  explicit FakeCVBSSourceStageDeps(
+      const std::string& preset = "PAL",
+      const std::string& encoding = "CVBS_U16_4FSC") {
+    metadata_record.preset = preset;
+    metadata_record.sample_encoding_preset = encoding;
+    metadata_record.signal_state_preset = "STANDARD_TBC_LOCKED";
+    metadata_record.signal_type = "composite";
+    metadata_record.number_of_sequential_frames = 1;
+
+    // Default payload: one PAL frame at blanking in CVBS_U16_4FSC.
+    payload_words = make_blank_payload_u16(
+        static_cast<size_t>(kPalFrameSamples), kPalBlanking);
   }
 
-  bool validate_input_file(const std::string& input_path,
+  bool validate_input_file(const std::string& /*path*/,
                            std::string& error_message) const override {
-    (void)input_path;
     if (!input_file_valid) {
       error_message = input_file_error;
       return false;
@@ -60,7 +171,8 @@ class FakeCVBSSourceStageDeps final : public ICVBSSourceStageDeps {
   }
 
   std::optional<CVBSMetadataRecord> load_metadata(
-      const std::string& meta_path, std::string& error_message) const override {
+      const std::string& meta_path,
+      std::string& error_message) const override {
     last_metadata_path = meta_path;
     if (!metadata_available) {
       error_message = metadata_error;
@@ -70,26 +182,21 @@ class FakeCVBSSourceStageDeps final : public ICVBSSourceStageDeps {
   }
 
   std::optional<size_t> get_input_word_count(
-      const std::string& input_path,
+      const std::string& /*path*/,
       std::string& error_message) const override {
-    (void)input_path;
-    if (!payload_available) {
-      error_message = payload_error;
+    if (payload_words.empty()) {
+      error_message = "Empty payload";
       return std::nullopt;
     }
     return payload_words.size();
   }
 
-  bool read_input_words_at(const std::string& input_path, size_t word_offset,
-                           size_t word_count, std::vector<uint16_t>& out_words,
+  bool read_input_words_at(const std::string& /*path*/, size_t word_offset,
+                           size_t word_count,
+                           std::vector<uint16_t>& out_words,
                            std::string& error_message) const override {
-    (void)input_path;
-    if (!payload_available) {
-      error_message = payload_error;
-      return false;
-    }
     if (word_offset + word_count > payload_words.size()) {
-      error_message = "Read out of bounds in fake deps";
+      error_message = "Read out of bounds";
       return false;
     }
     out_words.assign(
@@ -98,908 +205,901 @@ class FakeCVBSSourceStageDeps final : public ICVBSSourceStageDeps {
             static_cast<std::ptrdiff_t>(word_offset + word_count));
     return true;
   }
+
+  std::vector<DropoutRun> load_dropout_sidecar(
+      const std::string& /*path*/,
+      std::string& /*error_message*/) const override {
+    return dropout_runs;
+  }
+
+  std::optional<CVBSAudioSidecarInfo> get_audio_info(
+      const std::string& /*path*/) const override {
+    return audio_info;
+  }
+
+  std::vector<int16_t> read_audio_samples_at(
+      const std::string& /*path*/, size_t stereo_pair_offset,
+      size_t stereo_pair_count) const override {
+    const size_t start = stereo_pair_offset * 2;
+    const size_t end =
+        std::min(start + stereo_pair_count * 2, audio_samples.size());
+    if (start >= audio_samples.size()) return {};
+    return std::vector<int16_t>(audio_samples.begin() + static_cast<std::ptrdiff_t>(start),
+                                audio_samples.begin() + static_cast<std::ptrdiff_t>(end));
+  }
+
+  std::optional<std::vector<CVBSExtensionFrameRef>> load_efm_frame_table(
+      const std::string& /*path*/,
+      std::string& /*error_message*/) const override {
+    return efm_table;
+  }
+
+  std::vector<uint8_t> read_efm_bytes_at(const std::string& /*path*/,
+                                          uint64_t byte_offset,
+                                          uint32_t count) const override {
+    const size_t start = static_cast<size_t>(byte_offset);
+    const size_t end = std::min(start + count, efm_data.size());
+    if (start >= efm_data.size()) return {};
+    return std::vector<uint8_t>(efm_data.begin() + static_cast<std::ptrdiff_t>(start),
+                                efm_data.begin() + static_cast<std::ptrdiff_t>(end));
+  }
+
+  std::optional<std::vector<CVBSExtensionFrameRef>> load_ac3_frame_table(
+      const std::string& /*path*/,
+      std::string& /*error_message*/) const override {
+    return ac3_table;
+  }
+
+  std::vector<uint8_t> read_ac3_bytes_at(const std::string& /*path*/,
+                                          uint64_t byte_offset,
+                                          uint32_t count) const override {
+    const size_t start = static_cast<size_t>(byte_offset);
+    const size_t end = std::min(start + count, ac3_data.size());
+    if (start >= ac3_data.size()) return {};
+    return std::vector<uint8_t>(ac3_data.begin() + static_cast<std::ptrdiff_t>(start),
+                                ac3_data.begin() + static_cast<std::ptrdiff_t>(end));
+  }
 };
 
-void expect_user_data_error_contains(
-    DAGStage& stage, const std::map<std::string, ParameterValue>& parameters,
-    const std::string& expected_substring) {
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+VideoFrameRepresentationPtr execute_and_get_vfr(
+    DAGStage& stage,
+    const std::map<std::string, ParameterValue>& params) {
   std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
+  ObservationContext obs;
+  auto results = stage.execute(inputs, params, obs);
+  EXPECT_EQ(results.size(), 1u);
+  if (results.empty()) return nullptr;
+  return std::dynamic_pointer_cast<VideoFrameRepresentation>(results.front());
+}
+
+void expect_user_data_error(DAGStage& stage,
+                             const std::map<std::string, ParameterValue>& params,
+                             const std::string& msg_fragment) {
+  std::vector<ArtifactPtr> inputs;
+  ObservationContext obs;
   try {
-    (void)stage.execute(inputs, parameters, observation_context);
-    FAIL() << "Expected UserDataError containing: " << expected_substring;
-  } catch (const UserDataError& error) {
-    EXPECT_NE(std::string(error.what()).find(expected_substring),
-              std::string::npos)
-        << "Actual error: " << error.what();
+    stage.execute(inputs, params, obs);
+    ADD_FAILURE() << "Expected UserDataError containing: " << msg_fragment;
+  } catch (const UserDataError& e) {
+    EXPECT_NE(std::string(e.what()).find(msg_fragment), std::string::npos)
+        << "Actual error: " << e.what();
   }
 }
+
+const std::map<std::string, ParameterValue> kDefaultParams{
+    {"input_path", std::string("/fake/video.composite")}};
 
 }  // namespace
 
-/**
- * @class CVBSSourceContractTest
- * @brief Tests contract and behavior for CVBS source stages
- *
- * Verifies:
- * - Stage identity and node type information
- * - Parameter descriptor structure and validation constraints
- * - Parameter getter/setter mechanism
- * - Manual mode parameter validation
- * - Metadata mode path validation framework
- * - Output contract (no implementation yet)
- */
-class CVBSSourceContractTest : public ::testing::Test {
- protected:
-  CVBSSourceContractTest() = default;
+// ===========================================================================
+// Stage identity
+// ===========================================================================
 
-  std::shared_ptr<PALCVBSSourceStage> stage_ =
-      std::make_shared<PALCVBSSourceStage>();
-};
-
-// ====================
-// Stage Identity Tests
-// ====================
-
-TEST_F(CVBSSourceContractTest, StageIdentity_HasCorrectNodeType) {
-  auto node_type = stage_->get_node_type_info();
-
-  // Verify node type
-  EXPECT_EQ(node_type.type, NodeType::SOURCE);
-  EXPECT_EQ(node_type.stage_name, "PAL_CVBS_Source");
-  EXPECT_EQ(node_type.display_name, "PAL CVBS Source");
-
-  // Verify connectivity
-  EXPECT_EQ(node_type.min_inputs, 0);
-  EXPECT_EQ(node_type.max_inputs, 0);
-  EXPECT_EQ(node_type.min_outputs, 1);
+TEST(CVBSSourceStageIdentityTest, PAL_HasCorrectStageName) {
+  PALCVBSSourceStage stage;
+  EXPECT_EQ(stage.get_node_type_info().stage_name, "PAL_CVBS_Source");
 }
 
-TEST_F(CVBSSourceContractTest, StageIdentity_HasVersion) {
-  EXPECT_EQ(stage_->version(), "1.0.0");
-}
-
-TEST_F(CVBSSourceContractTest, Stage_IdentityZeroRequiredInputs) {
-  EXPECT_EQ(stage_->required_input_count(), 0);
-}
-
-// ====================
-// Parameter Definition Tests
-// ====================
-
-TEST_F(CVBSSourceContractTest, Parameters_InputPathDescriptor) {
-  auto descriptors = stage_->get_parameter_descriptors();
-  ASSERT_GT(descriptors.size(), 0);
-
-  // Find input_path parameter
-  auto input_path_it = std::find_if(
-      descriptors.begin(), descriptors.end(),
-      [](const ParameterDescriptor& d) { return d.name == "input_path"; });
-  ASSERT_NE(input_path_it, descriptors.end());
-
-  const auto& desc = *input_path_it;
-  EXPECT_EQ(desc.name, "input_path");
-  EXPECT_EQ(desc.display_name, "CVBS File Path");
-  EXPECT_EQ(desc.type, ParameterType::FILE_PATH);
-  EXPECT_FALSE(desc.constraints.required);
-  EXPECT_EQ(desc.file_extension_hint, ".composite");
-  if (!desc.constraints.default_value.has_value()) {
-    FAIL() << "Expected default_value to have a value";
-    return;
-  }
-  EXPECT_EQ(std::get<std::string>(*desc.constraints.default_value), "");
-}
-
-TEST_F(CVBSSourceContractTest, Parameters_UseMetadataDescriptor) {
-  auto descriptors = stage_->get_parameter_descriptors();
-
-  // Find use_metadata parameter
-  auto use_metadata_it = std::find_if(
-      descriptors.begin(), descriptors.end(),
-      [](const ParameterDescriptor& d) { return d.name == "use_metadata"; });
-  ASSERT_NE(use_metadata_it, descriptors.end());
-
-  const auto& desc = *use_metadata_it;
-  EXPECT_EQ(desc.name, "use_metadata");
-  EXPECT_EQ(desc.display_name, "Use Metadata");
-  EXPECT_EQ(desc.type, ParameterType::BOOL);
-  EXPECT_FALSE(desc.constraints.required);
-  if (!desc.constraints.default_value.has_value()) {
-    FAIL() << "Expected default_value to have a value";
-    return;
-  }
-  EXPECT_EQ(std::get<bool>(*desc.constraints.default_value), true);
-}
-
-TEST_F(CVBSSourceContractTest, Parameters_SampleEncodingDescriptor) {
-  auto descriptors = stage_->get_parameter_descriptors();
-
-  // Find sample_encoding parameter
-  auto encoding_it = std::find_if(
-      descriptors.begin(), descriptors.end(),
-      [](const ParameterDescriptor& d) { return d.name == "sample_encoding"; });
-  ASSERT_NE(encoding_it, descriptors.end());
-
-  const auto& desc = *encoding_it;
-  EXPECT_EQ(desc.name, "sample_encoding");
-  EXPECT_EQ(desc.display_name, "Sample Encoding");
-  EXPECT_EQ(desc.type, ParameterType::STRING);
-  EXPECT_FALSE(desc.constraints.required);
-  if (!desc.constraints.default_value.has_value()) {
-    FAIL() << "Expected default_value to have a value";
-    return;
-  }
-  EXPECT_EQ(std::get<std::string>(*desc.constraints.default_value),
-            "CVBS_U16_4FSC");
-
-  // Verify allowed values
-  ASSERT_EQ(desc.constraints.allowed_strings.size(), 3);
-  EXPECT_TRUE(std::find(desc.constraints.allowed_strings.begin(),
-                        desc.constraints.allowed_strings.end(),
-                        "CVBS_U16_4FSC") !=
-              desc.constraints.allowed_strings.end());
-  EXPECT_TRUE(std::find(desc.constraints.allowed_strings.begin(),
-                        desc.constraints.allowed_strings.end(),
-                        "CVBS_TPG21_4FSC") !=
-              desc.constraints.allowed_strings.end());
-  EXPECT_TRUE(std::find(desc.constraints.allowed_strings.begin(),
-                        desc.constraints.allowed_strings.end(),
-                        "CVBS_S16_FSC") !=
-              desc.constraints.allowed_strings.end());
-}
-
-TEST_F(CVBSSourceContractTest, Parameters_SampleEncodingDependsOnUseMetadata) {
-  auto descriptors = stage_->get_parameter_descriptors();
-
-  auto encoding_it = std::find_if(
-      descriptors.begin(), descriptors.end(),
-      [](const ParameterDescriptor& d) { return d.name == "sample_encoding"; });
-  ASSERT_NE(encoding_it, descriptors.end());
-
-  const auto& desc = *encoding_it;
-  ASSERT_TRUE(desc.constraints.depends_on.has_value());
-  EXPECT_EQ(desc.constraints.depends_on->parameter_name, "use_metadata");
-  ASSERT_EQ(desc.constraints.depends_on->required_values.size(), 1u);
-  EXPECT_EQ(desc.constraints.depends_on->required_values.front(), "false");
-  // Must gray out, not hide, so the user can see the control is ignored.
-  EXPECT_FALSE(desc.constraints.depends_on->hide_when_disabled);
-}
-
-TEST_F(CVBSSourceContractTest, Parameters_HasExactlyThreeParameters) {
-  auto descriptors = stage_->get_parameter_descriptors();
-
-  EXPECT_EQ(descriptors.size(), 3);
-
-  // Verify all parameter names
-  std::set<std::string> param_names;
-  for (const auto& desc : descriptors) {
-    param_names.insert(desc.name);
-  }
-  EXPECT_EQ(param_names.size(), 3);
-  EXPECT_TRUE(param_names.count("input_path"));
-  EXPECT_TRUE(param_names.count("use_metadata"));
-  EXPECT_TRUE(param_names.count("sample_encoding"));
-}
-
-// ====================
-// Parameter Setter/Getter Tests
-// ====================
-
-TEST_F(CVBSSourceContractTest, Parameter_SetGetInputPath) {
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/path/to/file.cvbs");
-
-  EXPECT_TRUE(stage_->set_parameters(params));
-
-  auto retrieved = stage_->get_parameters();
-  EXPECT_EQ(std::get<std::string>(retrieved["input_path"]),
-            "/path/to/file.cvbs");
-}
-
-TEST_F(CVBSSourceContractTest, Parameter_SetGetUseMetadata) {
-  std::map<std::string, ParameterValue> params;
-  params["use_metadata"] = true;
-
-  EXPECT_TRUE(stage_->set_parameters(params));
-
-  auto retrieved = stage_->get_parameters();
-  EXPECT_TRUE(std::get<bool>(retrieved["use_metadata"]));
-}
-
-TEST_F(CVBSSourceContractTest, Parameter_SetGetSampleEncoding) {
-  std::map<std::string, ParameterValue> params;
-  params["sample_encoding"] = std::string("CVBS_TPG21_4FSC");
-
-  EXPECT_TRUE(stage_->set_parameters(params));
-
-  auto retrieved = stage_->get_parameters();
-  EXPECT_EQ(std::get<std::string>(retrieved["sample_encoding"]),
-            "CVBS_TPG21_4FSC");
-}
-
-TEST_F(CVBSSourceContractTest, Parameter_SetGetAllParameters) {
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/path/to/cvbs.cvbs");
-  params["use_metadata"] = true;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  EXPECT_TRUE(stage_->set_parameters(params));
-
-  auto retrieved = stage_->get_parameters();
-  EXPECT_EQ(std::get<std::string>(retrieved["input_path"]),
-            "/path/to/cvbs.cvbs");
-  EXPECT_TRUE(std::get<bool>(retrieved["use_metadata"]));
-  EXPECT_EQ(std::get<std::string>(retrieved["sample_encoding"]),
-            "CVBS_U16_4FSC");
-}
-
-// ====================
-// Manual Mode Validation Tests
-// ====================
-
-TEST_F(CVBSSourceContractTest, Manual_ModeValidationValidPALStageU16) {
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/valid/path.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  EXPECT_TRUE(stage_->set_parameters(params));
-  // Execution will throw UserDataError with clear message (Phase 2 not
-  // implemented)
-}
-
-TEST(CVBSSourceNTSCContractTest, Manual_ModeValidationValidNTSCStageTPG21) {
+TEST(CVBSSourceStageIdentityTest, NTSC_HasCorrectStageName) {
   NTSCCVBSSourceStage stage;
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/valid/path.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_TPG21_4FSC");
-
-  EXPECT_TRUE(stage.set_parameters(params));
+  EXPECT_EQ(stage.get_node_type_info().stage_name, "NTSC_CVBS_Source");
 }
 
-TEST_F(CVBSSourceContractTest, Manual_ModeValidationInvalidSampleEncoding) {
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/path.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_INVALID_ENCODING");
-
-  EXPECT_TRUE(stage_->set_parameters(params));
-  // Execute should fail with validation error
+TEST(CVBSSourceStageIdentityTest, PALM_HasCorrectStageName) {
+  PALMCVBSSourceStage stage;
+  EXPECT_EQ(stage.get_node_type_info().stage_name, "PALM_CVBS_Source");
 }
 
-TEST(CVBSSourceValidationTest,
-     ManualMode_RejectsInvalidSampleEncodingAtExecute) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+TEST(CVBSSourceStageIdentityTest, PAL_NodeTypeIsSource) {
+  PALCVBSSourceStage stage;
+  EXPECT_EQ(stage.get_node_type_info().type, NodeType::SOURCE);
+}
+
+TEST(CVBSSourceStageIdentityTest, Stage_RequiredInputCountIsZero) {
+  PALCVBSSourceStage stage;
+  EXPECT_EQ(stage.required_input_count(), 0u);
+}
+
+TEST(CVBSSourceStageIdentityTest, Stage_VersionIsCurrentPhase) {
+  PALCVBSSourceStage stage;
+  EXPECT_EQ(stage.version(), "2.0.0");
+}
+
+// ===========================================================================
+// Parameter descriptors
+// ===========================================================================
+
+TEST(CVBSSourceStageParamTest, HasExactlyOneParameter) {
+  PALCVBSSourceStage stage;
+  auto descs = stage.get_parameter_descriptors();
+  ASSERT_EQ(descs.size(), 1u);
+  EXPECT_EQ(descs[0].name, "input_path");
+}
+
+TEST(CVBSSourceStageParamTest, InputPath_IsFilePathType) {
+  PALCVBSSourceStage stage;
+  auto descs = stage.get_parameter_descriptors();
+  EXPECT_EQ(descs[0].type, ParameterType::FILE_PATH);
+}
+
+TEST(CVBSSourceStageParamTest, InputPath_DefaultIsEmptyString) {
+  PALCVBSSourceStage stage;
+  auto descs = stage.get_parameter_descriptors();
+  ASSERT_TRUE(descs[0].constraints.default_value.has_value());
+  EXPECT_EQ(std::get<std::string>(*descs[0].constraints.default_value), "");
+}
+
+TEST(CVBSSourceStageParamTest, SetGet_InputPath_RoundTrips) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_INVALID_ENCODING");
-
-  expect_user_data_error_contains(stage, params, "Invalid sample_encoding");
+  std::map<std::string, ParameterValue> p{
+      {"input_path", std::string("/test/video.composite")}};
+  ASSERT_TRUE(stage.set_parameters(p));
+  auto got = stage.get_parameters();
+  EXPECT_EQ(std::get<std::string>(got["input_path"]), "/test/video.composite");
 }
 
-// ====================
-// Metadata Mode Tests (Phase 1 Framework Only)
-// ====================
-
-TEST(CVBSSourceValidationTest, MetadataMode_ConstructsBasenameMetaPath) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+TEST(CVBSSourceStageParamTest, SetParameters_RejectsUnknownKey) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/path/to/video.composite");
-  params["use_metadata"] = true;
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  EXPECT_THROW((void)stage.execute(inputs, params, observation_context),
-               UserDataError);
-  EXPECT_EQ(deps->last_metadata_path, "/path/to/video.meta");
+  std::map<std::string, ParameterValue> p{{"no_such_param", std::string("x")}};
+  EXPECT_FALSE(stage.set_parameters(p));
 }
 
-TEST(CVBSSourceValidationTest, MetadataMode_RejectsUnsupportedPreset) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record.preset = "PAL_M";
+// ===========================================================================
+// Signal state validation
+// ===========================================================================
+
+TEST(CVBSSourceStageValidationTest, RejectsNonTBCLockedState) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->metadata_record.signal_state_preset = "FREE_RUNNING";
   PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
-  expect_user_data_error_contains(stage, params, "Unsupported metadata preset");
+  expect_user_data_error(stage, kDefaultParams, "STANDARD_TBC_LOCKED");
 }
 
-TEST(CVBSSourceValidationTest, MetadataMode_RejectsUnsupportedSampleEncoding) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record.sample_encoding_preset = "CVBS_U10_4FSC";
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
-  expect_user_data_error_contains(
-      stage, params, "Unsupported metadata sample_encoding_preset");
-}
-
-TEST(CVBSSourceValidationTest, MetadataMode_RejectsUnsupportedSignalState) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record.signal_state_preset = "STANDARD_TBC_UNLOCKED";
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
-  expect_user_data_error_contains(stage, params,
-                                  "Unsupported metadata signal_state_preset");
-}
-
-TEST(CVBSSourceValidationTest, MetadataMode_RejectsNonCompositeSignalType) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record.signal_type = "yc";
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
-  expect_user_data_error_contains(stage, params,
-                                  "Unsupported metadata signal_type");
-}
-
-TEST(CVBSSourceValidationTest, MetadataMode_SurfacesMetadataReadFailure) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+TEST(CVBSSourceStageValidationTest, RejectsMissingMetadata) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   deps->metadata_available = false;
-  deps->metadata_error = "metadata backend unavailable";
   PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
-  expect_user_data_error_contains(stage, params,
-                                  "metadata backend unavailable");
+  expect_user_data_error(stage, kDefaultParams, "metadata");
 }
 
-TEST(CVBSSourceValidationTest, ManualMode_SurfacesInputValidationFailure) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
+TEST(CVBSSourceStageValidationTest, RejectsWrongVideoStandard) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->metadata_record.preset = "NTSC";  // wrong system for PAL stage
+  PALCVBSSourceStage stage(deps);
+  expect_user_data_error(stage, kDefaultParams, "NTSC");
+}
+
+TEST(CVBSSourceStageValidationTest, RejectsInvalidInputFile) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   deps->input_file_valid = false;
-  deps->input_file_error = "CVBS source file not found";
   PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  expect_user_data_error_contains(stage, params, "CVBS source file not found");
+  expect_user_data_error(stage, kDefaultParams, "Input file error");
 }
 
-TEST(CVBSSourceValidationTest,
-     MetadataModeValidMetadata_ProducesRepresentation) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record = CVBSMetadataRecord{
-      "NTSC", "CVBS_TPG21_4FSC", "STANDARD_TBC_LOCKED", "composite"};
-  const int16_t encoded = static_cast<int16_t>((300 - 508) * 64);
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(encoded));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
+TEST(CVBSSourceStageValidationTest, EmptyInputPath_ReturnsNoOutput) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
   std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-  EXPECT_EQ(representation->field_count(), 2u);
-
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(300 * 64));
+  ObservationContext obs;
+  std::map<std::string, ParameterValue> p{{"input_path", std::string("")}};
+  auto results = stage.execute(inputs, p, obs);
+  EXPECT_TRUE(results.empty());
 }
 
-TEST(CVBSSourceValidationTest, MetadataMode_AcceptsMatchingPalMetadata) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record = CVBSMetadataRecord{
-      "PAL", "CVBS_U16_4FSC", "STANDARD_TBC_LOCKED", "composite"};
-  deps->payload_words.assign(static_cast<size_t>(709379),
-                             static_cast<uint16_t>(256 * 64));
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.composite");
-  params["use_metadata"] = true;
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-  EXPECT_EQ(representation->field_count(), 2u);
-
-  const auto video_params = representation->get_video_parameters();
-  if (!video_params.has_value()) {
-    FAIL() << "Expected video_params to have a value";
-    return;
+TEST(CVBSSourceStageValidationTest, AcceptsAllFourSampleEncodings) {
+  for (const auto& enc :
+       {"CVBS_U10_4FSC", "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", "CVBS_S16_FSC"}) {
+    auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", enc);
+    // For U10 encoding, payload must be int16_t stored as uint16_t.
+    // Blanking=256 encoded as uint16_t bit-pattern of int16_t(256) = 256.
+    if (std::string(enc) == "CVBS_U10_4FSC") {
+      deps->payload_words.assign(
+          static_cast<size_t>(kPalFrameSamples),
+          static_cast<uint16_t>(kPalBlanking));
+    } else if (std::string(enc) == "CVBS_S16_FSC") {
+      // CVBS_S16_FSC: value=blanking stored as (value-blanking)*32 = 0.
+      deps->payload_words.assign(
+          static_cast<size_t>(kPalFrameSamples), 0u);
+    } else if (std::string(enc) == "CVBS_TPG21_4FSC") {
+      // CVBS_TPG21_4FSC: value=blanking stored as (value-508)*64 = (256-508)*64
+      const int16_t stored =
+          static_cast<int16_t>((kPalBlanking - 508) * 64);
+      deps->payload_words.assign(
+          static_cast<size_t>(kPalFrameSamples),
+          static_cast<uint16_t>(stored));
+    }
+    PALCVBSSourceStage stage(deps);
+    auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+    ASSERT_NE(vfr, nullptr) << "Failed for encoding: " << enc;
+    EXPECT_EQ(vfr->frame_count(), 1u) << "Failed for encoding: " << enc;
   }
-  EXPECT_EQ(video_params->system, VideoSystem::PAL);
-  EXPECT_EQ(video_params->field_width, 1135);
 }
 
-TEST(CVBSSourceValidationTest, MetadataMode_RejectsMismatchedVideoStandard) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record = CVBSMetadataRecord{
-      "NTSC", "CVBS_U16_4FSC", "STANDARD_TBC_LOCKED", "composite"};
-  PALCVBSSourceStage stage(deps);
+// ===========================================================================
+// Sample encoding normalisation
+// ===========================================================================
 
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.composite");
-  params["use_metadata"] = true;
+// Helper: decode one frame with a given encoding and return the decoded sample
+// value at a specific word index.
+int16_t decode_one_sample(const std::string& preset,
+                           uint16_t raw_word,
+                           const std::string& encoding,
+                           int32_t frame_samples) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>(preset, encoding);
+  deps->payload_words.assign(static_cast<size_t>(frame_samples), raw_word);
+  deps->metadata_record.sample_encoding_preset = encoding;
+  deps->metadata_record.number_of_sequential_frames = 1;
 
-  expect_user_data_error_contains(stage, params,
-                                  "Unsupported metadata preset 'NTSC'");
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_DecodesU16IntoCommonDomain) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(252 * 64));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  EXPECT_EQ(representation->field_count(), 2u);
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(252 * 64));
-
-  auto video_params = representation->get_video_parameters();
-  if (!video_params.has_value()) {
-    FAIL() << "Expected video_params to have a value";
-    return;
-  }
-  EXPECT_EQ(video_params->system, VideoSystem::NTSC);
-  EXPECT_EQ(video_params->field_width, 910);
-  EXPECT_EQ(video_params->number_of_sequential_fields, 2);
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_DecodesTPG21IntoCommonDomain) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  const int16_t encoded = static_cast<int16_t>((300 - 508) * 64);
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(encoded));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_TPG21_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(300 * 64));
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_DecodesS16FSCNtscIntoCommonDomain) {
-  // NTSC: blanking=240 (10-bit). Black level=252.
-  // CVBS_S16_FSC: int16 = (252 - 240) * 32 = 384.
-  // Expected internal domain: 252 * 64 = 16128.
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  const int16_t encoded = static_cast<int16_t>((252 - 240) * 32);
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(encoded));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_S16_FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(252 * 64));
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_DecodesS16FSCPalGeometry) {
-  // PAL: blanking=256 (10-bit). Black level=282.
-  // CVBS_S16_FSC: int16 = (282 - 256) * 32 = 832.
-  // PAL output goes through sinc resampling (fractional-line → uniform), so
-  // exact sample-level comparisons at frame boundaries are unreliable. Verify
-  // geometry and field count instead.
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  const int16_t encoded = static_cast<int16_t>((282 - 256) * 32);
-  deps->payload_words.assign(static_cast<size_t>(709379),
-                             static_cast<uint16_t>(encoded));
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_S16_FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  EXPECT_EQ(representation->field_count(), 2u);
-
-  auto video_params = representation->get_video_parameters();
-  ASSERT_TRUE(video_params.has_value());
-  EXPECT_EQ(video_params->system, VideoSystem::PAL);
-  EXPECT_EQ(video_params->field_width, 1135);
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_S16FSCBlankingMapsToCorrectInternalLevel) {
-  // NTSC: blanking=240. Encoded blanking = (240 - 240) * 32 = 0.
-  // Expected internal domain: 240 * 64 = 15360.
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(0));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_S16_FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(240 * 64));
-}
-
-TEST(CVBSSourceDecodeTest,
-     ManualMode_S16FSCSyncTipDecodesCorrectlyForNtsc) {
-  // NTSC: blanking=240, sync tip=16.
-  // CVBS_S16_FSC: int16 = (16 - 240) * 32 = -7168.
-  // Expected internal domain: 16 * 64 = 1024.
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  const int16_t encoded = static_cast<int16_t>((16 - 240) * 32);
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(encoded));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_S16_FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(16 * 64));
-}
-
-TEST(CVBSSourceValidationTest,
-     MetadataMode_AcceptsS16FSCSampleEncoding) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->metadata_record = CVBSMetadataRecord{
-      "NTSC", "CVBS_S16_FSC", "STANDARD_TBC_LOCKED", "composite"};
-  // NTSC: blanking=240. Encoded blanking = 0.
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(0));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = true;
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-  EXPECT_EQ(representation->field_count(), 2u);
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_ClampsLowTPG21SamplesIntoInternalDomain) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  const int16_t encoded_below_zero = static_cast<int16_t>(-509 * 64);
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(encoded_below_zero));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_TPG21_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto first_field = representation->get_field(FieldID(0));
-  ASSERT_FALSE(first_field.empty());
-  EXPECT_EQ(first_field.front(), static_cast<uint16_t>(0));
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_UsesPalFieldGeometry) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  // PAL frame: 355,257 (odd) + 354,122 (even) = 709,379 samples total
-  // Odd field: 311 lines @ 1135 samples + 2 fractional lines (156, 312) @ 1136
-  // = 355,257 Even field: 310 lines @ 1135 samples + 2 fractional lines (155,
-  // 311) @ 1136 = 354,122
-  deps->payload_words.assign(static_cast<size_t>(709379),
-                             static_cast<uint16_t>(256 * 64));
-  PALCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto desc0 = representation->get_descriptor(FieldID(0));
-  auto desc1 = representation->get_descriptor(FieldID(1));
-  if (!desc0.has_value() || !desc1.has_value()) {
-    FAIL() << "Expected both descriptors to have a value";
-    return;
-  }
-  EXPECT_EQ(desc0->width, 1135u);
-  EXPECT_EQ(desc0->height, 313u);
-  EXPECT_EQ(desc1->height, 312u);
-}
-
-TEST(CVBSSourceDecodeTest, ManualMode_DropsIncompleteFrameTail) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  const size_t ntsc_frame_samples = static_cast<size_t>(910 * 525);
-  deps->payload_words.assign(ntsc_frame_samples + 100,
-                             static_cast<uint16_t>(240 * 64));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-  EXPECT_EQ(representation->field_count(), 2u);
-}
-
-TEST(CVBSSourceDecodeTest,
-     ManualModeNtscDescriptorParity_MatchesTemporalOrder) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(240 * 64));
-  NTSCCVBSSourceStage stage(deps);
-
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-
-  ASSERT_EQ(result.size(), 1u);
-  auto representation =
-      std::dynamic_pointer_cast<VideoFieldRepresentation>(result.front());
-  ASSERT_TRUE(representation != nullptr);
-
-  auto desc0 = representation->get_descriptor(FieldID(0));
-  auto desc1 = representation->get_descriptor(FieldID(1));
-  if (!desc0.has_value() || !desc1.has_value()) {
-    FAIL() << "Expected both descriptors to have a value";
-    return;
+  std::shared_ptr<FixedFormatCVBSSourceStage> stage;
+  if (preset == "PAL") {
+    stage = std::make_shared<PALCVBSSourceStage>(deps);
+  } else if (preset == "NTSC") {
+    stage = std::make_shared<NTSCCVBSSourceStage>(deps);
+  } else {
+    stage = std::make_shared<PALMCVBSSourceStage>(deps);
   }
 
-  EXPECT_EQ(desc0->height, 263u);
-  EXPECT_EQ(desc1->height, 262u);
-  EXPECT_EQ(desc0->parity, FieldParity::Top);
-  EXPECT_EQ(desc1->parity, FieldParity::Bottom);
-
-  const auto parity0 = representation->get_field_parity_hint(FieldID(0));
-  const auto parity1 = representation->get_field_parity_hint(FieldID(1));
-  if (!parity0.has_value() || !parity1.has_value()) {
-    FAIL() << "Expected both parity hints to have a value";
-    return;
-  }
-  EXPECT_TRUE(parity0->is_first_field);
-  EXPECT_FALSE(parity1->is_first_field);
+  auto vfr = execute_and_get_vfr(*stage, kDefaultParams);
+  if (!vfr) return 0;
+  const auto* line = vfr->get_line(0, 0);
+  return line ? line[0] : 0;
 }
 
-// ====================
-// No-Input Tests
-// ====================
-
-TEST_F(CVBSSourceContractTest, ExecuteSourceStage_HasNoInputs) {
-  std::vector<ArtifactPtr> inputs;
-  std::map<std::string, ParameterValue> parameters;
-  // Empty file path -> no execution attempted
-  parameters["input_path"] = std::string("");
-
-  orc::ObservationContext observation_context;
-  auto result = stage_->execute(inputs, parameters, observation_context);
-  EXPECT_TRUE(result.empty());
+TEST(CVBSSourceEncodingTest, U10_IdentityTransform) {
+  // CVBS_U10_4FSC: raw uint16_t reinterpreted as int16_t.
+  const int16_t expected = 256;  // PAL blanking
+  const uint16_t raw = static_cast<uint16_t>(expected);
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_U10_4FSC", kPalFrameSamples),
+            expected);
 }
 
-// ====================
-// Empty Path Handling
-// ====================
-
-TEST_F(CVBSSourceContractTest, ExecuteEmptyInputPath_ReturnsEmpty) {
-  std::vector<ArtifactPtr> inputs;
-  std::map<std::string, ParameterValue> parameters;
-  parameters["input_path"] = std::string("");
-
-  orc::ObservationContext observation_context;
-  auto result = stage_->execute(inputs, parameters, observation_context);
-  EXPECT_EQ(result.size(), 0);
+TEST(CVBSSourceEncodingTest, U10_PreservesHeadroomAboveWhite) {
+  // Raw 1023 (just below peak) encoded as uint16_t bit-pattern of int16_t(1023).
+  const int16_t expected = 1023;
+  const uint16_t raw = static_cast<uint16_t>(expected);
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_U10_4FSC", kPalFrameSamples),
+            expected);
 }
 
-// ====================
-// Legacy Contract Behavior Tests
-// ====================
-
-TEST_F(CVBSSourceContractTest, ExecuteInvalidPath_SurfacesUserDataError) {
-  std::vector<ArtifactPtr> inputs;
-  std::map<std::string, ParameterValue> parameters;
-  parameters["input_path"] = std::string("/some/valid/path.cvbs");
-  parameters["use_metadata"] = false;
-  parameters["sample_encoding"] = std::string("CVBS_U16_4FSC");
-
-  orc::ObservationContext observation_context;
-  // Invalid filesystem path should still surface as UserDataError.
-  EXPECT_THROW(stage_->execute(inputs, parameters, observation_context),
-               UserDataError);
+TEST(CVBSSourceEncodingTest, U16_DividesBy64) {
+  // PAL blanking = 256. Stored as 256 * 64 = 16384.
+  const uint16_t raw = static_cast<uint16_t>(kPalBlanking * 64);
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_U16_4FSC", kPalFrameSamples),
+            static_cast<int16_t>(kPalBlanking));
 }
 
-TEST_F(CVBSSourceContractTest, Preview_EmptyBeforeExecute) {
-  EXPECT_FALSE(stage_->supports_preview());
-  EXPECT_TRUE(stage_->get_preview_options().empty());
+TEST(CVBSSourceEncodingTest, U16_WhiteLevelRoundtrips) {
+  const int32_t white_10bit = kPalWhite;
+  const uint16_t raw = static_cast<uint16_t>(white_10bit * 64);
+  EXPECT_EQ(
+      decode_one_sample("PAL", raw, "CVBS_U16_4FSC", kPalFrameSamples),
+      static_cast<int16_t>(kPalWhite));
 }
 
-TEST(CVBSSourcePreviewTest, Preview_AvailableAfterSuccessfulExecute) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  deps->payload_words.assign(static_cast<size_t>(910 * 525),
-                             static_cast<uint16_t>(252 * 64));
+TEST(CVBSSourceEncodingTest, TPG21_BlankingLevelRoundtrips) {
+  // CVBS_TPG21_4FSC: stored = (value - 508) * 64
+  const int32_t value = kPalBlanking;   // 256
+  const int16_t stored = static_cast<int16_t>((value - 508) * 64);
+  const uint16_t raw = static_cast<uint16_t>(stored);
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_TPG21_4FSC", kPalFrameSamples),
+            static_cast<int16_t>(kPalBlanking));
+}
+
+TEST(CVBSSourceEncodingTest, TPG21_WhiteLevelRoundtrips) {
+  const int32_t value = kPalWhite;  // 844
+  const int16_t stored = static_cast<int16_t>((value - 508) * 64);
+  const uint16_t raw = static_cast<uint16_t>(stored);
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_TPG21_4FSC", kPalFrameSamples),
+            static_cast<int16_t>(kPalWhite));
+}
+
+TEST(CVBSSourceEncodingTest, S16_BlankingLevelRoundtrips) {
+  // CVBS_S16_FSC: stored = (value - blanking) * 32. At blanking → stored = 0.
+  EXPECT_EQ(decode_one_sample("PAL", 0u, "CVBS_S16_FSC", kPalFrameSamples),
+            static_cast<int16_t>(kPalBlanking));
+}
+
+TEST(CVBSSourceEncodingTest, S16_WhiteLevelRoundtrips) {
+  // PAL white = 844; (844-256)*32 = 18816.
+  const int16_t stored = static_cast<int16_t>((kPalWhite - kPalBlanking) * 32);
+  const uint16_t raw = static_cast<uint16_t>(stored);
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_S16_FSC", kPalFrameSamples),
+            static_cast<int16_t>(kPalWhite));
+}
+
+// ===========================================================================
+// SourceParameters from spec constants
+// ===========================================================================
+
+TEST(CVBSSourceParamsTest, PAL_FrameWidthNominalIs1135) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto params = vfr->get_video_parameters();
+  ASSERT_TRUE(params.has_value());
+  EXPECT_EQ(params->frame_width_nominal, kPalMaxSamplesPerLine - 1);
+}
+
+TEST(CVBSSourceParamsTest, PAL_FrameHeightIs625) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto params = vfr->get_video_parameters();
+  ASSERT_TRUE(params.has_value());
+  EXPECT_EQ(params->frame_height, kPalFrameLines);
+}
+
+TEST(CVBSSourceParamsTest, PAL_LevelsMatchSpecConstants) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  EXPECT_EQ(p->sync_tip_level, kPalSyncTip);
+  EXPECT_EQ(p->blanking_level, kPalBlanking);
+  EXPECT_EQ(p->black_level, kPalBlack);
+  EXPECT_EQ(p->white_level, kPalWhite);
+  EXPECT_EQ(p->peak_level, kPalPeak);
+}
+
+TEST(CVBSSourceParamsTest, PAL_LevelsNotFromMetadata) {
+  // Even if metadata were to provide different level values, the source
+  // MUST populate SourceParameters from cvbs_signal_constants.h.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->metadata_record.ntsc_j_black_level = 200;  // only valid for NTSC
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  // PAL black level must always be the spec value.
+  EXPECT_EQ(p->black_level, kPalBlack);
+}
+
+TEST(CVBSSourceParamsTest, NTSC_LevelsMatchSpecConstants) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("NTSC");
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kNtscFrameSamples), kNtscBlanking);
   NTSCCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  EXPECT_EQ(p->sync_tip_level, kNtscSyncTip);
+  EXPECT_EQ(p->blanking_level, kNtscBlanking);
+  EXPECT_EQ(p->black_level, kNtscBlack);
+  EXPECT_EQ(p->white_level, kNtscWhite);
+  EXPECT_EQ(p->peak_level, kNtscPeak);
+}
 
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-  ASSERT_TRUE(stage.set_parameters(params));
+TEST(CVBSSourceParamsTest, PALM_FrameWidthIs909) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL_M");
+  deps->metadata_record.preset = "PAL_M";
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kPalMFrameSamples), kNtscBlanking);
+  PALMCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  EXPECT_EQ(p->frame_width_nominal, kPalMSamplesPerLine);
+}
 
+TEST(CVBSSourceParamsTest, FrameCountMatchesMetadata) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->metadata_record.number_of_sequential_frames = 3;
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kPalFrameSamples) * 3, kPalBlanking);
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_EQ(vfr->frame_count(), 3u);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  EXPECT_EQ(p->number_of_sequential_frames, 3);
+}
+
+// ===========================================================================
+// Colour burst phase measurement
+// ===========================================================================
+
+// PAL line 9 burst window: abs_offset = 9*1135 + 93 = 10308, phase_base = 0.
+// burst[n] = A * cos(n*90° + φ).  Measured angle = −φ (mod 360°).
+// PAL sectors: [0°,90°)→1, [90°,180°)→2, [180°,270°)→3, [270°,360°)→4.
+
+TEST(CVBSBurstPhaseTest, PAL_BurstAt315Deg_ColourFrameIndex1) {
+  // φ=315° → measured angle = 45° → sector 0 → index 1.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words = make_pal_frame_with_burst_u10(315.0, 100);
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, 1);
+}
+
+TEST(CVBSBurstPhaseTest, PAL_BurstAt225Deg_ColourFrameIndex2) {
+  // φ=225° → measured = 135° → sector 1 → index 2.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words = make_pal_frame_with_burst_u10(225.0, 100);
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, 2);
+}
+
+TEST(CVBSBurstPhaseTest, PAL_BurstAt135Deg_ColourFrameIndex3) {
+  // φ=135° → measured = 225° → sector 2 → index 3.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words = make_pal_frame_with_burst_u10(135.0, 100);
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, 3);
+}
+
+TEST(CVBSBurstPhaseTest, PAL_BurstAt45Deg_ColourFrameIndex4) {
+  // φ=45° → measured = 315° → sector 3 → index 4.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words = make_pal_frame_with_burst_u10(45.0, 100);
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, 4);
+}
+
+TEST(CVBSBurstPhaseTest, PAL_BurstAbsent_ColourFrameIndexUnknown) {
+  // All-blanking frame: no burst → colour_frame_index = -1.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples),
+                              static_cast<uint16_t>(kPalBlanking));
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, -1);
+}
+
+TEST(CVBSBurstPhaseTest, NTSC_BurstAt180Deg_ColourFrameIndex0) {
+  // NTSC frame A: burst phase 180° → measured 180° → [90°,270°) → index 0.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("NTSC", "CVBS_U10_4FSC");
+  deps->payload_words = make_ntsc_frame_with_burst_u10(180.0, 100);
+  NTSCCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, 0);
+}
+
+TEST(CVBSBurstPhaseTest, NTSC_BurstAt0Deg_ColourFrameIndex1) {
+  // NTSC frame B: burst phase 0° → measured 0° → not in [90°,270°) → index 1.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("NTSC", "CVBS_U10_4FSC");
+  deps->payload_words = make_ntsc_frame_with_burst_u10(0.0, 100);
+  NTSCCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->colour_frame_index, 1);
+}
+
+TEST(CVBSBurstPhaseTest, FramePhaseHint_MatchesColourFrameIndex) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words = make_pal_frame_with_burst_u10(315.0, 100);
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto hint = vfr->get_frame_phase_hint(0);
+  ASSERT_TRUE(hint.has_value());
+  EXPECT_EQ(*hint, 1);
+}
+
+// ===========================================================================
+// VFR navigation contract
+// ===========================================================================
+
+TEST(CVBSVFRTest, FrameRange_StartsAtZero) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  const auto range = vfr->frame_range();
+  EXPECT_EQ(range.first, 0u);
+  EXPECT_EQ(range.last, 1u);
+}
+
+TEST(CVBSVFRTest, HasFrame_TrueForValidFrameID) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_frame(0));
+  EXPECT_FALSE(vfr->has_frame(1));
+}
+
+TEST(CVBSVFRTest, GetFrameDescriptor_ReturnsCorrectHeight) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->height, static_cast<size_t>(kPalFrameLines));
+}
+
+TEST(CVBSVFRTest, GetFrameDescriptor_ReturnsCorrectSampleCount) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->samples_total, static_cast<size_t>(kPalFrameSamples));
+}
+
+TEST(CVBSVFRTest, GetFrame_ReturnsNonNullPointerForValidFrame) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_NE(vfr->get_frame(0), nullptr);
+  EXPECT_EQ(vfr->get_frame(1), nullptr);
+}
+
+TEST(CVBSVFRTest, GetLine_ReturnsNonNullForValidLine) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_NE(vfr->get_line(0, 0), nullptr);
+  EXPECT_NE(vfr->get_line(0, kPalFrameLines - 1), nullptr);
+  EXPECT_EQ(vfr->get_line(0, kPalFrameLines), nullptr);
+}
+
+TEST(CVBSVFRTest, GetFrameCopy_SizeMatchesFrameSamples) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto copy = vfr->get_frame_copy(0);
+  EXPECT_EQ(copy.size(), static_cast<size_t>(kPalFrameSamples));
+}
+
+TEST(CVBSVFRTest, PAL_Line0StartsAtOffset0) {
+  // PAL line 0 offset = 0 (first 1135-sample line).
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  // Store a sentinel value only at position 0.
+  deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples),
+                              static_cast<uint16_t>(kPalBlanking));
+  deps->payload_words[0] = static_cast<uint16_t>(500);  // sentinel
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  const auto* line0 = vfr->get_line(0, 0);
+  ASSERT_NE(line0, nullptr);
+  EXPECT_EQ(line0[0], int16_t{500});
+}
+
+// ===========================================================================
+// Execute() caches the representation
+// ===========================================================================
+
+TEST(CVBSSourceCacheTest, SecondExecuteReturnsSameArtifact) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
   std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-  ASSERT_EQ(result.size(), 1u);
+  ObservationContext obs;
+  auto r1 = stage.execute(inputs, kDefaultParams, obs);
+  auto r2 = stage.execute(inputs, kDefaultParams, obs);
+  ASSERT_EQ(r1.size(), 1u);
+  ASSERT_EQ(r2.size(), 1u);
+  EXPECT_EQ(r1.front().get(), r2.front().get());
+}
 
+// ===========================================================================
+// Sidecar: dropout
+// ===========================================================================
+
+TEST(CVBSSidecarDropoutTest, NoDropoutSidecar_GetDropoutHintsEmpty) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  // dropout_runs default = empty
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->get_dropout_hints(0).empty());
+}
+
+TEST(CVBSSidecarDropoutTest, WithDropoutRuns_HintsReturnedForCorrectFrame) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->metadata_record.number_of_sequential_frames = 2;
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kPalFrameSamples) * 2, kPalBlanking);
+
+  DropoutRun run0;
+  run0.frame_id = 0;
+  run0.sample_start = 100;
+  run0.sample_count = 50;
+  run0.severity = 1;
+  DropoutRun run1;
+  run1.frame_id = 1;
+  run1.sample_start = 200;
+  run1.sample_count = 20;
+  run1.severity = 2;
+  deps->dropout_runs = {run0, run1};
+
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+
+  auto hints0 = vfr->get_dropout_hints(0);
+  ASSERT_EQ(hints0.size(), 1u);
+  EXPECT_EQ(hints0[0].sample_start, 100u);
+
+  auto hints1 = vfr->get_dropout_hints(1);
+  ASSERT_EQ(hints1.size(), 1u);
+  EXPECT_EQ(hints1[0].sample_start, 200u);
+}
+
+// ===========================================================================
+// Sidecar: audio
+// ===========================================================================
+
+TEST(CVBSSidecarAudioTest, NoAudioSidecar_HasAudioFalse) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  // audio_info = nullopt (default)
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_FALSE(vfr->has_audio());
+  EXPECT_FALSE(vfr->audio_locked());
+}
+
+TEST(CVBSSidecarAudioTest, AudioPresent_FreeRunning_HasAudioTrue_LockedFalse) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->audio_info = CVBSAudioSidecarInfo{false};
+  deps->metadata_record.audio_locked = false;
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_audio());
+  EXPECT_FALSE(vfr->audio_locked());
+  EXPECT_TRUE(vfr->get_audio_samples(0).empty());
+}
+
+TEST(CVBSSidecarAudioTest, AudioPresent_FrameLocked_ReturnsCorrectSamples) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  deps->audio_info = CVBSAudioSidecarInfo{true};
+  deps->metadata_record.audio_locked = true;
+  // PAL: 1764 stereo pairs per frame = 3528 int16_t values.
+  deps->audio_samples.assign(3528, int16_t{42});
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_audio());
+  EXPECT_TRUE(vfr->audio_locked());
+  EXPECT_EQ(vfr->get_audio_sample_count(0), 1764u);
+  auto samples = vfr->get_audio_samples(0);
+  ASSERT_EQ(samples.size(), 3528u);
+  EXPECT_EQ(samples[0], int16_t{42});
+}
+
+// ===========================================================================
+// Sidecar: EFM
+// ===========================================================================
+
+TEST(CVBSSidecarEFMTest, NoEFMSidecar_HasEfmFalse) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  // efm_table = nullopt (default)
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_FALSE(vfr->has_efm());
+  EXPECT_EQ(vfr->get_efm_sample_count(0), 0u);
+  EXPECT_TRUE(vfr->get_efm_samples(0).empty());
+}
+
+TEST(CVBSSidecarEFMTest, WithEFMSidecar_ReturnsCorrectBytes) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  CVBSExtensionFrameRef ref0;
+  ref0.offset = 0;
+  ref0.count = 5;
+  deps->efm_table = std::vector<CVBSExtensionFrameRef>{ref0};
+  deps->efm_data = {0x01, 0x02, 0x03, 0x04, 0x05};
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_efm());
+  EXPECT_EQ(vfr->get_efm_sample_count(0), 5u);
+  auto bytes = vfr->get_efm_samples(0);
+  ASSERT_EQ(bytes.size(), 5u);
+  EXPECT_EQ(bytes[0], uint8_t{0x01});
+  EXPECT_EQ(bytes[4], uint8_t{0x05});
+}
+
+// ===========================================================================
+// Sidecar: AC3 RF
+// ===========================================================================
+
+TEST(CVBSSidecarAC3Test, NoAC3Sidecar_HasAc3False) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_FALSE(vfr->has_ac3_rf());
+  EXPECT_EQ(vfr->get_ac3_symbol_count(0), 0u);
+  EXPECT_TRUE(vfr->get_ac3_symbols(0).empty());
+}
+
+TEST(CVBSSidecarAC3Test, WithAC3Sidecar_ReturnsCorrectBytes) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  CVBSExtensionFrameRef ref0;
+  ref0.offset = 0;
+  ref0.count = 3;
+  deps->ac3_table = std::vector<CVBSExtensionFrameRef>{ref0};
+  deps->ac3_data = {0xAA, 0xBB, 0xCC};
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_ac3_rf());
+  EXPECT_EQ(vfr->get_ac3_symbol_count(0), 3u);
+  auto bytes = vfr->get_ac3_symbols(0);
+  ASSERT_EQ(bytes.size(), 3u);
+  EXPECT_EQ(bytes[1], uint8_t{0xBB});
+}
+
+// ===========================================================================
+// NTSC-J black level override
+// ===========================================================================
+
+TEST(CVBSNTSCJTest, NTSCWithBlackLevelOverride_FrameDescriptorHasOverride) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("NTSC");
+  deps->metadata_record.ntsc_j_black_level = 230;  // Japanese NTSC 0 IRE
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kNtscFrameSamples), kNtscBlanking);
+  NTSCCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  ASSERT_TRUE(desc->black_level_override.has_value());
+  EXPECT_EQ(*desc->black_level_override, 230);
+}
+
+TEST(CVBSNTSCJTest, NTSCWithBlackLevelOverride_SourceParamsHasNonstandardFlag) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("NTSC");
+  deps->metadata_record.ntsc_j_black_level = 230;
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kNtscFrameSamples), kNtscBlanking);
+  NTSCCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  EXPECT_TRUE(p->has_nonstandard_values);
+  EXPECT_EQ(p->black_level, 230);
+}
+
+TEST(CVBSNTSCJTest, NTSCWithoutBlackLevelOverride_UsesSpecDefault) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("NTSC");
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kNtscFrameSamples), kNtscBlanking);
+  NTSCCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  auto p = vfr->get_video_parameters();
+  ASSERT_TRUE(p.has_value());
+  EXPECT_FALSE(p->has_nonstandard_values);
+  EXPECT_EQ(p->black_level, kNtscBlack);
+}
+
+// ===========================================================================
+// PAL_M stage
+// ===========================================================================
+
+TEST(CVBSPALMTest, PALMStage_CanLoadPALMFile) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL_M");
+  deps->metadata_record.preset = "PAL_M";
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kPalMFrameSamples), kNtscBlanking);
+  PALMCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_EQ(vfr->frame_count(), 1u);
+  auto desc = vfr->get_frame_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->system, VideoSystem::PAL_M);
+  EXPECT_EQ(desc->samples_total, static_cast<size_t>(kPalMFrameSamples));
+}
+
+TEST(CVBSPALMTest, PALMStage_RejectsNTSCFile) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL_M");
+  deps->metadata_record.preset = "NTSC";  // wrong
+  deps->payload_words = make_blank_payload_u16(
+      static_cast<size_t>(kPalMFrameSamples), kNtscBlanking);
+  PALMCVBSSourceStage stage(deps);
+  expect_user_data_error(stage, kDefaultParams, "NTSC");
+}
+
+// ===========================================================================
+// Preview and report (smoke tests)
+// ===========================================================================
+
+TEST(CVBSPreviewTest, SupportsPreview_OnlyAfterLoad) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  EXPECT_FALSE(stage.supports_preview());
+  execute_and_get_vfr(stage, kDefaultParams);
   EXPECT_TRUE(stage.supports_preview());
-  const auto options = stage.get_preview_options();
-  EXPECT_FALSE(options.empty());
-
-  const auto has_field_option = std::any_of(
-      options.begin(), options.end(),
-      [](const PreviewOption& option) { return option.id == "field"; });
-  EXPECT_TRUE(has_field_option);
 }
 
-TEST(CVBSSourceReportTest, GenerateReport_ProvidesConfiguredFields) {
-  auto deps = std::make_shared<FakeCVBSSourceStageDeps>();
-  // PAL frame: 355,257 (odd) + 354,122 (even) = 709,379 samples total
-  deps->payload_words.assign(static_cast<size_t>(709379),
-                             static_cast<uint16_t>(256 * 64));
+TEST(CVBSPreviewTest, GetPreviewOptions_ReturnsOptionsAfterLoad) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   PALCVBSSourceStage stage(deps);
+  execute_and_get_vfr(stage, kDefaultParams);
+  auto options = stage.get_preview_options();
+  EXPECT_FALSE(options.empty());
+}
 
-  std::map<std::string, ParameterValue> params;
-  params["input_path"] = std::string("/virtual/input.cvbs");
-  params["use_metadata"] = false;
-  params["sample_encoding"] = std::string("CVBS_U16_4FSC");
-  ASSERT_TRUE(stage.set_parameters(params));
-
-  std::vector<ArtifactPtr> inputs;
-  ObservationContext observation_context;
-  const auto result = stage.execute(inputs, params, observation_context);
-  ASSERT_EQ(result.size(), 1u);
-
-  const auto report = stage.generate_report();
-  if (!report.has_value()) {
-    FAIL() << "Expected report to have a value";
-    return;
+TEST(CVBSReportTest, GenerateReport_NotLoadedShowsNotConfigured) {
+  PALCVBSSourceStage stage;
+  auto report = stage.generate_report();
+  ASSERT_TRUE(report.has_value());
+  bool found = false;
+  for (const auto& item : report->items) {
+    if (item.first == "Status" && item.second == "No input file path set") {
+      found = true;
+      break;
+    }
   }
+  EXPECT_TRUE(found);
+}
 
-  const auto has_source_file = std::any_of(
-      report->items.begin(), report->items.end(), [](const auto& item) {
-        return item.first == "Source File" &&
-               item.second == "/virtual/input.cvbs";
-      });
-  EXPECT_TRUE(has_source_file);
-
-  const auto has_mode = std::any_of(
-      report->items.begin(), report->items.end(), [](const auto& item) {
-        return item.first == "Mode" && item.second == "Manual";
-      });
-  EXPECT_TRUE(has_mode);
+TEST(CVBSReportTest, GenerateReport_AfterLoadShowsFrameCount) {
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
+  PALCVBSSourceStage stage(deps);
+  execute_and_get_vfr(stage, kDefaultParams);
+  auto report = stage.generate_report();
+  ASSERT_TRUE(report.has_value());
+  EXPECT_NE(report->metrics.find("frame_count"), report->metrics.end());
+  EXPECT_EQ(std::get<int64_t>(report->metrics.at("frame_count")), int64_t{1});
 }
 
 }  // namespace tests

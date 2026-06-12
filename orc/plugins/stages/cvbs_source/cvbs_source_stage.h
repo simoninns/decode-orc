@@ -10,9 +10,12 @@
 #ifndef CVBS_SOURCE_STAGE_H
 #define CVBS_SOURCE_STAGE_H
 
+#include <dropout_run.h>
 #include <stage_parameter.h>
-#include <video_field_representation.h>
+#include <video_frame_representation.h>
 
+#include <cstdint>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -24,113 +27,136 @@
 
 namespace orc {
 
-struct CVBSStageIdentity {
-  const char* stage_name;
-  const char* display_name;
-  const char* description;
-  VideoFormatCompatibility compatible_formats;
-  const char* fixed_video_standard;
+// Per-frame EFM / AC3 byte-range descriptor.
+struct CVBSExtensionFrameRef {
+  uint64_t offset = 0;  // byte offset into the binary data file
+  uint32_t count = 0;   // number of bytes for this frame
 };
 
+// Extended per-capture metadata read from <basename>.meta.
 struct CVBSMetadataRecord {
-  std::string preset;
-  std::string sample_encoding_preset;
-  std::string signal_state_preset;
-  std::string signal_type;
+  std::string preset;                 // video_standard_preset (PAL/NTSC/PAL_M)
+  std::string sample_encoding_preset; // CVBS_U10_4FSC / CVBS_U16_4FSC / etc.
+  std::string signal_state_preset;    // must be STANDARD_TBC_LOCKED
+  std::string signal_type;            // composite / yc
+  int32_t number_of_sequential_frames = 0;
+  // audio_locked: true=frame-locked, false=free-running, nullopt=absent/NULL
+  std::optional<bool> audio_locked;
+  // NTSC-J only: explicit black level stored in the 10-bit domain.
+  std::optional<int32_t> ntsc_j_black_level;
 };
 
+// Information returned from an audio WAV sidecar.
+struct CVBSAudioSidecarInfo {
+  bool audio_locked = false;  // true = frame-locked, false = free-running
+};
+
+// Dependency injection interface for the CVBS source stage.
+// All external I/O is accessed through this interface, allowing full mocking
+// in unit tests.
 class ICVBSSourceStageDeps {
  public:
   virtual ~ICVBSSourceStageDeps() = default;
 
+  // Validate that input_path exists and is a readable regular file.
   virtual bool validate_input_file(const std::string& input_path,
                                    std::string& error_message) const = 0;
+
+  // Open <basename>.meta and read the cvbs_file row.
   virtual std::optional<CVBSMetadataRecord> load_metadata(
       const std::string& meta_path, std::string& error_message) const = 0;
 
-  // Returns the total number of 16-bit words in the file without loading it
-  // into memory.
+  // Return the total number of 16-bit words in the CVBS data file.
   virtual std::optional<size_t> get_input_word_count(
       const std::string& input_path, std::string& error_message) const = 0;
 
-  // Reads exactly word_count 16-bit words starting at word_offset from the
-  // file.
+  // Read exactly word_count 16-bit words starting at word_offset.
   virtual bool read_input_words_at(const std::string& input_path,
                                    size_t word_offset, size_t word_count,
                                    std::vector<uint16_t>& out_words,
                                    std::string& error_message) const = 0;
+
+  // Load all DropoutRun rows from <basename>.dropouts.meta.
+  // Returns an empty vector (no error) when the file is absent.
+  virtual std::vector<DropoutRun> load_dropout_sidecar(
+      const std::string& dropout_meta_path,
+      std::string& error_message) const = 0;
+
+  // Check whether <basename>_audio_00.wav exists.
+  // Returns nullopt when the file is absent (no error).
+  virtual std::optional<CVBSAudioSidecarInfo> get_audio_info(
+      const std::string& wav_path) const = 0;
+
+  // Read stereo_pair_count interleaved int16_t pairs starting at
+  // stereo_pair_offset from the WAV data (header already stripped).
+  virtual std::vector<int16_t> read_audio_samples_at(
+      const std::string& wav_path, size_t stereo_pair_offset,
+      size_t stereo_pair_count) const = 0;
+
+  // Load the efm_frame index table from <basename>.efm.meta.
+  // Returns nullopt when either sidecar file is absent.
+  virtual std::optional<std::vector<CVBSExtensionFrameRef>> load_efm_frame_table(
+      const std::string& efm_meta_path, std::string& error_message) const = 0;
+
+  // Read count bytes at byte_offset from the <basename>.efm binary file.
+  virtual std::vector<uint8_t> read_efm_bytes_at(
+      const std::string& efm_data_path, uint64_t byte_offset,
+      uint32_t count) const = 0;
+
+  // Load the ac3_frame index table from <basename>.ac3.meta.
+  // Returns nullopt when either sidecar file is absent.
+  virtual std::optional<std::vector<CVBSExtensionFrameRef>> load_ac3_frame_table(
+      const std::string& ac3_meta_path, std::string& error_message) const = 0;
+
+  // Read count bytes at byte_offset from the <basename>.ac3 binary file.
+  virtual std::vector<uint8_t> read_ac3_bytes_at(
+      const std::string& ac3_data_path, uint64_t byte_offset,
+      uint32_t count) const = 0;
 };
 
-/**
- * @brief Shared fixed-format CVBS source implementation
- *
- * This shared implementation backs the PAL and NTSC concrete CVBS source
- * stages. Each concrete stage hard-wires a single video standard and matches
- * the existing TBC source-stage pattern where project format selects the stage
- * type rather than a manual in-stage PAL/NTSC parameter.
- *
- * **Signal State Constraint:** Only `STANDARD_TBC_LOCKED` signal state is
- * supported. Files with other signal states (e.g., STANDARD_TBC_UNLOCKED,
- * STANDARD_RAW) will be rejected with clear validation errors.
- *
- * **Sample Encoding Support:**
- * - `CVBS_TPG21_4FSC` - Device-encoded composite (requires offset/scale
- * reversal)
- * - `CVBS_U16_4FSC` - 16-bit unsigned linear composite encoding
- * - `CVBS_S16_FSC` - Blanking-centred signed 16-bit encoding (×32 scale)
- *
- * **Operating Modes:**
- *
- * 1. **Metadata-Driven Mode** (`use_metadata=true`):
- *    - Reads optional `.meta` sidecar file alongside the CVBS data file
- *    - Derives sample encoding from metadata
- *    - Validates metadata video standard against the stage's fixed format
- *    - Ignores extension metadata (only core CVBS fields are used)
- *    - User provides: input path
- *    - Ignored parameters: sample_encoding
- *
- * 2. **Manual Mode** (`use_metadata=false`):
- *    - Stage format is fixed by the concrete stage type
- *    - User explicitly selects sample encoding
- *    - No metadata file required
- *    - User provides: input path, sample_encoding
- *    - Metadata file is ignored even if present
- *
- * **Output Contract:**
- * All decoded composite samples are normalized to an internal numeric domain
- * (phase adjustments for TPG21, value scaling for U16) before being split
- * into field-domain VideoFieldRepresentation for downstream consumption.
- * Each field carries stable identity metadata (frame index, field-in-frame
- * index, standard context) for deterministic processing.
- *
- * **Parameters:**
- */
+// Fixed-video-standard CVBS source stage base class.
+//
+// Each concrete subclass hard-wires a single video system and signal type.
+// The stage loads the CVBS data file and its sidecars at execute() time and
+// returns a CVBSDecodedFrameRepresentation satisfying VideoFrameRepresentation.
+//
+// Signal state: only STANDARD_TBC_LOCKED is accepted.  Files with any other
+// state are rejected with a clear UserDataError before any sample data is read.
+//
+// Sample encoding: CVBS_U10_4FSC, CVBS_U16_4FSC, CVBS_TPG21_4FSC, and
+// CVBS_S16_FSC are all normalised to CVBS_U10_4FSC (int16_t 10-bit domain)
+// without output clamping so that headroom is preserved.
+//
+// Parameters:
+//   input_path  – path to the CVBS data file (.composite or .y/.c for YC)
 class FixedFormatCVBSSourceStage : public DAGStage,
                                    public ParameterizedStage,
                                    public PreviewableStage {
  public:
   explicit FixedFormatCVBSSourceStage(
-      CVBSStageIdentity identity,
+      const char* stage_name, const char* fixed_display_name,
+      const char* description, VideoFormatCompatibility compatible_formats,
+      VideoSystem system,
       std::shared_ptr<ICVBSSourceStageDeps> deps = nullptr);
   ~FixedFormatCVBSSourceStage() override = default;
 
   void set_deps_override(std::shared_ptr<ICVBSSourceStageDeps> deps) {
-    deps_override_ = std::move(deps);
+    deps_ = std::move(deps);
   }
 
   // DAGStage interface
-  std::string version() const override { return "1.0.0"; }
+  std::string version() const override { return "2.0.0"; }
 
   NodeTypeInfo get_node_type_info() const override {
     return NodeTypeInfo{NodeType::SOURCE,
-                        identity_.stage_name,
-                        identity_.display_name,
-                        identity_.description,
+                        stage_name_,
+                        display_name_,
+                        description_,
                         0,
-                        0,  // No inputs
+                        0,
                         1,
-                        UINT32_MAX,  // Many outputs (fields)
-                        identity_.compatible_formats,
+                        UINT32_MAX,
+                        compatible_formats_,
                         SinkCategory::CORE,
                         "Source"};
   }
@@ -140,9 +166,7 @@ class FixedFormatCVBSSourceStage : public DAGStage,
       const std::map<std::string, ParameterValue>& parameters,
       ObservationContext& observation_context) override;
 
-  size_t required_input_count() const override {
-    return 0;
-  }  // Source has no inputs
+  size_t required_input_count() const override { return 0; }
   size_t output_count() const override { return 1; }
 
   // ParameterizedStage interface
@@ -160,32 +184,24 @@ class FixedFormatCVBSSourceStage : public DAGStage,
   PreviewImage render_preview(const std::string& option_id, uint64_t index,
                               PreviewNavigationHint hint) const override;
 
-  // Stage inspection
   std::optional<StageReport> generate_report() const override;
 
+ protected:
+  VideoSystem system_;
+
  private:
-  CVBSStageIdentity identity_;
+  const char* stage_name_;
+  std::string display_name_;  // updated at load time with signal_type
+  const char* description_;
+  VideoFormatCompatibility compatible_formats_;
 
-  // Storage for current parameter values
   std::string input_path_;
-  bool use_metadata_ = true;
-  // "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", or "CVBS_S16_FSC" (manual mode)
-  std::string sample_encoding_;
 
-  // Cache the loaded representation to avoid reloading
   mutable std::mutex execute_mutex_;
   mutable std::string cached_input_path_;
-  mutable std::shared_ptr<VideoFieldRepresentation> cached_representation_;
-  std::shared_ptr<ICVBSSourceStageDeps> deps_override_;
+  mutable ArtifactPtr cached_representation_;
 
-  // Validation helper - checks signal state and other metadata constraints
-  // Returns error message if invalid, empty string if valid
-  std::string validate_metadata_mode(
-      const std::string& input_path, const std::string& meta_path,
-      std::string& resolved_sample_encoding) const;
-
-  // Validation helper - checks manual mode selections
-  std::string validate_manual_mode(const std::string& sample_encoding) const;
+  std::shared_ptr<ICVBSSourceStageDeps> deps_;
 };
 
 class PALCVBSSourceStage final : public FixedFormatCVBSSourceStage {
@@ -200,6 +216,13 @@ class NTSCCVBSSourceStage final : public FixedFormatCVBSSourceStage {
   explicit NTSCCVBSSourceStage(
       std::shared_ptr<ICVBSSourceStageDeps> deps = nullptr);
   ~NTSCCVBSSourceStage() override = default;
+};
+
+class PALMCVBSSourceStage final : public FixedFormatCVBSSourceStage {
+ public:
+  explicit PALMCVBSSourceStage(
+      std::shared_ptr<ICVBSSourceStageDeps> deps = nullptr);
+  ~PALMCVBSSourceStage() override = default;
 };
 
 }  // namespace orc

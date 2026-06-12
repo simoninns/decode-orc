@@ -56,18 +56,39 @@ inline constexpr StageRegistrationMetadata kNTSCStage{
     SinkCategory::CORE,
 };
 
+// PAL_M uses PAL_ONLY compatibility because VideoFormatCompatibility::PAL_ONLY
+// covers both PAL and PAL-M systems per the enum definition.
+inline constexpr StageRegistrationMetadata kPALMStage{
+    "PALM_CVBS_Source",
+    "PALM CVBS Source",
+    "Source",
+    NodeType::SOURCE,
+    0,
+    0,
+    1,
+    UINT32_MAX,
+    VideoFormatCompatibility::PAL_ONLY,
+    SinkCategory::CORE,
+};
+
 static_assert(kPALStage.stage_name[0] != '\0',
               "PAL stage name must not be empty");
 static_assert(kNTSCStage.stage_name[0] != '\0',
               "NTSC stage name must not be empty");
+static_assert(kPALMStage.stage_name[0] != '\0',
+              "PALM stage name must not be empty");
 static_assert(kPALStage.stage_display_name[0] != '\0',
               "PAL display name must not be empty");
 static_assert(kNTSCStage.stage_display_name[0] != '\0',
               "NTSC display name must not be empty");
+static_assert(kPALMStage.stage_display_name[0] != '\0',
+              "PALM display name must not be empty");
 static_assert(kPALStage.stage_menu_category[0] != '\0',
               "PAL menu category must not be empty");
 static_assert(kNTSCStage.stage_menu_category[0] != '\0',
               "NTSC menu category must not be empty");
+static_assert(kPALMStage.stage_menu_category[0] != '\0',
+              "PALM menu category must not be empty");
 
 static_assert(kPALStage.stage_max_inputs >= kPALStage.stage_min_inputs,
               "PAL inputs invalid");
@@ -77,6 +98,10 @@ static_assert(kNTSCStage.stage_max_inputs >= kNTSCStage.stage_min_inputs,
               "NTSC inputs invalid");
 static_assert(kNTSCStage.stage_max_outputs >= kNTSCStage.stage_min_outputs,
               "NTSC outputs invalid");
+static_assert(kPALMStage.stage_max_inputs >= kPALMStage.stage_min_inputs,
+              "PALM inputs invalid");
+static_assert(kPALMStage.stage_max_outputs >= kPALMStage.stage_min_outputs,
+              "PALM outputs invalid");
 
 inline constexpr orc::StagePluginDescriptor kPluginDescriptor{
     "decode-orc.stage.cvbs_source",

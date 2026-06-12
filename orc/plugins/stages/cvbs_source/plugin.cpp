@@ -21,6 +21,10 @@ orc::DAGStagePtr create_ntsc_stage() {
   return std::make_shared<orc::NTSCCVBSSourceStage>();
 }
 
+orc::DAGStagePtr create_palm_stage() {
+  return std::make_shared<orc::PALMCVBSSourceStage>();
+}
+
 bool register_stage_from_metadata(
     void* context,
     bool (*register_stage)(void* context, const char* stage_name,
@@ -84,6 +88,12 @@ ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
   if (!register_stage_from_metadata(context, register_stage,
                                     orc::plugins::cvbs_source::kNTSCStage,
                                     &create_ntsc_stage, error_message)) {
+    return false;
+  }
+
+  if (!register_stage_from_metadata(context, register_stage,
+                                    orc::plugins::cvbs_source::kPALMStage,
+                                    &create_palm_stage, error_message)) {
     return false;
   }
 

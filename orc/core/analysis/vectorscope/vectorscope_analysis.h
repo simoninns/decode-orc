@@ -10,6 +10,7 @@
 #ifndef ORC_CORE_ANALYSIS_VECTORSCOPE_ANALYSIS_H
 #define ORC_CORE_ANALYSIS_VECTORSCOPE_ANALYSIS_H
 
+#include <frame_id.h>
 #include <orc_preview_carriers.h>
 #include <orc_source_parameters.h>
 
@@ -26,7 +27,7 @@ namespace orc {
 
 // Forward declarations
 class ChromaSinkStage;
-class VideoFieldRepresentation;
+class VideoFrameRepresentation;
 
 /**
  * @brief Vectorscope visualization tool for chroma decoder output
@@ -123,25 +124,20 @@ class VectorscopeAnalysisTool : public AnalysisTool {
       uint32_t subsample = 1, bool active_area_only = true);
 
   /**
-   * @brief Extract vectorscope data from composite-domain VFR samples.
+   * @brief Extract vectorscope data from composite-domain frame samples.
    *
-   * This path demodulates composite (or YC chroma-plane) samples directly
-   * from the source representation, matching the same VFR access pattern
-   * used by line scope and field timing views.
+   * Demodulates CVBS_U10_4FSC int16_t samples from the frame representation
+   * using the 4FSC quadrature scheme.  Signal levels are read from
+   * VideoFrameRepresentation::get_video_parameters() (10-bit domain).
+   * PAL V-axis alternation is applied at the frame-flat level.
    *
-   * @param representation Field representation to sample from.
-   * @param video_parameters Source metadata used for active-area bounds and
-   * signal levels.
-   * @param first_field_index Field index of the first field to include.
-   * @param second_field_index Optional second field to include (frame mode).
-   * @param field_number Display identifier reported in VectorscopeData.
-   * @param subsample Subsampling factor (1 = all samples).
-   * @param active_area_only True to limit sampling to active picture area.
+   * @param representation Frame representation to sample from.
+   * @param frame_id       FrameID of the frame to process.
+   * @param subsample      Subsampling factor (1 = all samples).
+   * @param active_area_only True to limit sampling to the active picture area.
    */
   static VectorscopeData extractFromCompositeRepresentation(
-      const VideoFieldRepresentation& representation,
-      const SourceParameters& video_parameters, uint64_t first_field_index,
-      const std::optional<uint64_t>& second_field_index, uint64_t field_number,
+      const VideoFrameRepresentation& representation, FrameID frame_id,
       uint32_t subsample = 1, bool active_area_only = true);
 };
 

@@ -79,13 +79,22 @@ struct VideoParametersView {
   int active_video_start = -1;
   int active_video_end = -1;
 
-  // IRE levels (16-bit)
-  int white_ire = -1;     // White level (100 IRE)
-  int black_ire = -1;     // Black level
-  int blanking_ire = -1;  // Blanking/pedestal level (0 IRE)
+  // IRE levels (16-bit) — deprecated; populated from SourceParameters legacy
+  // fields for existing callers.  Migrate callers to the 10-bit fields below.
+  int white_ire = -1;
+  int black_ire = -1;
+  int blanking_ire = -1;
 
-  // Sample rate (Hz)
+  // Sample rate (Hz) — deprecated legacy field
   double sample_rate = 0.0;
+
+  // CVBS_U10_4FSC 10-bit domain signal levels (from SourceParameters).
+  // -1 means not populated (source has not been migrated to Phase 3+ pipeline).
+  int32_t sync_tip_level = -1;
+  int32_t blanking_level = -1;
+  int32_t black_level = -1;
+  int32_t white_level = -1;
+  int32_t peak_level = -1;
 };
 
 }  // namespace orc::presenters

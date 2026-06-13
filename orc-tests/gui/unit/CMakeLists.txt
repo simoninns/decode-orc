@@ -86,6 +86,8 @@ orc_add_gui_unit_tests(
         OFFSCREEN
         SOURCES
             field_frame_presentation_test.cpp
+            framescopedialog_test.cpp
+            frametimingdialog_test.cpp
             line_navigation_mapper_test.cpp
             theme_manager_test.cpp
             node_type_helper_port_test.cpp

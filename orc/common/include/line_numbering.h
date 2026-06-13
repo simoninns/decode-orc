@@ -1,6 +1,6 @@
 /*
  * File:        line_numbering.h
- * Module:      orc-core
+ * Module:      orc-common
  * Purpose:     Line numbering mode conversion for CVBS frame-flat line indices
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

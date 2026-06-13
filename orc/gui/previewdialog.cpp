@@ -28,8 +28,8 @@
 #include <algorithm>
 
 #include "fieldpreviewwidget.h"
-#include "fieldtimingdialog.h"
-#include "linescopedialog.h"
+#include "framescopedialog.h"
+#include "frametimingdialog.h"
 #include "logging.h"
 #include "preview/vectorscope_dialog.h"
 
@@ -72,8 +72,8 @@ orc::ParameterValue resolveTweakParameterValue(
 
 PreviewDialog::PreviewDialog(QWidget* parent)
     : QDialog(parent),
-      line_scope_dialog_(nullptr),
-      field_timing_dialog_(nullptr),
+      frame_scope_dialog_(nullptr),
+      frame_timing_dialog_(nullptr),
       vectorscope_dialog_(nullptr),
       nav_debounce_timer_(new QTimer(this)),
       tweak_debounce_timer_(new QTimer(this)) {
@@ -463,17 +463,28 @@ void PreviewDialog::setupUI() {
     preview_widget_->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
   });
 
-  // Create line scope dialog
-  line_scope_dialog_ = new LineScopeDialog(this);
+  // Create frame scope dialog (replaces LineScopeDialog)
+  frame_scope_dialog_ = new FrameScopeDialog(this);
 
-  // Create field timing dialog
-  field_timing_dialog_ = new FieldTimingDialog(this);
+  // Create frame timing dialog (replaces FieldTimingDialog)
+  frame_timing_dialog_ = new FrameTimingDialog(this);
 
   // Connect to dialog hide/close events to disable cross-hairs
-  connect(line_scope_dialog_, &QDialog::finished, this,
+  connect(frame_scope_dialog_, &QDialog::finished, this,
           [this]() { preview_widget_->setCrosshairsEnabled(false); });
-  connect(line_scope_dialog_, &QDialog::rejected, this,
+  connect(frame_scope_dialog_, &QDialog::rejected, this,
           [this]() { preview_widget_->setCrosshairsEnabled(false); });
+
+  // Adapt FrameScopeDialog::lineNavigationRequested (size_t frame_line) to
+  // PreviewDialog::lineNavigationRequested (int current_line).
+  // Connected once here to avoid stacking lambda connections in showLineScope.
+  connect(frame_scope_dialog_, &FrameScopeDialog::lineNavigationRequested,
+          this,
+          [this](int dir, uint64_t frame_id, size_t frame_line, int sx,
+                 int pw) {
+            emit lineNavigationRequested(dir, frame_id,
+                                         static_cast<int>(frame_line), sx, pw);
+          });
 
   // Connect line clicked signal
   connect(preview_widget_, &FieldPreviewWidget::lineClicked,
@@ -527,14 +538,14 @@ void PreviewDialog::setAvailablePreviewViews(
     show_field_timing_action_->setEnabled(field_timing_available);
   }
 
-  if (!line_scope_available && line_scope_dialog_ &&
-      line_scope_dialog_->isVisible()) {
-    line_scope_dialog_->close();
+  if (!line_scope_available && frame_scope_dialog_ &&
+      frame_scope_dialog_->isVisible()) {
+    frame_scope_dialog_->close();
   }
 
-  if (!field_timing_available && field_timing_dialog_ &&
-      field_timing_dialog_->isVisible()) {
-    field_timing_dialog_->close();
+  if (!field_timing_available && frame_timing_dialog_ &&
+      frame_timing_dialog_->isVisible()) {
+    frame_timing_dialog_->close();
   }
 
   if (show_component_vectorscope_action_) {
@@ -970,14 +981,12 @@ void PreviewDialog::closeEvent(QCloseEvent* event) {
 }
 
 void PreviewDialog::closeChildDialogs() {
-  // Close line scope dialog if open
-  if (line_scope_dialog_ && line_scope_dialog_->isVisible()) {
-    line_scope_dialog_->close();
+  if (frame_scope_dialog_ && frame_scope_dialog_->isVisible()) {
+    frame_scope_dialog_->close();
   }
 
-  // Close field timing dialog if open
-  if (field_timing_dialog_ && field_timing_dialog_->isVisible()) {
-    field_timing_dialog_->close();
+  if (frame_timing_dialog_ && frame_timing_dialog_->isVisible()) {
+    frame_timing_dialog_->close();
   }
 
   closeVectorscopeDialogs();
@@ -996,60 +1005,60 @@ void PreviewDialog::closeVectorscopeDialogs() {
 }
 
 bool PreviewDialog::isLineScopeVisible() const {
-  return line_scope_dialog_ && line_scope_dialog_->isVisible();
+  return frame_scope_dialog_ && frame_scope_dialog_->isVisible();
 }
 void PreviewDialog::showLineScope(
     const QString& node_id, int stage_index, uint64_t field_index,
     int line_number, int sample_x, const std::vector<uint16_t>& samples,
     const std::optional<orc::presenters::VideoParametersView>& video_params,
     int preview_image_width, int original_sample_x, int original_image_y,
-    orc::PreviewOutputType preview_mode, const std::vector<uint16_t>& y_samples,
+    orc::PreviewOutputType /*preview_mode*/,
+    const std::vector<uint16_t>& y_samples,
     const std::vector<uint16_t>& c_samples) {
-  if (line_scope_dialog_) {
-    // Store line scope context for cross-hair updates
+  if (frame_scope_dialog_) {
     current_line_scope_preview_width_ = preview_image_width;
     current_line_scope_samples_count_ = static_cast<int>(samples.size());
     if (current_line_scope_samples_count_ == 0 && !y_samples.empty()) {
-      // Use Y samples size if no composite
       current_line_scope_samples_count_ = static_cast<int>(y_samples.size());
     }
-    // Note: We don't know the image_y here directly, but MainWindow will update
-    // cross-hairs
 
-    // Connect navigation signal if not already connected
-    connect(line_scope_dialog_, &LineScopeDialog::lineNavigationRequested, this,
-            &PreviewDialog::lineNavigationRequested, Qt::UniqueConnection);
-
-    // Connect refresh signal if not already connected
-    connect(line_scope_dialog_, &LineScopeDialog::refreshRequested, this,
+    connect(frame_scope_dialog_, &FrameScopeDialog::refreshRequested, this,
             &PreviewDialog::lineScopeRequested, Qt::UniqueConnection);
 
-    // Connect sample marker moved signal to update cross-hairs
-    connect(line_scope_dialog_, &LineScopeDialog::sampleMarkerMoved, this,
+    connect(frame_scope_dialog_, &FrameScopeDialog::sampleMarkerMoved, this,
             &PreviewDialog::onSampleMarkerMoved, Qt::UniqueConnection);
 
-    // Only enable cross-hairs if there's actual data to display
-    // For stages like FFmpeg video sync that don't have line data, hide
-    // cross-hairs
     if (samples.empty() && y_samples.empty() && c_samples.empty()) {
       preview_widget_->setCrosshairsEnabled(false);
     } else {
       preview_widget_->setCrosshairsEnabled(true);
     }
 
-    line_scope_dialog_->setLineSamples(
-        node_id, stage_index, field_index, line_number, sample_x, samples,
-        video_params, preview_image_width, original_sample_x, original_image_y,
-        preview_mode, y_samples, c_samples);
+    // Convert uint16_t → int16_t at the migration boundary.
+    // CVBS_U10_4FSC values are in [0, 1023] so the cast is lossless.
+    auto toI16 = [](const std::vector<uint16_t>& src) {
+      std::vector<int16_t> dst;
+      dst.reserve(src.size());
+      for (uint16_t v : src) dst.push_back(static_cast<int16_t>(v));
+      return dst;
+    };
 
-    const bool was_visible = line_scope_dialog_->isVisible();
-    // Only show if not already visible to avoid position resets
+    // field_index is used as frame_id; line_number (1-based) → frame_line
+    // (0-based)
+    const size_t frame_line =
+        static_cast<size_t>(std::max(0, line_number - 1));
+
+    frame_scope_dialog_->setFrameLineSamples(
+        node_id, stage_index, field_index, frame_line, sample_x,
+        toI16(samples), video_params, preview_image_width, original_sample_x,
+        original_image_y, toI16(y_samples), toI16(c_samples));
+
+    const bool was_visible = frame_scope_dialog_->isVisible();
     if (!was_visible) {
-      // Position line scope beside preview if possible
       const int margin = 12;
       const QRect preview_geom = frameGeometry();
-      QSize scope_size = line_scope_dialog_->size();
-      const QSize hint_size = line_scope_dialog_->sizeHint();
+      QSize scope_size = frame_scope_dialog_->size();
+      const QSize hint_size = frame_scope_dialog_->sizeHint();
       if (hint_size.isValid()) {
         scope_size = hint_size;
       }
@@ -1090,13 +1099,12 @@ void PreviewDialog::showLineScope(
         target_y = clamp(target_y, screen_top, screen_bottom);
       }
 
-      line_scope_dialog_->move(target_x, target_y);
-      line_scope_dialog_->show();
+      frame_scope_dialog_->move(target_x, target_y);
+      frame_scope_dialog_->show();
     }
 
-    // Only raise when first shown to avoid stealing focus on updates
     if (!was_visible) {
-      line_scope_dialog_->raise();
+      frame_scope_dialog_->raise();
     }
   }
 }

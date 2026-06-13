@@ -46,8 +46,8 @@ set(ORC_GUI_LIB_SOURCES
     fieldpreviewwidget.h
     previewdialog.cpp
     previewdialog.h
-    linescopedialog.cpp
-    linescopedialog.h
+    framescopedialog.cpp
+    framescopedialog.h
     line_navigation_mapper.cpp
     line_navigation_mapper.h
     stageparameterdialog.cpp
@@ -82,9 +82,9 @@ set(ORC_GUI_LIB_SOURCES
     ntscobserverdialog.cpp
     ntscobserverdialog.h
     
-    # Field timing dialog
-    fieldtimingdialog.cpp
-    fieldtimingdialog.h
+    # Frame timing dialog (replaces fieldtimingdialog)
+    frametimingdialog.cpp
+    frametimingdialog.h
     fieldtimingwidget.cpp
     fieldtimingwidget.h
     

@@ -14,7 +14,7 @@
 #include <cstddef>
 
 #include "../../../plugins/stages/sinks/common/decoders/componentframe.h"
-#include "../../include/video_field_representation.h"
+#include "../../include/video_frame_representation.h"
 #include "../analysis_registry.h"
 #include "logging.h"
 
@@ -348,174 +348,149 @@ VectorscopeData VectorscopeAnalysisTool::extractFromColourFrameCarrier(
 }
 
 VectorscopeData VectorscopeAnalysisTool::extractFromCompositeRepresentation(
-    const VideoFieldRepresentation& representation,
-    const SourceParameters& video_parameters, uint64_t first_field_index,
-    const std::optional<uint64_t>& second_field_index, uint64_t field_number,
+    const VideoFrameRepresentation& representation, FrameID frame_id,
     uint32_t subsample, bool active_area_only) {
   VectorscopeData data;
-  data.field_number = field_number;
-  data.system = video_parameters.system;
-  data.white_16b_ire = video_parameters.white_16b_ire;
-  data.black_16b_ire = video_parameters.black_16b_ire;
+  data.field_number = frame_id;
 
-  if (subsample == 0 || video_parameters.field_width <= 0 ||
-      video_parameters.field_height <= 0) {
+  const auto params_opt = representation.get_video_parameters();
+  if (!params_opt.has_value() || subsample == 0) {
+    return data;
+  }
+  const SourceParameters& vp = *params_opt;
+
+  data.system = vp.system;
+  // Report 10-bit levels mapped to the legacy 16-bit fields for display
+  // (VectorscopeData consumers will migrate to 10-bit in a later phase).
+  data.white_16b_ire = vp.white_level;
+  data.black_16b_ire = vp.black_level;
+
+  if (vp.frame_width_nominal <= 0 || vp.frame_height <= 0 ||
+      vp.blanking_level < 0 || vp.white_level <= vp.blanking_level) {
     return data;
   }
 
-  const auto process_field = [&](uint64_t field_index, uint8_t field_id) {
-    const FieldID fid(field_index);
-    auto descriptor_opt = representation.get_descriptor(fid);
-    if (!descriptor_opt.has_value() || descriptor_opt->width == 0 ||
-        descriptor_opt->height == 0) {
-      return;
-    }
+  const size_t frame_width = static_cast<size_t>(vp.frame_width_nominal);
+  const size_t frame_height = static_cast<size_t>(vp.frame_height);
 
-    const size_t width = descriptor_opt->width;
-    const size_t height = descriptor_opt->height;
+  // Active area bounds
+  size_t x_start = 0;
+  size_t x_end = frame_width;
+  size_t y_start = 0;
+  size_t y_end = frame_height;
 
-    size_t x_start = 0;
-    size_t x_end = width;
-    size_t y_start = 0;
-    size_t y_end = height;
-
-    if (active_area_only) {
-      const int32_t active_x0 =
-          std::max(0, video_parameters.active_video_start);
-      const int32_t active_x1 =
-          std::max(active_x0, video_parameters.active_video_end);
+  if (active_area_only) {
+    if (vp.active_video_start >= 0 && vp.active_video_end > vp.active_video_start) {
       x_start = static_cast<size_t>(
-          std::min<int32_t>(active_x0, static_cast<int32_t>(width)));
+          std::min<int32_t>(vp.active_video_start, static_cast<int32_t>(frame_width)));
       x_end = static_cast<size_t>(
-          std::min<int32_t>(active_x1, static_cast<int32_t>(width)));
+          std::min<int32_t>(vp.active_video_end, static_cast<int32_t>(frame_width)));
+    }
+    if (vp.first_active_frame_line >= 0 &&
+        vp.last_active_frame_line > vp.first_active_frame_line) {
+      y_start = static_cast<size_t>(
+          std::min<int32_t>(vp.first_active_frame_line, static_cast<int32_t>(frame_height)));
+      y_end = static_cast<size_t>(
+          std::min<int32_t>(vp.last_active_frame_line, static_cast<int32_t>(frame_height)));
+    }
+  }
 
-      const int32_t first_active_field_line =
-          std::max(0, video_parameters.first_active_field_line);
-      const int32_t last_active_field_line = std::max(
-          first_active_field_line, video_parameters.last_active_field_line);
-      if (video_parameters.first_active_field_line >= 0 &&
-          video_parameters.last_active_field_line >
-              video_parameters.first_active_field_line) {
-        y_start = static_cast<size_t>(std::min<int32_t>(
-            first_active_field_line, static_cast<int32_t>(height)));
-        y_end = static_cast<size_t>(std::min<int32_t>(
-            last_active_field_line, static_cast<int32_t>(height)));
-      }
+  if (x_start >= x_end || y_start >= y_end) {
+    return data;
+  }
+
+  data.width = static_cast<uint32_t>(x_end - x_start);
+  data.height = static_cast<uint32_t>(y_end - y_start);
+
+  const bool has_chroma = representation.has_separate_channels();
+
+  // 10-bit domain normalization: blanking_level → 0.0, white_level → 1.0
+  const double blank = static_cast<double>(vp.blanking_level);
+  const double level_range =
+      std::max(1.0, static_cast<double>(vp.white_level - vp.blanking_level));
+
+  // Phase step: CVBS_U10_4FSC is nominally 4xFsc so quadrature can be
+  // approximated with the {1,0,-1,0} / {0,-1,0,1} 4-point table.
+  // Fall back to the continuous formula when fsc/sample_rate are available.
+  const bool approx_4fsc =
+      vp.fsc > 0.0 && vp.sample_rate > 0.0 &&
+      std::abs((vp.sample_rate / vp.fsc) - 4.0) < 1.0e-3;
+  const double phase_step =
+      (vp.fsc > 0.0 && vp.sample_rate > 0.0)
+          ? (2.0 * kPi * vp.fsc / vp.sample_rate)
+          : 0.0;
+
+  // Determine field1 boundary for PAL V-alternation in frame-flat context.
+  // PAL: field1 = lines [0, 312], field2 = lines [313, 624].
+  // NTSC/PAL_M: field1 = lines [0, 261], field2 = lines [262, 524].
+  // ITU-R BT.470-6 §1.1 (PAL) / SMPTE 170M-2004 §11.3 (NTSC).
+  size_t field1_line_count = 0;
+  if (vp.system == VideoSystem::PAL) {
+    field1_line_count = 313;
+  } else if (vp.system == VideoSystem::NTSC || vp.system == VideoSystem::PAL_M) {
+    field1_line_count = 262;
+  }
+
+  data.samples.reserve(((x_end - x_start) / subsample) *
+                       ((y_end - y_start) / subsample));
+
+  for (size_t y = y_start; y < y_end; y += static_cast<size_t>(subsample)) {
+    const int16_t* line = has_chroma ? representation.get_line_chroma(frame_id, y)
+                                     : representation.get_line(frame_id, y);
+    if (!line) continue;
+
+    // PAL V-axis alternation at frame-flat level (ITU-R BT.470-6 §3.5.1).
+    // Within each field the V component alternates sign on alternating lines.
+    // Frame-flat: determine which field this line belongs to, then apply
+    // the same `((line_in_field + field_id) & 1U)` rule as the field-based code.
+    bool negate_v = false;
+    if ((vp.system == VideoSystem::PAL || vp.system == VideoSystem::PAL_M) &&
+        field1_line_count > 0) {
+      const uint8_t field_id = (y < field1_line_count) ? 0U : 1U;
+      const size_t line_in_field =
+          (y < field1_line_count) ? y : (y - field1_line_count);
+      negate_v = (((line_in_field + field_id) & 1U) != 0U);
     }
 
-    if (x_start >= x_end || y_start >= y_end) {
-      return;
-    }
+    for (size_t x = x_start; x < x_end; x += static_cast<size_t>(subsample)) {
+      const double c = static_cast<double>(line[x]) - blank;
 
-    const bool has_chroma_channel = representation.has_separate_channels();
-    const double black = static_cast<double>(video_parameters.black_16b_ire);
-    const double white = static_cast<double>(video_parameters.white_16b_ire);
-    const double blank =
-        static_cast<double>(video_parameters.blanking_16b_ire >= 0
-                                ? video_parameters.blanking_16b_ire
-                                : video_parameters.black_16b_ire);
-    const double ire_range = std::max(1.0, white - black);
-
-    const bool approx_4fsc =
-        video_parameters.fsc > 0.0 && video_parameters.sample_rate > 0.0 &&
-        std::abs((video_parameters.sample_rate / video_parameters.fsc) - 4.0) <
-            1.0e-3;
-    const double phase_step =
-        (video_parameters.fsc > 0.0 && video_parameters.sample_rate > 0.0)
-            ? (2.0 * kPi * video_parameters.fsc / video_parameters.sample_rate)
-            : 0.0;
-
-    for (size_t y = y_start; y < y_end; y += static_cast<size_t>(subsample)) {
-      const uint16_t* line = has_chroma_channel
-                                 ? representation.get_line_chroma(fid, y)
-                                 : representation.get_line(fid, y);
-      if (!line) {
+      double sin_ref = 0.0;
+      double cos_ref = 0.0;
+      if (approx_4fsc) {
+        // CVBS_U10_4FSC 4-point quadrature table
+        switch (x & 3U) {
+          case 0U: sin_ref =  1.0; cos_ref =  0.0; break;
+          case 1U: sin_ref =  0.0; cos_ref = -1.0; break;
+          case 2U: sin_ref = -1.0; cos_ref =  0.0; break;
+          default: sin_ref =  0.0; cos_ref =  1.0; break;
+        }
+      } else if (phase_step > 0.0) {
+        const double phase = phase_step * static_cast<double>(x);
+        sin_ref = std::sin(phase);
+        cos_ref = std::cos(phase);
+      } else {
         continue;
       }
 
-      for (size_t x = x_start; x < x_end; x += static_cast<size_t>(subsample)) {
-        const double c = static_cast<double>(line[x]) - blank;
+      double u = (2.0 * c * sin_ref) / level_range;
+      double v = (2.0 * c * cos_ref) / level_range;
+      if (negate_v) v = -v;
 
-        double sin_ref = 0.0;
-        double cos_ref = 0.0;
-        if (approx_4fsc) {
-          switch (x & 3U) {
-            case 0U:
-              sin_ref = 1.0;
-              cos_ref = 0.0;
-              break;
-            case 1U:
-              sin_ref = 0.0;
-              cos_ref = -1.0;
-              break;
-            case 2U:
-              sin_ref = -1.0;
-              cos_ref = 0.0;
-              break;
-            default:
-              sin_ref = 0.0;
-              cos_ref = 1.0;
-              break;
-          }
-        } else if (phase_step > 0.0) {
-          const double phase = phase_step * static_cast<double>(x);
-          sin_ref = std::sin(phase);
-          cos_ref = std::cos(phase);
-        } else {
-          continue;
-        }
+      const uint8_t fid = (field1_line_count > 0 && y >= field1_line_count) ? 1U : 0U;
 
-        double u = (2.0 * c * sin_ref) / ire_range;
-        double v = (2.0 * c * cos_ref) / ire_range;
-
-        if (video_parameters.system == VideoSystem::PAL ||
-            video_parameters.system == VideoSystem::PAL_M) {
-          if (((y + (field_index & 1U)) & 1U) != 0U) {
-            v = -v;
-          }
-        }
-
-        UVSample sample;
-        sample.u = clamp_normalized(u) * 32767.0;
-        sample.v = clamp_normalized(v) * 32767.0;
-        sample.field_id = field_id;
-        data.samples.push_back(sample);
-      }
+      UVSample sample;
+      sample.u = clamp_normalized(u) * 32767.0;
+      sample.v = clamp_normalized(v) * 32767.0;
+      sample.field_id = fid;
+      data.samples.push_back(sample);
     }
-  };
-
-  process_field(first_field_index, 0);
-  if (second_field_index.has_value()) {
-    process_field(*second_field_index, 1);
-  }
-
-  data.width =
-      (video_parameters.active_video_end >
-           video_parameters.active_video_start &&
-       active_area_only)
-          ? static_cast<uint32_t>(video_parameters.active_video_end -
-                                  video_parameters.active_video_start)
-          : static_cast<uint32_t>(std::max(0, video_parameters.field_width));
-
-  if (active_area_only && video_parameters.first_active_frame_line >= 0 &&
-      video_parameters.last_active_frame_line >
-          video_parameters.first_active_frame_line) {
-    data.height =
-        static_cast<uint32_t>(video_parameters.last_active_frame_line -
-                              video_parameters.first_active_frame_line);
-  } else {
-    const uint32_t first_h =
-        static_cast<uint32_t>(std::max(0, video_parameters.field_height));
-    data.height = second_field_index.has_value() ? (first_h * 2U) : first_h;
   }
 
   ORC_LOG_DEBUG(
-      "Extracted {} composite vectorscope samples from field {}{} ({} area, "
+      "Extracted {} composite vectorscope samples from frame {} ({} area, "
       "subsample={})",
-      data.samples.size(), first_field_index,
-      second_field_index.has_value()
-          ? std::string("+") + std::to_string(*second_field_index)
-          : std::string(),
+      data.samples.size(), frame_id,
       active_area_only ? "active" : "full", subsample);
 
   return data;

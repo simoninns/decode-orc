@@ -45,6 +45,13 @@ VideoParametersView toVideoParametersView(const orc::SourceParameters& params) {
   v.black_ire = params.black_16b_ire;
   v.sample_rate = params.sample_rate;
 
+  // CVBS_U10_4FSC 10-bit domain signal levels
+  v.sync_tip_level = params.sync_tip_level;
+  v.blanking_level = params.blanking_level;
+  v.black_level = params.black_level;
+  v.white_level = params.white_level;
+  v.peak_level = params.peak_level;
+
   return v;
 }
 

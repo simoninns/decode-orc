@@ -41,8 +41,8 @@
 #include "presenters/include/hints_view_models.h"  // For VideoParametersView
 
 class FieldPreviewWidget;
-class LineScopeDialog;
-class FieldTimingDialog;
+class FrameScopeDialog;
+class FrameTimingDialog;
 class VectorscopeDialog;
 
 /**
@@ -174,17 +174,26 @@ class PreviewDialog : public QDialog {
   bool isVectorscopeVisibleForNode(orc::NodeID node_id) const;
 
   /**
-   * @brief Show line scope dialog with sample data
-   * @param node_id Node identifier for the stage being viewed
-   * @param stage_index Stage number in the pipeline (1-based)
-   * @param field_index Field number being displayed (0-based)
-   * @param line_number Line number being displayed (1-based field line)
-   * @param sample_x Sample X position that was clicked
-   * @param samples Vector of 16-bit samples for the line
-   * @param video_params Optional video parameters for region markers
-   * @param preview_mode Current preview mode (Field/Frame/Split)
-   * @param y_samples Optional Y channel samples for YC sources
-   * @param c_samples Optional C channel samples for YC sources
+   * @brief Show frame scope dialog with sample data
+   *
+   * The samples are still received as uint16_t from the render coordinator
+   * (migration phase); conversion to int16_t happens at this boundary.
+   * field_index is used as frame_id and line_number (1-based) is converted
+   * to a 0-based frame-flat line index.
+   *
+   * @param node_id          Stage node identifier
+   * @param stage_index      1-based pipeline stage number
+   * @param field_index      0-based field index (used as frame_id during migration)
+   * @param line_number      1-based field line number
+   * @param sample_x         Sample X position that was clicked
+   * @param samples          16-bit composite samples (converted to int16_t internally)
+   * @param video_params     Optional video parameters for level markers
+   * @param preview_image_width  Pixel width of preview image
+   * @param original_sample_x    Preview-space X (for cross-hair sync)
+   * @param original_image_y     Preview-space Y (for refresh)
+   * @param preview_mode     Current preview mode (kept for callers; ignored internally)
+   * @param y_samples        Optional luma samples (YC sources)
+   * @param c_samples        Optional chroma samples (YC sources)
    */
   void showLineScope(
       const QString& node_id, int stage_index, uint64_t field_index,
@@ -214,14 +223,14 @@ class PreviewDialog : public QDialog {
   void notifyFrameChanged();
 
   /**
-   * @brief Get line scope dialog (for updating when stage changes)
+   * @brief Get frame scope dialog (for updating when stage changes)
    */
-  LineScopeDialog* lineScopeDialog() { return line_scope_dialog_; }
+  FrameScopeDialog* frameScopeDialog() { return frame_scope_dialog_; }
 
   /**
-   * @brief Get field timing dialog (for updating when frame changes)
+   * @brief Get frame timing dialog (for updating when frame changes)
    */
-  FieldTimingDialog* fieldTimingDialog() { return field_timing_dialog_; }
+  FrameTimingDialog* frameTimingDialog() { return frame_timing_dialog_; }
 
   /**
    * @brief Returns the current 0-based navigation index (always matches
@@ -387,8 +396,8 @@ class PreviewDialog : public QDialog {
   QAction* show_field_timing_action_;
   QAction* show_component_vectorscope_action_;
   QAction* show_live_tweaks_action_;
-  LineScopeDialog* line_scope_dialog_;
-  FieldTimingDialog* field_timing_dialog_;
+  FrameScopeDialog* frame_scope_dialog_;
+  FrameTimingDialog* frame_timing_dialog_;
   VectorscopeDialog* vectorscope_dialog_{nullptr};
   orc::NodeID vectorscope_node_id_;
   orc::NodeID current_node_id_;

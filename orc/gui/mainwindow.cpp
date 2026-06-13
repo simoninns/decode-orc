@@ -18,13 +18,13 @@
 #include "ffmpegpresetdialog.h"
 #include "field_frame_presentation.h"
 #include "fieldpreviewwidget.h"
-#include "fieldtimingdialog.h"
+#include "frametimingdialog.h"
 #include "fieldtimingwidget.h"
 #include "generic_analysis_dialog.h"
 #include "hintsdialog.h"
 #include "inspection_dialog.h"
 #include "line_navigation_mapper.h"
-#include "linescopedialog.h"
+#include "framescopedialog.h"
 #include "logging.h"
 #include "masklineconfigdialog.h"
 #include "ntscobserverdialog.h"
@@ -518,28 +518,27 @@ void MainWindow::setupUI() {
   // Connect preview frame changed signal to line scope
   // When frame changes, line scope should refresh samples at its current
   // field/line
-  auto line_scope = preview_dialog_->lineScopeDialog();
-  if (line_scope) {
+  auto frame_scope = preview_dialog_->frameScopeDialog();
+  if (frame_scope) {
     connect(preview_dialog_, &PreviewDialog::previewFrameChanged, this,
             &MainWindow::onLineScopeRefreshAtFieldLine);
-    connect(line_scope, &LineScopeDialog::dialogClosed, this,
+    connect(frame_scope, &FrameScopeDialog::dialogClosed, this,
             &MainWindow::onLineScopeDialogClosed);
   }
 
-  // Connect preview frame changed signal to field timing
-  // When frame changes, field timing should refresh if visible
-  auto field_timing = preview_dialog_->fieldTimingDialog();
-  if (field_timing) {
+  // Connect preview frame changed signal to frame timing
+  auto frame_timing = preview_dialog_->frameTimingDialog();
+  if (frame_timing) {
     connect(preview_dialog_, &PreviewDialog::previewFrameChanged, this,
             [this]() {
-              auto* dialog = preview_dialog_->fieldTimingDialog();
+              auto* dialog = preview_dialog_->frameTimingDialog();
               if (dialog && dialog->isVisible()) {
                 onFieldTimingRequested();
               }
             });
-    connect(field_timing, &FieldTimingDialog::refreshRequested, this,
+    connect(frame_timing, &FrameTimingDialog::refreshRequested, this,
             &MainWindow::onFieldTimingRequested);
-    connect(field_timing, &FieldTimingDialog::setCrosshairsRequested, this,
+    connect(frame_timing, &FrameTimingDialog::setCrosshairsRequested, this,
             &MainWindow::onSetCrosshairsFromFieldTiming);
   }
 
@@ -4073,14 +4072,14 @@ void MainWindow::onLineScopeDialogClosed() {
   last_line_scope_image_y_ = -1;
 
   // Update field timing dialog if it's visible to remove the marker
-  auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
+  auto* field_timing_dialog = preview_dialog_->frameTimingDialog();
   if (field_timing_dialog && field_timing_dialog->isVisible()) {
     onFieldTimingRequested();
   }
 }
 
 void MainWindow::onSetCrosshairsFromFieldTiming() {
-  auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
+  auto* field_timing_dialog = preview_dialog_->frameTimingDialog();
   if (!field_timing_dialog) {
     return;
   }
@@ -4206,7 +4205,7 @@ void MainWindow::onFieldTimingDataReady(
                                 : "",
       samples.size(), y_samples.size(), c_samples.size());
 
-  auto* field_timing_dialog = preview_dialog_->fieldTimingDialog();
+  auto* field_timing_dialog = preview_dialog_->frameTimingDialog();
   if (!field_timing_dialog) {
     ORC_LOG_WARN("No field timing dialog available!");
     return;
@@ -4856,8 +4855,8 @@ void MainWindow::onLineSamplesReady(
       calculated_image_y, current_output_type_, y_samples, c_samples);
 
   // Update field timing dialog if it's visible (to update the marker position)
-  if (preview_dialog_->fieldTimingDialog() &&
-      preview_dialog_->fieldTimingDialog()->isVisible()) {
+  if (preview_dialog_->frameTimingDialog() &&
+      preview_dialog_->frameTimingDialog()->isVisible()) {
     ORC_LOG_DEBUG("Refreshing field timing dialog to update marker position");
     onFieldTimingRequested();
   }
@@ -4951,8 +4950,8 @@ void MainWindow::onSampleMarkerMoved(int sample_x) {
     last_line_scope_image_x_ = preview_x;
     last_line_scope_image_y_ = image_y;
 
-    if (preview_dialog_->fieldTimingDialog() &&
-        preview_dialog_->fieldTimingDialog()->isVisible()) {
+    if (preview_dialog_->frameTimingDialog() &&
+        preview_dialog_->frameTimingDialog()->isVisible()) {
       ORC_LOG_DEBUG(
           "Refreshing field timing dialog to update marker after sample marker "
           "move");

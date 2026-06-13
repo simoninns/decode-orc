@@ -15,8 +15,7 @@
 #include <stdexcept>
 #include <utility>
 
-// VideoFormat / video_format_from_system are defined in video_field_representation.h
-#include "video_field_representation.h"
+#include <common_types.h>
 
 namespace orc {
 void CCSinkStageDeps::init(TriggerProgressCallback progress_callback,

@@ -523,7 +523,7 @@ void MainWindow::setupUI() {
     connect(preview_dialog_, &PreviewDialog::previewFrameChanged, this,
             &MainWindow::onLineScopeRefreshAtFieldLine);
     connect(frame_scope, &FrameScopeDialog::dialogClosed, this,
-            &MainWindow::onLineScopeDialogClosed);
+            &MainWindow::onFrameScopeDialogClosed);
   }
 
   // Connect preview frame changed signal to frame timing
@@ -4064,7 +4064,7 @@ void MainWindow::onFieldTimingRequested() {
                 pending_field_timing_request_id_);
 }
 
-void MainWindow::onLineScopeDialogClosed() {
+void MainWindow::onFrameScopeDialogClosed() {
   // Clear the marker state when line scope is closed
   last_line_scope_field_index_ = std::numeric_limits<uint64_t>::max();
   last_line_scope_line_number_ = -1;

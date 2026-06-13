@@ -25,7 +25,7 @@
 #include "componentframe.h"
 #include "eia608_decoder.h"
 #include "logging.h"
-#include "video_field_representation.h"
+#include <common_types.h>
 
 namespace orc {
 

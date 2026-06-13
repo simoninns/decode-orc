@@ -20,7 +20,7 @@
 #include "dropout_util.h"
 #include "file_io_interface.h"
 #include "logging.h"
-#include "video_field_representation.h"
+#include <common_types.h>
 
 namespace orc {
 
@@ -220,17 +220,9 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
     }
     video_params->decoder = "ld-decode";
 
-    const int32_t tbc_blanking = video_params->blanking_16b_ire;
-    const int32_t tbc_white = video_params->white_16b_ire;
+    const int32_t tbc_blanking = kTbcBlanking;
+    const int32_t tbc_white = kTbcWhite;
     const VideoSystem sys = video_params->system;
-
-    if (tbc_blanking <= 0 || tbc_white <= tbc_blanking) {
-      ORC_LOG_ERROR("LDSink: invalid TBC levels: blanking={} white={}",
-                    tbc_blanking, tbc_white);
-      metadata_writer_->close();
-      tbc_writer->close();
-      return false;
-    }
 
     // CVBS_U10_4FSC normative levels for the inverse mapping.
     int32_t cvbs_blanking, cvbs_white;

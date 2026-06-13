@@ -342,7 +342,7 @@ SourceType Project::get_source_type() const {
           node.stage_name.find("yc") != std::string::npos) {
         return SourceType::YC;
       }
-      // Composite sources (PAL_Comp_Source, NTSC_Comp_Source, etc.)
+      // Composite TBC source
       else if (node.stage_name.find("Source") != std::string::npos) {
         return SourceType::Composite;
       }
@@ -1051,10 +1051,9 @@ void set_node_parameters(
     throw std::runtime_error("Node not found: " + node_id.to_string());
   }
 
-  // Only TBC composite sources derive metadata from input_path at persist time.
+  // tbc_source derives metadata from input_path at persist time.
   const bool requires_tbc_metadata_sidecar =
-      (node_it->stage_name == "PAL_Comp_Source" ||
-       node_it->stage_name == "NTSC_Comp_Source");
+      (node_it->stage_name == "tbc_source");
 
   if (requires_tbc_metadata_sidecar) {
     auto input_path_it = parameters.find("input_path");

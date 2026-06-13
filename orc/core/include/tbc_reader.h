@@ -15,7 +15,6 @@
 #include <string>
 
 #include "lru_cache.h"
-#include "video_field_representation.h"
 
 namespace orc {
 

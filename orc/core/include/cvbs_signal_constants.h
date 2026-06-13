@@ -123,4 +123,13 @@ constexpr int32_t kPalMField1Lines = 262;
 // PAL_M signal levels are identical to NTSC (same line count and blanking).
 // Use kNtscSyncTip, kNtscBlanking, kNtscBlack, kNtscWhite, kNtscPeak.
 
+// ---------------------------------------------------------------------------
+// ld-decode TBC 16-bit domain normative levels
+// ---------------------------------------------------------------------------
+// The ld-decode .tbc format stores samples as uint16_t with the following
+// standard mapping.  kTbcBlanking / kTbcWhite are the round-trip reference
+// values used when converting CVBS_U10_4FSC ↔ TBC 16-bit.
+constexpr int32_t kTbcBlanking = 16384;  // 0 IRE blanking (0x4000 = 25 %)
+constexpr int32_t kTbcWhite = 54400;     // 100 IRE white  (≈ 83 % of 65535)
+
 }  // namespace orc

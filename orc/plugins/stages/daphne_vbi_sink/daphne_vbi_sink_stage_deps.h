@@ -17,7 +17,6 @@
 #include "daphne_vbi_writer_util_interface.h"
 #include "observation_context_interface.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
 
 namespace orc {
 class IStageServices;

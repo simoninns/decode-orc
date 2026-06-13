@@ -46,14 +46,25 @@ inline const std::vector<PublicStageSpec>& public_stage_specs() {
        [] {
          return orc::StageRegistry::instance().create_stage("tbc_source");
        }},
+      {"cvbs_source", PublicStageFamily::Source, true,
+       [] {
+         return orc::StageRegistry::instance().create_stage("cvbs_source");
+       }},
       {"stacker", PublicStageFamily::Transform, true,
        [] { return orc::StageRegistry::instance().create_stage("stacker"); }},
-      {"field_invert", PublicStageFamily::Transform, true,
+      {"frame_field_swap", PublicStageFamily::Transform, true,
        [] {
-         return orc::StageRegistry::instance().create_stage("field_invert");
+         return orc::StageRegistry::instance().create_stage("frame_field_swap");
        }},
-      {"field_map", PublicStageFamily::Transform, true,
-       [] { return orc::StageRegistry::instance().create_stage("field_map"); }},
+      {"frame_map", PublicStageFamily::Transform, true,
+       [] {
+         return orc::StageRegistry::instance().create_stage("frame_map");
+       }},
+      {"frame_phase_corrector", PublicStageFamily::Transform, true,
+       [] {
+         return orc::StageRegistry::instance().create_stage(
+             "frame_phase_corrector");
+       }},
       {"video_params", PublicStageFamily::Transform, true,
        [] {
          return orc::StageRegistry::instance().create_stage("video_params");
@@ -91,15 +102,19 @@ inline const std::vector<PublicStageSpec>& public_stage_specs() {
        [] { return orc::StageRegistry::instance().create_stage("CCSink"); }},
       {"ld_sink", PublicStageFamily::Sink, true,
        [] { return orc::StageRegistry::instance().create_stage("ld_sink"); }},
+      {"cvbs_sink", PublicStageFamily::Sink, true,
+       [] {
+         return orc::StageRegistry::instance().create_stage("cvbs_sink");
+       }},
       {"EFMSink", PublicStageFamily::Sink, true,
        [] { return orc::StageRegistry::instance().create_stage("EFMSink"); }},
       {"RawEFMSink", PublicStageFamily::Sink, true,
        [] {
          return orc::StageRegistry::instance().create_stage("RawEFMSink");
        }},
-      {"hackdac_sink", PublicStageFamily::Sink, true,
+      {"AC3RFSink", PublicStageFamily::Sink, true,
        [] {
-         return orc::StageRegistry::instance().create_stage("hackdac_sink");
+         return orc::StageRegistry::instance().create_stage("AC3RFSink");
        }},
       {"dropout_analysis_sink", PublicStageFamily::Sink, true,
        [] {

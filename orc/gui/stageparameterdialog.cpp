@@ -674,11 +674,9 @@ bool StageParameterDialog::validate_values() {
     return false;
   };
 
-  // TBC composite source stages: db_path is derived from input_path at runtime
-  // as input_path + ".db". CVBS source stages also use input_path but do not
-  // require a .tbc.db sidecar.
-  const bool requires_derived_db_metadata =
-      (stage_name_ == "PAL_Comp_Source" || stage_name_ == "NTSC_Comp_Source");
+  // tbc_source derives db_path from input_path at runtime (input_path + ".db").
+  // CVBS source stages also use input_path but do not require a .tbc.db sidecar.
+  const bool requires_derived_db_metadata = (stage_name_ == "tbc_source");
 
   if (requires_derived_db_metadata) {
     auto input_it = parameter_widgets_.find("input_path");

@@ -21,7 +21,6 @@
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
 
 namespace orc {
 

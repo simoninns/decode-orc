@@ -44,6 +44,42 @@ enum class SourceType {
 };
 
 // ============================================================================
+// Video format coarse bucket (PAL vs NTSC)
+// ============================================================================
+
+/// Coarse two-bucket video format. Prefer VideoSystem for new code.
+enum class VideoFormat { NTSC, PAL, Unknown };
+
+// ITU-R BT.1700-1 / SMPTE 170M-2004: map VideoSystem to coarse PAL/NTSC bucket.
+inline VideoFormat video_format_from_system(VideoSystem system) {
+  switch (system) {
+    case VideoSystem::PAL:
+    case VideoSystem::PAL_M:
+      return VideoFormat::PAL;
+    case VideoSystem::NTSC:
+      return VideoFormat::NTSC;
+    case VideoSystem::Unknown:
+    default:
+      return VideoFormat::Unknown;
+  }
+}
+
+// EBU Tech. 3280-E / SMPTE 244M-2003: padded TBC field height (both fields
+// equal length as stored in ld-decode .tbc files).
+inline size_t calculate_padded_field_height(VideoSystem system) {
+  switch (system) {
+    case VideoSystem::NTSC:
+    case VideoSystem::PAL_M:
+      return 263;  // SMPTE 244M-2003: 525-line, second field = 263 lines
+    case VideoSystem::PAL:
+      return 313;  // EBU Tech. 3280-E: 625-line, second field = 313 lines
+    case VideoSystem::Unknown:
+    default:
+      return 0;
+  }
+}
+
+// ============================================================================
 // Preview and rendering types
 // ============================================================================
 

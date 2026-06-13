@@ -365,7 +365,7 @@ std::vector<ArtifactPtr> FramePhaseCorrectorStage::execute(
     }
   }
 
-  // Emit observations on FieldID(0) (aggregate convention)
+  // ObservationContext is still FieldID-keyed; use FieldID(0) for aggregates.
   if (swaps_corrected > 0) {
     observation_context.set(FieldID(0), "frame_phase_corrector",
                             "field_swaps_corrected", swaps_corrected);

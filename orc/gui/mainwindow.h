@@ -144,7 +144,7 @@ class MainWindow : public QMainWindow {
   refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
   void onFieldTimingRequested();
   void onSetCrosshairsFromFieldTiming();
-  void onLineScopeDialogClosed();
+  void onFrameScopeDialogClosed();
   void onPreviewVectorscopeRequested(const orc::PreviewCoordinate& coordinate);
 
   // Coordinator response slots

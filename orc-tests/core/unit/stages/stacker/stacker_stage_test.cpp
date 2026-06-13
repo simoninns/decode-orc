@@ -13,9 +13,13 @@
 
 #include <algorithm>
 
-#include "../../include/video_field_representation_mock.h"
+#include "../../mocks/mock_video_frame_representation.h"
+
+using ::testing::Return;
+using ::testing::_;
 
 namespace orc_unit_test {
+
 namespace {
 const orc::ParameterDescriptor* find_descriptor(
     const std::vector<orc::ParameterDescriptor>& descriptors,
@@ -138,12 +142,34 @@ TEST(StackerStageTest, Process_ReturnsNullWhenSourcesEmpty) {
 
 TEST(StackerStageTest, Process_ReturnsOnlySourceInPassthroughMode) {
   orc::StackerStage stage;
-  auto source = std::make_shared<MockVideoFieldRepresentation>();
-  std::vector<std::shared_ptr<const orc::VideoFieldRepresentation>> sources = {
+  auto source = std::make_shared<MockVideoFrameRepresentation>();
+
+  EXPECT_CALL(*source, has_separate_channels()).WillRepeatedly(Return(false));
+
+  std::vector<std::shared_ptr<const orc::VideoFrameRepresentation>> sources = {
       source};
 
   const auto result = stage.process(sources);
 
   EXPECT_EQ(result.get(), source.get());
 }
+
+TEST(StackerStageTest, Process_ReturnsWrappedOutputForMultipleSources) {
+  orc::StackerStage stage;
+  auto src0 = std::make_shared<MockVideoFrameRepresentation>();
+  auto src1 = std::make_shared<MockVideoFrameRepresentation>();
+
+  EXPECT_CALL(*src0, has_separate_channels()).WillRepeatedly(Return(false));
+  EXPECT_CALL(*src1, has_separate_channels()).WillRepeatedly(Return(false));
+
+  std::vector<std::shared_ptr<const orc::VideoFrameRepresentation>> sources = {
+      src0, src1};
+
+  const auto result = stage.process(sources);
+
+  ASSERT_NE(result, nullptr);
+  EXPECT_NE(result.get(), src0.get());
+  EXPECT_NE(result.get(), src1.get());
+}
+
 }  // namespace orc_unit_test

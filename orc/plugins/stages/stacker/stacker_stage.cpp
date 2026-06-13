@@ -1,14 +1,13 @@
 /*
  * File:        stacker_stage.cpp
  * Module:      orc-core
- * Purpose:     Multi-source TBC stacking stage implementation
+ * Purpose:     Multi-source CVBS_U10_4FSC frame stacking stage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
 #include <logging.h>
-#include <preview_helpers.h>
 #include <stacker_stage.h>
 
 #include <algorithm>
@@ -19,1780 +18,1190 @@
 namespace orc {
 
 // ============================================================================
-// StackedVideoFieldRepresentation implementation
+// StackedVideoFrameRepresentation
 // ============================================================================
 
-StackedVideoFieldRepresentation::StackedVideoFieldRepresentation(
-    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
+StackedVideoFrameRepresentation::StackedVideoFrameRepresentation(
+    const std::vector<std::shared_ptr<const VideoFrameRepresentation>>& sources,
     StackerStage* stage)
-    : VideoFieldRepresentationWrapper(sources.empty() ? nullptr : sources[0],
-                                      ArtifactID("stacked_field"),
-                                      Provenance{}),
+    : VideoFrameRepresentationWrapper(sources.empty() ? nullptr : sources[0]),
+      Artifact(ArtifactID("stacked_frame"), Provenance{}),
       sources_(sources),
       stage_(stage),
-      stacked_fields_(MAX_CACHED_FIELDS),
-      stacked_luma_fields_(MAX_CACHED_FIELDS),
-      stacked_chroma_fields_(MAX_CACHED_FIELDS),
-      stacked_dropouts_(MAX_CACHED_FIELDS),
-      stacked_audio_(MAX_CACHED_FIELDS),
-      stacked_efm_(MAX_CACHED_FIELDS),
-      best_field_index_(MAX_CACHED_FIELDS) {
-  // Validate that all sources have the same channel mode (all composite or all
-  // YC)
+      stacked_frames_(kMaxCachedFrames),
+      stacked_luma_(kMaxCachedFrames),
+      stacked_chroma_(kMaxCachedFrames),
+      stacked_dropouts_(kMaxCachedFrames),
+      stacked_audio_(kMaxCachedFrames),
+      stacked_efm_(kMaxCachedFrames),
+      best_source_cache_(kMaxCachedFrames) {
   if (!sources_.empty()) {
-    bool first_has_separate = sources_[0]->has_separate_channels();
+    bool first_yc = sources_[0]->has_separate_channels();
     for (size_t i = 1; i < sources_.size(); ++i) {
-      if (sources_[i]->has_separate_channels() != first_has_separate) {
+      if (sources_[i]->has_separate_channels() != first_yc) {
         throw std::runtime_error(
-            "StackerStage: Cannot mix composite and YC sources. "
-            "All sources must have the same channel mode (all composite or all "
-            "YC).");
+            "StackerStage: all sources must have the same channel mode "
+            "(all composite or all YC)");
       }
     }
   }
 }
 
-void StackedVideoFieldRepresentation::ensure_field_stacked(
-    FieldID field_id) const {
-  // Note: Caller must already hold cache_mutex_
-
-  if (sources_.empty() || !sources_[0]) {
-    return;
-  }
-
-  // Check channel mode
-  if (sources_[0]->has_separate_channels()) {
-    // YC mode - check if BOTH luma AND chroma AND dropout data are in cache
-    if (stacked_luma_fields_.contains(field_id) &&
-        stacked_chroma_fields_.contains(field_id) &&
-        stacked_dropouts_.contains(field_id)) {
-      return;
-    }
-
-    ORC_LOG_DEBUG(
-        "StackedVideoFieldRepresentation: stacking YC field {} (NOT fully "
-        "cached)",
-        field_id.value());
-
-    // Stack the YC field from all sources
-    std::vector<uint16_t> stacked_luma;
-    std::vector<uint16_t> stacked_chroma;
-    std::vector<DropoutRegion> stacked_dropouts;
-
-    stage_->stack_field_yc(field_id, sources_, stacked_luma, stacked_chroma,
-                           stacked_dropouts);
-
-    // Cache the results
-    stacked_luma_fields_.put(field_id, std::move(stacked_luma));
-    stacked_chroma_fields_.put(field_id, std::move(stacked_chroma));
-    stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
-
-    ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions",
-                  field_id.value(), stacked_dropouts.size());
-  } else {
-    // Composite mode - check if BOTH field data AND dropout data are in cache
-    if (stacked_fields_.contains(field_id) &&
-        stacked_dropouts_.contains(field_id)) {
-      return;
-    }
-
-    ORC_LOG_DEBUG(
-        "StackedVideoFieldRepresentation: stacking field {} (NOT fully cached)",
-        field_id.value());
-
-    // Stack the field from all sources (alignment is done by preceding
-    // field_map stages)
-    std::vector<uint16_t> stacked_samples;
-    std::vector<DropoutRegion> stacked_dropouts;
-
-    stage_->stack_field(field_id, sources_, stacked_samples, stacked_dropouts);
-
-    // Cache the result
-    stacked_fields_.put(field_id, std::move(stacked_samples));
-    stacked_dropouts_.put(field_id, std::move(stacked_dropouts));
-
-    ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions",
-                  field_id.value(), stacked_dropouts.size());
-  }
+FrameIDRange StackedVideoFrameRepresentation::frame_range() const {
+  return source_ ? source_->frame_range() : FrameIDRange{};
 }
 
-FieldIDRange StackedVideoFieldRepresentation::field_range() const {
-  return source_ ? source_->field_range() : FieldIDRange{};
+size_t StackedVideoFrameRepresentation::frame_count() const {
+  return source_ ? source_->frame_count() : 0;
 }
 
-size_t StackedVideoFieldRepresentation::get_source_count(
-    FieldID field_id) const {
-  // Count how many sources have this field
+bool StackedVideoFrameRepresentation::has_frame(FrameID id) const {
+  return source_ ? source_->has_frame(id) : false;
+}
+
+std::optional<FrameDescriptor>
+StackedVideoFrameRepresentation::get_frame_descriptor(FrameID id) const {
+  return source_ ? source_->get_frame_descriptor(id) : std::nullopt;
+}
+
+bool StackedVideoFrameRepresentation::has_separate_channels() const {
+  return sources_.empty() ? false : sources_[0]->has_separate_channels();
+}
+
+std::vector<FrameID> StackedVideoFrameRepresentation::collect_source_frame_ids(
+    FrameID ref_id) const {
+  if (sources_.empty()) return {};
+
+  auto ref_desc = source_->get_frame_descriptor(ref_id);
+  int ref_cfi = ref_desc ? ref_desc->colour_frame_index : -1;
+
+  std::vector<FrameID> ids;
+  ids.reserve(sources_.size());
+
+  static constexpr FrameID kInvalid = UINT64_MAX;
+
+  for (const auto& src : sources_) {
+    if (!src) {
+      ids.push_back(kInvalid);
+      continue;
+    }
+    if (!src->has_frame(ref_id)) {
+      ids.push_back(kInvalid);
+      continue;
+    }
+    auto desc = src->get_frame_descriptor(ref_id);
+    if (desc && desc->is_padding_frame) {
+      ids.push_back(kInvalid);
+      continue;
+    }
+    if (ref_cfi < 0) {
+      ids.push_back(ref_id);
+      continue;
+    }
+
+    // Colour-frame-index alignment: search ±4 frames.
+    FrameIDRange src_range = src->frame_range();
+    FrameID best = kInvalid;
+
+    for (int64_t delta = 0; delta <= 4; ++delta) {
+      for (int sign : {0, 1}) {
+        int64_t off = (sign == 0) ? delta : -delta;
+        int64_t raw = static_cast<int64_t>(ref_id) + off;
+        if (raw < 0) { continue; }
+        FrameID candidate = static_cast<FrameID>(raw);
+        if (candidate < src_range.first || candidate > src_range.last) {
+          continue;
+        }
+        if (!src->has_frame(candidate)) { continue; }
+        auto cd = src->get_frame_descriptor(candidate);
+        if (!cd || cd->is_padding_frame) { continue; }
+        if (cd->colour_frame_index == ref_cfi) {
+          best = candidate;
+          break;
+        }
+      }
+      if (best != kInvalid) { break; }
+    }
+
+    ids.push_back(best);
+  }
+
+  return ids;
+}
+
+FrameID StackedVideoFrameRepresentation::resolve_source_frame(size_t src_idx,
+                                                              FrameID ref_id) const {
+  auto ids = collect_source_frame_ids(ref_id);
+  if (src_idx >= ids.size()) { return UINT64_MAX; }
+  return ids[src_idx];
+}
+
+size_t StackedVideoFrameRepresentation::get_source_count(FrameID ref_id) const {
   size_t count = 0;
-  for (const auto& source : sources_) {
-    if (source && source->has_field(field_id)) {
-      count++;
-    }
+  for (const auto& src : sources_) {
+    if (!src || !src->has_frame(ref_id)) { continue; }
+    auto desc = src->get_frame_descriptor(ref_id);
+    if (desc && !desc->is_padding_frame) { ++count; }
   }
   return count;
 }
 
-const uint16_t* StackedVideoFieldRepresentation::get_line(FieldID id,
-                                                          size_t line) const {
-  // Ensure this field has been stacked (will use lock internally)
-  // We can't use the double-check pattern here because we return a pointer
-  // So we must ensure the field stays in cache
-  std::lock_guard<std::mutex> lock(cache_mutex_);
+size_t StackedVideoFrameRepresentation::get_best_source_index(
+    FrameID id) const {
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  if (const auto* p = best_source_cache_.get_ptr(id)) { return *p; }
 
-  ensure_field_stacked(id);
+  auto src_ids = collect_source_frame_ids(id);
+  size_t best = 0;
+  size_t min_dropouts = SIZE_MAX;
 
-  // Check if we have a stacked version of this field in LRU cache
-  const auto* cached_field = stacked_fields_.get_ptr(id);
-  if (cached_field && !cached_field->empty()) {
-    // Return pointer to line within the cached stacked field data
-    auto descriptor = source_->get_descriptor(id);
-    if (descriptor && line < descriptor->height) {
-      return &(*cached_field)[line * descriptor->width];
+  for (size_t i = 0; i < sources_.size() && i < src_ids.size(); ++i) {
+    if (src_ids[i] == UINT64_MAX) { continue; }
+    if (!sources_[i]) { continue; }
+    auto runs = sources_[i]->get_dropout_hints(src_ids[i]);
+    size_t total = 0;
+    for (const auto& r : runs) { total += r.sample_count; }
+    if (total < min_dropouts) {
+      min_dropouts = total;
+      best = i;
     }
   }
 
-  // Fallback to source (should not happen)
-  return source_->get_line(id, line);
+  best_source_cache_.put(id, best);
+  return best;
 }
 
-std::vector<uint16_t> StackedVideoFieldRepresentation::get_field(
-    FieldID id) const {
-  // First check if already cached (fast path with minimal lock time)
+void StackedVideoFrameRepresentation::ensure_frame_stacked(FrameID id) const {
+  if (stacked_frames_.contains(id) && stacked_dropouts_.contains(id)) { return; }
+
+  ORC_LOG_DEBUG("StackedVideoFrameRepresentation: stacking frame {}", id);
+
+  auto src_ids = collect_source_frame_ids(id);
+  std::vector<sample_type> stacked_samples;
+  std::vector<DropoutRun> stacked_do;
+
+  stage_->stack_frame(src_ids, sources_, stacked_samples, stacked_do);
+
+  stacked_frames_.put(id, std::move(stacked_samples));
+  stacked_dropouts_.put(id, std::move(stacked_do));
+}
+
+void StackedVideoFrameRepresentation::ensure_frame_stacked_yc(
+    FrameID id) const {
+  if (stacked_luma_.contains(id) && stacked_chroma_.contains(id) &&
+      stacked_dropouts_.contains(id)) {
+    return;
+  }
+
+  ORC_LOG_DEBUG("StackedVideoFrameRepresentation: stacking YC frame {}", id);
+
+  auto src_ids = collect_source_frame_ids(id);
+  std::vector<sample_type> luma, chroma;
+  std::vector<DropoutRun> dos;
+
+  stage_->stack_frame_yc(src_ids, sources_, luma, chroma, dos);
+
+  stacked_luma_.put(id, std::move(luma));
+  stacked_chroma_.put(id, std::move(chroma));
+  stacked_dropouts_.put(id, std::move(dos));
+}
+
+// ── Flat access ──────────────────────────────────────────────────────────────
+
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_frame(FrameID id) const {
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  ensure_frame_stacked(id);
+  const auto* p = stacked_frames_.get_ptr(id);
+  return (p && !p->empty()) ? p->data() : nullptr;
+}
+
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_line(FrameID id, size_t line) const {
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  ensure_frame_stacked(id);
+  const auto* p = stacked_frames_.get_ptr(id);
+  if (!p || p->empty()) { return nullptr; }
+
+  auto desc = source_ ? source_->get_frame_descriptor(id) : std::nullopt;
+  if (!desc || line >= desc->height) { return nullptr; }
+  size_t stride = desc->samples_per_line_nominal;
+  return p->data() + line * stride;
+}
+
+std::vector<VideoFrameRepresentation::sample_type>
+StackedVideoFrameRepresentation::get_frame_copy(FrameID id) const {
   {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    if (stacked_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      const auto* cached_field = stacked_fields_.get_ptr(id);
-      if (cached_field) {
-        return *cached_field;
-      }
+    std::lock_guard<std::mutex> lk(cache_mutex_);
+    if (stacked_frames_.contains(id) && stacked_dropouts_.contains(id)) {
+      const auto* p = stacked_frames_.get_ptr(id);
+      if (p) { return *p; }
     }
   }
 
-  // Not cached - stack the field WITHOUT holding the lock (slow path)
-  std::vector<uint16_t> stacked_samples;
-  std::vector<DropoutRegion> stacked_dropouts;
+  std::vector<sample_type> samples;
+  std::vector<DropoutRun> dos;
+  auto src_ids = collect_source_frame_ids(id);
+  stage_->stack_frame(src_ids, sources_, samples, dos);
 
-  ORC_LOG_DEBUG(
-      "StackedVideoFieldRepresentation: stacking field {} (NOT fully cached)",
-      id.value());
-  stage_->stack_field(id, sources_, stacked_samples, stacked_dropouts);
-
-  // Re-acquire lock and cache the result
   {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-
-    // Check again if another thread already stacked it while we were computing
-    if (stacked_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      // Another thread beat us to it - return their result and discard ours
-      const auto* cached_field = stacked_fields_.get_ptr(id);
-      if (cached_field) {
-        return *cached_field;
-      }
+    std::lock_guard<std::mutex> lk(cache_mutex_);
+    if (!stacked_frames_.contains(id)) {
+      stacked_frames_.put(id, samples);
+      stacked_dropouts_.put(id, std::move(dos));
     }
-
-    // Store our result in cache
-    stacked_fields_.put(id, stacked_samples);
-    stacked_dropouts_.put(id, stacked_dropouts);
-
-    ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions",
-                  id.value(), stacked_dropouts.size());
-
-    return stacked_samples;
   }
+  return samples;
 }
 
-std::vector<DropoutRegion> StackedVideoFieldRepresentation::get_dropout_hints(
-    FieldID id) const {
-  if (has_separate_channels()) {
-    // YC mode: ensure luma, chroma, and dropout caches are used
-    {
-      std::lock_guard<std::mutex> lock(cache_mutex_);
-      if (stacked_luma_fields_.contains(id) &&
-          stacked_chroma_fields_.contains(id) &&
-          stacked_dropouts_.contains(id)) {
-        const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
-        if (cached_dropouts) {
-          return *cached_dropouts;
-        }
-      }
-    }
+// ── YC access ────────────────────────────────────────────────────────────────
 
-    // Not cached - stack the YC field WITHOUT holding the lock (slow path)
-    std::vector<uint16_t> stacked_luma;
-    std::vector<uint16_t> stacked_chroma;
-    std::vector<DropoutRegion> stacked_dropouts;
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_frame_luma(FrameID id) const {
+  if (!has_separate_channels()) { return nullptr; }
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  ensure_frame_stacked_yc(id);
+  const auto* p = stacked_luma_.get_ptr(id);
+  return (p && !p->empty()) ? p->data() : nullptr;
+}
 
-    ORC_LOG_DEBUG(
-        "StackedVideoFieldRepresentation: stacking YC field {} for dropout "
-        "hints (NOT fully cached)",
-        id.value());
-    stage_->stack_field_yc(id, sources_, stacked_luma, stacked_chroma,
-                           stacked_dropouts);
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_frame_chroma(FrameID id) const {
+  if (!has_separate_channels()) { return nullptr; }
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  ensure_frame_stacked_yc(id);
+  const auto* p = stacked_chroma_.get_ptr(id);
+  return (p && !p->empty()) ? p->data() : nullptr;
+}
 
-    // Re-acquire lock and cache the result
-    {
-      std::lock_guard<std::mutex> lock(cache_mutex_);
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_line_luma(FrameID id, size_t line) const {
+  if (!has_separate_channels()) { return nullptr; }
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  ensure_frame_stacked_yc(id);
+  const auto* p = stacked_luma_.get_ptr(id);
+  if (!p || p->empty()) { return nullptr; }
+  auto desc = source_ ? source_->get_frame_descriptor(id) : std::nullopt;
+  if (!desc || line >= desc->height) { return nullptr; }
+  return p->data() + line * desc->samples_per_line_nominal;
+}
 
-      // Check again if another thread already stacked it while we were
-      // computing
-      if (stacked_luma_fields_.contains(id) &&
-          stacked_chroma_fields_.contains(id) &&
-          stacked_dropouts_.contains(id)) {
-        const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
-        if (cached_dropouts) {
-          return *cached_dropouts;
-        }
-      }
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_line_chroma(FrameID id,
+                                                  size_t line) const {
+  if (!has_separate_channels()) { return nullptr; }
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  ensure_frame_stacked_yc(id);
+  const auto* p = stacked_chroma_.get_ptr(id);
+  if (!p || p->empty()) { return nullptr; }
+  auto desc = source_ ? source_->get_frame_descriptor(id) : std::nullopt;
+  if (!desc || line >= desc->height) { return nullptr; }
+  return p->data() + line * desc->samples_per_line_nominal;
+}
 
-      // Store our result in cache
-      stacked_luma_fields_.put(id, std::move(stacked_luma));
-      stacked_chroma_fields_.put(id, std::move(stacked_chroma));
-      stacked_dropouts_.put(id, stacked_dropouts);
+// ── Dropout hints ─────────────────────────────────────────────────────────────
 
-      ORC_LOG_DEBUG(
-          "  -> YC field {} stacked and cached with {} dropout regions",
-          id.value(), stacked_dropouts.size());
-
-      return stacked_dropouts;
-    }
-  }
-
-  // Composite mode
+std::vector<DropoutRun> StackedVideoFrameRepresentation::get_dropout_hints(
+    FrameID id) const {
   {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    if (stacked_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
-      if (cached_dropouts) {
-        return *cached_dropouts;
-      }
+    std::lock_guard<std::mutex> lk(cache_mutex_);
+    if (stacked_dropouts_.contains(id)) {
+      const auto* p = stacked_dropouts_.get_ptr(id);
+      if (p) { return *p; }
     }
   }
 
-  // Not cached - stack the field WITHOUT holding the lock (slow path)
-  std::vector<uint16_t> stacked_samples;
-  std::vector<DropoutRegion> stacked_dropouts;
+  get_frame_copy(id);  // populates the dropout cache as a side-effect
 
-  ORC_LOG_DEBUG(
-      "StackedVideoFieldRepresentation: stacking field {} for dropout hints "
-      "(NOT fully cached)",
-      id.value());
-  stage_->stack_field(id, sources_, stacked_samples, stacked_dropouts);
-
-  // Re-acquire lock and cache the result
-  {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-
-    // Check again if another thread already stacked it while we were computing
-    if (stacked_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      // Another thread beat us to it - return their result and discard ours
-      const auto* cached_dropouts = stacked_dropouts_.get_ptr(id);
-      if (cached_dropouts) {
-        return *cached_dropouts;
-      }
-    }
-
-    // Store our result in cache
-    stacked_fields_.put(id, std::move(stacked_samples));
-    stacked_dropouts_.put(id, stacked_dropouts);
-
-    ORC_LOG_DEBUG("  -> Field {} stacked and cached with {} dropout regions",
-                  id.value(), stacked_dropouts.size());
-
-    return stacked_dropouts;
-  }
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  const auto* p = stacked_dropouts_.get_ptr(id);
+  return p ? *p : std::vector<DropoutRun>{};
 }
 
-size_t StackedVideoFieldRepresentation::get_best_source_index(
-    FieldID field_id) const {
-  // Lock mutex to ensure thread-safe cache access
-  std::lock_guard<std::mutex> lock(cache_mutex_);
+// ── Audio ─────────────────────────────────────────────────────────────────────
 
-  // Check cache first
-  const auto* cached_index = best_field_index_.get_ptr(field_id);
-  if (cached_index) {
-    return *cached_index;
-  }
-
-  // Find the source with the fewest dropouts for this field
-  size_t best_index = 0;
-  size_t min_dropout_count = SIZE_MAX;
-
-  for (size_t i = 0; i < sources_.size(); ++i) {
-    if (sources_[i] && sources_[i]->has_field(field_id)) {
-      auto dropouts = sources_[i]->get_dropout_hints(field_id);
-      size_t dropout_count = 0;
-      for (const auto& region : dropouts) {
-        dropout_count += (region.end_sample - region.start_sample);
-      }
-
-      if (dropout_count < min_dropout_count) {
-        min_dropout_count = dropout_count;
-        best_index = i;
-      }
-    }
-  }
-
-  // Cache the result
-  best_field_index_.put(field_id, best_index);
-  return best_index;
-}
-
-uint32_t StackedVideoFieldRepresentation::get_audio_sample_count(
-    FieldID id) const {
-  // Check if any source has audio
-  if (!has_audio()) {
-    return 0;
-  }
-
-  // Return sample count from first source that has this field with audio
-  for (const auto& source : sources_) {
-    if (source && source->has_field(id) && source->has_audio()) {
-      return source->get_audio_sample_count(id);
-    }
-  }
-
-  return 0;
-}
-
-std::vector<int16_t> StackedVideoFieldRepresentation::get_audio_samples(
-    FieldID id) const {
-  if (!has_audio()) {
-    return {};
-  }
-
-  // Check audio cache first
-  const auto* cached_audio = stacked_audio_.get_ptr(id);
-  if (cached_audio) {
-    return *cached_audio;
-  }
-
-  // Get best source index for this field
-  size_t best_index = get_best_source_index(id);
-
-  // Stack the audio samples
-  auto stacked_audio = stage_->stack_audio(id, sources_, best_index);
-
-  // Cache the result
-  stacked_audio_.put(id, stacked_audio);
-
-  return stacked_audio;
-}
-
-bool StackedVideoFieldRepresentation::has_audio() const {
-  // Check if any source has audio
-  for (const auto& source : sources_) {
-    if (source && source->has_audio()) {
-      return true;
-    }
+bool StackedVideoFrameRepresentation::has_audio() const {
+  for (const auto& src : sources_) {
+    if (src && src->has_audio()) { return true; }
   }
   return false;
 }
 
-uint32_t StackedVideoFieldRepresentation::get_efm_sample_count(
-    FieldID id) const {
-  // Check if any source has EFM
-  if (!has_efm()) {
-    return 0;
-  }
-
-  // Return sample count from first source that has this field with EFM
-  for (const auto& source : sources_) {
-    if (source && source->has_field(id) && source->has_efm()) {
-      return source->get_efm_sample_count(id);
-    }
-  }
-
-  return 0;
-}
-
-std::vector<uint8_t> StackedVideoFieldRepresentation::get_efm_samples(
-    FieldID id) const {
-  if (!has_efm()) {
-    return {};
-  }
-
-  // Check EFM cache first
-  const auto* cached_efm = stacked_efm_.get_ptr(id);
-  if (cached_efm) {
-    return *cached_efm;
-  }
-
-  // Get best source index for this field
-  size_t best_index = get_best_source_index(id);
-
-  // Stack the EFM samples
-  auto stacked_efm = stage_->stack_efm(id, sources_, best_index);
-
-  // Cache the result
-  stacked_efm_.put(id, stacked_efm);
-
-  return stacked_efm;
-}
-
-bool StackedVideoFieldRepresentation::has_efm() const {
-  // Check if any source has EFM
-  for (const auto& source : sources_) {
-    if (source && source->has_efm()) {
-      return true;
-    }
+bool StackedVideoFrameRepresentation::audio_locked() const {
+  for (const auto& src : sources_) {
+    if (src && src->has_audio()) { return src->audio_locked(); }
   }
   return false;
 }
 
-// ============================================================================
-// Dual-channel support for YC sources
-// ============================================================================
-
-bool StackedVideoFieldRepresentation::has_separate_channels() const {
-  return sources_.empty() ? false : sources_[0]->has_separate_channels();
+uint32_t StackedVideoFrameRepresentation::get_audio_sample_count(
+    FrameID id) const {
+  for (const auto& src : sources_) {
+    if (src && src->has_audio() && src->has_frame(id)) {
+      return src->get_audio_sample_count(id);
+    }
+  }
+  return 0;
 }
 
-const uint16_t* StackedVideoFieldRepresentation::get_line_luma(
-    FieldID id, size_t line) const {
-  if (!has_separate_channels()) {
-    return VideoFieldRepresentationWrapper::get_line_luma(id, line);
+std::vector<int16_t> StackedVideoFrameRepresentation::get_audio_samples(
+    FrameID id) const {
+  if (!has_audio()) { return {}; }
+
+  {
+    std::lock_guard<std::mutex> lk(cache_mutex_);
+    if (const auto* p = stacked_audio_.get_ptr(id)) { return *p; }
   }
 
-  // Ensure this field has been stacked (will use lock internally)
-  std::lock_guard<std::mutex> lock(cache_mutex_);
+  size_t best = get_best_source_index(id);
+  auto src_ids = collect_source_frame_ids(id);
+  auto result = stage_->stack_audio(src_ids, sources_, best);
 
-  ensure_field_stacked(id);
-
-  // Return pointer to line within the cached stacked luma field data
-  const auto* cached_luma = stacked_luma_fields_.get_ptr(id);
-  if (cached_luma && !cached_luma->empty()) {
-    auto descriptor = source_->get_descriptor(id);
-    if (descriptor && line < descriptor->height) {
-      return &(*cached_luma)[line * descriptor->width];
-    }
-  }
-
-  // Fallback to source (should not happen)
-  return source_->get_line_luma(id, line);
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  if (!stacked_audio_.contains(id)) { stacked_audio_.put(id, result); }
+  return result;
 }
 
-const uint16_t* StackedVideoFieldRepresentation::get_line_chroma(
-    FieldID id, size_t line) const {
-  if (!has_separate_channels()) {
-    return VideoFieldRepresentationWrapper::get_line_chroma(id, line);
+// ── EFM ──────────────────────────────────────────────────────────────────────
+
+bool StackedVideoFrameRepresentation::has_efm() const {
+  for (const auto& src : sources_) {
+    if (src && src->has_efm()) { return true; }
   }
-
-  // Ensure this field has been stacked (will use lock internally)
-  std::lock_guard<std::mutex> lock(cache_mutex_);
-
-  ensure_field_stacked(id);
-
-  // Return pointer to line within the cached stacked chroma field data
-  const auto* cached_chroma = stacked_chroma_fields_.get_ptr(id);
-  if (cached_chroma && !cached_chroma->empty()) {
-    auto descriptor = source_->get_descriptor(id);
-    if (descriptor && line < descriptor->height) {
-      return &(*cached_chroma)[line * descriptor->width];
-    }
-  }
-
-  // Fallback to source (should not happen)
-  return source_->get_line_chroma(id, line);
+  return false;
 }
 
-std::vector<uint16_t> StackedVideoFieldRepresentation::get_field_luma(
-    FieldID id) const {
-  if (!has_separate_channels()) {
-    return VideoFieldRepresentationWrapper::get_field_luma(id);
-  }
-
-  // First check if already cached (fast path with minimal lock time)
-  {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    if (stacked_luma_fields_.contains(id) &&
-        stacked_chroma_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      const auto* cached_luma = stacked_luma_fields_.get_ptr(id);
-      if (cached_luma) {
-        return *cached_luma;
-      }
+uint32_t StackedVideoFrameRepresentation::get_efm_sample_count(
+    FrameID id) const {
+  for (const auto& src : sources_) {
+    if (src && src->has_efm() && src->has_frame(id)) {
+      return src->get_efm_sample_count(id);
     }
   }
-
-  // Not cached - stack the YC field WITHOUT holding the lock (slow path)
-  std::vector<uint16_t> stacked_luma;
-  std::vector<uint16_t> stacked_chroma;
-  std::vector<DropoutRegion> stacked_dropouts;
-
-  ORC_LOG_DEBUG(
-      "StackedVideoFieldRepresentation: stacking YC field {} for luma (NOT "
-      "fully cached)",
-      id.value());
-  stage_->stack_field_yc(id, sources_, stacked_luma, stacked_chroma,
-                         stacked_dropouts);
-
-  // Re-acquire lock and cache the result
-  {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-
-    // Check again if another thread already stacked it while we were computing
-    if (stacked_luma_fields_.contains(id) &&
-        stacked_chroma_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      // Another thread beat us to it - return their result and discard ours
-      const auto* cached_luma = stacked_luma_fields_.get_ptr(id);
-      if (cached_luma) {
-        return *cached_luma;
-      }
-    }
-
-    // Store our result in cache
-    stacked_luma_fields_.put(id, stacked_luma);
-    stacked_chroma_fields_.put(id, stacked_chroma);
-    stacked_dropouts_.put(id, stacked_dropouts);
-
-    ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions",
-                  id.value(), stacked_dropouts.size());
-
-    return stacked_luma;
-  }
+  return 0;
 }
 
-std::vector<uint16_t> StackedVideoFieldRepresentation::get_field_chroma(
-    FieldID id) const {
-  if (!has_separate_channels()) {
-    return VideoFieldRepresentationWrapper::get_field_chroma(id);
-  }
+std::vector<uint8_t> StackedVideoFrameRepresentation::get_efm_samples(
+    FrameID id) const {
+  if (!has_efm()) { return {}; }
 
-  // First check if already cached (fast path with minimal lock time)
   {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-    if (stacked_luma_fields_.contains(id) &&
-        stacked_chroma_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      const auto* cached_chroma = stacked_chroma_fields_.get_ptr(id);
-      if (cached_chroma) {
-        return *cached_chroma;
-      }
-    }
+    std::lock_guard<std::mutex> lk(cache_mutex_);
+    if (const auto* p = stacked_efm_.get_ptr(id)) { return *p; }
   }
 
-  // Not cached - stack the YC field WITHOUT holding the lock (slow path)
-  std::vector<uint16_t> stacked_luma;
-  std::vector<uint16_t> stacked_chroma;
-  std::vector<DropoutRegion> stacked_dropouts;
+  size_t best = get_best_source_index(id);
+  auto src_ids = collect_source_frame_ids(id);
+  auto result = stage_->stack_efm(src_ids, sources_, best);
 
-  ORC_LOG_DEBUG(
-      "StackedVideoFieldRepresentation: stacking YC field {} for chroma (NOT "
-      "fully cached)",
-      id.value());
-  stage_->stack_field_yc(id, sources_, stacked_luma, stacked_chroma,
-                         stacked_dropouts);
-
-  // Re-acquire lock and cache the result
-  {
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-
-    // Check again if another thread already stacked it while we were computing
-    if (stacked_luma_fields_.contains(id) &&
-        stacked_chroma_fields_.contains(id) && stacked_dropouts_.contains(id)) {
-      // Another thread beat us to it - return their result and discard ours
-      const auto* cached_chroma = stacked_chroma_fields_.get_ptr(id);
-      if (cached_chroma) {
-        return *cached_chroma;
-      }
-    }
-
-    // Store our result in cache
-    stacked_luma_fields_.put(id, stacked_luma);
-    stacked_chroma_fields_.put(id, stacked_chroma);
-    stacked_dropouts_.put(id, stacked_dropouts);
-
-    ORC_LOG_DEBUG("  -> YC field {} stacked and cached with {} dropout regions",
-                  id.value(), stacked_dropouts.size());
-
-    return stacked_chroma;
-  }
+  std::lock_guard<std::mutex> lk(cache_mutex_);
+  if (!stacked_efm_.contains(id)) { stacked_efm_.put(id, result); }
+  return result;
 }
 
 // ============================================================================
-// StackerStage implementation
+// StackerStage
 // ============================================================================
 
-StackerStage::StackerStage()
-    : m_mode(-1)  // Auto mode
-      ,
-      m_smart_threshold(15)  // Default threshold
-      ,
-      m_no_diff_dod(false),
-      m_passthrough(false),
-      m_thread_count(0)  // Auto (use all available cores)
-      ,
-      m_audio_stacking_mode(AudioStackingMode::MEAN)  // Default: mean averaging
-      ,
-      m_efm_stacking_mode(EFMStackingMode::MEAN)  // Default: mean averaging
-{}
+StackerStage::StackerStage() = default;
 
 std::vector<ArtifactPtr> StackerStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context) {
-  (void)observation_context;  // Unused for now
+  (void)observation_context;
+
   if (inputs.empty()) {
     throw DAGExecutionError("StackerStage requires at least 1 input");
   }
-
   if (inputs.size() > 16) {
     throw DAGExecutionError("StackerStage supports maximum 16 inputs");
   }
 
-  ORC_LOG_DEBUG("StackerStage: Processing {} input source(s)", inputs.size());
-
-  // Update parameters
   if (!parameters.empty()) {
     set_parameters(parameters);
-    ORC_LOG_DEBUG(
-        "StackerStage: Parameters updated - mode={}, smart_threshold={}, "
-        "no_diff_dod={}, passthrough={}",
-        m_mode, m_smart_threshold, m_no_diff_dod, m_passthrough);
-    // Parameters changed - invalidate cache
     cached_output_.reset();
   }
 
-  std::vector<std::shared_ptr<const VideoFieldRepresentation>> sources;
-  for (const auto& input : inputs) {
-    auto field_rep =
-        std::dynamic_pointer_cast<const VideoFieldRepresentation>(input);
-    if (!field_rep) {
+  std::vector<std::shared_ptr<const VideoFrameRepresentation>> sources;
+  for (const auto& inp : inputs) {
+    auto vfr = std::dynamic_pointer_cast<const VideoFrameRepresentation>(inp);
+    if (!vfr) {
       throw DAGExecutionError(
-          "StackerStage input is not a VideoFieldRepresentation");
+          "StackerStage: input is not a VideoFrameRepresentation");
     }
-    sources.push_back(field_rep);
+    sources.push_back(vfr);
   }
 
-  // Check if we can reuse cached output
-  // We need to verify the sources match to safely reuse
-  bool can_reuse_cache = false;
+  bool reuse = false;
   if (cached_output_ && cached_sources_.size() == sources.size()) {
-    can_reuse_cache = true;
+    reuse = true;
     for (size_t i = 0; i < sources.size(); ++i) {
       if (cached_sources_[i] != sources[i]) {
-        can_reuse_cache = false;
+        reuse = false;
         break;
       }
     }
   }
 
-  std::shared_ptr<const VideoFieldRepresentation> result;
-
-  if (can_reuse_cache) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Reusing cached StackedVideoFieldRepresentation");
+  std::shared_ptr<const VideoFrameRepresentation> result;
+  if (reuse) {
     result = cached_output_;
   } else {
-    ORC_LOG_DEBUG("StackerStage: Creating new StackedVideoFieldRepresentation");
-    // Process the fields
     result = process(sources);
-
-    // Cache the result and sources
     cached_output_ = result;
     cached_sources_ = sources;
   }
 
-  // Return as artifact
-  return {std::const_pointer_cast<VideoFieldRepresentation>(
-      std::const_pointer_cast<const VideoFieldRepresentation>(result))};
-}
-
-std::shared_ptr<const VideoFieldRepresentation> StackerStage::process(
-    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources)
-    const {
-  if (sources.empty()) {
-    ORC_LOG_DEBUG("StackerStage::process - No sources provided");
-    return nullptr;
-  }
-
-  // Passthrough mode: single input
+  // When process() returns the single input source unchanged (passthrough),
+  // the result is already an Artifact via the original input pointer.
   if (sources.size() == 1) {
-    ORC_LOG_INFO(
-        "StackerStage::process - Passthrough mode (single source), returning "
-        "source directly");
-    return sources[0];
+    return {inputs[0]};
   }
 
-  ORC_LOG_DEBUG(
-      "StackerStage::process - Creating StackedVideoFieldRepresentation for {} "
-      "sources",
-      sources.size());
+  // Multi-source path: result is a StackedVideoFrameRepresentation which
+  // inherits from both VideoFrameRepresentationWrapper and Artifact.
+  auto stacked =
+      std::const_pointer_cast<StackedVideoFrameRepresentation>(
+          std::dynamic_pointer_cast<const StackedVideoFrameRepresentation>(
+              result));
+  if (!stacked) {
+    // Fallback: should not happen
+    return {inputs[0]};
+  }
+  return {stacked};
+}
 
-  // Create stacked representation - will build frame alignment and process
-  // fields on-demand
-  auto stacked = std::make_shared<StackedVideoFieldRepresentation>(
+std::shared_ptr<const VideoFrameRepresentation> StackerStage::process(
+    const std::vector<std::shared_ptr<const VideoFrameRepresentation>>&
+        sources) const {
+  if (sources.empty()) { return nullptr; }
+  if (sources.size() == 1) { return sources[0]; }
+
+  return std::make_shared<StackedVideoFrameRepresentation>(
       sources, const_cast<StackerStage*>(this));
-
-  ORC_LOG_DEBUG(
-      "StackerStage::process - Returning StackedVideoFieldRepresentation with "
-      "type: {}",
-      stacked->type_name());
-  return stacked;
 }
 
-void StackerStage::stack_field(
-    FieldID field_id,
-    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
-    std::vector<uint16_t>& output_samples,
-    std::vector<DropoutRegion>& output_dropouts) const {
-  ORC_LOG_DEBUG(
-      "StackerStage::stack_field - Processing field {} from {} sources",
-      field_id.value(), sources.size());
+// ── Core stacking ─────────────────────────────────────────────────────────────
 
-  // Get descriptor from first valid source
-  std::optional<FieldDescriptor> descriptor;
-  size_t reference_idx = 0;
-  for (size_t i = 0; i < sources.size(); ++i) {
-    if (sources[i]->has_field(field_id)) {
-      descriptor = sources[i]->get_descriptor(field_id);
-      if (descriptor) {
-        reference_idx = i;
-        break;
-      }
+void StackerStage::stack_frame(
+    const std::vector<FrameID>& source_ids,
+    const std::vector<std::shared_ptr<const VideoFrameRepresentation>>& sources,
+    std::vector<sample_type>& output_samples,
+    std::vector<DropoutRun>& output_dropouts) const {
+  if (source_ids.size() != sources.size()) { return; }
+
+  std::optional<FrameDescriptor> ref_desc;
+  size_t ref_src = 0;
+  for (size_t i = 0; i < source_ids.size(); ++i) {
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    ref_desc = sources[i]->get_frame_descriptor(source_ids[i]);
+    if (ref_desc) {
+      ref_src = i;
+      break;
     }
   }
+  if (!ref_desc) { return; }
 
-  if (!descriptor) {
-    ORC_LOG_ERROR(
-        "StackerStage: No valid field descriptor available for field {}",
-        field_id.value());
-    throw DAGExecutionError(
-        "StackerStage: No valid field descriptor available");
-  }
+  size_t height = ref_desc->height;
+  size_t nominal_width = ref_desc->samples_per_line_nominal;
+  size_t total = height * nominal_width;
 
-  size_t width = descriptor->width;
-  size_t height = descriptor->height;
+  auto params = sources[ref_src]->get_video_parameters();
+  int32_t black_level = params ? params->black_level : 282;
 
-  ORC_LOG_DEBUG("StackerStage::stack_field - Field dimensions: {}x{}", width,
-                height);
-
-  // Get video parameters for black level
-  auto video_params = sources[reference_idx]->get_video_parameters();
-  if (!video_params) {
-    ORC_LOG_ERROR("StackerStage: Video parameters not available");
-    throw DAGExecutionError("StackerStage: Video parameters not available");
-  }
-
-  // Resize output
-  output_samples.resize(width * height);
+  output_samples.resize(total, static_cast<sample_type>(black_level));
   output_dropouts.clear();
 
-  size_t total_dropouts = 0;
-  size_t total_diff_dod_recoveries = 0;
-  size_t total_stacked_pixels = 0;
-
-  // Pre-load all source fields into memory to avoid repeated get_line() calls
-  // This dramatically improves performance by eliminating wrapper call overhead
-  std::vector<std::vector<uint16_t>> all_fields;
-  std::vector<bool> field_valid;
-  all_fields.reserve(sources.size());
-  field_valid.reserve(sources.size());
+  std::vector<std::vector<sample_type>> all_frames(sources.size());
+  std::vector<bool> frame_valid(sources.size(), false);
+  std::vector<std::vector<DropoutRun>> all_dropouts(sources.size());
 
   for (size_t i = 0; i < sources.size(); ++i) {
-    if (sources[i]->has_field(field_id)) {
-      all_fields.push_back(sources[i]->get_field(field_id));
-      field_valid.push_back(!all_fields.back().empty());
-    } else {
-      all_fields.push_back({});
-      field_valid.push_back(false);
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    if (!sources[i]->has_frame(source_ids[i])) { continue; }
+    auto d = sources[i]->get_frame_descriptor(source_ids[i]);
+    if (!d || d->is_padding_frame) { continue; }
+    all_frames[i] = sources[i]->get_frame_copy(source_ids[i]);
+    if (!all_frames[i].empty()) {
+      frame_valid[i] = true;
+      all_dropouts[i] = sources[i]->get_dropout_hints(source_ids[i]);
     }
   }
 
-  // Pre-collect all dropout maps for fast lookup
-  std::vector<std::vector<DropoutRegion>> all_dropouts;
-  for (size_t i = 0; i < sources.size(); ++i) {
-    if (field_valid[i]) {
-      auto dropouts = sources[i]->get_dropout_hints(field_id);
-      all_dropouts.push_back(std::move(dropouts));
-    } else {
-      all_dropouts.push_back(
-          {});  // Empty dropout list for sources without this field
-    }
+  size_t n_threads = static_cast<size_t>(m_thread_count);
+  if (n_threads == 0) {
+    n_threads = std::thread::hardware_concurrency();
+    if (n_threads == 0) { n_threads = 4; }
   }
+  if (n_threads == 1 || height < n_threads * 4) { n_threads = 1; }
 
-  // Determine number of threads to use
-  size_t num_threads = m_thread_count;
-  if (num_threads == 0) {
-    // Auto: use all available hardware threads
-    num_threads = std::thread::hardware_concurrency();
-    if (num_threads == 0) num_threads = 4;  // Fallback if detection fails
-  }
+  size_t total_do = 0;
+  size_t total_stacked = 0;
 
-  // For small fields or single-threaded mode, don't use threading
-  if (num_threads == 1 || height < num_threads * 4) {
-    num_threads = 1;
-  }
-
-  ORC_LOG_DEBUG("StackerStage::stack_field - Using {} thread(s) for processing",
-                num_threads);
-
-  // Multi-threaded line processing
-  if (num_threads == 1) {
-    // Single-threaded path (for small fields or when explicitly set to 1
-    // thread)
-    process_lines_range(0, height, width, all_fields, field_valid, all_dropouts,
-                        sources.size(), *video_params, output_samples,
-                        output_dropouts, total_dropouts,
-                        total_diff_dod_recoveries, total_stacked_pixels);
+  if (n_threads == 1) {
+    process_lines_range(0, height, nominal_width, all_frames, frame_valid,
+                        all_dropouts, sources.size(), black_level,
+                        static_cast<int32_t>(nominal_width), output_samples,
+                        output_dropouts, total_do, total_stacked);
   } else {
-    // Multi-threaded path
     std::vector<std::thread> threads;
-    std::vector<std::vector<DropoutRegion>> thread_dropouts(num_threads);
-    std::vector<size_t> thread_total_dropouts(num_threads, 0);
-    std::vector<size_t> thread_total_recoveries(num_threads, 0);
-    std::vector<size_t> thread_total_stacked(num_threads, 0);
+    std::vector<std::vector<DropoutRun>> thread_dos(n_threads);
+    std::vector<size_t> thread_do(n_threads, 0);
+    std::vector<size_t> thread_st(n_threads, 0);
+    size_t lpt = (height + n_threads - 1) / n_threads;
 
-    // Calculate lines per thread
-    size_t lines_per_thread = (height + num_threads - 1) / num_threads;
-
-    // Launch worker threads
-    for (size_t t = 0; t < num_threads; ++t) {
-      size_t start_line = t * lines_per_thread;
-      size_t end_line = std::min(start_line + lines_per_thread, height);
-
-      if (start_line >= height) break;
-
-      threads.emplace_back(
-          [this, start_line, end_line, width, &all_fields, &field_valid,
-           &all_dropouts, num_sources = sources.size(), &video_params,
-           &output_samples, &thread_dropouts, &thread_total_dropouts,
-           &thread_total_recoveries, &thread_total_stacked, t]() {
-            process_lines_range(
-                start_line, end_line, width, all_fields, field_valid,
-                all_dropouts, num_sources, *video_params, output_samples,
-                thread_dropouts[t], thread_total_dropouts[t],
-                thread_total_recoveries[t], thread_total_stacked[t]);
-          });
-    }
-
-    // Wait for all threads to complete
-    for (auto& thread : threads) {
-      thread.join();
-    }
-
-    // Merge results from all threads
-    for (size_t t = 0; t < num_threads; ++t) {
-      output_dropouts.insert(output_dropouts.end(), thread_dropouts[t].begin(),
-                             thread_dropouts[t].end());
-      total_dropouts += thread_total_dropouts[t];
-      total_diff_dod_recoveries += thread_total_recoveries[t];
-      total_stacked_pixels += thread_total_stacked[t];
-    }
-  }
-
-  ORC_LOG_DEBUG(
-      "StackerStage::stack_field - Field {}: {} dropout regions, {} pixels "
-      "affected, {} diff_dod recoveries",
-      field_id.value(), output_dropouts.size(), total_dropouts,
-      total_diff_dod_recoveries);
-}
-
-void StackerStage::stack_field_yc(
-    FieldID field_id,
-    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
-    std::vector<uint16_t>& output_luma, std::vector<uint16_t>& output_chroma,
-    std::vector<DropoutRegion>& output_dropouts) const {
-  ORC_LOG_DEBUG(
-      "StackerStage::stack_field_yc - Processing YC field {} from {} sources",
-      field_id.value(), sources.size());
-
-  // Validate that all sources have separate channels
-  for (const auto& source : sources) {
-    if (source && source->has_field(field_id) &&
-        !source->has_separate_channels()) {
-      ORC_LOG_ERROR(
-          "StackerStage::stack_field_yc - Source does not have separate "
-          "channels");
-      throw DAGExecutionError(
-          "StackerStage: stack_field_yc called with composite source");
-    }
-  }
-
-  // Get descriptor from first valid source
-  std::optional<FieldDescriptor> descriptor;
-  size_t reference_idx = 0;
-  for (size_t i = 0; i < sources.size(); ++i) {
-    if (sources[i]->has_field(field_id)) {
-      descriptor = sources[i]->get_descriptor(field_id);
-      if (descriptor) {
-        reference_idx = i;
-        break;
-      }
-    }
-  }
-
-  if (!descriptor) {
-    ORC_LOG_ERROR(
-        "StackerStage: No valid field descriptor available for YC field {}",
-        field_id.value());
-    throw DAGExecutionError(
-        "StackerStage: No valid field descriptor available");
-  }
-
-  size_t width = descriptor->width;
-  size_t height = descriptor->height;
-
-  ORC_LOG_DEBUG("StackerStage::stack_field_yc - Field dimensions: {}x{}", width,
-                height);
-
-  // Get video parameters for black level
-  auto video_params = sources[reference_idx]->get_video_parameters();
-  if (!video_params) {
-    ORC_LOG_ERROR("StackerStage: Video parameters not available");
-    throw DAGExecutionError("StackerStage: Video parameters not available");
-  }
-
-  // Resize outputs
-  output_luma.resize(width * height);
-  output_chroma.resize(width * height);
-  output_dropouts.clear();
-
-  // Pre-load all source luma and chroma fields into memory
-  std::vector<std::vector<uint16_t>> all_luma_fields;
-  std::vector<std::vector<uint16_t>> all_chroma_fields;
-  std::vector<bool> field_valid;
-  all_luma_fields.reserve(sources.size());
-  all_chroma_fields.reserve(sources.size());
-  field_valid.reserve(sources.size());
-
-  for (size_t i = 0; i < sources.size(); ++i) {
-    if (sources[i]->has_field(field_id)) {
-      all_luma_fields.push_back(sources[i]->get_field_luma(field_id));
-      all_chroma_fields.push_back(sources[i]->get_field_chroma(field_id));
-      field_valid.push_back(!all_luma_fields.back().empty() &&
-                            !all_chroma_fields.back().empty());
-    } else {
-      all_luma_fields.push_back({});
-      all_chroma_fields.push_back({});
-      field_valid.push_back(false);
-    }
-  }
-
-  // Pre-collect all dropout maps (same for Y and C)
-  std::vector<std::vector<DropoutRegion>> all_dropouts;
-  for (size_t i = 0; i < sources.size(); ++i) {
-    if (field_valid[i]) {
-      auto dropouts = sources[i]->get_dropout_hints(field_id);
-      all_dropouts.push_back(std::move(dropouts));
-    } else {
-      all_dropouts.push_back({});
-    }
-  }
-
-  // Determine number of threads to use
-  size_t num_threads = m_thread_count;
-  if (num_threads == 0) {
-    num_threads = std::thread::hardware_concurrency();
-    if (num_threads == 0) num_threads = 4;
-  }
-
-  if (num_threads == 1 || height < num_threads * 4) {
-    num_threads = 1;
-  }
-
-  ORC_LOG_DEBUG(
-      "StackerStage::stack_field_yc - Using {} thread(s) for processing",
-      num_threads);
-
-  size_t total_dropouts = 0;
-  size_t total_diff_dod_recoveries = 0;
-  size_t total_stacked_pixels = 0;
-
-  // Stack luma and chroma with channel-consistent corrections
-  if (num_threads == 1) {
-    // Single-threaded path
-    process_lines_range_yc(0, height, width, all_luma_fields, all_chroma_fields,
-                           field_valid, all_dropouts, sources.size(),
-                           *video_params, output_luma, output_chroma,
-                           output_dropouts, total_dropouts,
-                           total_diff_dod_recoveries, total_stacked_pixels);
-  } else {
-    // Multi-threaded path
-    std::vector<std::thread> threads;
-    std::vector<std::vector<DropoutRegion>> thread_dropouts(num_threads);
-    std::vector<size_t> thread_total_dropouts(num_threads, 0);
-    std::vector<size_t> thread_total_recoveries(num_threads, 0);
-    std::vector<size_t> thread_total_stacked(num_threads, 0);
-
-    size_t lines_per_thread = (height + num_threads - 1) / num_threads;
-
-    for (size_t t = 0; t < num_threads; ++t) {
-      size_t start_line = t * lines_per_thread;
-      size_t end_line = std::min(start_line + lines_per_thread, height);
-
-      if (start_line >= height) break;
-
-      threads.emplace_back([this, start_line, end_line, width, &all_luma_fields,
-                            &all_chroma_fields, &field_valid, &all_dropouts,
-                            num_sources = sources.size(), &video_params,
-                            &output_luma, &output_chroma, &thread_dropouts,
-                            &thread_total_dropouts, &thread_total_recoveries,
-                            &thread_total_stacked, t]() {
-        process_lines_range_yc(
-            start_line, end_line, width, all_luma_fields, all_chroma_fields,
-            field_valid, all_dropouts, num_sources, *video_params, output_luma,
-            output_chroma, thread_dropouts[t], thread_total_dropouts[t],
-            thread_total_recoveries[t], thread_total_stacked[t]);
+    for (size_t t = 0; t < n_threads; ++t) {
+      size_t s = t * lpt;
+      size_t e = std::min(s + lpt, height);
+      if (s >= height) { break; }
+      threads.emplace_back([&, t, s, e]() {
+        process_lines_range(s, e, nominal_width, all_frames, frame_valid,
+                            all_dropouts, sources.size(), black_level,
+                            static_cast<int32_t>(nominal_width), output_samples,
+                            thread_dos[t], thread_do[t], thread_st[t]);
       });
     }
-
-    // Wait for all threads
-    for (auto& thread : threads) {
-      thread.join();
-    }
-
-    // Merge thread results
-    for (size_t t = 0; t < num_threads; ++t) {
-      output_dropouts.insert(output_dropouts.end(), thread_dropouts[t].begin(),
-                             thread_dropouts[t].end());
-      total_dropouts += thread_total_dropouts[t];
-      total_diff_dod_recoveries += thread_total_recoveries[t];
-      total_stacked_pixels += thread_total_stacked[t];
+    for (auto& th : threads) { th.join(); }
+    for (size_t t = 0; t < n_threads; ++t) {
+      output_dropouts.insert(output_dropouts.end(), thread_dos[t].begin(),
+                             thread_dos[t].end());
+      total_do += thread_do[t];
+      total_stacked += thread_st[t];
     }
   }
 
-  ORC_LOG_DEBUG(
-      "StackerStage::stack_field_yc - YC field {}: {} dropout regions, {} "
-      "pixels affected, {} diff_dod recoveries",
-      field_id.value(), output_dropouts.size(), total_dropouts,
-      total_diff_dod_recoveries);
+  ORC_LOG_DEBUG("StackerStage::stack_frame: {} dropouts, {} stacked pixels",
+                output_dropouts.size(), total_stacked);
+  (void)total_do;
 }
+
+void StackerStage::stack_frame_yc(
+    const std::vector<FrameID>& source_ids,
+    const std::vector<std::shared_ptr<const VideoFrameRepresentation>>& sources,
+    std::vector<sample_type>& output_luma,
+    std::vector<sample_type>& output_chroma,
+    std::vector<DropoutRun>& output_dropouts) const {
+  if (source_ids.size() != sources.size()) { return; }
+
+  std::optional<FrameDescriptor> ref_desc;
+  size_t ref_src = 0;
+  for (size_t i = 0; i < source_ids.size(); ++i) {
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    ref_desc = sources[i]->get_frame_descriptor(source_ids[i]);
+    if (ref_desc) {
+      ref_src = i;
+      break;
+    }
+  }
+  if (!ref_desc) { return; }
+
+  size_t height = ref_desc->height;
+  size_t nominal_width = ref_desc->samples_per_line_nominal;
+  size_t total = height * nominal_width;
+
+  auto params = sources[ref_src]->get_video_parameters();
+  int32_t black_level = params ? params->black_level : 282;
+
+  output_luma.resize(total, static_cast<sample_type>(black_level));
+  output_chroma.resize(total, static_cast<sample_type>(black_level));
+  output_dropouts.clear();
+
+  std::vector<std::vector<sample_type>> all_luma(sources.size());
+  std::vector<std::vector<sample_type>> all_chroma(sources.size());
+  std::vector<bool> frame_valid(sources.size(), false);
+  std::vector<std::vector<DropoutRun>> all_dropouts(sources.size());
+
+  for (size_t i = 0; i < sources.size(); ++i) {
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    if (!sources[i]->has_frame(source_ids[i])) { continue; }
+    auto d = sources[i]->get_frame_descriptor(source_ids[i]);
+    if (!d || d->is_padding_frame) { continue; }
+    const sample_type* lp = sources[i]->get_frame_luma(source_ids[i]);
+    const sample_type* cp = sources[i]->get_frame_chroma(source_ids[i]);
+    if (!lp || !cp) { continue; }
+    all_luma[i].assign(lp, lp + total);
+    all_chroma[i].assign(cp, cp + total);
+    frame_valid[i] = true;
+    all_dropouts[i] = sources[i]->get_dropout_hints(source_ids[i]);
+  }
+
+  size_t n_threads = static_cast<size_t>(m_thread_count);
+  if (n_threads == 0) {
+    n_threads = std::thread::hardware_concurrency();
+    if (n_threads == 0) { n_threads = 4; }
+  }
+  if (n_threads == 1 || height < n_threads * 4) { n_threads = 1; }
+
+  size_t total_do = 0;
+  size_t total_stacked = 0;
+
+  if (n_threads == 1) {
+    process_lines_range_yc(0, height, nominal_width, all_luma, all_chroma,
+                           frame_valid, all_dropouts, sources.size(),
+                           black_level, static_cast<int32_t>(nominal_width),
+                           output_luma, output_chroma, output_dropouts,
+                           total_do, total_stacked);
+  } else {
+    std::vector<std::thread> threads;
+    std::vector<std::vector<DropoutRun>> thread_dos(n_threads);
+    std::vector<size_t> thread_do(n_threads, 0);
+    std::vector<size_t> thread_st(n_threads, 0);
+    size_t lpt = (height + n_threads - 1) / n_threads;
+
+    for (size_t t = 0; t < n_threads; ++t) {
+      size_t s = t * lpt;
+      size_t e = std::min(s + lpt, height);
+      if (s >= height) { break; }
+      threads.emplace_back([&, t, s, e]() {
+        process_lines_range_yc(s, e, nominal_width, all_luma, all_chroma,
+                               frame_valid, all_dropouts, sources.size(),
+                               black_level, static_cast<int32_t>(nominal_width),
+                               output_luma, output_chroma, thread_dos[t],
+                               thread_do[t], thread_st[t]);
+      });
+    }
+    for (auto& th : threads) { th.join(); }
+    for (size_t t = 0; t < n_threads; ++t) {
+      output_dropouts.insert(output_dropouts.end(), thread_dos[t].begin(),
+                             thread_dos[t].end());
+    }
+  }
+  (void)total_do;
+  (void)total_stacked;
+}
+
+// ── Per-line processing ───────────────────────────────────────────────────────
+
+namespace {
+
+bool is_sample_dropout(const std::vector<DropoutRun>& runs,
+                       size_t line, size_t x, size_t width) {
+  uint64_t offset = static_cast<uint64_t>(line * width + x);
+  for (const auto& r : runs) {
+    if (offset >= r.sample_start &&
+        offset < r.sample_start + r.sample_count) {
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
 
 void StackerStage::process_lines_range(
     size_t start_line, size_t end_line, size_t width,
-    const std::vector<std::vector<uint16_t>>& all_fields,
-    const std::vector<bool>& field_valid,
-    const std::vector<std::vector<DropoutRegion>>& all_dropouts,
-    size_t num_sources, const SourceParameters& video_params,
-    std::vector<uint16_t>& output_samples,
-    std::vector<DropoutRegion>& output_dropouts, size_t& total_dropouts,
-    size_t& total_diff_dod_recoveries, size_t& total_stacked_pixels) const {
-  // Process each line in the assigned range
+    const std::vector<std::vector<sample_type>>& all_frames,
+    const std::vector<bool>& frame_valid,
+    const std::vector<std::vector<DropoutRun>>& all_dropouts,
+    size_t num_sources,
+    int32_t black_level,
+    int32_t /*nominal_width*/,
+    std::vector<sample_type>& output_samples,
+    std::vector<DropoutRun>& output_dropouts,
+    size_t& total_dropouts,
+    size_t& total_stacked) const {
   for (size_t y = start_line; y < end_line; ++y) {
-    size_t line_dropouts = 0;
-    size_t line_recoveries = 0;
-    size_t line_stacked = 0;
-
-    DropoutRegion current_dropout{};
-    current_dropout.line = static_cast<uint32_t>(y);
-    current_dropout.start_sample = 0;
-    current_dropout.end_sample = 0;
     bool in_dropout = false;
+    uint64_t do_start = 0;
 
     for (size_t x = 0; x < width; ++x) {
-      std::vector<uint16_t> values;
-      std::vector<uint16_t>
-          dropout_values;  // Separate collection for dropout pixels
-      std::vector<bool> is_dropout(num_sources);
+      std::vector<int16_t> good_values;
+      std::vector<int16_t> dropout_values;
+      std::vector<bool> is_do(num_sources, true);
 
-      // Collect values from all sources for this field
-      for (size_t src_idx = 0; src_idx < num_sources; ++src_idx) {
-        // Skip if this source doesn't have this field
-        if (!field_valid[src_idx]) {
-          is_dropout[src_idx] = true;
-          continue;
-        }
-
-        // Access pre-loaded field data directly
-        size_t pixel_offset = y * width + x;
-        if (pixel_offset >= all_fields[src_idx].size()) {
-          is_dropout[src_idx] = true;
-          continue;
-        }
-
-        uint16_t pixel_value = all_fields[src_idx][pixel_offset];
-
-        // Check dropout status
-        bool pixel_is_dropout = false;
-        for (const auto& region : all_dropouts[src_idx]) {
-          if (y == region.line && x >= region.start_sample &&
-              x < region.end_sample) {
-            pixel_is_dropout = true;
-            break;
-          }
-        }
-
-        is_dropout[src_idx] = pixel_is_dropout;
-
-        // Collect non-dropout pixels and dropout pixels separately
-        if (!pixel_is_dropout) {
-          values.push_back(pixel_value);
-        } else if (!m_no_diff_dod && pixel_value > 0) {
-          // Keep dropout values for potential diff_dod recovery
-          dropout_values.push_back(pixel_value);
+      for (size_t si = 0; si < num_sources; ++si) {
+        if (!frame_valid[si]) { continue; }
+        size_t off = y * width + x;
+        if (off >= all_frames[si].size()) { continue; }
+        int16_t val = all_frames[si][off];
+        bool do_flag = is_sample_dropout(all_dropouts[si], y, x, width);
+        is_do[si] = do_flag;
+        if (!do_flag) {
+          good_values.push_back(val);
+        } else if (!m_no_diff_dod) {
+          dropout_values.push_back(val);
         }
       }
 
-      // Apply differential dropout detection only when ALL sources have
-      // dropouts
-      bool all_dropouts_flag = std::all_of(is_dropout.begin(), is_dropout.end(),
-                                           [](bool b) { return b; });
-      if (all_dropouts_flag && num_sources >= 3 && !m_no_diff_dod &&
+      bool all_do = std::all_of(is_do.begin(), is_do.end(),
+                                [](bool b) { return b; });
+
+      if (all_do && num_sources >= 3 && !m_no_diff_dod &&
           !dropout_values.empty()) {
-        // All sources marked this as dropout - try to recover using diff_dod
-        size_t before_count = dropout_values.size();
-        values = diff_dod(dropout_values, video_params);
-        if (values.size() > 0 && values.size() < before_count) {
-          line_recoveries++;
-          total_diff_dod_recoveries++;
-        }
+        good_values = diff_dod(dropout_values, black_level);
       }
 
-      // Calculate stacked value
-      uint16_t stacked_value;
-      if (values.empty()) {
-        // No valid values - use black level
-        stacked_value = static_cast<uint16_t>(video_params.black_16b_ire);
-        line_dropouts++;
-        total_dropouts++;
-
-        // Track dropout region
+      int16_t stacked;
+      if (good_values.empty()) {
+        stacked = static_cast<int16_t>(black_level);
+        ++total_dropouts;
         if (!in_dropout) {
-          current_dropout.start_sample = static_cast<uint32_t>(x);
+          do_start = static_cast<uint64_t>(y * width + x);
           in_dropout = true;
         }
-        current_dropout.end_sample = static_cast<uint32_t>(x + 1);
       } else {
-        // For simple modes (no neighbor checking)
-        std::vector<uint16_t> dummy;
-        std::vector<bool> dropout_flags(5, false);
-        dropout_flags[0] = all_dropouts_flag;
-        stacked_value =
-            stack_mode(values, dummy, dummy, dummy, dummy, dropout_flags);
-        line_stacked++;
-        total_stacked_pixels++;
-
-        // End current dropout region if we were in one
-        if (in_dropout &&
-            current_dropout.start_sample < current_dropout.end_sample) {
-          output_dropouts.push_back(current_dropout);
+        stacked = stack_mode(good_values, all_do);
+        ++total_stacked;
+        if (in_dropout) {
+          DropoutRun r;
+          r.frame_id = 0;
+          r.sample_start = do_start;
+          r.sample_count =
+              static_cast<uint32_t>(y * width + x - do_start);
+          r.severity = 50;
+          output_dropouts.push_back(r);
           in_dropout = false;
         }
       }
-
-      output_samples[y * width + x] = stacked_value;
+      output_samples[y * width + x] = stacked;
     }
 
-    // Finalize dropout region at end of line
-    if (in_dropout &&
-        current_dropout.start_sample < current_dropout.end_sample) {
-      output_dropouts.push_back(current_dropout);
-    }
-
-    // Trace logging per line
-    if (line_dropouts > 0 || line_recoveries > 0) {
-      ORC_LOG_TRACE(
-          "StackerStage: Line {}: stacked={}, dropouts={}, "
-          "diff_dod_recoveries={}",
-          y, line_stacked, line_dropouts, line_recoveries);
+    if (in_dropout) {
+      DropoutRun r;
+      r.frame_id = 0;
+      r.sample_start = do_start;
+      r.sample_count = static_cast<uint32_t>(y * width + width - do_start);
+      r.severity = 50;
+      output_dropouts.push_back(r);
     }
   }
 }
 
 void StackerStage::process_lines_range_yc(
     size_t start_line, size_t end_line, size_t width,
-    const std::vector<std::vector<uint16_t>>& all_luma_fields,
-    const std::vector<std::vector<uint16_t>>& all_chroma_fields,
-    const std::vector<bool>& field_valid,
-    const std::vector<std::vector<DropoutRegion>>& all_dropouts,
-    size_t num_sources, const SourceParameters& video_params,
-    std::vector<uint16_t>& output_luma, std::vector<uint16_t>& output_chroma,
-    std::vector<DropoutRegion>& output_dropouts, size_t& total_dropouts,
-    size_t& total_diff_dod_recoveries, size_t& total_stacked_pixels) const {
+    const std::vector<std::vector<sample_type>>& all_luma,
+    const std::vector<std::vector<sample_type>>& all_chroma,
+    const std::vector<bool>& frame_valid,
+    const std::vector<std::vector<DropoutRun>>& all_dropouts,
+    size_t num_sources,
+    int32_t black_level,
+    int32_t /*nominal_width*/,
+    std::vector<sample_type>& output_luma,
+    std::vector<sample_type>& output_chroma,
+    std::vector<DropoutRun>& output_dropouts,
+    size_t& total_dropouts,
+    size_t& total_stacked) const {
   for (size_t y = start_line; y < end_line; ++y) {
-    size_t line_dropouts = 0;
-    size_t line_recoveries = 0;
-    size_t line_stacked = 0;
-
-    DropoutRegion current_dropout{};
-    current_dropout.line = static_cast<uint32_t>(y);
-    current_dropout.start_sample = 0;
-    current_dropout.end_sample = 0;
     bool in_dropout = false;
+    uint64_t do_start = 0;
 
     for (size_t x = 0; x < width; ++x) {
-      std::vector<uint16_t> luma_values;
-      std::vector<uint16_t> chroma_values;
-      std::vector<uint16_t> luma_dropout_values;
-      std::vector<uint16_t> chroma_dropout_values;
-      std::vector<bool> is_dropout(num_sources);
+      std::vector<int16_t> good_luma;
+      std::vector<int16_t> good_chroma;
+      std::vector<bool> is_do(num_sources, true);
 
-      // Collect values from all sources for this field
-      for (size_t src_idx = 0; src_idx < num_sources; ++src_idx) {
-        if (!field_valid[src_idx]) {
-          is_dropout[src_idx] = true;
-          continue;
-        }
-
-        size_t pixel_offset = y * width + x;
-        if (pixel_offset >= all_luma_fields[src_idx].size()) {
-          is_dropout[src_idx] = true;
-          continue;
-        }
-
-        uint16_t luma_value = all_luma_fields[src_idx][pixel_offset];
-        bool chroma_available =
-            pixel_offset < all_chroma_fields[src_idx].size();
-        uint16_t chroma_value =
-            chroma_available
-                ? all_chroma_fields[src_idx][pixel_offset]
-                : static_cast<uint16_t>(video_params.black_16b_ire);
-
-        bool pixel_is_dropout = false;
-        for (const auto& region : all_dropouts[src_idx]) {
-          if (y == region.line && x >= region.start_sample &&
-              x < region.end_sample) {
-            pixel_is_dropout = true;
-            break;
-          }
-        }
-
-        is_dropout[src_idx] = pixel_is_dropout;
-
-        if (!pixel_is_dropout) {
-          luma_values.push_back(luma_value);
-          chroma_values.push_back(chroma_value);
-        } else if (!m_no_diff_dod) {
-          if (luma_value > 0) {
-            luma_dropout_values.push_back(luma_value);
-          }
-          if (chroma_available && chroma_value > 0) {
-            chroma_dropout_values.push_back(chroma_value);
+      for (size_t si = 0; si < num_sources; ++si) {
+        if (!frame_valid[si]) { continue; }
+        size_t off = y * width + x;
+        if (off >= all_luma[si].size()) { continue; }
+        bool do_flag = is_sample_dropout(all_dropouts[si], y, x, width);
+        is_do[si] = do_flag;
+        if (!do_flag) {
+          good_luma.push_back(all_luma[si][off]);
+          if (off < all_chroma[si].size()) {
+            good_chroma.push_back(all_chroma[si][off]);
           }
         }
       }
 
-      bool all_dropouts_flag = std::all_of(is_dropout.begin(), is_dropout.end(),
-                                           [](bool b) { return b; });
-      bool any_dropout_flag = std::any_of(is_dropout.begin(), is_dropout.end(),
-                                          [](bool b) { return b; });
+      bool all_do = std::all_of(is_do.begin(), is_do.end(),
+                                [](bool b) { return b; });
 
-      // Apply diff_dod only when ALL sources have dropouts
-      if (all_dropouts_flag && num_sources >= 3 && !m_no_diff_dod &&
-          !luma_dropout_values.empty()) {
-        size_t before_count = luma_dropout_values.size();
-        luma_values = diff_dod(luma_dropout_values, video_params);
-        chroma_values = diff_dod(chroma_dropout_values, video_params);
-        if (!luma_values.empty() && luma_values.size() < before_count) {
-          line_recoveries++;
-          total_diff_dod_recoveries++;
-        }
-      }
-
-      uint16_t stacked_luma = static_cast<uint16_t>(video_params.black_16b_ire);
-      uint16_t stacked_chroma =
-          static_cast<uint16_t>(video_params.black_16b_ire);
-      bool is_output_dropout = false;
-
-      if (luma_values.empty()) {
-        // No valid values - use black level
-        is_output_dropout = true;
-      } else if (all_dropouts_flag) {
-        // All sources were dropouts; use diff_dod results per channel
-        std::vector<uint16_t> dummy;
-        std::vector<bool> dropout_flags(5, false);
-        dropout_flags[0] = true;
-        stacked_luma =
-            stack_mode(luma_values, dummy, dummy, dummy, dummy, dropout_flags);
-        if (!chroma_values.empty()) {
-          stacked_chroma = stack_mode(chroma_values, dummy, dummy, dummy, dummy,
-                                      dropout_flags);
-        }
-      } else if (any_dropout_flag) {
-        // Dropout correction: pick ONE source index based on luma, apply to
-        // both channels
-        std::vector<uint16_t> dummy;
-        std::vector<bool> dropout_flags(5, false);
-        dropout_flags[0] = false;
-        int32_t target =
-            stack_mode(luma_values, dummy, dummy, dummy, dummy, dropout_flags);
-
-        // Find source value closest to target (using luma)
-        size_t best_idx = 0;
-        int32_t min_diff =
-            std::abs(static_cast<int32_t>(luma_values[0]) - target);
-        for (size_t i = 1; i < luma_values.size(); ++i) {
-          int32_t diff =
-              std::abs(static_cast<int32_t>(luma_values[i]) - target);
-          if (diff < min_diff) {
-            min_diff = diff;
-            best_idx = i;
-          }
-        }
-
-        stacked_luma = luma_values[best_idx];
-        if (!chroma_values.empty()) {
-          stacked_chroma = chroma_values[best_idx];
-        }
-      } else {
-        // No dropouts - stack channels independently (existing behavior)
-        std::vector<uint16_t> dummy;
-        std::vector<bool> dropout_flags(5, false);
-        dropout_flags[0] = false;
-        stacked_luma =
-            stack_mode(luma_values, dummy, dummy, dummy, dummy, dropout_flags);
-        if (!chroma_values.empty()) {
-          stacked_chroma = stack_mode(chroma_values, dummy, dummy, dummy, dummy,
-                                      dropout_flags);
-        }
-      }
-
-      if (is_output_dropout) {
-        line_dropouts++;
-        total_dropouts++;
-
+      int16_t out_luma;
+      int16_t out_chroma;
+      if (good_luma.empty()) {
+        out_luma = static_cast<int16_t>(black_level);
+        out_chroma = static_cast<int16_t>(black_level);
+        ++total_dropouts;
         if (!in_dropout) {
-          current_dropout.start_sample = static_cast<uint32_t>(x);
+          do_start = static_cast<uint64_t>(y * width + x);
           in_dropout = true;
         }
-        current_dropout.end_sample = static_cast<uint32_t>(x + 1);
       } else {
-        line_stacked++;
-        total_stacked_pixels++;
-
-        if (in_dropout &&
-            current_dropout.start_sample < current_dropout.end_sample) {
-          output_dropouts.push_back(current_dropout);
+        out_luma = stack_mode(good_luma, all_do);
+        out_chroma = good_chroma.empty()
+                         ? static_cast<int16_t>(black_level)
+                         : stack_mode(good_chroma, all_do);
+        ++total_stacked;
+        if (in_dropout) {
+          DropoutRun r;
+          r.frame_id = 0;
+          r.sample_start = do_start;
+          r.sample_count =
+              static_cast<uint32_t>(y * width + x - do_start);
+          r.severity = 50;
+          output_dropouts.push_back(r);
           in_dropout = false;
         }
       }
 
-      output_luma[y * width + x] = stacked_luma;
-      output_chroma[y * width + x] = stacked_chroma;
+      size_t off = y * width + x;
+      output_luma[off] = out_luma;
+      output_chroma[off] = out_chroma;
     }
 
-    if (in_dropout &&
-        current_dropout.start_sample < current_dropout.end_sample) {
-      output_dropouts.push_back(current_dropout);
-    }
-
-    if (line_dropouts > 0 || line_recoveries > 0) {
-      ORC_LOG_TRACE(
-          "StackerStage: YC Line {}: stacked={}, dropouts={}, "
-          "diff_dod_recoveries={}",
-          y, line_stacked, line_dropouts, line_recoveries);
+    if (in_dropout) {
+      DropoutRun r;
+      r.frame_id = 0;
+      r.sample_start = do_start;
+      r.sample_count = static_cast<uint32_t>(y * width + width - do_start);
+      r.severity = 50;
+      output_dropouts.push_back(r);
     }
   }
 }
 
-uint16_t StackerStage::stack_mode(
-    const std::vector<uint16_t>& values,
-    const std::vector<uint16_t>& /*values_n*/,  // TODO(sdi): Implement neighbor
-                                                // modes (3, 4)
-    const std::vector<uint16_t>& /*values_s*/,
-    const std::vector<uint16_t>& /*values_e*/,
-    const std::vector<uint16_t>& /*values_w*/,
-    const std::vector<bool>& /*all_dropout*/) const {
-  if (values.empty()) {
-    return 0;
-  }
+// ── Stacking mode ─────────────────────────────────────────────────────────────
 
-  const size_t num_elements = values.size();
+int16_t StackerStage::stack_mode(const std::vector<int16_t>& values,
+                                  bool /*all_dropout*/) const {
+  if (values.empty()) { return 0; }
+
   int32_t mode = m_mode;
-
-  // Auto mode: select based on number of sources
-  if (mode == -1) {
-    if (num_elements >= 3) {
-      mode = 2;  // Smart mean for 3+ sources
-    } else {
-      mode = 0;  // Mean for 2 sources
-    }
-    static bool auto_mode_logged = false;
-    if (!auto_mode_logged) {
-      ORC_LOG_DEBUG("StackerStage: Auto mode selected mode {} for {} elements",
-                    mode, num_elements);
-      auto_mode_logged = true;
-    }
-  }
+  if (mode == -1) { mode = (static_cast<int32_t>(values.size()) >= 3) ? 2 : 0; }
 
   switch (mode) {
-    case 0:  // Mean
-      return static_cast<uint16_t>(mean(values));
-
-    case 1:  // Median
-      return median(values);
-
-    case 2: {  // Smart Mean
-      const int32_t med = median(values);
+    case 0:
+      return static_cast<int16_t>(compute_mean(values));
+    case 1:
+      return compute_median(values);
+    case 2: {
+      int16_t med = compute_median(values);
       int32_t sum = 0;
       size_t count = 0;
-
-      // Sum values within threshold of median
-      for (const auto& val : values) {
-        if (val < static_cast<uint32_t>(med + m_smart_threshold) &&
-            val > static_cast<uint32_t>(med - m_smart_threshold)) {
-          sum += val;
-          count++;
+      for (int16_t v : values) {
+        if (std::abs(static_cast<int32_t>(v) - med) < m_smart_threshold) {
+          sum += v;
+          ++count;
         }
       }
-
-      static size_t smart_mean_calls = 0;
-      if ((smart_mean_calls++ % 10000) == 0) {
-        ORC_LOG_TRACE(
-            "StackerStage: Smart Mean - median={}, selected {}/{} values "
-            "within threshold {}",
-            med, count, num_elements, m_smart_threshold);
-      }
-
-      if (count == 0) {
-        return static_cast<uint16_t>(std::clamp(med, 0, 65535));
-      }
-      return static_cast<uint16_t>(sum / count);
+      if (count == 0) { return med; }
+      return static_cast<int16_t>(sum / static_cast<int32_t>(count));
     }
-
-    case 3:    // Smart Neighbor
-    case 4: {  // Neighbor
-      // For now, fall back to median when neighbor data not available
-      // Full implementation would use values_n, values_s, values_e, values_w
-      return median(values);
-    }
-
     default:
-      return median(values);
+      return compute_median(values);
   }
 }
 
-uint16_t StackerStage::median(std::vector<uint16_t> values) const {
-  const size_t n = values.size();
-  if (n == 0) return 0;
-  if (n == 1) return values[0];
-
-  // Simple insertion sort - very fast for small arrays (< 16 sources)
-  for (size_t i = 1; i < n; i++) {
-    uint16_t key = values[i];
-    size_t j = i;
-    while (j > 0 && values[j - 1] > key) {
-      values[j] = values[j - 1];
-      j--;
-    }
-    values[j] = key;
-  }
-
-  // Return median
+int16_t StackerStage::compute_median(std::vector<int16_t> v) const {
+  if (v.empty()) { return 0; }
+  size_t n = v.size();
+  std::sort(v.begin(), v.end());
   if (n % 2 == 0) {
-    return static_cast<uint16_t>(
-        (static_cast<uint32_t>(values[n / 2 - 1]) + values[n / 2]) / 2);
-  } else {
-    return values[n / 2];
+    return static_cast<int16_t>(
+        (static_cast<int32_t>(v[n / 2 - 1]) + v[n / 2]) / 2);
   }
+  return v[n / 2];
 }
 
-int32_t StackerStage::mean(const std::vector<uint16_t>& values) const {
-  if (values.empty()) {
-    return 0;
-  }
-
-  uint32_t sum = 0;
-  for (const auto& val : values) {
-    sum += val;
-  }
-
-  return static_cast<int32_t>(sum / values.size());
+int32_t StackerStage::compute_mean(const std::vector<int16_t>& v) const {
+  if (v.empty()) { return 0; }
+  int64_t sum = 0;
+  for (int16_t s : v) { sum += s; }
+  return static_cast<int32_t>(sum / static_cast<int64_t>(v.size()));
 }
 
-uint16_t StackerStage::closest(const std::vector<uint16_t>& values,
-                               int32_t target) const {
-  if (values.empty()) {
-    return 0;
+std::vector<int16_t> StackerStage::diff_dod(const std::vector<int16_t>& input,
+                                             int32_t /*black_level*/) const {
+  if (input.size() < 3) { return {}; }
+  std::vector<int16_t> cp(input);
+  int16_t med = compute_median(cp);
+  std::vector<int16_t> result;
+  for (int16_t v : input) {
+    if (std::abs(static_cast<int32_t>(v) - med) < 500) { result.push_back(v); }
   }
-
-  uint16_t result = values[0];
-  int32_t min_diff = std::abs(target - static_cast<int32_t>(values[0]));
-
-  for (size_t i = 1; i < values.size(); ++i) {
-    int32_t diff = std::abs(target - static_cast<int32_t>(values[i]));
-    if (diff < min_diff) {
-      min_diff = diff;
-      result = values[i];
-    }
-  }
-
   return result;
 }
 
-std::vector<uint16_t> StackerStage::diff_dod(
-    const std::vector<uint16_t>& input_values,
-    const SourceParameters& /*video_params*/) const {
-  std::vector<uint16_t> result;
+// ── Audio / EFM ──────────────────────────────────────────────────────────────
 
-  if (input_values.size() < 3) {
-    return result;
+std::vector<int16_t> StackerStage::stack_audio(
+    const std::vector<FrameID>& source_ids,
+    const std::vector<std::shared_ptr<const VideoFrameRepresentation>>& sources,
+    size_t best_src) const {
+  if (m_audio_stacking_mode == AudioStackingMode::DISABLED) {
+    if (best_src < sources.size() && source_ids[best_src] != UINT64_MAX &&
+        sources[best_src] && sources[best_src]->has_audio()) {
+      return sources[best_src]->get_audio_samples(source_ids[best_src]);
+    }
+    return {};
   }
 
-  // Differential dropout detection logic
-  // Check if values are similar enough to be considered valid
-  const int32_t med = median(const_cast<std::vector<uint16_t>&>(
-      const_cast<std::vector<uint16_t>&>(input_values)));
-
-  const int32_t threshold = 500;  // Threshold for diff_dod
-
-  for (const auto& val : input_values) {
-    if (std::abs(static_cast<int32_t>(val) - med) < threshold) {
-      result.push_back(val);
+  // Free-running audio: pass from first unlocked source unchanged.
+  for (size_t i = 0; i < sources.size(); ++i) {
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    if (sources[i]->has_audio() && !sources[i]->audio_locked()) {
+      return sources[i]->get_audio_samples(source_ids[i]);
     }
   }
 
-  static size_t diff_dod_calls = 0;
-  static size_t diff_dod_recoveries = 0;
-  if (result.size() > 0) {
-    diff_dod_recoveries++;
-  }
-  if ((++diff_dod_calls % 1000) == 0) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Differential DOD stats - calls={}, recoveries={} "
-        "({:.1f}%)",
-        diff_dod_calls, diff_dod_recoveries,
-        (100.0 * diff_dod_recoveries) / diff_dod_calls);
+  // Locked audio: collect and stack.
+  std::vector<std::vector<int16_t>> all_audio;
+  for (size_t i = 0; i < sources.size(); ++i) {
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    if (!sources[i]->has_audio() || !sources[i]->has_frame(source_ids[i])) {
+      continue;
+    }
+    auto s = sources[i]->get_audio_samples(source_ids[i]);
+    if (!s.empty()) { all_audio.push_back(std::move(s)); }
   }
 
+  if (all_audio.empty()) { return {}; }
+  if (all_audio.size() == 1) { return all_audio[0]; }
+
+  size_t n = all_audio[0].size();
+  std::vector<int16_t> result(n);
+  for (size_t si = 0; si < n; ++si) {
+    std::vector<int16_t> vals;
+    for (const auto& a : all_audio) {
+      if (si < a.size()) { vals.push_back(a[si]); }
+    }
+    if (m_audio_stacking_mode == AudioStackingMode::MEDIAN) {
+      result[si] = audio_median(vals);
+    } else {
+      result[si] = audio_mean(vals);
+    }
+  }
   return result;
 }
+
+std::vector<uint8_t> StackerStage::stack_efm(
+    const std::vector<FrameID>& source_ids,
+    const std::vector<std::shared_ptr<const VideoFrameRepresentation>>& sources,
+    size_t best_src) const {
+  if (m_efm_stacking_mode == EFMStackingMode::DISABLED) {
+    if (best_src < sources.size() && source_ids[best_src] != UINT64_MAX &&
+        sources[best_src] && sources[best_src]->has_efm()) {
+      return sources[best_src]->get_efm_samples(source_ids[best_src]);
+    }
+    return {};
+  }
+
+  std::vector<std::vector<uint8_t>> all_efm;
+  for (size_t i = 0; i < sources.size(); ++i) {
+    if (source_ids[i] == UINT64_MAX || !sources[i]) { continue; }
+    if (!sources[i]->has_efm() || !sources[i]->has_frame(source_ids[i])) {
+      continue;
+    }
+    auto s = sources[i]->get_efm_samples(source_ids[i]);
+    if (!s.empty()) { all_efm.push_back(std::move(s)); }
+  }
+
+  if (all_efm.empty()) { return {}; }
+  if (all_efm.size() == 1) { return all_efm[0]; }
+
+  size_t n = all_efm[0].size();
+  std::vector<uint8_t> result(n);
+  for (size_t si = 0; si < n; ++si) {
+    std::vector<uint8_t> vals;
+    for (const auto& e : all_efm) {
+      if (si < e.size()) { vals.push_back(e[si]); }
+    }
+    if (m_efm_stacking_mode == EFMStackingMode::MEDIAN) {
+      result[si] = efm_median(vals);
+    } else {
+      result[si] = efm_mean(vals);
+    }
+  }
+  return result;
+}
+
+int16_t StackerStage::audio_mean(const std::vector<int16_t>& v) const {
+  if (v.empty()) { return 0; }
+  int64_t s = 0;
+  for (int16_t x : v) { s += x; }
+  return static_cast<int16_t>(s / static_cast<int64_t>(v.size()));
+}
+
+int16_t StackerStage::audio_median(std::vector<int16_t> v) const {
+  if (v.empty()) { return 0; }
+  size_t n = v.size();
+  std::nth_element(v.begin(),
+                   v.begin() + static_cast<std::ptrdiff_t>(n / 2), v.end());
+  if (n % 2 == 0) {
+    std::nth_element(v.begin(),
+                     v.begin() + static_cast<std::ptrdiff_t>((n - 1) / 2),
+                     v.end());
+    return static_cast<int16_t>(
+        (static_cast<int32_t>(v[(n - 1) / 2]) + v[n / 2]) / 2);
+  }
+  return v[n / 2];
+}
+
+uint8_t StackerStage::efm_mean(const std::vector<uint8_t>& v) const {
+  if (v.empty()) { return 0; }
+  uint32_t s = 0;
+  for (uint8_t x : v) { s += x; }
+  return static_cast<uint8_t>(s / static_cast<uint32_t>(v.size()));
+}
+
+uint8_t StackerStage::efm_median(std::vector<uint8_t> v) const {
+  if (v.empty()) { return 0; }
+  size_t n = v.size();
+  std::nth_element(v.begin(),
+                   v.begin() + static_cast<std::ptrdiff_t>(n / 2), v.end());
+  if (n % 2 == 0) {
+    std::nth_element(v.begin(),
+                     v.begin() + static_cast<std::ptrdiff_t>((n - 1) / 2),
+                     v.end());
+    return static_cast<uint8_t>(
+        (static_cast<uint16_t>(v[(n - 1) / 2]) + v[n / 2]) / 2);
+  }
+  return v[n / 2];
+}
+
+// ── Parameters ────────────────────────────────────────────────────────────────
 
 std::vector<ParameterDescriptor> StackerStage::get_parameter_descriptors(
-    VideoSystem project_format, SourceType source_type) const {
-  (void)project_format;  // Unused - stacker works with all formats
-  (void)source_type;     // Unused - stacker works with all source types
-  std::vector<ParameterDescriptor> descriptors;
+    VideoSystem /*project_format*/, SourceType /*source_type*/) const {
+  std::vector<ParameterDescriptor> d;
 
-  // Stacking mode
-  ParameterDescriptor mode_desc;
-  mode_desc.name = "mode";
-  mode_desc.display_name = "Stacking Mode";
-  mode_desc.description = "Algorithm for combining multiple sources";
-  mode_desc.type = ParameterType::STRING;
-  mode_desc.constraints.allowed_strings = {
-      "Auto", "Mean", "Median", "Smart Mean", "Smart Neighbor", "Neighbor"};
-  mode_desc.constraints.default_value = std::string("Auto");
-  mode_desc.constraints.required = false;
-  descriptors.push_back(mode_desc);
-
-  // Smart threshold
-  ParameterDescriptor threshold_desc;
-  threshold_desc.name = "smart_threshold";
-  threshold_desc.display_name = "Smart Threshold";
-  threshold_desc.description =
-      "Range threshold for smart modes (0-128, default 15)\n"
-      "Lower values are more selective (fewer sources included in averaging)\n"
-      "Higher values are more inclusive (more sources included)\n"
-      "Only used when mode is 2 (Smart Mean) or 3 (Smart Neighbor)";
-  threshold_desc.type = ParameterType::INT32;
-  threshold_desc.constraints.min_value = static_cast<int32_t>(0);
-  threshold_desc.constraints.max_value = static_cast<int32_t>(128);
-  threshold_desc.constraints.default_value = static_cast<int32_t>(15);
-  threshold_desc.constraints.required = false;
-  descriptors.push_back(threshold_desc);
-
-  // No differential dropout detection
-  ParameterDescriptor no_diff_dod_desc;
-  no_diff_dod_desc.name = "no_diff_dod";
-  no_diff_dod_desc.display_name = "Disable Differential Dropout Detection";
-  no_diff_dod_desc.description =
-      "When disabled (false), allows recovery of pixels incorrectly marked as "
-      "dropouts\n"
-      "by comparing values across sources (requires 3+ sources)\n"
-      "Enable (true) if you want to strictly trust dropout markings";
-  no_diff_dod_desc.type = ParameterType::BOOL;
-  no_diff_dod_desc.constraints.default_value = false;
-  no_diff_dod_desc.constraints.required = false;
-  descriptors.push_back(no_diff_dod_desc);
-
-  // Passthrough
-  ParameterDescriptor passthrough_desc;
-  passthrough_desc.name = "passthrough";
-  passthrough_desc.display_name = "Passthrough Universal Dropouts";
-  passthrough_desc.description =
-      "When enabled (true), preserves dropout regions that appear in ALL "
-      "sources\n"
-      "Useful when every capture has the same physical damage\n"
-      "When disabled (false), attempts to stack even universal dropouts";
-  passthrough_desc.type = ParameterType::BOOL;
-  passthrough_desc.constraints.default_value = false;
-  passthrough_desc.constraints.required = false;
-  descriptors.push_back(passthrough_desc);
-
-  // Audio stacking mode
-  ParameterDescriptor audio_stacking_desc;
-  audio_stacking_desc.name = "audio_stacking";
-  audio_stacking_desc.display_name = "Audio Stacking Mode";
-  audio_stacking_desc.description =
-      "How to combine audio from multiple sources:\n"
-      "Disabled = Use audio from best field (determined by video quality)\n"
-      "Mean = Average audio samples across all sources\n"
-      "Median = Use median audio sample value across all sources\n"
-      "Note: Only fields with matching sample counts are stacked together";
-  audio_stacking_desc.type = ParameterType::STRING;
-  audio_stacking_desc.constraints.allowed_strings = {"Disabled", "Mean",
-                                                     "Median"};
-  audio_stacking_desc.constraints.default_value = std::string("Mean");
-  audio_stacking_desc.constraints.required = false;
-  descriptors.push_back(audio_stacking_desc);
-
-  // EFM stacking mode
-  ParameterDescriptor efm_stacking_desc;
-  efm_stacking_desc.name = "efm_stacking";
-  efm_stacking_desc.display_name = "EFM Stacking Mode";
-  efm_stacking_desc.description =
-      "How to combine EFM t-values from multiple sources:\n"
-      "Disabled = Use EFM from best field (determined by video quality)\n"
-      "Mean = Average EFM t-values across all sources\n"
-      "Median = Use median EFM t-value across all sources\n"
-      "Note: Only fields with matching t-value counts are stacked together";
-  efm_stacking_desc.type = ParameterType::STRING;
-  efm_stacking_desc.constraints.allowed_strings = {"Disabled", "Mean",
-                                                   "Median"};
-  efm_stacking_desc.constraints.default_value = std::string("Mean");
-  efm_stacking_desc.constraints.required = false;
-  descriptors.push_back(efm_stacking_desc);
-
-  return descriptors;
+  d.push_back({"mode", "Stacking Mode", "Algorithm for combining sources",
+                ParameterType::STRING,
+                ParameterConstraints{std::nullopt, std::nullopt,
+                                     ParameterValue{std::string("Auto")},
+                                     {"Auto", "Mean", "Median", "Smart Mean",
+                                      "Smart Neighbor", "Neighbor"},
+                                     false, std::nullopt}});
+  d.push_back({"smart_threshold", "Smart Threshold",
+                "Threshold for Smart Mean mode (0-128, default 15)",
+                ParameterType::INT32,
+                ParameterConstraints{ParameterValue{static_cast<int32_t>(0)},
+                                     ParameterValue{static_cast<int32_t>(128)},
+                                     ParameterValue{static_cast<int32_t>(15)},
+                                     {},
+                                     false,
+                                     std::nullopt}});
+  d.push_back({"no_diff_dod", "Disable Differential Dropout Detection",
+                "Strictly trust dropout markings; disable diff_dod recovery",
+                ParameterType::BOOL,
+                ParameterConstraints{std::nullopt, std::nullopt,
+                                     ParameterValue{false},
+                                     {},
+                                     false,
+                                     std::nullopt}});
+  d.push_back({"passthrough", "Passthrough Universal Dropouts",
+                "Preserve dropout regions present in all sources",
+                ParameterType::BOOL,
+                ParameterConstraints{std::nullopt, std::nullopt,
+                                     ParameterValue{false},
+                                     {},
+                                     false,
+                                     std::nullopt}});
+  d.push_back({"audio_stacking", "Audio Stacking Mode",
+                "How to combine audio: Disabled | Mean | Median",
+                ParameterType::STRING,
+                ParameterConstraints{std::nullopt, std::nullopt,
+                                     ParameterValue{std::string("Mean")},
+                                     {"Disabled", "Mean", "Median"},
+                                     false,
+                                     std::nullopt}});
+  d.push_back({"efm_stacking", "EFM Stacking Mode",
+                "How to combine EFM t-values: Disabled | Mean | Median",
+                ParameterType::STRING,
+                ParameterConstraints{std::nullopt, std::nullopt,
+                                     ParameterValue{std::string("Mean")},
+                                     {"Disabled", "Mean", "Median"},
+                                     false,
+                                     std::nullopt}});
+  return d;
 }
 
 std::map<std::string, ParameterValue> StackerStage::get_parameters() const {
-  auto mode_to_string = [this]() -> std::string {
-    switch (m_mode) {
-      case -1:
-        return "Auto";
-      case 0:
-        return "Mean";
-      case 1:
-        return "Median";
-      case 2:
-        return "Smart Mean";
-      case 3:
-        return "Smart Neighbor";
-      case 4:
-        return "Neighbor";
-      default:
-        return "Auto";
-    }
-  };
-  auto audio_stacking_to_string = [this]() -> std::string {
-    switch (m_audio_stacking_mode) {
-      case AudioStackingMode::DISABLED:
-        return "Disabled";
-      case AudioStackingMode::MEAN:
-        return "Mean";
-      case AudioStackingMode::MEDIAN:
-        return "Median";
-      default:
-        return "Mean";
-    }
-  };
-  auto efm_stacking_to_string = [this]() -> std::string {
-    switch (m_efm_stacking_mode) {
-      case EFMStackingMode::DISABLED:
-        return "Disabled";
-      case EFMStackingMode::MEAN:
-        return "Mean";
-      case EFMStackingMode::MEDIAN:
-        return "Median";
-      default:
-        return "Mean";
-    }
-  };
+  const char* mode_names[] = {"Auto", "Mean", "Median",
+                               "Smart Mean", "Smart Neighbor", "Neighbor"};
+  int mi = m_mode + 1;
+  if (mi < 0 || mi > 5) { mi = 0; }
 
-  return {{"mode", ParameterValue{mode_to_string()}},
+  const char* audio_names[] = {"Disabled", "Mean", "Median"};
+  const char* efm_names[] = {"Disabled", "Mean", "Median"};
+
+  return {{"mode", ParameterValue{std::string(mode_names[mi])}},
           {"smart_threshold", ParameterValue{m_smart_threshold}},
           {"no_diff_dod", ParameterValue{m_no_diff_dod}},
           {"passthrough", ParameterValue{m_passthrough}},
-          {"audio_stacking", ParameterValue{audio_stacking_to_string()}},
-          {"efm_stacking", ParameterValue{efm_stacking_to_string()}}};
+          {"audio_stacking",
+           ParameterValue{std::string(
+               audio_names[static_cast<int>(m_audio_stacking_mode)])}},
+          {"efm_stacking",
+           ParameterValue{std::string(
+               efm_names[static_cast<int>(m_efm_stacking_mode)])}}};
 }
 
 bool StackerStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
-  // Store parameters
   parameters_ = params;
-
-  bool any_changed = false;
-  int32_t old_mode = m_mode;
-  int32_t old_smart_threshold = m_smart_threshold;
 
   for (const auto& [key, value] : params) {
     if (key == "mode") {
-      // Accept both string and int32 for compatibility
-      if (auto* val = std::get_if<std::string>(&value)) {
-        if (*val == "Auto") {
+      if (const auto* v = std::get_if<std::string>(&value)) {
+        if (*v == "Auto") {
           m_mode = -1;
-        } else if (*val == "Mean") {
+        } else if (*v == "Mean") {
           m_mode = 0;
-        } else if (*val == "Median") {
+        } else if (*v == "Median") {
           m_mode = 1;
-        } else if (*val == "Smart Mean") {
+        } else if (*v == "Smart Mean") {
           m_mode = 2;
-        } else if (*val == "Smart Neighbor") {
+        } else if (*v == "Smart Neighbor") {
           m_mode = 3;
-        } else if (*val == "Neighbor") {
+        } else if (*v == "Neighbor") {
           m_mode = 4;
         } else {
-          ORC_LOG_WARN("StackerStage: Invalid mode value '{}'", *val);
+          ORC_LOG_WARN("StackerStage: unknown mode '{}'", *v);
           return false;
         }
-        if (m_mode != old_mode) {
-          any_changed = true;
-        }
-      } else if (auto* mode_value = std::get_if<int32_t>(&value)) {
-        // Support legacy integer values
-        if (*mode_value < -1 || *mode_value > 4) {
-          ORC_LOG_WARN("StackerStage: Invalid mode value {} (must be -1 to 4)",
-                       *mode_value);
-          return false;
-        }
-        if (m_mode != *mode_value) {
-          any_changed = true;
-        }
-        m_mode = *mode_value;
+      } else if (const auto* iv = std::get_if<int32_t>(&value)) {
+        if (*iv < -1 || *iv > 4) { return false; }
+        m_mode = *iv;
       } else {
         return false;
       }
     } else if (key == "smart_threshold") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        if (*val < 0 || *val > 128) {
-          return false;
-        }
-        if (m_smart_threshold != *val) {
-          any_changed = true;
-        }
-        m_smart_threshold = *val;
+      if (const auto* v = std::get_if<int32_t>(&value)) {
+        if (*v < 0 || *v > 128) { return false; }
+        m_smart_threshold = *v;
       } else {
         return false;
       }
     } else if (key == "no_diff_dod") {
-      if (auto* val = std::get_if<bool>(&value)) {
-        m_no_diff_dod = *val;
+      if (const auto* v = std::get_if<bool>(&value)) {
+        m_no_diff_dod = *v;
       } else {
         return false;
       }
     } else if (key == "passthrough") {
-      if (auto* val = std::get_if<bool>(&value)) {
-        m_passthrough = *val;
+      if (const auto* v = std::get_if<bool>(&value)) {
+        m_passthrough = *v;
       } else {
         return false;
       }
     } else if (key == "audio_stacking") {
-      if (auto* val = std::get_if<std::string>(&value)) {
-        if (*val == "Disabled") {
+      if (const auto* v = std::get_if<std::string>(&value)) {
+        if (*v == "Disabled") {
           m_audio_stacking_mode = AudioStackingMode::DISABLED;
-        } else if (*val == "Mean") {
+        } else if (*v == "Mean") {
           m_audio_stacking_mode = AudioStackingMode::MEAN;
-        } else if (*val == "Median") {
+        } else if (*v == "Median") {
           m_audio_stacking_mode = AudioStackingMode::MEDIAN;
         } else {
-          ORC_LOG_WARN("StackerStage: Invalid audio_stacking value '{}'", *val);
+          ORC_LOG_WARN("StackerStage: unknown audio_stacking '{}'", *v);
           return false;
         }
       } else {
         return false;
       }
     } else if (key == "efm_stacking") {
-      if (auto* val = std::get_if<std::string>(&value)) {
-        if (*val == "Disabled") {
+      if (const auto* v = std::get_if<std::string>(&value)) {
+        if (*v == "Disabled") {
           m_efm_stacking_mode = EFMStackingMode::DISABLED;
-        } else if (*val == "Mean") {
+        } else if (*v == "Mean") {
           m_efm_stacking_mode = EFMStackingMode::MEAN;
-        } else if (*val == "Median") {
+        } else if (*v == "Median") {
           m_efm_stacking_mode = EFMStackingMode::MEDIAN;
         } else {
-          ORC_LOG_WARN("StackerStage: Invalid efm_stacking value '{}'", *val);
+          ORC_LOG_WARN("StackerStage: unknown efm_stacking '{}'", *v);
           return false;
         }
       } else {
@@ -1800,454 +1209,123 @@ bool StackerStage::set_parameters(
       }
     }
   }
-
-  if (any_changed) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Parameters changed - mode: {} -> {}, threshold: {} -> "
-        "{}",
-        old_mode, m_mode, old_smart_threshold, m_smart_threshold);
-  }
-
   return true;
 }
 
+// ── Report / Preview ──────────────────────────────────────────────────────────
+
 std::optional<StageReport> StackerStage::generate_report() const {
-  StageReport report;
+  StageReport r;
+  r.summary = "Stacker Configuration";
 
-  // Summary
-  const char* mode_names[] = {"Auto",       "Mean",           "Median",
-                              "Smart Mean", "Smart Neighbor", "Neighbor"};
-  int mode_index = m_mode + 1;  // -1 (Auto) becomes 0
-  if (mode_index < 0 || mode_index >= 6) mode_index = 0;
+  const char* mode_names[] = {"Auto", "Mean", "Median",
+                               "Smart Mean", "Smart Neighbor", "Neighbor"};
+  int mi = m_mode + 1;
+  if (mi < 0 || mi > 5) { mi = 0; }
 
-  const char* stacking_mode_names[] = {"Disabled", "Mean", "Median"};
-  int audio_mode_index = static_cast<int>(m_audio_stacking_mode);
-  if (audio_mode_index < 0 || audio_mode_index >= 3) audio_mode_index = 0;
+  const char* stack_names[] = {"Disabled", "Mean", "Median"};
+  r.items.push_back({"Stacking Mode", mode_names[mi]});
+  r.items.push_back({"Smart Threshold", std::to_string(m_smart_threshold)});
+  r.items.push_back({"Differential Dropout Detection",
+                      m_no_diff_dod ? "Disabled" : "Enabled"});
+  r.items.push_back({"Dropout Passthrough",
+                      m_passthrough ? "Enabled" : "Disabled"});
+  r.items.push_back(
+      {"Audio Stacking",
+       stack_names[static_cast<int>(m_audio_stacking_mode)]});
+  r.items.push_back(
+      {"EFM Stacking",
+       stack_names[static_cast<int>(m_efm_stacking_mode)]});
 
-  int efm_mode_index = static_cast<int>(m_efm_stacking_mode);
-  if (efm_mode_index < 0 || efm_mode_index >= 3) efm_mode_index = 0;
-
-  report.summary = "Stacker Configuration";
-
-  // Configuration items
-  report.items.push_back({"Stacking Mode", mode_names[mode_index]});
-  report.items.push_back(
-      {"Smart Threshold", std::to_string(m_smart_threshold)});
-  report.items.push_back({"Differential Dropout Detection",
-                          m_no_diff_dod ? "Disabled" : "Enabled"});
-  report.items.push_back(
-      {"Dropout Passthrough", m_passthrough ? "Enabled" : "Disabled"});
-  report.items.push_back(
-      {"Audio Stacking", stacking_mode_names[audio_mode_index]});
-  report.items.push_back({"EFM Stacking", stacking_mode_names[efm_mode_index]});
-
-  // Metrics
-  report.metrics["mode"] = static_cast<int64_t>(m_mode);
-  report.metrics["smart_threshold"] = static_cast<int64_t>(m_smart_threshold);
-  report.metrics["audio_stacking_mode"] =
+  r.metrics["mode"] = static_cast<int64_t>(m_mode);
+  r.metrics["smart_threshold"] = static_cast<int64_t>(m_smart_threshold);
+  r.metrics["audio_stacking_mode"] =
       static_cast<int64_t>(m_audio_stacking_mode);
-  report.metrics["efm_stacking_mode"] =
-      static_cast<int64_t>(m_efm_stacking_mode);
-
-  return report;
+  r.metrics["efm_stacking_mode"] = static_cast<int64_t>(m_efm_stacking_mode);
+  return r;
 }
 
+namespace {
+
+PreviewImage render_stacker_grayscale(const VideoFrameRepresentation& vfr,
+                                      FrameID frame_id, bool apply_scaling) {
+  auto desc = vfr.get_frame_descriptor(frame_id);
+  auto params = vfr.get_video_parameters();
+  if (!desc || !params) { return PreviewImage{0, 0, {}, {}, {}}; }
+
+  const size_t height = desc->height;
+  const size_t width = static_cast<size_t>(params->frame_width_nominal);
+  if (height == 0 || width == 0) { return PreviewImage{0, 0, {}, {}, {}}; }
+
+  const int32_t blanking = params->blanking_level;
+  const int32_t white = params->white_level;
+  const int32_t range = (white > blanking) ? (white - blanking) : 1;
+
+  PreviewImage img;
+  img.width = static_cast<uint32_t>(width);
+  img.height = static_cast<uint32_t>(height);
+  img.rgb_data.reserve(width * height * 3);
+
+  for (size_t line = 0; line < height; ++line) {
+    const int16_t* ptr = vfr.get_line(frame_id, line);
+    for (size_t s = 0; s < width; ++s) {
+      const int32_t raw = ptr ? static_cast<int32_t>(ptr[s]) : blanking;
+      uint8_t grey;
+      if (apply_scaling) {
+        grey = static_cast<uint8_t>(
+            std::clamp((raw - blanking) * 255 / range, 0, 255));
+      } else {
+        grey = static_cast<uint8_t>(std::clamp(raw * 255 / 1023, 0, 255));
+      }
+      img.rgb_data.push_back(grey);
+      img.rgb_data.push_back(grey);
+      img.rgb_data.push_back(grey);
+    }
+  }
+  return img;
+}
+
+}  // namespace
+
 std::vector<PreviewOption> StackerStage::get_preview_options() const {
-  return PreviewHelpers::get_standard_preview_options(cached_output_);
+  if (!cached_output_) { return {}; }
+
+  auto params = cached_output_->get_video_parameters();
+  const size_t fc = cached_output_->frame_count();
+  if (fc == 0 || !params.has_value()) { return {}; }
+
+  const uint32_t w = static_cast<uint32_t>(params->frame_width_nominal);
+  const uint32_t h = static_cast<uint32_t>(params->frame_height);
+
+  double dar = 0.7;
+  if (params->active_video_start >= 0 &&
+      params->active_video_end > params->active_video_start &&
+      params->first_active_frame_line >= 0 &&
+      params->last_active_frame_line > params->first_active_frame_line) {
+    const double aw = static_cast<double>(params->active_video_end -
+                                          params->active_video_start);
+    const double ah = static_cast<double>(params->last_active_frame_line -
+                                          params->first_active_frame_line);
+    dar = (4.0 / 3.0) / (aw / ah);
+  }
+
+  return {
+      PreviewOption{"frame", "Frame (Scaled)", false, w, h,
+                    static_cast<uint64_t>(fc), dar},
+      PreviewOption{"frame_raw", "Frame (Raw)", false, w, h,
+                    static_cast<uint64_t>(fc), dar},
+  };
 }
 
 PreviewImage StackerStage::render_preview(const std::string& option_id,
                                           uint64_t index,
-                                          PreviewNavigationHint hint) const {
-  auto start_time = std::chrono::high_resolution_clock::now();
-  auto result = PreviewHelpers::render_standard_preview(cached_output_,
-                                                        option_id, index, hint);
-  auto end_time = std::chrono::high_resolution_clock::now();
-  [[maybe_unused]] auto duration_ms =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end_time -
-                                                            start_time)
-          .count();
-  ORC_LOG_DEBUG(
-      "Stacker PREVIEW: option '{}' index {} rendered in {} ms (hint={})",
-      option_id, index, duration_ms,
-      hint == PreviewNavigationHint::Sequential ? "Sequential" : "Random");
-  return result;
-}
+                                          PreviewNavigationHint /*hint*/) const {
+  if (!cached_output_) { return PreviewImage{0, 0, {}, {}, {}}; }
+  const FrameID fid = static_cast<FrameID>(index);
+  if (!cached_output_->has_frame(fid)) { return PreviewImage{0, 0, {}, {}, {}}; }
 
-std::vector<int16_t> StackerStage::stack_audio(
-    FieldID field_id,
-    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
-    size_t best_source_index) const {
-  // If audio stacking is disabled, use the best source's audio
-  if (m_audio_stacking_mode == AudioStackingMode::DISABLED) {
-    if (best_source_index < sources.size() && sources[best_source_index] &&
-        sources[best_source_index]->has_audio()) {
-      return sources[best_source_index]->get_audio_samples(field_id);
-    }
-    // Fallback to first source with audio
-    for (const auto& source : sources) {
-      if (source && source->has_audio() && source->has_field(field_id)) {
-        return source->get_audio_samples(field_id);
-      }
-    }
-    return {};
-  }
-
-  // Collect audio samples from all sources
-  std::vector<std::vector<int16_t>> all_audio_samples;
-  std::vector<uint32_t> sample_counts;
-  std::vector<size_t> source_indices;
-  size_t total_sources_with_audio = 0;
-  size_t sources_without_audio = 0;
-  size_t sources_without_field = 0;
-
-  for (size_t src_idx = 0; src_idx < sources.size(); ++src_idx) {
-    const auto& source = sources[src_idx];
-    if (!source) {
-      continue;
-    }
-
-    if (!source->has_audio()) {
-      sources_without_audio++;
-      continue;
-    }
-
-    if (!source->has_field(field_id)) {
-      sources_without_field++;
-      continue;
-    }
-
-    total_sources_with_audio++;
-    uint32_t sample_count = source->get_audio_sample_count(field_id);
-    auto samples = source->get_audio_samples(field_id);
-
-    if (!samples.empty()) {
-      all_audio_samples.push_back(std::move(samples));
-      sample_counts.push_back(sample_count);
-      source_indices.push_back(src_idx);
-    }
-  }
-
-  // Log source availability summary
-  if (sources_without_audio > 0 || sources_without_field > 0) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Field {} - total {} sources, {} without audio, {} "
-        "without this field, {} with audio available",
-        field_id.value(), sources.size(), sources_without_audio,
-        sources_without_field, total_sources_with_audio);
-  }
-
-  // If no audio sources available, return empty
-  if (all_audio_samples.empty()) {
-    ORC_LOG_DEBUG("StackerStage: No audio sources available for field {}",
-                  field_id.value());
-    return {};
-  }
-
-  // If only one source has audio, return it directly
-  if (all_audio_samples.size() == 1) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Only 1 audio source available for field {} (source {}, "
-        "{} samples), using it directly",
-        field_id.value(), source_indices[0], sample_counts[0]);
-    return all_audio_samples[0];
-  }
-
-  // Sanity check: ensure all sources have the same number of samples
-  uint32_t expected_sample_count = sample_counts[0];
-  std::vector<size_t> matching_indices;
-  std::vector<size_t> mismatched_indices;
-  std::vector<uint32_t> mismatched_counts;
-
-  matching_indices.push_back(source_indices[0]);
-
-  for (size_t i = 1; i < sample_counts.size(); ++i) {
-    if (sample_counts[i] != expected_sample_count) {
-      mismatched_indices.push_back(source_indices[i]);
-      mismatched_counts.push_back(sample_counts[i]);
-    } else {
-      matching_indices.push_back(source_indices[i]);
-    }
-  }
-
-  if (!mismatched_indices.empty()) {
-    // Build summary strings for rejected sources
-    std::string rejected_indices_str = "[";
-    std::string rejected_counts_str = "[";
-    for (size_t i = 0; i < mismatched_indices.size(); ++i) {
-      if (i > 0) {
-        rejected_indices_str += ", ";
-        rejected_counts_str += ", ";
-      }
-      rejected_indices_str += std::to_string(mismatched_indices[i]);
-      rejected_counts_str += std::to_string(mismatched_counts[i]);
-    }
-    rejected_indices_str += "]";
-    rejected_counts_str += "]";
-
-    ORC_LOG_WARN(
-        "StackerStage: Field {} - {} audio sources rejected {} with {} samples "
-        "(expected {})",
-        field_id.value(), mismatched_indices.size(), rejected_indices_str,
-        rejected_counts_str, expected_sample_count);
-
-    // Use the best source's audio when sample counts don't match
-    if (best_source_index < sources.size() && sources[best_source_index] &&
-        sources[best_source_index]->has_audio()) {
-      return sources[best_source_index]->get_audio_samples(field_id);
-    }
-    return all_audio_samples[0];
-  }
-
-  // Stack audio samples
-  // Audio is interleaved stereo (L, R, L, R, ...)
-  size_t num_samples_total =
-      all_audio_samples[0].size();  // Total interleaved samples
-  std::vector<int16_t> stacked_audio(num_samples_total);
-
-  // Build list of sources being used
-  std::string sources_str = "[";
-  for (size_t i = 0; i < source_indices.size(); ++i) {
-    if (i > 0) sources_str += ", ";
-    sources_str += std::to_string(source_indices[i]);
-  }
-  sources_str += "]";
-
-  // Stack each sample position across all sources
-  for (size_t sample_idx = 0; sample_idx < num_samples_total; ++sample_idx) {
-    std::vector<int16_t> values;
-    values.reserve(all_audio_samples.size());
-
-    // Collect value from each source at this sample position
-    for (const auto& source_samples : all_audio_samples) {
-      if (sample_idx < source_samples.size()) {
-        values.push_back(source_samples[sample_idx]);
-      }
-    }
-
-    // Calculate stacked value based on mode
-    if (m_audio_stacking_mode == AudioStackingMode::MEDIAN) {
-      stacked_audio[sample_idx] = audio_median(values);
-    } else {
-      // MEAN mode and any unexpected mode: fallback to mean
-      stacked_audio[sample_idx] = audio_mean(values);
-    }
-  }
-
-  ORC_LOG_DEBUG(
-      "StackerStage: Field {} - {} audio sources used for stacking {} ({} "
-      "samples each) - complete",
-      field_id.value(), all_audio_samples.size(), sources_str,
-      expected_sample_count);
-
-  return stacked_audio;
-}
-
-int16_t StackerStage::audio_mean(const std::vector<int16_t>& values) const {
-  if (values.empty()) {
-    return 0;
-  }
-
-  int64_t sum = 0;
-  for (const auto& val : values) {
-    sum += val;
-  }
-
-  return static_cast<int16_t>(sum / static_cast<int64_t>(values.size()));
-}
-
-int16_t StackerStage::audio_median(std::vector<int16_t> values) const {
-  if (values.empty()) {
-    return 0;
-  }
-
-  const size_t n = values.size();
-
-  if (n % 2 == 0) {
-    // Even number of elements
-    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(n / 2), values.end());
-    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>((n - 1) / 2),
-                     values.end());
-    return static_cast<int16_t>((static_cast<int32_t>(values[(n - 1) / 2]) +
-                                 static_cast<int32_t>(values[n / 2])) /
-                                2);
-  } else {
-    // Odd number of elements
-    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(n / 2), values.end());
-    return values[n / 2];
-  }
-}
-
-std::vector<uint8_t> StackerStage::stack_efm(
-    FieldID field_id,
-    const std::vector<std::shared_ptr<const VideoFieldRepresentation>>& sources,
-    size_t best_source_index) const {
-  // If EFM stacking is disabled, use the best source's EFM
-  if (m_efm_stacking_mode == EFMStackingMode::DISABLED) {
-    if (best_source_index < sources.size() && sources[best_source_index] &&
-        sources[best_source_index]->has_efm()) {
-      return sources[best_source_index]->get_efm_samples(field_id);
-    }
-    // Fallback to first source with EFM
-    for (const auto& source : sources) {
-      if (source && source->has_efm() && source->has_field(field_id)) {
-        return source->get_efm_samples(field_id);
-      }
-    }
-    return {};
-  }
-
-  // Collect EFM t-values from all sources
-  std::vector<std::vector<uint8_t>> all_efm_samples;
-  std::vector<uint32_t> sample_counts;
-  std::vector<size_t> source_indices;
-  size_t sources_without_efm = 0;
-  size_t sources_without_field = 0;
-
-  for (size_t i = 0; i < sources.size(); ++i) {
-    const auto& source = sources[i];
-    if (!source) {
-      continue;
-    }
-
-    if (!source->has_efm()) {
-      sources_without_efm++;
-      continue;
-    }
-
-    if (!source->has_field(field_id)) {
-      sources_without_field++;
-      continue;
-    }
-
-    auto efm_samples = source->get_efm_samples(field_id);
-    uint32_t sample_count = static_cast<uint32_t>(efm_samples.size());
-
-    if (sample_count == 0) {
-      continue;
-    }
-
-    all_efm_samples.push_back(std::move(efm_samples));
-    sample_counts.push_back(sample_count);
-    source_indices.push_back(i);
-  }
-
-  // If no sources have EFM for this field, return empty
-  if (all_efm_samples.empty()) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Field {} - no sources have EFM data ({} sources without "
-        "EFM, {} without field)",
-        field_id.value(), sources_without_efm, sources_without_field);
-    return {};
-  }
-
-  // If only one source has EFM, return it directly
-  if (all_efm_samples.size() == 1) {
-    ORC_LOG_DEBUG(
-        "StackerStage: Field {} - only 1 source has EFM, using directly",
-        field_id.value());
-    return all_efm_samples[0];
-  }
-
-  // Verify all sources have the same number of t-values
-  uint32_t expected_sample_count = sample_counts[0];
-  bool all_match = true;
-  for (size_t i = 1; i < sample_counts.size(); ++i) {
-    if (sample_counts[i] != expected_sample_count) {
-      ORC_LOG_WARN(
-          "StackerStage: Field {} - EFM t-value count mismatch: source {} has "
-          "{}, expected {}",
-          field_id.value(), source_indices[i], sample_counts[i],
-          expected_sample_count);
-      all_match = false;
-    }
-  }
-
-  if (!all_match) {
-    ORC_LOG_WARN(
-        "StackerStage: Field {} - EFM t-value counts don't match, using first "
-        "source with EFM",
-        field_id.value());
-    return all_efm_samples[0];
-  }
-
-  // Calculate total number of t-values to stack
-  size_t num_samples_total = expected_sample_count;
-
-  // Allocate output buffer
-  std::vector<uint8_t> stacked_efm(num_samples_total);
-
-  // Build sources string for logging
-  std::string sources_str = "[";
-  for (size_t i = 0; i < source_indices.size(); ++i) {
-    if (i > 0) sources_str += ", ";
-    sources_str += std::to_string(source_indices[i]);
-  }
-  sources_str += "]";
-
-  // Stack each t-value position across all sources
-  for (size_t sample_idx = 0; sample_idx < num_samples_total; ++sample_idx) {
-    std::vector<uint8_t> values;
-    values.reserve(all_efm_samples.size());
-
-    // Collect value from each source at this sample position
-    for (const auto& source_samples : all_efm_samples) {
-      if (sample_idx < source_samples.size()) {
-        values.push_back(source_samples[sample_idx]);
-      }
-    }
-
-    // Calculate stacked value based on mode
-    if (m_efm_stacking_mode == EFMStackingMode::MEDIAN) {
-      stacked_efm[sample_idx] = efm_median(values);
-    } else {
-      // MEAN mode and any unexpected mode: fallback to mean
-      stacked_efm[sample_idx] = efm_mean(values);
-    }
-  }
-
-  ORC_LOG_DEBUG(
-      "StackerStage: Field {} - {} EFM sources used for stacking {} ({} "
-      "t-values each) - complete",
-      field_id.value(), all_efm_samples.size(), sources_str,
-      expected_sample_count);
-
-  return stacked_efm;
-}
-
-uint8_t StackerStage::efm_mean(const std::vector<uint8_t>& values) const {
-  if (values.empty()) {
-    return 0;
-  }
-
-  uint32_t sum = 0;
-  for (const auto& val : values) {
-    sum += val;
-  }
-
-  return static_cast<uint8_t>(sum / static_cast<uint32_t>(values.size()));
-}
-
-uint8_t StackerStage::efm_median(std::vector<uint8_t> values) const {
-  if (values.empty()) {
-    return 0;
-  }
-
-  const size_t n = values.size();
-
-  if (n % 2 == 0) {
-    // Even number of elements
-    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(n / 2), values.end());
-    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>((n - 1) / 2),
-                     values.end());
-    return static_cast<uint8_t>((static_cast<uint16_t>(values[(n - 1) / 2]) +
-                                 static_cast<uint16_t>(values[n / 2])) /
-                                2);
-  } else {
-    // Odd number of elements
-    std::nth_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(n / 2), values.end());
-    return values[n / 2];
-  }
+  bool apply_scaling = (option_id == "frame");
+  return render_stacker_grayscale(*cached_output_, fid, apply_scaling);
 }
 
 }  // namespace orc

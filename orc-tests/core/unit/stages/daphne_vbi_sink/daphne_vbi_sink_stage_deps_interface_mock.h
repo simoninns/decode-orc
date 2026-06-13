@@ -18,16 +18,14 @@
 // class names in the tests as in the module-under-test
 namespace orc_unit_test {
 using orc::IObservationContext;
-using orc::VideoFieldRepresentation;
+using orc::VideoFrameRepresentation;
 /**
  * See https://google.github.io/googletest/gmock_cook_book.html
  */
 class MockDaphneVBISinkStageDeps : public orc::IDaphneVBISinkStageDeps {
  public:
-  // virtual bool write_vbi(const VideoFieldRepresentation* representation,
-  // const std::string& vbi_path, IObservationContext &ObservationContext) = 0;
   MOCK_METHOD(bool, write_vbi,
-              (const VideoFieldRepresentation*, const std::string&,
+              (const VideoFrameRepresentation*, const std::string&,
                IObservationContext&),
               (override));
 };

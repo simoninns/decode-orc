@@ -17,7 +17,7 @@
 
 #include "../../../../orc/plugins/stages/ac3rf_sink/ac3rf_sink_stage_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 
 namespace orc_unit_test {
 using testing::NiceMock;
@@ -27,9 +27,14 @@ using testing::StrictMock;
 class MockAC3RFSinkStageDeps : public orc::IAC3RFSinkStageDeps {
  public:
   MOCK_METHOD(orc::AC3RFSinkDecodeResult, decode_and_write_ac3,
-              (const orc::VideoFieldRepresentation* representation,
+              (const orc::VideoFrameRepresentation* representation,
                const std::string& output_path),
               (override));
+};
+
+class MockVFRArtifactWithAC3 : public MockVideoFrameRepresentationArtifact {
+ public:
+  MOCK_METHOD(bool, has_ac3_rf, (), (const, override));
 };
 
 // -------------------------------------------------------------------------
@@ -83,14 +88,14 @@ TEST(AC3RFSinkStageTest, Trigger_FailsWhenNoInputProvided) {
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: AC3 RF sink requires one input (VideoFieldRepresentation)");
+            "Error: AC3 RF sink requires one input (VideoFrameRepresentation)");
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
 TEST(AC3RFSinkStageTest, Trigger_FailsWhenInputHasNoAC3RFData) {
   orc::AC3RFSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAC3>>();
 
   EXPECT_CALL(*vfr, has_ac3_rf()).WillOnce(Return(false));
 
@@ -107,7 +112,7 @@ TEST(AC3RFSinkStageTest, Trigger_FailsWhenInputHasNoAC3RFData) {
 TEST(AC3RFSinkStageTest, Trigger_FailsWhenOutputPathMissing) {
   orc::AC3RFSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAC3>>();
 
   EXPECT_CALL(*vfr, has_ac3_rf()).WillOnce(Return(true));
 
@@ -126,7 +131,7 @@ TEST(AC3RFSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   stage.set_deps_override(deps);
 
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAC3>>();
 
   EXPECT_CALL(*vfr, has_ac3_rf()).WillOnce(Return(true));
   EXPECT_CALL(*deps, decode_and_write_ac3(vfr.get(), "out.ac3"))
@@ -147,7 +152,7 @@ TEST(AC3RFSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   stage.set_deps_override(deps);
 
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAC3>>();
 
   EXPECT_CALL(*vfr, has_ac3_rf()).WillOnce(Return(true));
   EXPECT_CALL(*deps, decode_and_write_ac3(vfr.get(), "out.ac3"))

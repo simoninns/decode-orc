@@ -44,7 +44,7 @@ std::vector<ArtifactPtr> SNRAnalysisSinkStage::execute(
   // Cache input for preview rendering (pass-through preview of upstream output)
   if (!inputs.empty()) {
     cached_input_ =
-        std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+        std::dynamic_pointer_cast<const VideoFrameRepresentation>(inputs[0]);
   }
   return {};
 }
@@ -165,9 +165,9 @@ bool SNRAnalysisSinkStage::trigger(
       throw std::runtime_error("No input connected");
     }
 
-    auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
+    auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
     if (!vfr) {
-      throw std::runtime_error("Input is not a VideoFieldRepresentation");
+      throw std::runtime_error("Input is not a VideoFrameRepresentation");
     }
 
     ParsedConfig cfg = parse_config(parameters);

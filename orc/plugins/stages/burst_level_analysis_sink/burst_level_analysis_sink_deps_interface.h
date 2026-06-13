@@ -19,7 +19,7 @@
 #include "burst_level_analysis_types.h"
 #include "observation_context_interface.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 struct BurstAnalysisComputeOptions {
@@ -43,7 +43,7 @@ class IBurstLevelAnalysisSinkStageDeps {
                     std::atomic<bool>* cancel_requested) = 0;
 
   virtual BurstAnalysisComputeResult compute_and_analyze(
-      VideoFieldRepresentation* representation,
+      VideoFrameRepresentation* representation,
       IObservationContext& observation_context,
       BurstAnalysisComputeOptions options) = 0;
 

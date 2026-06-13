@@ -16,7 +16,7 @@
 #include "../../../../orc/plugins/stages/raw_efm_sink/efm_sink_stage.h"
 #include "../../../../orc/plugins/stages/raw_efm_sink/efm_sink_stage_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 
 namespace orc_unit_test {
 using testing::NiceMock;
@@ -30,9 +30,14 @@ class MockRawEFMSinkStageDeps : public orc::IRawEFMSinkStageDeps {
                std::atomic<bool>* cancel_requested),
               (override));
   MOCK_METHOD(orc::RawEFMSinkWriteResult, write_raw_efm,
-              (const orc::VideoFieldRepresentation* representation,
+              (const orc::VideoFrameRepresentation* representation,
                const std::string& output_path),
               (override));
+};
+
+class MockVFRArtifactWithEFM : public MockVideoFrameRepresentationArtifact {
+ public:
+  MOCK_METHOD(bool, has_efm, (), (const, override));
 };
 
 TEST(RawEFMSinkStageTest, Descriptor_DefaultsOutputPathIsEmptyEfm) {
@@ -62,14 +67,14 @@ TEST(RawEFMSinkStageTest, Trigger_FailsWhenNoInputProvided) {
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: RawEFM sink requires one input (VideoFieldRepresentation)");
+            "Error: RawEFM sink requires one input (VideoFrameRepresentation)");
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
 TEST(RawEFMSinkStageTest, Trigger_FailsWhenInputHasNoEfm) {
   orc::RawEFMSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithEFM>>();
 
   EXPECT_CALL(*vfr, has_efm()).WillOnce(Return(false));
 
@@ -78,15 +83,15 @@ TEST(RawEFMSinkStageTest, Trigger_FailsWhenInputHasNoEfm) {
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: Input VFR does not have EFM data (no EFM file specified in "
-            "source?)");
+            "Error: Input VFrameR does not have EFM data (no EFM file "
+            "specified in source?)");
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
 TEST(RawEFMSinkStageTest, Trigger_FailsWhenOutputPathMissing) {
   orc::RawEFMSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithEFM>>();
 
   EXPECT_CALL(*vfr, has_efm()).WillOnce(Return(true));
 
@@ -104,7 +109,7 @@ TEST(RawEFMSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   stage.set_deps_override(deps);
 
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithEFM>>();
 
   EXPECT_CALL(*vfr, has_efm()).WillOnce(Return(true));
   EXPECT_CALL(*deps, write_raw_efm(vfr.get(), "out.efm"))
@@ -125,7 +130,7 @@ TEST(RawEFMSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   stage.set_deps_override(deps);
 
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithEFM>>();
 
   EXPECT_CALL(*vfr, has_efm()).WillOnce(Return(true));
   EXPECT_CALL(*deps, write_raw_efm(vfr.get(), "out.efm"))

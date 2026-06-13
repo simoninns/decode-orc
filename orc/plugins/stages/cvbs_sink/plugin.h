@@ -1,7 +1,7 @@
 /*
  * File:        plugin.h
- * Module:      orc-stage-plugin-hackdac_sink
- * Purpose:     Plugin entrypoint metadata for HackdacSinkStage
+ * Module:      orc-stage-plugin-cvbs-sink
+ * Purpose:     Plugin entrypoint metadata for CVBSSinkStage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -15,12 +15,12 @@
 #define ORC_STAGE_PLUGIN_VERSION "dev"
 #endif
 
-namespace orc::plugins::hackdac_sink {
+namespace orc::plugins::cvbs_sink {
 
-inline constexpr const char* kStageName = "hackdac_sink";
+inline constexpr const char* kStageName = "CVBSSink";
 
-inline constexpr const char* kStageDisplayName = "HackDAC Sink";
-inline constexpr const char* kStageMenuCategory = "Sink (3rd party)";
+inline constexpr const char* kStageDisplayName = "CVBS Data Sink";
+inline constexpr const char* kStageMenuCategory = "Sink (Core)";
 
 inline constexpr orc::NodeType kStageNodeType = NodeType::SINK;
 inline constexpr uint32_t kStageMinInputs = 1;
@@ -29,8 +29,7 @@ inline constexpr uint32_t kStageMinOutputs = 0;
 inline constexpr uint32_t kStageMaxOutputs = 0;
 inline constexpr orc::VideoFormatCompatibility kStageCompatibleFormats =
     VideoFormatCompatibility::ALL;
-inline constexpr orc::SinkCategory kStageSinkCategory =
-    SinkCategory::THIRD_PARTY;
+inline constexpr orc::SinkCategory kStageSinkCategory = SinkCategory::CORE;
 
 static_assert(kStageName[0] != '\0', "kStageName must not be empty");
 static_assert(kStageDisplayName[0] != '\0',
@@ -44,7 +43,7 @@ static_assert(kStageMaxOutputs >= kStageMinOutputs,
               "kStageMaxOutputs must be >= kStageMinOutputs");
 
 inline constexpr orc::StagePluginDescriptor kPluginDescriptor{
-    "decode-orc.stage.hackdac_sink",
+    "decode-orc.stage.cvbs_sink",
     ORC_STAGE_PLUGIN_VERSION,
     orc::kStagePluginHostAbiVersion,
     orc::kStagePluginApiVersion,
@@ -52,4 +51,4 @@ inline constexpr orc::StagePluginDescriptor kPluginDescriptor{
     true,
 };
 
-}  // namespace orc::plugins::hackdac_sink
+}  // namespace orc::plugins::cvbs_sink

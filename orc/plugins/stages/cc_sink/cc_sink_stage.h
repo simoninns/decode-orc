@@ -20,7 +20,7 @@
 #include "cc_sink_stage_deps_interface.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 

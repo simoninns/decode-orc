@@ -58,27 +58,27 @@ void AC3RFSinkStageDeps::init(TriggerProgressCallback progress_callback,
 }
 
 AC3RFSinkDecodeResult AC3RFSinkStageDeps::decode_and_write_ac3(
-    const VideoFieldRepresentation* representation,
+    const VideoFrameRepresentation* representation,
     const std::string& output_path) {
   std::ofstream out(output_path, std::ios::binary | std::ios::trunc);
   if (!out) {
     return {false, 0, "Failed to open output file: " + output_path};
   }
 
-  const auto field_range = representation->field_range();
-  const FieldID start_field = field_range.start;
-  const FieldID end_field = field_range.end;
-  const uint64_t total_fields = end_field.value() - start_field.value();
+  const auto frame_rng = representation->frame_range();
+  const FrameID start_frame = frame_rng.first;
+  const FrameID end_frame = frame_rng.last;
+  const uint64_t total_frames = frame_rng.count();
 
-  ORC_LOG_DEBUG("AC3RFSinkDeps: field range [{}, {}), total_fields={}",
-                start_field.value(), end_field.value(), total_fields);
+  ORC_LOG_DEBUG("AC3RFSinkDeps: frame range [{}, {}], total_frames={}",
+                start_frame, end_frame, total_frames);
 
   SpdlogLogger ac3_log;
   Ac3Decoder decoder(ac3_log);
 
   uint64_t frames_written = 0;
 
-  for (FieldID fid = start_field; fid < end_field; ++fid) {
+  for (FrameID fid = start_frame; fid <= end_frame; ++fid) {
     if (cancel_requested_ && cancel_requested_->load()) {
       out.close();
       return {false, 0, "Cancelled by user"};
@@ -92,11 +92,11 @@ AC3RFSinkDecodeResult AC3RFSinkStageDeps::decode_and_write_ac3(
       ++frames_written;
     }
 
-    const uint64_t current = fid.value() - start_field.value() + 1;
+    const uint64_t current = fid - start_frame + 1;
     if (progress_callback_) {
-      progress_callback_(current, total_fields,
-                         "Decoding AC3 RF field " + std::to_string(current) +
-                             "/" + std::to_string(total_fields));
+      progress_callback_(current, total_frames,
+                         "Decoding AC3 RF: frame " + std::to_string(current) +
+                             "/" + std::to_string(total_frames));
     }
   }
 

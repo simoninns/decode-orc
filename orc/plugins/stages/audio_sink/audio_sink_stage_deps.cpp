@@ -59,21 +59,26 @@ bool AudioSinkStageDeps::write_wav_header(std::ofstream& out,
 }
 
 AudioSinkWriteResult AudioSinkStageDeps::write_audio_wav(
-    const VideoFieldRepresentation* representation,
+    const VideoFrameRepresentation* representation,
     const std::string& output_path) {
-  auto field_range = representation->field_range();
-  FieldID start_field = field_range.start;
-  FieldID end_field = field_range.end;
+  // Free-running audio is not accessible per-frame; only locked audio is
+  // available via get_audio_samples(FrameID).
+  if (!representation->audio_locked()) {
+    return {false, 0, "Audio is not locked to frames; cannot export"};
+  }
 
-  uint64_t total_fields = end_field.value() - start_field.value();
+  auto frame_rng = representation->frame_range();
+  const FrameID start_frame = frame_rng.first;
+  const FrameID end_frame = frame_rng.last;
+  const uint64_t total_frames = frame_rng.count();
 
   uint64_t total_samples = 0;
-  for (FieldID fid = start_field; fid < end_field; ++fid) {
+  for (FrameID fid = start_frame; fid <= end_frame; ++fid) {
     total_samples += representation->get_audio_sample_count(fid);
   }
 
   if (total_samples == 0) {
-    return {false, 0, "No audio samples found in field range"};
+    return {false, 0, "No audio samples found in frame range"};
   }
 
   BufferedFileWriter<int16_t> writer(static_cast<size_t>(4 * 1024 * 1024));
@@ -105,7 +110,8 @@ AudioSinkWriteResult AudioSinkStageDeps::write_audio_wav(
   }
 
   uint64_t frames_written = 0;
-  for (FieldID fid = start_field; fid < end_field; ++fid) {
+  uint64_t current_frame = 0;
+  for (FrameID fid = start_frame; fid <= end_frame; ++fid) {
     if (cancel_requested_ && cancel_requested_->load()) {
       writer.close();
       if (is_processing_) {
@@ -120,12 +126,11 @@ AudioSinkWriteResult AudioSinkStageDeps::write_audio_wav(
       frames_written += samples.size() / 2;
     }
 
-    uint64_t current_field = fid.value() - start_field.value();
-    if (progress_callback_ && current_field % 10 == 0) {
-      progress_callback_(current_field, total_fields,
-                         "Writing audio field " +
-                             std::to_string(current_field) + "/" +
-                             std::to_string(total_fields));
+    ++current_frame;
+    if (progress_callback_ && current_frame % 10 == 0) {
+      progress_callback_(current_frame, total_frames,
+                         "Writing audio frame " + std::to_string(current_frame) +
+                             "/" + std::to_string(total_frames));
     }
   }
 

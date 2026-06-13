@@ -1,50 +1,42 @@
 /*
- * File:        hackdac_sink_stage.h
+ * File:        cvbs_sink_stage.h
  * Module:      orc-core
- * Purpose:     Hackdac sink stage - writes signed 16-bit field data without
- * half-line padding
+ * Purpose:     CVBS Sink Stage - writes raw CVBS_U10_4FSC frames to file
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
- * SPDX-FileCopyrightText: 2026 Simon Inns
+ * SPDX-FileCopyrightText: 2026 decode-orc contributors
  */
 
-#ifndef ORC_CORE_HACKDAC_SINK_STAGE_H
-#define ORC_CORE_HACKDAC_SINK_STAGE_H
+#ifndef ORC_CORE_CVBS_SINK_STAGE_H
+#define ORC_CORE_CVBS_SINK_STAGE_H
 
 #include <node_type.h>
 
 #include <atomic>
-#include <map>
-#include <optional>
+#include <functional>
+#include <memory>
 #include <string>
 
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
-class IHackdacSinkStageDeps;
+class ICVBSSinkStageDeps;
 
-/**
- * @brief Hackdac Sink Stage
- *
- * Exports raw video field samples as signed 16-bit values with the
- * half-line padding removed (4fsc aligned). Also emits a text report
- * describing levels and format.
- */
-class HackdacSinkStage : public DAGStage,
-                         public ParameterizedStage,
-                         public TriggerableStage {
+class CVBSSinkStage : public DAGStage,
+                      public ParameterizedStage,
+                      public TriggerableStage {
  public:
-  HackdacSinkStage();
-  /// Testing seam: inject a pre-built deps instance to substitute concrete dep
-  /// creation in trigger().
-  void set_deps_override(std::shared_ptr<IHackdacSinkStageDeps> deps) {
+  CVBSSinkStage();
+
+  void set_deps_override(std::shared_ptr<ICVBSSinkStageDeps> deps) {
     deps_override_ = std::move(deps);
   }
-  ~HackdacSinkStage() override = default;
+
+  ~CVBSSinkStage() override = default;
 
   // DAGStage interface
   std::string version() const override { return "1.0"; }
@@ -76,26 +68,21 @@ class HackdacSinkStage : public DAGStage,
   void set_progress_callback(TriggerProgressCallback callback) override {
     progress_callback_ = callback;
   }
+
   bool is_trigger_in_progress() const override { return is_processing_.load(); }
+
   void cancel_trigger() override { cancel_requested_.store(true); }
 
  private:
-  struct ParsedConfig {
-    std::string output_path;
-    std::string report_path;
-  };
-
-  ParsedConfig parse_config(
-      const std::map<std::string, ParameterValue>& parameters) const;
-
   std::map<std::string, ParameterValue> parameters_;
+
   TriggerProgressCallback progress_callback_;
   std::atomic<bool> is_processing_{false};
+  std::shared_ptr<ICVBSSinkStageDeps> deps_override_;
   std::atomic<bool> cancel_requested_{false};
   std::string last_status_;
-  std::shared_ptr<IHackdacSinkStageDeps> deps_override_;
 };
 
 }  // namespace orc
 
-#endif  // ORC_CORE_HACKDAC_SINK_STAGE_H
+#endif  // ORC_CORE_CVBS_SINK_STAGE_H

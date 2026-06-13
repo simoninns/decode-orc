@@ -89,17 +89,17 @@ bool AC3RFSinkStage::trigger(
     // Validate input
     if (inputs.empty()) {
       throw std::runtime_error(
-          "AC3 RF sink requires one input (VideoFieldRepresentation)");
+          "AC3 RF sink requires one input (VideoFrameRepresentation)");
     }
 
-    auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
+    auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
     if (!vfr) {
-      throw std::runtime_error("Input must be a VideoFieldRepresentation");
+      throw std::runtime_error("Input must be a VideoFrameRepresentation");
     }
 
     if (!vfr->has_ac3_rf()) {
       throw std::runtime_error(
-          "Input VFR does not have AC3 RF symbols data "
+          "Input VFrameR does not have AC3 RF symbols data "
           "(no AC3 RF symbols file specified in the source stage?)");
     }
 

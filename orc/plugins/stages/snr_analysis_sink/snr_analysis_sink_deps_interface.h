@@ -18,7 +18,7 @@
 #include "observation_context_interface.h"
 #include "snr_analysis_types.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 struct SNRAnalysisComputeOptions {
@@ -43,7 +43,7 @@ class ISNRAnalysisSinkStageDeps {
                     std::atomic<bool>* cancel_requested) = 0;
 
   virtual SNRAnalysisComputeResult compute_and_analyze(
-      VideoFieldRepresentation* representation,
+      VideoFrameRepresentation* representation,
       IObservationContext& observation_context,
       SNRAnalysisComputeOptions options) = 0;
 

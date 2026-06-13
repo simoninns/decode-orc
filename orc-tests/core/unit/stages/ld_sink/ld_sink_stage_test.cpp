@@ -15,7 +15,7 @@
 #include <algorithm>
 
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 #include "ld_sink_stage_deps_interface_mock.h"
 
 using testing::_;  // NOLINT(bugprone-reserved-identifier)
@@ -31,7 +31,7 @@ class LDSinkStageTest : public ::testing::Test {
   void SetUp() override {
     pMockDeps_ = std::make_shared<StrictMock<MockLDSinkStageDeps>>();
     pMockRepresentation_ =
-        std::make_shared<StrictMock<MockVideoFieldRepresentation>>();
+        std::make_shared<StrictMock<MockVideoFrameRepresentationArtifact>>();
 
     instance_ = std::make_unique<orc::LDSinkStage>(
         static_cast<orc::IStageServices*>(nullptr));
@@ -45,7 +45,7 @@ class LDSinkStageTest : public ::testing::Test {
   }
 
   std::shared_ptr<StrictMock<MockLDSinkStageDeps>> pMockDeps_;
-  std::shared_ptr<StrictMock<MockVideoFieldRepresentation>>
+  std::shared_ptr<StrictMock<MockVideoFrameRepresentationArtifact>>
       pMockRepresentation_;
   MockObservationContext mockObservationContext_;
 
@@ -106,7 +106,7 @@ TEST_F(LDSinkStageTest, Trigger_ReturnsFalseWhenNoInputConnected) {
 }
 
 TEST_F(LDSinkStageTest,
-       Trigger_ReturnsFalseWhenInputNotVideoFieldRepresentation) {
+       Trigger_ReturnsFalseWhenInputNotVideoFrameRepresentation) {
   const std::map<std::string, orc::ParameterValue> parameters = {
       {"output_path", std::string("out")}};
   const std::vector<orc::ArtifactPtr> inputs = {nullptr};
@@ -116,7 +116,7 @@ TEST_F(LDSinkStageTest,
 
   EXPECT_FALSE(result);
   EXPECT_EQ(instance_->get_trigger_status(),
-            "Error: Input is not a video field representation");
+            "Error: Input is not a video frame representation");
 }
 
 TEST_F(LDSinkStageTest, Trigger_WritesTbcAndSetsSuccessStatus) {
@@ -126,7 +126,6 @@ TEST_F(LDSinkStageTest, Trigger_WritesTbcAndSetsSuccessStatus) {
 
   EXPECT_CALL(mockObservationContext_, clear()).Times(1);
 
-  // Inject mock deps via seam instead of factory mock.
   instance_->set_deps_override(pMockDeps_);
 
   EXPECT_CALL(*pMockDeps_,
@@ -135,15 +134,15 @@ TEST_F(LDSinkStageTest, Trigger_WritesTbcAndSetsSuccessStatus) {
       .Times(1)
       .WillOnce(Return(true));
 
-  EXPECT_CALL(*pMockRepresentation_, field_range())
+  EXPECT_CALL(*pMockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(3))));
+      .WillOnce(Return(orc::FrameIDRange{1, 3}));
 
   const bool result =
       instance_->trigger(inputs, parameters, mockObservationContext_);
 
   EXPECT_TRUE(result);
-  EXPECT_EQ(instance_->get_trigger_status(), "Exported 3 fields to out_path");
+  EXPECT_EQ(instance_->get_trigger_status(), "Exported 6 fields to out_path");
   EXPECT_FALSE(instance_->is_trigger_in_progress());
 }
 
@@ -154,7 +153,6 @@ TEST_F(LDSinkStageTest, Trigger_SetsErrorStatusWhenDepWriteFails) {
 
   EXPECT_CALL(mockObservationContext_, clear()).Times(1);
 
-  // Inject mock deps via seam instead of factory mock.
   instance_->set_deps_override(pMockDeps_);
 
   EXPECT_CALL(*pMockDeps_,
@@ -163,7 +161,7 @@ TEST_F(LDSinkStageTest, Trigger_SetsErrorStatusWhenDepWriteFails) {
       .Times(1)
       .WillOnce(Return(false));
 
-  EXPECT_CALL(*pMockRepresentation_, field_range()).Times(0);
+  EXPECT_CALL(*pMockRepresentation_, frame_range()).Times(0);
 
   const bool result =
       instance_->trigger(inputs, parameters, mockObservationContext_);

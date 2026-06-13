@@ -130,12 +130,12 @@ bool CCSinkStage::trigger(
     // Validate inputs
     if (inputs.empty()) {
       throw std::runtime_error(
-          "CC sink requires one input (VideoFieldRepresentation)");
+          "CC sink requires one input (VideoFrameRepresentation)");
     }
 
-    auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
+    auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
     if (!vfr) {
-      throw std::runtime_error("Input must be a VideoFieldRepresentation");
+      throw std::runtime_error("Input must be a VideoFrameRepresentation");
     }
 
     ParsedConfig cfg = parse_config(parameters);

@@ -24,7 +24,7 @@ class AC3RFSinkStageDeps : public IAC3RFSinkStageDeps {
             std::atomic<bool>* cancel_requested);
 
   AC3RFSinkDecodeResult decode_and_write_ac3(
-      const VideoFieldRepresentation* representation,
+      const VideoFrameRepresentation* representation,
       const std::string& output_path) override;
 
  private:

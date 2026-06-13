@@ -14,7 +14,7 @@
 #include <string>
 
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 struct EFMSinkOptions {
@@ -42,7 +42,7 @@ class IEFMSinkStageDeps {
                     std::atomic<bool>* cancel_requested) = 0;
 
   virtual EFMSinkDecodeResult decode_efm(
-      const VideoFieldRepresentation* representation,
+      const VideoFrameRepresentation* representation,
       const EFMSinkOptions& options) = 0;
 };
 }  // namespace orc

@@ -12,7 +12,7 @@
 #include <gtest/gtest.h>
 
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 #include "daphne_vbi_sink_stage_deps_interface_mock.h"
 
 using testing::_;  // NOLINT(bugprone-reserved-identifier)
@@ -30,7 +30,7 @@ class DaphneVBISinkStage : public ::testing::Test {
   void SetUp() override {
     pMockDeps_ = std::make_shared<StrictMock<MockDaphneVBISinkStageDeps>>();
     pMockRepresentation_ =
-        std::make_shared<StrictMock<MockVideoFieldRepresentation>>();
+        std::make_shared<StrictMock<MockVideoFrameRepresentationArtifact>>();
 
     instance_ = std::make_unique<orc::DaphneVBISinkStage>(
         static_cast<orc::IStageServices*>(nullptr));
@@ -44,7 +44,7 @@ class DaphneVBISinkStage : public ::testing::Test {
   }
 
   std::shared_ptr<StrictMock<MockDaphneVBISinkStageDeps>> pMockDeps_;
-  std::shared_ptr<StrictMock<MockVideoFieldRepresentation>>
+  std::shared_ptr<StrictMock<MockVideoFrameRepresentationArtifact>>
       pMockRepresentation_;
   MockObservationContext mockObservationContext;
 
@@ -83,7 +83,7 @@ TEST_F(DaphneVBISinkStage, Trigger_ReturnsFalseWhenNoInputConnected) {
 }
 
 TEST_F(DaphneVBISinkStage,
-       Trigger_ReturnsFalseWhenInputNotVideoFieldRepresentation) {
+       Trigger_ReturnsFalseWhenInputNotVideoFrameRepresentation) {
   const std::map<std::string, orc::ParameterValue> parameters = {
       {"output_path", std::string("out")}};
   const std::vector<orc::ArtifactPtr> inputs = {nullptr};
@@ -93,7 +93,7 @@ TEST_F(DaphneVBISinkStage,
 
   EXPECT_FALSE(result);
   EXPECT_EQ(instance_->get_trigger_status(),
-            "Error: Input is not a video field representation");
+            "Error: Input is not a video frame representation");
 }
 
 TEST_F(DaphneVBISinkStage, Trigger_WritesVbiAndSetsSuccessStatus) {
@@ -104,21 +104,22 @@ TEST_F(DaphneVBISinkStage, Trigger_WritesVbiAndSetsSuccessStatus) {
   // Inject mock deps via seam instead of factory mock.
   instance_->set_deps_override(pMockDeps_);
 
-  // Ref needed here so gMock doesn't try to do the wrong thing
   EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path",
                                      testing::Ref(mockObservationContext)))
       .Times(1)
       .WillOnce(Return(true));
 
-  EXPECT_CALL(*pMockRepresentation_, field_range())
+  // Stage calls frame_range() to build the success status: count * 2 fields
+  // FrameIDRange{1, 3} → count=3 frames → 6 fields
+  EXPECT_CALL(*pMockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(3))));
+      .WillOnce(Return(orc::FrameIDRange{1, 3}));
 
   const bool result =
       instance_->trigger(inputs, parameters, mockObservationContext);
 
   EXPECT_TRUE(result);
-  EXPECT_EQ(instance_->get_trigger_status(), "Exported 3 fields to out_path");
+  EXPECT_EQ(instance_->get_trigger_status(), "Exported 6 fields to out_path");
   EXPECT_FALSE(instance_->is_trigger_in_progress());
 }
 
@@ -130,13 +131,13 @@ TEST_F(DaphneVBISinkStage, Trigger_SetsErrorStatusWhenDepWriteFails) {
   // Inject mock deps via seam instead of factory mock.
   instance_->set_deps_override(pMockDeps_);
 
-  // Ref needed here so gMock doesn't try to do the wrong thing
   EXPECT_CALL(*pMockDeps_, write_vbi(pMockRepresentation_.get(), "out_path",
                                      Ref(mockObservationContext)))
       .Times(1)
       .WillOnce(Return(false));
 
-  EXPECT_CALL(*pMockRepresentation_, field_range()).Times(0);
+  // frame_range() not called on failure path
+  EXPECT_CALL(*pMockRepresentation_, frame_range()).Times(0);
 
   const bool result =
       instance_->trigger(inputs, parameters, mockObservationContext);

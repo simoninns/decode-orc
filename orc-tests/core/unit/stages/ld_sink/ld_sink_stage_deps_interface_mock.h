@@ -14,20 +14,14 @@
 
 #include "ld_sink_stage_deps_interface.h"
 
-// using different namespace from module-under-test so that we can use the same
-// class names in the tests as in the module-under-test
 namespace orc_unit_test {
 using orc::IObservationContext;
-using orc::VideoFieldRepresentation;
-/**
- * See https://google.github.io/googletest/gmock_cook_book.html
- */
+using orc::VideoFrameRepresentation;
+
 class MockLDSinkStageDeps : public orc::ILDSinkStageDeps {
  public:
-  // virtual bool write_tbc_and_metadata(const VideoFieldRepresentation*, const
-  // std::string&, IObservationContext&) = 0;
   MOCK_METHOD(bool, write_tbc_and_metadata,
-              (const VideoFieldRepresentation*, const std::string&,
+              (const VideoFrameRepresentation*, const std::string&,
                IObservationContext&),
               (override));
 };

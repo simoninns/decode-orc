@@ -33,7 +33,7 @@ class IRawEFMSinkStageDeps;
  * and writes them to a raw binary file.
  * This is a SINK stage - it has inputs but no outputs.
  *
- * The EFM data flows through the VideoFieldRepresentation from the source
+ * The EFM data flows through the VideoFrameRepresentation from the source
  * stage, which reads the .efm file (if specified in the source stage
  * parameters).
  *

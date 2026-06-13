@@ -22,23 +22,23 @@ void EFMSinkStageDeps::init(TriggerProgressCallback progress_callback,
 }
 
 EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
-    const VideoFieldRepresentation* representation,
+    const VideoFrameRepresentation* representation,
     const EFMSinkOptions& options) {
-  const auto field_range = representation->field_range();
-  const FieldID start_fid = field_range.start;
-  const FieldID end_fid = field_range.end;
-  const uint64_t total_fields = end_fid.value() - start_fid.value();
+  const auto frame_rng = representation->frame_range();
+  const FrameID start_fid = frame_rng.first;
+  const FrameID end_fid = frame_rng.last;
+  const uint64_t total_frames = frame_rng.count();
 
-  ORC_LOG_DEBUG("EFMSinkDeps: Counting EFM t-values across {} fields",
-                total_fields);
+  ORC_LOG_DEBUG("EFMSinkDeps: Counting EFM t-values across {} frames",
+                total_frames);
 
   uint64_t total_tvalues = 0;
-  for (FieldID fid = start_fid; fid < end_fid; ++fid) {
+  for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
     total_tvalues += representation->get_efm_sample_count(fid);
   }
 
   if (total_tvalues == 0) {
-    return {false, "Error: EFMSink: no EFM t-values found in field range"};
+    return {false, "Error: EFMSink: no EFM t-values found in frame range"};
   }
   ORC_LOG_DEBUG("EFMSinkDeps: Total EFM t-values: {}", total_tvalues);
 
@@ -46,7 +46,7 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
   efm_buffer.reserve(total_tvalues);
 
   uint64_t tvalues_accumulated = 0;
-  for (FieldID fid = start_fid; fid < end_fid; ++fid) {
+  for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
     if (cancel_requested_ && cancel_requested_->load()) {
       return {false, "Cancelled by user"};
     }
@@ -55,11 +55,11 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
     efm_buffer.insert(efm_buffer.end(), samples.begin(), samples.end());
     tvalues_accumulated += samples.size();
 
-    const uint64_t fields_done = fid.value() - start_fid.value() + 1;
-    if (fields_done % 10 == 0 && progress_callback_) {
+    const uint64_t frames_done = fid - start_fid + 1;
+    if (frames_done % 10 == 0 && progress_callback_) {
       progress_callback_(tvalues_accumulated, total_tvalues,
-                         "Buffering EFM: field " + std::to_string(fields_done) +
-                             "/" + std::to_string(total_fields));
+                         "Buffering EFM: frame " + std::to_string(frames_done) +
+                             "/" + std::to_string(total_frames));
     }
   }
 

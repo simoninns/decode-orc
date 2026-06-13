@@ -26,7 +26,7 @@ class BurstLevelAnalysisSinkStageDeps
             std::atomic<bool>* cancel_requested) override;
 
   BurstAnalysisComputeResult compute_and_analyze(
-      VideoFieldRepresentation* representation,
+      VideoFrameRepresentation* representation,
       IObservationContext& observation_context,
       BurstAnalysisComputeOptions options) override;
 

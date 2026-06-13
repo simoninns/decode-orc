@@ -12,21 +12,18 @@
 #include <orc/plugin/orc_stage_services.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <utility>
 
-#include "biphase_observer.h"
-#include "black_psnr_observer.h"
-#include "burst_level_observer.h"
-#include "closed_caption_observer.h"
+#include "cvbs_signal_constants.h"
+#include "dropout_util.h"
 #include "file_io_interface.h"
-#include "fm_code_observer.h"
 #include "logging.h"
-#include "observer.h"
-#include "white_flag_observer.h"
-#include "white_snr_observer.h"
+#include "video_field_representation.h"
 
 namespace orc {
+
 void LDSinkStageDeps::init(TriggerProgressCallback progress_callback,
                            std::atomic<bool>* pIsProcessing,
                            std::atomic<bool>* pCancelRequested) {
@@ -35,10 +32,104 @@ void LDSinkStageDeps::init(TriggerProgressCallback progress_callback,
   pCancelRequested_ = pCancelRequested;
 }
 
+namespace {
+
+// Inverse level mapping: CVBS_U10_4FSC int16_t → TBC uint16_t.
+// Formula: tbc = round((cvbs − cvbs_blanking) × (tbc_white − tbc_blanking)
+//                       / (cvbs_white − cvbs_blanking) + tbc_blanking)
+inline uint16_t cvbs_to_tbc(int16_t cvbs, int32_t tbc_blanking,
+                             int32_t tbc_white, int32_t cvbs_blanking,
+                             int32_t cvbs_white) {
+  const double n = static_cast<double>(cvbs - cvbs_blanking) /
+                   static_cast<double>(cvbs_white - cvbs_blanking);
+  const double tbc =
+      n * static_cast<double>(tbc_white - tbc_blanking) + tbc_blanking;
+  const int32_t result = static_cast<int32_t>(std::lround(tbc));
+  return static_cast<uint16_t>(std::max(0, std::min(65535, result)));
+}
+
+// True when frame_line_index is one of the four PAL non-orthogonal lines that
+// carry 1136 samples instead of 1135.
+inline bool is_pal_extra_sample_line(int32_t frame_line) {
+  for (int32_t el : kPalExtraSampleLines) {
+    if (el == frame_line) return true;
+  }
+  return false;
+}
+
+// Split a DropoutRun (frame-flat coordinates) into per-field DropoutInfo
+// entries and append them to the appropriate output vectors.
+// tbc_f1_dropouts ← entries that belong to TBC field 1 (is_first_field=true)
+// tbc_f2_dropouts ← entries that belong to TBC field 2
+void split_dropout_run(VideoSystem sys, const DropoutRun& run,
+                       std::vector<DropoutInfo>& tbc_f1_dropouts,
+                       std::vector<DropoutInfo>& tbc_f2_dropouts) {
+  if (run.sample_count == 0) return;
+
+  // Walk through the run sample by sample to build per-line entries.
+  // Optimisation: advance by line when the run spans whole lines.
+  uint64_t offset = run.sample_start;
+  uint64_t end_offset = run.sample_start + run.sample_count;
+
+  while (offset < end_offset) {
+    auto fls = dropout_util::frame_sample_to_field_line(sys, offset);
+
+    // Determine nominal width of this line (accounting for PAL extra sample).
+    int32_t line_width;
+    if (sys == VideoSystem::PAL) {
+      // frame_sample_to_field_line uses field-local line; reconstruct frame
+      // line to check for non-orthogonal status.
+      int32_t frame_line =
+          (fls.field == 1) ? fls.line
+                           : (kPalField1Lines + fls.line);
+      line_width = is_pal_extra_sample_line(frame_line)
+                       ? kPalMaxSamplesPerLine
+                       : (kPalMaxSamplesPerLine - 1);
+    } else if (sys == VideoSystem::PAL_M) {
+      line_width = kPalMSamplesPerLine;
+    } else {
+      line_width = kNtscSamplesPerLine;
+    }
+
+    // Samples remaining on the current line.
+    int32_t samples_on_line = line_width - fls.sample;
+    uint64_t run_on_line =
+        std::min(static_cast<uint64_t>(samples_on_line), end_offset - offset);
+
+    DropoutInfo di;
+    di.line = static_cast<uint32_t>(fls.line);
+    di.start_sample = static_cast<uint32_t>(fls.sample);
+    di.end_sample =
+        static_cast<uint32_t>(fls.sample + static_cast<int32_t>(run_on_line));
+
+    // PAL field mapping: CVBS field 1 → TBC field 2, CVBS field 2 → TBC field 1
+    // NTSC/PAL_M:        CVBS field 1 → TBC field 1, CVBS field 2 → TBC field 2
+    if (sys == VideoSystem::PAL) {
+      if (fls.field == 2) {
+        tbc_f1_dropouts.push_back(di);
+      } else {
+        tbc_f2_dropouts.push_back(di);
+      }
+    } else {
+      if (fls.field == 1) {
+        tbc_f1_dropouts.push_back(di);
+      } else {
+        tbc_f2_dropouts.push_back(di);
+      }
+    }
+
+    offset += run_on_line;
+  }
+}
+
+}  // namespace
+
 bool LDSinkStageDeps::write_tbc_and_metadata(
-    const VideoFieldRepresentation* representation, const std::string& tbc_path,
+    const VideoFrameRepresentation* representation,
+    const std::string& tbc_path,
     IObservationContext& observation_context) {
-  // Ensure the path has .tbc extension
+  (void)observation_context;
+
   std::string final_tbc_path = tbc_path;
   const std::string tbc_ext = ".tbc";
   if (tbc_path.length() < tbc_ext.length() ||
@@ -50,20 +141,19 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
 
   std::string db_path = final_tbc_path + ".db";
 
-  // Get field count early for progress reporting
-  auto range = representation->field_range();
-  size_t field_count = range.size();
+  auto frame_rng = representation->frame_range();
+  size_t frame_count = static_cast<size_t>(frame_rng.count());
+  size_t expected_field_count = frame_count * 2;
 
-  // Show initial progress
   if (progress_callback_) {
-    progress_callback_(0, field_count, "Preparing export...");
+    progress_callback_(0, expected_field_count, "Preparing export...");
   }
 
   try {
     ORC_LOG_DEBUG("Opening TBC file for writing: {}", final_tbc_path);
     ORC_LOG_DEBUG("Opening metadata database: {}", db_path);
 
-    // Open TBC file with buffered writer (16MB buffer for large field writes)
+    // Open TBC writer (16 MB buffer).
     std::shared_ptr<IFileWriter<uint16_t>> tbc_writer;
     if (stage_services_) {
       class FileWriter16Adapter final : public IFileWriter<uint16_t> {
@@ -73,8 +163,7 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
 
         using IFileWriter<uint16_t>::open;
         bool open(const std::string& filepath,
-                  std::ios::openmode mode
-                  [[maybe_unused]]) override {
+                  std::ios::openmode mode [[maybe_unused]]) override {
           path_ = filepath;
           return impl_ && impl_->open(filepath);
         }
@@ -100,8 +189,8 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
         std::string path_;
       };
 
-      auto writer16 =
-          stage_services_->create_buffered_file_writer_uint16(static_cast<size_t>(16 * 1024 * 1024));
+      auto writer16 = stage_services_->create_buffered_file_writer_uint16(
+          static_cast<size_t>(16 * 1024 * 1024));
       if (writer16) {
         tbc_writer = std::make_shared<FileWriter16Adapter>(writer16);
       }
@@ -115,15 +204,13 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
       return false;
     }
 
-    // Open metadata database
     if (!metadata_writer_->open(db_path)) {
-      ORC_LOG_ERROR("Failed to open metadata database for writing: {}",
-                    db_path);
+      ORC_LOG_ERROR("Failed to open metadata database for writing: {}", db_path);
       tbc_writer->close();
       return false;
     }
 
-    // Get video parameters and write them
+    // Retrieve source parameters for TBC-domain signal levels.
     auto video_params = representation->get_video_parameters();
     if (!video_params) {
       ORC_LOG_ERROR("No video parameters available");
@@ -133,21 +220,48 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
     }
     video_params->decoder = "ld-decode";
 
-    // Build sorted list of field IDs before writing capture record so
-    // number_of_sequential_fields reflects the actual export count, not
-    // the full source count (which differs when a field_map stage is upstream).
-    std::vector<FieldID> field_ids;
-    field_ids.reserve(field_count);
-    for (FieldID field_id = range.start; field_id < range.end;
-         field_id = field_id + 1) {
-      if (representation->has_field(field_id)) {
-        field_ids.push_back(field_id);
-      }
-    }
-    std::sort(field_ids.begin(), field_ids.end());
-    video_params->number_of_sequential_fields =
-        static_cast<int32_t>(field_ids.size());
+    const int32_t tbc_blanking = video_params->blanking_16b_ire;
+    const int32_t tbc_white = video_params->white_16b_ire;
+    const VideoSystem sys = video_params->system;
 
+    if (tbc_blanking <= 0 || tbc_white <= tbc_blanking) {
+      ORC_LOG_ERROR("LDSink: invalid TBC levels: blanking={} white={}",
+                    tbc_blanking, tbc_white);
+      metadata_writer_->close();
+      tbc_writer->close();
+      return false;
+    }
+
+    // CVBS_U10_4FSC normative levels for the inverse mapping.
+    int32_t cvbs_blanking, cvbs_white;
+    if (sys == VideoSystem::PAL) {
+      cvbs_blanking = kPalBlanking;
+      cvbs_white = kPalWhite;
+    } else {
+      cvbs_blanking = kNtscBlanking;
+      cvbs_white = kNtscWhite;
+    }
+
+    const size_t padded_lines = calculate_padded_field_height(sys);
+
+    // Signal geometry.
+    int32_t frame_lines_total, field1_cvbs_line_count, nominal_line_width;
+    if (sys == VideoSystem::PAL) {
+      frame_lines_total = kPalFrameLines;
+      field1_cvbs_line_count = kPalField1Lines;
+      nominal_line_width = kPalMaxSamplesPerLine - 1;  // 1135
+    } else if (sys == VideoSystem::PAL_M) {
+      frame_lines_total = kPalMFrameLines;
+      field1_cvbs_line_count = kPalMField1Lines;
+      nominal_line_width = kPalMSamplesPerLine;
+    } else {
+      frame_lines_total = kNtscFrameLines;
+      field1_cvbs_line_count = kNtscField1Lines;
+      nominal_line_width = kNtscSamplesPerLine;
+    }
+
+    video_params->number_of_sequential_fields =
+        static_cast<int32_t>(expected_field_count);
     if (!metadata_writer_->write_video_parameters(*video_params)) {
       ORC_LOG_ERROR("Failed to write video parameters");
       metadata_writer_->close();
@@ -155,33 +269,16 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
       return false;
     }
 
-    ORC_LOG_DEBUG("Processing {} fields (TBC + metadata) in single pass",
-                  field_ids.size());
+    ORC_LOG_DEBUG(
+        "LDSink: {} frames → {} fields; blanking={} white={} sys={}",
+        frame_count, expected_field_count, tbc_blanking, tbc_white,
+        static_cast<int>(sys));
 
-    // Create vector of observers
-    // Note: VideoIdObserver and VitcObserver have been removed from the new
-    // architecture
-    std::vector<std::shared_ptr<Observer>> observers;
-    observers.push_back(std::make_shared<BiphaseObserver>());
-    observers.push_back(std::make_shared<ClosedCaptionObserver>());
-    observers.push_back(std::make_shared<FmCodeObserver>());
-    observers.push_back(std::make_shared<WhiteFlagObserver>());
-    observers.push_back(std::make_shared<WhiteSNRObserver>());
-    observers.push_back(std::make_shared<BlackPSNRObserver>());
-    observers.push_back(std::make_shared<BurstLevelObserver>());
-
-    ORC_LOG_DEBUG("Instantiated {} observers for metadata extraction",
-                  observers.size());
-
-    // Begin transaction for metadata writes
     metadata_writer_->begin_transaction();
+    size_t fields_exported = 0;
 
-    size_t fields_processed = 0;
-
-    // Single pass: write TBC data, populate observations, and process metadata
-    // for each field
-    for (FieldID field_id : field_ids) {
-      // Check for cancellation
+    for (FrameID frame_id = frame_rng.first; frame_rng.contains(frame_id);
+         ++frame_id) {
       if (pCancelRequested_->load()) {
         metadata_writer_->commit_transaction();
         metadata_writer_->close();
@@ -191,149 +288,133 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
         return false;
       }
 
-      // ===== Write TBC data =====
-      auto descriptor = representation->get_descriptor(field_id);
-      if (!descriptor) {
-        ORC_LOG_WARN("No descriptor for field {}, skipping", field_id.value());
+      auto frame_desc = representation->get_frame_descriptor(frame_id);
+      if (!frame_desc || frame_desc->is_padding_frame) {
+        // Padding frames: emit two blanking-level fields to keep the file
+        // sequential without corrupting frame count.
+        size_t blank_field_samples =
+            padded_lines * static_cast<size_t>(nominal_line_width);
+        std::vector<uint16_t> blank(blank_field_samples,
+                                    static_cast<uint16_t>(tbc_blanking));
+        for (int f = 0; f < 2; ++f) {
+          tbc_writer->write(blank);
+          FieldMetadata fm;
+          fm.seq_no = static_cast<int32_t>(fields_exported + 1);
+          fm.is_first_field = (f == 0);
+          metadata_writer_->write_field_metadata(fm);
+          ++fields_exported;
+        }
         continue;
       }
 
-      size_t actual_lines =
-          descriptor->height;  // VFR's standards-compliant height
-      size_t line_width = descriptor->width;
-
-      // Get field parity to determine if padding needed
-      auto parity_hint = representation->get_field_parity_hint(field_id);
-      bool is_first_field =
-          parity_hint.has_value() && parity_hint->is_first_field;
-
-      // Calculate padded height for TBC file format
-      size_t padded_lines = calculate_padded_field_height(video_params->system);
-
-      // Buffer for accumulating the entire field before writing
-      std::vector<uint16_t> field_buffer;
-      field_buffer.reserve(padded_lines * line_width);
-
-      // Accumulate all lines from VFR
-      for (size_t line_num = 0; line_num < actual_lines; ++line_num) {
-        const uint16_t* line_data =
-            representation->get_line(field_id, line_num);
-        if (!line_data) {
-          ORC_LOG_WARN("Field {} line {} has no data", field_id.value(),
-                       line_num);
-          field_buffer.insert(field_buffer.end(), line_width, 0);
-        } else {
-          field_buffer.insert(field_buffer.end(), line_data,
-                              line_data + line_width);
-        }
+      // Build per-field dropout lists from the frame-flat DropoutRuns.
+      std::vector<DropoutInfo> tbc_f1_dropouts, tbc_f2_dropouts;
+      for (const auto& run : representation->get_dropout_hints(frame_id)) {
+        split_dropout_run(sys, run, tbc_f1_dropouts, tbc_f2_dropouts);
       }
 
-      // Add padding for first field if needed (TBC file format requirement)
-      if (is_first_field && actual_lines < padded_lines) {
-        size_t padding_lines = padded_lines - actual_lines;
-        uint16_t blanking_level =
-            static_cast<uint16_t>(video_params->blanking_16b_ire);
+      // Describe the two TBC fields to extract from this CVBS frame.
+      //
+      // PAL:       TBC field 1 (is_first_field=true, 312 lines) = CVBS lines [313, 625)
+      //            TBC field 2 (is_first_field=false, 313 lines) = CVBS lines [0, 313)
+      // NTSC/PAL_M: TBC field 1 (is_first_field=true, 262 lines) = CVBS lines [0, 262)
+      //             TBC field 2 (is_first_field=false, 263 lines) = CVBS lines [262, 525)
+      struct FieldExtract {
+        int32_t cvbs_start;
+        int32_t cvbs_end;  // exclusive
+        bool is_first_field;
+        const std::vector<DropoutInfo>* dropouts;
+      };
 
-        ORC_LOG_DEBUG(
-            "Adding {} padding lines to first field {} (blanking level {})",
-            padding_lines, field_id.value(), blanking_level);
-
-        // Add blanking-level padding lines at end
-        for (size_t i = 0; i < padding_lines; ++i) {
-          field_buffer.insert(field_buffer.end(), line_width, blanking_level);
-        }
-      }
-
-      // Write the entire field to TBC (with padding if first field)
-      tbc_writer->write(field_buffer);
-
-      // ===== Write metadata =====
-      // Create minimal field record
-      // seq_no must be the 1-based position in the exported TBC file,
-      // not the source field_id (which may be non-contiguous after field_map).
-      FieldMetadata field_meta;
-      field_meta.seq_no =
-          static_cast<int32_t>(fields_processed + 1);  // seq_no is 1-based
-
-      // Use parity hint (already fetched above for padding logic)
-      if (parity_hint.has_value()) {
-        field_meta.is_first_field = parity_hint->is_first_field;
+      std::array<FieldExtract, 2> extract_plan;
+      if (sys == VideoSystem::PAL) {
+        extract_plan[0] = {field1_cvbs_line_count, frame_lines_total, true,
+                           &tbc_f1_dropouts};
+        extract_plan[1] = {0, field1_cvbs_line_count, false, &tbc_f2_dropouts};
       } else {
-        field_meta.is_first_field = false;
+        extract_plan[0] = {0, field1_cvbs_line_count, true, &tbc_f1_dropouts};
+        extract_plan[1] = {field1_cvbs_line_count, frame_lines_total, false,
+                           &tbc_f2_dropouts};
       }
 
-      // Check for field phase HINT
-      auto phase_hint = representation->get_field_phase_hint(field_id);
-      if (phase_hint.has_value()) {
-        field_meta.field_phase_id = phase_hint->field_phase_id;
-      }
+      for (const auto& ep : extract_plan) {
+        const size_t actual_lines =
+            static_cast<size_t>(ep.cvbs_end - ep.cvbs_start);
 
-      // Populate observation context with exported field information
-      try {
-        observation_context.set(field_id, "export", "seq_no",
-                                static_cast<int64_t>(field_meta.seq_no));
-        // Parity may be absent; treat as optional observation
-        observation_context.set(field_id, "export", "is_first_field",
-                                static_cast<bool>(field_meta.is_first_field));
-      } catch (const std::exception& e) {
-        ORC_LOG_WARN("LDSink: Failed to write observations for field {}: {}",
-                     field_id.value(), e.what());
-      }
+        std::vector<uint16_t> field_buffer;
+        field_buffer.reserve(padded_lines *
+                             static_cast<size_t>(nominal_line_width));
 
-      metadata_writer_->write_field_metadata(field_meta);
+        // Convert each CVBS line to TBC uint16_t samples.
+        for (int32_t fl = ep.cvbs_start; fl < ep.cvbs_end; ++fl) {
+          const int16_t* line_data =
+              representation->get_line(frame_id, static_cast<size_t>(fl));
 
-      // ===== Run observers to populate observation context =====
-      for (const auto& observer : observers) {
-        observer->process_field(*representation, field_id, observation_context);
-      }
+          // PAL extra-sample lines have 1136 samples; strip the last one so
+          // all TBC lines are exactly nominal_line_width samples wide.
+          const size_t read_width = static_cast<size_t>(nominal_line_width);
 
-      // Write observations to metadata
-      // export_field_id is the 0-based position in the output TBC file;
-      // field_id is the source representation ID used to read from the context.
-      FieldID export_field_id(fields_processed);
-      metadata_writer_->write_observations(field_id, export_field_id,
-                                           observation_context);
-
-      // Write dropout hints
-      auto dropout_hints = representation->get_dropout_hints(field_id);
-      for (const auto& hint : dropout_hints) {
-        DropoutInfo dropout;
-        dropout.line = hint.line;
-        dropout.start_sample = hint.start_sample;
-        dropout.end_sample = hint.end_sample;
-        metadata_writer_->write_dropout(export_field_id, dropout);
-      }
-
-      fields_processed++;
-
-      // Update progress callback every 10 fields
-      if (fields_processed % 10 == 0) {
-        if (progress_callback_) {
-          progress_callback_(fields_processed, field_count,
-                             "Exporting field " +
-                                 std::to_string(fields_processed) + "/" +
-                                 std::to_string(field_count));
+          if (!line_data) {
+            for (size_t s = 0; s < read_width; ++s) {
+              field_buffer.push_back(static_cast<uint16_t>(tbc_blanking));
+            }
+          } else {
+            for (size_t s = 0; s < read_width; ++s) {
+              field_buffer.push_back(cvbs_to_tbc(line_data[s], tbc_blanking,
+                                                 tbc_white, cvbs_blanking,
+                                                 cvbs_white));
+            }
+          }
         }
+
+        // Pad the shorter field (always is_first_field=true) to padded_lines.
+        if (actual_lines < padded_lines) {
+          const size_t padding_lines = padded_lines - actual_lines;
+          for (size_t p = 0; p < padding_lines; ++p) {
+            for (int32_t s = 0; s < nominal_line_width; ++s) {
+              field_buffer.push_back(static_cast<uint16_t>(tbc_blanking));
+            }
+          }
+        }
+
+        tbc_writer->write(field_buffer);
+
+        FieldMetadata field_meta;
+        field_meta.seq_no = static_cast<int32_t>(fields_exported + 1);
+        field_meta.is_first_field = ep.is_first_field;
+        if (frame_desc->colour_frame_index >= 0) {
+          field_meta.field_phase_id = frame_desc->colour_frame_index;
+        }
+        metadata_writer_->write_field_metadata(field_meta);
+
+        // Write per-field dropout info.
+        FieldID export_field_id(fields_exported);
+        for (const auto& di : *ep.dropouts) {
+          metadata_writer_->write_dropout(export_field_id, di);
+        }
+
+        ++fields_exported;
       }
 
-      // Log progress every 50 fields
-      if (fields_processed % 50 == 0) {
-        ORC_LOG_DEBUG("Exported {}/{} fields ({:.1f}%)", fields_processed,
-                      field_count, (fields_processed * 100.0) / field_count);
+      if (fields_exported % 20 == 0 && progress_callback_) {
+        progress_callback_(
+            fields_exported, expected_field_count,
+            "Exporting field " + std::to_string(fields_exported) + "/" +
+                std::to_string(expected_field_count));
       }
     }
 
-    // Commit metadata transaction and close files
     metadata_writer_->commit_transaction();
     metadata_writer_->close();
     tbc_writer->close();
 
-    ORC_LOG_DEBUG("Successfully exported {} fields", fields_processed);
+    ORC_LOG_DEBUG("LDSink: Successfully exported {} fields", fields_exported);
     return true;
 
   } catch (const std::exception& e) {
-    ORC_LOG_ERROR("Exception during export: {}", e.what());
+    ORC_LOG_ERROR("LDSink: Exception during export: {}", e.what());
     return false;
   }
 }
+
 }  // namespace orc

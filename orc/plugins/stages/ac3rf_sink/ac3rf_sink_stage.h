@@ -29,7 +29,7 @@ class IAC3RFSinkStageDeps;
 /**
  * @brief AC3 RF Sink Stage
  *
- * Decodes AC3 RF samples from the VideoFieldRepresentation and writes the
+ * Decodes AC3 RF samples from the VideoFrameRepresentation and writes the
  * resulting AC3 frames to an output file.
  *
  * This is a SINK stage — it takes one VFR input and produces no outputs.

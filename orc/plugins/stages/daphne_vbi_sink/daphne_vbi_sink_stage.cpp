@@ -122,10 +122,10 @@ bool DaphneVBISinkStage::trigger(
 
   // Get input representation
   auto representation =
-      std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+      std::dynamic_pointer_cast<const VideoFrameRepresentation>(inputs[0]);
   if (!representation) {
-    ORC_LOG_ERROR("DaphneVBISink: Input is not VideoFieldRepresentation");
-    return fail_trigger("Error: Input is not a video field representation");
+    ORC_LOG_ERROR("DaphneVBISink: Input is not VideoFrameRepresentation");
+    return fail_trigger("Error: Input is not a video frame representation");
   }
 
   // Write .VBI binary file
@@ -145,8 +145,8 @@ bool DaphneVBISinkStage::trigger(
       deps->write_vbi(representation.get(), output_path, observation_context);
 
   if (success) {
-    auto range = representation->field_range();
-    trigger_status_ = "Exported " + std::to_string(range.size()) +
+    auto frame_rng = representation->frame_range();
+    trigger_status_ = "Exported " + std::to_string(frame_rng.count() * 2) +
                       " fields to " + output_path;
     ORC_LOG_DEBUG("DaphneVBISink: Trigger completed successfully");
   } else {

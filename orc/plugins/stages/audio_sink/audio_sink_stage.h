@@ -20,7 +20,7 @@
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
@@ -32,7 +32,7 @@ class IAudioSinkStageDeps;
  * Extracts PCM audio samples from TBC metadata and writes them to a WAV file.
  * This is a SINK stage - it has inputs but no outputs.
  *
- * The audio data flows through the VideoFieldRepresentation from the source
+ * The audio data flows through the VideoFrameRepresentation from the source
  * stage, which reads the .pcm file (if specified in the source stage
  * parameters).
  *

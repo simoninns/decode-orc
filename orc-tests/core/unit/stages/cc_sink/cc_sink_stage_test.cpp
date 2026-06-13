@@ -18,7 +18,7 @@
 
 #include "../../../../orc/plugins/stages/cc_sink/cc_sink_stage_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 
 namespace orc_unit_test {
 using testing::_;
@@ -34,7 +34,7 @@ class MockCCSinkStageDeps : public orc::ICCSinkStageDeps {
               (override));
 
   MOCK_METHOD(orc::CCExportResult, export_cc,
-              (orc::VideoFieldRepresentation * representation,
+              (orc::VideoFrameRepresentation * representation,
                orc::IObservationContext& observation_context,
                orc::CCExportOptions options),
               (override));
@@ -87,7 +87,7 @@ TEST(CCSinkStageTest, Trigger_FailsWhenNoInputProvided) {
   EXPECT_EQ(stage.get_trigger_status(), "Idle");
 }
 
-TEST(CCSinkStageTest, Trigger_FailsWhenInputIsNotVideoFieldRepresentation) {
+TEST(CCSinkStageTest, Trigger_FailsWhenInputIsNotVideoFrameRepresentation) {
   orc::CCSinkStage stage;
   MockObservationContext observation_context;
 
@@ -106,7 +106,7 @@ TEST(CCSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   stage.set_deps_override(deps);
 
   NiceMock<MockObservationContext> observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   orc::CCExportOptions captured_options;
 
@@ -135,7 +135,7 @@ TEST(CCSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   stage.set_deps_override(deps);
 
   NiceMock<MockObservationContext> observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*deps, init(_, _));
   EXPECT_CALL(*deps, export_cc(vfr.get(), _, _))
@@ -158,7 +158,7 @@ TEST(CCSinkStageTest, Trigger_UsesDepsSeamWithSCCFormat) {
   stage.set_deps_override(deps);
 
   NiceMock<MockObservationContext> observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*deps, init(_, _));
   EXPECT_CALL(*deps,
@@ -183,7 +183,7 @@ TEST(CCSinkStageTest, Trigger_UsesDepsSeamWithPlainTextFormat) {
   stage.set_deps_override(deps);
 
   NiceMock<MockObservationContext> observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*deps, init(_, _));
   EXPECT_CALL(*deps,

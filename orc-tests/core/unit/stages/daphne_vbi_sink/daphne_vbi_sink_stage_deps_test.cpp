@@ -13,7 +13,7 @@
 
 #include "../../include/file_io_interface_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 #include "../../stage_services_mock.h"
 
 using testing::_;  // NOLINT(bugprone-reserved-identifier)
@@ -45,7 +45,7 @@ class DaphneVBISinkStageDeps : public ::testing::Test {
   std::shared_ptr<StrictMock<MockFileWriterUint8>> pMockFileWriterUint8_;
   MockObservationContext mockObservationContext_;
 
-  StrictMock<MockVideoFieldRepresentation> mockRepresentation_;
+  StrictMock<MockVideoFrameRepresentationArtifact> mockRepresentation_;
 
   std::atomic<bool> cancelRequested_{};
   std::atomic<bool> isProcessing_{};
@@ -56,9 +56,10 @@ class DaphneVBISinkStageDeps : public ::testing::Test {
 
 TEST_F(DaphneVBISinkStageDeps,
        WriteVbi_AddsExtensionAndWritesHeaderWhenSuccessful) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  // Empty range: last < first → count() == 0 → loop doesn't execute
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint8(1UL * 1024 * 1024))
@@ -82,9 +83,9 @@ TEST_F(DaphneVBISinkStageDeps,
 }
 
 TEST_F(DaphneVBISinkStageDeps, WriteVbi_ReturnsFalseWhenOpenFails) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint8(1UL * 1024 * 1024))
@@ -103,13 +104,11 @@ TEST_F(DaphneVBISinkStageDeps, WriteVbi_ReturnsFalseWhenOpenFails) {
 
 TEST_F(DaphneVBISinkStageDeps,
        WriteVbi_ClosesWriterAndMarksProcessingFalseWhenCancelled) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  // Non-empty range: FrameIDRange{0, 1} = 2 frames. Cancel is checked at the
+  // top of each loop iteration before any frame data is read.
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(1))));
-
-  EXPECT_CALL(mockRepresentation_, has_field(orc::FieldID(0)))
-      .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(orc::FrameIDRange{0, 1}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint8(1UL * 1024 * 1024))
@@ -120,6 +119,7 @@ TEST_F(DaphneVBISinkStageDeps,
       .Times(1)
       .WillOnce(Return(true));
 
+  // write_header() is called before the loop, so at least one write occurs
   EXPECT_CALL(*pMockFileWriterUint8_,
               write(testing::A<const std::vector<uint8_t>&>()))
       .Times(testing::AtLeast(1));

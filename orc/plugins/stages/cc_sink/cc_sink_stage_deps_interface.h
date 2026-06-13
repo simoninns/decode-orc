@@ -16,7 +16,7 @@
 
 #include "observation_context_interface.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 /**
@@ -46,7 +46,7 @@ class ICCSinkStageDeps {
   virtual void init(TriggerProgressCallback progress_callback,
                     std::atomic<bool>* cancel_requested) = 0;
 
-  virtual CCExportResult export_cc(VideoFieldRepresentation* representation,
+  virtual CCExportResult export_cc(VideoFrameRepresentation* representation,
                                    IObservationContext& observation_context,
                                    CCExportOptions options) = 0;
 };

@@ -46,7 +46,7 @@ std::vector<ArtifactPtr> LDSinkStage::execute(
   // Cache input for preview rendering
   if (!inputs.empty()) {
     cached_input_ =
-        std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+        std::dynamic_pointer_cast<const VideoFrameRepresentation>(inputs[0]);
   }
 
   // Sink stages don't produce outputs during normal execution
@@ -128,10 +128,10 @@ bool LDSinkStage::trigger(
 
   // Get input representation
   auto representation =
-      std::dynamic_pointer_cast<const VideoFieldRepresentation>(inputs[0]);
+      std::dynamic_pointer_cast<const VideoFrameRepresentation>(inputs[0]);
   if (!representation) {
-    ORC_LOG_ERROR("LDSink: Input is not VideoFieldRepresentation");
-    return fail_trigger("Error: Input is not a video field representation");
+    ORC_LOG_ERROR("LDSink: Input is not VideoFrameRepresentation");
+    return fail_trigger("Error: Input is not a video frame representation");
   }
 
   // Write TBC and metadata
@@ -153,8 +153,8 @@ bool LDSinkStage::trigger(
                                               observation_context);
 
   if (success) {
-    auto range = representation->field_range();
-    trigger_status_ = "Exported " + std::to_string(range.size()) +
+    auto frame_rng = representation->frame_range();
+    trigger_status_ = "Exported " + std::to_string(frame_rng.count() * 2) +
                       " fields to " + output_path;
     ORC_LOG_DEBUG("LDSink: Trigger completed successfully");
   } else {

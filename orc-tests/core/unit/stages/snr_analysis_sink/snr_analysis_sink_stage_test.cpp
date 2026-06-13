@@ -20,7 +20,7 @@
 #include "../../../../orc/core/include/observation_context.h"
 #include "../../../../orc/plugins/stages/snr_analysis_sink/snr_analysis_sink_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 
 namespace orc_unit_test {
 using testing::_;
@@ -36,7 +36,7 @@ class MockSNRAnalysisSinkStageDeps : public orc::ISNRAnalysisSinkStageDeps {
               (override));
 
   MOCK_METHOD(orc::SNRAnalysisComputeResult, compute_and_analyze,
-              (orc::VideoFieldRepresentation * representation,
+              (orc::VideoFrameRepresentation * representation,
                orc::IObservationContext& observation_context,
                orc::SNRAnalysisComputeOptions options),
               (override));
@@ -79,10 +79,11 @@ TEST(SNRAnalysisSinkStageTest, Trigger_FailsWhenNoInputProvided) {
 TEST(SNRAnalysisSinkStageTest, Trigger_SucceedsWhenInputRangeIsEmpty) {
   orc::SNRAnalysisSinkStage stage;
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
-  EXPECT_CALL(*vfr, field_range())
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+  // Empty range: last < first → count() == 0
+  EXPECT_CALL(*vfr, frame_range())
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   const bool result = stage.trigger({vfr}, {{"mode", std::string("white")}},
                                     observation_context);
@@ -102,7 +103,7 @@ TEST(SNRAnalysisSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   stage.set_deps_override(deps);
 
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   std::vector<orc::FrameSNRStats> expected_stats;
   orc::FrameSNRStats stat{};
@@ -148,7 +149,7 @@ TEST(SNRAnalysisSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   stage.set_deps_override(deps);
 
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*deps, init(_, _));
   EXPECT_CALL(*deps, compute_and_analyze(vfr.get(), _, _))
@@ -172,7 +173,7 @@ TEST(SNRAnalysisSinkStageTest, Trigger_WritesCSVWhenDepsSucceeds) {
   stage.set_deps_override(deps);
 
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   std::vector<orc::FrameSNRStats> expected_stats;
   orc::FrameSNRStats stat{};

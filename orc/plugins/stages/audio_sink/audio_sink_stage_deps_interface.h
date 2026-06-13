@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <string>
 
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 struct AudioSinkWriteResult {
@@ -27,7 +27,7 @@ class IAudioSinkStageDeps {
   virtual ~IAudioSinkStageDeps() = default;
 
   virtual AudioSinkWriteResult write_audio_wav(
-      const VideoFieldRepresentation* representation,
+      const VideoFrameRepresentation* representation,
       const std::string& output_path) = 0;
 };
 }  // namespace orc

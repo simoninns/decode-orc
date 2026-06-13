@@ -27,7 +27,7 @@ class AudioSinkStageDeps : public IAudioSinkStageDeps {
             std::atomic<bool>* cancel_requested);
 
   AudioSinkWriteResult write_audio_wav(
-      const VideoFieldRepresentation* representation,
+      const VideoFrameRepresentation* representation,
       const std::string& output_path) override;
 
  private:

@@ -91,18 +91,18 @@ bool AudioSinkStage::trigger(
     // Validate inputs
     if (inputs.empty()) {
       throw std::runtime_error(
-          "Audio sink requires one input (VideoFieldRepresentation)");
+          "Audio sink requires one input (VideoFrameRepresentation)");
     }
 
-    auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
+    auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
     if (!vfr) {
-      throw std::runtime_error("Input must be a VideoFieldRepresentation");
+      throw std::runtime_error("Input must be a VideoFrameRepresentation");
     }
 
-    // Check if VFR has audio
+    // Check if VFrameR has audio
     if (!vfr->has_audio()) {
       throw std::runtime_error(
-          "Input VFR does not have audio data (no PCM file specified in "
+          "Input VFrameR does not have audio data (no PCM file specified in "
           "source?)");
     }
 

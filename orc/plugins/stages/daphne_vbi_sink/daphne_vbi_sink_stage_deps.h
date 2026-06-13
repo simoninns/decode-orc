@@ -40,7 +40,7 @@ class DaphneVBISinkStageDeps : public IDaphneVBISinkStageDeps {
             std::atomic<bool>* pIsProcessing,
             std::atomic<bool>* pCancelRequested);
 
-  bool write_vbi(const VideoFieldRepresentation* representation,
+  bool write_vbi(const VideoFrameRepresentation* representation,
                  const std::string& vbi_path,
                  IObservationContext& observation_context) override;
 

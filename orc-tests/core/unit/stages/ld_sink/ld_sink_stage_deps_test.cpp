@@ -13,7 +13,7 @@
 
 #include "../../include/file_io_interface_mock.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 #include "../../stage_services_mock.h"
 #include "tbc_metadata_writer_interface_mock.h"
 
@@ -48,7 +48,7 @@ class LDSinkStageDepsTest : public ::testing::Test {
   std::shared_ptr<StrictMock<MockTBCMetadataWriter>> pMockMetadataWriter_;
   MockObservationContext mockObservationContext_;
 
-  StrictMock<MockVideoFieldRepresentation> mockRepresentation_;
+  StrictMock<MockVideoFrameRepresentationArtifact> mockRepresentation_;
 
   std::atomic<bool> cancelRequested_{};
   std::atomic<bool> isProcessing_{};
@@ -59,9 +59,10 @@ class LDSinkStageDepsTest : public ::testing::Test {
 
 TEST_F(LDSinkStageDepsTest,
        WriteTbc_AddsExtensionAndSucceedsWithEmptyRange) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  // Empty range: last < first → count() == 0 → loop doesn't execute
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint16(16UL * 1024 * 1024))
@@ -105,9 +106,9 @@ TEST_F(LDSinkStageDepsTest,
 }
 
 TEST_F(LDSinkStageDepsTest, WriteTbc_ReturnsFalseWhenTbcFileOpenFails) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint16(16UL * 1024 * 1024))
@@ -126,9 +127,9 @@ TEST_F(LDSinkStageDepsTest, WriteTbc_ReturnsFalseWhenTbcFileOpenFails) {
 
 TEST_F(LDSinkStageDepsTest,
        WriteTbc_ReturnsFalseWhenMetadataDbOpenFails) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint16(16UL * 1024 * 1024))
@@ -153,9 +154,9 @@ TEST_F(LDSinkStageDepsTest,
 
 TEST_F(LDSinkStageDepsTest,
        WriteTbc_ReturnsFalseWhenGetVideoParametersReturnsNullopt) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint16(16UL * 1024 * 1024))
@@ -185,9 +186,9 @@ TEST_F(LDSinkStageDepsTest,
 
 TEST_F(LDSinkStageDepsTest,
        WriteTbc_ReturnsFalseWhenWriteVideoParametersFails) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
+      .WillOnce(Return(orc::FrameIDRange{1, 0}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint16(16UL * 1024 * 1024))
@@ -223,13 +224,12 @@ TEST_F(LDSinkStageDepsTest,
 
 TEST_F(LDSinkStageDepsTest,
        WriteTbc_ClosesFilesAndMarksProcessingFalseWhenCancelled) {
-  EXPECT_CALL(mockRepresentation_, field_range())
+  // Non-empty range: FrameIDRange{0, 1} = 2 frames. Cancel is checked at the
+  // top of each iteration, so the first frame (0) triggers cancel before any
+  // frame data is read.
+  EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(1))));
-
-  EXPECT_CALL(mockRepresentation_, has_field(orc::FieldID(0)))
-      .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(orc::FrameIDRange{0, 1}));
 
   EXPECT_CALL(mockStageServices_,
               create_buffered_file_writer_uint16(16UL * 1024 * 1024))

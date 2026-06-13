@@ -62,11 +62,11 @@ function(orc_add_core_unit_tests target labels)
                         orc-stage-plugin-ld-sink
                         orc-stage-plugin-efm-sink
                         orc-stage-plugin-raw-efm-sink
-                        orc-stage-plugin-hackdac-sink
                         orc-stage-plugin-ac3rf-sink
                         orc-stage-plugin-dropout-analysis-sink
                         orc-stage-plugin-snr-analysis-sink
-                        orc-stage-plugin-burst-level-analysis-sink)
+                        orc-stage-plugin-burst-level-analysis-sink
+                        orc-stage-plugin-cvbs-sink)
                 if(TARGET ${_orc_stage_plugin_target})
                         target_link_libraries(${target} ${_orc_stage_plugin_target})
                 endif()
@@ -137,7 +137,7 @@ orc_add_core_unit_tests(
         stages/ld_sink/ld_sink_stage_deps_test.cpp
         stages/efm_sink/efm_sink_stage_test.cpp
         stages/raw_efm_sink/raw_efm_sink_stage_test.cpp
-        stages/hackdac_sink/hackdac_sink_stage_test.cpp
+        stages/cvbs_sink/cvbs_sink_stage_test.cpp
         stages/dropout_analysis_sink/dropout_analysis_sink_stage_test.cpp
         stages/snr_analysis_sink/snr_analysis_sink_stage_test.cpp
         stages/burst_level_analysis_sink/burst_level_analysis_sink_stage_test.cpp

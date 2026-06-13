@@ -27,7 +27,7 @@ class SNRAnalysisSinkStageDeps : public ISNRAnalysisSinkStageDeps {
             std::atomic<bool>* cancel_requested) override;
 
   SNRAnalysisComputeResult compute_and_analyze(
-      VideoFieldRepresentation* representation,
+      VideoFrameRepresentation* representation,
       IObservationContext& observation_context,
       SNRAnalysisComputeOptions options) override;
 

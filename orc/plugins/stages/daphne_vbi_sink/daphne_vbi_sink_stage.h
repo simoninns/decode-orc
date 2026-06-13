@@ -21,7 +21,7 @@
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
@@ -94,8 +94,6 @@ class DaphneVBISinkStage : public DAGStage,
  private:
   std::string output_path_;
   std::string trigger_status_;
-  mutable std::shared_ptr<const VideoFieldRepresentation>
-      cached_input_;  // For preview
   TriggerProgressCallback
       progress_callback_;  // Progress callback for trigger operations
   std::atomic<bool> is_processing_{false};

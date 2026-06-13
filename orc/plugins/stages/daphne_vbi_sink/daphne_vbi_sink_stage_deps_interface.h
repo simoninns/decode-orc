@@ -11,14 +11,14 @@
 #define DECODE_ORC_ROOT_DAPHNE_VBI_SINK_STAGE_DEPS_INTERFACE_H
 
 #include "observation_context_interface.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 class IDaphneVBISinkStageDeps {
  public:
   virtual ~IDaphneVBISinkStageDeps() = default;
 
-  virtual bool write_vbi(const VideoFieldRepresentation* representation,
+  virtual bool write_vbi(const VideoFrameRepresentation* representation,
                          const std::string& vbi_path,
                          IObservationContext& observation_context) = 0;
 };

@@ -226,16 +226,16 @@ bool EFMSinkStage::trigger(
     // ------------------------------------------------------------------
     if (inputs.empty()) {
       throw std::runtime_error(
-          "EFMSink requires one input (VideoFieldRepresentation)");
+          "EFMSink requires one input (VideoFrameRepresentation)");
     }
-    auto vfr = std::dynamic_pointer_cast<VideoFieldRepresentation>(inputs[0]);
+    auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
     if (!vfr) {
       throw std::runtime_error(
-          "EFMSink input must be a VideoFieldRepresentation");
+          "EFMSink input must be a VideoFrameRepresentation");
     }
     if (!vfr->has_efm()) {
       throw std::runtime_error(
-          "EFMSink: input VFR has no EFM data (no EFM file in source?)");
+          "EFMSink: input VFrameR has no EFM data (no EFM file in source?)");
     }
 
     // ------------------------------------------------------------------

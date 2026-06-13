@@ -30,7 +30,7 @@ class IEFMSinkStageDeps;
 /**
  * @brief EFM Decoder Sink Stage
  *
- * Accumulates EFM t-values from a VideoFieldRepresentation and decodes them
+ * Accumulates EFM t-values from a VideoFrameRepresentation and decodes them
  * to either a PCM/WAV audio file or ECMA-130 binary sector data using the
  * full EFM decode pipeline (EfmProcessor).
  *

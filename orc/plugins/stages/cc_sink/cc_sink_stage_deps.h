@@ -28,17 +28,17 @@ class CCSinkStageDeps : public ICCSinkStageDeps {
   void init(TriggerProgressCallback progress_callback,
             std::atomic<bool>* cancel_requested) override;
 
-  CCExportResult export_cc(VideoFieldRepresentation* representation,
+  CCExportResult export_cc(VideoFrameRepresentation* representation,
                            IObservationContext& observation_context,
                            CCExportOptions options) override;
 
  private:
-  bool export_scc(const VideoFieldRepresentation* representation,
+  bool export_scc(const VideoFrameRepresentation* representation,
                   const std::string& output_path, VideoFormat format,
                   const IObservationContext& observation_context,
                   int32_t& cc_frames_exported);
 
-  bool export_plain_text(const VideoFieldRepresentation* representation,
+  bool export_plain_text(const VideoFrameRepresentation* representation,
                          const std::string& output_path, VideoFormat format,
                          const IObservationContext& observation_context,
                          int32_t& cc_frames_exported);

@@ -1,7 +1,7 @@
 /*
  * File:        plugin.cpp
- * Module:      orc-stage-plugin-hackdac_sink
- * Purpose:     Runtime plugin bundle for HackdacSinkStage
+ * Module:      orc-stage-plugin-cvbs-sink
+ * Purpose:     Runtime plugin bundle for CVBSSinkStage
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -9,19 +9,19 @@
 
 #include "plugin.h"
 
-#include "hackdac_sink_stage.h"
+#include "cvbs_sink_stage.h"
 
 namespace {
 
 orc::DAGStagePtr create_stage() {
-  return std::make_shared<orc::HackdacSinkStage>();
+  return std::make_shared<orc::CVBSSinkStage>();
 }
 
 }  // namespace
 
 ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor*
 orc_get_stage_plugin_descriptor() {
-  return &orc::plugins::hackdac_sink::kPluginDescriptor;
+  return &orc::plugins::cvbs_sink::kPluginDescriptor;
 }
 
 ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
@@ -40,22 +40,20 @@ ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
 
   const auto node_type_info = create_stage()->get_node_type_info();
   if (node_type_info.display_name !=
-          orc::plugins::hackdac_sink::kStageDisplayName ||
+          orc::plugins::cvbs_sink::kStageDisplayName ||
       node_type_info.menu_category !=
-          orc::plugins::hackdac_sink::kStageMenuCategory ||
-      node_type_info.type != orc::plugins::hackdac_sink::kStageNodeType ||
-      node_type_info.min_inputs !=
-          orc::plugins::hackdac_sink::kStageMinInputs ||
-      node_type_info.max_inputs !=
-          orc::plugins::hackdac_sink::kStageMaxInputs ||
+          orc::plugins::cvbs_sink::kStageMenuCategory ||
+      node_type_info.type != orc::plugins::cvbs_sink::kStageNodeType ||
+      node_type_info.min_inputs != orc::plugins::cvbs_sink::kStageMinInputs ||
+      node_type_info.max_inputs != orc::plugins::cvbs_sink::kStageMaxInputs ||
       node_type_info.min_outputs !=
-          orc::plugins::hackdac_sink::kStageMinOutputs ||
+          orc::plugins::cvbs_sink::kStageMinOutputs ||
       node_type_info.max_outputs !=
-          orc::plugins::hackdac_sink::kStageMaxOutputs ||
+          orc::plugins::cvbs_sink::kStageMaxOutputs ||
       node_type_info.compatible_formats !=
-          orc::plugins::hackdac_sink::kStageCompatibleFormats ||
+          orc::plugins::cvbs_sink::kStageCompatibleFormats ||
       node_type_info.sink_category !=
-          orc::plugins::hackdac_sink::kStageSinkCategory) {
+          orc::plugins::cvbs_sink::kStageSinkCategory) {
     if (error_message) {
       *error_message =
           "Stage metadata mismatch between plugin.h and NodeTypeInfo";
@@ -63,7 +61,7 @@ ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
     return false;
   }
 
-  if (!register_stage(context, orc::plugins::hackdac_sink::kStageName,
+  if (!register_stage(context, orc::plugins::cvbs_sink::kStageName,
                       &create_stage)) {
     if (error_message) {
       *error_message = "Failed to register stage from plugin metadata";

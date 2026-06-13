@@ -17,7 +17,7 @@
 
 #include "../../../../orc/plugins/stages/audio_sink/audio_sink_stage_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 
 namespace orc_unit_test {
 using testing::_;
@@ -28,9 +28,14 @@ using testing::StrictMock;
 class MockAudioSinkStageDeps : public orc::IAudioSinkStageDeps {
  public:
   MOCK_METHOD(orc::AudioSinkWriteResult, write_audio_wav,
-              (const orc::VideoFieldRepresentation* representation,
+              (const orc::VideoFrameRepresentation* representation,
                const std::string& output_path),
               (override));
+};
+
+class MockVFRArtifactWithAudio : public MockVideoFrameRepresentationArtifact {
+ public:
+  MOCK_METHOD(bool, has_audio, (), (const, override));
 };
 
 TEST(AudioSinkStageTest, StageInterfaceInvariants_MatchSink) {
@@ -67,14 +72,14 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenNoInputProvided) {
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: Audio sink requires one input (VideoFieldRepresentation)");
+            "Error: Audio sink requires one input (VideoFrameRepresentation)");
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
 TEST(AudioSinkStageTest, Trigger_FailsWhenInputHasNoAudio) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
 
   EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(false));
 
@@ -84,12 +89,12 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenInputHasNoAudio) {
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: Input VFR does not have audio data (no PCM file specified "
-            "in source?)");
+            "Error: Input VFrameR does not have audio data (no PCM file "
+            "specified in source?)");
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
-TEST(AudioSinkStageTest, Trigger_FailsWhenInputIsNotVideoFieldRepresentation) {
+TEST(AudioSinkStageTest, Trigger_FailsWhenInputIsNotVideoFrameRepresentation) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
 
@@ -99,13 +104,13 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenInputIsNotVideoFieldRepresentation) {
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: Input must be a VideoFieldRepresentation");
+            "Error: Input must be a VideoFrameRepresentation");
 }
 
 TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathMissing) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
   EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
 
   const bool result = stage.trigger({vfr}, {}, observation_context);
@@ -118,7 +123,7 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathMissing) {
 TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathIsNotString) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
   EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
 
   const bool result =
@@ -132,7 +137,7 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathIsNotString) {
 TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathIsEmpty) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
   EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
 
   const bool result = stage.trigger({vfr}, {{"output_path", std::string("")}},
@@ -148,7 +153,7 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
   stage.set_deps_override(deps);
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
 
   EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
   EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav"))
@@ -167,7 +172,7 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
   stage.set_deps_override(deps);
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
 
   EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
   EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav"))

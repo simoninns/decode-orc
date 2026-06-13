@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <string>
 
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 struct AC3RFSinkDecodeResult {
@@ -27,7 +27,7 @@ class IAC3RFSinkStageDeps {
   virtual ~IAC3RFSinkStageDeps() = default;
 
   virtual AC3RFSinkDecodeResult decode_and_write_ac3(
-      const VideoFieldRepresentation* representation,
+      const VideoFrameRepresentation* representation,
       const std::string& output_path) = 0;
 };
 }  // namespace orc

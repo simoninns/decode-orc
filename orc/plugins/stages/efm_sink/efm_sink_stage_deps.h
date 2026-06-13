@@ -20,7 +20,7 @@ class EFMSinkStageDeps : public IEFMSinkStageDeps {
   void init(TriggerProgressCallback progress_callback,
             std::atomic<bool>* cancel_requested) override;
 
-  EFMSinkDecodeResult decode_efm(const VideoFieldRepresentation* representation,
+  EFMSinkDecodeResult decode_efm(const VideoFrameRepresentation* representation,
                                  const EFMSinkOptions& options) override;
 
  private:

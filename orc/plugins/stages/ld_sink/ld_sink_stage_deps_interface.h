@@ -13,7 +13,7 @@
 #include <string>
 
 #include "observation_context_interface.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 class ILDSinkStageDeps {
@@ -21,7 +21,7 @@ class ILDSinkStageDeps {
   virtual ~ILDSinkStageDeps() = default;
 
   virtual bool write_tbc_and_metadata(
-      const VideoFieldRepresentation* representation,
+      const VideoFrameRepresentation* representation,
       const std::string& tbc_path,
       IObservationContext& observation_context) = 0;
 };

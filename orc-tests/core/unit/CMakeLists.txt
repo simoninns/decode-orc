@@ -45,6 +45,7 @@ function(orc_add_core_unit_tests target labels)
                         orc-stage-plugin-cvbs-source
                         orc-stage-plugin-stacker
                         orc-stage-plugin-field-invert
+                        orc-stage-plugin-frame-field-swap
                         orc-stage-plugin-field-map
                         orc-stage-plugin-video-params
                         orc-stage-plugin-dropout-correct
@@ -97,6 +98,7 @@ orc_add_core_unit_tests(
 
         stages/stacker/stacker_stage_test.cpp
         stages/field_invert/field_invert_stage_test.cpp
+        stages/frame_field_swap/frame_field_swap_stage_test.cpp
         stages/field_map/field_map_stage_test.cpp
         stages/video_params/video_params_stage_test.cpp
         stages/dropout_correct/dropout_correct_stage_test.cpp

@@ -1,7 +1,7 @@
 /*
  * File:        dropout_correct_stage.h
  * Module:      orc-core
- * Purpose:     Dropout correction stage
+ * Purpose:     Dropout correction stage (VFrameR)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -12,145 +12,107 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <set>
-#include <unordered_map>
 #include <vector>
 
 #include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
+#include "artifact.h"
 #include "dropout_decision.h"
+#include "frame_descriptor.h"
 #include "lru_cache.h"
 #include "stage_parameter.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
-// Hash function for std::pair<FieldID, uint32_t> to use in unordered_map
-struct FieldLineHash {
-  std::size_t operator()(const std::pair<FieldID, uint32_t>& key) const {
-    // Combine field ID and line number into a single hash
-    return std::hash<uint64_t>{}(key.first.value()) ^
-           (std::hash<uint32_t>{}(key.second) << 1);
-  }
-};
-
-// Forward declarations
-class DropoutCorrectStage;
-
-/// Configuration for dropout correction stage
 struct DropoutCorrectionConfig {
-  /// Overcorrect mode: extend dropout regions by this many samples
-  /// Useful for heavily damaged sources (default: 0, overcorrect: 24)
   uint32_t overcorrect_extension = 0;
-
-  /// Force intrafield correction only (default: use interfield when possible)
   bool intrafield_only = false;
-
-  /// Maximum distance to search for replacement lines (in lines)
   uint32_t max_replacement_distance = 10;
-
-  /// Whether to match chroma phase when selecting replacement lines
   bool match_chroma_phase = true;
-
-  /// Highlight corrections by filling with white IRE level instead of
-  /// replacement data
   bool highlight_corrections = false;
 };
 
-/// Corrected video field representation
-///
-/// This wraps the original field data with corrections applied on-demand
-class CorrectedVideoFieldRepresentation
-    : public VideoFieldRepresentationWrapper {
+// Forward declaration
+class DropoutCorrectStage;
+
+// ============================================================================
+// Internal per-line dropout descriptor (frame-flat addressing)
+// ============================================================================
+struct LineDropout {
+  uint32_t line;
+  uint32_t start_sample;
+  uint32_t end_sample;
+};
+
+// ============================================================================
+// CorrectedVideoFrameRepresentation
+// ============================================================================
+class CorrectedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
+                                          public Artifact {
  public:
-  CorrectedVideoFieldRepresentation(
-      std::shared_ptr<const VideoFieldRepresentation> source,
+  CorrectedVideoFrameRepresentation(
+      std::shared_ptr<const VideoFrameRepresentation> source,
       DropoutCorrectStage* stage, bool highlight_corrections);
 
-  ~CorrectedVideoFieldRepresentation() = default;
+  std::string type_name() const override {
+    return "corrected_video_frame_representation";
+  }
 
-  // Only override methods that are actually modified by this stage
-  const uint16_t* get_line(FieldID id, size_t line) const override;
-  std::vector<uint16_t> get_field(FieldID id) const override;
+  const int16_t* get_line(FrameID id, size_t line) const override;
+  std::vector<int16_t> get_frame_copy(FrameID id) const override;
 
-  // Dual-channel access methods for YC sources
-  const uint16_t* get_line_luma(FieldID id, size_t line) const override;
-  const uint16_t* get_line_chroma(FieldID id, size_t line) const override;
-  std::vector<uint16_t> get_field_luma(FieldID id) const override;
-  std::vector<uint16_t> get_field_chroma(FieldID id) const override;
+  const int16_t* get_line_luma(FrameID id, size_t line) const override;
+  const int16_t* get_line_chroma(FrameID id, size_t line) const override;
 
-  // Override dropout hints - after correction, there are no dropouts
-  // (the output of this stage has corrected data, so hints describe the output)
-  std::vector<DropoutRegion> get_dropout_hints(FieldID /*id*/) const override {
-    // All dropouts have been corrected, so return empty
-    // Future: could return uncorrectable dropouts if correction failed
+  // After correction there are no dropouts in the output.
+  std::vector<DropoutRun> get_dropout_hints(FrameID /*id*/) const override {
     return {};
   }
 
-  // Get the original dropout regions that were corrected (for
-  // visualization/debugging)
-  std::vector<DropoutRegion> get_corrected_regions(FieldID id) const {
-    return source_ ? source_->get_dropout_hints(id)
-                   : std::vector<DropoutRegion>{};
-  }
-
-  // Allow stage to access private members
   friend class DropoutCorrectStage;
 
  private:
-  DropoutCorrectStage*
-      stage_;  // Non-owning pointer to stage for lazy correction
+  DropoutCorrectStage* stage_;
   bool highlight_corrections_;
 
-  // Corrected field data - LRU cache of whole fields for fast access
-  // For composite sources: single cache
-  // For YC sources: dual caches (luma and chroma)
-  // Cache size: 300 fields × ~1.4MB/field = ~420MB max (composite)
-  //           or 300 fields × 2 × ~1.4MB/field = ~840MB max (YC sources)
-  // For 200,000 field videos, this caches ~0.15% of total, focused on preview
-  // navigation area Cache also serves as the "processed" indicator - if field
-  // is in cache, it's been processed
-  mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_fields_;
+  static constexpr size_t MAX_CACHED_FRAMES = 150;
 
-  // Dual caches for YC sources (separate Y and C corrections)
-  mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_luma_fields_;
-  mutable LRUCache<FieldID, std::vector<uint16_t>> corrected_chroma_fields_;
+  mutable LRUCache<FrameID, std::vector<int16_t>> corrected_frames_;
+  mutable LRUCache<FrameID, std::vector<int16_t>> corrected_luma_frames_;
+  mutable LRUCache<FrameID, std::vector<int16_t>> corrected_chroma_frames_;
 
-  static constexpr size_t MAX_CACHED_FIELDS = 300;
-
-  // Ensure field is corrected (lazy)
-  void ensure_field_corrected(FieldID field_id) const;
+  void ensure_frame_corrected(FrameID frame_id) const;
 };
 
-/// Dropout correction stage
-///
-/// Signal-transforming stage that corrects dropouts by replacing
-/// corrupted samples with data from other lines/fields.
+// ============================================================================
+// DropoutCorrectStage
+// ============================================================================
 class DropoutCorrectStage : public DAGStage,
                             public ParameterizedStage,
                             public PreviewableStage {
  public:
   explicit DropoutCorrectStage(
-      const DropoutCorrectionConfig& config = DropoutCorrectionConfig())
+      const DropoutCorrectionConfig& config = DropoutCorrectionConfig{})
       : config_(config) {}
 
-  // DAGStage interface
-
   std::string version() const override { return "1.0"; }
+
   NodeTypeInfo get_node_type_info() const override {
     return NodeTypeInfo{NodeType::TRANSFORM,
                         "dropout_correct",
                         "Dropout Correction",
                         "Correct dropouts by replacing corrupted samples with "
-                        "data from other lines/fields",
+                        "data from other lines",
                         1,
-                        1,  // Exactly one input
                         1,
-                        UINT32_MAX,  // Many outputs
+                        1,
+                        UINT32_MAX,
                         VideoFormatCompatibility::ALL,
                         SinkCategory::CORE,
                         "Transform"};
   }
+
   std::vector<ArtifactPtr> execute(
       const std::vector<ArtifactPtr>& inputs,
       const std::map<std::string, ParameterValue>& parameters,
@@ -159,108 +121,66 @@ class DropoutCorrectStage : public DAGStage,
   size_t required_input_count() const override { return 1; }
   size_t output_count() const override { return 1; }
 
-  // PreviewableStage interface
+  // PreviewableStage
   bool supports_preview() const override { return true; }
   std::vector<PreviewOption> get_preview_options() const override;
   PreviewImage render_preview(const std::string& option_id, uint64_t index,
                               PreviewNavigationHint hint) const override;
 
-  /// Process a single field and apply dropout corrections
-  ///
-  /// @param source Source field representation
-  /// @param field_id Field to process
-  /// @param dropouts Detected dropout regions (from observer)
-  /// @param decisions User decisions to apply
-  /// @return Corrected field representation
-  std::shared_ptr<CorrectedVideoFieldRepresentation> correct_field(
-      std::shared_ptr<const VideoFieldRepresentation> source, FieldID field_id,
-      const std::vector<DropoutRegion>& dropouts,
-      const DropoutDecisions& decisions = DropoutDecisions());
-
-  /// Process multiple fields (for multi-source correction)
-  ///
-  /// @param sources Multiple source representations
-  /// @param field_id Field to process
-  /// @param all_dropouts Dropout regions for each source
-  /// @param decisions User decisions
-  /// @return Corrected field representation using best available sources
-  std::shared_ptr<CorrectedVideoFieldRepresentation> correct_field_multisource(
-      const std::vector<std::shared_ptr<const VideoFieldRepresentation>>&
-          sources,
-      FieldID field_id,
-      const std::vector<std::vector<DropoutRegion>>& all_dropouts,
-      const DropoutDecisions& decisions = DropoutDecisions());
-
-  // ParameterizedStage interface
+  // ParameterizedStage
   std::vector<ParameterDescriptor> get_parameter_descriptors(
       VideoSystem project_format, SourceType source_type) const override;
   using ParameterizedStage::get_parameter_descriptors;
   std::map<std::string, ParameterValue> get_parameters() const override;
-  bool set_parameters(
-      const std::map<std::string, ParameterValue>& params) override;
+  bool set_parameters(const std::map<std::string, ParameterValue>& params) override;
 
-  // Public for lazy correction from CorrectedVideoFieldRepresentation
-  void correct_single_field(
-      CorrectedVideoFieldRepresentation* corrected,
-      std::shared_ptr<const VideoFieldRepresentation> source,
-      FieldID field_id) const;
+  // Public for lazy correction from CorrectedVideoFrameRepresentation
+  void correct_single_frame(CorrectedVideoFrameRepresentation* corrected,
+                            std::shared_ptr<const VideoFrameRepresentation> source,
+                            FrameID frame_id) const;
+
+  // Public for unit testing
+  static std::vector<LineDropout> runs_to_line_dropouts(
+      const std::vector<DropoutRun>& runs, size_t nominal_spl);
 
  private:
   DropoutCorrectionConfig config_;
 
-  /// Location type for dropout classification
   enum class DropoutLocation { COLOUR_BURST, VISIBLE_LINE, UNKNOWN };
+  enum class Channel { COMPOSITE, LUMA, CHROMA };
 
-  /// Channel type for YC source replacement line search
-  enum class Channel {
-    COMPOSITE,  // For composite sources (use get_line)
-    LUMA,       // For YC sources, luma channel (use get_line_luma)
-    CHROMA      // For YC sources, chroma channel (use get_line_chroma)
-  };
+  DropoutLocation classify_dropout(const LineDropout& dropout,
+                                   const FrameDescriptor& desc,
+                                   const std::optional<SourceParameters>& params) const;
 
-  /// Classify a dropout region by location
-  DropoutLocation classify_dropout(
-      const DropoutRegion& dropout, const FieldDescriptor& descriptor,
-      const std::optional<SourceParameters>& video_params) const;
+  std::vector<LineDropout> split_dropout_regions(
+      const std::vector<LineDropout>& dropouts,
+      const FrameDescriptor& desc,
+      const std::optional<SourceParameters>& params) const;
 
-  /// Split dropout regions that span multiple areas
-  std::vector<DropoutRegion> split_dropout_regions(
-      const std::vector<DropoutRegion>& dropouts,
-      const FieldDescriptor& descriptor,
-      const std::optional<SourceParameters>& video_params) const;
-
-  /// Find the best replacement line for a dropout
-  ///
-  /// Searches nearby lines in the same field (intrafield) or
-  /// the opposite field (interfield) for the best replacement.
   struct ReplacementLine {
     bool found = false;
-    FieldID source_field;
-    uint32_t source_line;
-    double quality = 0.0;   // Quality metric (higher is better)
-    uint32_t distance = 0;  // Distance in lines from original
-    const uint16_t* cached_data =
-        nullptr;  // Cached pointer to replacement line data
+    FrameID source_frame = 0;
+    uint32_t source_line = 0;
+    double quality = 0.0;
+    uint32_t distance = 0;
+    const int16_t* cached_data = nullptr;
   };
 
   ReplacementLine find_replacement_line(
-      const VideoFieldRepresentation& source, FieldID field_id, uint32_t line,
-      const DropoutRegion& dropout, bool intrafield,
-      bool match_chroma_phase_override,
-      Channel channel = Channel::COMPOSITE) const;
+      const VideoFrameRepresentation& source, FrameID frame_id, uint32_t line,
+      const LineDropout& dropout, bool intrafield, bool match_chroma_phase_override,
+      size_t field1_lines, Channel channel = Channel::COMPOSITE) const;
 
-  /// Apply a single dropout correction
-  void apply_correction(std::vector<uint16_t>& line_data,
-                        const DropoutRegion& dropout,
-                        const uint16_t* replacement_data,
-                        bool highlight = false) const;
+  void apply_correction(std::vector<int16_t>& line_data,
+                        const LineDropout& dropout,
+                        const int16_t* replacement_data,
+                        int16_t highlight_value, bool highlight) const;
 
-  /// Calculate quality metric for a potential replacement line
-  double calculate_line_quality(const uint16_t* line_data, size_t width,
-                                const DropoutRegion& dropout) const;
+  double calculate_line_quality(const int16_t* line_data, size_t width,
+                                const LineDropout& dropout) const;
 
-  // Cached output for preview rendering
-  mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
+  mutable std::shared_ptr<const VideoFrameRepresentation> cached_output_;
 };
 
 }  // namespace orc

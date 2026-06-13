@@ -29,7 +29,7 @@
 #include "dropout_analysis_types.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
@@ -120,7 +120,7 @@ class DropoutAnalysisSinkStage : public DAGStage,
   ParsedConfig parse_config(
       const std::map<std::string, ParameterValue>& parameters) const;
 
-  mutable std::shared_ptr<const VideoFieldRepresentation> cached_input_;
+  mutable std::shared_ptr<const VideoFrameRepresentation> cached_input_;
   std::map<std::string, ParameterValue> parameters_;
   TriggerProgressCallback progress_callback_;
   std::atomic<bool> is_processing_{false};

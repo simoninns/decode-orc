@@ -25,7 +25,7 @@ class DropoutAnalysisSinkStageDeps : public IDropoutAnalysisSinkStageDeps {
             std::atomic<bool>* cancel_requested) override;
 
   DropoutAnalysisComputeResult compute_and_analyze(
-      VideoFieldRepresentation* representation,
+      VideoFrameRepresentation* representation,
       IObservationContext& observation_context,
       DropoutAnalysisComputeOptions options) override;
 

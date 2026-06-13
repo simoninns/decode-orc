@@ -1,5 +1,6 @@
 add_subdirectory(audio_sink)
 add_subdirectory(field_invert)
+add_subdirectory(frame_field_swap)
 add_subdirectory(tbc_source)
 add_subdirectory(cvbs_source)
 add_subdirectory(ntsc_comp_source)

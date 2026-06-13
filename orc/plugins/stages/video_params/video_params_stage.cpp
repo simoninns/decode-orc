@@ -1,305 +1,252 @@
 /*
  * File:        video_params_stage.cpp
  * Module:      orc-core
- * Purpose:     Video parameters override stage
+ * Purpose:     Video parameters override stage (VFrameR)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include <logging.h>
-#include <preview_helpers.h>
-#include <video_params_stage.h>
+#include "video_params_stage.h"
+
+#include <algorithm>
+
+#include "error_types.h"
+#include "logging.h"
 
 namespace orc {
+
+// ============================================================================
+// VideoParamsStage
+// ============================================================================
 
 std::vector<ArtifactPtr> VideoParamsStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context) {
-  (void)observation_context;  // Unused for now
+  (void)observation_context;
   if (inputs.empty()) {
     throw DAGExecutionError("VideoParamsStage requires one input");
   }
+  auto input = inputs[0];
+  if (!input) throw DAGExecutionError("VideoParamsStage received null input");
 
-  auto input_artifact = inputs[0];
-  if (!input_artifact) {
-    throw DAGExecutionError("VideoParamsStage received null input artifact");
-  }
-
-  // Cast to VideoFieldRepresentation
-  auto input_vfr =
-      std::dynamic_pointer_cast<const VideoFieldRepresentation>(input_artifact);
-  if (!input_vfr) {
+  auto vfr = std::dynamic_pointer_cast<const VideoFrameRepresentation>(input);
+  if (!vfr) {
     throw DAGExecutionError(
-        "VideoParamsStage input must be VideoFieldRepresentation");
+        "VideoParamsStage input must be VideoFrameRepresentation");
   }
 
-  // Update parameters if provided
-  if (!parameters.empty()) {
-    set_parameters(parameters);
-  }
+  if (!parameters.empty()) set_parameters(parameters);
 
-  // Process and return
-  auto output_vfr = process(input_vfr);
-  cached_output_ = output_vfr;  // Cache for preview
-  ORC_LOG_DEBUG(
-      "VideoParamsStage::execute - Set cached_output_ on instance {} to {}",
-      static_cast<const void*>(this),
-      static_cast<const void*>(output_vfr.get()));
+  auto output = process(vfr);
+  cached_output_ = output;
+  ORC_LOG_DEBUG("VideoParamsStage::execute - cached_output_ = {}",
+                static_cast<const void*>(output.get()));
 
   std::vector<ArtifactPtr> outputs;
   outputs.push_back(
-      std::const_pointer_cast<VideoFieldRepresentation>(output_vfr));
+      std::const_pointer_cast<VideoParamsOverrideFrameRepresentation>(
+          std::dynamic_pointer_cast<const VideoParamsOverrideFrameRepresentation>(
+              output)));
   return outputs;
 }
 
-std::shared_ptr<const VideoFieldRepresentation> VideoParamsStage::process(
-    std::shared_ptr<const VideoFieldRepresentation> source) const {
-  if (!source) {
-    return nullptr;
-  }
-
-  // Get source video parameters
-  auto source_params = source->get_video_parameters();
-
-  // Build override parameters
-  auto override_params = build_video_parameters(source_params);
-
-  // Create a wrapper that overrides video parameters
-  return std::make_shared<VideoParamsOverrideRepresentation>(source,
-                                                             override_params);
+std::shared_ptr<const VideoFrameRepresentation> VideoParamsStage::process(
+    std::shared_ptr<const VideoFrameRepresentation> source) const {
+  if (!source) return nullptr;
+  auto override_params = build_video_parameters(source->get_video_parameters());
+  return std::make_shared<VideoParamsOverrideFrameRepresentation>(
+      std::move(source), override_params);
 }
 
 std::optional<SourceParameters> VideoParamsStage::build_video_parameters(
     const std::optional<SourceParameters>& source_params) const {
-  // Start with source parameters if available, otherwise create new
-  // This function preserves the exact VideoSystem (PAL, NTSC, or PAL-M)
-  // from the source while allowing selective parameter overrides
   SourceParameters params;
-  if (source_params.has_value()) {
-    params = *source_params;
-  }
+  if (source_params.has_value()) params = *source_params;
 
-  // Apply overrides for each parameter (only if set, i.e., != -1)
-  // Unset parameters (-1) inherit from source, preserving metadata defaults
-  if (colour_burst_start_ >= 0) {
-    params.colour_burst_start = colour_burst_start_;
-  }
-  if (colour_burst_end_ >= 0) {
-    params.colour_burst_end = colour_burst_end_;
-  }
+  bool level_overridden = false;
+  bool geometry_overridden = false;
+
   if (active_video_start_ >= 0) {
     params.active_video_start = active_video_start_;
+    geometry_overridden = true;
   }
   if (active_video_end_ >= 0) {
     params.active_video_end = active_video_end_;
+    geometry_overridden = true;
   }
-  if (first_active_field_line_ >= 0) {
-    params.first_active_field_line = first_active_field_line_;
+  if (first_active_frame_line_ >= 0) {
+    params.first_active_frame_line = first_active_frame_line_;
+    geometry_overridden = true;
   }
-  if (last_active_field_line_ >= 0) {
-    params.last_active_field_line = last_active_field_line_;
+  if (last_active_frame_line_ >= 0) {
+    params.last_active_frame_line = last_active_frame_line_;
+    geometry_overridden = true;
   }
-  if (white_16b_ire_ >= 0) {
-    params.white_16b_ire = white_16b_ire_;
+  if (white_level_ >= 0) {
+    params.white_level = white_level_;
+    level_overridden = true;
   }
-  if (black_16b_ire_ >= 0) {
-    params.black_16b_ire = black_16b_ire_;
+  if (black_level_ >= 0) {
+    params.black_level = black_level_;
+    level_overridden = true;
   }
+
+  if (level_overridden) params.has_nonstandard_values = true;
+  if (geometry_overridden) params.active_area_cropping_applied = true;
 
   return params;
 }
 
 std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
-    VideoSystem project_format, SourceType source_type) const {
-  (void)project_format;  // Unused - video params works with all formats
-  (void)source_type;     // Unused - video params works with all source types
-
+    VideoSystem, SourceType) const {
   return {
-      ParameterDescriptor{"colourBurstStart", "Colour Burst Start",
-                          "Override colour burst start sample position. Set to "
-                          "-1 to use source value. "
-                          "Typical range: 120-150 samples depending on system.",
-                          ParameterType::INT32,
-                          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                                               ParameterValue{static_cast<int32_t>(10000)},
-                                               ParameterValue{static_cast<int32_t>(-1)},
-                                               {},
-                                               false,
-                                               std::nullopt}},
-      ParameterDescriptor{"colourBurstEnd", "Colour Burst End",
-                          "Override colour burst end sample position. Set to "
-                          "-1 to use source value. "
-                          "Typical range: 280-320 samples depending on system.",
-                          ParameterType::INT32,
-                          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                                               ParameterValue{static_cast<int32_t>(10000)},
-                                               ParameterValue{static_cast<int32_t>(-1)},
-                                               {},
-                                               false,
-                                               std::nullopt}},
-      ParameterDescriptor{"activeVideoStart", "Active Video Start",
-                          "Override active video start sample position. Set to "
-                          "-1 to use source value. "
-                          "Typical: ~200 samples for 16-bit video.",
-                          ParameterType::INT32,
-                          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                                               ParameterValue{static_cast<int32_t>(10000)},
-                                               ParameterValue{static_cast<int32_t>(-1)},
-                                               {},
-                                               false,
-                                               std::nullopt}},
-      ParameterDescriptor{"activeVideoEnd", "Active Video End",
-                          "Override active video end sample position. Set to "
-                          "-1 to use source value. "
-                          "Typical: 200-400 samples less than field width.",
-                          ParameterType::INT32,
-                          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                                               ParameterValue{static_cast<int32_t>(10000)},
-                                               ParameterValue{static_cast<int32_t>(-1)},
-                                               {},
-                                               false,
-                                               std::nullopt}},
-      ParameterDescriptor{"firstActiveFieldLine", "First Active Field Line",
-                          "Override first active field line (0-based). Set to "
-                          "-1 to use source value. "
-                          "PAL: 22, NTSC: 20, PAL-M: 20",
-                          ParameterType::INT32,
-                          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                                               ParameterValue{static_cast<int32_t>(1200)},
-                                               ParameterValue{static_cast<int32_t>(-1)},
-                                               {},
-                                               false,
-                                               std::nullopt}},
-      ParameterDescriptor{"lastActiveFieldLine", "Last Active Field Line",
-                          "Override last active field line (0-based). Set to "
-                          "-1 to use source value. "
-                          "PAL: 310, NTSC: 259, PAL-M: 259",
-                          ParameterType::INT32,
-                          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                                               ParameterValue{static_cast<int32_t>(1200)},
-                                               ParameterValue{static_cast<int32_t>(-1)},
-                                               {},
-                                               false,
-                                               std::nullopt}},
       ParameterDescriptor{
-          "white16bIRE", "White 16-bit IRE",
-          "Override white level in 16-bit IRE. Set to -1 to use source value. "
-          "Typical: 65535 (100 IRE). Both PAL and NTSC use 100 IRE for white.",
+          "activeVideoStart", "Active Video Start",
+          "Override active video start sample (0-based within line). "
+          "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                               ParameterValue{static_cast<int32_t>(65535)},
+                               ParameterValue{static_cast<int32_t>(10000)},
                                ParameterValue{static_cast<int32_t>(-1)},
-                               {},
-                               false,
-                               std::nullopt}},
+                               {}, false, std::nullopt}},
       ParameterDescriptor{
-          "black16bIRE", "Black 16-bit IRE",
-          "Override black level in 16-bit IRE. Set to -1 to use source value. "
-          "PAL/PAL-M: 0 (0 IRE), NTSC: 1907 (7.5 IRE).",
+          "activeVideoEnd", "Active Video End",
+          "Override active video end sample (0-based within line). "
+          "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                               ParameterValue{static_cast<int32_t>(65535)},
+                               ParameterValue{static_cast<int32_t>(10000)},
                                ParameterValue{static_cast<int32_t>(-1)},
-                               {},
-                               false,
-                               std::nullopt}}};
+                               {}, false, std::nullopt}},
+      ParameterDescriptor{
+          "firstActiveFrameLine", "First Active Frame Line",
+          "Override first active frame line (0-based, frame-flat). "
+          "PAL: ~44, NTSC: ~40. -1 = inherit from source.",
+          ParameterType::INT32,
+          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{static_cast<int32_t>(1200)},
+                               ParameterValue{static_cast<int32_t>(-1)},
+                               {}, false, std::nullopt}},
+      ParameterDescriptor{
+          "lastActiveFrameLine", "Last Active Frame Line",
+          "Override last active frame line (0-based, frame-flat). "
+          "PAL: ~619, NTSC: ~519. -1 = inherit from source.",
+          ParameterType::INT32,
+          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{static_cast<int32_t>(1200)},
+                               ParameterValue{static_cast<int32_t>(-1)},
+                               {}, false, std::nullopt}},
+      ParameterDescriptor{
+          "whiteLevel", "White Level (10-bit)",
+          "Override white level in CVBS_U10_4FSC domain (0-1023). "
+          "PAL: 844, NTSC: 800. -1 = inherit from source.",
+          ParameterType::INT32,
+          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{static_cast<int32_t>(1023)},
+                               ParameterValue{static_cast<int32_t>(-1)},
+                               {}, false, std::nullopt}},
+      ParameterDescriptor{
+          "blackLevel", "Black Level (10-bit)",
+          "Override black level in CVBS_U10_4FSC domain (0-1023). "
+          "PAL: 282, NTSC: 282. -1 = inherit from source.",
+          ParameterType::INT32,
+          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{static_cast<int32_t>(1023)},
+                               ParameterValue{static_cast<int32_t>(-1)},
+                               {}, false, std::nullopt}},
+  };
 }
 
 std::map<std::string, ParameterValue> VideoParamsStage::get_parameters() const {
-  return {{"colourBurstStart", ParameterValue{colour_burst_start_}},
-          {"colourBurstEnd", ParameterValue{colour_burst_end_}},
-          {"activeVideoStart", ParameterValue{active_video_start_}},
+  return {{"activeVideoStart", ParameterValue{active_video_start_}},
           {"activeVideoEnd", ParameterValue{active_video_end_}},
-          {"firstActiveFieldLine", ParameterValue{first_active_field_line_}},
-          {"lastActiveFieldLine", ParameterValue{last_active_field_line_}},
-          {"white16bIRE", ParameterValue{white_16b_ire_}},
-          {"black16bIRE", ParameterValue{black_16b_ire_}}};
+          {"firstActiveFrameLine", ParameterValue{first_active_frame_line_}},
+          {"lastActiveFrameLine", ParameterValue{last_active_frame_line_}},
+          {"whiteLevel", ParameterValue{white_level_}},
+          {"blackLevel", ParameterValue{black_level_}}};
 }
 
 bool VideoParamsStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
   for (const auto& [key, value] : params) {
-    if (key == "colourBurstStart") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        colour_burst_start_ = *val;
-      } else {
-        return false;
-      }
-    } else if (key == "colourBurstEnd") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        colour_burst_end_ = *val;
-      } else {
-        return false;
-      }
-    } else if (key == "activeVideoStart") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        active_video_start_ = *val;
-      } else {
-        return false;
-      }
+    const auto* v = std::get_if<int32_t>(&value);
+    if (!v) {
+      return false;
+    }
+    if (key == "activeVideoStart") {
+      active_video_start_ = *v;
     } else if (key == "activeVideoEnd") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        active_video_end_ = *val;
-      } else {
-        return false;
-      }
-    } else if (key == "firstActiveFieldLine") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        first_active_field_line_ = *val;
-      } else {
-        return false;
-      }
-    } else if (key == "lastActiveFieldLine") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        last_active_field_line_ = *val;
-      } else {
-        return false;
-      }
-    } else if (key == "white16bIRE") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        white_16b_ire_ = *val;
-      } else {
-        return false;
-      }
-    } else if (key == "black16bIRE") {
-      if (auto* val = std::get_if<int32_t>(&value)) {
-        black_16b_ire_ = *val;
-      } else {
-        return false;
-      }
+      active_video_end_ = *v;
+    } else if (key == "firstActiveFrameLine") {
+      first_active_frame_line_ = *v;
+    } else if (key == "lastActiveFrameLine") {
+      last_active_frame_line_ = *v;
+    } else if (key == "whiteLevel") {
+      white_level_ = *v;
+    } else if (key == "blackLevel") {
+      black_level_ = *v;
     } else {
-      // Unknown parameter
       return false;
     }
   }
   return true;
 }
 
-std::vector<PreviewOption> VideoParamsStage::get_preview_options() const {
-  ORC_LOG_DEBUG(
-      "VideoParamsStage::get_preview_options - Called on instance {}, "
-      "cached_output_ = {}",
-      static_cast<const void*>(this),
-      static_cast<const void*>(cached_output_.get()));
-  if (!cached_output_) {
-    return {};
-  }
+namespace {
 
-  return PreviewHelpers::get_standard_preview_options(cached_output_);
+PreviewImage render_vfr_grayscale(const VideoFrameRepresentation& vfr,
+                                  FrameID fid, bool scale) {
+  auto desc = vfr.get_frame_descriptor(fid);
+  auto params = vfr.get_video_parameters();
+  if (!desc || !params) return PreviewImage{0, 0, {}, {}, {}};
+  const size_t H = desc->height;
+  const size_t W = static_cast<size_t>(params->frame_width_nominal);
+  const int32_t b = params->blanking_level;
+  const int32_t w = params->white_level;
+  const int32_t range = (w > b) ? (w - b) : 1;
+  PreviewImage img;
+  img.width = static_cast<uint32_t>(W);
+  img.height = static_cast<uint32_t>(H);
+  img.rgb_data.reserve(W * H * 3);
+  for (size_t line = 0; line < H; ++line) {
+    const int16_t* ptr = vfr.get_line(fid, line);
+    for (size_t s = 0; s < W; ++s) {
+      const int32_t raw = ptr ? static_cast<int32_t>(ptr[s]) : b;
+      const uint8_t grey =
+          scale ? static_cast<uint8_t>(std::clamp((raw - b) * 255 / range, 0, 255))
+                : static_cast<uint8_t>(std::clamp(raw * 255 / 1023, 0, 255));
+      img.rgb_data.push_back(grey);
+      img.rgb_data.push_back(grey);
+      img.rgb_data.push_back(grey);
+    }
+  }
+  return img;
 }
 
-PreviewImage VideoParamsStage::render_preview(
-    const std::string& option_id, uint64_t index,
-    PreviewNavigationHint hint) const {
-  if (!cached_output_) {
-    PreviewImage result{};
-    return result;
-  }
+}  // namespace
 
-  return PreviewHelpers::render_standard_preview(cached_output_, option_id,
-                                                 index, hint);
+std::vector<PreviewOption> VideoParamsStage::get_preview_options() const {
+  if (!cached_output_) return {};
+  auto params = cached_output_->get_video_parameters();
+  const size_t fc = cached_output_->frame_count();
+  if (fc == 0 || !params) return {};
+  const uint32_t w = static_cast<uint32_t>(params->frame_width_nominal);
+  const uint32_t h = static_cast<uint32_t>(params->frame_height);
+  return {PreviewOption{"frame", "Frame (Scaled)", false, w, h,
+                        static_cast<uint64_t>(fc), 0.7},
+          PreviewOption{"frame_raw", "Frame (Raw)", false, w, h,
+                        static_cast<uint64_t>(fc), 0.7}};
+}
+
+PreviewImage VideoParamsStage::render_preview(const std::string& option_id,
+                                              uint64_t index,
+                                              PreviewNavigationHint) const {
+  if (!cached_output_) return PreviewImage{};
+  const FrameID fid = static_cast<FrameID>(index);
+  if (!cached_output_->has_frame(fid)) return PreviewImage{};
+  return render_vfr_grayscale(*cached_output_, fid, option_id != "frame_raw");
 }
 
 }  // namespace orc

@@ -1,7 +1,7 @@
 /*
  * File:        mask_line_stage.h
  * Module:      orc-core
- * Purpose:     Line masking stage
+ * Purpose:     Line masking stage (VFrameR, frame-flat line addressing)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -15,77 +15,64 @@
 
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
+#include "artifact.h"
 #include "preview_renderer.h"
 #include "stage_parameter.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
-/**
- * @brief Wrapper that masks (blanks) specified lines in fields
- */
-class MaskedLineRepresentation : public VideoFieldRepresentationWrapper {
+// ============================================================================
+// MaskedFrameRepresentation
+// ============================================================================
+// Wraps a VideoFrameRepresentation and blanks specified frame-flat lines.
+//
+// Line spec format: comma-separated line numbers or inclusive ranges.
+//   "100"        – mask frame line 100
+//   "100-115"    – mask frame lines 100 through 115 (inclusive)
+//   "21,334-336" – mask line 21 and lines 334-336
+//
+// Mask value is in IRE units (0-100) converted to CVBS_U10_4FSC int16_t using
+// blanking_level and white_level from the source SourceParameters.
+class MaskedFrameRepresentation : public VideoFrameRepresentationWrapper,
+                                  public Artifact {
  public:
-  MaskedLineRepresentation(
-      std::shared_ptr<const VideoFieldRepresentation> source,
+  MaskedFrameRepresentation(
+      std::shared_ptr<const VideoFrameRepresentation> source,
       const std::string& line_spec, double mask_ire);
 
-  // Override get_line to return masked data for specified lines
-  const sample_type* get_line(FieldID id, size_t line) const override;
+  std::string type_name() const override { return "masked_frame_representation"; }
 
-  // Override get_field to return masked field data
-  std::vector<sample_type> get_field(FieldID id) const override;
+  const sample_type* get_line(FrameID id, size_t line) const override;
+  std::vector<sample_type> get_frame_copy(FrameID id) const override;
 
-  // Dual-channel support for YC sources
-  bool has_separate_channels() const override {
-    return source_ ? source_->has_separate_channels() : false;
-  }
-
-  const sample_type* get_line_luma(FieldID id, size_t line) const override;
-  const sample_type* get_line_chroma(FieldID id, size_t line) const override;
-  std::vector<sample_type> get_field_luma(FieldID id) const override;
-  std::vector<sample_type> get_field_chroma(FieldID id) const override;
+  const sample_type* get_line_luma(FrameID id, size_t line) const override;
+  const sample_type* get_line_chroma(FrameID id, size_t line) const override;
 
  private:
   struct LineRange {
-    char parity;  // 'F' = first, 'S' = second, 'A' = all
     size_t start;
     size_t end;
   };
 
-  bool should_mask_line(FieldID field_id, size_t line_num) const;
+  bool should_mask_line(size_t frame_line) const;
   void parse_line_spec(const std::string& line_spec);
-  uint16_t ire_to_sample(double ire) const;
+  int16_t ire_to_sample(double ire) const;
 
-  std::vector<LineRange> line_ranges_;  // List of ranges with parity
-  double mask_ire_;                     // IRE value (0-100)
+  // Return the sample width for the given frame line (PAL 1136-sample lines).
+  size_t line_width(FrameID id, size_t line) const;
 
-  // Reusable buffers avoid unbounded growth keyed by FieldID during long
-  // exports.
-  mutable std::vector<uint16_t> masked_line_buffer_;
-  mutable std::vector<uint16_t> masked_luma_buffer_;
-  mutable std::vector<uint16_t> masked_chroma_buffer_;
+  std::vector<LineRange> line_ranges_;
+  double mask_ire_;
+
+  mutable std::vector<int16_t> masked_line_buffer_;
+  mutable std::vector<int16_t> masked_luma_buffer_;
+  mutable std::vector<int16_t> masked_chroma_buffer_;
 };
 
-/**
- * @brief Line masking stage - masks specified lines in specified fields
- *
- * This stage allows masking (blanking) specific lines in fields based on
- * field parity and line numbers. Common uses include:
- * - Masking NTSC closed caption line (field line 20, first field only -
- * traditional "line 21" is index 20)
- * - Removing visible VBI data
- * - Hiding other unwanted visible information on specific lines
- *
- * Line specification format: PARITY:LINE or PARITY:START-END
- * - F: = First field only
- * - S: = Second field only
- * - A: = All fields (both)
- * Examples: "F:20" (NTSC CC), "S:6-22" (second field lines 6-22), "A:10,F:20"
- *
- * Mask value is in IRE units (0-100), where 0 = black, 100 = white.
- * Line numbers are 0-based field line numbers (not frame line numbers).
- */
+// ============================================================================
+// MaskLineStage
+// ============================================================================
 class MaskLineStage : public DAGStage,
                       public ParameterizedStage,
                       public PreviewableStage,
@@ -93,21 +80,21 @@ class MaskLineStage : public DAGStage,
  public:
   MaskLineStage() = default;
 
-  // DAGStage interface
   std::string version() const override { return "1.0"; }
   NodeTypeInfo get_node_type_info() const override {
     return NodeTypeInfo{NodeType::TRANSFORM,
                         "mask_line",
                         "Mask Line",
-                        "Mask (blank) specified lines in fields by parity",
+                        "Mask (blank) specified frame-flat lines",
                         1,
-                        1,  // Exactly one input
                         1,
-                        UINT32_MAX,  // Many outputs
+                        1,
+                        UINT32_MAX,
                         VideoFormatCompatibility::ALL,
                         SinkCategory::CORE,
                         "Transform"};
   }
+
   std::vector<ArtifactPtr> execute(
       const std::vector<ArtifactPtr>& inputs,
       const std::map<std::string, ParameterValue>& parameters,
@@ -116,16 +103,10 @@ class MaskLineStage : public DAGStage,
   size_t required_input_count() const override { return 1; }
   size_t output_count() const override { return 1; }
 
-  /**
-   * @brief Process a field representation (masks specified lines)
-   *
-   * @param source Input field representation
-   * @return New representation with masked lines
-   */
-  std::shared_ptr<const VideoFieldRepresentation> process(
-      std::shared_ptr<const VideoFieldRepresentation> source) const;
+  std::shared_ptr<const VideoFrameRepresentation> process(
+      std::shared_ptr<const VideoFrameRepresentation> source) const;
 
-  // ParameterizedStage interface
+  // ParameterizedStage
   std::vector<ParameterDescriptor> get_parameter_descriptors(
       VideoSystem project_format, SourceType source_type) const override;
   using ParameterizedStage::get_parameter_descriptors;
@@ -133,7 +114,7 @@ class MaskLineStage : public DAGStage,
   bool set_parameters(
       const std::map<std::string, ParameterValue>& params) override;
 
-  // PreviewableStage interface
+  // PreviewableStage
   bool supports_preview() const override { return true; }
   std::vector<PreviewOption> get_preview_options() const override;
   PreviewImage render_preview(const std::string& option_id, uint64_t index,
@@ -142,16 +123,16 @@ class MaskLineStage : public DAGStage,
   std::vector<StageToolDescriptor> get_stage_tools() const override {
     return {StageToolDescriptor{
         "mask_line_config", "Mask Line Config",
-        "Open mask-line helper dialog for line/parity presets",
+        "Open mask-line helper dialog for line presets",
         StageToolKind::ConfigDialog, false,
         "decode-orc.stage-tools.mask-line-config.v1"}};
   }
 
  private:
-  std::string line_spec_ = "";  // e.g., "F:21" or "S:15-17,A:21"
-  double mask_ire_ = 0.0;       // IRE value, 0-100 (default: 0 = black)
+  std::string line_spec_ = "";
+  double mask_ire_ = 0.0;
 
-  mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
+  mutable std::shared_ptr<const VideoFrameRepresentation> cached_output_;
 };
 
 }  // namespace orc

@@ -19,7 +19,7 @@
 #include "dropout_analysis_types.h"
 #include "observation_context_interface.h"
 #include "triggerable_stage.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 struct DropoutAnalysisComputeOptions {
@@ -44,7 +44,7 @@ class IDropoutAnalysisSinkStageDeps {
                     std::atomic<bool>* cancel_requested) = 0;
 
   virtual DropoutAnalysisComputeResult compute_and_analyze(
-      VideoFieldRepresentation* representation,
+      VideoFrameRepresentation* representation,
       IObservationContext& observation_context,
       DropoutAnalysisComputeOptions options) = 0;
 

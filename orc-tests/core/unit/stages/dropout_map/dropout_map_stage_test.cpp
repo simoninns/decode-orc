@@ -1,8 +1,7 @@
 /*
  * File:        dropout_map_stage_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit tests for DropoutMapStage defaults and lightweight
- * validation paths
+ * Purpose:     Unit tests for DropoutMapStage (VFrameR)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -10,20 +9,29 @@
 
 #include "../../../../orc/plugins/stages/dropout_map/dropout_map_stage.h"
 
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
 
 #include "../../../../orc/core/include/observation_context.h"
+#include "../../mocks/mock_video_frame_representation.h"
+
+using ::testing::Return;
 
 namespace orc_unit_test {
 namespace {
-class FakeArtifact : public orc::Artifact {
- public:
-  FakeArtifact() : Artifact(orc::ArtifactID("fake"), orc::Provenance{}) {}
 
-  std::string type_name() const override { return "fake_artifact"; }
-};
+orc::SourceParameters make_ntsc_params() {
+  orc::SourceParameters p;
+  p.system = orc::VideoSystem::NTSC;
+  p.frame_width_nominal = 910;
+  p.frame_height = 525;
+  p.blanking_level = 240;
+  p.white_level = 800;
+  return p;
+}
+
 }  // namespace
 
 TEST(DropoutMapStageTest, RequiredInputCount_IsOne) {
@@ -39,7 +47,6 @@ TEST(DropoutMapStageTest, OutputCount_IsOne) {
 TEST(DropoutMapStageTest, NodeTypeInfo_HasExpectedMetadata) {
   orc::DropoutMapStage stage;
   auto info = stage.get_node_type_info();
-
   EXPECT_EQ(info.type, orc::NodeType::TRANSFORM);
   EXPECT_EQ(info.stage_name, "dropout_map");
   EXPECT_EQ(info.compatible_formats, orc::VideoFormatCompatibility::ALL);
@@ -50,15 +57,11 @@ TEST(DropoutMapStageTest, DescriptorDefault_MatchesRuntimeDefault) {
   const auto descriptors = stage.get_parameter_descriptors();
   const auto params = stage.get_parameters();
   auto it = std::find_if(descriptors.begin(), descriptors.end(),
-                         [](const orc::ParameterDescriptor& descriptor) {
-                           return descriptor.name == "dropout_map";
+                         [](const orc::ParameterDescriptor& d) {
+                           return d.name == "dropout_map";
                          });
-
   ASSERT_NE(it, descriptors.end());
-  if (!it->constraints.default_value.has_value()) {
-    FAIL() << "Expected default_value to have a value";
-    return;
-  }
+  ASSERT_TRUE(it->constraints.default_value.has_value());
   ASSERT_TRUE(
       std::holds_alternative<std::string>(*it->constraints.default_value));
   ASSERT_TRUE(std::holds_alternative<std::string>(params.at("dropout_map")));
@@ -68,31 +71,151 @@ TEST(DropoutMapStageTest, DescriptorDefault_MatchesRuntimeDefault) {
 
 TEST(DropoutMapStageTest, SetParameters_AcceptsDropoutMapString) {
   orc::DropoutMapStage stage;
-
-  const bool result = stage.set_parameters(
+  const bool ok = stage.set_parameters(
       {{"dropout_map",
         std::string(
             "[{field:0,add:[{line:10,start:100,end:200}],remove:[]}]")}});
+  EXPECT_TRUE(ok);
   const auto params = stage.get_parameters();
-
-  EXPECT_TRUE(result);
   EXPECT_EQ(std::get<std::string>(params.at("dropout_map")),
             "[{field:0,add:[{line:10,start:100,end:200}],remove:[]}]");
 }
 
-TEST(DropoutMapStageTest, Execute_ThrowsWhenInputCountIsNotOne) {
+TEST(DropoutMapStageTest, Execute_ThrowsWhenInputMissing) {
   orc::DropoutMapStage stage;
-  orc::ObservationContext observation_context;
-
-  EXPECT_THROW(stage.execute({}, {}, observation_context), std::runtime_error);
+  orc::ObservationContext ctx;
+  EXPECT_THROW(stage.execute({}, {}, ctx), orc::DAGExecutionError);
 }
 
-TEST(DropoutMapStageTest, Execute_ThrowsWhenInputIsWrongArtifactType) {
+TEST(DropoutMapStageTest, Execute_ThrowsWhenInputIsWrongType) {
+  struct FakeArt : public orc::Artifact {
+    FakeArt() : Artifact(orc::ArtifactID("x"), orc::Provenance{}) {}
+    std::string type_name() const override { return "x"; }
+  };
   orc::DropoutMapStage stage;
-  orc::ObservationContext observation_context;
-  std::vector<orc::ArtifactPtr> inputs = {std::make_shared<FakeArtifact>()};
-
-  EXPECT_THROW(stage.execute(inputs, {}, observation_context),
-               std::runtime_error);
+  orc::ObservationContext ctx;
+  EXPECT_THROW(
+      stage.execute({std::make_shared<FakeArt>()}, {}, ctx),
+      orc::DAGExecutionError);
 }
+
+TEST(DropoutMapStageTest, ParseEncodeRoundTrip_EmptyMap) {
+  const auto map = orc::DropoutMapStage::parse_dropout_map("[]");
+  EXPECT_TRUE(map.empty());
+  EXPECT_EQ(orc::DropoutMapStage::encode_dropout_map(map), "[]");
+}
+
+TEST(DropoutMapStageTest, ParseEncodeRoundTrip_SingleEntry) {
+  const std::string spec =
+      "[{field:3,add:[{line:10,start:100,end:200}],remove:[{line:5,start:50,"
+      "end:75}]}]";
+  const auto map = orc::DropoutMapStage::parse_dropout_map(spec);
+  ASSERT_EQ(map.size(), 1u);
+  ASSERT_TRUE(map.count(3));
+  EXPECT_EQ(map.at(3).additions.size(), 1u);
+  EXPECT_EQ(map.at(3).removals.size(), 1u);
+  EXPECT_EQ(map.at(3).additions[0].line, 10u);
+  EXPECT_EQ(map.at(3).additions[0].start_sample, 100u);
+  EXPECT_EQ(map.at(3).additions[0].end_sample, 200u);
+  EXPECT_EQ(map.at(3).removals[0].line, 5u);
+  EXPECT_EQ(map.at(3).removals[0].start_sample, 50u);
+  EXPECT_EQ(map.at(3).removals[0].end_sample, 75u);
+  // Round-trip encode
+  const auto encoded = orc::DropoutMapStage::encode_dropout_map(map);
+  const auto map2 = orc::DropoutMapStage::parse_dropout_map(encoded);
+  ASSERT_EQ(map2.size(), 1u);
+  EXPECT_EQ(map2.at(3).additions.size(), 1u);
+  EXPECT_EQ(map2.at(3).removals.size(), 1u);
+}
+
+TEST(DropoutMapStageTest, GetDropoutHints_ReturnsSourceHints_WhenNoMapping) {
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid{5};
+  std::vector<orc::DropoutRun> source_hints{
+      orc::DropoutRun{fid, 1000u, 50u, 128}};
+
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid))
+      .WillByDefault(Return(source_hints));
+
+  std::map<uint64_t, orc::FrameDropoutMapEntry> empty_map;
+  const orc::DropoutMappedFrameRepresentation rep(source, empty_map);
+
+  const auto hints = rep.get_dropout_hints(fid);
+  ASSERT_EQ(hints.size(), 1u);
+  EXPECT_EQ(hints[0].sample_start, 1000u);
+  EXPECT_EQ(hints[0].sample_count, 50u);
+}
+
+TEST(DropoutMapStageTest, GetDropoutHints_AddsDropoutRun) {
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid{0};
+
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid))
+      .WillByDefault(Return(std::vector<orc::DropoutRun>{}));
+
+  // Add a dropout on NTSC frame 0, line 10, samples 100-200
+  orc::FrameDropoutMapEntry entry;
+  entry.frame_id = 0;
+  entry.additions.push_back({10u, 100u, 200u});
+  std::map<uint64_t, orc::FrameDropoutMapEntry> dmap{{0, entry}};
+  const orc::DropoutMappedFrameRepresentation rep(source, dmap);
+
+  const auto hints = rep.get_dropout_hints(fid);
+  ASSERT_EQ(hints.size(), 1u);
+  EXPECT_EQ(hints[0].frame_id, fid);
+  // NTSC: all lines 910 samples wide. Line 10 offset = 10*910 = 9100.
+  // sample_start = 9100 + 100 = 9200, count = 200-100+1 = 101
+  EXPECT_EQ(hints[0].sample_start, 9200u);
+  EXPECT_EQ(hints[0].sample_count, 101u);
+}
+
+TEST(DropoutMapStageTest, GetDropoutHints_RemovesOverlappingSourceRun) {
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid{2};
+
+  // Source has a dropout on frame 2, at frame-flat offset 9200 (line 10,
+  // sample 100 in NTSC), count 101.
+  std::vector<orc::DropoutRun> src{{fid, 9200u, 101u, 128}};
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid)).WillByDefault(Return(src));
+
+  // Remove exactly that region: line 10, start 100, end 200 on frame 2
+  orc::FrameDropoutMapEntry entry;
+  entry.frame_id = 2;
+  entry.removals.push_back({10u, 100u, 200u});
+  std::map<uint64_t, orc::FrameDropoutMapEntry> dmap{{2, entry}};
+  const orc::DropoutMappedFrameRepresentation rep(source, dmap);
+
+  const auto hints = rep.get_dropout_hints(fid);
+  EXPECT_TRUE(hints.empty());
+}
+
+TEST(DropoutMapStageTest, GetDropoutHints_NoChangeOnOtherFrame) {
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid_mapped{1};
+  const orc::FrameID fid_other{7};
+
+  std::vector<orc::DropoutRun> src{{fid_other, 500u, 10u, 64}};
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid_other)).WillByDefault(Return(src));
+
+  orc::FrameDropoutMapEntry entry;
+  entry.frame_id = fid_mapped;
+  entry.additions.push_back({5u, 0u, 99u});
+  std::map<uint64_t, orc::FrameDropoutMapEntry> dmap{{fid_mapped, entry}};
+  const orc::DropoutMappedFrameRepresentation rep(source, dmap);
+
+  // Frame 7 is unmodified — should pass through source hints unchanged.
+  const auto hints = rep.get_dropout_hints(fid_other);
+  ASSERT_EQ(hints.size(), 1u);
+  EXPECT_EQ(hints[0].sample_start, 500u);
+  EXPECT_EQ(hints[0].sample_count, 10u);
+}
+
 }  // namespace orc_unit_test

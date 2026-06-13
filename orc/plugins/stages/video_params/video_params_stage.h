@@ -1,7 +1,7 @@
 /*
  * File:        video_params_stage.h
  * Module:      orc-core
- * Purpose:     Video parameters override stage
+ * Purpose:     Video parameters override stage (VFrameR)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -13,160 +13,89 @@
 
 #include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "../hints/active_line_hint.h"
+#include "artifact.h"
 #include "preview_renderer.h"
 #include "stage_parameter.h"
-#include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
-/**
- * @brief Wrapper that overrides video parameters hints
- */
-class VideoParamsOverrideRepresentation
-    : public VideoFieldRepresentationWrapper {
+// ============================================================================
+// VideoParamsOverrideFrameRepresentation
+// ============================================================================
+// Wraps a VideoFrameRepresentation and returns overridden SourceParameters
+// (and a derived ActiveLineHint). All sample access is forwarded unchanged.
+//
+// When black_level or white_level are overridden, sets has_nonstandard_values.
+// When active video geometry is overridden, sets active_area_cropping_applied.
+class VideoParamsOverrideFrameRepresentation
+    : public VideoFrameRepresentationWrapper,
+      public Artifact {
  public:
-  VideoParamsOverrideRepresentation(
-      std::shared_ptr<const VideoFieldRepresentation> source,
+  VideoParamsOverrideFrameRepresentation(
+      std::shared_ptr<const VideoFrameRepresentation> source,
       const std::optional<SourceParameters>& override_params)
-      : VideoFieldRepresentationWrapper(
-            source, ArtifactID("video_params_override"), Provenance{}),
-        override_params_(override_params) {
-    // If we have override params, use them; otherwise use source params
-    if (override_params_.has_value()) {
-      cached_video_params_ = override_params_;
-    } else if (source) {
-      cached_video_params_ = source->get_video_parameters();
+      : VideoFrameRepresentationWrapper(std::move(source)),
+        Artifact(ArtifactID("video_params_override"), Provenance{}) {
+    if (override_params.has_value()) {
+      cached_params_ = override_params;
+    } else if (source_) {
+      cached_params_ = source_->get_video_parameters();
     }
   }
 
-  // Override video parameters hint
+  std::string type_name() const override {
+    return "video_params_override_frame_representation";
+  }
+
   std::optional<SourceParameters> get_video_parameters() const override {
-    return cached_video_params_;
+    return cached_params_;
   }
 
-  // Override active line hint (derived from overridden video parameters)
   std::optional<ActiveLineHint> get_active_line_hint() const override {
-    if (!cached_video_params_.has_value() ||
-        !cached_video_params_->is_valid()) {
+    if (!cached_params_.has_value() || !cached_params_->is_valid())
       return std::nullopt;
-    }
-
-    // Use frame-based active line information (chroma decoders work with
-    // frames)
-    if (cached_video_params_->first_active_frame_line >= 0 &&
-        cached_video_params_->last_active_frame_line >= 0) {
+    if (cached_params_->first_active_frame_line >= 0 &&
+        cached_params_->last_active_frame_line >= 0) {
       ActiveLineHint hint;
-      hint.first_active_frame_line =
-          cached_video_params_->first_active_frame_line;
-      hint.last_active_frame_line =
-          cached_video_params_->last_active_frame_line;
+      hint.first_active_frame_line = cached_params_->first_active_frame_line;
+      hint.last_active_frame_line = cached_params_->last_active_frame_line;
       hint.source = HintSource::USER_OVERRIDE;
       hint.confidence_pct = HintTraits::USER_CONFIDENCE;
       return hint;
     }
-
     return std::nullopt;
   }
 
-  // Forward get_line to source
-  const sample_type* get_line(FieldID id, size_t line) const override {
-    return source_ ? source_->get_line(id, line) : nullptr;
-  }
-
-  // Forward get_field to source
-  std::vector<sample_type> get_field(FieldID id) const override {
-    return source_ ? source_->get_field(id) : std::vector<sample_type>{};
-  }
-
-  // Dual-channel support for YC sources
-  bool has_separate_channels() const override {
-    return source_ ? source_->has_separate_channels() : false;
-  }
-
-  const sample_type* get_line_luma(FieldID id, size_t line) const override {
-    return source_ ? source_->get_line_luma(id, line) : nullptr;
-  }
-
-  const sample_type* get_line_chroma(FieldID id, size_t line) const override {
-    return source_ ? source_->get_line_chroma(id, line) : nullptr;
-  }
-
-  std::vector<sample_type> get_field_luma(FieldID id) const override {
-    return source_ ? source_->get_field_luma(id) : std::vector<sample_type>{};
-  }
-
-  std::vector<sample_type> get_field_chroma(FieldID id) const override {
-    return source_ ? source_->get_field_chroma(id) : std::vector<sample_type>{};
-  }
-
  private:
-  std::optional<SourceParameters> override_params_;
+  std::optional<SourceParameters> cached_params_;
 };
 
-/**
- * @brief Video parameters stage - allows overriding video parameter hints
- *
- * This stage allows manual override of video parameters that are normally
- * extracted from TBC metadata. This is useful when:
- * - The TBC metadata is incorrect or missing
- * - You want to adjust sample ranges for cropping or processing
- * - You need to override IRE levels or sample rate information
- * - Testing different parameter configurations
- *
- * Parameters can be set individually - unset parameters are inherited from
- * the input source. This allows partial overrides without specifying all
- * parameters.
- *
- * **Supported Video Systems & Typical Active Line Ranges:**
- *
- * When using this stage with specific video systems, these are the typical
- * default active field line values to expect (inherited from source metadata):
- *
- * - **PAL (625-line)**: first_active_field_line = 22, last_active_field_line =
- * 310
- *   - Frame geometry: 625 lines total
- *   - Subcarrier: 4433618.75 Hz
- *   - Use these values for standard PAL recordings
- *
- * - **NTSC (525-line)**: first_active_field_line = 20, last_active_field_line =
- * 259
- *   - Frame geometry: 525 lines total
- *   - Subcarrier: 3579545.45 Hz
- *   - Use these values for standard NTSC recordings
- *
- * - **PAL-M (525-line with PAL color)**: first_active_field_line = 20,
- * last_active_field_line = 259
- *   - Frame geometry: 525 lines total (NTSC-like) with PAL color encoding
- *   - Subcarrier: 3575611.89 Hz
- *   - Same active line boundaries as NTSC but with PAL colour system
- *   - Use these field line values for Brazilian PAL-M recordings
- *
- * When overriding parameters for a video system, inherit the parameters
- * from the source (set to -1) to use these defaults, or override them
- * if your source differs from the standard.
- */
+// ============================================================================
+// VideoParamsStage
+// ============================================================================
 class VideoParamsStage : public DAGStage,
                          public ParameterizedStage,
                          public PreviewableStage {
  public:
   VideoParamsStage() = default;
 
-  // DAGStage interface
   std::string version() const override { return "1.0"; }
   NodeTypeInfo get_node_type_info() const override {
     return NodeTypeInfo{NodeType::TRANSFORM,
                         "video_params",
                         "Video Parameters",
-                        "Override video parameter hints (dimensions, IRE "
-                        "levels, sample ranges)",
+                        "Override video parameter hints (dimensions, signal "
+                        "levels, active area geometry)",
                         1,
-                        1,  // Exactly one input
                         1,
-                        UINT32_MAX,  // Many outputs
+                        1,
+                        UINT32_MAX,
                         VideoFormatCompatibility::ALL,
                         SinkCategory::CORE,
                         "Transform"};
   }
+
   std::vector<ArtifactPtr> execute(
       const std::vector<ArtifactPtr>& inputs,
       const std::map<std::string, ParameterValue>& parameters,
@@ -175,16 +104,10 @@ class VideoParamsStage : public DAGStage,
   size_t required_input_count() const override { return 1; }
   size_t output_count() const override { return 1; }
 
-  /**
-   * @brief Process a field representation (overrides video parameters)
-   *
-   * @param source Input field representation
-   * @return New representation with overridden video parameters
-   */
-  std::shared_ptr<const VideoFieldRepresentation> process(
-      std::shared_ptr<const VideoFieldRepresentation> source) const;
+  std::shared_ptr<const VideoFrameRepresentation> process(
+      std::shared_ptr<const VideoFrameRepresentation> source) const;
 
-  // ParameterizedStage interface
+  // ParameterizedStage
   std::vector<ParameterDescriptor> get_parameter_descriptors(
       VideoSystem project_format, SourceType source_type) const override;
   using ParameterizedStage::get_parameter_descriptors;
@@ -192,32 +115,25 @@ class VideoParamsStage : public DAGStage,
   bool set_parameters(
       const std::map<std::string, ParameterValue>& params) override;
 
-  // PreviewableStage interface
+  // PreviewableStage
   bool supports_preview() const override { return true; }
   std::vector<PreviewOption> get_preview_options() const override;
   PreviewImage render_preview(const std::string& option_id, uint64_t index,
                               PreviewNavigationHint hint) const override;
 
  private:
-  /**
-   * @brief Build SourceParameters from current parameter values
-   * @param source_params Optional source parameters to use as base
-   * @return SourceParameters with overrides applied
-   */
   std::optional<SourceParameters> build_video_parameters(
       const std::optional<SourceParameters>& source_params) const;
 
-  mutable std::shared_ptr<const VideoFieldRepresentation> cached_output_;
+  mutable std::shared_ptr<const VideoFrameRepresentation> cached_output_;
 
-  // Parameters - all optional, -1 means "use source value"
-  int32_t colour_burst_start_ = -1;
-  int32_t colour_burst_end_ = -1;
+  // All optional; -1 means "inherit from source".
   int32_t active_video_start_ = -1;
   int32_t active_video_end_ = -1;
-  int32_t first_active_field_line_ = -1;
-  int32_t last_active_field_line_ = -1;
-  int32_t white_16b_ire_ = -1;
-  int32_t black_16b_ire_ = -1;
+  int32_t first_active_frame_line_ = -1;
+  int32_t last_active_frame_line_ = -1;
+  int32_t white_level_ = -1;
+  int32_t black_level_ = -1;
 };
 
 }  // namespace orc

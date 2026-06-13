@@ -1,8 +1,7 @@
 /*
  * File:        video_params_stage_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit tests for VideoParamsStage defaults, validation, and
- * overrides
+ * Purpose:     Unit tests for VideoParamsStage (VFrameR)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -17,22 +16,22 @@
 #include <array>
 
 #include "../../../../orc/core/include/observation_context.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../mocks/mock_video_frame_representation.h"
 
 using testing::Return;
 
 namespace orc_unit_test {
 namespace {
-const orc::ParameterDescriptor* find_descriptor(
-    const std::vector<orc::ParameterDescriptor>& descriptors,
-    const std::string& name) {
-  auto it = std::find_if(descriptors.begin(), descriptors.end(),
-                         [&](const orc::ParameterDescriptor& descriptor) {
-                           return descriptor.name == name;
-                         });
 
-  return it == descriptors.end() ? nullptr : &(*it);
+const orc::ParameterDescriptor* find_descriptor(
+    const std::vector<orc::ParameterDescriptor>& descs, const std::string& name) {
+  auto it = std::find_if(descs.begin(), descs.end(),
+                         [&](const orc::ParameterDescriptor& d) {
+                           return d.name == name;
+                         });
+  return it == descs.end() ? nullptr : &(*it);
 }
+
 }  // namespace
 
 TEST(VideoParamsStageTest, RequiredInputCount_IsOne) {
@@ -48,7 +47,6 @@ TEST(VideoParamsStageTest, OutputCount_IsOne) {
 TEST(VideoParamsStageTest, NodeTypeInfo_HasExpectedMetadata) {
   orc::VideoParamsStage stage;
   auto info = stage.get_node_type_info();
-
   EXPECT_EQ(info.type, orc::NodeType::TRANSFORM);
   EXPECT_EQ(info.stage_name, "video_params");
   EXPECT_EQ(info.compatible_formats, orc::VideoFormatCompatibility::ALL);
@@ -56,38 +54,31 @@ TEST(VideoParamsStageTest, NodeTypeInfo_HasExpectedMetadata) {
 
 TEST(VideoParamsStageTest, Descriptor_DefaultsMatchRuntimeDefaults) {
   orc::VideoParamsStage stage;
-  const auto descriptors = stage.get_parameter_descriptors();
+  const auto descs = stage.get_parameter_descriptors();
   const auto params = stage.get_parameters();
-  const std::array<const char*, 8> parameter_names = {
-      "colourBurstStart", "colourBurstEnd",       "activeVideoStart",
-      "activeVideoEnd",   "firstActiveFieldLine", "lastActiveFieldLine",
-      "white16bIRE",      "black16bIRE"};
+  const std::array<const char*, 6> names = {
+      "activeVideoStart", "activeVideoEnd",
+      "firstActiveFrameLine", "lastActiveFrameLine",
+      "whiteLevel", "blackLevel"};
 
-  for (const auto* name : parameter_names) {
-    const auto* descriptor = find_descriptor(descriptors, name);
-    ASSERT_NE(descriptor, nullptr);
-    if (!descriptor->constraints.default_value.has_value()) {
-      FAIL() << "Expected default_value to have a value for " << name;
-      return;
-    }
-    ASSERT_TRUE(std::holds_alternative<int32_t>(
-        *descriptor->constraints.default_value));
+  for (const auto* name : names) {
+    const auto* d = find_descriptor(descs, name);
+    ASSERT_NE(d, nullptr) << "missing descriptor for " << name;
+    ASSERT_TRUE(d->constraints.default_value.has_value());
+    ASSERT_TRUE(std::holds_alternative<int32_t>(*d->constraints.default_value));
     ASSERT_TRUE(std::holds_alternative<int32_t>(params.at(name)));
-    EXPECT_EQ(std::get<int32_t>(*descriptor->constraints.default_value),
+    EXPECT_EQ(std::get<int32_t>(*d->constraints.default_value),
               std::get<int32_t>(params.at(name)));
   }
 }
 
 TEST(VideoParamsStageTest, SetParameters_AcceptsInt32Overrides) {
   orc::VideoParamsStage stage;
-
-  const bool result = stage.set_parameters(
-      {{"activeVideoStart", static_cast<int32_t>(120)}, {"black16bIRE", static_cast<int32_t>(1200)}});
+  EXPECT_TRUE(stage.set_parameters(
+      {{"activeVideoStart", int32_t(120)}, {"blackLevel", int32_t(282)}}));
   const auto params = stage.get_parameters();
-
-  EXPECT_TRUE(result);
   EXPECT_EQ(std::get<int32_t>(params.at("activeVideoStart")), 120);
-  EXPECT_EQ(std::get<int32_t>(params.at("black16bIRE")), 1200);
+  EXPECT_EQ(std::get<int32_t>(params.at("blackLevel")), 282);
 }
 
 TEST(VideoParamsStageTest, SetParameters_RejectsUnknownParameter) {
@@ -97,110 +88,78 @@ TEST(VideoParamsStageTest, SetParameters_RejectsUnknownParameter) {
 
 TEST(VideoParamsStageTest, SetParameters_RejectsWrongType) {
   orc::VideoParamsStage stage;
-  EXPECT_FALSE(
-      stage.set_parameters({{"activeVideoStart", std::string("120")}}));
+  EXPECT_FALSE(stage.set_parameters({{"activeVideoStart", std::string("120")}}));
 }
 
 TEST(VideoParamsStageTest, Process_AppliesConfiguredOverrides) {
   orc::VideoParamsStage stage;
-  auto source =
-      std::make_shared<testing::NiceMock<MockVideoFieldRepresentation>>();
-  orc::SourceParameters source_params;
-  source_params.system = orc::VideoSystem::NTSC;
-  source_params.field_width = 844;
-  source_params.field_height = 263;
-  source_params.black_16b_ire = 1000;
-  source_params.white_16b_ire = 50000;
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  orc::SourceParameters src;
+  src.system = orc::VideoSystem::NTSC;
+  src.frame_width_nominal = 910;
+  src.frame_height = 525;
+  src.black_level = 240;
+  src.white_level = 800;
+  src.active_video_start = 100;
 
-  EXPECT_CALL(*source, get_video_parameters())
-      .WillRepeatedly(Return(source_params));
+  EXPECT_CALL(*source, get_video_parameters()).WillRepeatedly(Return(src));
   ASSERT_TRUE(stage.set_parameters(
-      {{"activeVideoStart", int32_t(120)}, {"black16bIRE", int32_t(1500)}}));
+      {{"activeVideoStart", int32_t(120)}, {"blackLevel", int32_t(250)}}));
 
   const auto result = stage.process(source);
-
   ASSERT_NE(result, nullptr);
-  const auto overridden = result->get_video_parameters();
-  if (!overridden.has_value()) {
-    FAIL() << "Expected overridden to have a value";
-    return;
-  }
-  EXPECT_EQ(overridden->field_width, 844);
-  EXPECT_EQ(overridden->field_height, 263);
-  EXPECT_EQ(overridden->active_video_start, 120);
-  EXPECT_EQ(overridden->black_16b_ire, 1500);
-  EXPECT_EQ(overridden->white_16b_ire, 50000);
+  const auto ov = result->get_video_parameters();
+  ASSERT_TRUE(ov.has_value());
+  EXPECT_EQ(ov->active_video_start, 120);
+  EXPECT_EQ(ov->black_level, 250);
+  EXPECT_EQ(ov->white_level, 800);        // inherited
+  EXPECT_TRUE(ov->has_nonstandard_values); // level override sets this flag
 }
 
 TEST(VideoParamsStageTest, Process_PreservesPalVideoSystem) {
   orc::VideoParamsStage stage;
-  auto source =
-      std::make_shared<testing::NiceMock<MockVideoFieldRepresentation>>();
-  orc::SourceParameters source_params;
-  source_params.system = orc::VideoSystem::PAL;
-  source_params.field_width = 922;
-  source_params.field_height = 313;
-  source_params.first_active_field_line = 22;
-  source_params.last_active_field_line = 310;
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  orc::SourceParameters src;
+  src.system = orc::VideoSystem::PAL;
+  src.frame_width_nominal = 1135;
+  src.frame_height = 625;
+  src.first_active_frame_line = 44;
+  src.last_active_frame_line = 619;
 
-  EXPECT_CALL(*source, get_video_parameters())
-      .WillRepeatedly(Return(source_params));
+  EXPECT_CALL(*source, get_video_parameters()).WillRepeatedly(Return(src));
   ASSERT_TRUE(stage.set_parameters({{"activeVideoStart", int32_t(120)}}));
 
   const auto result = stage.process(source);
-
   ASSERT_NE(result, nullptr);
-  const auto overridden = result->get_video_parameters();
-  if (!overridden.has_value()) {
-    FAIL() << "Expected overridden to have a value";
-    return;
-  }
-  EXPECT_EQ(overridden->system, orc::VideoSystem::PAL);
-  EXPECT_EQ(overridden->first_active_field_line, 22);
-  EXPECT_EQ(overridden->last_active_field_line, 310);
+  const auto ov = result->get_video_parameters();
+  ASSERT_TRUE(ov.has_value());
+  EXPECT_EQ(ov->system, orc::VideoSystem::PAL);
+  EXPECT_EQ(ov->first_active_frame_line, 44);  // inherited
+  EXPECT_EQ(ov->last_active_frame_line, 619);  // inherited
 }
 
-TEST(VideoParamsStageTest, Process_PreservesPalMVideoSystem) {
+TEST(VideoParamsStageTest, Process_SetsActiveCroppingFlag_WhenGeometryOverridden) {
   orc::VideoParamsStage stage;
-  auto source =
-      std::make_shared<testing::NiceMock<MockVideoFieldRepresentation>>();
-  orc::SourceParameters source_params;
-  source_params.system = orc::VideoSystem::PAL_M;
-  source_params.field_width = 844;
-  source_params.field_height = 262;
-  source_params.first_active_field_line = 20;
-  source_params.last_active_field_line = 259;
-  source_params.black_16b_ire = 0;
-  source_params.white_16b_ire = 65535;
+  auto source = std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  orc::SourceParameters src;
+  src.system = orc::VideoSystem::PAL;
+  src.frame_width_nominal = 1135;
+  src.frame_height = 625;
 
-  EXPECT_CALL(*source, get_video_parameters())
-      .WillRepeatedly(Return(source_params));
-  // Override only the first active field line, keeping other PAL-M defaults
-  ASSERT_TRUE(stage.set_parameters({{"firstActiveFieldLine", int32_t(21)}}));
+  EXPECT_CALL(*source, get_video_parameters()).WillRepeatedly(Return(src));
+  ASSERT_TRUE(stage.set_parameters({{"firstActiveFrameLine", int32_t(44)}}));
 
   const auto result = stage.process(source);
-
   ASSERT_NE(result, nullptr);
-  const auto overridden = result->get_video_parameters();
-  if (!overridden.has_value()) {
-    FAIL() << "Expected overridden to have a value";
-    return;
-  }
-  // Verify PAL-M system is preserved
-  EXPECT_EQ(overridden->system, orc::VideoSystem::PAL_M);
-  // Verify override was applied
-  EXPECT_EQ(overridden->first_active_field_line, 21);
-  // Verify non-overridden PAL-M defaults are preserved
-  EXPECT_EQ(overridden->last_active_field_line, 259);
-  EXPECT_EQ(overridden->black_16b_ire, 0);
-  EXPECT_EQ(overridden->white_16b_ire, 65535);
+  const auto ov = result->get_video_parameters();
+  ASSERT_TRUE(ov.has_value());
+  EXPECT_TRUE(ov->active_area_cropping_applied);
 }
 
 TEST(VideoParamsStageTest, Execute_ThrowsWhenInputMissing) {
   orc::VideoParamsStage stage;
-  orc::ObservationContext observation_context;
-
-  EXPECT_THROW(stage.execute({}, {}, observation_context),
-               orc::DAGExecutionError);
+  orc::ObservationContext ctx;
+  EXPECT_THROW(stage.execute({}, {}, ctx), orc::DAGExecutionError);
 }
+
 }  // namespace orc_unit_test

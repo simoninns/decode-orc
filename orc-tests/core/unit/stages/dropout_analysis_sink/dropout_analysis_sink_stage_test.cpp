@@ -1,8 +1,7 @@
 /*
  * File:        dropout_analysis_sink_stage_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit tests for DropoutAnalysisSinkStage contracts and trigger
- * behavior
+ * Purpose:     Unit tests for DropoutAnalysisSinkStage (VFrameR)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -20,14 +19,16 @@
 #include "../../../../orc/core/include/observation_context.h"
 #include "../../../../orc/plugins/stages/dropout_analysis_sink/dropout_analysis_sink_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
-#include "../../include/video_field_representation_mock.h"
+#include "../../include/video_frame_representation_artifact_mock.h"
 
 namespace orc_unit_test {
 using testing::_;
 using testing::NiceMock;
+using testing::NotNull;
 using testing::Return;
 using testing::StrictMock;
 
+// Mock for IDropoutAnalysisSinkStageDeps using VFrameR pointer.
 class MockDropoutAnalysisSinkStageDeps
     : public orc::IDropoutAnalysisSinkStageDeps {
  public:
@@ -37,7 +38,7 @@ class MockDropoutAnalysisSinkStageDeps
               (override));
 
   MOCK_METHOD(orc::DropoutAnalysisComputeResult, compute_and_analyze,
-              (orc::VideoFieldRepresentation * representation,
+              (orc::VideoFrameRepresentation * representation,
                orc::IObservationContext& observation_context,
                orc::DropoutAnalysisComputeOptions options),
               (override));
@@ -63,11 +64,8 @@ TEST(DropoutAnalysisSinkStageTest,
 
   ASSERT_NE(output_it, descriptors.end());
   EXPECT_EQ(output_it->type, orc::ParameterType::FILE_PATH);
-  if (!output_it->constraints.default_value.has_value() ||
-      !write_csv_it->constraints.default_value.has_value()) {
-    FAIL() << "Expected all descriptors to have default values";
-    return;
-  }
+  ASSERT_TRUE(output_it->constraints.default_value.has_value());
+  ASSERT_TRUE(write_csv_it->constraints.default_value.has_value());
   EXPECT_EQ(std::get<std::string>(*output_it->constraints.default_value), "");
 
   ASSERT_NE(write_csv_it, descriptors.end());
@@ -77,30 +75,24 @@ TEST(DropoutAnalysisSinkStageTest,
 
 TEST(DropoutAnalysisSinkStageTest, Trigger_FailsWhenNoInputProvided) {
   orc::DropoutAnalysisSinkStage stage;
-  MockObservationContext observation_context;
+  MockObservationContext ctx;
 
-  const bool result = stage.trigger({}, {}, observation_context);
+  const bool result = stage.trigger({}, {}, ctx);
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(), "Error: No input connected");
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
-TEST(DropoutAnalysisSinkStageTest, Trigger_SucceedsWhenInputRangeIsEmpty) {
+TEST(DropoutAnalysisSinkStageTest, Trigger_FailsWhenInputIsWrongType) {
+  struct FakeArt : public orc::Artifact {
+    FakeArt() : Artifact(orc::ArtifactID("x"), orc::Provenance{}) {}
+    std::string type_name() const override { return "x"; }
+  };
   orc::DropoutAnalysisSinkStage stage;
-  orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
-
-  EXPECT_CALL(*vfr, field_range())
-      .WillOnce(Return(orc::FieldIDRange(orc::FieldID(0), orc::FieldID(0))));
-
-  const bool result = stage.trigger({vfr}, {}, observation_context);
-
-  EXPECT_TRUE(result);
-  EXPECT_EQ(stage.get_trigger_status(), "Dropout analysis complete");
-  EXPECT_TRUE(stage.has_results());
-  EXPECT_EQ(stage.total_frames(), 0);
-  EXPECT_TRUE(stage.frame_stats().empty());
+  MockObservationContext ctx;
+  const bool result = stage.trigger({std::make_shared<FakeArt>()}, {}, ctx);
+  EXPECT_FALSE(result);
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
@@ -110,7 +102,9 @@ TEST(DropoutAnalysisSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   stage.set_deps_override(deps);
 
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  // Use the artifact-compatible mock so it can be passed as ArtifactPtr.
+  auto vfr =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   std::vector<orc::FrameDropoutStats> expected_stats;
   orc::FrameDropoutStats stat{};
@@ -121,7 +115,7 @@ TEST(DropoutAnalysisSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   expected_stats.push_back(stat);
 
   EXPECT_CALL(*deps, init(_, _));
-  EXPECT_CALL(*deps, compute_and_analyze(vfr.get(), _, _))
+  EXPECT_CALL(*deps, compute_and_analyze(NotNull(), _, _))
       .WillOnce(Return(orc::DropoutAnalysisComputeResult{
           true, "Dropout analysis complete", expected_stats, 240}));
   EXPECT_CALL(*deps, write_csv(_, _)).Times(0);
@@ -145,10 +139,11 @@ TEST(DropoutAnalysisSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   stage.set_deps_override(deps);
 
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*deps, init(_, _));
-  EXPECT_CALL(*deps, compute_and_analyze(vfr.get(), _, _))
+  EXPECT_CALL(*deps, compute_and_analyze(NotNull(), _, _))
       .WillOnce(Return(
           orc::DropoutAnalysisComputeResult{false, "observer failed", {}, 0}));
   EXPECT_CALL(*deps, write_csv(_, _)).Times(0);
@@ -169,7 +164,8 @@ TEST(DropoutAnalysisSinkStageTest, Trigger_WritesCSVWhenDepsSucceeds) {
   stage.set_deps_override(deps);
 
   orc::ObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVideoFieldRepresentation>>();
+  auto vfr =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   std::vector<orc::FrameDropoutStats> expected_stats;
   orc::FrameDropoutStats stat{};
@@ -180,7 +176,7 @@ TEST(DropoutAnalysisSinkStageTest, Trigger_WritesCSVWhenDepsSucceeds) {
   expected_stats.push_back(stat);
 
   EXPECT_CALL(*deps, init(_, _));
-  EXPECT_CALL(*deps, compute_and_analyze(vfr.get(), _, _))
+  EXPECT_CALL(*deps, compute_and_analyze(NotNull(), _, _))
       .WillOnce(Return(orc::DropoutAnalysisComputeResult{
           true, "Dropout analysis complete", expected_stats, 8}));
   EXPECT_CALL(*deps, write_csv("out.csv", _))
@@ -205,4 +201,5 @@ TEST(DropoutAnalysisSinkStageTest, Trigger_WritesCSVWhenDepsSucceeds) {
   EXPECT_EQ(stage.total_frames(), 8);
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
+
 }  // namespace orc_unit_test

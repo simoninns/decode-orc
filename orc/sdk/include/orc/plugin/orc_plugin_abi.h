@@ -60,20 +60,28 @@ struct OrcPluginServices;
 ///        a const OrcPluginServices* as its first parameter. Plugins must use
 ///        the services table for logging instead of resolving host symbols
 ///        directly.
-inline constexpr uint32_t kStagePluginHostAbiVersion = 3;
+///   4 — Decode-Orc 2.0: VideoFrameRepresentation replaces
+///        VideoFieldRepresentation as the primary frame-data contract.
+///        IStageServices gains VFrameR delivery methods. All stage plugins must
+///        be rebuilt against the v2.0 SDK.
+inline constexpr uint32_t kStagePluginHostAbiVersion = 4;
 
 /// Preprocessor alias for kStagePluginHostAbiVersion.  Allows plugin code to
 /// use conditional compilation:
-///   #if ORC_SDK_ABI_VERSION >= 3
-///     // use OrcPluginServices
+///   #if ORC_SDK_ABI_VERSION >= 4
+///     // use VideoFrameRepresentation
 ///   #endif
-#define ORC_SDK_ABI_VERSION 3
+#define ORC_SDK_ABI_VERSION 4
 
 /// Plugin API version — stage contract compatibility boundary.
 ///
 /// History:
 ///   1 — Initial public API surface (Phase 4).
-inline constexpr uint32_t kStagePluginApiVersion = 1;
+///   2 — Decode-Orc 2.0: DAGStage execute() receives VideoFrameRepresentationPtr
+///        (frame-based) instead of VideoFieldRepresentationPtr (field-based).
+///        DropoutRegion replaced by DropoutRun. FieldID/FieldIDRange removed;
+///        FrameID/FrameIDRange are the canonical navigation types.
+inline constexpr uint32_t kStagePluginApiVersion = 2;
 
 // =============================================================================
 // Plugin entrypoint symbol names

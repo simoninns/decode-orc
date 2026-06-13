@@ -1,4 +1,49 @@
-# Migration from legacy vhs-decode builds
+# Migration
+
+## Migrating from Decode-Orc 1.x to 2.0
+
+Decode-Orc 2.0 introduces a new frame-based internal representation (CVBS_U10_4FSC). This is a **breaking change**. Project files from Decode-Orc 1.x are not compatible with 2.0 and will be rejected at load time with a clear error message.
+
+**Project file migration**: There is no automated migration path. Projects must be recreated in Decode-Orc 2.0. This is necessary because the stage names, parameter names, and signal-level domain have all changed in ways that cannot be safely inferred from a 1.x project file.
+
+**Renamed stages**: The following stages were renamed in v2.0. If you recreate a project, use the new stage IDs:
+
+| Old stage ID (1.x) | New stage ID (2.0) | Notes |
+|--------------------|--------------------|-------|
+| `pal_comp_source` | `tbc_source` | Unified stage; video system detected from metadata |
+| `pal_yc_source` | `tbc_source` | |
+| `ntsc_comp_source` | `tbc_source` | |
+| `ntsc_yc_source` | `tbc_source` | |
+| `pal_m_tbc_comp_source` | `tbc_source` | |
+| `field_map` | `frame_map` | New parameters: `remove_duplicates`, `pad_gaps`, `pad_strategy` |
+| `field_invert` | `frame_field_swap` | Renamed; same behaviour |
+
+**Removed stages**: The following stage was removed in v2.0 with no replacement:
+
+| Removed stage ID | Reason |
+|------------------|--------|
+| `hackdac_sink` | Hardware-specific stage removed from the core distribution |
+
+**Renamed dialogues**: The GUI dialogues have been renamed to use frame-based terminology:
+
+| Old name (1.x) | New name (2.0) |
+|----------------|----------------|
+| Line-scope | Frame-scope |
+| Field-timing | Frame-timing |
+
+**New stages in v2.0**:
+
+| Stage ID | Description |
+|----------|-------------|
+| `cvbs_source` | Load CVBS captures in the CVBS file-format family |
+| `cvbs_sink` | Write CVBS_U10_4FSC output to the CVBS file-format family |
+| `frame_phase_corrector` | Detect and correct field-swap artefacts; verify colour-frame sequence |
+
+**Signal level domain**: All internal signal levels in v2.0 are in the CVBS_U10_4FSC 10-bit domain (blanking = 256, white = 844 for PAL; blanking = 240, white = 800 for NTSC). The 16-bit IRE-based domain used in v1.x is gone. The `video_params` stage parameters for level overrides now use 10-bit values.
+
+---
+
+## Migration from legacy vhs-decode builds
 
 ## Legacy JSON metadata
 
@@ -11,4 +56,3 @@ If you have old decodes the recommended course of action is to re-decode the cap
 Legacy versions of vhs-decode produced TBC Y/C pairs with the format `<name>_chroma.tbc` and `<name>.tbc`.
 
 In order to use these files with Decode-Orc you will need to simply rename them.  `<name>_chroma.tbc` should become `<name>.tbcc` and `<name>.tbc` should become `<name>.tbcy`.  This is used by Decode-Orc to distinguish composite and separate sources when using features such as "quick project".
-

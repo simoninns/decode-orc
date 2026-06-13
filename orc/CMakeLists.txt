@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(decode-orc VERSION 0.1.0 LANGUAGES CXX)
+project(decode-orc VERSION 2.0.0 LANGUAGES CXX)
 
 # Allow version override for release builds
 if(DEFINED PROJECT_VERSION_OVERRIDE)
@@ -66,7 +66,7 @@ message(STATUS "Decode Orc Version: ${ORC_VERSION}")
 # orc/sdk/include/orc/plugin/orc_plugin_abi.h.  CI/CD and packaging scripts
 # can compare against this CMake variable without parsing C++ headers.
 # ---------------------------------------------------------------------------
-set(ORC_STAGE_PLUGIN_HOST_ABI_VERSION 3 CACHE INTERNAL
+set(ORC_STAGE_PLUGIN_HOST_ABI_VERSION 4 CACHE INTERNAL
     "Host ABI version exposed to plugins (must match kStagePluginHostAbiVersion in orc_plugin_abi.h)")
 message(STATUS "Stage Plugin Host ABI version: ${ORC_STAGE_PLUGIN_HOST_ABI_VERSION}")
 

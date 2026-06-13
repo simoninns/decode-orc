@@ -27,7 +27,7 @@ TEST(ProjectPluginMetadataTest,
   const std::string yaml_text = R"yaml(
 project:
   name: plugin-metadata-test
-  version: "1.0"
+  version: "2.0"
   video_format: NTSC
   source_format: Composite
 dag:
@@ -77,7 +77,7 @@ TEST(ProjectPluginMetadataTest,
   const std::string yaml_text = R"yaml(
 project:
   name: plugin-metadata-test
-  version: "1.0"
+  version: "2.0"
   video_format: NTSC
   source_format: Composite
 dag:

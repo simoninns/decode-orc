@@ -81,12 +81,13 @@ accepted; a mismatch causes the plugin to be skipped with a logged diagnostic.
 Controls the binary ABI: the layout of `StagePluginDescriptor`, the entrypoint
 signatures, and the `register_stage` callback contract.
 
-**Current value:** `3`
+**Current value:** `4`
 
 Bumped when any of the following change:
 - `StagePluginDescriptor` field order or alignment
 - Entrypoint function signatures
 - Callback calling convention
+- `IStageServices` gains or loses methods
 
 ### `plugin_api_version`
 
@@ -94,13 +95,14 @@ Controls the stage contract: the `DAGStage` virtual interface,
 `ParameterizedStage`, `TriggerableStage`, `ArtifactPtr`, `ObservationContext`,
 and `NodeTypeInfo` semantics.
 
-**Current value:** `1`
+**Current value:** `2`
 
 Bumped when any of the following change:
 - A `DAGStage` virtual method is added, removed, or reordered
 - `ParameterValue` variant types change
 - `NodeTypeInfo` struct layout changes
 - `execute()` or `trigger()` lifecycle semantics change incompatibly
+- The primary frame-data type changes (e.g. field → frame representation)
 
 ## Plugin Registry
 

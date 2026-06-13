@@ -198,6 +198,14 @@ orc_add_core_unit_tests(
         metadata/dropout_util_test.cpp
 )
 
+# Phase 11: project format version 2.0 enforcement tests (label: unit)
+orc_add_core_unit_tests(
+        orc-core-unit-tests-project-format
+        "unit"
+
+        project/project_format_test.cpp
+)
+
 # Phase 1: core type and signal constant tests (label: unit)
 orc_add_core_unit_tests(
         orc-core-unit-tests-types

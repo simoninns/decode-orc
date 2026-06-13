@@ -227,7 +227,7 @@ Users register your plugin by adding an entry to their plugin registry YAML:
   release_tag:        v1.0.0
   release_asset_name: orc-plugin_my-stage_linux.so   # platform-specific
   target_platform:    linux
-  required_host_abi:  2
+  required_host_abi:  4
   enabled:            true
   trust_state:        untrusted
   license_spdx:       MIT
@@ -245,6 +245,7 @@ with this entry present.
 | 1 | — | Initial internal release; `plugin_api_version` not yet in descriptor |
 | 2 | 1 | `plugin_api_version` added to `StagePluginDescriptor`; public SDK headers published |
 | 3 | 1 | `OrcPluginServices` table added; `orc_register_stage_plugin` now receives `const OrcPluginServices*` as its first parameter; plugins must use the services table for logging instead of resolving host symbols directly |
+| 4 | 2 | Decode-Orc 2.0: `VideoFrameRepresentation` replaces `VideoFieldRepresentation` as the primary frame-data contract; `IStageServices` gains VFrameR delivery methods; `DAGStage::execute()` receives `VideoFrameRepresentationPtr` (frame-based); `DropoutRun` replaces `DropoutRegion`; `FieldID`/`FieldIDRange` removed — use `FrameID`/`FrameIDRange` |
 
 ### When the host increments a version
 

@@ -473,6 +473,14 @@ Project load_project_from_yaml(const std::string& yaml_text,
   project.description_ = root["project"]["description"].as<std::string>("");
   project.version_ = root["project"]["version"].as<std::string>("1.0");
 
+  // Reject project files that are not v2.0. v1.x files are not supported.
+  if (project.version_ != "2.0") {
+    throw std::runtime_error(
+        "Project format version '" + project.version_ +
+        "' is not supported by Decode-Orc 2.x.\n"
+        "Please recreate the project using Decode-Orc 2.0 or later.");
+  }
+
   // Validate video format (required)
   if (!root["project"]["video_format"]) {
     throw std::runtime_error(
@@ -583,6 +591,50 @@ Project load_project_from_yaml(const std::string& yaml_text,
       auto requirement = parse_required_plugin_node(plugin_yaml);
       if (requirement.has_value()) {
         project.required_plugins_.push_back(std::move(*requirement));
+      }
+    }
+  }
+
+  // Validate source stage nodes against the declared video_format and
+  // source_format, mirroring the enforcement in add_node().
+  for (const auto& node : project.nodes_) {
+    if (node.node_type != NodeType::SOURCE) {
+      continue;
+    }
+
+    if (project.video_format_ != VideoSystem::Unknown) {
+      bool is_ntsc_stage =
+          (node.stage_name.find("NTSC") != std::string::npos);
+      bool is_pal_stage =
+          (node.stage_name.find("PAL") != std::string::npos);
+      if (is_ntsc_stage && project.video_format_ != VideoSystem::NTSC) {
+        throw std::runtime_error(
+            "Project video_format mismatch: project declares '" +
+            video_system_to_string(project.video_format_) +
+            "' but source stage '" + node.stage_name + "' (node " +
+            node.node_id.to_string() + ") is NTSC.");
+      }
+      if (is_pal_stage &&
+          !(project.video_format_ == VideoSystem::PAL ||
+            project.video_format_ == VideoSystem::PAL_M)) {
+        throw std::runtime_error(
+            "Project video_format mismatch: project declares '" +
+            video_system_to_string(project.video_format_) +
+            "' but source stage '" + node.stage_name + "' (node " +
+            node.node_id.to_string() + ") is PAL.");
+      }
+    }
+
+    if (project.source_format_ != SourceType::Unknown) {
+      bool is_yc_stage = (node.stage_name.find("YC") != std::string::npos ||
+                          node.stage_name.find("Yc") != std::string::npos ||
+                          node.stage_name.find("_yc") != std::string::npos);
+      if (is_yc_stage && project.source_format_ != SourceType::YC) {
+        throw std::runtime_error(
+            "Project source_format mismatch: project declares 'Composite' "
+            "but source stage '" +
+            node.stage_name + "' (node " + node.node_id.to_string() +
+            ") is a YC source.");
       }
     }
   }
@@ -803,7 +855,7 @@ Project create_empty_project(const std::string& project_name,
                              SourceType source_format) {
   Project project;
   project.name_ = project_name;
-  project.version_ = "1.0";
+  project.version_ = "2.0";
   project.video_format_ = video_format;
   project.source_format_ = source_format;
   // Empty sources, nodes_, and edges

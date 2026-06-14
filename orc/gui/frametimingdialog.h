@@ -87,11 +87,33 @@ class FrameTimingDialog : public QDialog {
       int frame_height = 0, const std::vector<int16_t>& y_samples = {},
       const std::vector<int16_t>& c_samples = {});
 
+  /**
+   * @brief Field-domain bridge: set two fields as a combined frame.
+   *
+   * Adapts the old field-domain API (two uint16_t field buffers) to the
+   * frame-domain setFrameData() call.  This is a migration-period bridge; the
+   * caller should move to setFrameData() once it produces frame-level data.
+   */
+  void setFieldData(
+      const QString& node_id, uint64_t field_index,
+      const std::vector<uint16_t>& samples,
+      const std::optional<uint64_t>& field_index_2,
+      const std::vector<uint16_t>& samples_2,
+      const std::vector<uint16_t>& y_samples,
+      const std::vector<uint16_t>& c_samples,
+      const std::vector<uint16_t>& y_samples_2,
+      const std::vector<uint16_t>& c_samples_2,
+      const std::optional<orc::presenters::VideoParametersView>& video_params,
+      const std::optional<int>& marker_sample, int first_field_height,
+      int second_field_height);
+
   /// @name State accessors
   /// @{
   FieldTimingWidget* timingWidget() const { return timing_widget_; }
   uint64_t currentFrameId() const { return current_frame_id_; }
   int currentFrameHeight() const { return current_frame_height_; }
+  int firstFieldHeight() const { return first_field_height_; }
+  int secondFieldHeight() const { return second_field_height_; }
   /// @}
 
  Q_SIGNALS:
@@ -128,6 +150,8 @@ class FrameTimingDialog : public QDialog {
   QString current_node_id_;
   uint64_t current_frame_id_ = 0;
   int current_frame_height_ = 0;
+  int first_field_height_ = 0;
+  int second_field_height_ = 0;
   int current_colour_frame_index_ = -1;
   int current_signal_index_ = 2;
   int current_lines_to_show_ = 625;

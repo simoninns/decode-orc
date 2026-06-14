@@ -433,7 +433,7 @@ class PreviewRenderer {
    * @brief Build preview output metadata from StagePreviewCapability.
    */
   std::vector<PreviewOutputInfo> get_capability_preview_outputs(
-      const NodeID& stage_node_id, const StagePreviewCapability& capability);
+      const StagePreviewCapability& capability);
 
   /**
    * @brief Render a frame through the colour-carrier provider path.

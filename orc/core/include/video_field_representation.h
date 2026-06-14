@@ -39,30 +39,6 @@ enum class FieldParity {
   Bottom  // Bottom field (even lines)
 };
 
-/**
- * @brief Video standard/format
- */
-enum class VideoFormat { NTSC, PAL, Unknown };
-
-/**
- * @brief Map an exact video system to the legacy coarse format bucket.
- *
- * Exact source identity should use VideoSystem. VideoFormat remains a
- * compatibility bucket for existing PAL-vs-NTSC code paths.
- */
-inline VideoFormat video_format_from_system(VideoSystem system) {
-  switch (system) {
-    case VideoSystem::PAL:
-    case VideoSystem::PAL_M:
-      return VideoFormat::PAL;
-    case VideoSystem::NTSC:
-      return VideoFormat::NTSC;
-    case VideoSystem::Unknown:
-    default:
-      return VideoFormat::Unknown;
-  }
-}
-
 // ============================================================================
 // Field Height Calculation Utilities
 // ============================================================================
@@ -107,42 +83,6 @@ inline size_t calculate_standard_field_height(VideoSystem system,
     case VideoSystem::PAL:
       // PAL: Odd field (first) = 312 lines, Even field (second) = 313 lines
       return is_first_field ? 312 : 313;
-
-    case VideoSystem::Unknown:
-    default:
-      // Unknown system - should not happen in normal operation
-      return 0;
-  }
-}
-
-/**
- * @brief Calculate padded field height (TBC file format)
- *
- * Returns the field height as stored in TBC files. TBC files use padded fields
- * where both fields have equal length. Padding is added to the first field
- * (in temporal order) to equalize lengths.
- *
- * Used only by sink stages when writing TBC files for ld-decode compatibility.
- *
- * @param system Video system (NTSC, PAL, etc.)
- * @return Padded field height as stored in TBC files
- *
- * Examples:
- * - NTSC: 263 lines (padding added to first field)
- * - PAL: 313 lines (padding added to first field)
- */
-inline size_t calculate_padded_field_height(VideoSystem system) {
-  switch (system) {
-    case VideoSystem::NTSC:
-    case VideoSystem::PAL_M:
-      // NTSC TBC files: both fields stored as 263 lines
-      // (first field has 1 line of padding added)
-      return 263;
-
-    case VideoSystem::PAL:
-      // PAL TBC files: both fields stored as 313 lines
-      // (first field has 1 line of padding added)
-      return 313;
 
     case VideoSystem::Unknown:
     default:

@@ -853,5 +853,132 @@ PreviewImage render_field_grayscale(
   return result;
 }
 
+// ============================================================================
+// VideoFrameRepresentation overloads
+// ============================================================================
+
+// Scale a 10-bit CVBS_U10_4FSC int16_t sample to an 8-bit grayscale value.
+inline uint8_t scale_10bit_to_8bit(int16_t sample, bool apply_level_scaling,
+                                   int32_t black_level, int32_t white_level) {
+  if (apply_level_scaling) {
+    int32_t range = white_level - black_level;
+    if (range <= 0) return 0;
+    int32_t scaled = ((static_cast<int32_t>(sample) - black_level) * 255) / range;
+    return static_cast<uint8_t>(std::max(0, std::min(255, scaled)));
+  } else {
+    // Raw: map full 10-bit range [0, 1023] to [0, 255]
+    int32_t scaled = (static_cast<int32_t>(sample) * 255) / 1023;
+    return static_cast<uint8_t>(std::max(0, std::min(255, scaled)));
+  }
+}
+
+std::vector<PreviewOption> get_standard_preview_options(
+    const std::shared_ptr<const VideoFrameRepresentation>& representation) {
+  std::vector<PreviewOption> options;
+
+  if (!representation) {
+    return options;
+  }
+
+  auto video_params = representation->get_video_parameters();
+  if (!video_params || !video_params->is_valid()) {
+    return options;
+  }
+
+  size_t frame_count = representation->frame_count();
+  if (frame_count == 0) {
+    return options;
+  }
+
+  uint32_t width = static_cast<uint32_t>(video_params->frame_width_nominal);
+  uint32_t height = static_cast<uint32_t>(video_params->frame_height);
+
+  double dar_correction = 0.7;
+  if (video_params->active_video_start >= 0 &&
+      video_params->active_video_end > video_params->active_video_start &&
+      video_params->first_active_frame_line >= 0 &&
+      video_params->last_active_frame_line >
+          video_params->first_active_frame_line) {
+    uint32_t active_width = static_cast<uint32_t>(
+        video_params->active_video_end - video_params->active_video_start);
+    uint32_t active_height = static_cast<uint32_t>(
+        video_params->last_active_frame_line -
+        video_params->first_active_frame_line);
+    double active_ratio =
+        static_cast<double>(active_width) / static_cast<double>(active_height);
+    dar_correction = (4.0 / 3.0) / active_ratio;
+  }
+
+  options.push_back(PreviewOption{"frame", "Frame (Clamped)", false, width,
+                                  height, frame_count, dar_correction});
+  options.push_back(PreviewOption{"frame_raw", "Frame (Raw)", false, width,
+                                  height, frame_count, dar_correction});
+
+  return options;
+}
+
+PreviewImage render_standard_preview(
+    const std::shared_ptr<const VideoFrameRepresentation>& representation,
+    const std::string& option_id, uint64_t index,
+    PreviewNavigationHint hint) {
+  (void)hint;
+  PreviewImage result{};
+
+  if (!representation) {
+    return result;
+  }
+
+  auto video_params = representation->get_video_parameters();
+  if (!video_params || !video_params->is_valid()) {
+    return result;
+  }
+
+  FrameID frame_id = representation->frame_range().first + index;
+  if (!representation->has_frame(frame_id)) {
+    return result;
+  }
+
+  auto descriptor = representation->get_frame_descriptor(frame_id);
+  if (!descriptor) {
+    return result;
+  }
+
+  bool apply_level_scaling = (option_id == "frame");
+  if (option_id != "frame" && option_id != "frame_raw") {
+    ORC_LOG_WARN("PreviewHelpers (frame): Unknown preview option '{}'",
+                 option_id);
+    return result;
+  }
+
+  uint32_t width = static_cast<uint32_t>(descriptor->samples_per_line_nominal);
+  uint32_t height = static_cast<uint32_t>(descriptor->height);
+  int32_t black_level = video_params->black_level;
+  int32_t white_level = video_params->white_level;
+
+  result.width = width;
+  result.height = height;
+  result.rgb_data.resize(static_cast<size_t>(width) * height * 3);
+
+  for (uint32_t y = 0; y < height; ++y) {
+    const VideoFrameRepresentation::sample_type* line =
+        representation->get_line(frame_id, y);
+    if (!line) continue;
+
+    for (uint32_t x = 0; x < width; ++x) {
+      uint8_t gray = scale_10bit_to_8bit(line[x], apply_level_scaling,
+                                         black_level, white_level);
+      size_t offset = (static_cast<size_t>(y) * width + x) * 3;
+      result.rgb_data[offset + 0] = gray;
+      result.rgb_data[offset + 1] = gray;
+      result.rgb_data[offset + 2] = gray;
+    }
+  }
+
+  // Dropout regions are not populated for frame-domain previews;
+  // DropoutRun (frame-flat) and DropoutRegion (view-type) are distinct types.
+
+  return result;
+}
+
 }  // namespace PreviewHelpers
 }  // namespace orc

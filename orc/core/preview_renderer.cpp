@@ -353,7 +353,7 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(
           // If the stage also exposes colour-domain output, prefer
           // capability-driven outputs only when a carrier provider exists.
           if (has_colour && colour_provider != nullptr) {
-            return get_capability_preview_outputs(node_id, capability);
+            return get_capability_preview_outputs(capability);
           }
 
           if (has_signal) {
@@ -1797,7 +1797,7 @@ void PreviewRenderer::ensure_node_executed(const NodeID& node_id,
 }
 
 std::vector<PreviewOutputInfo> PreviewRenderer::get_capability_preview_outputs(
-    const NodeID& stage_node_id, const StagePreviewCapability& capability) {
+    const StagePreviewCapability& capability) {
   std::vector<PreviewOutputInfo> outputs;
   if (!capability.is_valid()) {
     return outputs;

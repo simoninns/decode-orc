@@ -16,6 +16,7 @@
 #include "preview_renderer.h"
 #include "previewable_stage.h"
 #include "video_field_representation.h"
+#include "video_frame_representation.h"
 
 namespace orc {
 
@@ -142,6 +143,37 @@ PreviewImage render_field_grayscale(
     const VideoFieldRepresentation* representation, FieldID field_id,
     RenderChannel channel = RenderChannel::COMPOSITE,
     bool apply_ire_scaling = true);
+
+// ============================================================================
+// VideoFrameRepresentation overloads (for CVBS_U10_4FSC frame-domain stages)
+// ============================================================================
+
+/**
+ * @brief Generate standard preview options for a VideoFrameRepresentation
+ *
+ * Offers "frame" and "frame_raw" options indexed by frame number.
+ *
+ * @param representation The video frame representation to preview
+ * @return Vector of preview options (empty if representation is invalid)
+ */
+std::vector<PreviewOption> get_standard_preview_options(
+    const std::shared_ptr<const VideoFrameRepresentation>& representation);
+
+/**
+ * @brief Render a standard preview from a VideoFrameRepresentation
+ *
+ * Supports option_ids "frame" (level-scaled) and "frame_raw" (unscaled).
+ *
+ * @param representation The video frame representation
+ * @param option_id Preview option identifier
+ * @param index Frame index (0-based)
+ * @param hint Navigation hint (unused)
+ * @return Preview image (invalid if option unknown or rendering fails)
+ */
+PreviewImage render_standard_preview(
+    const std::shared_ptr<const VideoFrameRepresentation>& representation,
+    const std::string& option_id, uint64_t index,
+    PreviewNavigationHint hint = PreviewNavigationHint::Random);
 
 }  // namespace PreviewHelpers
 

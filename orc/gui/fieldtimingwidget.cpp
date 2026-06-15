@@ -43,10 +43,9 @@ static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
 }
 
 namespace {
-std::vector<int16_t> buildCombinedYPlusC(
-    const std::vector<int16_t>& y_samples,
-    const std::vector<int16_t>& c_samples,
-    int32_t chroma_mid) {
+std::vector<int16_t> buildCombinedYPlusC(const std::vector<int16_t>& y_samples,
+                                         const std::vector<int16_t>& c_samples,
+                                         int32_t chroma_mid) {
   if (y_samples.empty() || c_samples.empty()) {
     return {};
   }
@@ -151,8 +150,7 @@ void FieldTimingWidget::setChannelMode(ChannelMode mode) {
 }
 
 void FieldTimingWidget::setFieldData(
-    const std::vector<int16_t>& samples,
-    const std::vector<int16_t>& samples_2,
+    const std::vector<int16_t>& samples, const std::vector<int16_t>& samples_2,
     const std::vector<int16_t>& y_samples,
     const std::vector<int16_t>& c_samples,
     const std::vector<int16_t>& y_samples_2,
@@ -555,8 +553,7 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
     if (vp.black_level >= 0 && vp.blanking_level >= 0 &&
         vp.white_level > vp.blanking_level &&
         vp.black_level != vp.blanking_level) {
-      double black_mv =
-          convertSampleToMV(static_cast<int16_t>(vp.black_level));
+      double black_mv = convertSampleToMV(static_cast<int16_t>(vp.black_level));
       drawLevelLine(black_mv, theme_tokens::neutralLine(palette, 0.5),
                     Qt::DashDotLine);
     }
@@ -721,9 +718,9 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
         break;
 
       case ChannelMode::YPlusC: {
-        const int32_t chroma_mid =
-            video_params_.has_value() ? video_params_->blanking_level
-                                      : orc::kPalBlanking;
+        const int32_t chroma_mid = video_params_.has_value()
+                                       ? video_params_->blanking_level
+                                       : orc::kPalBlanking;
         const std::vector<int16_t> combined_1 =
             buildCombinedYPlusC(y1_samples_, c1_samples_, chroma_mid);
         const std::vector<int16_t> combined_2 =

@@ -289,7 +289,8 @@ void FrameTimingDialog::setFieldData(
   std::vector<int16_t> frame_c = c_samples;
 
   if (field_index_2.has_value()) {
-    frame_samples.insert(frame_samples.end(), samples_2.begin(), samples_2.end());
+    frame_samples.insert(frame_samples.end(), samples_2.begin(),
+                         samples_2.end());
     frame_y.insert(frame_y.end(), y_samples_2.begin(), y_samples_2.end());
     frame_c.insert(frame_c.end(), c_samples_2.begin(), c_samples_2.end());
   }

@@ -2103,11 +2103,13 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
   int32_t num_lookahead_frames = 0;
 
   std::string temp_decoder_type = decoder_type_;
-  const bool will_use_3d =
-      (temp_decoder_type == "transform3d" || temp_decoder_type == "ntsc3d" ||
-       temp_decoder_type == "ntsc3dnoadapt");
-
-  if (will_use_3d) {
+  if (temp_decoder_type == "transform3d") {
+    // TransformPal3D::getLookBehind() = 1, getLookAhead() = 4 (frames).
+    // Preview must supply at least getLookAhead()*2 = 8 fields after endIndex.
+    num_lookbehind_frames = 2;
+    num_lookahead_frames = 4;
+  } else if (temp_decoder_type == "ntsc3d" ||
+             temp_decoder_type == "ntsc3dnoadapt") {
     num_lookbehind_frames = 2;
     num_lookahead_frames = 2;
   } else {

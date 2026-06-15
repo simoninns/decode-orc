@@ -154,6 +154,43 @@ std::optional<orc::SourceParameters> ProjectPresenter::readVideoParameters(
   return result;
 }
 
+std::optional<orc::SourceParameters> ProjectPresenter::readCVBSVideoParameters(
+    const std::string& meta_path) {
+  sqlite3* db = nullptr;
+  int rc =
+      sqlite3_open_v2(meta_path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr);
+  if (rc != SQLITE_OK) {
+    ORC_LOG_WARN("Failed to open CVBS metadata file: {}", meta_path);
+    if (db) sqlite3_close(db);
+    return std::nullopt;
+  }
+
+  sqlite3_stmt* stmt = nullptr;
+  rc = sqlite3_prepare_v2(
+      db, "SELECT preset FROM cvbs_file ORDER BY cvbs_file_id LIMIT 1", -1,
+      &stmt, nullptr);
+  if (rc != SQLITE_OK) {
+    ORC_LOG_WARN("Failed to query preset from CVBS metadata: {}", meta_path);
+    sqlite3_close(db);
+    return std::nullopt;
+  }
+
+  std::optional<orc::SourceParameters> result;
+  if (sqlite3_step(stmt) == SQLITE_ROW) {
+    const char* preset_text =
+        reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+    if (preset_text) {
+      orc::SourceParameters sp;
+      sp.system = orc::video_system_from_string(preset_text);
+      result = sp;
+    }
+  }
+
+  sqlite3_finalize(stmt);
+  sqlite3_close(db);
+  return result;
+}
+
 // === ProjectPresenter Implementation ===
 
 ProjectPresenter::ProjectPresenter()

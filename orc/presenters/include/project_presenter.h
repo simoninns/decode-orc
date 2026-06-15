@@ -106,6 +106,18 @@ class ProjectPresenter : public IProjectPresenter {
   static std::optional<orc::SourceParameters> readVideoParameters(
       const std::string& metadata_path);
 
+  /**
+   * @brief Read video parameters from a CVBS .meta metadata file
+   * @param meta_path Path to .meta SQLite file
+   * @return SourceParameters with system set if successful, nullopt on failure
+   *
+   * Reads the preset field from the cvbs_file table to determine the video
+   * system (PAL, NTSC, or PAL_M) for use when creating a quick project from
+   * a CVBS source file.
+   */
+  static std::optional<orc::SourceParameters> readCVBSVideoParameters(
+      const std::string& meta_path);
+
   // === Project Lifecycle ===
 
   /**

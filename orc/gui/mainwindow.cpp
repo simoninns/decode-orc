@@ -893,11 +893,13 @@ void MainWindow::onEditProject() {
 }
 
 void MainWindow::onQuickProject() {
-  // Open file dialog to select TBC/TBCC/TBCY file
+  // Open file dialog to select TBC, TBCC, TBCY, or CVBS file
   QString filename = QFileDialog::getOpenFileName(
       this, "Quick Project - Select Video File", getLastSourceDirectory(),
-      "Video Files (*.tbc *.tbcc *.tbcy);;TBC Files (*.tbc);;TBCC Files "
-      "(*.tbcc);;TBCY Files (*.tbcy);;All Files (*)");
+      "Video Files (*.tbc *.tbcc *.tbcy *.composite *.y *.c);;"
+      "TBC Files (*.tbc);;TBCC Files (*.tbcc);;TBCY Files (*.tbcy);;"
+      "CVBS Composite Files (*.composite);;"
+      "CVBS YC Files (*.y *.c);;All Files (*)");
 
   if (filename.isEmpty()) {
     ORC_LOG_DEBUG("Quick project creation cancelled");
@@ -1205,6 +1207,7 @@ void MainWindow::quickProject(const QString& filename) {
   orc::SourceType source_type = orc::SourceType::Unknown;
   std::string primary_file = filename.toStdString();
   std::string secondary_file;
+  bool is_cvbs = false;
 
   if (ext == "tbc") {
     source_type = orc::SourceType::Composite;
@@ -1254,67 +1257,141 @@ void MainWindow::quickProject(const QString& filename) {
       return;
     }
     secondary_file = tbcc_path.toStdString();
+  } else if (ext == "composite") {
+    is_cvbs = true;
+    source_type = orc::SourceType::Composite;
+  } else if (ext == "y") {
+    is_cvbs = true;
+    source_type = orc::SourceType::YC;
+    QString c_path = base_path + ".c";
+    if (!QFileInfo::exists(c_path)) {
+      QMessageBox::warning(
+          this, "Missing File",
+          QString("Could not find corresponding C (chroma) file: %1")
+              .arg(c_path));
+      return;
+    }
+    secondary_file = c_path.toStdString();
+  } else if (ext == "c") {
+    is_cvbs = true;
+    source_type = orc::SourceType::YC;
+    QString y_path = base_path + ".y";
+    if (!QFileInfo::exists(y_path)) {
+      QMessageBox::warning(
+          this, "Missing File",
+          QString("Could not find corresponding Y (luma) file: %1")
+              .arg(y_path));
+      return;
+    }
+    secondary_file = y_path.toStdString();
   } else {
     QMessageBox::warning(
         this, "Invalid File",
-        QString("Please provide a .tbc, .tbcc, or .tbcy file. Got: %1")
+        QString("Please provide a .tbc, .tbcc, .tbcy, .composite, .y, or .c "
+                "file. Got: %1")
             .arg(ext));
     return;
   }
 
-  // Determine metadata file
-  QString db_path = base_path + ".tbc.db";
-  if (!QFileInfo::exists(db_path)) {
-    // Check for legacy JSON metadata produced by older ld-decode/vhs-decode
-    QString json_path = base_path + ".tbc.json";
-    if (QFileInfo::exists(json_path)) {
-      const QString filename = QFileInfo(json_path).fileName();
-      QMessageBox msgBox(this);
-      msgBox.setWindowTitle("Legacy Metadata Format");
-      msgBox.setIcon(QMessageBox::Warning);
-      msgBox.setText(
-          QString("The TBC source '%1' has legacy JSON metadata. This is just "
-                  "a warning - the source will load regardless.\n\n"
-                  "For best long-term results, consider re-decoding with a "
-                  "current version of ld-decode/vhs-decode.")
-              .arg(filename));
-      QPushButton* continueBtn =
-          msgBox.addButton("Continue", QMessageBox::AcceptRole);
-      msgBox.addButton("Cancel", QMessageBox::RejectRole);
-      msgBox.setDefaultButton(continueBtn);
-      msgBox.exec();
-      if (msgBox.clickedButton() != continueBtn) return;
-      // User chose Continue; fall through to load with JSON backend
-    } else {
-      QMessageBox::warning(
-          this, "Missing Metadata File",
-          QString("Metadata file not found:\n%1\n\nRe-run the decoder to "
-                  "generate a .tbc.db metadata file.")
+  // Determine metadata file and read video format
+  QString db_path;  // TBC only
+  orc::VideoSystem video_format = orc::VideoSystem::Unknown;
+  std::string source_stage_name;
+
+  if (!is_cvbs) {
+    db_path = base_path + ".tbc.db";
+    if (!QFileInfo::exists(db_path)) {
+      // Check for legacy JSON metadata produced by older ld-decode/vhs-decode
+      QString json_path = base_path + ".tbc.json";
+      if (QFileInfo::exists(json_path)) {
+        const QString json_filename = QFileInfo(json_path).fileName();
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("Legacy Metadata Format");
+        msgBox.setIcon(QMessageBox::Warning);
+        msgBox.setText(
+            QString(
+                "The TBC source '%1' has legacy JSON metadata. This is just "
+                "a warning - the source will load regardless.\n\n"
+                "For best long-term results, consider re-decoding with a "
+                "current version of ld-decode/vhs-decode.")
+                .arg(json_filename));
+        QPushButton* continueBtn =
+            msgBox.addButton("Continue", QMessageBox::AcceptRole);
+        msgBox.addButton("Cancel", QMessageBox::RejectRole);
+        msgBox.setDefaultButton(continueBtn);
+        msgBox.exec();
+        if (msgBox.clickedButton() != continueBtn) return;
+        // User chose Continue; fall through to load with JSON backend
+      } else {
+        QMessageBox::warning(
+            this, "Missing Metadata File",
+            QString("Metadata file not found:\n%1\n\nRe-run the decoder to "
+                    "generate a .tbc.db metadata file.")
+                .arg(db_path));
+        return;
+      }
+    }
+
+    ORC_LOG_INFO("Reading TBC metadata from: {}", db_path.toStdString());
+    auto video_params_opt =
+        orc::presenters::ProjectPresenter::readVideoParameters(
+            db_path.toStdString());
+    if (!video_params_opt) {
+      QMessageBox::critical(
+          this, "Error",
+          QString("Failed to read video parameters from metadata file: %1")
               .arg(db_path));
       return;
     }
+    video_format = video_params_opt->system;
+
+    ORC_LOG_INFO(
+        "Detected format: {}, Source type: {}",
+        (video_format == orc::VideoSystem::NTSC ? "NTSC" : "PAL"),
+        (source_type == orc::SourceType::Composite ? "Composite" : "YC"));
+
+    source_stage_name = "tbc_source";
+  } else {
+    // CVBS: metadata is in <basename>.meta
+    QString meta_path = base_path + ".meta";
+    if (!QFileInfo::exists(meta_path)) {
+      QMessageBox::warning(
+          this, "Missing Metadata File",
+          QString("CVBS metadata file not found:\n%1\n\nRe-run the decoder to "
+                  "generate a .meta metadata file.")
+              .arg(meta_path));
+      return;
+    }
+
+    ORC_LOG_INFO("Reading CVBS metadata from: {}", meta_path.toStdString());
+    auto cvbs_params_opt =
+        orc::presenters::ProjectPresenter::readCVBSVideoParameters(
+            meta_path.toStdString());
+    if (!cvbs_params_opt) {
+      QMessageBox::critical(
+          this, "Error",
+          QString("Failed to read video parameters from CVBS metadata file: %1")
+              .arg(meta_path));
+      return;
+    }
+    video_format = cvbs_params_opt->system;
+
+    const std::string fmt_name =
+        (video_format == orc::VideoSystem::NTSC    ? "NTSC"
+         : video_format == orc::VideoSystem::PAL_M ? "PAL_M"
+                                                   : "PAL");
+    ORC_LOG_INFO(
+        "Detected format: {}, Source type: {}", fmt_name,
+        (source_type == orc::SourceType::Composite ? "Composite" : "YC"));
+
+    if (video_format == orc::VideoSystem::NTSC) {
+      source_stage_name = "NTSC_CVBS_Source";
+    } else if (video_format == orc::VideoSystem::PAL_M) {
+      source_stage_name = "PALM_CVBS_Source";
+    } else {
+      source_stage_name = "PAL_CVBS_Source";
+    }
   }
-
-  // Read metadata to determine video format (NTSC or PAL)
-  ORC_LOG_INFO("Reading metadata from: {}", db_path.toStdString());
-
-  auto video_params_opt =
-      orc::presenters::ProjectPresenter::readVideoParameters(
-          db_path.toStdString());
-  if (!video_params_opt) {
-    QMessageBox::critical(
-        this, "Error",
-        QString("Failed to read video parameters from metadata file: %1")
-            .arg(db_path));
-    return;
-  }
-
-  orc::VideoSystem video_format = video_params_opt->system;
-
-  ORC_LOG_INFO(
-      "Detected format: {}, Source type: {}",
-      (video_format == orc::VideoSystem::NTSC ? "NTSC" : "PAL"),
-      (source_type == orc::SourceType::Composite ? "Composite" : "YC"));
 
   // Close all dialogs before clearing project
   closeAllDialogs();
@@ -1325,8 +1402,6 @@ void MainWindow::quickProject(const QString& filename) {
   preview_dialog_->previewSlider()->setEnabled(false);
   preview_dialog_->frameJumpSpinBox()->setEnabled(false);
   preview_dialog_->previewSlider()->setValue(0);
-
-  const std::string source_stage_name = "tbc_source";
 
   // Create empty project
   QString project_name = file_info.completeBaseName();
@@ -1344,95 +1419,208 @@ void MainWindow::quickProject(const QString& filename) {
   // recreated)
   render_coordinator_->setProject(project_.presenter()->getCoreProjectHandle());
 
-  // Add source stage
-  ORC_LOG_INFO("Adding source stage: {}", source_stage_name);
-  orc::NodeID source_node_id;
-  try {
-    // Use same spacing as DAG alignment function
-    const double grid_offset_x = 50.0;
-    const double grid_offset_y = 50.0;
-    source_node_id = project_.presenter()->addNode(
-        source_stage_name, grid_offset_x, grid_offset_y);
-  } catch (const std::exception& e) {
-    QMessageBox::critical(
-        this, "Error", QString("Failed to add source stage: %1").arg(e.what()));
-    return;
-  }
+  // Add source stage(s), sink, parameters, and connections
+  const double grid_offset_x = 50.0;
+  const double grid_offset_y = 50.0;
+  const double grid_spacing_x = 225.0;
+  const double grid_spacing_y = 125.0;
 
-  // Add FFmpeg video sink stage
-  ORC_LOG_INFO("Adding FFmpeg video sink stage");
-  orc::NodeID sink_node_id;
-  try {
-    // Use same spacing as DAG alignment function
-    const double grid_spacing_x = 225.0;
-    const double grid_offset_x = 50.0;
-    const double grid_offset_y = 50.0;
-    sink_node_id = project_.presenter()->addNode(
-        "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
-  } catch (const std::exception& e) {
-    QMessageBox::critical(
-        this, "Error", QString("Failed to add sink stage: %1").arg(e.what()));
-    return;
-  }
-
-  // Set parameters on source stage based on source type
-  std::map<std::string, orc::ParameterValue> source_params;
-
-  if (source_type == orc::SourceType::Composite) {
-    // Composite source
-    source_params["input_path"] = primary_file;
-    source_params["db_path"] = db_path.toStdString();
-
-    // Check for optional pcm and efm files
-    QString pcm_path = base_path + ".pcm";
-    if (QFileInfo::exists(pcm_path)) {
-      source_params["pcm_path"] = pcm_path.toStdString();
+  if (!is_cvbs) {
+    // TBC path: single source stage → sink
+    ORC_LOG_INFO("Adding TBC source stage: {}", source_stage_name);
+    orc::NodeID source_node_id;
+    try {
+      source_node_id = project_.presenter()->addNode(
+          source_stage_name, grid_offset_x, grid_offset_y);
+    } catch (const std::exception& e) {
+      QMessageBox::critical(
+          this, "Error",
+          QString("Failed to add source stage: %1").arg(e.what()));
+      return;
     }
 
-    QString efm_path = base_path + ".efm";
-    if (QFileInfo::exists(efm_path)) {
-      source_params["efm_path"] = efm_path.toStdString();
+    ORC_LOG_INFO("Adding FFmpeg video sink stage");
+    orc::NodeID sink_node_id;
+    try {
+      sink_node_id = project_.presenter()->addNode(
+          "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
+    } catch (const std::exception& e) {
+      QMessageBox::critical(
+          this, "Error", QString("Failed to add sink stage: %1").arg(e.what()));
+      return;
+    }
+
+    std::map<std::string, orc::ParameterValue> source_params;
+    if (source_type == orc::SourceType::Composite) {
+      source_params["input_path"] = primary_file;
+      source_params["db_path"] = db_path.toStdString();
+
+      QString pcm_path = base_path + ".pcm";
+      if (QFileInfo::exists(pcm_path)) {
+        source_params["pcm_path"] = pcm_path.toStdString();
+      }
+      QString efm_path = base_path + ".efm";
+      if (QFileInfo::exists(efm_path)) {
+        source_params["efm_path"] = efm_path.toStdString();
+      }
+    } else {
+      if (ext == "tbcy") {
+        source_params["y_path"] = primary_file;
+        source_params["c_path"] = secondary_file;
+      } else {
+        source_params["y_path"] = secondary_file;
+        source_params["c_path"] = primary_file;
+      }
+      source_params["db_path"] = db_path.toStdString();
+
+      QString pcm_path = base_path + ".pcm";
+      if (QFileInfo::exists(pcm_path)) {
+        source_params["pcm_path"] = pcm_path.toStdString();
+      }
+      QString efm_path = base_path + ".efm";
+      if (QFileInfo::exists(efm_path)) {
+        source_params["efm_path"] = efm_path.toStdString();
+      }
+    }
+
+    if (!project_.presenter()->setNodeParameters(source_node_id,
+                                                 source_params)) {
+      QMessageBox::critical(this, "Error",
+                            "Failed to set parameters on source stage. Check "
+                            "that the file paths are valid.");
+      return;
+    }
+    ORC_LOG_INFO("Source stage parameters set successfully");
+
+    ORC_LOG_INFO("Connecting source stage to sink stage");
+    try {
+      project_.presenter()->addEdge(source_node_id, sink_node_id);
+    } catch (const std::exception& e) {
+      QMessageBox::critical(
+          this, "Error", QString("Failed to connect stages: %1").arg(e.what()));
+      return;
     }
   } else {
-    // YC source
-    if (ext == "tbcy") {
-      source_params["y_path"] = primary_file;
-      source_params["c_path"] = secondary_file;
+    // CVBS path: CVBS source stage(s) → sink
+    // For composite: one source stage.
+    // For YC: two source stages (one for Y, one for C), both wired to sink.
+    if (source_type == orc::SourceType::Composite) {
+      ORC_LOG_INFO("Adding CVBS composite source stage: {}", source_stage_name);
+      orc::NodeID source_node_id;
+      try {
+        source_node_id = project_.presenter()->addNode(
+            source_stage_name, grid_offset_x, grid_offset_y);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add source stage: %1").arg(e.what()));
+        return;
+      }
+
+      ORC_LOG_INFO("Adding FFmpeg video sink stage");
+      orc::NodeID sink_node_id;
+      try {
+        sink_node_id = project_.presenter()->addNode(
+            "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add sink stage: %1").arg(e.what()));
+        return;
+      }
+
+      std::map<std::string, orc::ParameterValue> source_params;
+      source_params["input_path"] = primary_file;
+
+      if (!project_.presenter()->setNodeParameters(source_node_id,
+                                                   source_params)) {
+        QMessageBox::critical(this, "Error",
+                              "Failed to set parameters on CVBS source stage. "
+                              "Check that the file path is valid.");
+        return;
+      }
+      ORC_LOG_INFO("CVBS source stage parameters set successfully");
+
+      ORC_LOG_INFO("Connecting CVBS source stage to sink stage");
+      try {
+        project_.presenter()->addEdge(source_node_id, sink_node_id);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to connect stages: %1").arg(e.what()));
+        return;
+      }
     } else {
-      source_params["y_path"] = secondary_file;
-      source_params["c_path"] = primary_file;
+      // CVBS YC: Y source and C source, both connected to sink
+      const std::string y_file = (ext == "y") ? primary_file : secondary_file;
+      const std::string c_file = (ext == "c") ? primary_file : secondary_file;
+
+      ORC_LOG_INFO("Adding CVBS Y source stage: {}", source_stage_name);
+      orc::NodeID y_node_id;
+      try {
+        y_node_id = project_.presenter()->addNode(source_stage_name,
+                                                  grid_offset_x, grid_offset_y);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add Y source stage: %1").arg(e.what()));
+        return;
+      }
+
+      ORC_LOG_INFO("Adding CVBS C source stage: {}", source_stage_name);
+      orc::NodeID c_node_id;
+      try {
+        c_node_id = project_.presenter()->addNode(
+            source_stage_name, grid_offset_x, grid_offset_y + grid_spacing_y);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add C source stage: %1").arg(e.what()));
+        return;
+      }
+
+      ORC_LOG_INFO("Adding FFmpeg video sink stage");
+      orc::NodeID sink_node_id;
+      try {
+        // Vertically centre sink between the two source stages
+        sink_node_id = project_.presenter()->addNode(
+            "ffmpeg_video_sink", grid_offset_x + grid_spacing_x,
+            grid_offset_y + grid_spacing_y / 2.0);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add sink stage: %1").arg(e.what()));
+        return;
+      }
+
+      std::map<std::string, orc::ParameterValue> y_params;
+      y_params["input_path"] = y_file;
+      if (!project_.presenter()->setNodeParameters(y_node_id, y_params)) {
+        QMessageBox::critical(this, "Error",
+                              "Failed to set parameters on Y source stage.");
+        return;
+      }
+
+      std::map<std::string, orc::ParameterValue> c_params;
+      c_params["input_path"] = c_file;
+      if (!project_.presenter()->setNodeParameters(c_node_id, c_params)) {
+        QMessageBox::critical(this, "Error",
+                              "Failed to set parameters on C source stage.");
+        return;
+      }
+      ORC_LOG_INFO("CVBS YC source stage parameters set successfully");
+
+      ORC_LOG_INFO("Connecting CVBS YC source stages to sink stage");
+      try {
+        project_.presenter()->addEdge(y_node_id, sink_node_id);
+        project_.presenter()->addEdge(c_node_id, sink_node_id);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to connect stages: %1").arg(e.what()));
+        return;
+      }
     }
-    source_params["db_path"] = db_path.toStdString();
-
-    // Check for optional pcm and efm files
-    QString pcm_path = base_path + ".pcm";
-    if (QFileInfo::exists(pcm_path)) {
-      source_params["pcm_path"] = pcm_path.toStdString();
-    }
-
-    QString efm_path = base_path + ".efm";
-    if (QFileInfo::exists(efm_path)) {
-      source_params["efm_path"] = efm_path.toStdString();
-    }
-  }
-
-  // Set parameters on the source stage using presenter
-  if (!project_.presenter()->setNodeParameters(source_node_id, source_params)) {
-    QMessageBox::critical(this, "Error",
-                          "Failed to set parameters on source stage. Check "
-                          "that the file paths are valid.");
-    return;
-  }
-  ORC_LOG_INFO("Source stage parameters set successfully");
-
-  // Connect source to sink
-  ORC_LOG_INFO("Connecting source stage to sink stage");
-  try {
-    project_.presenter()->addEdge(source_node_id, sink_node_id);
-  } catch (const std::exception& e) {
-    QMessageBox::critical(
-        this, "Error", QString("Failed to connect stages: %1").arg(e.what()));
-    return;
   }
 
   // Rebuild DAG from the newly created project structure

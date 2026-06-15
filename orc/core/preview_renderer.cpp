@@ -372,10 +372,16 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(
       } else if (auto* previewable_stage =
                      dynamic_cast<const PreviewableStage*>(
                          node_it->stage.get());
-                 previewable_stage && previewable_stage->supports_preview() &&
+                 previewable_stage &&
                  should_use_legacy_stage_preview(node_type)) {
-        // Compatibility path for non-migrated stages.
-        return get_stage_preview_outputs(node_id, *node_it, *previewable_stage);
+        // Compatibility path for non-migrated stages. Execute the node first
+        // so that supports_preview() reflects actual availability; source
+        // stages like CVBS/TBC only return true after their first execution.
+        ensure_node_executed(node_id, false);
+        if (previewable_stage->supports_preview()) {
+          return get_stage_preview_outputs(node_id, *node_it,
+                                           *previewable_stage);
+        }
       }
 
       if (node_type == NodeType::SINK) {

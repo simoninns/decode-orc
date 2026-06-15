@@ -310,8 +310,9 @@ std::string WriterWavMetadata::convertToAudacityTimestamp(int32_t minutes,
   total_seconds += subsection / (FRAME_RATE * SUBSECTIONS_PER_FRAME);
 
   // Convert sample to fractional time
-  total_seconds += (static_cast<double>(sample) / 2.0) /
-                   (FRAME_RATE * SUBSECTIONS_PER_FRAME * SAMPLES_PER_SUBSECTION);
+  total_seconds +=
+      (static_cast<double>(sample) / 2.0) /
+      (FRAME_RATE * SUBSECTIONS_PER_FRAME * SAMPLES_PER_SUBSECTION);
 
   // Format the output string with 6 decimal places
   return fmt::format("{:.6f}", total_seconds);

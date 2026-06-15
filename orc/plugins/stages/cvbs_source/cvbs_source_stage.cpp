@@ -282,7 +282,6 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
     return result;
   }
 
-
   std::optional<ActiveLineHint> get_active_line_hint() const override {
     if (video_params_.first_active_frame_line < 0) return std::nullopt;
     ActiveLineHint hint;

@@ -49,7 +49,7 @@ jobs:
 
             # --- Assert fine-grained CTest labels are present ---
             labels_output=\"\$(ctest --test-dir build --print-labels)\"
-            expected_labels=(unit gui sources transforms sinks contracts preview gui-logic gui-model gui-widget mvp sdk functional)
+            expected_labels=(unit gui sources transforms sinks contracts preview gui-logic gui-model gui-widget mvp sdk functional format)
             missing=()
             for label in \"\${expected_labels[@]}\"; do
               if ! printf '%s\n' \"\$labels_output\" | grep -Eq \"^[[:space:]]+\$label\$\"; then
@@ -70,9 +70,10 @@ jobs:
             # --- Functional tests (filesystem / plugin-loading contracts) ---
             ctest --test-dir build -L functional --parallel \"\$BUILD_JOBS\" --output-on-failure --output-junit \${PWD}/build/ctest-results-functional.xml
 
-            # --- Architecture and SDK hard gates ---
+            # --- Architecture, SDK and format hard gates ---
             ctest --test-dir build -L mvp --parallel \"\$BUILD_JOBS\" --output-on-failure --output-junit \${PWD}/build/ctest-results-mvp.xml
             ctest --test-dir build -L sdk -R 'PluginPrivate' --parallel \"\$BUILD_JOBS\" --output-on-failure --output-junit \${PWD}/build/ctest-results-sdk.xml
+            ctest --test-dir build -L format --output-on-failure --output-junit \${PWD}/build/ctest-results-format.xml
 
             # --- CTest timing summary ---
             python3 cmake/summarize_ctest_junit.py --input build/ctest-results-unit.xml --output build/ctest-results-unit-summary.md --top 25
@@ -96,6 +97,7 @@ jobs:
             build/ctest-results-functional.xml
             build/ctest-results-mvp.xml
             build/ctest-results-sdk.xml
+            build/ctest-results-format.xml
             build/ctest-results-unit-summary.md
             build/Testing/Temporary/LastTest.log
             build/Testing/Temporary/CTestCostData.txt

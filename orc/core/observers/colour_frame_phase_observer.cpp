@@ -112,17 +112,16 @@ void ColourFramePhaseObserver::process_frame(
     IObservationContext& context) {
   auto vp_opt = representation.get_video_parameters();
   if (!vp_opt.has_value()) {
-    ORC_LOG_TRACE(
-        "ColourFramePhaseObserver: No video parameters for frame {}",
-        frame_id);
+    ORC_LOG_TRACE("ColourFramePhaseObserver: No video parameters for frame {}",
+                  frame_id);
     return;
   }
   const auto& vp = vp_opt.value();
 
   const int16_t* frame_data = representation.get_frame(frame_id);
   if (!frame_data) {
-    ORC_LOG_TRACE(
-        "ColourFramePhaseObserver: No frame data for frame {}", frame_id);
+    ORC_LOG_TRACE("ColourFramePhaseObserver: No frame data for frame {}",
+                  frame_id);
     return;
   }
 
@@ -137,32 +136,28 @@ void ColourFramePhaseObserver::process_frame(
     case VideoSystem::PAL:
       burst_start = 93;
       line_start = frame_line_sample_offset(
-          VideoSystem::PAL,
-          static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+          VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
           static_cast<size_t>(kRefLine));
       break;
     case VideoSystem::NTSC:
       burst_start = 74;
       line_start = frame_line_sample_offset(
-          VideoSystem::NTSC,
-          static_cast<size_t>(kNtscSamplesPerLine),
+          VideoSystem::NTSC, static_cast<size_t>(kNtscSamplesPerLine),
           static_cast<size_t>(kRefLine));
       break;
     case VideoSystem::PAL_M:
       burst_start = 74;
       line_start = frame_line_sample_offset(
-          VideoSystem::PAL_M,
-          static_cast<size_t>(kPalMSamplesPerLine),
+          VideoSystem::PAL_M, static_cast<size_t>(kPalMSamplesPerLine),
           static_cast<size_t>(kRefLine));
       break;
     default:
       return;
   }
 
-  const size_t abs_offset =
-      line_start + static_cast<size_t>(burst_start);
-  const double angle = measure_burst_angle(frame_data, abs_offset,
-                                           vp.blanking_level);
+  const size_t abs_offset = line_start + static_cast<size_t>(burst_start);
+  const double angle =
+      measure_burst_angle(frame_data, abs_offset, vp.blanking_level);
   const int colour_index = angle_to_colour_frame_index(angle, vp.system);
 
   // Store keyed by the first field of this frame.
@@ -170,9 +165,8 @@ void ColourFramePhaseObserver::process_frame(
   context.set(fid, "colour_frame_phase", "colour_frame_index",
               static_cast<int32_t>(colour_index));
 
-  ORC_LOG_DEBUG(
-      "ColourFramePhaseObserver: Frame {} colour_frame_index={}", frame_id,
-      colour_index);
+  ORC_LOG_DEBUG("ColourFramePhaseObserver: Frame {} colour_frame_index={}",
+                frame_id, colour_index);
 }
 
 }  // namespace orc

@@ -57,8 +57,8 @@ FrameFieldSwapRepresentation::get_frame_copy(FrameID id) const {
 
   for (size_t out_line = 0; out_line < height; ++out_line) {
     const size_t src_line = remap_line(out_line, height);
-    const size_t width =
-        frame_line_sample_count(params->system, static_cast<size_t>(nominal_spl), src_line);
+    const size_t width = frame_line_sample_count(
+        params->system, static_cast<size_t>(nominal_spl), src_line);
     const sample_type* ptr = source_->get_line(id, src_line);
     if (ptr) {
       result.insert(result.end(), ptr, ptr + width);
@@ -93,9 +93,9 @@ std::vector<DropoutRun> FrameFieldSwapRepresentation::get_dropout_hints(
   for (size_t out_line = 0; out_line < frame_height; ++out_line) {
     const size_t src_line = remap_line(out_line, frame_height);
     out_offsets[out_line + 1] =
-        out_offsets[out_line] + frame_line_sample_count(
-                                    sys, static_cast<size_t>(nominal_spl),
-                                    src_line);
+        out_offsets[out_line] +
+        frame_line_sample_count(sys, static_cast<size_t>(nominal_spl),
+                                src_line);
   }
 
   std::vector<DropoutRun> result;

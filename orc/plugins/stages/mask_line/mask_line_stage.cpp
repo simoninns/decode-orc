@@ -134,7 +134,8 @@ MaskedFrameRepresentation::get_line_luma(FrameID id, size_t line) const {
   auto params_luma = source_ ? source_->get_video_parameters() : std::nullopt;
   if (!params_luma.has_value()) return nullptr;
   const size_t width = frame_line_sample_count(
-      params_luma->system, static_cast<size_t>(params_luma->frame_width_nominal), line);
+      params_luma->system,
+      static_cast<size_t>(params_luma->frame_width_nominal), line);
   const int16_t val = ire_to_sample(mask_ire_);
   masked_luma_buffer_.assign(width, val);
   return masked_luma_buffer_.data();
@@ -148,7 +149,8 @@ MaskedFrameRepresentation::get_line_chroma(FrameID id, size_t line) const {
   auto params_chroma = source_ ? source_->get_video_parameters() : std::nullopt;
   if (!params_chroma.has_value()) return nullptr;
   const size_t width = frame_line_sample_count(
-      params_chroma->system, static_cast<size_t>(params_chroma->frame_width_nominal), line);
+      params_chroma->system,
+      static_cast<size_t>(params_chroma->frame_width_nominal), line);
   const int16_t val = ire_to_sample(mask_ire_);
   masked_chroma_buffer_.assign(width, val);
   return masked_chroma_buffer_.data();

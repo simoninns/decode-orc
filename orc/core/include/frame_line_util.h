@@ -1,7 +1,8 @@
 /*
  * File:        frame_line_util.h
  * Module:      orc-core
- * Purpose:     Per-line sample count and offset helpers for 4FSC CVBS flat frame buffers
+ * Purpose:     Per-line sample count and offset helpers for 4FSC CVBS flat
+ * frame buffers
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Simon Inns
@@ -26,8 +27,8 @@ namespace orc {
 
 // Returns the number of samples in frame-flat line |line| (0-based).
 // For PAL, the four non-orthogonal lines (kPalExtraSampleLines) carry
-// kPalMaxSamplesPerLine (1136) samples; all others carry kPalMaxSamplesPerLine - 1 (1135).
-// For NTSC and PAL_M every line carries |spl_nominal| samples.
+// kPalMaxSamplesPerLine (1136) samples; all others carry kPalMaxSamplesPerLine
+// - 1 (1135). For NTSC and PAL_M every line carries |spl_nominal| samples.
 inline size_t frame_line_sample_count(VideoSystem system, size_t spl_nominal,
                                       size_t line) {
   if (system == VideoSystem::PAL) {
@@ -68,8 +69,10 @@ inline std::pair<size_t, size_t> frame_flat_offset_to_line_sample(
   // one step at a time until we find the line that brackets flat_offset.
   size_t est = static_cast<size_t>(flat_offset / spl_nominal);
   for (;;) {
-    size_t line_start = frame_line_sample_offset(VideoSystem::PAL, spl_nominal, est);
-    size_t line_len = frame_line_sample_count(VideoSystem::PAL, spl_nominal, est);
+    size_t line_start =
+        frame_line_sample_offset(VideoSystem::PAL, spl_nominal, est);
+    size_t line_len =
+        frame_line_sample_count(VideoSystem::PAL, spl_nominal, est);
     if (flat_offset < line_start) {
       --est;
     } else if (flat_offset >= line_start + line_len) {

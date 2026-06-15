@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Checks staged C++ files for clang-format compliance before each commit.
+# Skipped silently when clang-format is not on PATH.
+
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(cpp|h|hpp)$' || true)
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+if ! command -v clang-format &>/dev/null; then
+    echo "pre-commit: clang-format not found, skipping format check"
+    exit 0
+fi
+
+fail=0
+while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if ! clang-format --style=file --dry-run --Werror "$f" 2>/dev/null; then
+        echo "  clang-format violation: $f"
+        fail=1
+    fi
+done <<< "$staged"
+
+if [ "$fail" -ne 0 ]; then
+    echo ""
+    echo "Format errors detected. Fix with:"
+    echo "  cmake --build build --target clang-format"
+    echo "Then re-stage the fixed files before committing."
+    exit 1
+fi

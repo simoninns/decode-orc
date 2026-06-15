@@ -117,3 +117,37 @@ add_custom_target(clang-format
     COMMENT "clang-format: reformatting all source files in-place..."
     VERBATIM
 )
+
+# ---------------------------------------------------------------------------
+# 5. CTest registration so the CI gate catches format violations
+# ---------------------------------------------------------------------------
+add_test(
+    NAME ClangFormatCheck
+    COMMAND
+        ${CLANG_FORMAT_EXECUTABLE}
+        --style=file
+        --dry-run
+        --Werror
+        ${_clang_format_sources}
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(ClangFormatCheck PROPERTIES LABELS "format")
+
+# ---------------------------------------------------------------------------
+# 6. Install the pre-commit hook once at configure time (local builds only)
+# ---------------------------------------------------------------------------
+# Sets git's hooksPath to .githooks/ so the checked-in hook is used by all
+# contributors without any manual setup step.  This only touches .git/config
+# and has no effect on sandboxed (Nix derivation) builds.
+find_program(GIT_EXECUTABLE git DOC "Path to git executable")
+if(GIT_EXECUTABLE)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} config core.hooksPath .githooks
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        RESULT_VARIABLE _git_hooks_result
+        OUTPUT_QUIET ERROR_QUIET
+    )
+    if(_git_hooks_result EQUAL 0)
+        message(STATUS "clang-format: pre-commit hook installed (core.hooksPath = .githooks)")
+    endif()
+endif()

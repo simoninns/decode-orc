@@ -1684,9 +1684,9 @@ SourceField ChromaSinkStage::convertToSourceField(
 
   // Helper: build PAL per-line pointer table for non-uniform line lengths.
   // frame_base_line: 0 for field 1, kPalField1Lines for field 2.
-  auto buildPalLinePtrs = [](const int16_t* base, size_t line_count,
-                             size_t frame_base_line)
-      -> std::vector<const int16_t*> {
+  auto buildPalLinePtrs =
+      [](const int16_t* base, size_t line_count,
+         size_t frame_base_line) -> std::vector<const int16_t*> {
     std::vector<const int16_t*> ptrs;
     ptrs.reserve(line_count);
     size_t offset = 0;
@@ -1753,12 +1753,12 @@ SourceField ChromaSinkStage::convertToSourceField(
         } else {
           sf.luma_data = luma_ptr + kPalField1Samples;
           sf.chroma_data = chroma_ptr + kPalField1Samples;
-          sf.luma_line_ptrs = buildPalLinePtrs(
-              sf.luma_data, sf.line_count,
-              static_cast<size_t>(orc::kPalField1Lines));
-          sf.chroma_line_ptrs = buildPalLinePtrs(
-              sf.chroma_data, sf.line_count,
-              static_cast<size_t>(orc::kPalField1Lines));
+          sf.luma_line_ptrs =
+              buildPalLinePtrs(sf.luma_data, sf.line_count,
+                               static_cast<size_t>(orc::kPalField1Lines));
+          sf.chroma_line_ptrs =
+              buildPalLinePtrs(sf.chroma_data, sf.line_count,
+                               static_cast<size_t>(orc::kPalField1Lines));
         }
       } else {
         const size_t spl = sf.samples_per_line;
@@ -2163,9 +2163,10 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
           orc::VideoSystem::PAL,
           static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
           static_cast<size_t>(orc::kPalField1Lines));
-      samples = is_first_field
-                    ? pal_f1_samples
-                    : (static_cast<size_t>(orc::kPalFrameSamples) - pal_f1_samples);
+      samples =
+          is_first_field
+              ? pal_f1_samples
+              : (static_cast<size_t>(orc::kPalFrameSamples) - pal_f1_samples);
       blank.samples_per_line = 1135;
       blank.line_count =
           is_first_field

@@ -580,7 +580,8 @@ TEST(CVBSSourcePhaseContractTest, ColourFrameIndex_IsUnknown) {
 }
 
 TEST(CVBSSourcePhaseContractTest, FramePhaseHint_IsNullopt) {
-  // The source stage provides no phase hint; it is set by ColourFramePhaseObserver.
+  // The source stage provides no phase hint; it is set by
+  // ColourFramePhaseObserver.
   auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   PALCVBSSourceStage stage(deps);
   auto vfr = execute_and_get_vfr(stage, kDefaultParams);

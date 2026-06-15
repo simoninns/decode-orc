@@ -308,9 +308,8 @@ StackedVideoFrameRepresentation::get_line_luma(FrameID id, size_t line) const {
   if (!desc || line >= desc->height) {
     return nullptr;
   }
-  return p->data() + frame_line_sample_offset(desc->system,
-                                              desc->samples_per_line_nominal,
-                                              line);
+  return p->data() + frame_line_sample_offset(
+                         desc->system, desc->samples_per_line_nominal, line);
 }
 
 const VideoFrameRepresentation::sample_type*
@@ -329,9 +328,8 @@ StackedVideoFrameRepresentation::get_line_chroma(FrameID id,
   if (!desc || line >= desc->height) {
     return nullptr;
   }
-  return p->data() + frame_line_sample_offset(desc->system,
-                                              desc->samples_per_line_nominal,
-                                              line);
+  return p->data() + frame_line_sample_offset(
+                         desc->system, desc->samples_per_line_nominal, line);
 }
 
 // ── Dropout hints
@@ -577,8 +575,7 @@ void StackerStage::stack_frame(
   int32_t black_level = params ? params->black_level : 282;
 
   // Total sample count respects non-orthogonal PAL layout.
-  const size_t total =
-      frame_line_sample_offset(system, nominal_width, height);
+  const size_t total = frame_line_sample_offset(system, nominal_width, height);
   output_samples.resize(total, static_cast<sample_type>(black_level));
   output_dropouts.clear();
 
@@ -637,11 +634,10 @@ void StackerStage::stack_frame(
         break;
       }
       threads.emplace_back([&, t, s, e]() {
-        process_lines_range(s, e, nominal_width, system, all_frames,
-                            frame_valid, all_dropouts, sources.size(),
-                            black_level, static_cast<int32_t>(nominal_width),
-                            output_samples, thread_dos[t], thread_do[t],
-                            thread_st[t]);
+        process_lines_range(
+            s, e, nominal_width, system, all_frames, frame_valid, all_dropouts,
+            sources.size(), black_level, static_cast<int32_t>(nominal_width),
+            output_samples, thread_dos[t], thread_do[t], thread_st[t]);
       });
     }
     for (auto& th : threads) {
@@ -693,8 +689,7 @@ void StackerStage::stack_frame_yc(
   const VideoSystem system = params ? params->system : VideoSystem::PAL;
   int32_t black_level = params ? params->black_level : 282;
 
-  const size_t total =
-      frame_line_sample_offset(system, nominal_width, height);
+  const size_t total = frame_line_sample_offset(system, nominal_width, height);
   output_luma.resize(total, static_cast<sample_type>(black_level));
   output_chroma.resize(total, static_cast<sample_type>(black_level));
   output_dropouts.clear();
@@ -741,11 +736,11 @@ void StackerStage::stack_frame_yc(
   size_t total_stacked = 0;
 
   if (n_threads == 1) {
-    process_lines_range_yc(0, height, nominal_width, system, all_luma,
-                           all_chroma, frame_valid, all_dropouts, sources.size(),
-                           black_level, static_cast<int32_t>(nominal_width),
-                           output_luma, output_chroma, output_dropouts,
-                           total_do, total_stacked);
+    process_lines_range_yc(
+        0, height, nominal_width, system, all_luma, all_chroma, frame_valid,
+        all_dropouts, sources.size(), black_level,
+        static_cast<int32_t>(nominal_width), output_luma, output_chroma,
+        output_dropouts, total_do, total_stacked);
   } else {
     std::vector<std::thread> threads;
     std::vector<std::vector<DropoutRun>> thread_dos(n_threads);
@@ -760,12 +755,11 @@ void StackerStage::stack_frame_yc(
         break;
       }
       threads.emplace_back([&, t, s, e]() {
-        process_lines_range_yc(s, e, nominal_width, system, all_luma,
-                               all_chroma, frame_valid, all_dropouts,
-                               sources.size(), black_level,
-                               static_cast<int32_t>(nominal_width), output_luma,
-                               output_chroma, thread_dos[t], thread_do[t],
-                               thread_st[t]);
+        process_lines_range_yc(
+            s, e, nominal_width, system, all_luma, all_chroma, frame_valid,
+            all_dropouts, sources.size(), black_level,
+            static_cast<int32_t>(nominal_width), output_luma, output_chroma,
+            thread_dos[t], thread_do[t], thread_st[t]);
       });
     }
     for (auto& th : threads) {
@@ -870,8 +864,7 @@ void StackerStage::process_lines_range(
       DropoutRun r;
       r.frame_id = 0;
       r.sample_start = do_start;
-      r.sample_count =
-          static_cast<uint32_t>(line_base + line_len - do_start);
+      r.sample_count = static_cast<uint32_t>(line_base + line_len - do_start);
       r.severity = 50;
       output_dropouts.push_back(r);
     }
@@ -952,8 +945,7 @@ void StackerStage::process_lines_range_yc(
       DropoutRun r;
       r.frame_id = 0;
       r.sample_start = do_start;
-      r.sample_count =
-          static_cast<uint32_t>(line_base + line_len - do_start);
+      r.sample_count = static_cast<uint32_t>(line_base + line_len - do_start);
       r.severity = 50;
       output_dropouts.push_back(r);
     }

@@ -154,7 +154,8 @@ bool fetch_text_url(const std::string& url, std::string* body,
     return false;
   }
 
-  long response_code = 0;  // NOLINT(google-runtime-int): curl API requires long*
+  long response_code =
+      0;  // NOLINT(google-runtime-int): curl API requires long*
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
   curl_easy_cleanup(curl);
 
@@ -501,7 +502,8 @@ PluginRemoteLoader::DownloadResult PluginRemoteLoader::download_release_asset(
   }
 
   // Check response code
-  long response_code = 0;  // NOLINT(google-runtime-int): curl API requires long*
+  long response_code =
+      0;  // NOLINT(google-runtime-int): curl API requires long*
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &response_code);
 
   curl_easy_cleanup(curl);

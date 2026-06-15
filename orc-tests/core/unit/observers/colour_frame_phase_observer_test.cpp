@@ -22,11 +22,11 @@
 #include <optional>
 #include <vector>
 
+#include "../../../../orc/common/include/common_types.h"
 #include "../../../../orc/core/include/field_id.h"
 #include "../../../../orc/core/include/frame_descriptor.h"
 #include "../../../../orc/core/include/observation_context.h"
 #include "../../../../orc/core/include/video_frame_representation.h"
-#include "../../../../orc/common/include/common_types.h"
 
 namespace orc {
 namespace tests {
@@ -130,9 +130,9 @@ std::vector<int16_t> make_pal_frame(double burst_phase_deg, int32_t amp) {
     const double carrier_phase =
         static_cast<double>((burst_abs + static_cast<size_t>(n)) % 4) *
         (M_PI / 2.0);
-    const double sample = static_cast<double>(kPalBlanking) +
-                          static_cast<double>(amp) *
-                              std::cos(carrier_phase + phi_rad);
+    const double sample =
+        static_cast<double>(kPalBlanking) +
+        static_cast<double>(amp) * std::cos(carrier_phase + phi_rad);
     buf[burst_abs + static_cast<size_t>(n)] =
         static_cast<int16_t>(std::lround(sample));
   }
@@ -152,9 +152,9 @@ std::vector<int16_t> make_ntsc_frame(double burst_phase_deg, int32_t amp) {
     const double carrier_phase =
         static_cast<double>((burst_abs + static_cast<size_t>(n)) % 4) *
         (M_PI / 2.0);
-    const double sample = static_cast<double>(kNtscBlanking) +
-                          static_cast<double>(amp) *
-                              std::cos(carrier_phase + phi_rad);
+    const double sample =
+        static_cast<double>(kNtscBlanking) +
+        static_cast<double>(amp) * std::cos(carrier_phase + phi_rad);
     buf[burst_abs + static_cast<size_t>(n)] =
         static_cast<int16_t>(std::lround(sample));
   }
@@ -174,16 +174,17 @@ std::vector<int16_t> make_palm_frame(double burst_phase_deg, int32_t amp) {
     const double carrier_phase =
         static_cast<double>((burst_abs + static_cast<size_t>(n)) % 4) *
         (M_PI / 2.0);
-    const double sample = static_cast<double>(kNtscBlanking) +
-                          static_cast<double>(amp) *
-                              std::cos(carrier_phase + phi_rad);
+    const double sample =
+        static_cast<double>(kNtscBlanking) +
+        static_cast<double>(amp) * std::cos(carrier_phase + phi_rad);
     buf[burst_abs + static_cast<size_t>(n)] =
         static_cast<int16_t>(std::lround(sample));
   }
   return buf;
 }
 
-// Helper: run the observer on one frame and return the stored colour_frame_index.
+// Helper: run the observer on one frame and return the stored
+// colour_frame_index.
 std::optional<int32_t> observe_frame(const VideoFrameRepresentation& vfr) {
   ObservationContext ctx;
   ColourFramePhaseObserver obs;

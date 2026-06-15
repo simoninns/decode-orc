@@ -230,11 +230,20 @@ int FramePhaseCorrectorStage::measure_colour_frame_index(
   for (size_t n = 0; n < kBurstCount; ++n) {
     const double ac = static_cast<double>(burst_ptr[n]) - blanking;
     switch ((phase_base + static_cast<int>(n)) % 4) {
-      case 0: I += ac; break;
-      case 1: Q += ac; break;
-      case 2: I -= ac; break;
-      case 3: Q -= ac; break;
-      default: break;
+      case 0:
+        I += ac;
+        break;
+      case 1:
+        Q += ac;
+        break;
+      case 2:
+        I -= ac;
+        break;
+      case 3:
+        Q -= ac;
+        break;
+      default:
+        break;
     }
   }
 

@@ -163,7 +163,8 @@ void OrcGraphicsView::contextMenuEvent(QContextMenuEvent* event) {
     // NodeGraphicsObject::contextMenuEvent() to emit nodeContextMenu(), handled
     // by OrcGraphicsScene::onNodeContextMenu() -- showing only the single ORC
     // context menu.
-    QGraphicsView::contextMenuEvent(event);  // NOLINT(bugprone-parent-virtual-call)
+    QGraphicsView::contextMenuEvent(
+        event);  // NOLINT(bugprone-parent-virtual-call)
     return;
   }
 

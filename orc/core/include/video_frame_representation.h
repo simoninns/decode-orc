@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "../hints/active_line_hint.h"
+#include "frame_line_util.h"
 #include "video_metadata_types.h"
 
 namespace orc {
@@ -33,9 +34,9 @@ namespace orc {
 // Sample domain: int16_t in the CVBS_U10_4FSC 10-bit domain.
 // Frames are stored in a flat contiguous buffer:
 //   [field1_line0 | field1_line1 | … | field2_line0 | …]
-// PAL frames have non-uniform line lengths; use the line-pointer table
-// provided by dropout_util or the SourceField::line_ptrs mechanism when
-// per-line access is required.
+// PAL frames have non-uniform line lengths (1135 or 1136 samples per line).
+// Use frame_line_sample_count() / frame_line_sample_offset() from
+// frame_line_util.h when stages require per-line access.
 //
 // Thread safety: all const methods may be called concurrently from multiple
 // threads once the implementing object has been fully constructed.
@@ -74,10 +75,22 @@ class VideoFrameRepresentation {
   virtual const sample_type* get_frame(FrameID id) const = 0;
 
   // Pointer to line |line| (0-based) within the flat frame buffer.
-  // For PAL, line lengths may be 1135 or 1136; callers must use the line
-  // length from the SourceParameters or dropout_util to avoid overreading.
-  // Returns nullptr when id is not present or line is out of range.
-  virtual const sample_type* get_line(FrameID id, size_t line) const = 0;
+  // For PAL, line lengths vary (1135 or 1136 samples); use
+  // frame_line_sample_count() from frame_line_util.h to obtain the exact width
+  // before reading. Returns nullptr when id is not present or line is out of
+  // range. Override only when the frame layout cannot be derived from
+  // get_frame() plus get_video_parameters() — for example, a transform that
+  // reorders lines without materialising a new flat buffer.
+  virtual const sample_type* get_line(FrameID id, size_t line) const {
+    const sample_type* frame = get_frame(id);
+    if (!frame) return nullptr;
+    const auto params = get_video_parameters();
+    if (!params || line >= static_cast<size_t>(params->frame_height))
+      return nullptr;
+    return frame + frame_line_sample_offset(
+                       params->system,
+                       static_cast<size_t>(params->frame_width_nominal), line);
+  }
 
   // Returns an owned copy of the complete frame buffer.
   virtual std::vector<sample_type> get_frame_copy(FrameID id) const = 0;

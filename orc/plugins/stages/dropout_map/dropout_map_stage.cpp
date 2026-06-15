@@ -16,41 +16,11 @@
 #include <sstream>
 
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 
 namespace orc {
-
-// ============================================================================
-// Frame-flat sample offset helpers
-// ============================================================================
-
-namespace {
-
-// Width of a single frame-flat line (accounts for PAL non-uniform lines).
-static uint64_t frame_line_width(VideoSystem sys, size_t line,
-                                 int32_t nominal_spl) {
-  if (sys == VideoSystem::PAL) {
-    for (int i = 0; i < 4; ++i) {
-      if (line == static_cast<size_t>(kPalExtraSampleLines[i])) {
-        return static_cast<uint64_t>(nominal_spl) + 1;
-      }
-    }
-  }
-  return static_cast<uint64_t>(nominal_spl);
-}
-
-// Frame-flat sample offset of (line, sample_within_line).
-static uint64_t frame_flat_offset(VideoSystem sys, int32_t nominal_spl,
-                                  size_t line, uint32_t sample) {
-  uint64_t off = 0;
-  for (size_t l = 0; l < line; ++l) {
-    off += frame_line_width(sys, l, nominal_spl);
-  }
-  return off + sample;
-}
-
-}  // namespace
 
 // ============================================================================
 // DropoutMappedFrameRepresentation
@@ -68,7 +38,9 @@ std::optional<DropoutRun> DropoutMappedFrameRepresentation::entry_to_run(
     const DropoutEntrySpec& entry) {
   if (entry.end_sample < entry.start_sample) return std::nullopt;
   const uint64_t start =
-      frame_flat_offset(sys, nominal_spl, entry.line, entry.start_sample);
+      static_cast<uint64_t>(frame_line_sample_offset(
+          sys, static_cast<size_t>(nominal_spl), entry.line)) +
+      entry.start_sample;
   const uint64_t count =
       static_cast<uint64_t>(entry.end_sample - entry.start_sample) + 1;
   return DropoutRun{frame_id, start, static_cast<uint32_t>(count),
@@ -105,9 +77,13 @@ std::vector<DropoutRun> DropoutMappedFrameRepresentation::get_dropout_hints(
   // Apply removals: remove any source run whose range overlaps a removal spec.
   for (const auto& rem : entry.removals) {
     const uint64_t rem_start =
-        frame_flat_offset(sys, nominal_spl, rem.line, rem.start_sample);
+        static_cast<uint64_t>(frame_line_sample_offset(
+            sys, static_cast<size_t>(nominal_spl), rem.line)) +
+        rem.start_sample;
     const uint64_t rem_end =
-        frame_flat_offset(sys, nominal_spl, rem.line, rem.end_sample);
+        static_cast<uint64_t>(frame_line_sample_offset(
+            sys, static_cast<size_t>(nominal_spl), rem.line)) +
+        rem.end_sample;
 
     result.erase(std::remove_if(result.begin(), result.end(),
                                 [&](const DropoutRun& run) {

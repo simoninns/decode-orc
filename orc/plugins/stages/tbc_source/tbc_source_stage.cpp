@@ -22,7 +22,9 @@
 #include <unordered_map>
 
 #include "audio_resampler.h"
+#include "dropout_util.h"
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "ntsc_tbc_converter.h"
 #include "ntsc_tbc_yc_converter.h"
@@ -34,28 +36,6 @@
 namespace orc {
 
 namespace {
-
-// ---------------------------------------------------------------------------
-// PAL non-orthogonal line offset table (shared with CVBS source)
-// ---------------------------------------------------------------------------
-std::vector<size_t> compute_pal_line_offsets() {
-  std::vector<size_t> offsets(static_cast<size_t>(kPalFrameLines));
-  size_t offset = 0;
-  for (int32_t i = 0; i < kPalFrameLines; ++i) {
-    offsets[static_cast<size_t>(i)] = offset;
-    const bool is_extra =
-        (i == kPalExtraSampleLines[0] || i == kPalExtraSampleLines[1] ||
-         i == kPalExtraSampleLines[2] || i == kPalExtraSampleLines[3]);
-    offset += is_extra ? static_cast<size_t>(kPalMaxSamplesPerLine)
-                       : static_cast<size_t>(kPalMaxSamplesPerLine - 1);
-  }
-  return offsets;
-}
-
-const std::vector<size_t>& pal_line_offsets_tbc() {
-  static const std::vector<size_t> kOffsets = compute_pal_line_offsets();
-  return kOffsets;
-}
 
 // Build SourceParameters from TBCVideoParams using spec-defined CVBS levels.
 SourceParameters build_source_params(const TBCVideoParams& tvp,
@@ -260,20 +240,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     return it != frame_cache_.end() ? it->second.samples.data() : nullptr;
   }
 
-  const sample_type* get_line(FrameID id, size_t line) const override {
-    if (!has_frame(id) ||
-        line >= static_cast<size_t>(source_params_.frame_height)) {
-      return nullptr;
-    }
-    const sample_type* frame = get_frame(id);
-    if (!frame) return nullptr;
-    if (video_params_.system == VideoSystem::PAL) {
-      return frame + pal_line_offsets_tbc()[line];
-    }
-    return frame +
-           line * static_cast<size_t>(source_params_.frame_width_nominal);
-  }
-
   std::vector<sample_type> get_frame_copy(FrameID id) const override {
     if (!has_frame(id)) return {};
     const sample_type* ptr = get_frame(id);
@@ -329,6 +295,42 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     hint.last_active_field_line = source_params_.last_active_frame_line / 2;
     hint.source = HintSource::METADATA;
     return hint;
+  }
+
+  std::vector<DropoutRun> get_dropout_hints(FrameID id) const override {
+    if (!has_frame(id)) return {};
+
+    const VideoSystem sys = video_params_.system;
+    const size_t tbc_f1_idx = static_cast<size_t>(id) * 2;
+    const size_t tbc_f2_idx = tbc_f1_idx + 1;
+
+    std::vector<DropoutRun> result;
+
+    // TBC field 1 (even index) assembles into VFR field 2 (bottom half).
+    if (tbc_f1_idx < field_meta_.size()) {
+      for (const auto& d : field_meta_[tbc_f1_idx].dropouts) {
+        if (d.end_sample < d.start_sample) continue;
+        const uint64_t flat_start = dropout_util::field_line_to_frame_sample(
+            sys, 2, static_cast<int32_t>(d.line),
+            static_cast<int32_t>(d.start_sample));
+        const uint32_t count = d.end_sample - d.start_sample + 1;
+        result.push_back({id, flat_start, count, 100});
+      }
+    }
+
+    // TBC field 2 (odd index) assembles into VFR field 1 (top half).
+    if (tbc_f2_idx < field_meta_.size()) {
+      for (const auto& d : field_meta_[tbc_f2_idx].dropouts) {
+        if (d.end_sample < d.start_sample) continue;
+        const uint64_t flat_start = dropout_util::field_line_to_frame_sample(
+            sys, 1, static_cast<int32_t>(d.line),
+            static_cast<int32_t>(d.start_sample));
+        const uint32_t count = d.end_sample - d.start_sample + 1;
+        result.push_back({id, flat_start, count, 100});
+      }
+    }
+
+    return result;
   }
 
   std::optional<SourceParameters> get_video_parameters() const override {
@@ -802,6 +804,7 @@ class TBCSourceStageDeps final : public ITBCSourceStageDeps {
     }
 
     const auto all = reader.read_all_field_metadata();
+    reader.read_all_dropouts();
     std::vector<TBCFieldMeta> result;
     result.reserve(all.size());
     for (const auto& [fid, fm] : all) {
@@ -811,6 +814,7 @@ class TBCSourceStageDeps final : public ITBCSourceStageDeps {
       meta.efm_t_value_count = fm.efm_t_values;
       meta.ac3rf_symbol_count = fm.ac3rf_symbols;
       meta.file_location = fm.file_location;
+      meta.dropouts = reader.read_dropouts(fid);
       result.push_back(meta);
     }
     return result;

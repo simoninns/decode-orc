@@ -13,34 +13,10 @@
 #include <algorithm>
 #include <stdexcept>
 
+#include "frame_line_util.h"
+
 namespace orc {
 namespace dropout_util {
-
-// ---------------------------------------------------------------------------
-// PAL helpers
-// ---------------------------------------------------------------------------
-
-// Returns the number of samples in frame-flat line |flat_line| (0-based).
-// kPalExtraSampleLines lines have 1136 samples; all others have 1135.
-static int32_t pal_line_samples(int32_t flat_line) {
-  for (int32_t extra : kPalExtraSampleLines) {
-    if (flat_line == extra) return kPalMaxSamplesPerLine;
-  }
-  return kPalMaxSamplesPerLine - 1;  // 1135
-}
-
-// Returns the cumulative sample offset at the start of frame-flat line
-// |flat_line| (0-based).  O(4) because only 4 lines are non-orthogonal.
-static uint64_t pal_cumulative_offset(int32_t flat_line) {
-  // Base: all lines up to flat_line have 1135 samples.
-  uint64_t offset =
-      static_cast<uint64_t>(flat_line) * (kPalMaxSamplesPerLine - 1);
-  // Add one extra sample for each non-orthogonal line before flat_line.
-  for (int32_t extra : kPalExtraSampleLines) {
-    if (extra < flat_line) ++offset;
-  }
-  return offset;
-}
 
 // ---------------------------------------------------------------------------
 // frame_sample_to_field_line
@@ -56,7 +32,9 @@ FieldLineSample frame_sample_to_field_line(VideoSystem sys,
     int32_t flat_line = 0;
     uint64_t cumulative = 0;
     for (int32_t l = 0; l < kPalFrameLines; ++l) {
-      int32_t line_len = pal_line_samples(l);
+      int32_t line_len = static_cast<int32_t>(frame_line_sample_count(
+          VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+          static_cast<size_t>(l)));
       if (cumulative + static_cast<uint64_t>(line_len) > frame_sample_offset) {
         flat_line = l;
         break;
@@ -124,7 +102,9 @@ uint64_t field_line_to_frame_sample(VideoSystem sys, int32_t field,
   if (sys == VideoSystem::PAL) {
     // Convert field-relative line to frame-flat line.
     int32_t flat_line = (field == 1) ? line : kPalField1Lines + line;
-    return pal_cumulative_offset(flat_line) +
+    return static_cast<uint64_t>(frame_line_sample_offset(
+               VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+               static_cast<size_t>(flat_line))) +
            static_cast<uint64_t>(sample_within_line);
 
   } else if (sys == VideoSystem::NTSC) {

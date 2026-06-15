@@ -61,9 +61,6 @@ class MaskedFrameRepresentation : public VideoFrameRepresentationWrapper,
   void parse_line_spec(const std::string& line_spec);
   int16_t ire_to_sample(double ire) const;
 
-  // Return the sample width for the given frame line (PAL 1136-sample lines).
-  size_t line_width(FrameID id, size_t line) const;
-
   std::vector<LineRange> line_ranges_;
   double mask_ire_;
 

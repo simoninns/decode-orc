@@ -15,6 +15,7 @@
 #include <cmath>
 
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 
@@ -48,7 +49,8 @@ bool is_pal(VideoSystem sys) { return sys == VideoSystem::PAL; }
 // ============================================================================
 
 std::vector<LineDropout> DropoutCorrectStage::runs_to_line_dropouts(
-    const std::vector<DropoutRun>& runs, size_t nominal_spl) {
+    const std::vector<DropoutRun>& runs, VideoSystem system,
+    size_t nominal_spl) {
   if (nominal_spl == 0) {
     return {};
   }
@@ -58,9 +60,13 @@ std::vector<LineDropout> DropoutCorrectStage::runs_to_line_dropouts(
     uint64_t remaining = run.sample_count;
     uint64_t offset = run.sample_start;
     while (remaining > 0) {
-      const uint32_t line = static_cast<uint32_t>(offset / nominal_spl);
-      const uint32_t start = static_cast<uint32_t>(offset % nominal_spl);
-      const uint32_t avail = static_cast<uint32_t>(nominal_spl) - start;
+      auto [flat_line, start_in_line] =
+          frame_flat_offset_to_line_sample(system, nominal_spl, offset);
+      const uint32_t line = static_cast<uint32_t>(flat_line);
+      const uint32_t start = static_cast<uint32_t>(start_in_line);
+      const size_t line_len =
+          frame_line_sample_count(system, nominal_spl, flat_line);
+      const uint32_t avail = static_cast<uint32_t>(line_len) - start;
       const uint32_t count = static_cast<uint32_t>(
           std::min(remaining, static_cast<uint64_t>(avail)));
       result.push_back({line, start, static_cast<uint32_t>(start + count - 1)});
@@ -513,7 +519,7 @@ void DropoutCorrectStage::correct_single_frame(
   const size_t field1_lines = field1_lines_for_system(desc.system);
 
   auto runs = source->get_dropout_hints(frame_id);
-  auto dropouts = runs_to_line_dropouts(runs, spl);
+  auto dropouts = runs_to_line_dropouts(runs, desc.system, spl);
 
   ORC_LOG_DEBUG(
       "DropoutCorrectStage: frame {} has {} dropout hints ({} line-dropouts)",

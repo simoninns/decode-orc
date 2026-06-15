@@ -90,10 +90,6 @@ class FrameFieldSwapRepresentation : public VideoFrameRepresentationWrapper,
   // output_line [0 .. field2_lines-1] → source [field1_lines .. H-1]
   // output_line [field2_lines .. H-1] → source [0 .. field1_lines-1]
   size_t remap_line(size_t output_line, size_t frame_height) const;
-
-  // Sample count for a given source frame line (handles PAL non-uniform lines).
-  static size_t line_sample_width(VideoSystem sys, size_t src_line,
-                                  int32_t nominal_spl);
 };
 
 // ============================================================================

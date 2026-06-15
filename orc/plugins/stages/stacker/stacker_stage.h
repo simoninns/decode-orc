@@ -65,7 +65,6 @@ class StackedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
 
   // Flat access — stacks on demand, caches result
   const sample_type* get_frame(FrameID id) const override;
-  const sample_type* get_line(FrameID id, size_t line) const override;
   std::vector<sample_type> get_frame_copy(FrameID id) const override;
 
   // YC
@@ -236,7 +235,7 @@ class StackerStage : public DAGStage,
 
   // Line processing (parallel-friendly)
   void process_lines_range(
-      size_t start_line, size_t end_line, size_t width,
+      size_t start_line, size_t end_line, size_t width, VideoSystem system,
       const std::vector<std::vector<sample_type>>& all_frames,
       const std::vector<bool>& frame_valid,
       const std::vector<std::vector<DropoutRun>>& all_dropouts,
@@ -246,7 +245,7 @@ class StackerStage : public DAGStage,
       size_t& total_stacked) const;
 
   void process_lines_range_yc(
-      size_t start_line, size_t end_line, size_t width,
+      size_t start_line, size_t end_line, size_t width, VideoSystem system,
       const std::vector<std::vector<sample_type>>& all_luma,
       const std::vector<std::vector<sample_type>>& all_chroma,
       const std::vector<bool>& frame_valid,

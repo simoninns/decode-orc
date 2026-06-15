@@ -88,10 +88,6 @@ class PhaseCorectedRepresentation : public VideoFrameRepresentationWrapper,
   size_t field1_lines_ = 0;
 
   size_t remap_line(size_t output_line, size_t frame_height) const;
-
-  // Line width for PAL non-uniform lines (handles 1135/1136-sample lines).
-  static size_t line_sample_width(VideoSystem sys, size_t src_line,
-                                  int32_t nominal_spl);
 };
 
 // ============================================================================

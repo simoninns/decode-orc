@@ -144,7 +144,8 @@ class DropoutCorrectStage : public DAGStage,
 
   // Public for unit testing
   static std::vector<LineDropout> runs_to_line_dropouts(
-      const std::vector<DropoutRun>& runs, size_t nominal_spl);
+      const std::vector<DropoutRun>& runs, VideoSystem system,
+      size_t nominal_spl);
 
  private:
   DropoutCorrectionConfig config_;

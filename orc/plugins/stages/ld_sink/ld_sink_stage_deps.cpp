@@ -20,6 +20,7 @@
 
 #include "dropout_util.h"
 #include "file_io_interface.h"
+#include "frame_line_util.h"
 #include "logging.h"
 
 namespace orc {
@@ -48,15 +49,6 @@ inline uint16_t cvbs_to_tbc(int16_t cvbs, int32_t tbc_blanking,
   return static_cast<uint16_t>(std::max(0, std::min(65535, result)));
 }
 
-// True when frame_line_index is one of the four PAL non-orthogonal lines that
-// carry 1136 samples instead of 1135.
-inline bool is_pal_extra_sample_line(int32_t frame_line) {
-  for (int32_t el : kPalExtraSampleLines) {
-    if (el == frame_line) return true;
-  }
-  return false;
-}
-
 // Split a DropoutRun (frame-flat coordinates) into per-field DropoutInfo
 // entries and append them to the appropriate output vectors.
 // tbc_f1_dropouts ← entries that belong to TBC field 1 (is_first_field=true)
@@ -79,11 +71,11 @@ void split_dropout_run(VideoSystem sys, const DropoutRun& run,
     if (sys == VideoSystem::PAL) {
       // frame_sample_to_field_line uses field-local line; reconstruct frame
       // line to check for non-orthogonal status.
-      int32_t frame_line =
+      const int32_t frame_line =
           (fls.field == 1) ? fls.line : (kPalField1Lines + fls.line);
-      line_width = is_pal_extra_sample_line(frame_line)
-                       ? kPalMaxSamplesPerLine
-                       : (kPalMaxSamplesPerLine - 1);
+      line_width = static_cast<int32_t>(frame_line_sample_count(
+          VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+          static_cast<size_t>(frame_line)));
     } else if (sys == VideoSystem::PAL_M) {
       line_width = kPalMSamplesPerLine;
     } else {

@@ -13,6 +13,7 @@
 #include <cstdint>
 
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 
@@ -32,19 +33,6 @@ size_t FrameFieldSwapRepresentation::remap_line(size_t output_line,
   }
   // Second block of output: field1 data (source lines 0..field1_lines-1)
   return output_line - field2_lines;
-}
-
-/*static*/ size_t FrameFieldSwapRepresentation::line_sample_width(
-    VideoSystem sys, size_t src_line, int32_t nominal_spl) {
-  if (sys != VideoSystem::PAL) return static_cast<size_t>(nominal_spl);
-  // EBU Tech. 3280-E §1.3.1: four lines carry one extra sample.
-  const bool extra =
-      (src_line == static_cast<size_t>(kPalExtraSampleLines[0]) ||
-       src_line == static_cast<size_t>(kPalExtraSampleLines[1]) ||
-       src_line == static_cast<size_t>(kPalExtraSampleLines[2]) ||
-       src_line == static_cast<size_t>(kPalExtraSampleLines[3]));
-  return extra ? static_cast<size_t>(nominal_spl + 1)
-               : static_cast<size_t>(nominal_spl);
 }
 
 const FrameFieldSwapRepresentation::sample_type*
@@ -70,7 +58,7 @@ FrameFieldSwapRepresentation::get_frame_copy(FrameID id) const {
   for (size_t out_line = 0; out_line < height; ++out_line) {
     const size_t src_line = remap_line(out_line, height);
     const size_t width =
-        line_sample_width(params->system, src_line, nominal_spl);
+        frame_line_sample_count(params->system, static_cast<size_t>(nominal_spl), src_line);
     const sample_type* ptr = source_->get_line(id, src_line);
     if (ptr) {
       result.insert(result.end(), ptr, ptr + width);
@@ -105,7 +93,9 @@ std::vector<DropoutRun> FrameFieldSwapRepresentation::get_dropout_hints(
   for (size_t out_line = 0; out_line < frame_height; ++out_line) {
     const size_t src_line = remap_line(out_line, frame_height);
     out_offsets[out_line + 1] =
-        out_offsets[out_line] + line_sample_width(sys, src_line, nominal_spl);
+        out_offsets[out_line] + frame_line_sample_count(
+                                    sys, static_cast<size_t>(nominal_spl),
+                                    src_line);
   }
 
   std::vector<DropoutRun> result;

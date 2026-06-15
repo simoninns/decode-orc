@@ -15,6 +15,7 @@
 #include <sstream>
 
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 
@@ -60,22 +61,6 @@ size_t PhaseCorectedRepresentation::remap_line(size_t output_line,
     return field1_lines_ + output_line;
   }
   return output_line - field2_lines;
-}
-
-size_t PhaseCorectedRepresentation::line_sample_width(VideoSystem sys,
-                                                      size_t src_line,
-                                                      int32_t nominal_spl) {
-  // PAL has 4 lines per frame with 1136 samples; all others are uniform.
-  // EBU Tech. 3280-E §1.3.1: frame-flat indices 155, 311, 469 (=313+156),
-  // 625 (=313+312).
-  if (sys == VideoSystem::PAL) {
-    if (src_line == 155 || src_line == 311 ||
-        src_line == static_cast<size_t>(kPalField1Lines) + 156 ||
-        src_line == static_cast<size_t>(kPalField1Lines) + 312) {
-      return static_cast<size_t>(kPalMaxSamplesPerLine);
-    }
-  }
-  return static_cast<size_t>(nominal_spl);
 }
 
 std::optional<FrameDescriptor>
@@ -136,10 +121,12 @@ PhaseCorectedRepresentation::get_frame_copy(FrameID id) const {
     size_t src_line = remap_line(out_line, desc->height);
     const sample_type* ptr = source_->get_line(id, src_line);
     if (!ptr) {
-      size_t width = line_sample_width(desc->system, src_line, nominal_spl);
+      size_t width = frame_line_sample_count(
+          desc->system, static_cast<size_t>(nominal_spl), src_line);
       result.insert(result.end(), width, 0);
     } else {
-      size_t width = line_sample_width(desc->system, src_line, nominal_spl);
+      size_t width = frame_line_sample_count(
+          desc->system, static_cast<size_t>(nominal_spl), src_line);
       result.insert(result.end(), ptr, ptr + width);
     }
   }

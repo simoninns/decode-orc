@@ -15,6 +15,7 @@
 #include <frame_id.h>
 #include <orc_source_parameters.h>
 #include <stage_parameter.h>
+#include <tbc_metadata.h>
 #include <video_frame_representation.h>
 
 #include <cstdint>
@@ -67,6 +68,7 @@ struct TBCFieldMeta {
   std::optional<int32_t> efm_t_value_count;
   std::optional<int32_t> ac3rf_symbol_count;
   std::optional<int64_t> file_location;  // byte offset in .tbc (informational)
+  std::vector<DropoutInfo> dropouts;     // field-local TBC dropout regions
 };
 
 // ---------------------------------------------------------------------------

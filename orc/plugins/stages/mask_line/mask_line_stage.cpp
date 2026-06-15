@@ -15,6 +15,7 @@
 #include <sstream>
 
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 
@@ -88,30 +89,15 @@ int16_t MaskedFrameRepresentation::ire_to_sample(double ire) const {
       std::clamp(static_cast<int32_t>(b + (ire / 100.0) * range), 0, 1023));
 }
 
-size_t MaskedFrameRepresentation::line_width(FrameID id, size_t line) const {
-  auto params = source_ ? source_->get_video_parameters() : std::nullopt;
-  if (!params.has_value()) return 0;
-  const int32_t nominal = params->frame_width_nominal;
-  if (params->system == VideoSystem::PAL) {
-    // EBU Tech. 3280-E §1.3.1: four non-orthogonal lines carry one extra
-    // sample.
-    const bool extra = (line == static_cast<size_t>(kPalExtraSampleLines[0]) ||
-                        line == static_cast<size_t>(kPalExtraSampleLines[1]) ||
-                        line == static_cast<size_t>(kPalExtraSampleLines[2]) ||
-                        line == static_cast<size_t>(kPalExtraSampleLines[3]));
-    return static_cast<size_t>(extra ? nominal + 1 : nominal);
-  }
-  (void)id;
-  return static_cast<size_t>(nominal);
-}
-
 const MaskedFrameRepresentation::sample_type*
 MaskedFrameRepresentation::get_line(FrameID id, size_t line) const {
   if (!source_) return nullptr;
   if (!should_mask_line(line)) return source_->get_line(id, line);
 
-  const size_t width = line_width(id, line);
-  if (width == 0) return nullptr;
+  auto params = source_ ? source_->get_video_parameters() : std::nullopt;
+  if (!params.has_value()) return nullptr;
+  const size_t width = frame_line_sample_count(
+      params->system, static_cast<size_t>(params->frame_width_nominal), line);
 
   const int16_t val = ire_to_sample(mask_ire_);
   masked_line_buffer_.assign(width, val);
@@ -128,7 +114,8 @@ MaskedFrameRepresentation::get_frame_copy(FrameID id) const {
   std::vector<sample_type> result;
   result.reserve(desc->samples_total);
   for (size_t line = 0; line < desc->height; ++line) {
-    const size_t w = line_width(id, line);
+    const size_t w = frame_line_sample_count(
+        params->system, static_cast<size_t>(params->frame_width_nominal), line);
     const sample_type* ptr = get_line(id, line);
     if (ptr) {
       result.insert(result.end(), ptr, ptr + w);
@@ -144,8 +131,10 @@ MaskedFrameRepresentation::get_line_luma(FrameID id, size_t line) const {
   if (!source_ || !source_->has_separate_channels()) return nullptr;
   if (!should_mask_line(line)) return source_->get_line_luma(id, line);
 
-  const size_t width = line_width(id, line);
-  if (width == 0) return nullptr;
+  auto params_luma = source_ ? source_->get_video_parameters() : std::nullopt;
+  if (!params_luma.has_value()) return nullptr;
+  const size_t width = frame_line_sample_count(
+      params_luma->system, static_cast<size_t>(params_luma->frame_width_nominal), line);
   const int16_t val = ire_to_sample(mask_ire_);
   masked_luma_buffer_.assign(width, val);
   return masked_luma_buffer_.data();
@@ -156,8 +145,10 @@ MaskedFrameRepresentation::get_line_chroma(FrameID id, size_t line) const {
   if (!source_ || !source_->has_separate_channels()) return nullptr;
   if (!should_mask_line(line)) return source_->get_line_chroma(id, line);
 
-  const size_t width = line_width(id, line);
-  if (width == 0) return nullptr;
+  auto params_chroma = source_ ? source_->get_video_parameters() : std::nullopt;
+  if (!params_chroma.has_value()) return nullptr;
+  const size_t width = frame_line_sample_count(
+      params_chroma->system, static_cast<size_t>(params_chroma->frame_width_nominal), line);
   const int16_t val = ire_to_sample(mask_ire_);
   masked_chroma_buffer_.assign(width, val);
   return masked_chroma_buffer_.data();

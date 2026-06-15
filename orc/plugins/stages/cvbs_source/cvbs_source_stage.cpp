@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "error_types.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 
@@ -42,33 +43,6 @@ std::string derive_sidecar_path(const std::string& input_path,
   namespace fs = std::filesystem;
   const fs::path p(input_path);
   return (p.parent_path() / p.stem()).string() + suffix;
-}
-
-// ---------------------------------------------------------------------------
-// PAL non-orthogonal line offset table
-// ---------------------------------------------------------------------------
-
-// EBU Tech. 3280-E §1.3.1: build a lookup from 0-based frame-flat line index
-// to sample offset within the flat frame buffer.  The four non-orthogonal
-// lines (kPalExtraSampleLines) carry 1136 samples; all others carry 1135.
-std::vector<size_t> compute_pal_line_offsets() {
-  std::vector<size_t> offsets(static_cast<size_t>(kPalFrameLines));
-  size_t offset = 0;
-  for (int32_t i = 0; i < kPalFrameLines; ++i) {
-    offsets[static_cast<size_t>(i)] = offset;
-    const bool is_extra =
-        (i == kPalExtraSampleLines[0] || i == kPalExtraSampleLines[1] ||
-         i == kPalExtraSampleLines[2] || i == kPalExtraSampleLines[3]);
-    offset += is_extra ? static_cast<size_t>(kPalMaxSamplesPerLine)
-                       : static_cast<size_t>(kPalMaxSamplesPerLine - 1);
-  }
-  return offsets;
-}
-
-// Pre-computed once for the lifetime of the process.
-const std::vector<size_t>& pal_line_offsets() {
-  static const std::vector<size_t> kOffsets = compute_pal_line_offsets();
-  return kOffsets;
 }
 
 // ---------------------------------------------------------------------------
@@ -131,17 +105,21 @@ int measure_colour_frame_index(const int16_t* frame_data, VideoSystem system,
   switch (system) {
     case VideoSystem::PAL:
       burst_start = 93;
-      line_start = pal_line_offsets()[static_cast<size_t>(kRefLine)];
+      line_start = frame_line_sample_offset(VideoSystem::PAL,
+                                            static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+                                            static_cast<size_t>(kRefLine));
       break;
     case VideoSystem::NTSC:
       burst_start = 74;
-      line_start = static_cast<size_t>(kRefLine) *
-                   static_cast<size_t>(kNtscSamplesPerLine);
+      line_start = frame_line_sample_offset(VideoSystem::NTSC,
+                                            static_cast<size_t>(kNtscSamplesPerLine),
+                                            static_cast<size_t>(kRefLine));
       break;
     case VideoSystem::PAL_M:
       burst_start = 74;
-      line_start = static_cast<size_t>(kRefLine) *
-                   static_cast<size_t>(kPalMSamplesPerLine);
+      line_start = frame_line_sample_offset(VideoSystem::PAL_M,
+                                            static_cast<size_t>(kPalMSamplesPerLine),
+                                            static_cast<size_t>(kRefLine));
       break;
     default:
       return -1;
@@ -398,16 +376,6 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
     std::lock_guard<std::mutex> lock(cache_mutex_);
     const auto it = frame_cache_.find(id);
     return it != frame_cache_.end() ? it->second.samples.data() : nullptr;
-  }
-
-  const sample_type* get_line(FrameID id, size_t line) const override {
-    if (!has_frame(id) || line >= frame_height_) return nullptr;
-    const sample_type* frame = get_frame(id);
-    if (!frame) return nullptr;
-    const size_t line_offset = (system_ == VideoSystem::PAL)
-                                   ? pal_line_offsets()[line]
-                                   : line * spl_nominal_;
-    return frame + line_offset;
   }
 
   std::vector<sample_type> get_frame_copy(FrameID id) const override {

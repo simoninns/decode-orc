@@ -12,6 +12,7 @@
 #include <cvbs_signal_constants.h>
 
 #include "colour_preview_conversion.h"
+#include "frame_line_util.h"
 #include "logging.h"
 #include "preview_helpers.h"
 #include "preview_renderer.h"
@@ -1414,13 +1415,16 @@ bool ChromaSinkStage::trigger(
                               : static_cast<size_t>(orc::kPalFrameLines -
                                                     orc::kPalField1Lines);
           sf.samples_per_line = 1135;
-          // Build per-line pointer table for PAL non-uniform lines.
-          // Lines 155 and 311 (0-based within each field) carry 1136 samples.
           sf.line_ptrs.reserve(sf.line_count);
+          const size_t blank_field_base =
+              is_first_field ? 0 : static_cast<size_t>(orc::kPalField1Lines);
           size_t offset = 0;
           for (size_t ln = 0; ln < sf.line_count; ++ln) {
             sf.line_ptrs.push_back(buf + offset);
-            offset += (ln == 155 || ln == 311) ? 1136 : 1135;
+            offset += frame_line_sample_count(
+                orc::VideoSystem::PAL,
+                static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+                blank_field_base + ln);
           }
           if (is_yc_source) {
             sf.luma_line_ptrs = sf.line_ptrs;
@@ -1672,20 +1676,26 @@ SourceField ChromaSinkStage::convertToSourceField(
   const bool is_pal = (videoParams.system == orc::VideoSystem::PAL ||
                        videoParams.system == orc::VideoSystem::PAL_M);
 
-  // EBU Tech. 3280-E §1.3.1: PAL field 1 = 313 lines (311×1135 + 2×1136),
-  // PAL field 2 = 312 lines (310×1135 + 2×1136).
-  constexpr size_t kPalField1Samples = 311 * 1135 + 2 * 1136;  // 355,257
+  // EBU Tech. 3280-E §1.3.1: frame-flat offset of the start of field 2.
+  const size_t kPalField1Samples = frame_line_sample_offset(
+      orc::VideoSystem::PAL,
+      static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+      static_cast<size_t>(orc::kPalField1Lines));
 
   // Helper: build PAL per-line pointer table for non-uniform line lengths.
-  // Lines 155 and 311 (0-based within the field) carry 1136 samples.
-  auto buildPalLinePtrs = [](const int16_t* base,
-                             size_t line_count) -> std::vector<const int16_t*> {
+  // frame_base_line: 0 for field 1, kPalField1Lines for field 2.
+  auto buildPalLinePtrs = [](const int16_t* base, size_t line_count,
+                             size_t frame_base_line)
+      -> std::vector<const int16_t*> {
     std::vector<const int16_t*> ptrs;
     ptrs.reserve(line_count);
     size_t offset = 0;
     for (size_t ln = 0; ln < line_count; ++ln) {
       ptrs.push_back(base + offset);
-      offset += (ln == 155 || ln == 311) ? 1136 : 1135;
+      offset += frame_line_sample_count(
+          orc::VideoSystem::PAL,
+          static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+          frame_base_line + ln);
     }
     return ptrs;
   };
@@ -1701,11 +1711,12 @@ SourceField ChromaSinkStage::convertToSourceField(
     if (is_first_field) {
       sf.data = frame_ptr;
       sf.line_count = field1_lines;
-      sf.line_ptrs = buildPalLinePtrs(frame_ptr, field1_lines);
+      sf.line_ptrs = buildPalLinePtrs(frame_ptr, field1_lines, 0);
     } else {
       sf.data = frame_ptr + kPalField1Samples;
       sf.line_count = field2_lines;
-      sf.line_ptrs = buildPalLinePtrs(sf.data, field2_lines);
+      sf.line_ptrs = buildPalLinePtrs(
+          sf.data, field2_lines, static_cast<size_t>(orc::kPalField1Lines));
     }
   } else {
     // NTSC or PAL_M: uniform sampling, no line_ptrs needed
@@ -1737,13 +1748,17 @@ SourceField ChromaSinkStage::convertToSourceField(
         if (is_first_field) {
           sf.luma_data = luma_ptr;
           sf.chroma_data = chroma_ptr;
-          sf.luma_line_ptrs = buildPalLinePtrs(luma_ptr, sf.line_count);
-          sf.chroma_line_ptrs = buildPalLinePtrs(chroma_ptr, sf.line_count);
+          sf.luma_line_ptrs = buildPalLinePtrs(luma_ptr, sf.line_count, 0);
+          sf.chroma_line_ptrs = buildPalLinePtrs(chroma_ptr, sf.line_count, 0);
         } else {
           sf.luma_data = luma_ptr + kPalField1Samples;
           sf.chroma_data = chroma_ptr + kPalField1Samples;
-          sf.luma_line_ptrs = buildPalLinePtrs(sf.luma_data, sf.line_count);
-          sf.chroma_line_ptrs = buildPalLinePtrs(sf.chroma_data, sf.line_count);
+          sf.luma_line_ptrs = buildPalLinePtrs(
+              sf.luma_data, sf.line_count,
+              static_cast<size_t>(orc::kPalField1Lines));
+          sf.chroma_line_ptrs = buildPalLinePtrs(
+              sf.chroma_data, sf.line_count,
+              static_cast<size_t>(orc::kPalField1Lines));
         }
       } else {
         const size_t spl = sf.samples_per_line;
@@ -2144,8 +2159,13 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
     // Compute samples for this field
     size_t samples;
     if (preview_is_pal) {
-      samples =
-          is_first_field ? (311 * 1135 + 2 * 1136) : (310 * 1135 + 2 * 1136);
+      const size_t pal_f1_samples = frame_line_sample_offset(
+          orc::VideoSystem::PAL,
+          static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+          static_cast<size_t>(orc::kPalField1Lines));
+      samples = is_first_field
+                    ? pal_f1_samples
+                    : (static_cast<size_t>(orc::kPalFrameSamples) - pal_f1_samples);
       blank.samples_per_line = 1135;
       blank.line_count =
           is_first_field
@@ -2174,10 +2194,15 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
 
     if (preview_is_pal) {
       blank.line_ptrs.reserve(blank.line_count);
+      const size_t preview_field_base =
+          is_first_field ? 0 : static_cast<size_t>(orc::kPalField1Lines);
       size_t off = 0;
       for (size_t ln = 0; ln < blank.line_count; ++ln) {
         blank.line_ptrs.push_back(buf + off);
-        off += (ln == 155 || ln == 311) ? 1136 : 1135;
+        off += frame_line_sample_count(
+            orc::VideoSystem::PAL,
+            static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+            preview_field_base + ln);
       }
       if (is_yc_source) {
         blank.luma_line_ptrs = blank.line_ptrs;

@@ -7,6 +7,7 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
+#include <frame_line_util.h>
 #include <logging.h>
 #include <preview_helpers.h>
 #include <stacker_stage.h>
@@ -241,23 +242,6 @@ StackedVideoFrameRepresentation::get_frame(FrameID id) const {
   return (p && !p->empty()) ? p->data() : nullptr;
 }
 
-const VideoFrameRepresentation::sample_type*
-StackedVideoFrameRepresentation::get_line(FrameID id, size_t line) const {
-  std::lock_guard<std::mutex> lk(cache_mutex_);
-  ensure_frame_stacked(id);
-  const auto* p = stacked_frames_.get_ptr(id);
-  if (!p || p->empty()) {
-    return nullptr;
-  }
-
-  auto desc = source_ ? source_->get_frame_descriptor(id) : std::nullopt;
-  if (!desc || line >= desc->height) {
-    return nullptr;
-  }
-  size_t stride = desc->samples_per_line_nominal;
-  return p->data() + line * stride;
-}
-
 std::vector<VideoFrameRepresentation::sample_type>
 StackedVideoFrameRepresentation::get_frame_copy(FrameID id) const {
   {
@@ -324,7 +308,9 @@ StackedVideoFrameRepresentation::get_line_luma(FrameID id, size_t line) const {
   if (!desc || line >= desc->height) {
     return nullptr;
   }
-  return p->data() + line * desc->samples_per_line_nominal;
+  return p->data() + frame_line_sample_offset(desc->system,
+                                              desc->samples_per_line_nominal,
+                                              line);
 }
 
 const VideoFrameRepresentation::sample_type*
@@ -343,7 +329,9 @@ StackedVideoFrameRepresentation::get_line_chroma(FrameID id,
   if (!desc || line >= desc->height) {
     return nullptr;
   }
-  return p->data() + line * desc->samples_per_line_nominal;
+  return p->data() + frame_line_sample_offset(desc->system,
+                                              desc->samples_per_line_nominal,
+                                              line);
 }
 
 // ── Dropout hints
@@ -583,11 +571,14 @@ void StackerStage::stack_frame(
 
   size_t height = ref_desc->height;
   size_t nominal_width = ref_desc->samples_per_line_nominal;
-  size_t total = height * nominal_width;
 
   auto params = sources[ref_src]->get_video_parameters();
+  const VideoSystem system = params ? params->system : VideoSystem::PAL;
   int32_t black_level = params ? params->black_level : 282;
 
+  // Total sample count respects non-orthogonal PAL layout.
+  const size_t total =
+      frame_line_sample_offset(system, nominal_width, height);
   output_samples.resize(total, static_cast<sample_type>(black_level));
   output_dropouts.clear();
 
@@ -628,8 +619,8 @@ void StackerStage::stack_frame(
   size_t total_stacked = 0;
 
   if (n_threads == 1) {
-    process_lines_range(0, height, nominal_width, all_frames, frame_valid,
-                        all_dropouts, sources.size(), black_level,
+    process_lines_range(0, height, nominal_width, system, all_frames,
+                        frame_valid, all_dropouts, sources.size(), black_level,
                         static_cast<int32_t>(nominal_width), output_samples,
                         output_dropouts, total_do, total_stacked);
   } else {
@@ -646,10 +637,11 @@ void StackerStage::stack_frame(
         break;
       }
       threads.emplace_back([&, t, s, e]() {
-        process_lines_range(s, e, nominal_width, all_frames, frame_valid,
-                            all_dropouts, sources.size(), black_level,
-                            static_cast<int32_t>(nominal_width), output_samples,
-                            thread_dos[t], thread_do[t], thread_st[t]);
+        process_lines_range(s, e, nominal_width, system, all_frames,
+                            frame_valid, all_dropouts, sources.size(),
+                            black_level, static_cast<int32_t>(nominal_width),
+                            output_samples, thread_dos[t], thread_do[t],
+                            thread_st[t]);
       });
     }
     for (auto& th : threads) {
@@ -696,11 +688,13 @@ void StackerStage::stack_frame_yc(
 
   size_t height = ref_desc->height;
   size_t nominal_width = ref_desc->samples_per_line_nominal;
-  size_t total = height * nominal_width;
 
   auto params = sources[ref_src]->get_video_parameters();
+  const VideoSystem system = params ? params->system : VideoSystem::PAL;
   int32_t black_level = params ? params->black_level : 282;
 
+  const size_t total =
+      frame_line_sample_offset(system, nominal_width, height);
   output_luma.resize(total, static_cast<sample_type>(black_level));
   output_chroma.resize(total, static_cast<sample_type>(black_level));
   output_dropouts.clear();
@@ -747,8 +741,8 @@ void StackerStage::stack_frame_yc(
   size_t total_stacked = 0;
 
   if (n_threads == 1) {
-    process_lines_range_yc(0, height, nominal_width, all_luma, all_chroma,
-                           frame_valid, all_dropouts, sources.size(),
+    process_lines_range_yc(0, height, nominal_width, system, all_luma,
+                           all_chroma, frame_valid, all_dropouts, sources.size(),
                            black_level, static_cast<int32_t>(nominal_width),
                            output_luma, output_chroma, output_dropouts,
                            total_do, total_stacked);
@@ -766,11 +760,12 @@ void StackerStage::stack_frame_yc(
         break;
       }
       threads.emplace_back([&, t, s, e]() {
-        process_lines_range_yc(s, e, nominal_width, all_luma, all_chroma,
-                               frame_valid, all_dropouts, sources.size(),
-                               black_level, static_cast<int32_t>(nominal_width),
-                               output_luma, output_chroma, thread_dos[t],
-                               thread_do[t], thread_st[t]);
+        process_lines_range_yc(s, e, nominal_width, system, all_luma,
+                               all_chroma, frame_valid, all_dropouts,
+                               sources.size(), black_level,
+                               static_cast<int32_t>(nominal_width), output_luma,
+                               output_chroma, thread_dos[t], thread_do[t],
+                               thread_st[t]);
       });
     }
     for (auto& th : threads) {
@@ -791,8 +786,9 @@ void StackerStage::stack_frame_yc(
 namespace {
 
 bool is_sample_dropout(const std::vector<DropoutRun>& runs, size_t line,
-                       size_t x, size_t width) {
-  uint64_t offset = static_cast<uint64_t>(line * width + x);
+                       size_t x, size_t width, orc::VideoSystem system) {
+  uint64_t offset = static_cast<uint64_t>(
+      orc::frame_line_sample_offset(system, width, line) + x);
   for (const auto& r : runs) {
     if (offset >= r.sample_start && offset < r.sample_start + r.sample_count) {
       return true;
@@ -804,7 +800,7 @@ bool is_sample_dropout(const std::vector<DropoutRun>& runs, size_t line,
 }  // namespace
 
 void StackerStage::process_lines_range(
-    size_t start_line, size_t end_line, size_t width,
+    size_t start_line, size_t end_line, size_t width, VideoSystem system,
     const std::vector<std::vector<sample_type>>& all_frames,
     const std::vector<bool>& frame_valid,
     const std::vector<std::vector<DropoutRun>>& all_dropouts,
@@ -815,22 +811,21 @@ void StackerStage::process_lines_range(
   for (size_t y = start_line; y < end_line; ++y) {
     bool in_dropout = false;
     uint64_t do_start = 0;
+    const size_t line_base = frame_line_sample_offset(system, width, y);
+    const size_t line_len = frame_line_sample_count(system, width, y);
 
-    for (size_t x = 0; x < width; ++x) {
+    for (size_t x = 0; x < line_len; ++x) {
       std::vector<int16_t> good_values;
       std::vector<int16_t> dropout_values;
       std::vector<bool> is_do(num_sources, true);
 
+      const size_t off = line_base + x;
       for (size_t si = 0; si < num_sources; ++si) {
-        if (!frame_valid[si]) {
-          continue;
-        }
-        size_t off = y * width + x;
-        if (off >= all_frames[si].size()) {
+        if (!frame_valid[si] || off >= all_frames[si].size()) {
           continue;
         }
         int16_t val = all_frames[si][off];
-        bool do_flag = is_sample_dropout(all_dropouts[si], y, x, width);
+        bool do_flag = is_sample_dropout(all_dropouts[si], y, x, width, system);
         is_do[si] = do_flag;
         if (!do_flag) {
           good_values.push_back(val);
@@ -852,7 +847,7 @@ void StackerStage::process_lines_range(
         stacked = static_cast<int16_t>(black_level);
         ++total_dropouts;
         if (!in_dropout) {
-          do_start = static_cast<uint64_t>(y * width + x);
+          do_start = static_cast<uint64_t>(off);
           in_dropout = true;
         }
       } else {
@@ -862,20 +857,21 @@ void StackerStage::process_lines_range(
           DropoutRun r;
           r.frame_id = 0;
           r.sample_start = do_start;
-          r.sample_count = static_cast<uint32_t>(y * width + x - do_start);
+          r.sample_count = static_cast<uint32_t>(off - do_start);
           r.severity = 50;
           output_dropouts.push_back(r);
           in_dropout = false;
         }
       }
-      output_samples[y * width + x] = stacked;
+      output_samples[off] = stacked;
     }
 
     if (in_dropout) {
       DropoutRun r;
       r.frame_id = 0;
       r.sample_start = do_start;
-      r.sample_count = static_cast<uint32_t>(y * width + width - do_start);
+      r.sample_count =
+          static_cast<uint32_t>(line_base + line_len - do_start);
       r.severity = 50;
       output_dropouts.push_back(r);
     }
@@ -883,7 +879,7 @@ void StackerStage::process_lines_range(
 }
 
 void StackerStage::process_lines_range_yc(
-    size_t start_line, size_t end_line, size_t width,
+    size_t start_line, size_t end_line, size_t width, VideoSystem system,
     const std::vector<std::vector<sample_type>>& all_luma,
     const std::vector<std::vector<sample_type>>& all_chroma,
     const std::vector<bool>& frame_valid,
@@ -896,21 +892,20 @@ void StackerStage::process_lines_range_yc(
   for (size_t y = start_line; y < end_line; ++y) {
     bool in_dropout = false;
     uint64_t do_start = 0;
+    const size_t line_base = frame_line_sample_offset(system, width, y);
+    const size_t line_len = frame_line_sample_count(system, width, y);
 
-    for (size_t x = 0; x < width; ++x) {
+    for (size_t x = 0; x < line_len; ++x) {
       std::vector<int16_t> good_luma;
       std::vector<int16_t> good_chroma;
       std::vector<bool> is_do(num_sources, true);
 
+      const size_t off = line_base + x;
       for (size_t si = 0; si < num_sources; ++si) {
-        if (!frame_valid[si]) {
+        if (!frame_valid[si] || off >= all_luma[si].size()) {
           continue;
         }
-        size_t off = y * width + x;
-        if (off >= all_luma[si].size()) {
-          continue;
-        }
-        bool do_flag = is_sample_dropout(all_dropouts[si], y, x, width);
+        bool do_flag = is_sample_dropout(all_dropouts[si], y, x, width, system);
         is_do[si] = do_flag;
         if (!do_flag) {
           good_luma.push_back(all_luma[si][off]);
@@ -930,7 +925,7 @@ void StackerStage::process_lines_range_yc(
         out_chroma = static_cast<int16_t>(black_level);
         ++total_dropouts;
         if (!in_dropout) {
-          do_start = static_cast<uint64_t>(y * width + x);
+          do_start = static_cast<uint64_t>(off);
           in_dropout = true;
         }
       } else {
@@ -942,14 +937,13 @@ void StackerStage::process_lines_range_yc(
           DropoutRun r;
           r.frame_id = 0;
           r.sample_start = do_start;
-          r.sample_count = static_cast<uint32_t>(y * width + x - do_start);
+          r.sample_count = static_cast<uint32_t>(off - do_start);
           r.severity = 50;
           output_dropouts.push_back(r);
           in_dropout = false;
         }
       }
 
-      size_t off = y * width + x;
       output_luma[off] = out_luma;
       output_chroma[off] = out_chroma;
     }
@@ -958,7 +952,8 @@ void StackerStage::process_lines_range_yc(
       DropoutRun r;
       r.frame_id = 0;
       r.sample_start = do_start;
-      r.sample_count = static_cast<uint32_t>(y * width + width - do_start);
+      r.sample_count =
+          static_cast<uint32_t>(line_base + line_len - do_start);
       r.severity = 50;
       output_dropouts.push_back(r);
     }

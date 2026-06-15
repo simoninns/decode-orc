@@ -164,7 +164,8 @@ TEST(DropoutCorrectStageTest, RunsToLineDropouts_SplitsAcrossLines) {
   std::vector<orc::DropoutRun> runs = {
       {0u, 5u, 10u, 0u}  // frame_id=0, start=5, count=10
   };
-  auto lds = orc::DropoutCorrectStage::runs_to_line_dropouts(runs, 10);
+  auto lds = orc::DropoutCorrectStage::runs_to_line_dropouts(
+      runs, orc::VideoSystem::NTSC, 10);
   ASSERT_EQ(lds.size(), 2u);
   EXPECT_EQ(lds[0].line, 0u);
   EXPECT_EQ(lds[0].start_sample, 5u);
@@ -178,7 +179,8 @@ TEST(DropoutCorrectStageTest, RunsToLineDropouts_WholeLineDropout) {
   std::vector<orc::DropoutRun> runs = {
       {0u, 0u, 910u, 0u}  // exactly one NTSC line
   };
-  auto lds = orc::DropoutCorrectStage::runs_to_line_dropouts(runs, 910);
+  auto lds = orc::DropoutCorrectStage::runs_to_line_dropouts(
+      runs, orc::VideoSystem::NTSC, 910);
   ASSERT_EQ(lds.size(), 1u);
   EXPECT_EQ(lds[0].line, 0u);
   EXPECT_EQ(lds[0].start_sample, 0u);
@@ -186,7 +188,8 @@ TEST(DropoutCorrectStageTest, RunsToLineDropouts_WholeLineDropout) {
 }
 
 TEST(DropoutCorrectStageTest, RunsToLineDropouts_EmptyRunsReturnsEmpty) {
-  auto lds = orc::DropoutCorrectStage::runs_to_line_dropouts({}, 910);
+  auto lds = orc::DropoutCorrectStage::runs_to_line_dropouts(
+      {}, orc::VideoSystem::NTSC, 910);
   EXPECT_TRUE(lds.empty());
 }
 

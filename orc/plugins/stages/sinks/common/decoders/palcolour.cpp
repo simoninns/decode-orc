@@ -596,15 +596,23 @@ void PalColour::detectBurst(LineInfo& line, const SourceField& inputField,
   }
 
   // Average the burst phase to get -U (reference) phase out -- burst
-  // phase is (-U +/-V). bp and bq will be of the order of 1000.
+  // phase is (-U +/-V).
   line.bp = (bp - bqo) / 2;
   line.bq = (bq + bpo) / 2;
 
   // Normalise the magnitude of the bp/bq vector to 1.
-  // Kill colour if burst too weak.
-  // XXX magic number 130000 !!! check!
+  // Kill colour if burst amplitude is below ~12% of nominal.
+  // The original constant 130000/128 was calibrated for the 16-bit TBC domain
+  // (active range = kTbcWhite − kTbcBlanking = 38016 counts).  Scale to the
+  // CVBS_U10_4FSC active range (white_level − blanking_level) so the threshold
+  // is domain-independent.
+  const double burstKillThreshold =
+      130000.0 / 128.0 *
+      static_cast<double>(videoParameters.white_level -
+                          videoParameters.blanking_level) /
+      static_cast<double>(orc::kTbcWhite - orc::kTbcBlanking);
   const double burstNorm =
-      std::max(sqrt(line.bp * line.bp + line.bq * line.bq), 130000.0 / 128);
+      std::max(sqrt(line.bp * line.bp + line.bq * line.bq), burstKillThreshold);
   line.bp /= burstNorm;
   line.bq /= burstNorm;
 }

@@ -919,6 +919,7 @@ TBCSourceStage::TBCSourceStage(std::shared_ptr<ITBCSourceStageDeps> deps)
   if (!deps_) {
     deps_ = std::make_shared<TBCSourceStageDeps>();
   }
+  set_configuration_status(orc::ConfigurationStatus::Red);
 }
 
 TBCSourceStage::SidecarPaths TBCSourceStage::resolve_sidecars(
@@ -1164,6 +1165,26 @@ bool TBCSourceStage::set_parameters(
     if (!std::holds_alternative<std::string>(v)) return false;
   }
   parameters_ = params;
+
+  const auto get_str = [&](const std::string& key) -> std::string {
+    const auto it = params.find(key);
+    if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
+      return std::get<std::string>(it->second);
+    }
+    return {};
+  };
+
+  const std::string comp_path = get_str("input_path");
+  const std::string y_path = get_str("y_path");
+  const std::string c_path = get_str("c_path");
+  const bool is_yc = (!y_path.empty() && !c_path.empty());
+
+  if (comp_path.empty() && !is_yc) {
+    set_configuration_status(orc::ConfigurationStatus::Red);
+  } else {
+    set_configuration_status(orc::ConfigurationStatus::Green);
+  }
+
   return true;
 }
 

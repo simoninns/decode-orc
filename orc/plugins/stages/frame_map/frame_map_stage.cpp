@@ -263,6 +263,10 @@ std::vector<uint8_t> FrameMappedRepresentation::get_ac3_symbols(
 // FrameMapStage
 // ============================================================================
 
+FrameMapStage::FrameMapStage() {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
+
 std::vector<std::pair<uint64_t, uint64_t>> FrameMapStage::parse_ranges(
     const std::string& spec) {
   std::vector<std::pair<uint64_t, uint64_t>> ranges;
@@ -724,6 +728,9 @@ bool FrameMapStage::set_parameters(
       return false;
     }
   }
+  set_configuration_status(range_spec_.empty()
+                               ? orc::ConfigurationStatus::Red
+                               : orc::ConfigurationStatus::Green);
   return true;
 }
 

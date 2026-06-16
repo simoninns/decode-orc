@@ -39,4 +39,9 @@ class OrcNodePainter : public QtNodes::DefaultNodePainter {
                                   QtNodes::NodeGraphicsObject& ngo) const;
   void drawFilledConnectionPointsCustom(QPainter* painter,
                                         QtNodes::NodeGraphicsObject& ngo) const;
+
+  // Draws a small traffic-light dot in the top-right corner of the node body
+  // reflecting the stage's current ConfigurationStatus.
+  void drawConfigStatusDot(QPainter* painter,
+                           QtNodes::NodeGraphicsObject& ngo) const;
 };

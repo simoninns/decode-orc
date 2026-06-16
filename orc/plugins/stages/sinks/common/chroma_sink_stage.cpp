@@ -120,7 +120,9 @@ ChromaSinkStage::ChromaSinkStage()
       hardware_encoder_("none"),
       prores_profile_("hq"),
       use_lossless_mode_(false),
-      apply_deinterlace_(false) {}
+      apply_deinterlace_(false) {
+  set_configuration_status(orc::ConfigurationStatus::Yellow);
+}
 
 ChromaSinkStage::~ChromaSinkStage() {}
 
@@ -768,6 +770,9 @@ bool ChromaSinkStage::set_parameters(
         "recreated on next preview");
   }
 
+  set_configuration_status(output_path_.empty()
+                               ? orc::ConfigurationStatus::Yellow
+                               : orc::ConfigurationStatus::Green);
   return true;
 }
 

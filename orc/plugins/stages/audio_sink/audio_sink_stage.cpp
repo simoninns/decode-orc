@@ -19,7 +19,9 @@
 
 namespace orc {
 
-AudioSinkStage::AudioSinkStage() = default;
+AudioSinkStage::AudioSinkStage() {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
 
 NodeTypeInfo AudioSinkStage::get_node_type_info() const {
   return NodeTypeInfo{NodeType::SINK,
@@ -76,6 +78,14 @@ std::map<std::string, ParameterValue> AudioSinkStage::get_parameters() const {
 bool AudioSinkStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
   parameters_ = params;
+
+  const auto it = params.find("output_path");
+  const bool has_path =
+      (it != params.end() && std::holds_alternative<std::string>(it->second) &&
+       !std::get<std::string>(it->second).empty());
+
+  set_configuration_status(has_path ? orc::ConfigurationStatus::Green
+                                    : orc::ConfigurationStatus::Red);
   return true;
 }
 

@@ -1276,6 +1276,33 @@ std::optional<StageInspectionView> ProjectPresenter::getNodeInspection(
   return view;
 }
 
+orc::ConfigurationStatus ProjectPresenter::getNodeConfigurationStatus(
+    orc::NodeID node_id) const {
+  if (!getProject()) return orc::ConfigurationStatus::Green;
+
+  const auto& nodes = getProject()->get_nodes();
+  auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                              [&node_id](const orc::ProjectDAGNode& n) {
+                                return n.node_id == node_id;
+                              });
+
+  if (node_it == nodes.end()) return orc::ConfigurationStatus::Green;
+
+  try {
+    auto stage =
+        orc::StageRegistry::instance().create_stage(node_it->stage_name);
+
+    auto* param_stage = dynamic_cast<orc::ParameterizedStage*>(stage.get());
+    if (param_stage) {
+      param_stage->set_parameters(node_it->parameters);
+    }
+
+    return stage->get_configuration_status();
+  } catch (...) {
+    return orc::ConfigurationStatus::Green;
+  }
+}
+
 std::shared_ptr<void> ProjectPresenter::getDAG() const {
   if (!project_.get()) return nullptr;
 

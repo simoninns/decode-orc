@@ -115,6 +115,10 @@ std::vector<DropoutRun> DropoutMappedFrameRepresentation::get_dropout_hints(
 // DropoutMapStage
 // ============================================================================
 
+DropoutMapStage::DropoutMapStage() {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
+
 std::vector<ArtifactPtr> DropoutMapStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
@@ -178,6 +182,9 @@ bool DropoutMapStage::set_parameters(
     const auto* v = std::get_if<std::string>(&params.at("dropout_map"));
     if (v) dropout_map_str_ = *v;
   }
+  const bool has_map = !dropout_map_str_.empty() && dropout_map_str_ != "[]";
+  set_configuration_status(has_map ? orc::ConfigurationStatus::Green
+                                   : orc::ConfigurationStatus::Red);
   return true;
 }
 

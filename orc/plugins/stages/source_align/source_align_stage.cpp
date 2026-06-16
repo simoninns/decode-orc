@@ -124,6 +124,14 @@ class AlignedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
 };
 
 // ============================================================================
+// SourceAlignStage
+// ============================================================================
+
+SourceAlignStage::SourceAlignStage() {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
+
+// ============================================================================
 // SourceAlignStage helpers
 // ============================================================================
 
@@ -276,25 +284,26 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
 
   std::vector<FrameID> offsets;
 
-  if (!alignment_map_.empty()) {
-    const auto entries = parse_alignment_map(alignment_map_);
-    if (entries.empty()) {
-      throw DAGExecutionError("Invalid alignment map: " + alignment_map_);
-    }
-
-    offsets.assign(sources.size(), std::numeric_limits<FrameID>::max());
-    for (const auto& [input_id, offset_val] : entries) {
-      if (input_id < 1 || input_id > sources.size()) {
-        throw DAGExecutionError("Alignment map references invalid input ID: " +
-                                std::to_string(input_id));
-      }
-      offsets[input_id - 1] = static_cast<FrameID>(offset_val);
-    }
-    ORC_LOG_DEBUG("Using manual alignment map: {}", alignment_map_);
-  } else {
-    ORC_LOG_INFO("Auto-detecting alignment from VBI data");
-    offsets = find_alignment_offsets(sources);
+  if (alignment_map_.empty()) {
+    throw DAGExecutionError(
+        "Alignment map is not configured. Use the Source Alignment tool to "
+        "generate the map, or set the alignmentMap parameter manually.");
   }
+
+  const auto entries = parse_alignment_map(alignment_map_);
+  if (entries.empty()) {
+    throw DAGExecutionError("Invalid alignment map: " + alignment_map_);
+  }
+
+  offsets.assign(sources.size(), std::numeric_limits<FrameID>::max());
+  for (const auto& [input_id, offset_val] : entries) {
+    if (input_id < 1 || input_id > sources.size()) {
+      throw DAGExecutionError("Alignment map references invalid input ID: " +
+                              std::to_string(input_id));
+    }
+    offsets[input_id - 1] = static_cast<FrameID>(offset_val);
+  }
+  ORC_LOG_DEBUG("Using alignment map: {}", alignment_map_);
 
   alignment_offsets_ = offsets;
 
@@ -335,8 +344,8 @@ std::vector<ParameterDescriptor> SourceAlignStage::get_parameter_descriptors(
     VideoSystem, SourceType) const {
   return {ParameterDescriptor{
       "alignmentMap", "Alignment Map",
-      "Manual alignment ('1+2, 2+2, 3+1'). Format: input_id+frame_offset "
-      "per input. Empty = auto-detect from VBI.",
+      "Alignment map ('1+2, 2+2, 3+1'). Format: input_id+frame_offset per "
+      "input. Use the Source Alignment tool to generate this value.",
       ParameterType::STRING,
       ParameterConstraints{std::nullopt,
                            std::nullopt,
@@ -363,6 +372,9 @@ bool SourceAlignStage::set_parameters(
       return false;
     }
   }
+  set_configuration_status(alignment_map_.empty()
+                               ? orc::ConfigurationStatus::Red
+                               : orc::ConfigurationStatus::Green);
   return true;
 }
 

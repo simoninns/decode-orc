@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <node_type.h>
+
 #include <map>
 #include <memory>
 #include <optional>
@@ -17,7 +19,6 @@
 #include <vector>
 
 #include "../include/artifact.h"
-#include "../include/node_type.h"
 #include "../include/observation_context.h"
 #include "../include/observation_schema.h"
 #include "../include/stage_parameter.h"
@@ -141,6 +142,33 @@ class DAGStage {
   virtual std::vector<ObservationKey> get_provided_observations() const {
     return {};  // Default: no provided observations
   }
+
+  /**
+   * @brief Report the stage's current configuration status for GUI display.
+   *
+   * Stages that have configurable parameters must call
+   * set_configuration_status() in their constructor and at the end of
+   * set_parameters() so the node editor can render the traffic-light status dot
+   * correctly.
+   *
+   * Stages that require no parameters should not override this — the default
+   * Green is correct.
+   */
+  virtual ConfigurationStatus get_configuration_status() const {
+    return configuration_status_;
+  }
+
+ protected:
+  /**
+   * @brief Set the configuration status.  Call this in the constructor and
+   * whenever set_parameters() completes to reflect the current state.
+   */
+  void set_configuration_status(ConfigurationStatus status) {
+    configuration_status_ = status;
+  }
+
+ private:
+  ConfigurationStatus configuration_status_{ConfigurationStatus::Green};
 };
 
 /**

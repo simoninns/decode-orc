@@ -19,7 +19,9 @@
 
 namespace orc {
 
-RawEFMSinkStage::RawEFMSinkStage() = default;
+RawEFMSinkStage::RawEFMSinkStage() {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
 
 NodeTypeInfo RawEFMSinkStage::get_node_type_info() const {
   return NodeTypeInfo{
@@ -77,6 +79,14 @@ std::map<std::string, ParameterValue> RawEFMSinkStage::get_parameters() const {
 bool RawEFMSinkStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
   parameters_ = params;
+
+  const auto it = params.find("output_path");
+  const bool has_path =
+      (it != params.end() && std::holds_alternative<std::string>(it->second) &&
+       !std::get<std::string>(it->second).empty());
+
+  set_configuration_status(has_path ? orc::ConfigurationStatus::Green
+                                    : orc::ConfigurationStatus::Red);
   return true;
 }
 

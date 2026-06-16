@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <node_type.h>
 #include <orc_source_parameters.h>
 #include <parameter_types.h>
 
@@ -101,6 +102,10 @@ class IProjectPresenter {
 
   // === Stage Inspection ===
   virtual std::optional<StageInspectionView> getNodeInspection(
+      NodeID node_id) const = 0;
+
+  // === Configuration Status ===
+  virtual orc::ConfigurationStatus getNodeConfigurationStatus(
       NodeID node_id) const = 0;
 
   // === DAG Operations ===

@@ -96,8 +96,31 @@ std::string OrcGraphModel::getNodeStageName(const NodeID& node_id) const {
 void OrcGraphModel::refresh() {
   ORC_LOG_DEBUG("OrcGraphModel::refresh - Rebuilding node mappings");
   buildMappings();
+  config_status_cache_.clear();
   ORC_LOG_DEBUG("OrcGraphModel::refresh - Emitting modelReset signal");
   Q_EMIT modelReset();
+}
+
+orc::ConfigurationStatus OrcGraphModel::getConfigurationStatus(
+    NodeId nodeId) const {
+  auto cache_it = config_status_cache_.find(nodeId);
+  if (cache_it != config_status_cache_.end()) {
+    return cache_it->second;
+  }
+
+  auto it = qt_to_orc_nodes_.find(nodeId);
+  if (it == qt_to_orc_nodes_.end()) {
+    return orc::ConfigurationStatus::Green;
+  }
+
+  orc::ConfigurationStatus status =
+      presenter_.getNodeConfigurationStatus(it->second);
+  config_status_cache_[nodeId] = status;
+  return status;
+}
+
+void OrcGraphModel::invalidateConfigurationStatus(NodeId nodeId) {
+  config_status_cache_.erase(nodeId);
 }
 
 std::unordered_set<NodeId> OrcGraphModel::allNodeIds() const {

@@ -160,6 +160,10 @@ MaskedFrameRepresentation::get_line_chroma(FrameID id, size_t line) const {
 // MaskLineStage
 // ============================================================================
 
+MaskLineStage::MaskLineStage() {
+  set_configuration_status(orc::ConfigurationStatus::Yellow);
+}
+
 std::vector<ArtifactPtr> MaskLineStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
@@ -239,6 +243,9 @@ bool MaskLineStage::set_parameters(
       mask_ire_ = std::get<double>(value);
     }
   }
+  set_configuration_status(line_spec_.empty()
+                               ? orc::ConfigurationStatus::Yellow
+                               : orc::ConfigurationStatus::Green);
   return true;
 }
 

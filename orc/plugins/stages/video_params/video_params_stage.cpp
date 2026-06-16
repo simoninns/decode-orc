@@ -21,6 +21,10 @@ namespace orc {
 // VideoParamsStage
 // ============================================================================
 
+VideoParamsStage::VideoParamsStage() {
+  set_configuration_status(orc::ConfigurationStatus::Yellow);
+}
+
 std::vector<ArtifactPtr> VideoParamsStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
@@ -204,6 +208,12 @@ bool VideoParamsStage::set_parameters(
       return false;
     }
   }
+  const bool any_set = active_video_start_ != -1 || active_video_end_ != -1 ||
+                       first_active_frame_line_ != -1 ||
+                       last_active_frame_line_ != -1 || white_level_ != -1 ||
+                       black_level_ != -1;
+  set_configuration_status(any_set ? orc::ConfigurationStatus::Green
+                                   : orc::ConfigurationStatus::Yellow);
   return true;
 }
 

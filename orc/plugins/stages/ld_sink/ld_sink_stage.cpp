@@ -21,7 +21,9 @@
 namespace orc {
 
 LDSinkStage::LDSinkStage(IStageServices* stage_services)
-    : stage_services_(stage_services) {}
+    : stage_services_(stage_services) {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
 
 NodeTypeInfo LDSinkStage::get_node_type_info() const {
   return NodeTypeInfo{NodeType::SINK,    // type
@@ -88,6 +90,9 @@ bool LDSinkStage::set_parameters(
     }
   }
 
+  set_configuration_status(output_path_.empty()
+                               ? orc::ConfigurationStatus::Red
+                               : orc::ConfigurationStatus::Green);
   return true;
 }
 

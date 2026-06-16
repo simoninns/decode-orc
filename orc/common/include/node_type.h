@@ -39,6 +39,18 @@ enum class VideoFormatCompatibility {
 enum class SinkCategory { CORE, ANALYSIS, THIRD_PARTY };
 
 /**
+ * @brief Visual configuration status reported by a stage
+ *
+ * Stages set this in their constructor and whenever set_parameters() is called
+ * to tell the GUI how to colour the status dot on the node.
+ */
+enum class ConfigurationStatus {
+  Green = 0,   ///< Fully configured or requires no parameters
+  Yellow = 1,  ///< Partially configured; some parameters are missing or empty
+  Red = 2,     ///< Unconfigured; critical required parameters are absent
+};
+
+/**
  * @brief Node connectivity pattern
  *
  * Defines the input/output structure of a DAG node type.

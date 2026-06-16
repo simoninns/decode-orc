@@ -154,7 +154,7 @@ class FrameMapStage : public DAGStage,
                       public ParameterizedStage,
                       public IStagePreviewCapability {
  public:
-  FrameMapStage() = default;
+  FrameMapStage();
 
   std::string version() const override { return "1.0"; }
 

@@ -19,7 +19,9 @@
 
 namespace orc {
 
-AC3RFSinkStage::AC3RFSinkStage() = default;
+AC3RFSinkStage::AC3RFSinkStage() {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
 
 NodeTypeInfo AC3RFSinkStage::get_node_type_info() const {
   return NodeTypeInfo{NodeType::SINK,
@@ -74,6 +76,14 @@ std::map<std::string, ParameterValue> AC3RFSinkStage::get_parameters() const {
 bool AC3RFSinkStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
   parameters_ = params;
+
+  const auto it = params.find("output_path");
+  const bool has_path =
+      (it != params.end() && std::holds_alternative<std::string>(it->second) &&
+       !std::get<std::string>(it->second).empty());
+
+  set_configuration_status(has_path ? orc::ConfigurationStatus::Green
+                                    : orc::ConfigurationStatus::Red);
   return true;
 }
 

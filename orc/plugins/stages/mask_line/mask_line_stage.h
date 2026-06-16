@@ -77,7 +77,7 @@ class MaskLineStage : public DAGStage,
                       public IStagePreviewCapability,
                       public StageToolProvider {
  public:
-  MaskLineStage() = default;
+  MaskLineStage();
 
   std::string version() const override { return "1.0"; }
   NodeTypeInfo get_node_type_info() const override {

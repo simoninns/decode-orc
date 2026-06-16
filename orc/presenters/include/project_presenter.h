@@ -515,6 +515,9 @@ class ProjectPresenter : public IProjectPresenter {
   std::optional<StageInspectionView> getNodeInspection(
       NodeID node_id) const override;
 
+  orc::ConfigurationStatus getNodeConfigurationStatus(
+      NodeID node_id) const override;
+
   // === Project Snapshots ===
 
   /**

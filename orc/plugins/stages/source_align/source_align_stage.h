@@ -34,7 +34,7 @@ class SourceAlignStage : public DAGStage,
                          public IStagePreviewCapability,
                          public IStageCustomPreviewRenderer {
  public:
-  SourceAlignStage() = default;
+  SourceAlignStage();
 
   std::string version() const override { return "1.0"; }
 

@@ -799,7 +799,9 @@ FixedFormatCVBSSourceStage::FixedFormatCVBSSourceStage(
       display_name_(fixed_display_name),
       description_(description),
       compatible_formats_(compatible_formats),
-      deps_(deps ? std::move(deps) : std::make_shared<CVBSSourceStageDeps>()) {}
+      deps_(deps ? std::move(deps) : std::make_shared<CVBSSourceStageDeps>()) {
+  set_configuration_status(orc::ConfigurationStatus::Red);
+}
 
 std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
     const std::vector<ArtifactPtr>& inputs,
@@ -1054,6 +1056,10 @@ bool FixedFormatCVBSSourceStage::set_parameters(
       return false;
     }
   }
+
+  set_configuration_status(input_path_.empty()
+                               ? orc::ConfigurationStatus::Red
+                               : orc::ConfigurationStatus::Green);
   return true;
 }
 

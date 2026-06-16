@@ -10,9 +10,11 @@
 #pragma once
 
 #include <node_id.h>
+#include <node_type.h>
 
 #include <QJsonObject>
 #include <QtNodes/AbstractGraphModel>
+#include <unordered_map>
 
 // Forward declaration
 namespace orc::presenters {
@@ -122,6 +124,21 @@ class OrcGraphModel : public QtNodes::AbstractGraphModel {
    */
   std::string getNodeStageName(const NodeID& node_id) const;
 
+  /**
+   * @brief Get the current configuration status for a node.
+   *
+   * Result is cached per node and invalidated whenever setNodeData() is
+   * called (e.g. after the parameter dialog saves new values) or when
+   * refresh() rebuilds the mapping.
+   */
+  orc::ConfigurationStatus getConfigurationStatus(NodeId nodeId) const;
+
+  /**
+   * @brief Invalidate the cached configuration status for a single node so
+   * that the next paint call re-derives it from the presenter.
+   */
+  void invalidateConfigurationStatus(NodeId nodeId);
+
  private:
   orc::presenters::IProjectPresenter& presenter_;
 
@@ -131,6 +148,11 @@ class OrcGraphModel : public QtNodes::AbstractGraphModel {
 
   // Store all connections
   std::unordered_set<ConnectionId> connectivity_;
+
+  // Per-node configuration status cache; populated lazily, cleared by refresh()
+  // and invalidated per-node by setNodeData().
+  mutable std::unordered_map<NodeId, orc::ConfigurationStatus>
+      config_status_cache_;
 
   // Helper functions
   NodeId getOrCreateQtNodeId(const NodeID& orc_node_id);

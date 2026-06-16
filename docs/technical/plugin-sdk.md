@@ -167,6 +167,49 @@ nodes. Return a vector of `ArtifactPtr` outputs to pass downstream.
 runtime value access. Use `ParameterValue` (a `std::variant`) to hold typed
 values: `bool`, `int64_t`, `double`, `std::string`, and enumerated choices.
 
+### Configuration status
+
+Stages can report their readiness to the host UI via `set_configuration_status()`,
+which accepts a value from the `orc::ConfigurationStatus` enum:
+
+| Value | Meaning |
+|-------|---------|
+| `ConfigurationStatus::Green` | Fully configured or requires no parameters |
+| `ConfigurationStatus::Yellow` | Partially configured; some parameters are missing or empty |
+| `ConfigurationStatus::Red` | Unconfigured; critical required parameters are absent |
+
+The host renders a small coloured dot on the stage node in the pipeline graph to
+give the user at-a-glance feedback.
+
+**When to call `set_configuration_status()`:**
+
+- In the constructor — set `Yellow` if the stage requires at least one parameter
+  that has no sensible default, `Green` if all parameters have working defaults.
+- At the end of `set_parameters()` — re-evaluate and call again based on the
+  values that were just applied.
+
+```cpp
+MyStage::MyStage() {
+    set_configuration_status(orc::ConfigurationStatus::Yellow);
+}
+
+bool MyStage::set_parameters(
+    const std::map<std::string, orc::ParameterValue>& params) {
+    auto it = params.find("output_path");
+    const bool ready =
+        it != params.end() &&
+        std::holds_alternative<std::string>(it->second) &&
+        !std::get<std::string>(it->second).empty();
+
+    set_configuration_status(ready ? orc::ConfigurationStatus::Green
+                                   : orc::ConfigurationStatus::Yellow);
+    return true;
+}
+```
+
+Read the current value with `get_configuration_status()` if needed. The default
+(when `set_configuration_status()` is never called) is `Green`.
+
 ### Host services
 
 Obtain `IStageServices` via `orc::plugin::get_stage_services(host_ctx)` during

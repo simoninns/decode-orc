@@ -108,6 +108,9 @@ class MockProjectPresenter : public IProjectPresenter {
   MOCK_METHOD(std::optional<StageInspectionView>, getNodeInspection,
               (NodeID node_id), (const, override));
 
+  MOCK_METHOD(orc::ConfigurationStatus, getNodeConfigurationStatus,
+              (NodeID node_id), (const, override));
+
   MOCK_METHOD(std::shared_ptr<void>, getDAG, (), (const, override));
   MOCK_METHOD(std::shared_ptr<void>, buildDAG, (), (override));
   MOCK_METHOD(bool, validateDAG, (), (override));

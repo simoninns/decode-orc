@@ -78,7 +78,7 @@ class VideoParamsStage : public DAGStage,
                          public ParameterizedStage,
                          public IStagePreviewCapability {
  public:
-  VideoParamsStage() = default;
+  VideoParamsStage();
 
   std::string version() const override { return "1.0"; }
   NodeTypeInfo get_node_type_info() const override {

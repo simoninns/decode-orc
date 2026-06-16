@@ -10,6 +10,8 @@
 
 #include "orcnodepainter.h"
 
+#include <node_type.h>
+
 #include <QJsonDocument>
 #include <QtNodes/NodeData>
 #include <QtNodes/StyleCollection>
@@ -37,6 +39,7 @@ void OrcNodePainter::paint(QPainter* painter, NodeGraphicsObject& ngo) const {
   drawResizeRect(painter, ngo);
   drawProcessingIndicator(painter, ngo);
   drawValidationIcon(painter, ngo);
+  drawConfigStatusDot(painter, ngo);  // Traffic-light configuration status dot
 }
 
 void OrcNodePainter::drawNodeCaption(QPainter* painter,
@@ -298,4 +301,45 @@ void OrcNodePainter::drawFilledConnectionPointsCustom(
       }
     }
   }
+}
+
+void OrcNodePainter::drawConfigStatusDot(QPainter* painter,
+                                         NodeGraphicsObject& ngo) const {
+  AbstractGraphModel& model = ngo.graphModel();
+  NodeId const nodeId = ngo.nodeId();
+  AbstractNodeGeometry& geometry = ngo.nodeScene()->nodeGeometry();
+
+  auto* orcModel = dynamic_cast<OrcGraphModel*>(&model);
+  if (!orcModel) return;
+
+  orc::NodeID orcNodeId = orcModel->getOrcNodeId(nodeId);
+  if (!orcNodeId.is_valid()) return;
+
+  orc::ConfigurationStatus status = orcModel->getConfigurationStatus(nodeId);
+
+  QColor dotColor;
+  switch (status) {
+    case orc::ConfigurationStatus::Green:
+      dotColor = QColor(0x4C, 0xAF, 0x50);
+      break;
+    case orc::ConfigurationStatus::Yellow:
+      dotColor = QColor(0xFF, 0xC1, 0x07);
+      break;
+    case orc::ConfigurationStatus::Red:
+      dotColor = QColor(0xF4, 0x43, 0x36);
+      break;
+  }
+
+  QSizeF nodeSize = geometry.size(nodeId);
+
+  // Position in the top-right corner, inset from the border
+  constexpr double kDotRadius = 5.0;
+  constexpr double kMargin = 8.0;
+  QPointF center(nodeSize.width() - kMargin, kMargin);
+
+  painter->save();
+  painter->setPen(Qt::NoPen);
+  painter->setBrush(dotColor);
+  painter->drawEllipse(center, kDotRadius, kDotRadius);
+  painter->restore();
 }

@@ -77,7 +77,7 @@ class DropoutMapStage : public DAGStage,
                         public IStagePreviewCapability,
                         public StageToolProvider {
  public:
-  DropoutMapStage() = default;
+  DropoutMapStage();
 
   std::string version() const override { return "1.0"; }
 

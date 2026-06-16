@@ -238,7 +238,7 @@ TBCMetadataSqliteReader::read_video_parameters() {
     // ITU-R BT.1700-1 Annex 1 Part B (PAL_M).
     switch (params.system) {
       case VideoSystem::PAL:
-        params.frame_width_nominal = kPalMaxSamplesPerLine - 1;
+        params.frame_width_nominal = kPalSamplesPerLineNominal;
         params.frame_height = kPalFrameLines;
         break;
       case VideoSystem::PAL_M:

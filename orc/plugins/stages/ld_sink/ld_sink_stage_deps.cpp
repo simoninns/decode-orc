@@ -74,7 +74,7 @@ void split_dropout_run(VideoSystem sys, const DropoutRun& run,
       const int32_t frame_line =
           (fls.field == 1) ? fls.line : (kPalField1Lines + fls.line);
       line_width = static_cast<int32_t>(frame_line_sample_count(
-          VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+          VideoSystem::PAL, static_cast<size_t>(kPalSamplesPerLineNominal),
           static_cast<size_t>(frame_line)));
     } else if (sys == VideoSystem::PAL_M) {
       line_width = kPalMSamplesPerLine;
@@ -224,7 +224,7 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
     if (sys == VideoSystem::PAL) {
       frame_lines_total = kPalFrameLines;
       field1_cvbs_line_count = kPalField1Lines;
-      nominal_line_width = kPalMaxSamplesPerLine - 1;  // 1135
+      nominal_line_width = kPalSamplesPerLineNominal;  // 1135
     } else if (sys == VideoSystem::PAL_M) {
       frame_lines_total = kPalMFrameLines;
       field1_cvbs_line_count = kPalMField1Lines;

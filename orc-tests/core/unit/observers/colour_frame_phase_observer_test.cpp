@@ -87,7 +87,7 @@ class FlatBufferVFR : public VideoFrameRepresentation {
 SourceParameters make_pal_params() {
   SourceParameters p{};
   p.system = VideoSystem::PAL;
-  p.frame_width_nominal = kPalMaxSamplesPerLine - 1;
+  p.frame_width_nominal = kPalSamplesPerLineNominal;
   p.frame_height = kPalFrameLines;
   p.blanking_level = kPalBlanking;
   p.white_level = kPalWhite;
@@ -122,7 +122,7 @@ std::vector<int16_t> make_pal_frame(double burst_phase_deg, int32_t amp) {
   std::vector<int16_t> buf(n_words, static_cast<int16_t>(kPalBlanking));
 
   const size_t line9_offset =
-      static_cast<size_t>(9 * (kPalMaxSamplesPerLine - 1));
+      static_cast<size_t>(9 * (kPalSamplesPerLineNominal));
   const size_t burst_abs = line9_offset + 93;
   const double phi_rad = burst_phase_deg * (M_PI / 180.0);
 

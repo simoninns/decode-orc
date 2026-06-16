@@ -206,7 +206,7 @@ int FramePhaseCorrectorStage::measure_colour_frame_index(
     case VideoSystem::PAL:
       burst_start = 93;
       line_start = static_cast<size_t>(kRefLine) *
-                   static_cast<size_t>(kPalMaxSamplesPerLine - 1);
+                   static_cast<size_t>(kPalSamplesPerLineNominal);
       break;
     case VideoSystem::NTSC:
       burst_start = 74;

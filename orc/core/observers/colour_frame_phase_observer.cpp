@@ -136,7 +136,7 @@ void ColourFramePhaseObserver::process_frame(
     case VideoSystem::PAL:
       burst_start = 93;
       line_start = frame_line_sample_offset(
-          VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+          VideoSystem::PAL, static_cast<size_t>(kPalSamplesPerLineNominal),
           static_cast<size_t>(kRefLine));
       break;
     case VideoSystem::NTSC:

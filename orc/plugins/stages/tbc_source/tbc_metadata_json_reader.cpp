@@ -73,7 +73,7 @@ bool TBCMetadataJsonReader::open(const std::string& json_path) {
   // ITU-R BT.1700-1 Annex 1 Part B (PAL_M).
   switch (sp.system) {
     case VideoSystem::PAL:
-      sp.frame_width_nominal = kPalMaxSamplesPerLine - 1;  // 1135
+      sp.frame_width_nominal = kPalSamplesPerLineNominal;  // 1135
       sp.frame_height = kPalFrameLines;                    // 625
       break;
     case VideoSystem::PAL_M:

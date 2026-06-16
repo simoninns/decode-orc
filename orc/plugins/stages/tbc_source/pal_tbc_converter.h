@@ -65,7 +65,7 @@ class PalTBCConverter {
   // Output layout:
   //   [CVBS field 1: 313 lines (= TBC field 2)] followed by
   //   [CVBS field 2: 312 lines (= TBC field 1)]
-  //   with 4 extra samples linearly interpolated at kPalExtraSampleLines.
+  //   with 2 extra bridge samples on line 312 and 2 on line 624 (EBU3280).
   //   Total output size = kPalFrameSamples = 709,379.
   static std::vector<int16_t> assemble_frame(
       const std::vector<uint16_t>& tbc_field1,  // 312 × 1135 samples

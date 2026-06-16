@@ -1382,9 +1382,9 @@ bool ChromaSinkStage::trigger(
       // Helper: compute sample count for field 1 or 2 given video params
       auto fieldSampleCount = [&](bool is_first) -> size_t {
         if (isPal) {
-          // EBU Tech. 3280-E §1.3.1: field 1 = 311×1135 + 2×1136, field 2 =
-          // 310×1135 + 2×1136
-          return is_first ? (311 * 1135 + 2 * 1136) : (310 * 1135 + 2 * 1136);
+          // EBU Tech. 3280-E §1.3.1: field 1 = 312×1135 + 1×1137 = 355,257,
+          // field 2 = 311×1135 + 1×1137 = 354,122
+          return is_first ? (312 * 1135 + 1 * 1137) : (311 * 1135 + 1 * 1137);
         }
         // NTSC / PAL_M: uniform sampling
         size_t spl = (videoParams.system == orc::VideoSystem::PAL_M)
@@ -1426,7 +1426,7 @@ bool ChromaSinkStage::trigger(
             sf.line_ptrs.push_back(buf + offset);
             offset += frame_line_sample_count(
                 orc::VideoSystem::PAL,
-                static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+                static_cast<size_t>(orc::kPalSamplesPerLineNominal),
                 blank_field_base + ln);
           }
           if (is_yc_source) {
@@ -1653,8 +1653,8 @@ std::string ChromaSinkStage::get_trigger_status() const {
 // Build a non-owning SourceField view into the VFrameR flat frame buffer.
 // The VFrameR frame buffer layout is:
 //   [field1_line0 | field1_line1 | … | field2_line0 | …]
-// For PAL, lines 155 and 311 within each field carry 1136 samples (all other
-// lines carry 1135 samples).  EBU Tech. 3280-E §1.3.1.
+// For PAL, frame-flat lines 312 and 624 carry 1137 samples (all other lines
+// carry 1135 samples).  EBU Tech. 3280-E §1.3.1.
 SourceField ChromaSinkStage::convertToSourceField(
     const orc::VideoFrameRepresentation* vfr, orc::FrameID frame_id,
     bool is_first_field, const orc::SourceParameters& videoParams) const {
@@ -1682,7 +1682,7 @@ SourceField ChromaSinkStage::convertToSourceField(
   // EBU Tech. 3280-E §1.3.1: frame-flat offset of the start of field 2.
   const size_t kPalField1Samples = frame_line_sample_offset(
       orc::VideoSystem::PAL,
-      static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+      static_cast<size_t>(orc::kPalSamplesPerLineNominal),
       static_cast<size_t>(orc::kPalField1Lines));
 
   // Helper: build PAL per-line pointer table for non-uniform line lengths.
@@ -1697,7 +1697,7 @@ SourceField ChromaSinkStage::convertToSourceField(
       ptrs.push_back(base + offset);
       offset += frame_line_sample_count(
           orc::VideoSystem::PAL,
-          static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+          static_cast<size_t>(orc::kPalSamplesPerLineNominal),
           frame_base_line + ln);
     }
     return ptrs;
@@ -1709,7 +1709,7 @@ SourceField ChromaSinkStage::convertToSourceField(
     const size_t field2_lines =
         static_cast<size_t>(orc::kPalFrameLines - orc::kPalField1Lines);  // 312
 
-    sf.samples_per_line = 1135;  // nominal; lines 155/311 carry 1136
+    sf.samples_per_line = 1135;  // nominal; lines 312 and 624 carry 1137
 
     if (is_first_field) {
       sf.data = frame_ptr;
@@ -2066,7 +2066,7 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
     if (preview_is_pal) {
       const size_t pal_f1_samples = frame_line_sample_offset(
           orc::VideoSystem::PAL,
-          static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+          static_cast<size_t>(orc::kPalSamplesPerLineNominal),
           static_cast<size_t>(orc::kPalField1Lines));
       samples =
           is_first_field
@@ -2107,7 +2107,7 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
         blank.line_ptrs.push_back(buf + off);
         off += frame_line_sample_count(
             orc::VideoSystem::PAL,
-            static_cast<size_t>(orc::kPalMaxSamplesPerLine - 1),
+            static_cast<size_t>(orc::kPalSamplesPerLineNominal),
             preview_field_base + ln);
       }
       if (is_yc_source) {

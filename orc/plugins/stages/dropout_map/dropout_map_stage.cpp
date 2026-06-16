@@ -60,7 +60,7 @@ std::vector<DropoutRun> DropoutMappedFrameRepresentation::get_dropout_hints(
   // Determine VideoSystem and nominal samples per line for coordinate
   // conversion.
   VideoSystem sys = VideoSystem::PAL;
-  int32_t nominal_spl = kPalMaxSamplesPerLine - 1;  // 1135 for PAL
+  int32_t nominal_spl = kPalSamplesPerLineNominal;  // 1135 for PAL
   if (source_) {
     auto params = source_->get_video_parameters();
     if (params) {

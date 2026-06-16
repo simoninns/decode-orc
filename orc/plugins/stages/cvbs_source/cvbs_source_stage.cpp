@@ -109,7 +109,7 @@ SourceParameters build_source_parameters(VideoSystem system,
   switch (system) {
     case VideoSystem::PAL:
       // EBU Tech. 3280-E §1.1 level constants.
-      sp.frame_width_nominal = kPalMaxSamplesPerLine - 1;  // 1135
+      sp.frame_width_nominal = kPalSamplesPerLineNominal;  // 1135
       sp.frame_height = kPalFrameLines;                    // 625
       sp.sync_tip_level = kPalSyncTip;
       sp.blanking_level = kPalBlanking;
@@ -256,6 +256,7 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // --------------------------------------------------------------------------
   // Flat sample access
   // --------------------------------------------------------------------------
+
   const sample_type* get_frame(FrameID id) const override {
     if (!has_frame(id)) return nullptr;
     ensure_frame_cached(id);

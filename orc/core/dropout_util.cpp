@@ -33,7 +33,7 @@ FieldLineSample frame_sample_to_field_line(VideoSystem sys,
     uint64_t cumulative = 0;
     for (int32_t l = 0; l < kPalFrameLines; ++l) {
       int32_t line_len = static_cast<int32_t>(frame_line_sample_count(
-          VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+          VideoSystem::PAL, static_cast<size_t>(kPalSamplesPerLineNominal),
           static_cast<size_t>(l)));
       if (cumulative + static_cast<uint64_t>(line_len) > frame_sample_offset) {
         flat_line = l;
@@ -103,7 +103,7 @@ uint64_t field_line_to_frame_sample(VideoSystem sys, int32_t field,
     // Convert field-relative line to frame-flat line.
     int32_t flat_line = (field == 1) ? line : kPalField1Lines + line;
     return static_cast<uint64_t>(frame_line_sample_offset(
-               VideoSystem::PAL, static_cast<size_t>(kPalMaxSamplesPerLine - 1),
+               VideoSystem::PAL, static_cast<size_t>(kPalSamplesPerLineNominal),
                static_cast<size_t>(flat_line))) +
            static_cast<uint64_t>(sample_within_line);
 

@@ -35,11 +35,12 @@ TEST(CVBSSignalConstants, PalNominalSamplesPerLineRelationship) {
 }
 
 TEST(CVBSSignalConstants, PalExtraSampleLinesMathAddsUp) {
-  // 4 extra-sample lines: 621 × 1135 + 4 × 1136 = 709,379 = kPalFrameSamples
-  int32_t extra_lines = 4;
-  int32_t normal_lines = kPalFrameLines - extra_lines;
-  int32_t computed = normal_lines * (kPalMaxSamplesPerLine - 1) +
-                     extra_lines * kPalMaxSamplesPerLine;
+  // EBU Tech. 3280-E §1.3.1: 2 long lines × 1137 + 623 normal lines × 1135
+  // = 2,274 + 707,105 = 709,379 = kPalFrameSamples
+  int32_t long_lines = 2;  // lines 312 and 624, each with 2 extra samples
+  int32_t normal_lines = kPalFrameLines - long_lines;
+  int32_t computed = normal_lines * kPalSamplesPerLineNominal +
+                     long_lines * kPalMaxSamplesPerLine;
   EXPECT_EQ(computed, kPalFrameSamples);
 }
 
@@ -51,13 +52,18 @@ TEST(CVBSSignalConstants, PalExtraSampleLinesAreWithinFrameBounds) {
   }
 }
 
-TEST(CVBSSignalConstants, PalExtraSampleLinesAreDistinct) {
-  // No two non-orthogonal lines may be at the same position.
-  for (int i = 0; i < 4; ++i) {
-    for (int j = i + 1; j < 4; ++j) {
-      EXPECT_NE(kPalExtraSampleLines[i], kPalExtraSampleLines[j]);
-    }
+TEST(CVBSSignalConstants, PalExtraSampleLinesHaveTwoEntriesPerLongLine) {
+  // EBU Tech. 3280-E §1.3.1: lines 312 and 624 each carry 2 extra samples.
+  // The array stores one entry per extra sample, so each long line appears
+  // twice.
+  int32_t count_312 = 0;
+  int32_t count_624 = 0;
+  for (int32_t e : kPalExtraSampleLines) {
+    if (e == 312) ++count_312;
+    if (e == 624) ++count_624;
   }
+  EXPECT_EQ(count_312, 2);
+  EXPECT_EQ(count_624, 2);
 }
 
 TEST(CVBSSignalConstants, PalLevelOrdering) {

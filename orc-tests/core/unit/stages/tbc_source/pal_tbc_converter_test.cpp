@@ -8,7 +8,7 @@
  *     points (EBU Tech. 3280-E §1.3.1)
  *   - assemble_frame sample count equals kPalFrameSamples
  *   - CVBS field 1 (first 313 lines in output) is sourced from TBC field 2
- *   - Extra samples are inserted at all four kPalExtraSampleLines positions
+ *   - Extra samples are inserted at frame-flat lines 312 and 624 (EBU3280)
  *   - map_field_phase_to_colour_frame_index covers all 1–8 phase values, -1
  *     for absent/invalid
  *
@@ -48,7 +48,7 @@ constexpr int32_t kRefWhite = 54400;
 constexpr int32_t kCVBSField1Lines = orc::kPalField1Lines;  // 313
 constexpr int32_t kCVBSField2Lines =
     orc::kPalFrameLines - orc::kPalField1Lines;                 // 312
-constexpr int32_t kLineWidth = orc::kPalMaxSamplesPerLine - 1;  // 1135
+constexpr int32_t kLineWidth = orc::kPalSamplesPerLineNominal;  // 1135
 
 // ============================================================================
 // tbc_to_cvbs — level mapping
@@ -142,41 +142,36 @@ TEST(PalTBCConverterTest, AssembleFrame_CVBSField1IsFirst313Lines) {
   EXPECT_EQ(frame[0], static_cast<int16_t>(orc::kPalWhite));
 
   // First sample of CVBS field 2 (after 313 lines) must be kPalBlanking.
-  // CVBS field 1 ends at sample kPalField1Lines × kLineWidth + 2 extra samples
-  // (at lines 155 and 311 within the first 313 CVBS lines).
-  // The first sample of CVBS field 2 in the flat buffer follows immediately.
-  // Use the offset provided by kPalExtraSampleLines to find the boundary:
-  // field 1 occupies samples 0 .. (313×1135 + 2) - 1 = 355,257 - 1.
+  // EBU Tech. 3280-E §1.3.1: CVBS field 1 ends at frame-flat line 312 (last
+  // of field 1), which carries 2 extra bridge samples.
+  // Field 1 occupies samples 0 .. (313×1135 + 2) - 1 = 355,257 - 1.
   const size_t cvbs_field2_start =
       static_cast<size_t>(kCVBSField1Lines) * static_cast<size_t>(kLineWidth) +
-      2;  // 2 extra samples in lines 155 and 311 of CVBS field 1
+      2;  // +2 for the extra samples on line 312 (last of field 1)
   ASSERT_LT(cvbs_field2_start, frame.size());
   EXPECT_EQ(frame[cvbs_field2_start], static_cast<int16_t>(orc::kPalBlanking));
 }
 
-TEST(PalTBCConverterTest,
-     AssembleFrame_ExtraSamplesInsertedAtAllFourPositions) {
-  // Count the extra samples by checking frame size against the "no-extra"
-  // baseline: 625 × 1135 = 709,375; with 4 extras → 709,379 = kPalFrameSamples.
-  // The test verifies indirectly: frame.size() == kPalFrameSamples.
-  // Direct verification: pick a line that should be 1136 samples long and
-  // confirm the following line starts at the expected position.
+TEST(PalTBCConverterTest, AssembleFrame_ExtraSamplesInsertedAtLines312And624) {
+  // EBU Tech. 3280-E §1.3.1: frame-flat lines 312 and 624 each carry 2 extra
+  // bridge samples.  Frame size baseline: 625 × 1135 = 709,375; + 4 extras →
+  // 709,379 = kPalFrameSamples.
   //
-  // kPalExtraSampleLines[0] = 155 (in CVBS field 1, 0-based frame line)
-  // Line 155 starts at offset 155 × 1135 = 175,925 and is 1136 samples long.
-  // Line 156 therefore starts at 175,925 + 1136 = 177,061.
+  // Direct verification: fill TBC field 2 line 312 (the last line of CVBS
+  // field 1) with a distinctive value and confirm 2 extra samples follow it.
+  // Line 312 starts at offset 312 × 1135 = 354,120 and is 1137 samples long
+  // (2 extras appended).  Line 313 (first of field 2) starts at 355,257.
 
   auto f1 = make_field(kCVBSField2Lines, kLineWidth,
                        static_cast<uint16_t>(kRefBlanking));
   auto f2 = make_field(kCVBSField1Lines, kLineWidth,
                        static_cast<uint16_t>(kRefBlanking));
 
-  // Fill TBC field 2 line 155 (CVBS field 1 line 155) with a distinctive
-  // value so we can detect it vs blanking.
+  // Fill TBC field 2 line 312 with a distinctive value.
   constexpr int32_t kLineWidth32 = kLineWidth;
   constexpr uint16_t kDistinctive = 40000;
   for (int i = 0; i < kLineWidth32; ++i) {
-    f2[static_cast<size_t>(155 * kLineWidth32 + i)] = kDistinctive;
+    f2[static_cast<size_t>(312 * kLineWidth32 + i)] = kDistinctive;
   }
 
   const auto frame =
@@ -184,19 +179,22 @@ TEST(PalTBCConverterTest,
 
   EXPECT_EQ(static_cast<int32_t>(frame.size()), orc::kPalFrameSamples);
 
-  // The extra sample at frame-flat line 155 should sit at offset
-  // 155 × 1135 + 1135 = 175,925 + 1135 = 177,060.
-  const size_t extra_offset =
-      static_cast<size_t>(155) * static_cast<size_t>(kLineWidth) +
-      static_cast<size_t>(kLineWidth);
-  // The extra sample is an interpolation between the last sample of line 155
-  // and the first sample of line 156 (which is at TBC blanking level → cvbs
-  // blanking 256). The last sample of line 155 is from kDistinctive.
-  // Converted: (kDistinctive - kRefBlanking) / (kRefWhite - kRefBlanking) *
-  // (844-256) + 256 kDistinctive=40000: (40000-16384)/(54400-16384) * 588 + 256
-  // = 23616/38016 * 588 + 256 ≈ 621+256 = no, let me just verify that the extra
-  // sample exists (the frame is long enough).
-  EXPECT_LT(extra_offset, frame.size());
+  // The 2 extra samples on line 312 sit at offsets 354,120 + 1135 and + 1136.
+  const size_t line312_start =
+      static_cast<size_t>(312) * static_cast<size_t>(kLineWidth);
+  const size_t extra0 = line312_start + static_cast<size_t>(kLineWidth);
+  const size_t extra1 = extra0 + 1;
+  EXPECT_LT(extra1, frame.size());
+
+  // Both extra samples must be interpolations (not blanking, not full
+  // distinctive) — they bridge from the distinctive last sample toward the
+  // blanking-level first sample of line 313.
+  const int16_t cvbs_blank = static_cast<int16_t>(orc::kPalBlanking);
+  EXPECT_NE(frame[extra0], cvbs_blank);
+  EXPECT_NE(frame[extra1], cvbs_blank);
+  // Line 313 (first of field 2) must be at blanking.
+  const size_t line313_start = extra1 + 1;
+  EXPECT_EQ(frame[line313_start], cvbs_blank);
 }
 
 // ============================================================================

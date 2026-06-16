@@ -68,7 +68,7 @@ SourceParameters build_source_params(const TBCVideoParams& tvp,
   switch (tvp.system) {
     case VideoSystem::PAL:
       // EBU Tech. 3280-E §1.1 level constants.
-      sp.frame_width_nominal = kPalMaxSamplesPerLine - 1;
+      sp.frame_width_nominal = kPalSamplesPerLineNominal;
       sp.frame_height = kPalFrameLines;
       sp.sync_tip_level = kPalSyncTip;
       sp.blanking_level = kPalBlanking;
@@ -487,7 +487,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
 
     constexpr int32_t kF1Lines = kPalFrameLines - kPalField1Lines;  // 312
     constexpr int32_t kF2Lines = kPalField1Lines;                   // 313
-    constexpr int32_t kLineW = kPalMaxSamplesPerLine - 1;           // 1135
+    constexpr int32_t kLineW = kPalSamplesPerLineNominal;           // 1135
     const int32_t stored_field_size = kF2Lines * kLineW;
 
     std::string err;

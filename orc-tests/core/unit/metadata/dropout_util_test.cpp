@@ -117,7 +117,7 @@ TEST(DropoutUtil_PALM, RoundTrip) {
 }
 
 // ---------------------------------------------------------------------------
-// PAL — non-orthogonal, 4 lines with 1136 samples
+// PAL — non-orthogonal, 2 lines with 1137 samples (EBU3280 normative)
 // ---------------------------------------------------------------------------
 
 TEST(DropoutUtil_PAL, FirstSampleMapsToField1Line0Sample0) {
@@ -142,40 +142,40 @@ TEST(DropoutUtil_PAL, FirstSampleOfSecondLineIsCorrect) {
   EXPECT_EQ(r.sample, 0);
 }
 
-TEST(DropoutUtil_PAL, NonOrthogonalLine155HasExtraSample) {
-  // Line 155 starts at: 155 × 1135 = 175,925 (no extra lines before it).
-  // It has 1136 samples.  Its last sample is at offset 175,925 + 1135 =
-  // 177,060.
-  uint64_t line155_start = 155ULL * 1135;
-  uint64_t line155_last = line155_start + 1135;  // 1136 samples, last = +1135
+TEST(DropoutUtil_PAL, NonOrthogonalLine312HasTwoExtraSamples) {
+  // EBU3280 normative: line 312 (last of field 1) carries 1137 samples.
+  // It starts at: 312 × 1135 = 354,120 (no extra lines before it).
+  // Its last two samples sit at offsets 354,120 + 1135 = 355,255 and 355,256.
+  uint64_t line312_start = 312ULL * 1135;
+  uint64_t line312_last = line312_start + 1136;  // 1137 samples, last = +1136
 
-  auto r_first = frame_sample_to_field_line(VideoSystem::PAL, line155_start);
+  auto r_first = frame_sample_to_field_line(VideoSystem::PAL, line312_start);
   EXPECT_EQ(r_first.field, 1);
-  EXPECT_EQ(r_first.line, 155);
+  EXPECT_EQ(r_first.line, 312);
   EXPECT_EQ(r_first.sample, 0);
 
-  auto r_last = frame_sample_to_field_line(VideoSystem::PAL, line155_last);
+  auto r_last = frame_sample_to_field_line(VideoSystem::PAL, line312_last);
   EXPECT_EQ(r_last.field, 1);
-  EXPECT_EQ(r_last.line, 155);
-  EXPECT_EQ(r_last.sample, 1135);
+  EXPECT_EQ(r_last.line, 312);
+  EXPECT_EQ(r_last.sample, 1136);
 }
 
-TEST(DropoutUtil_PAL, SampleAfterNonOrthogonalLine155IsLine156) {
-  // After line 155's last sample (offset 155×1135 + 1135), the next sample
-  // belongs to line 156 sample 0.
-  uint64_t line156_start = 155ULL * 1135 + 1136;  // 1 extra sample on line 155
-  auto r = frame_sample_to_field_line(VideoSystem::PAL, line156_start);
-  EXPECT_EQ(r.field, 1);
-  EXPECT_EQ(r.line, 156);
+TEST(DropoutUtil_PAL, SampleAfterNonOrthogonalLine312IsLine313) {
+  // After line 312's last sample (offset 312×1135 + 1136 = 355,256), the next
+  // sample belongs to line 313 (field 2, line 0), sample 0.
+  uint64_t line313_start = 312ULL * 1135 + 1137;  // 2 extra samples on line 312
+  auto r = frame_sample_to_field_line(VideoSystem::PAL, line313_start);
+  EXPECT_EQ(r.field, 2);
+  EXPECT_EQ(r.line, 0);
   EXPECT_EQ(r.sample, 0);
 }
 
 TEST(DropoutUtil_PAL, FirstSampleOfField2IsCorrect) {
-  // Field 1 has 313 lines: 311 normal (1135) + 2 extra-sample (1136).
-  // kPalExtraSampleLines field-1 entries: {155, 311}
+  // EBU3280 normative: field 1 has 312 normal lines + 1 long line (line 312).
+  // = 312 × 1135 + 1 × 1137 = 354,120 + 1,137 = 355,257
   uint64_t field1_samples =
-      static_cast<uint64_t>(kPalField1Lines - 2) * 1135 + 2 * 1136;
-  // = 311 × 1135 + 2 × 1136 = 352,985 + 2,272 = 355,257
+      static_cast<uint64_t>(kPalField1Lines - 1) * 1135 + 1 * 1137;
+  // = 312 × 1135 + 1137 = 354,120 + 1,137 = 355,257
   auto r = frame_sample_to_field_line(VideoSystem::PAL, field1_samples);
   EXPECT_EQ(r.field, 2);
   EXPECT_EQ(r.line, 0);
@@ -189,7 +189,7 @@ TEST(DropoutUtil_PAL, LastFrameSampleIsCorrect) {
   // Field 2 has 312 lines (kPalFrameLines - kPalField1Lines = 312).
   EXPECT_EQ(r.line, kPalFrameLines - kPalField1Lines - 1);
   EXPECT_EQ(r.sample,
-            1135);  // Last line (624) is non-orthogonal (1136 samples)
+            1136);  // Last line (624) is non-orthogonal (1137 samples)
 }
 
 TEST(DropoutUtil_PAL, RoundTripNormalLine) {
@@ -202,19 +202,19 @@ TEST(DropoutUtil_PAL, RoundTripNormalLine) {
   EXPECT_EQ(fls.sample, 500);
 }
 
-TEST(DropoutUtil_PAL, RoundTripNonOrthogonalLine311) {
-  // Line 311 in field 1 is non-orthogonal (1136 samples).
+TEST(DropoutUtil_PAL, RoundTripNonOrthogonalLine312) {
+  // Line 312 in field 1 is non-orthogonal (1137 samples).
   uint64_t original = field_line_to_frame_sample(VideoSystem::PAL, /*field=*/1,
-                                                 /*line=*/311, /*sample=*/1135);
+                                                 /*line=*/312, /*sample=*/1136);
   auto fls = frame_sample_to_field_line(VideoSystem::PAL, original);
   EXPECT_EQ(fls.field, 1);
-  EXPECT_EQ(fls.line, 311);
-  EXPECT_EQ(fls.sample, 1135);
+  EXPECT_EQ(fls.line, 312);
+  EXPECT_EQ(fls.sample, 1136);
 }
 
 TEST(DropoutUtil_PAL, RoundTripField2NonOrthogonalLine) {
   // Frame-flat line 624 = field 2, line 311 (0-indexed) = last field-2 line.
-  // It is non-orthogonal (624 = 313+311 = kPalExtraSampleLines[3]).
+  // It is non-orthogonal (1137 samples) per EBU3280 normative placement.
   uint64_t original = field_line_to_frame_sample(VideoSystem::PAL, /*field=*/2,
                                                  /*line=*/311, /*sample=*/700);
   auto fls = frame_sample_to_field_line(VideoSystem::PAL, original);

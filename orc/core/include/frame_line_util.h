@@ -26,24 +26,26 @@
 namespace orc {
 
 // Returns the number of samples in frame-flat line |line| (0-based).
-// For PAL, the four non-orthogonal lines (kPalExtraSampleLines) carry
-// kPalMaxSamplesPerLine (1136) samples; all others carry kPalMaxSamplesPerLine
-// - 1 (1135). For NTSC and PAL_M every line carries |spl_nominal| samples.
+// For PAL, lines listed in kPalExtraSampleLines carry additional samples; each
+// occurrence of a line index in that array adds 1 to its count (so lines 312
+// and 624, which appear twice, carry spl_nominal + 2 = 1137 samples).
+// All other PAL lines and all NTSC/PAL_M lines carry |spl_nominal| samples.
 inline size_t frame_line_sample_count(VideoSystem system, size_t spl_nominal,
                                       size_t line) {
   if (system == VideoSystem::PAL) {
     const auto l = static_cast<int32_t>(line);
-    if (l == kPalExtraSampleLines[0] || l == kPalExtraSampleLines[1] ||
-        l == kPalExtraSampleLines[2] || l == kPalExtraSampleLines[3]) {
-      return spl_nominal + 1;
+    size_t extra = 0;
+    for (int32_t e : kPalExtraSampleLines) {
+      if (e == l) ++extra;
     }
+    return spl_nominal + extra;
   }
   return spl_nominal;
 }
 
 // Returns the 0-based sample offset of the start of frame-flat line |line|
 // within a flat 4FSC CVBS frame buffer.
-// O(4) for PAL (only four lines require adjustment); O(1) for NTSC and PAL_M.
+// O(4) for PAL (iterates kPalExtraSampleLines); O(1) for NTSC and PAL_M.
 inline size_t frame_line_sample_offset(VideoSystem system, size_t spl_nominal,
                                        size_t line) {
   if (system != VideoSystem::PAL) return line * spl_nominal;

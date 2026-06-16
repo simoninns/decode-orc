@@ -552,7 +552,7 @@ TEST(CVBSSourceParamsTest, PAL_FrameWidthNominalIs1135) {
   ASSERT_NE(vfr, nullptr);
   auto params = vfr->get_video_parameters();
   ASSERT_TRUE(params.has_value());
-  EXPECT_EQ(params->frame_width_nominal, kPalMaxSamplesPerLine - 1);
+  EXPECT_EQ(params->frame_width_nominal, kPalSamplesPerLineNominal);
 }
 
 TEST(CVBSSourceParamsTest, PAL_FrameHeightIs625) {
@@ -748,6 +748,41 @@ TEST(CVBSVFRTest, PAL_Line0StartsAtOffset0) {
   const auto* line0 = vfr->get_line(0, 0);
   ASSERT_NE(line0, nullptr);
   EXPECT_EQ(line0[0], int16_t{500});
+}
+
+TEST(CVBSVFRTest, PAL_Line156_ConstantWidthOffset) {
+  // EBU Tech. 3280-E normative: the 4 extra samples sit on line 312 (0-based,
+  // = line 313 1-based, the last of field 1) and line 624 (0-based, = line 625
+  // 1-based, the last of field 2) — 2 extras each. Lines 0–312 therefore start
+  // at exactly n×1135 (constant-width).  Line 156 offset = 156×1135 = 177060.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples),
+                             static_cast<uint16_t>(kPalBlanking));
+  constexpr size_t kLine156Offset = 156 * 1135;                      // = 177060
+  deps->payload_words[kLine156Offset] = static_cast<uint16_t>(500);  // sentinel
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  const auto* line156 = vfr->get_line(0, 156);
+  ASSERT_NE(line156, nullptr);
+  EXPECT_EQ(line156[0], int16_t{500});
+}
+
+TEST(CVBSVFRTest, PAL_Line313_EBU3280Offset) {
+  // EBU Tech. 3280-E normative: line 312 (0-based) has 1137 samples (2 extra).
+  // Line 313 (0-based) therefore starts at 312×1135 + 1137 = 355257 = 313×1135
+  // + 2.
+  auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", "CVBS_U10_4FSC");
+  deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples),
+                             static_cast<uint16_t>(kPalBlanking));
+  constexpr size_t kLine313Offset = 313 * 1135 + 2;                  // = 355257
+  deps->payload_words[kLine313Offset] = static_cast<uint16_t>(500);  // sentinel
+  PALCVBSSourceStage stage(deps);
+  auto vfr = execute_and_get_vfr(stage, kDefaultParams);
+  ASSERT_NE(vfr, nullptr);
+  const auto* line313 = vfr->get_line(0, 313);
+  ASSERT_NE(line313, nullptr);
+  EXPECT_EQ(line313[0], int16_t{500});
 }
 
 // ===========================================================================

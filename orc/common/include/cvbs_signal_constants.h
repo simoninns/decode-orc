@@ -46,9 +46,14 @@ constexpr int32_t kPalFrameLines = 625;
 // convention places the longer field first in the flat frame buffer).
 constexpr int32_t kPalField1Lines = 313;
 
-// EBU Tech. 3280-E §1.3: Maximum samples on any PAL line (non-orthogonal
-// lines carry one extra sample).
-constexpr int32_t kPalMaxSamplesPerLine = 1136;
+// EBU Tech. 3280-E §1.3: Nominal integer samples per line (floor of 1135.0064).
+// Use this everywhere a fixed per-line width of 1135 is required (TBC storage,
+// frame_line_sample_offset, display width, etc.).
+constexpr int32_t kPalSamplesPerLineNominal = 1135;
+
+// EBU Tech. 3280-E §1.3: Maximum samples on any PAL line.
+// Lines 312 and 624 (0-based) each carry 2 extra samples → 1137.
+constexpr int32_t kPalMaxSamplesPerLine = 1137;
 
 // EBU Tech. 3280-E: Normative CVBS_U10_4FSC signal levels (10-bit domain).
 constexpr int32_t kPalSyncTip = 4;
@@ -57,19 +62,16 @@ constexpr int32_t kPalBlack = 282;
 constexpr int32_t kPalWhite = 844;
 constexpr int32_t kPalPeak = 1019;
 
-// EBU Tech. 3280-E §1.3.1: 0-based frame-flat line indices of the four lines
-// that carry 1136 samples instead of 1135.  All four values are 0-based and
-// within [0, kPalFrameLines-1] = [0, 624].
+// EBU Tech. 3280-E §1.3.1: normative placement of the 4 extra samples per PAL
+// frame.  The standard concentrates them on the last line of each field:
+//   Frame-flat line 312 (0-based = line 313 1-based, last of field 1): +2
+//   Frame-flat line 624 (0-based = line 625 1-based, last of field 2): +2
 //
-// Field 1 (313 lines, frame-flat indices 0–312):
-//   non-orthogonal at 0-based positions 155 and 311.
-// Field 2 (312 lines, frame-flat indices 313–624):
-//   non-orthogonal at 0-based frame-flat positions 313+155=468 and 313+311=624.
-//
-// These are derived from the continued-fraction expansion of 709,379/625 and
-// verified by: 621×1135 + 4×1136 = 704,835 + 4,544 = 709,379 =
-// kPalFrameSamples.
-constexpr int32_t kPalExtraSampleLines[4] = {155, 311, 313 + 155, 313 + 311};
+// The array holds one entry per extra sample so that frame_line_sample_offset
+// and frame_line_sample_count can iterate with a simple +1-per-match rule;
+// duplicate entries indicate the named line carries 2 extras.
+// Verified: 623×1135 + 2×1137 = 625×1135 + 4 = 709,375 + 4 = 709,379. ✓
+constexpr int32_t kPalExtraSampleLines[4] = {312, 312, 624, 624};
 
 // ---------------------------------------------------------------------------
 // NTSC — SMPTE 244M-2003

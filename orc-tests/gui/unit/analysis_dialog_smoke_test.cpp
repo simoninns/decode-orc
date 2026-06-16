@@ -14,10 +14,10 @@
 
 #include "burstlevelanalysisdialog.h"
 #include "dropoutanalysisdialog.h"
-#include "fieldtimingdialog.h"
+#include "framescopedialog.h"
+#include "frametimingdialog.h"
 #include "hintsdialog.h"
 #include "inspection_dialog.h"
-#include "linescopedialog.h"
 #include "ntscobserverdialog.h"
 #include "presenters/include/stage_inspection_view_models.h"
 #include "qualitymetricsdialog.h"
@@ -163,10 +163,10 @@ TEST(AnalysisDialogSmokeTest, VbiDialog_CanShowAndClose) {
   EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, LineScopeDialog_CanShowAndClose) {
+TEST(AnalysisDialogSmokeTest, FrameScopeDialog_CanShowAndClose) {
   (void)ensureApplication();
 
-  LineScopeDialog dialog;
+  FrameScopeDialog dialog;
 
   dialog.show();
   QCoreApplication::processEvents();
@@ -195,10 +195,10 @@ TEST(AnalysisDialogSmokeTest, HintsDialog_CanShowAndClose) {
   EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, FieldTimingDialog_CanShowAndClose) {
+TEST(AnalysisDialogSmokeTest, FrameTimingDialog_CanShowAndClose) {
   (void)ensureApplication();
 
-  FieldTimingDialog dialog;
+  FrameTimingDialog dialog;
 
   dialog.show();
   QCoreApplication::processEvents();

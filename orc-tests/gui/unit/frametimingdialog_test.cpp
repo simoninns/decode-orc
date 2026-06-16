@@ -18,6 +18,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QApplication>
 #include <QCoreApplication>
 
 namespace gui_unit_test {
@@ -77,8 +78,6 @@ TEST(FormatColourFrameIndexTest, Unknown_System_ReturnsNumericString) {
 // Tier-3 tests: FrameTimingDialog construction (gui-widget, offscreen)
 // Requires QApplication. Run under the "gui-widget" CTest label.
 // ============================================================================
-
-#include <QApplication>
 
 namespace {
 

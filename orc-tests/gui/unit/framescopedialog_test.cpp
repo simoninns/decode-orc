@@ -18,6 +18,9 @@
 
 #include <gtest/gtest.h>
 
+#include <QApplication>
+#include <QComboBox>
+#include <QCoreApplication>
 #include <cmath>
 
 #include "line_numbering.h"
@@ -177,28 +180,28 @@ TEST(MakeLineLabelTest, BroadcastInterlaced_PAL_Field2Line0) {
 
 TEST(MakeLineLabelTest, BroadcastInterlaced_NTSC_Field1Line0) {
   using orc::LineNumberingMode;
-  // NTSC frame-flat line 0 (field 1) → broadcast line 2 (SMPTE 170M-2004 §11.3)
+  // NTSC frame-flat line 0 (first line of field 1) → broadcast line 1
+  // (SMPTE 170M-2004 §11.3: VFR field 1 maps to odd broadcast lines 1, 3, …,
+  // 525)
   auto lbl = orc::make_line_label(0, orc::VideoSystem::NTSC,
                                   LineNumberingMode::kBroadcastInterlaced);
-  EXPECT_EQ(lbl.broadcast_line, 2);
+  EXPECT_EQ(lbl.broadcast_line, 1);
 }
 
 TEST(MakeLineLabelTest, BroadcastInterlaced_NTSC_Field2Line0) {
   using orc::LineNumberingMode;
-  // NTSC frame-flat line 262 (first field-2 line) → broadcast line 1
-  auto lbl = orc::make_line_label(262, orc::VideoSystem::NTSC,
+  // NTSC frame-flat line 263 (first line of field 2) → broadcast line 2
+  // (SMPTE 170M-2004 §11.3: VFR field 2 maps to even broadcast lines 2, 4, …,
+  // 524)
+  auto lbl = orc::make_line_label(263, orc::VideoSystem::NTSC,
                                   LineNumberingMode::kBroadcastInterlaced);
-  EXPECT_EQ(lbl.broadcast_line, 1);
+  EXPECT_EQ(lbl.broadcast_line, 2);
 }
 
 // ============================================================================
 // Tier-3 tests: FrameScopeDialog construction (gui-widget, offscreen)
 // Requires QApplication. Run under the "gui-widget" CTest label.
 // ============================================================================
-
-#include <QApplication>
-#include <QComboBox>
-#include <QCoreApplication>
 
 namespace {
 

@@ -27,27 +27,6 @@ constexpr int kVectorscopeMinorMarkerStrokeWidth = 1;
 constexpr double kVectorscopeSignedFullScale = 32768.0;
 constexpr double kVectorscopeUvRange = kVectorscopeSignedFullScale * 2.0;
 
-// ============================================================================
-// NTSC display-calibration scale factors
-// ============================================================================
-// On a calibrated NTSC waveform vectorscope (SMPTE RP-40 / SMPTE 170M-2004
-// Annex E) the colour-bar target boxes lie at positions that differ from the
-// BT.601 RGB→UV prediction because NTSC encodes chrominance on the I/Q axes
-// (30° off the U axis) while the vectorscope dial is labelled in U/V.
-//
-// Derivation:
-//   NTSC 75% colour bars (SMPTE 170M-2004 Table 1) give subcarrier amplitude
-//   I and Q for each bar.  Converting back to U/V:
-//     U_target = I * cos(33°) - Q * sin(33°)    (subcarrier axis rotation)
-//     V_target = I * sin(33°) + Q * cos(33°)
-//   Dividing U_target / U_BT601 and V_target / V_BT601 over all bars and
-//   averaging yields the constants below.
-//
-//   kNtscDisplayTargetUScale ≈ 1.3227  (SMPTE 244M-2003 §4.2 / RP-40)
-//   kNtscDisplayTargetVScale ≈ 0.8432  (SMPTE 244M-2003 §4.2 / RP-40)
-constexpr double kNtscDisplayTargetUScale = 1.3227191001249037;
-constexpr double kNtscDisplayTargetVScale = 0.8432371875310065;
-
 inline double standardDegreesToScopeRadians(double standard_degrees) {
   // Standard vectorscope degrees are counterclockwise (0=right, 90=up).
   // This renderer uses clockwise-positive angles for screen mapping.
@@ -124,8 +103,6 @@ struct VectorscopePlotGeometry {
 //   V_B = kv * ( 0 - 0.114) = -0.100010
 //
 // amplitude_scale maps the U/V result to the display's signed full-scale.
-// PAL: pass kVectorscopeSignedFullScale (V-alternation handled at sampling).
-// NTSC: pass kVectorscopeSignedFullScale then apply kNtscDisplayTargetU/VScale.
 inline orc::UVSample normalizedRgbToUv(double red, double green, double blue,
                                        double amplitude_scale) {
   // ITU-R BT.470-6 §1.1.2 / EBU Tech. 3280-E §2.1
@@ -134,13 +111,11 @@ inline orc::UVSample normalizedRgbToUv(double red, double green, double blue,
   return {u * amplitude_scale, v * amplitude_scale};
 }
 
-inline orc::UVSample calibrateVectorscopeDisplayUv(const orc::UVSample& sample,
-                                                   orc::VideoSystem system) {
-  if (system == orc::VideoSystem::NTSC) {
-    return {sample.u * kNtscDisplayTargetUScale,
-            sample.v * kNtscDisplayTargetVScale};
-  }
-
+inline orc::UVSample calibrateVectorscopeDisplayUv(
+    const orc::UVSample& sample, orc::VideoSystem /*system*/) {
+  // The NTSC comb decoder converts I/Q → U/V (comb.cpp transformIQ) before
+  // writing to ComponentFrame, so decoded NTSC samples are already in the
+  // same BT.601 U/V coordinate space as PAL.  No calibration is needed.
   return sample;
 }
 
@@ -152,7 +127,7 @@ inline orc::UVSample calibrateVectorscopeDisplayUv(const orc::UVSample& sample,
 // (bit2=R, bit1=G, bit0=B).
 //
 // PAL reference vectors (ITU-R BT.470-6 §1.1.2 / EBU Tech. 3280-E §2.1):
-//   Colour bars at 75% saturation, 100% amplitude (standard EBU bars):
+//   Colour bars at 75% amplitude, 100% saturation (standard EBU bars):
 //     Red   (100): angle = +103.0°   ← V axis; sat = 75% * kV * 0.701 * scale
 //     Yellow(110): angle = +167.0°   ← V+U
 //     Green (010): angle = -104.0°   ← -V+U region
@@ -162,16 +137,14 @@ inline orc::UVSample calibrateVectorscopeDisplayUv(const orc::UVSample& sample,
 //   Computed here from RGB via normalizedRgbToUv() which is exact.
 //
 // NTSC reference vectors (SMPTE 170M-2004 Table 1 / SMPTE 244M-2003 §4.2):
-//   NTSC 75% bars are at the same BT.601 UV positions as PAL (same
-//   subcarrier modulation depth) but the vectorscope display is calibrated
-//   for I/Q axes.  calibrateVectorscopeDisplayUv() applies the display
-//   correction; call vectorscopeDisplayTargetUv() for display positions.
+//   NTSC 75% bars are at the same BT.601 UV positions as PAL.  The NTSC comb
+//   decoder (transformIQ in comb.cpp) converts I/Q → U/V before output, so
+//   decoded samples and targets share the same BT.601 U/V coordinate space.
 inline orc::UVSample vectorscopeTargetUv(int rgb, double percent,
                                          double ire_range,
                                          orc::VideoSystem /*system*/) {
-  // system not used: BT.601 UV positions are the same for PAL and NTSC before
-  // display calibration.  Call vectorscopeDisplayTargetUv() for calibrated
-  // NTSC.
+  // BT.601 UV positions are the same for PAL and NTSC: the NTSC comb decoder
+  // converts I/Q → U/V before output (comb.cpp transformIQ).
   const double red = percent * static_cast<double>((rgb >> 2) & 1);
   const double green = percent * static_cast<double>((rgb >> 1) & 1);
   const double blue = percent * static_cast<double>(rgb & 1);

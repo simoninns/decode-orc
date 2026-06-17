@@ -661,7 +661,6 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter,
     const double percent = (graticule_mode == 2) ? 0.75 : 1.0;
     const int32_t white = cvbs_white;
     const int32_t black = cvbs_blanking;
-    const double ireRange = static_cast<double>(white - black);
 
     if (white > black) {
       // Color labels for the six colour bars

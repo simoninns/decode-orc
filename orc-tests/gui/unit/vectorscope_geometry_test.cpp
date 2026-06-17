@@ -56,7 +56,10 @@ TEST(VectorscopeGeometryTest, Ntsc_AndPalTargetsShareTheSameDecodedUvSpace) {
   EXPECT_DOUBLE_EQ(ntsc_target.v, pal_target.v);
 }
 
-TEST(VectorscopeGeometryTest, Ntsc_DisplayTargetsApplyDecoderSpaceCalibration) {
+TEST(VectorscopeGeometryTest, Ntsc_DisplayTargetsEqualRawTargets) {
+  // The NTSC comb decoder converts I/Q → U/V before output, so NTSC decoded
+  // samples are in the same BT.601 U/V space as PAL.  Display targets must
+  // match raw BT.601 targets without any additional scaling.
   constexpr double kIreRange = 50000.0;
 
   const orc::UVSample raw_target =
@@ -64,10 +67,8 @@ TEST(VectorscopeGeometryTest, Ntsc_DisplayTargetsApplyDecoderSpaceCalibration) {
   const orc::UVSample display_target = orc::gui::vectorscopeDisplayTargetUv(
       4, 0.75, kIreRange, orc::VideoSystem::NTSC);
 
-  EXPECT_NEAR(display_target.u,
-              raw_target.u * orc::gui::kNtscDisplayTargetUScale, 1e-9);
-  EXPECT_NEAR(display_target.v,
-              raw_target.v * orc::gui::kNtscDisplayTargetVScale, 1e-9);
+  EXPECT_DOUBLE_EQ(display_target.u, raw_target.u);
+  EXPECT_DOUBLE_EQ(display_target.v, raw_target.v);
 }
 
 TEST(VectorscopeGeometryTest, Pal_DisplayTargetsRemainUnchanged) {

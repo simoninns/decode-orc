@@ -426,9 +426,9 @@ VectorscopeData VectorscopeAnalysisTool::extractFromCompositeRepresentation(
   const double level_range =
       std::max(1.0, static_cast<double>(vp.white_level - vp.blanking_level));
 
-  // Phase step: CVBS_U10_4FSC is nominally 4×Fsc so the sample rate is always
-  // 4×Fsc — the approximate 4-point {1,0,-1,0}/{0,-1,0,1} table is valid.
-  // Use the exact continuous formula derived from system constants.
+  // Phase step: CVBS_U10_4FSC is nominally 4×Fsc — the 4-point table
+  // {1,0,-1,0}/{0,-1,0,1} is valid (subcarrier phase π/2 at sample x=0).
+  // The continuous fallback uses the same π/2 starting phase for consistency.
   // EBU Tech. 3280-E §1.1 (PAL) / SMPTE 244M-2003 §4.1 (NTSC) /
   // ITU-R BT.1700-1 Annex 1 Part B (PAL_M).
   const double sys_fsc = fsc_from_system(vp.system);
@@ -497,7 +497,7 @@ VectorscopeData VectorscopeAnalysisTool::extractFromCompositeRepresentation(
             break;
         }
       } else if (phase_step > 0.0) {
-        const double phase = phase_step * static_cast<double>(x);
+        const double phase = (kPi / 2.0) + phase_step * static_cast<double>(x);
         sin_ref = std::sin(phase);
         cos_ref = std::cos(phase);
       } else {

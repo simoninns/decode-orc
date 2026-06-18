@@ -46,6 +46,14 @@ constexpr int32_t kPalFrameLines = 625;
 // convention places the longer field first in the flat frame buffer).
 constexpr int32_t kPalField1Lines = 313;
 
+// EBU Tech. 3280-E §2.5.2 Table 2: First active picture line per field
+// (0-based index into the field line buffer).
+// PAL: lines 1–22 (1-based) carry sync equalising/broad pulses and VBI; active
+// picture begins at line 23 (1-based) = index 22 (0-based).  Matches
+// ld-decode convention: first_active_frame_line = 44 → firstActiveFieldLine
+// = 44 / 2 = 22.
+constexpr int32_t kPalFirstActiveLine = 22;
+
 // EBU Tech. 3280-E §1.2: Nominal integer samples per line (floor of 1135.0064).
 // Use this everywhere a fixed per-line width of 1135 is required (TBC storage,
 // frame_line_sample_offset, display width, etc.).
@@ -100,6 +108,13 @@ constexpr int32_t kNtscFrameLines = 525;
 // The even-scan field (262 lines) follows at odd file indices → VFR field 2.
 constexpr int32_t kNtscField1Lines = 263;
 
+// SMPTE 170M-2004 §7.1 Table 1: First active picture line per field (0-based).
+// NTSC: lines 1–20 (1-based) carry sync, equalising/broad pulses, and VBI
+// (closed captions, VITS, etc.); active picture begins at line 21 (1-based) =
+// index 20 (0-based).  Matches ld-decode convention: first_active_frame_line
+// = 40 → firstActiveFieldLine = 40 / 2 = 20.
+constexpr int32_t kNtscFirstActiveLine = 20;
+
 // SMPTE 244M-2003 §4.2.1 Table 1: Normative CVBS_U10_4FSC signal levels.
 constexpr int32_t kNtscSyncTip = 16;    // 0x010: -40 IRE sync tip
 constexpr int32_t kNtscBlanking = 240;  // 0x0F0: 0 IRE blanking reference
@@ -135,6 +150,10 @@ constexpr int32_t kPalMFrameLines = 525;
 // field). Identical to NTSC: ld-decode stores the odd-scan field (263 lines,
 // first temporal) at even file indices → VFR field 1 (top).
 constexpr int32_t kPalMField1Lines = 263;
+
+// ITU-R BT.1700-1 Annex 1 Part B: First active picture line per field
+// (0-based).  PAL_M has the same 525-line structure as NTSC.
+constexpr int32_t kPalMFirstActiveLine = kNtscFirstActiveLine;
 
 // PAL_M signal levels are identical to NTSC (same line count and blanking).
 // Use kNtscSyncTip, kNtscBlanking, kNtscBlack, kNtscWhite, kNtscPeak.

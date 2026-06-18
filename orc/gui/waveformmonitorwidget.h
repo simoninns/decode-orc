@@ -54,6 +54,9 @@ class WaveformMonitorWidget : public QWidget {
   void setGain(double gain);
   double gain() const { return gain_; }
 
+  void setPhosphorMode(bool enabled);
+  bool phosphorMode() const { return phosphor_mode_; }
+
  protected:
   void paintEvent(QPaintEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;
@@ -70,6 +73,13 @@ class WaveformMonitorWidget : public QWidget {
   int mvToPixelY(double mv, const QRect& plot_area) const;
   QRect plotArea() const;
 
+  // Returns the appropriate background, trace, axis, and grid colors
+  // depending on whether phosphor mode is active.
+  QColor displayBackground() const;
+  QColor displayTrace() const;
+  QColor displayAxis() const;
+  QColor displayGrid() const;
+
   // Accumulation buffer: count_buffer_[x_sample][y_bin]
   std::vector<std::vector<uint32_t>> count_buffer_;
   int x_samples_ = 0;
@@ -82,6 +92,7 @@ class WaveformMonitorWidget : public QWidget {
   int line_count_ = 0;
 
   double gain_ = 1.0;
+  bool phosphor_mode_ = false;
   bool image_dirty_ = true;
   QImage cached_image_;
 

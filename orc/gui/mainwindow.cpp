@@ -4255,11 +4255,11 @@ void MainWindow::onWaveformMonitorDataReady(
     std::vector<int16_t> y_samples, std::vector<int16_t> c_samples,
     int first_field_height, int second_field_height) {
   Q_UNUSED(request_id);
-  Q_UNUSED(c_samples);
 
   ORC_LOG_DEBUG(
-      "Waveform monitor data ready: {} composite samples, {} Y samples",
-      composite_samples.size(), y_samples.size());
+      "Waveform monitor data ready: {} composite samples, {} Y samples, {} C "
+      "samples",
+      composite_samples.size(), y_samples.size(), c_samples.size());
 
   auto* wm_dialog = preview_dialog_->waveformMonitorDialog();
   if (!wm_dialog) {
@@ -4281,12 +4281,9 @@ void MainWindow::onWaveformMonitorDataReady(
     }
   }
 
-  // Prefer composite samples; fall back to luma for YC-only sources.
-  const std::vector<int16_t>& samples_to_use =
-      composite_samples.empty() ? y_samples : composite_samples;
-
-  wm_dialog->setData(samples_to_use, first_field_height, second_field_height,
-                     video_params);
+  wm_dialog->setData(std::move(composite_samples), std::move(y_samples),
+                     std::move(c_samples), first_field_height,
+                     second_field_height, video_params);
 }
 
 void MainWindow::updateQualityMetricsDialog() {

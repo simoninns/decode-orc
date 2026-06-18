@@ -176,13 +176,45 @@ void WaveformMonitorWidget::accumulate(const std::vector<int16_t>& samples,
 }
 
 // ---------------------------------------------------------------------------
-// Gain
+// Gain and display mode
 // ---------------------------------------------------------------------------
 
 void WaveformMonitorWidget::setGain(double gain) {
   gain_ = std::clamp(gain, 0.1, 10.0);
   image_dirty_ = true;
   update();
+}
+
+void WaveformMonitorWidget::setPhosphorMode(bool enabled) {
+  if (phosphor_mode_ == enabled) return;
+  phosphor_mode_ = enabled;
+  image_dirty_ = true;
+  update();
+}
+
+// ---------------------------------------------------------------------------
+// Color helpers
+// ---------------------------------------------------------------------------
+
+QColor WaveformMonitorWidget::displayBackground() const {
+  if (phosphor_mode_) return QColor(0, 0, 0);
+  return palette().color(QPalette::Base);
+}
+
+QColor WaveformMonitorWidget::displayTrace() const {
+  if (phosphor_mode_) return QColor(0, 230, 0);
+  return theme_tokens::plotColor(theme_tokens::PlotColorToken::CompositePrimary,
+                                 PlotWidget::isDarkTheme());
+}
+
+QColor WaveformMonitorWidget::displayAxis() const {
+  if (phosphor_mode_) return QColor(0, 180, 0);
+  return palette().color(QPalette::WindowText);
+}
+
+QColor WaveformMonitorWidget::displayGrid() const {
+  if (phosphor_mode_) return QColor(0, 55, 0);
+  return theme_tokens::gridLine(palette());
 }
 
 // ---------------------------------------------------------------------------
@@ -196,16 +228,14 @@ void WaveformMonitorWidget::resizeEvent(QResizeEvent* event) {
 
 void WaveformMonitorWidget::paintEvent(QPaintEvent*) {
   QPainter painter(this);
-  const QPalette palette = this->palette();
 
-  // Widget background — themed like other plot widgets.
-  painter.fillRect(rect(), palette.color(QPalette::Base));
+  painter.fillRect(rect(), displayBackground());
 
   const QRect pa = plotArea();
   if (pa.isEmpty()) return;
 
   if (count_buffer_.empty() || x_samples_ == 0 || y_bins_ == 0) {
-    painter.setPen(theme_tokens::mutedText(palette));
+    painter.setPen(displayAxis());
     painter.drawText(pa, Qt::AlignCenter, "No data");
     drawYAxis(painter, pa);
     drawXAxis(painter, pa);
@@ -236,7 +266,6 @@ void WaveformMonitorWidget::rebuildImage(const QRect& pa) {
   // remain visible through unpopulated pixels.
   cached_image_ = QImage(pa.size(), QImage::Format_ARGB32_Premultiplied);
   cached_image_.fill(Qt::transparent);
-  const QColor base_color = this->palette().color(QPalette::Base);
 
   const int img_w = pa.width();
   const int img_h = pa.height();
@@ -288,13 +317,12 @@ void WaveformMonitorWidget::rebuildImage(const QRect& pa) {
     }
   }
 
-  // Write QImage — interpolate Base → plotColor by brightness.
-  const bool is_dark = PlotWidget::isDarkTheme();
-  const QColor plot_color = theme_tokens::plotColor(
-      theme_tokens::PlotColorToken::CompositePrimary, is_dark);
-  const float br = static_cast<float>(base_color.redF());
-  const float bg = static_cast<float>(base_color.greenF());
-  const float bb = static_cast<float>(base_color.blueF());
+  // Write QImage — interpolate background → trace color by brightness.
+  const QColor back_color = displayBackground();
+  const QColor plot_color = displayTrace();
+  const float br = static_cast<float>(back_color.redF());
+  const float bg = static_cast<float>(back_color.greenF());
+  const float bb = static_cast<float>(back_color.blueF());
   const float pr = static_cast<float>(plot_color.redF());
   const float pg = static_cast<float>(plot_color.greenF());
   const float pb = static_cast<float>(plot_color.blueF());
@@ -325,8 +353,7 @@ int WaveformMonitorWidget::mvToPixelY(double mv, const QRect& pa) const {
 
 void WaveformMonitorWidget::drawYAxis(QPainter& painter,
                                       const QRect& pa) const {
-  const QPalette palette = this->palette();
-  const QColor axis_color = palette.color(QPalette::WindowText);
+  const QColor axis_color = displayAxis();
   painter.setPen(axis_color);
 
   // Axis line.
@@ -340,7 +367,6 @@ void WaveformMonitorWidget::drawYAxis(QPainter& painter,
     const int py = mvToPixelY(mv, pa);
     if (py < pa.top() || py > pa.bottom()) continue;
 
-    painter.setPen(axis_color);
     painter.drawLine(pa.left() - 4, py, pa.left(), py);
 
     const QString label = QString::number(static_cast<int>(std::round(mv)));
@@ -358,8 +384,7 @@ void WaveformMonitorWidget::drawYAxis(QPainter& painter,
 }
 
 void WaveformMonitorWidget::drawGrid(QPainter& painter, const QRect& pa) const {
-  const QPalette palette = this->palette();
-  painter.setPen(QPen(theme_tokens::gridLine(palette), 1, Qt::SolidLine));
+  painter.setPen(QPen(displayGrid(), 1, Qt::SolidLine));
 
   // Horizontal lines at every 100 mV Y-axis tick position.
   const double y_tick_step = 100.0;
@@ -397,8 +422,7 @@ void WaveformMonitorWidget::drawGrid(QPainter& painter, const QRect& pa) const {
 
 void WaveformMonitorWidget::drawXAxis(QPainter& painter,
                                       const QRect& pa) const {
-  const QPalette palette = this->palette();
-  const QColor axis_color = palette.color(QPalette::WindowText);
+  const QColor axis_color = displayAxis();
   painter.setPen(axis_color);
 
   // Axis baseline.
@@ -428,7 +452,6 @@ void WaveformMonitorWidget::drawXAxis(QPainter& painter,
     const int px = pa.left() + x_buf * pa.width() / x_samples_;
     if (px < pa.left() || px > pa.right()) continue;
 
-    painter.setPen(axis_color);
     painter.drawLine(px, pa.bottom(), px, pa.bottom() + 4);
 
     const QString label = QString::number(t, 'f', 1);
@@ -477,12 +500,16 @@ void WaveformMonitorWidget::drawLevelMarkers(QPainter& painter,
     const int py = mvToPixelY(mv, pa);
     if (py < pa.top() || py > pa.bottom()) continue;
 
-    const QColor lc = theme_tokens::neutralLine(palette(), lv.alpha);
+    QColor lc;
+    if (phosphor_mode_) {
+      // Scale phosphor green by the same emphasis value used for neutralLine.
+      lc = QColor(0, static_cast<int>(180.0 * lv.alpha), 0);
+    } else {
+      lc = theme_tokens::neutralLine(palette(), lv.alpha);
+    }
     painter.setPen(QPen(lc, 1, lv.style));
     painter.drawLine(pa.left(), py, pa.right(), py);
 
-    // Label inside the plot area near the left edge — matches PlotWidget
-    // marker label placement (scenePos + QPointF(5, -5)).
     painter.setPen(lc);
     painter.drawText(pa.left() + 5, py - 3, QString::fromUtf8(lv.label));
   }

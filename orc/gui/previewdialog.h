@@ -38,6 +38,7 @@ class FieldPreviewWidget;
 class FrameScopeDialog;
 class FrameTimingDialog;
 class VectorscopeDialog;
+class WaveformMonitorDialog;
 
 /**
  * @brief Separate dialog window for previewing field/frame outputs from DAG
@@ -226,6 +227,13 @@ class PreviewDialog : public QDialog {
   FrameTimingDialog* frameTimingDialog() { return frame_timing_dialog_; }
 
   /**
+   * @brief Get waveform monitor dialog (for updating when frame changes)
+   */
+  WaveformMonitorDialog* waveformMonitorDialog() {
+    return waveform_monitor_dialog_;
+  }
+
+  /**
    * @brief Returns the current 0-based navigation index (always matches
    * slider/spinbox display).
    */
@@ -292,6 +300,8 @@ class PreviewDialog : public QDialog {
   previewFrameChanged();  // Emitted when preview frame/output type changes -
                           // tells line scope to refresh at current position
   void frameTimingRequested();  // Emitted when user requests frame timing view
+  void
+  waveformMonitorRequested();  // Emitted when user requests waveform monitor
   void vectorscopeRequested(const orc::PreviewCoordinate&
                                 coordinate);  // Emitted when vectorscope should
                                               // refresh via presenter contract
@@ -324,9 +334,11 @@ class PreviewDialog : public QDialog {
   QAction* show_quality_metrics_action_;
   QAction* show_ntsc_observer_action_;
   QAction* show_frame_timing_action_;
+  QAction* show_waveform_monitor_action_;
   QAction* show_component_vectorscope_action_;
   FrameScopeDialog* frame_scope_dialog_;
   FrameTimingDialog* frame_timing_dialog_;
+  WaveformMonitorDialog* waveform_monitor_dialog_;
   VectorscopeDialog* vectorscope_dialog_{nullptr};
   orc::NodeID vectorscope_node_id_;
   orc::NodeID current_node_id_;

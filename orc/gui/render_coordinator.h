@@ -60,6 +60,7 @@ enum class RenderRequestType {
   GetAvailableOutputs,  // Query available preview outputs
   GetLineSamples,       // Get 16-bit samples for a line
   GetFrameTiming,       // Get all frame samples for timing view
+  GetWaveformMonitor,   // Get all frame samples for waveform monitor
   SavePNG,              // Save preview as PNG file
   NavigateFrameLine,    // Navigate to next/previous line in frame mode
   Shutdown              // Shutdown the worker thread
@@ -238,6 +239,22 @@ struct GetFrameTimingRequest : public RenderRequest {
   GetFrameTimingRequest(uint64_t id, orc::NodeID node,
                         orc::PreviewOutputType type, uint64_t index)
       : RenderRequest(RenderRequestType::GetFrameTiming, id),
+        node_id(std::move(node)),
+        output_type(type),
+        output_index(index) {}
+};
+
+/**
+ * @brief Request to get waveform monitor data
+ */
+struct GetWaveformMonitorRequest : public RenderRequest {
+  orc::NodeID node_id;
+  orc::PreviewOutputType output_type;
+  uint64_t output_index;
+
+  GetWaveformMonitorRequest(uint64_t id, orc::NodeID node,
+                            orc::PreviewOutputType type, uint64_t index)
+      : RenderRequest(RenderRequestType::GetWaveformMonitor, id),
         node_id(std::move(node)),
         output_type(type),
         output_index(index) {}
@@ -643,6 +660,20 @@ class RenderCoordinator : public QObject {
                                   uint64_t output_index);
 
   /**
+   * @brief Request waveform monitor data (async)
+   *
+   * Result will be emitted via waveformMonitorDataReady signal.
+   *
+   * @param node_id Node to get samples from
+   * @param output_type Type of output (field/frame)
+   * @param output_index Which field/frame
+   * @return Request ID for matching response
+   */
+  uint64_t requestWaveformMonitorData(const orc::NodeID& node_id,
+                                      orc::PreviewOutputType output_type,
+                                      uint64_t output_index);
+
+  /**
    * @brief Request frame line navigation (async)
    *
    * Requests the core to calculate the next/previous line when navigating
@@ -839,6 +870,16 @@ class RenderCoordinator : public QObject {
                             int first_field_height, int second_field_height);
 
   /**
+   * @brief Emitted when waveform monitor data is ready
+   */
+  void waveformMonitorDataReady(uint64_t request_id,
+                                std::vector<int16_t> composite_samples,
+                                std::vector<int16_t> y_samples,
+                                std::vector<int16_t> c_samples,
+                                int first_field_height,
+                                int second_field_height);
+
+  /**
    * @brief Emitted during trigger progress
    */
   void triggerProgress(size_t current, size_t total, QString message);
@@ -918,6 +959,11 @@ class RenderCoordinator : public QObject {
    * @brief Handle GetFrameTiming request
    */
   void handleGetFrameTiming(const GetFrameTimingRequest& req);
+
+  /**
+   * @brief Handle GetWaveformMonitor request
+   */
+  void handleGetWaveformMonitor(const GetWaveformMonitorRequest& req);
 
   /**
    * @brief Handle NavigateFrameLine request

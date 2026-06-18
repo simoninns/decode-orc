@@ -324,6 +324,16 @@ uint64_t RenderCoordinator::requestFrameTimingData(
   return id;
 }
 
+uint64_t RenderCoordinator::requestWaveformMonitorData(
+    const orc::NodeID& node_id, orc::PreviewOutputType output_type,
+    uint64_t output_index) {
+  uint64_t id = nextRequestId();
+  auto req = std::make_unique<GetWaveformMonitorRequest>(
+      id, node_id, output_type, output_index);
+  enqueueRequest(std::move(req));
+  return id;
+}
+
 uint64_t RenderCoordinator::requestSavePNG(const orc::NodeID& node_id,
                                            orc::PreviewOutputType output_type,
                                            uint64_t output_index,
@@ -511,6 +521,11 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request) {
 
     case RenderRequestType::GetFrameTiming:
       handleGetFrameTiming(*static_cast<GetFrameTimingRequest*>(request.get()));
+      break;
+
+    case RenderRequestType::GetWaveformMonitor:
+      handleGetWaveformMonitor(
+          *static_cast<GetWaveformMonitorRequest*>(request.get()));
       break;
 
     case RenderRequestType::SavePNG:
@@ -1004,6 +1019,51 @@ void RenderCoordinator::handleGetFrameTiming(const GetFrameTimingRequest& req) {
 
   } catch (const std::exception& e) {
     ORC_LOG_DEBUG("RenderCoordinator: Get field timing failed: {}", e.what());
+    emit error(req.request_id, QString::fromStdString(e.what()));
+  }
+}
+
+void RenderCoordinator::handleGetWaveformMonitor(
+    const GetWaveformMonitorRequest& req) {
+  ORC_LOG_DEBUG(
+      "RenderCoordinator: Getting waveform monitor data for node '{}', index "
+      "{} (request {})",
+      req.node_id.to_string(), req.output_index, req.request_id);
+
+  if (!worker_render_presenter_) {
+    ORC_LOG_ERROR("RenderCoordinator: Render presenter not initialized");
+    emit error(req.request_id, "Render presenter not initialized");
+    return;
+  }
+
+  try {
+    auto sample_data = worker_render_presenter_->getFieldSamplesForTiming(
+        req.node_id, req.output_type, req.output_index);
+
+    if (sample_data.composite_samples.empty() &&
+        sample_data.y_samples.empty()) {
+      ORC_LOG_DEBUG(
+          "RenderCoordinator: Field data not available for node '{}' "
+          "(waveform monitor)",
+          req.node_id.to_string());
+      emit error(req.request_id, "Field data not available");
+      return;
+    }
+
+    ORC_LOG_DEBUG(
+        "RenderCoordinator: Emitting waveform monitor data ({} composite, {} "
+        "Y, {} C samples)",
+        sample_data.composite_samples.size(), sample_data.y_samples.size(),
+        sample_data.c_samples.size());
+
+    emit waveformMonitorDataReady(
+        req.request_id, std::move(sample_data.composite_samples),
+        std::move(sample_data.y_samples), std::move(sample_data.c_samples),
+        sample_data.first_field_height, sample_data.second_field_height);
+
+  } catch (const std::exception& e) {
+    ORC_LOG_DEBUG("RenderCoordinator: Get waveform monitor failed: {}",
+                  e.what());
     emit error(req.request_id, QString::fromStdString(e.what()));
   }
 }

@@ -31,11 +31,13 @@
 #include "frametimingdialog.h"
 #include "logging.h"
 #include "preview/vectorscope_dialog.h"
+#include "waveformmonitordialog.h"
 
 namespace {
 
 constexpr const char* kLineScopeViewId = "preview.linescope";
 constexpr const char* kFrameTimingViewId = "preview.frame_timing";
+constexpr const char* kWaveformMonitorViewId = "preview.frame_timing";
 constexpr const char* kComponentVectorscopeViewId = "preview.vectorscope";
 
 }  // namespace
@@ -44,6 +46,7 @@ PreviewDialog::PreviewDialog(QWidget* parent)
     : QDialog(parent),
       frame_scope_dialog_(nullptr),
       frame_timing_dialog_(nullptr),
+      waveform_monitor_dialog_(nullptr),
       vectorscope_dialog_(nullptr),
       nav_debounce_timer_(new QTimer(this)) {
   nav_debounce_timer_->setSingleShot(true);
@@ -153,6 +156,20 @@ void PreviewDialog::setupUI() {
       return;
     }
     emit frameTimingRequested();
+  });
+
+  show_waveform_monitor_action_ = viewMenu->addAction("&Waveform Monitor");
+  show_waveform_monitor_action_->setShortcut(
+      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_W));
+  show_waveform_monitor_action_->setVisible(false);
+  show_waveform_monitor_action_->setEnabled(false);
+  connect(show_waveform_monitor_action_, &QAction::triggered, this, [this]() {
+    if (!hasAvailablePreviewView(kWaveformMonitorViewId)) {
+      status_bar_->showMessage(
+          "Waveform monitor is not available for this stage", 2000);
+      return;
+    }
+    emit waveformMonitorRequested();
   });
 
   show_component_vectorscope_action_ = viewMenu->addAction("&Vectorscope");
@@ -374,6 +391,9 @@ void PreviewDialog::setupUI() {
   // Create frame timing dialog
   frame_timing_dialog_ = new FrameTimingDialog(this);
 
+  // Create waveform monitor dialog
+  waveform_monitor_dialog_ = new WaveformMonitorDialog(this);
+
   // Connect to dialog hide/close events to disable cross-hairs
   connect(frame_scope_dialog_, &QDialog::finished, this,
           [this]() { preview_widget_->setCrosshairsEnabled(false); });
@@ -429,12 +449,19 @@ void PreviewDialog::setAvailablePreviewViews(
   const bool line_scope_available = hasAvailablePreviewView(kLineScopeViewId);
   const bool frame_timing_available =
       hasAvailablePreviewView(kFrameTimingViewId);
+  const bool waveform_monitor_available =
+      hasAvailablePreviewView(kWaveformMonitorViewId);
   const bool component_vectorscope_available =
       hasAvailablePreviewView(kComponentVectorscopeViewId);
 
   if (show_frame_timing_action_) {
     show_frame_timing_action_->setVisible(frame_timing_available);
     show_frame_timing_action_->setEnabled(frame_timing_available);
+  }
+
+  if (show_waveform_monitor_action_) {
+    show_waveform_monitor_action_->setVisible(waveform_monitor_available);
+    show_waveform_monitor_action_->setEnabled(waveform_monitor_available);
   }
 
   if (!line_scope_available && frame_scope_dialog_ &&
@@ -445,6 +472,11 @@ void PreviewDialog::setAvailablePreviewViews(
   if (!frame_timing_available && frame_timing_dialog_ &&
       frame_timing_dialog_->isVisible()) {
     frame_timing_dialog_->close();
+  }
+
+  if (!waveform_monitor_available && waveform_monitor_dialog_ &&
+      waveform_monitor_dialog_->isVisible()) {
+    waveform_monitor_dialog_->close();
   }
 
   if (show_component_vectorscope_action_) {
@@ -563,6 +595,10 @@ void PreviewDialog::closeChildDialogs() {
 
   if (frame_timing_dialog_ && frame_timing_dialog_->isVisible()) {
     frame_timing_dialog_->close();
+  }
+
+  if (waveform_monitor_dialog_ && waveform_monitor_dialog_->isVisible()) {
+    waveform_monitor_dialog_->close();
   }
 
   closeVectorscopeDialogs();

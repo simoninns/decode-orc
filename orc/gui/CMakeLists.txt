@@ -87,6 +87,12 @@ set(ORC_GUI_LIB_SOURCES
     frametimingdialog.h
     frametimingwidget.cpp
     frametimingwidget.h
+
+    # Waveform monitor dialog
+    waveformmonitordialog.cpp
+    waveformmonitordialog.h
+    waveformmonitorwidget.cpp
+    waveformmonitorwidget.h
     
     # Plot widget
     plotwidget.cpp

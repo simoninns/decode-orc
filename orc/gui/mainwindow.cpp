@@ -45,6 +45,7 @@
 #include "stageparameterdialog.h"
 #include "vbidialog.h"
 #include "version.h"
+#include "waveformmonitordialog.h"
 
 // Forward declarations for core types used via opaque pointers
 namespace orc {
@@ -98,6 +99,7 @@ namespace {
 
 constexpr const char* kLineScopeViewId = "preview.linescope";
 constexpr const char* kFrameTimingViewId = "preview.frame_timing";
+constexpr const char* kWaveformMonitorViewId = "preview.frame_timing";
 
 orc::presenters::VideoFormat toPresenterVideoFormat(orc::VideoSystem system) {
   switch (system) {
@@ -313,6 +315,9 @@ MainWindow::MainWindow(QWidget* parent)
           &MainWindow::onLineSamplesReady, Qt::QueuedConnection);
   connect(render_coordinator_.get(), &RenderCoordinator::frameTimingDataReady,
           this, &MainWindow::onFrameTimingDataReady, Qt::QueuedConnection);
+  connect(render_coordinator_.get(),
+          &RenderCoordinator::waveformMonitorDataReady, this,
+          &MainWindow::onWaveformMonitorDataReady, Qt::QueuedConnection);
   connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady, this,
           &MainWindow::onDropoutDataReady, Qt::QueuedConnection);
   connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress, this,
@@ -512,6 +517,8 @@ void MainWindow::setupUI() {
           &MainWindow::onSampleMarkerMoved);
   connect(preview_dialog_, &PreviewDialog::frameTimingRequested, this,
           &MainWindow::onFrameTimingRequested);
+  connect(preview_dialog_, &PreviewDialog::waveformMonitorRequested, this,
+          &MainWindow::onWaveformMonitorRequested);
   connect(preview_dialog_, &PreviewDialog::vectorscopeRequested, this,
           &MainWindow::onPreviewVectorscopeRequested);
   // Connect preview frame changed signal to line scope
@@ -539,6 +546,18 @@ void MainWindow::setupUI() {
             &MainWindow::onFrameTimingRequested);
     connect(frame_timing, &FrameTimingDialog::setCrosshairsRequested, this,
             &MainWindow::onSetCrosshairsFromFrameTiming);
+  }
+
+  // Connect preview frame changed signal to waveform monitor
+  auto waveform_monitor = preview_dialog_->waveformMonitorDialog();
+  if (waveform_monitor) {
+    connect(preview_dialog_, &PreviewDialog::previewFrameChanged, this,
+            [this]() {
+              auto* dialog = preview_dialog_->waveformMonitorDialog();
+              if (dialog && dialog->isVisible()) {
+                onWaveformMonitorRequested();
+              }
+            });
   }
 
   // Create QtNodes DAG editor
@@ -4208,6 +4227,66 @@ void MainWindow::onFrameTimingDataReady(
     frame_timing_dialog->raise();
     frame_timing_dialog->activateWindow();
   }
+}
+
+void MainWindow::onWaveformMonitorRequested() {
+  if (!current_view_node_id_.is_valid()) {
+    ORC_LOG_WARN("No node selected for waveform monitor view");
+    return;
+  }
+
+  if (!preview_dialog_ ||
+      !preview_dialog_->hasAvailablePreviewView(kWaveformMonitorViewId)) {
+    ORC_LOG_DEBUG("Waveform monitor is not available for the selected stage");
+    return;
+  }
+
+  const int current_index = preview_dialog_->previewSlider()->value();
+  pending_waveform_monitor_request_id_ =
+      render_coordinator_->requestWaveformMonitorData(
+          current_view_node_id_, current_output_type_, current_index);
+
+  ORC_LOG_DEBUG("Requested waveform monitor data (request_id={})",
+                pending_waveform_monitor_request_id_);
+}
+
+void MainWindow::onWaveformMonitorDataReady(
+    uint64_t request_id, std::vector<int16_t> composite_samples,
+    std::vector<int16_t> y_samples, std::vector<int16_t> c_samples,
+    int first_field_height, int second_field_height) {
+  Q_UNUSED(request_id);
+  Q_UNUSED(c_samples);
+
+  ORC_LOG_DEBUG(
+      "Waveform monitor data ready: {} composite samples, {} Y samples",
+      composite_samples.size(), y_samples.size());
+
+  auto* wm_dialog = preview_dialog_->waveformMonitorDialog();
+  if (!wm_dialog) {
+    ORC_LOG_WARN("No waveform monitor dialog available!");
+    return;
+  }
+
+  // Get video parameters for mV conversion and level markers
+  std::optional<orc::presenters::VideoParametersView> video_params;
+  if (current_view_node_id_.is_valid()) {
+    auto* core_project = project_.presenter()->getCoreProjectHandle();
+    if (core_project) {
+      orc::presenters::RenderPresenter render_presenter(core_project);
+      render_presenter.setDAG(project_.getDAG());
+      auto vp = render_presenter.getVideoParameters(current_view_node_id_);
+      if (vp.has_value()) {
+        video_params = orc::presenters::toVideoParametersView(*vp);
+      }
+    }
+  }
+
+  // Prefer composite samples; fall back to luma for YC-only sources.
+  const std::vector<int16_t>& samples_to_use =
+      composite_samples.empty() ? y_samples : composite_samples;
+
+  wm_dialog->setData(samples_to_use, first_field_height, second_field_height,
+                     video_params);
 }
 
 void MainWindow::updateQualityMetricsDialog() {

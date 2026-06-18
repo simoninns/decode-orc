@@ -140,6 +140,7 @@ class MainWindow : public QMainWindow {
   void
   refreshLineScopeForCurrentStage();  ///< Refresh line scope when stage changes
   void onFrameTimingRequested();
+  void onWaveformMonitorRequested();
   void onSetCrosshairsFromFrameTiming();
   void onFrameScopeDialogClosed();
   void onPreviewVectorscopeRequested(const orc::PreviewCoordinate& coordinate);
@@ -165,6 +166,12 @@ class MainWindow : public QMainWindow {
                               std::vector<int16_t> y_samples_2,
                               std::vector<int16_t> c_samples_2,
                               int first_field_height, int second_field_height);
+  void onWaveformMonitorDataReady(uint64_t request_id,
+                                  std::vector<int16_t> composite_samples,
+                                  std::vector<int16_t> y_samples,
+                                  std::vector<int16_t> c_samples,
+                                  int first_field_height,
+                                  int second_field_height);
   void onFrameLineNavigationReady(uint64_t request_id,
                                   orc::FrameLineNavigationResult result);
   void onDropoutDataReady(uint64_t request_id,
@@ -272,6 +279,7 @@ class MainWindow : public QMainWindow {
   orc::NodeID pending_trigger_node_id_;  // Track which node is being triggered
   uint64_t pending_line_sample_request_id_{0};
   uint64_t pending_frame_timing_request_id_{0};
+  uint64_t pending_waveform_monitor_request_id_{0};
   std::unordered_map<uint64_t, orc::NodeID>
       pending_dropout_requests_;  // request_id -> node_id
   std::unordered_map<uint64_t, orc::NodeID>

@@ -1,7 +1,7 @@
 /*
  * File:        frametimingdialog.cpp
  * Module:      orc-gui
- * Purpose:     Frame timing visualization dialog (CVBS_U10_4FSC domain)
+ * Purpose:     Frame timing visualization dialog
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Simon Inns
@@ -13,6 +13,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QSettings>
 #include <QSlider>
 #include <QSpinBox>
@@ -21,68 +22,55 @@
 #include <algorithm>
 #include <cmath>
 
-#include "fieldtimingwidget.h"
+#include "field_frame_presentation.h"
+#include "frametimingwidget.h"
 
 namespace {
+// Minimum number of lines the timing view can display when fully zoomed in.
 constexpr int kMinLinesVisible = 2;
+
+// Internal slider coordinate range (position-space), mapped logarithmically to
+// line counts.
 constexpr int kZoomSliderMin = 0;
 constexpr int kZoomSliderMax = 1000;
-constexpr const char* kSettingsGroup = "FrameTimingDialog";
-constexpr const char* kNumberingModeKey = "NumberingMode";
 }  // namespace
 
-// ============================================================================
-// Construction / destruction
-// ============================================================================
-
-FrameTimingDialog::FrameTimingDialog(QWidget* parent) : QDialog(parent) {
+FrameTimingDialog::FrameTimingDialog(QWidget* parent)
+    : QDialog(parent),
+      current_field_index_(0),
+      current_first_field_height_(0),
+      current_second_field_height_(0) {
   setupUI();
   setWindowTitle("Frame Timing View");
+
+  // Use Qt::Window flag to allow independent positioning
   setWindowFlags(Qt::Window);
+
+  // Make dialog non-modal so it doesn't block the preview dialog
   setModal(false);
+
+  // Don't destroy on close, just hide
   setAttribute(Qt::WA_DeleteOnClose, false);
+
+  // Set default size
   resize(900, 500);
 
+  // Restore geometry if saved
   QSettings settings;
-  restoreGeometry(
-      settings.value(QString("%1/geometry").arg(kSettingsGroup)).toByteArray());
-  loadNumberingModePreference();
+  restoreGeometry(settings.value("FrameTimingDialog/geometry").toByteArray());
 }
 
 FrameTimingDialog::~FrameTimingDialog() {
+  // Save geometry
   QSettings settings;
-  settings.setValue(QString("%1/geometry").arg(kSettingsGroup), saveGeometry());
+  settings.setValue("FrameTimingDialog/geometry", saveGeometry());
 }
-
-// ============================================================================
-// QSettings persistence
-// ============================================================================
-
-void FrameTimingDialog::saveNumberingModePreference() const {
-  QSettings settings;
-  settings.beginGroup(kSettingsGroup);
-  settings.setValue(kNumberingModeKey, numbering_mode_combo_->currentIndex());
-  settings.endGroup();
-}
-
-void FrameTimingDialog::loadNumberingModePreference() {
-  QSettings settings;
-  settings.beginGroup(kSettingsGroup);
-  int idx = settings.value(kNumberingModeKey, 0).toInt();
-  settings.endGroup();
-  const QSignalBlocker blocker(numbering_mode_combo_);
-  numbering_mode_combo_->setCurrentIndex(
-      qBound(0, idx, numbering_mode_combo_->count() - 1));
-}
-
-// ============================================================================
-// UI setup
-// ============================================================================
 
 void FrameTimingDialog::setupUI() {
   auto* main_layout = new QVBoxLayout(this);
 
-  timing_widget_ = new FieldTimingWidget(this);
+  // Timing widget
+  timing_widget_ = new FrameTimingWidget(this);
   main_layout->addWidget(timing_widget_, 1);
 
   zoom_settle_timer_ = new QTimer(this);
@@ -90,68 +78,44 @@ void FrameTimingDialog::setupUI() {
   connect(zoom_settle_timer_, &QTimer::timeout, this,
           [this]() { finalizeRenderQuality(); });
 
-  // ---- Info bar (colour frame index + video system + frame height)
-  auto* info_row = new QHBoxLayout();
-  info_label_ = new QLabel(this);
-  info_label_->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-  QFont monoFont("Monospace");
-  monoFont.setStyleHint(QFont::TypeWriter);
-  info_label_->setFont(monoFont);
-  info_row->addWidget(info_label_);
-  info_row->addStretch();
-  main_layout->addLayout(info_row);
-
-  // ---- Control row
+  // Control row with buttons and zoom slider
   auto* control_layout = new QHBoxLayout();
 
   jump_button_ = new QPushButton("Jump to Crosshairs");
-  jump_button_->setEnabled(false);
-  jump_button_->setAutoDefault(false);
+  jump_button_->setEnabled(false);      // Initially disabled
+  jump_button_->setAutoDefault(false);  // Don't capture Enter key
   connect(jump_button_, &QPushButton::clicked,
           [this]() { timing_widget_->scrollToMarker(); });
   control_layout->addWidget(jump_button_);
 
   set_crosshairs_button_ = new QPushButton("Set Crosshairs");
-  set_crosshairs_button_->setAutoDefault(false);
+  set_crosshairs_button_->setAutoDefault(false);  // Don't capture Enter key
   connect(set_crosshairs_button_, &QPushButton::clicked,
           [this]() { emit setCrosshairsRequested(); });
   control_layout->addWidget(set_crosshairs_button_);
 
   control_layout->addSpacing(20);
 
+  // Line jump controls
   auto* line_label = new QLabel("Line:");
   control_layout->addWidget(line_label);
 
   line_spinbox_ = new QSpinBox();
   line_spinbox_->setMinimum(1);
-  line_spinbox_->setMaximum(625);
+  line_spinbox_->setMaximum(
+      625);  // Default to PAL max, will be updated with video params
   line_spinbox_->setValue(1);
   line_spinbox_->setMinimumWidth(80);
+  // Jump to line when Enter is pressed
   connect(line_spinbox_, &QSpinBox::editingFinished,
           [this]() { timing_widget_->scrollToLine(line_spinbox_->value()); });
   control_layout->addWidget(line_spinbox_);
 
   jump_line_button_ = new QPushButton("Jump to Line");
-  jump_line_button_->setAutoDefault(false);
+  jump_line_button_->setAutoDefault(false);  // Don't capture Enter key
   connect(jump_line_button_, &QPushButton::clicked,
           [this]() { timing_widget_->scrollToLine(line_spinbox_->value()); });
   control_layout->addWidget(jump_line_button_);
-
-  control_layout->addSpacing(20);
-
-  // Line numbering mode
-  numbering_mode_label_ = new QLabel("Line numbering:");
-  control_layout->addWidget(numbering_mode_label_);
-
-  numbering_mode_combo_ = new QComboBox(this);
-  numbering_mode_combo_->addItem("Frame flat (0-based)");
-  numbering_mode_combo_->addItem("Frame sequential (1-based)");
-  numbering_mode_combo_->addItem("Field relative");
-  numbering_mode_combo_->addItem("Broadcast interlaced");
-  connect(numbering_mode_combo_,
-          QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-          [this](int) { saveNumberingModePreference(); });
-  control_layout->addWidget(numbering_mode_combo_);
 
   control_layout->addSpacing(20);
 
@@ -168,43 +132,55 @@ void FrameTimingDialog::setupUI() {
   connect(signal_combo_, &QComboBox::currentIndexChanged, [this](int index) {
     current_signal_index_ = index;
     timing_widget_->setChannelMode(
-        static_cast<FieldTimingWidget::ChannelMode>(index));
+        static_cast<FrameTimingWidget::ChannelMode>(index));
   });
   control_layout->addWidget(signal_combo_);
 
   control_layout->addStretch();
 
-  // Zoom controls
+  // Zoom control
   auto* zoom_label = new QLabel("Lines:");
   control_layout->addWidget(zoom_label);
 
   auto moveZoomByButton = [this](int direction) {
-    const int total_lines = currentTotalLines();
-    const int delta_lines = std::max(1, current_lines_to_show_ / 25);
-    const int target_lines =
+    // direction: -1 = zoom in (fewer lines), +1 = zoom out (more lines)
+    int total_lines = currentTotalLines();
+    int delta_lines = std::max(1, current_lines_to_show_ / 25);
+    int target_lines =
         std::clamp(current_lines_to_show_ + (direction * delta_lines),
                    kMinLinesVisible, total_lines);
-    if (target_lines == current_lines_to_show_) return;
+
+    if (target_lines == current_lines_to_show_) {
+      return;
+    }
+
+    int current_pos = zoom_slider_->value();
     int target_pos = linesToSliderPosition(target_lines);
-    if (target_pos == zoom_slider_->value()) {
-      int scan_pos = zoom_slider_->value();
+
+    // If mapping rounds to the same slider position, walk to the next position
+    // that guarantees at least one visible line change.
+    if (target_pos == current_pos) {
+      int scan_pos = current_pos;
       while (true) {
         scan_pos += direction;
         if (scan_pos < zoom_slider_->minimum() ||
             scan_pos > zoom_slider_->maximum()) {
           break;
         }
-        const int mapped = sliderPositionToLines(scan_pos);
-        if ((direction < 0 && mapped < current_lines_to_show_) ||
-            (direction > 0 && mapped > current_lines_to_show_)) {
+
+        int mapped_lines = sliderPositionToLines(scan_pos);
+        if ((direction < 0 && mapped_lines < current_lines_to_show_) ||
+            (direction > 0 && mapped_lines > current_lines_to_show_)) {
           target_pos = scan_pos;
           break;
         }
       }
     }
+
     zoom_slider_->setValue(target_pos);
   };
 
+  // Zoom in button (decrease lines shown)
   auto* zoom_in_button = new QPushButton("-");
   zoom_in_button->setMaximumWidth(30);
   zoom_in_button->setAutoRepeat(true);
@@ -226,10 +202,11 @@ void FrameTimingDialog::setupUI() {
   zoom_slider_->setTickInterval(100);
   zoom_slider_->setMaximumWidth(150);
   connect(zoom_slider_, &QSlider::valueChanged, [this](int slider_position) {
-    current_lines_to_show_ = sliderPositionToLines(slider_position);
-    zoom_value_label_->setText(QString::number(current_lines_to_show_));
+    int lines_to_show = sliderPositionToLines(slider_position);
+    current_lines_to_show_ = lines_to_show;
+    zoom_value_label_->setText(QString::number(lines_to_show));
     beginDraftRendering();
-    applyZoomFromLines(current_lines_to_show_);
+    applyZoomFromLines(lines_to_show);
     scheduleFinalRender();
   });
   connect(zoom_slider_, &QSlider::sliderPressed,
@@ -238,6 +215,7 @@ void FrameTimingDialog::setupUI() {
           [this]() { finalizeRenderQuality(); });
   control_layout->addWidget(zoom_slider_);
 
+  // Zoom out button (increase lines shown)
   auto* zoom_out_button = new QPushButton("+");
   zoom_out_button->setMaximumWidth(30);
   zoom_out_button->setAutoRepeat(true);
@@ -265,14 +243,9 @@ void FrameTimingDialog::setupUI() {
   main_layout->addLayout(control_layout);
 }
 
-// ============================================================================
-// Field-domain bridge (migration period)
-// ============================================================================
-
 void FrameTimingDialog::setFieldData(
     const QString& node_id, uint64_t field_index,
-    const std::vector<int16_t>& samples,
-    const std::optional<uint64_t>& field_index_2,
+    const std::vector<int16_t>& samples, std::optional<uint64_t> field_index_2,
     const std::vector<int16_t>& samples_2,
     const std::vector<int16_t>& y_samples,
     const std::vector<int16_t>& c_samples,
@@ -281,159 +254,140 @@ void FrameTimingDialog::setFieldData(
     const std::optional<orc::presenters::VideoParametersView>& video_params,
     const std::optional<int>& marker_sample, int first_field_height,
     int second_field_height) {
-  first_field_height_ = first_field_height;
-  second_field_height_ = second_field_height;
-
-  std::vector<int16_t> frame_samples = samples;
-  std::vector<int16_t> frame_y = y_samples;
-  std::vector<int16_t> frame_c = c_samples;
-
-  if (field_index_2.has_value()) {
-    frame_samples.insert(frame_samples.end(), samples_2.begin(),
-                         samples_2.end());
-    frame_y.insert(frame_y.end(), y_samples_2.begin(), y_samples_2.end());
-    frame_c.insert(frame_c.end(), c_samples_2.begin(), c_samples_2.end());
-  }
-
-  int frame_height = first_field_height + second_field_height;
-  uint64_t frame_id = field_index / 2;
-
-  setFrameData(node_id, frame_id, frame_samples, /*colour_frame_index=*/-1,
-               video_params, marker_sample, frame_height, frame_y, frame_c);
-}
-
-// ============================================================================
-// Primary data entry point
-// ============================================================================
-
-void FrameTimingDialog::setFrameData(
-    const QString& node_id, uint64_t frame_id,
-    const std::vector<int16_t>& samples, int colour_frame_index,
-    const std::optional<orc::presenters::VideoParametersView>& video_params,
-    const std::optional<int>& marker_sample, int frame_height,
-    const std::vector<int16_t>& y_samples,
-    const std::vector<int16_t>& c_samples) {
   current_node_id_ = node_id;
-  current_frame_id_ = frame_id;
-  current_frame_height_ = frame_height;
-  current_colour_frame_index_ = colour_frame_index;
-  current_video_params_ = video_params;
+  current_field_index_ = field_index;
+  current_field_index_2_ = field_index_2;
+  current_first_field_height_ = first_field_height;
+  current_second_field_height_ = second_field_height;
 
-  // Window title: Stage N – Frame M
-  setWindowTitle(QString("Frame Timing View – Stage: %1, Frame: %2")
-                     .arg(node_id)
-                     .arg(frame_id + 1));
+  // Update window title with field info (1-indexed for display)
+  QString title =
+      QString("Frame Timing View – Stage: %1, Frame: %2")
+          .arg(node_id)
+          .arg(field_index / 2 + 1);  // Convert field to 1-based frame
+  setWindowTitle(title);
 
-  // Build info bar text
-  const orc::presenters::VideoSystem sys =
-      video_params.has_value() ? video_params->system
-                               : orc::presenters::VideoSystem::Unknown;
-  QString cfi_str = ::formatColourFrameIndex(colour_frame_index, sys);
-  QString sys_str = "Unknown";
-  int lines_per_frame = (frame_height > 0) ? frame_height : 625;
-  if (video_params.has_value()) {
-    switch (video_params->system) {
-      case orc::presenters::VideoSystem::PAL:
-        sys_str = "PAL";
-        if (lines_per_frame <= 0) lines_per_frame = 625;
-        break;
-      case orc::presenters::VideoSystem::NTSC:
-        sys_str = "NTSC";
-        if (lines_per_frame <= 0) lines_per_frame = 525;
-        break;
-      case orc::presenters::VideoSystem::PAL_M:
-        sys_str = "PAL-M";
-        if (lines_per_frame <= 0) lines_per_frame = 525;
-        break;
-      default:
-        break;
-    }
-  }
-  info_label_->setText(
-      QString("System: %1   Frame height: %2   Colour frame index: %3")
-          .arg(sys_str)
-          .arg(lines_per_frame)
-          .arg(cfi_str));
+  // Update widget data
+  timing_widget_->setFieldData(samples, samples_2, y_samples, c_samples,
+                               y_samples_2, c_samples_2, video_params,
+                               marker_sample);
 
-  // Pass to FieldTimingWidget (single-field path — frame-flat samples)
-  // The second-field arguments are left empty; the widget treats this as a
-  // single contiguous buffer equal to the full frame height.
-  timing_widget_->setFieldData(samples, {}, y_samples, c_samples, {}, {},
-                               video_params, marker_sample);
-
-  const bool is_yc = !y_samples.empty() || !c_samples.empty();
-  signal_label_->setVisible(is_yc);
-  signal_combo_->setVisible(is_yc);
-  if (is_yc) {
+  const bool is_yc_source = !y_samples.empty() || !c_samples.empty() ||
+                            !y_samples_2.empty() || !c_samples_2.empty();
+  signal_label_->setVisible(is_yc_source);
+  signal_combo_->setVisible(is_yc_source);
+  if (is_yc_source) {
     current_signal_index_ =
         std::clamp(current_signal_index_, 0, signal_combo_->count() - 1);
     signal_combo_->setCurrentIndex(current_signal_index_);
     timing_widget_->setChannelMode(
-        static_cast<FieldTimingWidget::ChannelMode>(current_signal_index_));
+        static_cast<FrameTimingWidget::ChannelMode>(current_signal_index_));
   } else {
-    timing_widget_->setChannelMode(FieldTimingWidget::ChannelMode::YPlusC);
+    timing_widget_->setChannelMode(FrameTimingWidget::ChannelMode::YPlusC);
   }
 
+  // Data refreshes should not keep draft mode active.
   finalizeRenderQuality();
+
+  // Enable/disable jump button based on whether marker is present
   jump_button_->setEnabled(marker_sample.has_value());
 
-  if (lines_per_frame > 0) {
-    line_spinbox_->setMaximum(lines_per_frame);
+  // Update line spinbox range based on field heights from VFR descriptor
+  int total_lines = first_field_height;
+
+  if (field_index_2.has_value()) {
+    // Frame mode: total height is sum of both field heights
+    total_lines = first_field_height + second_field_height;
+  }
+
+  if (total_lines > 0) {
+    // Set spinbox maximum to total lines available
+    line_spinbox_->setMaximum(total_lines);
+
+    // Preserve visible line target across source changes.
     current_lines_to_show_ =
-        std::clamp(current_lines_to_show_, kMinLinesVisible, lines_per_frame);
+        std::clamp(current_lines_to_show_, kMinLinesVisible, total_lines);
+
     zoom_slider_->blockSignals(true);
     zoom_slider_->setValue(linesToSliderPosition(current_lines_to_show_));
     zoom_slider_->blockSignals(false);
     zoom_value_label_->setText(QString::number(current_lines_to_show_));
+
+    // Trigger zoom update with current slider value
     applyZoomFromLines(current_lines_to_show_);
   }
 }
 
-// ============================================================================
-// Zoom helpers (identical algorithm to FieldTimingDialog)
-// ============================================================================
-
 int FrameTimingDialog::currentTotalLines() const {
-  const int total = (current_frame_height_ > 0) ? current_frame_height_ : 625;
-  return std::max(kMinLinesVisible, total);
+  int total_lines = current_first_field_height_;
+  if (current_field_index_2_.has_value() && current_second_field_height_ > 0) {
+    total_lines += current_second_field_height_;
+  }
+
+  if (total_lines <= 0) {
+    total_lines = 625;
+  }
+
+  return std::max(kMinLinesVisible, total_lines);
 }
 
 int FrameTimingDialog::sliderPositionToLines(int slider_position) const {
-  const int total = currentTotalLines();
-  if (total <= kMinLinesVisible) return total;
-  const double t =
-      std::clamp(static_cast<double>(slider_position - kZoomSliderMin) /
-                     static_cast<double>(kZoomSliderMax - kZoomSliderMin),
-                 0.0, 1.0);
-  const double ratio =
-      static_cast<double>(total) / static_cast<double>(kMinLinesVisible);
-  const int lines = static_cast<int>(
-      std::round(static_cast<double>(kMinLinesVisible) * std::pow(ratio, t)));
-  return std::clamp(lines, kMinLinesVisible, total);
+  int total_lines = currentTotalLines();
+
+  if (total_lines <= kMinLinesVisible) {
+    return total_lines;
+  }
+
+  double t = static_cast<double>(slider_position - kZoomSliderMin) /
+             static_cast<double>(kZoomSliderMax - kZoomSliderMin);
+  t = std::clamp(t, 0.0, 1.0);
+
+  double ratio =
+      static_cast<double>(total_lines) / static_cast<double>(kMinLinesVisible);
+  double mapped = static_cast<double>(kMinLinesVisible) * std::pow(ratio, t);
+  int lines = static_cast<int>(std::round(mapped));
+  return std::clamp(lines, kMinLinesVisible, total_lines);
 }
 
 int FrameTimingDialog::linesToSliderPosition(int lines_to_show) const {
-  const int total = currentTotalLines();
-  if (total <= kMinLinesVisible) return kZoomSliderMin;
-  const int lines = std::clamp(lines_to_show, kMinLinesVisible, total);
-  const double ratio =
-      static_cast<double>(total) / static_cast<double>(kMinLinesVisible);
-  const double normalized =
-      std::clamp(std::log(static_cast<double>(lines) /
-                          static_cast<double>(kMinLinesVisible)) /
-                     std::log(ratio),
-                 0.0, 1.0);
-  return std::clamp(
-      static_cast<int>(std::round(
-          normalized * (kZoomSliderMax - kZoomSliderMin) + kZoomSliderMin)),
-      kZoomSliderMin, kZoomSliderMax);
+  int total_lines = currentTotalLines();
+  int lines = std::clamp(lines_to_show, kMinLinesVisible, total_lines);
+
+  if (total_lines <= kMinLinesVisible) {
+    return kZoomSliderMin;
+  }
+
+  double ratio =
+      static_cast<double>(total_lines) / static_cast<double>(kMinLinesVisible);
+  double normalized = std::log(static_cast<double>(lines) /
+                               static_cast<double>(kMinLinesVisible)) /
+                      std::log(ratio);
+  normalized = std::clamp(normalized, 0.0, 1.0);
+
+  int slider_position = static_cast<int>(std::round(
+      normalized * static_cast<double>(kZoomSliderMax - kZoomSliderMin) +
+      kZoomSliderMin));
+  return std::clamp(slider_position, kZoomSliderMin, kZoomSliderMax);
 }
 
 void FrameTimingDialog::applyZoomFromLines(int lines_to_show) {
-  const int total = currentTotalLines();
-  if (total <= 0 || lines_to_show <= 0) return;
-  timing_widget_->setZoomFactor(static_cast<double>(total) /
-                                static_cast<double>(lines_to_show));
+  // At zoom_factor = 1.0, we show all lines; fewer lines means zoom in.
+  if (current_first_field_height_ <= 0 || lines_to_show <= 0) {
+    return;
+  }
+
+  int total_lines = current_first_field_height_;
+  if (current_field_index_2_.has_value() && current_second_field_height_ > 0) {
+    total_lines += current_second_field_height_;
+  }
+
+  if (total_lines <= 0) {
+    return;
+  }
+
+  double zoom_factor =
+      static_cast<double>(total_lines) / static_cast<double>(lines_to_show);
+  timing_widget_->setZoomFactor(zoom_factor);
 }
 
 void FrameTimingDialog::beginDraftRendering() {

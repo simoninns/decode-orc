@@ -314,11 +314,11 @@ uint64_t RenderCoordinator::requestLineSamples(
   return id;
 }
 
-uint64_t RenderCoordinator::requestFieldTimingData(
+uint64_t RenderCoordinator::requestFrameTimingData(
     const orc::NodeID& node_id, orc::PreviewOutputType output_type,
     uint64_t output_index) {
   uint64_t id = nextRequestId();
-  auto req = std::make_unique<GetFieldTimingRequest>(id, node_id, output_type,
+  auto req = std::make_unique<GetFrameTimingRequest>(id, node_id, output_type,
                                                      output_index);
   enqueueRequest(std::move(req));
   return id;
@@ -509,8 +509,8 @@ void RenderCoordinator::processRequest(std::unique_ptr<RenderRequest> request) {
       handleGetLineSamples(*static_cast<GetLineSamplesRequest*>(request.get()));
       break;
 
-    case RenderRequestType::GetFieldTiming:
-      handleGetFieldTiming(*static_cast<GetFieldTimingRequest*>(request.get()));
+    case RenderRequestType::GetFrameTiming:
+      handleGetFrameTiming(*static_cast<GetFrameTimingRequest*>(request.get()));
       break;
 
     case RenderRequestType::SavePNG:
@@ -939,7 +939,7 @@ void RenderCoordinator::handleGetLineSamples(const GetLineSamplesRequest& req) {
   }
 }
 
-void RenderCoordinator::handleGetFieldTiming(const GetFieldTimingRequest& req) {
+void RenderCoordinator::handleGetFrameTiming(const GetFrameTimingRequest& req) {
   ORC_LOG_DEBUG(
       "RenderCoordinator: Getting field timing data for node '{}', index {} "
       "(request {})",
@@ -995,7 +995,7 @@ void RenderCoordinator::handleGetFieldTiming(const GetFieldTimingRequest& req) {
         sample_data.composite_samples.size(), sample_data.y_samples.size(),
         sample_data.c_samples.size());
 
-    emit fieldTimingDataReady(
+    emit frameTimingDataReady(
         req.request_id, field_index, field_index_2,
         std::move(sample_data.composite_samples), std::move(samples_2),
         std::move(sample_data.y_samples), std::move(sample_data.c_samples),

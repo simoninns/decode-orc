@@ -59,7 +59,7 @@ enum class RenderRequestType {
   CancelTrigger,        // Cancel ongoing trigger
   GetAvailableOutputs,  // Query available preview outputs
   GetLineSamples,       // Get 16-bit samples for a line
-  GetFieldTiming,       // Get all field samples for timing view
+  GetFrameTiming,       // Get all frame samples for timing view
   SavePNG,              // Save preview as PNG file
   NavigateFrameLine,    // Navigate to next/previous line in frame mode
   Shutdown              // Shutdown the worker thread
@@ -230,14 +230,14 @@ struct GetLineSamplesRequest : public RenderRequest {
 /**
  * @brief Request to get field timing data
  */
-struct GetFieldTimingRequest : public RenderRequest {
+struct GetFrameTimingRequest : public RenderRequest {
   orc::NodeID node_id;
   orc::PreviewOutputType output_type;
   uint64_t output_index;
 
-  GetFieldTimingRequest(uint64_t id, orc::NodeID node,
+  GetFrameTimingRequest(uint64_t id, orc::NodeID node,
                         orc::PreviewOutputType type, uint64_t index)
-      : RenderRequest(RenderRequestType::GetFieldTiming, id),
+      : RenderRequest(RenderRequestType::GetFrameTiming, id),
         node_id(std::move(node)),
         output_type(type),
         output_index(index) {}
@@ -631,14 +631,14 @@ class RenderCoordinator : public QObject {
   /**
    * @brief Request field timing data (async)
    *
-   * Result will be emitted via fieldTimingDataReady signal.
+   * Result will be emitted via frameTimingDataReady signal.
    *
    * @param node_id Node to get samples from
    * @param output_type Type of output (field/frame)
    * @param output_index Which field/frame
    * @return Request ID for matching response
    */
-  uint64_t requestFieldTimingData(const orc::NodeID& node_id,
+  uint64_t requestFrameTimingData(const orc::NodeID& node_id,
                                   orc::PreviewOutputType output_type,
                                   uint64_t output_index);
 
@@ -828,7 +828,7 @@ class RenderCoordinator : public QObject {
   /**
    * @brief Emitted when field timing data is ready
    */
-  void fieldTimingDataReady(uint64_t request_id, uint64_t field_index,
+  void frameTimingDataReady(uint64_t request_id, uint64_t field_index,
                             std::optional<uint64_t> field_index_2,
                             std::vector<int16_t> samples,
                             std::vector<int16_t> samples_2,
@@ -915,9 +915,9 @@ class RenderCoordinator : public QObject {
   void handleGetLineSamples(const GetLineSamplesRequest& req);
 
   /**
-   * @brief Handle GetFieldTiming request
+   * @brief Handle GetFrameTiming request
    */
-  void handleGetFieldTiming(const GetFieldTimingRequest& req);
+  void handleGetFrameTiming(const GetFrameTimingRequest& req);
 
   /**
    * @brief Handle NavigateFrameLine request

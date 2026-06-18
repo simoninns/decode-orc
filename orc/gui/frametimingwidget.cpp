@@ -1,16 +1,13 @@
 /*
- * File:        fieldtimingwidget.cpp
+ * File:        frametimingwidget.cpp
  * Module:      orc-gui
- * Purpose:     Widget for rendering field timing graphs
+ * Purpose:     Widget for rendering frame timing graphs
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Simon Inns
  */
 
-#include "fieldtimingwidget.h"
-
-#include <common_types.h>
-#include <cvbs_signal_constants.h>
+#include "frametimingwidget.h"
 
 #include <QApplication>
 #include <QMouseEvent>
@@ -23,29 +20,14 @@
 #include <algorithm>
 #include <cmath>
 
+#include "framescopedialog.h"
 #include "plotwidget.h"
 #include "theme_color_tokens.h"
 
-// Convert presenter-layer VideoSystem to the core orc::VideoSystem used by
-// calculate_padded_field_height().  The two enums are mirrors; this keeps the
-// GUI layer decoupled from core types.
-static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
-  switch (sys) {
-    case orc::presenters::VideoSystem::PAL:
-      return orc::VideoSystem::PAL;
-    case orc::presenters::VideoSystem::NTSC:
-      return orc::VideoSystem::NTSC;
-    case orc::presenters::VideoSystem::PAL_M:
-      return orc::VideoSystem::PAL_M;
-    default:
-      return orc::VideoSystem::Unknown;
-  }
-}
-
 namespace {
-std::vector<int16_t> buildCombinedYPlusC(const std::vector<int16_t>& y_samples,
-                                         const std::vector<int16_t>& c_samples,
-                                         int32_t chroma_mid) {
+std::vector<int16_t> buildCombinedYPlusC(
+    const std::vector<int16_t>& y_samples,
+    const std::vector<int16_t>& c_samples) {
   if (y_samples.empty() || c_samples.empty()) {
     return {};
   }
@@ -55,72 +37,47 @@ std::vector<int16_t> buildCombinedYPlusC(const std::vector<int16_t>& y_samples,
   combined_samples.reserve(sample_count);
 
   for (size_t i = 0; i < sample_count; ++i) {
-    const int32_t combined = static_cast<int32_t>(y_samples[i]) +
-                             (static_cast<int32_t>(c_samples[i]) - chroma_mid);
-    combined_samples.push_back(
-        static_cast<int16_t>(std::clamp(combined, 0, 1023)));
+    const int32_t combined =
+        static_cast<int32_t>(y_samples[i]) + static_cast<int32_t>(c_samples[i]);
+    combined_samples.push_back(static_cast<int16_t>(
+        std::clamp(combined, static_cast<int32_t>(INT16_MIN),
+                   static_cast<int32_t>(INT16_MAX))));
   }
 
   return combined_samples;
 }
 }  // namespace
 
-double FieldTimingWidget::convertSampleToMV(int16_t sample) const {
+double FrameTimingWidget::convertSampleToMV(int16_t sample) const {
   if (!video_params_.has_value()) {
     return sample / 100.0;
   }
-
   const auto& vp = video_params_.value();
-
-  // Determine mV conversion factor based on video system
-  double ire_to_mv = 7.0;  // Default to PAL
-  if (vp.system == orc::presenters::VideoSystem::NTSC ||
-      vp.system == orc::presenters::VideoSystem::PAL_M) {
-    ire_to_mv = 7.143;  // NTSC uses 7.143 mV/IRE
-  }
-
-  if (vp.white_level <= vp.blanking_level) {
-    return static_cast<double>(sample) / 100.0;
-  }
-
-  const double level_range =
-      static_cast<double>(vp.white_level - vp.blanking_level);
-  const double ire =
-      (static_cast<double>(sample) - vp.blanking_level) * 100.0 / level_range;
-  return ire * ire_to_mv;
+  const double a_mv = active_video_mv(vp.system);
+  return cvbs_sample_to_mv(sample, vp.blanking_level, vp.white_level, a_mv);
 }
 
-double FieldTimingWidget::getMVRange(double& min_mv, double& max_mv) const {
+double FrameTimingWidget::getMVRange(double& min_mv, double& max_mv) const {
   if (!video_params_.has_value()) {
-    min_mv = 0;
-    max_mv = 10.23;  // 1023 / 100 (10-bit CVBS_U10_4FSC fallback)
+    min_mv = -400;
+    max_mv = 1000;
     return max_mv - min_mv;
   }
-
   const auto& vp = video_params_.value();
-
-  // Determine mV conversion factor
-  double ire_to_mv = 7.0;
-  if (vp.system == orc::presenters::VideoSystem::NTSC ||
-      vp.system == orc::presenters::VideoSystem::PAL_M) {
-    ire_to_mv = 7.143;
+  const double a_mv = active_video_mv(vp.system);
+  if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
+    min_mv = cvbs_sample_to_mv(static_cast<int16_t>(vp.sync_tip_level),
+                               vp.blanking_level, vp.white_level, a_mv);
+    max_mv = cvbs_sample_to_mv(static_cast<int16_t>(vp.peak_level),
+                               vp.blanking_level, vp.white_level, a_mv);
+  } else {
+    min_mv = -400;
+    max_mv = 1000;
   }
-
-  if (vp.white_level <= vp.blanking_level) {
-    min_mv = 0;
-    max_mv = 10.23;
-    return max_mv - min_mv;
-  }
-
-  const double level_range =
-      static_cast<double>(vp.white_level - vp.blanking_level);
-  min_mv = (0.0 - vp.blanking_level) * 100.0 / level_range * ire_to_mv;
-  max_mv = (1023.0 - vp.blanking_level) * 100.0 / level_range * ire_to_mv;
-
   return max_mv - min_mv;
 }
 
-FieldTimingWidget::FieldTimingWidget(QWidget* parent)
+FrameTimingWidget::FrameTimingWidget(QWidget* parent)
     : QWidget(parent),
       scroll_offset_(0),
       zoom_factor_(1.0),
@@ -140,7 +97,7 @@ FieldTimingWidget::FieldTimingWidget(QWidget* parent)
   setMouseTracking(true);
 }
 
-void FieldTimingWidget::setChannelMode(ChannelMode mode) {
+void FrameTimingWidget::setChannelMode(ChannelMode mode) {
   if (channel_mode_ == mode) {
     return;
   }
@@ -149,7 +106,7 @@ void FieldTimingWidget::setChannelMode(ChannelMode mode) {
   update();
 }
 
-void FieldTimingWidget::setFieldData(
+void FrameTimingWidget::setFieldData(
     const std::vector<int16_t>& samples, const std::vector<int16_t>& samples_2,
     const std::vector<int16_t>& y_samples,
     const std::vector<int16_t>& c_samples,
@@ -170,7 +127,7 @@ void FieldTimingWidget::setFieldData(
   update();
 }
 
-void FieldTimingWidget::scrollToMarker() {
+void FrameTimingWidget::scrollToMarker() {
   if (!marker_sample_.has_value()) {
     return;
   }
@@ -195,7 +152,7 @@ void FieldTimingWidget::scrollToMarker() {
   }
 }
 
-void FieldTimingWidget::scrollToLine(int line_number) {
+void FrameTimingWidget::scrollToLine(int line_number) {
   if (!video_params_.has_value() || video_params_->frame_width_nominal <= 0) {
     return;
   }
@@ -223,7 +180,7 @@ void FieldTimingWidget::scrollToLine(int line_number) {
   }
 }
 
-int FieldTimingWidget::getCenterSample() const {
+int FrameTimingWidget::getCenterSample() const {
   // Check if we have data
   size_t total_samples = std::max(
       {field1_samples_.size(), field2_samples_.size(), y1_samples_.size(),
@@ -252,7 +209,7 @@ int FieldTimingWidget::getCenterSample() const {
   return center_sample;
 }
 
-void FieldTimingWidget::setZoomFactor(double zoom_factor) {
+void FrameTimingWidget::setZoomFactor(double zoom_factor) {
   // Get the center sample before zoom change
   int center_sample = getCenterSample();
 
@@ -282,7 +239,7 @@ void FieldTimingWidget::setZoomFactor(double zoom_factor) {
   update();
 }
 
-void FieldTimingWidget::setDraftRenderMode(bool enabled) {
+void FrameTimingWidget::setDraftRenderMode(bool enabled) {
   if (draft_render_mode_ == enabled) {
     return;
   }
@@ -290,7 +247,7 @@ void FieldTimingWidget::setDraftRenderMode(bool enabled) {
   update();
 }
 
-double FieldTimingWidget::getBasePixelsPerSample() const {
+double FrameTimingWidget::getBasePixelsPerSample() const {
   // Calculate pixels per sample needed to fit ALL samples horizontally at
   // zoom_factor = 1.0 This means at zoom 1.0, we show all available lines
   if (!video_params_.has_value() || video_params_->frame_width_nominal <= 0) {
@@ -319,7 +276,7 @@ double FieldTimingWidget::getBasePixelsPerSample() const {
   return base_pixels_per_sample;
 }
 
-void FieldTimingWidget::updateScrollBar() {
+void FrameTimingWidget::updateScrollBar() {
   // Determine total sample count
   size_t total_samples = std::max(
       {field1_samples_.size(), field2_samples_.size(), y1_samples_.size(),
@@ -355,7 +312,7 @@ void FieldTimingWidget::updateScrollBar() {
   }
 }
 
-void FieldTimingWidget::resizeEvent(QResizeEvent* event) {
+void FrameTimingWidget::resizeEvent(QResizeEvent* event) {
   QWidget::resizeEvent(event);
 
   // Position scroll bar at bottom
@@ -366,7 +323,7 @@ void FieldTimingWidget::resizeEvent(QResizeEvent* event) {
   updateScrollBar();
 }
 
-void FieldTimingWidget::wheelEvent(QWheelEvent* event) {
+void FrameTimingWidget::wheelEvent(QWheelEvent* event) {
   // Horizontal scrolling with mouse wheel
   if (scroll_bar_->isEnabled()) {
     int delta = -event->angleDelta().y() / 8;  // Convert to scroll steps
@@ -377,7 +334,7 @@ void FieldTimingWidget::wheelEvent(QWheelEvent* event) {
   }
 }
 
-void FieldTimingWidget::mousePressEvent(QMouseEvent* event) {
+void FrameTimingWidget::mousePressEvent(QMouseEvent* event) {
   if (event->button() == Qt::LeftButton && scroll_bar_->isEnabled()) {
     is_dragging_ = true;
     drag_start_pos_ = event->pos();
@@ -389,7 +346,7 @@ void FieldTimingWidget::mousePressEvent(QMouseEvent* event) {
   }
 }
 
-void FieldTimingWidget::mouseMoveEvent(QMouseEvent* event) {
+void FrameTimingWidget::mouseMoveEvent(QMouseEvent* event) {
   if (is_dragging_) {
     // Calculate how far we've dragged in pixels
     int dx = event->pos().x() - drag_start_pos_.x();
@@ -412,7 +369,7 @@ void FieldTimingWidget::mouseMoveEvent(QMouseEvent* event) {
   }
 }
 
-void FieldTimingWidget::mouseReleaseEvent(QMouseEvent* event) {
+void FrameTimingWidget::mouseReleaseEvent(QMouseEvent* event) {
   if (event->button() == Qt::LeftButton && is_dragging_) {
     is_dragging_ = false;
     setCursor(Qt::ArrowCursor);
@@ -422,7 +379,7 @@ void FieldTimingWidget::mouseReleaseEvent(QMouseEvent* event) {
   }
 }
 
-void FieldTimingWidget::paintEvent(QPaintEvent* event) {
+void FrameTimingWidget::paintEvent(QPaintEvent* event) {
   Q_UNUSED(event)
 
   QPainter painter(this);
@@ -451,7 +408,7 @@ void FieldTimingWidget::paintEvent(QPaintEvent* event) {
   drawGraph(painter, graph_area);
 }
 
-void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
+void FrameTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
   const bool is_dark_theme = PlotWidget::isDarkTheme();
   const QPalette palette = this->palette();
   const QColor axis_color = palette.color(QPalette::WindowText);
@@ -543,36 +500,30 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
       }
     };
 
-    // Draw level lines using CVBS_U10_4FSC reference levels from video params.
-    double blanking_mv =
-        convertSampleToMV(static_cast<int16_t>(vp.blanking_level));
-    drawLevelLine(blanking_mv, theme_tokens::neutralLine(palette, 0.35),
-                  Qt::DashLine);
+    // Draw level lines
+    if (vp.blanking_level >= 0 && vp.white_level >= 0) {
+      double blanking_mv =
+          convertSampleToMV(static_cast<int16_t>(vp.blanking_level));
+      drawLevelLine(blanking_mv, theme_tokens::neutralLine(palette, 0.35),
+                    Qt::DashLine);
 
-    // Draw black level if it differs from blanking (NTSC 7.5 IRE pedestal).
-    if (vp.black_level >= 0 && vp.blanking_level >= 0 &&
-        vp.white_level > vp.blanking_level &&
-        vp.black_level != vp.blanking_level) {
-      double black_mv = convertSampleToMV(static_cast<int16_t>(vp.black_level));
-      drawLevelLine(black_mv, theme_tokens::neutralLine(palette, 0.5),
-                    Qt::DashDotLine);
+      if (vp.black_level >= 0 && vp.black_level != vp.blanking_level) {
+        double black_mv =
+            convertSampleToMV(static_cast<int16_t>(vp.black_level));
+        drawLevelLine(black_mv, theme_tokens::neutralLine(palette, 0.5),
+                      Qt::DashDotLine);
+      }
+
+      double white_mv = convertSampleToMV(static_cast<int16_t>(vp.white_level));
+      drawLevelLine(white_mv, theme_tokens::neutralLine(palette, 0.7),
+                    Qt::DashLine);
     }
-
-    double white_mv = convertSampleToMV(static_cast<int16_t>(vp.white_level));
-    drawLevelLine(white_mv, theme_tokens::neutralLine(palette, 0.7),
-                  Qt::DashLine);
   }
 
   // Draw vertical field line markers
   if (video_params_.has_value()) {
     const auto& vp = video_params_.value();
-    // Use frame_width_nominal (canonical field name) for samples-per-line;
-    // derive field height from the video system rather than the deprecated
-    // field_height field in VideoParametersView.
-    const int fw = vp.frame_width_nominal;
-    const int fh = static_cast<int>(
-        orc::calculate_padded_field_height(toOrcVideoSystem(vp.system)));
-    if (fw > 0 && fh > 0) {
+    if (vp.frame_width_nominal > 0) {
       // Determine which samples to use for line count
       size_t total_samples =
           std::max({field1_samples_.size(), field2_samples_.size(),
@@ -591,7 +542,8 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
       // Adapt marker density to current zoom level so marker drawing cost
       // scales smoothly instead of jumping at an arbitrary visible-line
       // threshold.
-      double pixels_per_line = fw * effective_pixels_per_sample;
+      double pixels_per_line =
+          vp.frame_width_nominal * effective_pixels_per_sample;
       int marker_interval = 1;
       int label_interval = 1;
       if (pixels_per_line > 0.0) {
@@ -607,8 +559,8 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
       painter.setFont(line_num_font);
 
       // Draw vertical markers at field line boundaries
-      for (int line = 0; line * fw < end_sample; ++line) {
-        int sample_pos = line * fw;
+      for (int line = 0; line * vp.frame_width_nominal < end_sample; ++line) {
+        int sample_pos = line * vp.frame_width_nominal;
         if (sample_pos >= start_sample && sample_pos <= end_sample) {
           // Only draw markers at the specified interval.
           if (line % marker_interval == 0) {
@@ -718,13 +670,10 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
         break;
 
       case ChannelMode::YPlusC: {
-        const int32_t chroma_mid = video_params_.has_value()
-                                       ? video_params_->blanking_level
-                                       : orc::kPalBlanking;
         const std::vector<int16_t> combined_1 =
-            buildCombinedYPlusC(y1_samples_, c1_samples_, chroma_mid);
+            buildCombinedYPlusC(y1_samples_, c1_samples_);
         const std::vector<int16_t> combined_2 =
-            buildCombinedYPlusC(y2_samples_, c2_samples_, chroma_mid);
+            buildCombinedYPlusC(y2_samples_, c2_samples_);
 
         if (!combined_1.empty()) {
           drawSamples(painter, graph_area, combined_1, composite1_color, 0);
@@ -750,7 +699,7 @@ void FieldTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
   }
 }
 
-void FieldTimingWidget::drawSamples(QPainter& painter, const QRect& graph_area,
+void FrameTimingWidget::drawSamples(QPainter& painter, const QRect& graph_area,
                                     const std::vector<int16_t>& samples,
                                     const QColor& color, int y_offset) {
   if (samples.empty()) return;

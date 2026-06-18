@@ -82,11 +82,11 @@ set(ORC_GUI_LIB_SOURCES
     ntscobserverdialog.cpp
     ntscobserverdialog.h
     
-    # Frame timing dialog (replaces fieldtimingdialog)
+    # Frame timing dialog
     frametimingdialog.cpp
     frametimingdialog.h
-    fieldtimingwidget.cpp
-    fieldtimingwidget.h
+    frametimingwidget.cpp
+    frametimingwidget.h
     
     # Plot widget
     plotwidget.cpp

@@ -673,7 +673,7 @@ TEST(PreviewViewRegistryTest, Default_ViewsIncludeGenericVfrVisualizations) {
   }
 
   EXPECT_TRUE(ids.find("preview.linescope") != ids.end());
-  EXPECT_TRUE(ids.find("preview.field_timing") != ids.end());
+  EXPECT_TRUE(ids.find("preview.frame_timing") != ids.end());
 }
 
 // =============================================================================

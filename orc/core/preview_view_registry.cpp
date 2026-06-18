@@ -22,10 +22,10 @@ namespace orc {
 namespace {
 
 constexpr const char* kLineScopeViewId = "preview.linescope";
-constexpr const char* kFieldTimingViewId = "preview.field_timing";
+constexpr const char* kFrameTimingViewId = "preview.frame_timing";
 
 bool is_generic_vfr_view_id(const std::string& view_id) {
-  return view_id == kLineScopeViewId || view_id == kFieldTimingViewId;
+  return view_id == kLineScopeViewId || view_id == kFrameTimingViewId;
 }
 
 const DAGNode* find_node(const DAG& dag, NodeID node_id) {
@@ -498,8 +498,8 @@ void PreviewViewRegistry::register_default_views(
 
   registry.register_view(
       PreviewViewDescriptor{
-          kFieldTimingViewId,
-          "Field Timing",
+          kFrameTimingViewId,
+          "Frame Timing",
           {
               VideoDataType::CompositeNTSC,
               VideoDataType::CompositePAL,
@@ -511,7 +511,7 @@ void PreviewViewRegistry::register_default_views(
       },
       [](NodeID) {
         return std::make_unique<GenericVfrVisualizationPreviewView>(
-            "Field timing");
+            "Frame timing");
       });
 }
 

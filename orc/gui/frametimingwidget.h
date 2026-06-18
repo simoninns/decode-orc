@@ -1,14 +1,14 @@
 /*
- * File:        fieldtimingwidget.h
+ * File:        frametimingwidget.h
  * Module:      orc-gui
- * Purpose:     Widget for rendering field timing graphs
+ * Purpose:     Widget for rendering frame timing graphs
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 Simon Inns
  */
 
-#ifndef FIELDTIMINGWIDGET_H
-#define FIELDTIMINGWIDGET_H
+#ifndef FRAMETIMINGWIDGET_H
+#define FRAMETIMINGWIDGET_H
 
 #include <QScrollBar>
 #include <QWidget>
@@ -22,16 +22,16 @@
  * @brief Widget for displaying field sample data as a timing graph
  *
  * Renders sample values over time with horizontal scrolling.
- * Y-axis: sample value in mV (derived from CVBS_U10_4FSC int16_t domain)
+ * Y-axis: sample value (-32768 to 32767)
  * X-axis: sample position
  */
-class FieldTimingWidget : public QWidget {
+class FrameTimingWidget : public QWidget {
   Q_OBJECT
 
  public:
   enum class ChannelMode { YOnly = 0, COnly = 1, BothYC = 2, YPlusC = 3 };
 
-  explicit FieldTimingWidget(QWidget* parent = nullptr);
+  explicit FrameTimingWidget(QWidget* parent = nullptr);
 
   /**
    * @brief Set the field data to display
@@ -157,4 +157,4 @@ class FieldTimingWidget : public QWidget {
   int drag_start_scroll_value_;
 };
 
-#endif  // FIELDTIMINGWIDGET_H
+#endif  // FRAMETIMINGWIDGET_H

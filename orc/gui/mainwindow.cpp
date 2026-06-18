@@ -18,9 +18,9 @@
 #include "ffmpegpresetdialog.h"
 #include "field_frame_presentation.h"
 #include "fieldpreviewwidget.h"
-#include "fieldtimingwidget.h"
 #include "framescopedialog.h"
 #include "frametimingdialog.h"
+#include "frametimingwidget.h"
 #include "generic_analysis_dialog.h"
 #include "hintsdialog.h"
 #include "inspection_dialog.h"
@@ -97,7 +97,7 @@ class ObservationContext;
 namespace {
 
 constexpr const char* kLineScopeViewId = "preview.linescope";
-constexpr const char* kFieldTimingViewId = "preview.field_timing";
+constexpr const char* kFrameTimingViewId = "preview.frame_timing";
 
 orc::presenters::VideoFormat toPresenterVideoFormat(orc::VideoSystem system) {
   switch (system) {
@@ -311,8 +311,8 @@ MainWindow::MainWindow(QWidget* parent)
           this, &MainWindow::onAvailableOutputsReady, Qt::QueuedConnection);
   connect(render_coordinator_.get(), &RenderCoordinator::lineSamplesReady, this,
           &MainWindow::onLineSamplesReady, Qt::QueuedConnection);
-  connect(render_coordinator_.get(), &RenderCoordinator::fieldTimingDataReady,
-          this, &MainWindow::onFieldTimingDataReady, Qt::QueuedConnection);
+  connect(render_coordinator_.get(), &RenderCoordinator::frameTimingDataReady,
+          this, &MainWindow::onFrameTimingDataReady, Qt::QueuedConnection);
   connect(render_coordinator_.get(), &RenderCoordinator::dropoutDataReady, this,
           &MainWindow::onDropoutDataReady, Qt::QueuedConnection);
   connect(render_coordinator_.get(), &RenderCoordinator::dropoutProgress, this,
@@ -510,8 +510,8 @@ void MainWindow::setupUI() {
           &MainWindow::onLineNavigation);
   connect(preview_dialog_, &PreviewDialog::sampleMarkerMovedInLineScope, this,
           &MainWindow::onSampleMarkerMoved);
-  connect(preview_dialog_, &PreviewDialog::fieldTimingRequested, this,
-          &MainWindow::onFieldTimingRequested);
+  connect(preview_dialog_, &PreviewDialog::frameTimingRequested, this,
+          &MainWindow::onFrameTimingRequested);
   connect(preview_dialog_, &PreviewDialog::vectorscopeRequested, this,
           &MainWindow::onPreviewVectorscopeRequested);
   // Connect preview frame changed signal to line scope
@@ -532,13 +532,13 @@ void MainWindow::setupUI() {
             [this]() {
               auto* dialog = preview_dialog_->frameTimingDialog();
               if (dialog && dialog->isVisible()) {
-                onFieldTimingRequested();
+                onFrameTimingRequested();
               }
             });
     connect(frame_timing, &FrameTimingDialog::refreshRequested, this,
-            &MainWindow::onFieldTimingRequested);
+            &MainWindow::onFrameTimingRequested);
     connect(frame_timing, &FrameTimingDialog::setCrosshairsRequested, this,
-            &MainWindow::onSetCrosshairsFromFieldTiming);
+            &MainWindow::onSetCrosshairsFromFrameTiming);
   }
 
   // Create QtNodes DAG editor
@@ -3951,26 +3951,26 @@ void MainWindow::onShowNtscObserverDialog() {
   updateNtscObserverDialog();
 }
 
-void MainWindow::onFieldTimingRequested() {
+void MainWindow::onFrameTimingRequested() {
   if (!current_view_node_id_.is_valid()) {
     ORC_LOG_WARN("No node selected for field timing view");
     return;
   }
 
   if (!preview_dialog_ ||
-      !preview_dialog_->hasAvailablePreviewView(kFieldTimingViewId)) {
+      !preview_dialog_->hasAvailablePreviewView(kFrameTimingViewId)) {
     ORC_LOG_DEBUG("Field timing view is not available for the selected stage");
     return;
   }
 
   // Request field timing data for current preview frame/field
   int current_index = preview_dialog_->previewSlider()->value();
-  pending_field_timing_request_id_ =
-      render_coordinator_->requestFieldTimingData(
+  pending_frame_timing_request_id_ =
+      render_coordinator_->requestFrameTimingData(
           current_view_node_id_, current_output_type_, current_index);
 
   ORC_LOG_DEBUG("Requested field timing data (request_id={})",
-                pending_field_timing_request_id_);
+                pending_frame_timing_request_id_);
 }
 
 void MainWindow::onFrameScopeDialogClosed() {
@@ -3981,15 +3981,15 @@ void MainWindow::onFrameScopeDialogClosed() {
   last_line_scope_image_y_ = -1;
 
   // Update field timing dialog if it's visible to remove the marker
-  auto* field_timing_dialog = preview_dialog_->frameTimingDialog();
-  if (field_timing_dialog && field_timing_dialog->isVisible()) {
-    onFieldTimingRequested();
+  auto* frame_timing_dialog = preview_dialog_->frameTimingDialog();
+  if (frame_timing_dialog && frame_timing_dialog->isVisible()) {
+    onFrameTimingRequested();
   }
 }
 
-void MainWindow::onSetCrosshairsFromFieldTiming() {
-  auto* field_timing_dialog = preview_dialog_->frameTimingDialog();
-  if (!field_timing_dialog) {
+void MainWindow::onSetCrosshairsFromFrameTiming() {
+  auto* frame_timing_dialog = preview_dialog_->frameTimingDialog();
+  if (!frame_timing_dialog) {
     return;
   }
 
@@ -4013,7 +4013,7 @@ void MainWindow::onSetCrosshairsFromFieldTiming() {
   }
 
   // Get center sample from timing widget
-  int center_sample = field_timing_dialog->timingWidget()->getCenterSample();
+  int center_sample = frame_timing_dialog->timingWidget()->getCenterSample();
   if (center_sample < 0) {
     ORC_LOG_WARN("No valid center sample position");
     return;
@@ -4024,8 +4024,8 @@ void MainWindow::onSetCrosshairsFromFieldTiming() {
   // Get the actual field heights from the dialog (these come from VFR
   // descriptors) This is important for PAL where first field = 312 lines,
   // second field = 313 lines
-  const int first_fh = field_timing_dialog->firstFieldHeight();
-  const int second_fh = field_timing_dialog->secondFieldHeight();
+  const int first_fh = frame_timing_dialog->firstFieldHeight();
+  const int second_fh = frame_timing_dialog->secondFieldHeight();
 
   if (first_fh == 0 || fw == 0) {
     ORC_LOG_WARN("Invalid field dimensions");
@@ -4096,7 +4096,7 @@ void MainWindow::onSetCrosshairsFromFieldTiming() {
   onLineScopeRequested(sample_x, mapping.image_y);
 }
 
-void MainWindow::onFieldTimingDataReady(
+void MainWindow::onFrameTimingDataReady(
     uint64_t request_id, uint64_t field_index,
     std::optional<uint64_t> field_index_2, std::vector<int16_t> samples,
     std::vector<int16_t> samples_2, std::vector<int16_t> y_samples,
@@ -4113,8 +4113,8 @@ void MainWindow::onFieldTimingDataReady(
                                 : "",
       samples.size(), y_samples.size(), c_samples.size());
 
-  auto* field_timing_dialog = preview_dialog_->frameTimingDialog();
-  if (!field_timing_dialog) {
+  auto* frame_timing_dialog = preview_dialog_->frameTimingDialog();
+  if (!frame_timing_dialog) {
     ORC_LOG_WARN("No field timing dialog available!");
     return;
   }
@@ -4195,7 +4195,7 @@ void MainWindow::onFieldTimingDataReady(
     }
   }
 
-  field_timing_dialog->setFieldData(
+  frame_timing_dialog->setFieldData(
       QString::fromStdString(current_view_node_id_.to_string()), field_index,
       samples, field_index_2, samples_2, y_samples, c_samples, y_samples_2,
       c_samples_2, video_params, marker_sample, first_field_height,
@@ -4203,10 +4203,10 @@ void MainWindow::onFieldTimingDataReady(
 
   // Only show/raise/activate if not already visible
   // This prevents stealing focus when the dialog is already open
-  if (!field_timing_dialog->isVisible()) {
-    field_timing_dialog->show();
-    field_timing_dialog->raise();
-    field_timing_dialog->activateWindow();
+  if (!frame_timing_dialog->isVisible()) {
+    frame_timing_dialog->show();
+    frame_timing_dialog->raise();
+    frame_timing_dialog->activateWindow();
   }
 }
 
@@ -4780,7 +4780,7 @@ void MainWindow::onLineSamplesReady(
   if (preview_dialog_->frameTimingDialog() &&
       preview_dialog_->frameTimingDialog()->isVisible()) {
     ORC_LOG_DEBUG("Refreshing field timing dialog to update marker position");
-    onFieldTimingRequested();
+    onFrameTimingRequested();
   }
 
   refreshVectorscopeForCurrentCoordinate();
@@ -4877,7 +4877,7 @@ void MainWindow::onSampleMarkerMoved(int sample_x) {
       ORC_LOG_DEBUG(
           "Refreshing field timing dialog to update marker after sample marker "
           "move");
-      onFieldTimingRequested();
+      onFrameTimingRequested();
     }
   } else {
     ORC_LOG_WARN(

@@ -35,7 +35,7 @@
 namespace {
 
 constexpr const char* kLineScopeViewId = "preview.linescope";
-constexpr const char* kFieldTimingViewId = "preview.field_timing";
+constexpr const char* kFrameTimingViewId = "preview.frame_timing";
 constexpr const char* kComponentVectorscopeViewId = "preview.vectorscope";
 
 }  // namespace
@@ -143,16 +143,16 @@ void PreviewDialog::setupUI() {
           &PreviewDialog::showHintsDialogRequested);
 
   auto* viewMenu = menu_bar_->addMenu("&View");
-  show_field_timing_action_ = viewMenu->addAction("&Field Timing");
-  show_field_timing_action_->setShortcut(
+  show_frame_timing_action_ = viewMenu->addAction("&Frame Timing");
+  show_frame_timing_action_->setShortcut(
       QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
-  connect(show_field_timing_action_, &QAction::triggered, this, [this]() {
-    if (!hasAvailablePreviewView(kFieldTimingViewId)) {
-      status_bar_->showMessage("Field timing is not available for this stage",
+  connect(show_frame_timing_action_, &QAction::triggered, this, [this]() {
+    if (!hasAvailablePreviewView(kFrameTimingViewId)) {
+      status_bar_->showMessage("Frame timing is not available for this stage",
                                2000);
       return;
     }
-    emit fieldTimingRequested();
+    emit frameTimingRequested();
   });
 
   show_component_vectorscope_action_ = viewMenu->addAction("&Vectorscope");
@@ -371,7 +371,7 @@ void PreviewDialog::setupUI() {
   // Create frame scope dialog (replaces LineScopeDialog)
   frame_scope_dialog_ = new FrameScopeDialog(this);
 
-  // Create frame timing dialog (replaces FieldTimingDialog)
+  // Create frame timing dialog
   frame_timing_dialog_ = new FrameTimingDialog(this);
 
   // Connect to dialog hide/close events to disable cross-hairs
@@ -427,14 +427,14 @@ void PreviewDialog::setAvailablePreviewViews(
   }
 
   const bool line_scope_available = hasAvailablePreviewView(kLineScopeViewId);
-  const bool field_timing_available =
-      hasAvailablePreviewView(kFieldTimingViewId);
+  const bool frame_timing_available =
+      hasAvailablePreviewView(kFrameTimingViewId);
   const bool component_vectorscope_available =
       hasAvailablePreviewView(kComponentVectorscopeViewId);
 
-  if (show_field_timing_action_) {
-    show_field_timing_action_->setVisible(field_timing_available);
-    show_field_timing_action_->setEnabled(field_timing_available);
+  if (show_frame_timing_action_) {
+    show_frame_timing_action_->setVisible(frame_timing_available);
+    show_frame_timing_action_->setEnabled(frame_timing_available);
   }
 
   if (!line_scope_available && frame_scope_dialog_ &&
@@ -442,7 +442,7 @@ void PreviewDialog::setAvailablePreviewViews(
     frame_scope_dialog_->close();
   }
 
-  if (!field_timing_available && frame_timing_dialog_ &&
+  if (!frame_timing_available && frame_timing_dialog_ &&
       frame_timing_dialog_->isVisible()) {
     frame_timing_dialog_->close();
   }

@@ -291,7 +291,7 @@ class PreviewDialog : public QDialog {
   void
   previewFrameChanged();  // Emitted when preview frame/output type changes -
                           // tells line scope to refresh at current position
-  void fieldTimingRequested();  // Emitted when user requests field timing view
+  void frameTimingRequested();  // Emitted when user requests frame timing view
   void vectorscopeRequested(const orc::PreviewCoordinate&
                                 coordinate);  // Emitted when vectorscope should
                                               // refresh via presenter contract
@@ -323,7 +323,7 @@ class PreviewDialog : public QDialog {
   QAction* show_hints_action_;
   QAction* show_quality_metrics_action_;
   QAction* show_ntsc_observer_action_;
-  QAction* show_field_timing_action_;
+  QAction* show_frame_timing_action_;
   QAction* show_component_vectorscope_action_;
   FrameScopeDialog* frame_scope_dialog_;
   FrameTimingDialog* frame_timing_dialog_;

@@ -262,6 +262,19 @@ class PreviewDialog : public QDialog {
    */
   void setIndex(int zero_based);
 
+  /**
+   * @brief Set the playback timer interval in milliseconds.
+   * Must be called by MainWindow whenever the video standard is known.
+   * PAL: 40 ms (25 fps). NTSC: 33 ms (~30 fps).
+   */
+  void setPlaybackFrameRateMs(int ms);
+
+  /**
+   * @brief Stop playback and reset the play/pause button to the play state.
+   * Call this whenever the source or project changes.
+   */
+  void stopPlayback();
+
  Q_SIGNALS:
   /**
    * Emitted whenever the current index changes (every navigate/scrub).
@@ -355,11 +368,16 @@ class PreviewDialog : public QDialog {
   QTimer* nav_debounce_timer_;
   QPushButton* first_button_;
   QPushButton* prev_button_;
+  QPushButton* play_pause_button_;
   QPushButton* next_button_;
   QPushButton* last_button_;
   QPushButton* zoom1to1_button_;
   QPushButton* dropouts_button_;
   QSpinBox* frame_jump_spinbox_;
+
+  // Playback
+  QTimer* playback_timer_;
+  bool is_playing_{false};
 
   void closeVectorscopeDialogs();
 

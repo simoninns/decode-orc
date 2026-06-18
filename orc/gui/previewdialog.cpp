@@ -48,11 +48,25 @@ PreviewDialog::PreviewDialog(QWidget* parent)
       frame_timing_dialog_(nullptr),
       waveform_monitor_dialog_(nullptr),
       vectorscope_dialog_(nullptr),
-      nav_debounce_timer_(new QTimer(this)) {
+      nav_debounce_timer_(new QTimer(this)),
+      playback_timer_(new QTimer(this)) {
   nav_debounce_timer_->setSingleShot(true);
   nav_debounce_timer_->setInterval(100);  // ms: coalesces rapid scrub moves
   connect(nav_debounce_timer_, &QTimer::timeout,
           [this]() { emit renderRequested(currentIndex()); });
+
+  // ITU-R BT.470-6 §5.1 (PAL 25 fps) / SMPTE 170M-2004 §2 (NTSC ~30 fps).
+  // Default to PAL rate; MainWindow calls setPlaybackFrameRateMs() once it
+  // knows the video standard.
+  playback_timer_->setInterval(40);
+  connect(playback_timer_, &QTimer::timeout, [this]() {
+    const int next = currentIndex() + 1;
+    if (next > preview_slider_->maximum()) {
+      stopPlayback();
+      return;
+    }
+    navigateToIndex(next);
+  });
 
   setupUI();
   setWindowTitle("Field/Frame Preview");
@@ -197,6 +211,7 @@ void PreviewDialog::setupUI() {
   // Navigation buttons
   first_button_ = new QPushButton("<<");
   prev_button_ = new QPushButton("<");
+  play_pause_button_ = new QPushButton("▶");  // ▶ play symbol
   next_button_ = new QPushButton(">");
   last_button_ = new QPushButton(">>");
 
@@ -214,14 +229,18 @@ void PreviewDialog::setupUI() {
   // (without this, the << button appears focused when the spinbox has focus)
   first_button_->setAutoDefault(false);
   prev_button_->setAutoDefault(false);
+  play_pause_button_->setAutoDefault(false);
   next_button_->setAutoDefault(false);
   last_button_->setAutoDefault(false);
 
   // Set fixed width for navigation buttons
   first_button_->setFixedWidth(40);
   prev_button_->setFixedWidth(40);
+  play_pause_button_->setFixedWidth(40);
   next_button_->setFixedWidth(40);
   last_button_->setFixedWidth(40);
+
+  play_pause_button_->setToolTip("Play / Pause");
 
   slider_min_label_ = new QLabel("0");
   slider_max_label_ = new QLabel("0");
@@ -235,6 +254,7 @@ void PreviewDialog::setupUI() {
 
   sliderLayout->addWidget(first_button_);
   sliderLayout->addWidget(prev_button_);
+  sliderLayout->addWidget(play_pause_button_);
   sliderLayout->addWidget(next_button_);
   sliderLayout->addWidget(last_button_);
 
@@ -330,6 +350,17 @@ void PreviewDialog::setupUI() {
   connect(last_button_, &QPushButton::clicked,
           [this]() { navigateToIndex(preview_slider_->maximum()); });
 
+  // Play / Pause button — toggle playback state
+  connect(play_pause_button_, &QPushButton::clicked, [this]() {
+    if (is_playing_) {
+      stopPlayback();
+    } else {
+      is_playing_ = true;
+      play_pause_button_->setText("⏸");  // ⏸ pause symbol
+      playback_timer_->start();
+    }
+  });
+
   // Slider drag — debounced for smooth scrubbing
   connect(preview_slider_, &QSlider::sliderMoved,
           [this](int value) { navigateToIndexDebounced(value); });
@@ -420,6 +451,19 @@ void PreviewDialog::setupUI() {
             }
             emit lineScopeRequested(image_x, image_y);
           });
+}
+
+void PreviewDialog::setPlaybackFrameRateMs(int ms) {
+  playback_timer_->setInterval(ms);
+}
+
+void PreviewDialog::stopPlayback() {
+  if (!is_playing_) {
+    return;
+  }
+  playback_timer_->stop();
+  is_playing_ = false;
+  play_pause_button_->setText("▶");  // ▶ play symbol
 }
 
 void PreviewDialog::setCurrentNode(const QString& node_label,

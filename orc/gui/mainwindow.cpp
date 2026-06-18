@@ -1098,6 +1098,7 @@ void MainWindow::newProject(orc::VideoSystem video_format,
 
   // Clear existing project state
   project_.clear();
+  preview_dialog_->stopPlayback();
   preview_dialog_->previewWidget()->clearImage();
   preview_dialog_->previewSlider()->setEnabled(false);
   preview_dialog_->frameJumpSpinBox()->setEnabled(false);
@@ -1146,6 +1147,7 @@ void MainWindow::openProject(const QString& filename) {
 
   // Clear existing project state
   project_.clear();
+  preview_dialog_->stopPlayback();
   preview_dialog_->previewWidget()->clearImage();
   preview_dialog_->previewSlider()->setEnabled(false);
   preview_dialog_->frameJumpSpinBox()->setEnabled(false);
@@ -1429,6 +1431,7 @@ void MainWindow::quickProject(const QString& filename) {
 
   // Clear existing project state
   project_.clear();
+  preview_dialog_->stopPlayback();
   preview_dialog_->previewWidget()->clearImage();
   preview_dialog_->previewSlider()->setEnabled(false);
   preview_dialog_->frameJumpSpinBox()->setEnabled(false);
@@ -2051,6 +2054,10 @@ void MainWindow::updatePreviewInfo() {
   auto video_format_presenter = project_.presenter()->getVideoFormat();
   bool is_ntsc = (video_format_presenter == orc::presenters::VideoFormat::NTSC);
   preview_dialog_->ntscObserverAction()->setEnabled(is_ntsc);
+
+  // ITU-R BT.470-6 §5.1 (PAL 25 fps) / SMPTE 170M-2004 §2 (NTSC ~29.97 fps).
+  // Keep playback timer interval in sync with the detected video standard.
+  preview_dialog_->setPlaybackFrameRateMs(is_ntsc ? 33 : 40);
 
   // Get detailed display info from core
   int current_index = preview_dialog_->previewSlider()->value();

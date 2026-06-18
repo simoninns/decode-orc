@@ -54,6 +54,12 @@ void MainWindow::onPreviewReady(uint64_t request_id,
 
   endPreviewRenderInFlight();
 
+  // Refresh vectorscope after every completed render so it stays in sync
+  // with the preview as the user steps through frames — not only when
+  // navigation has settled.
+  preview_dialog_->setSharedPreviewCoordinate(buildCurrentPreviewCoordinate());
+  refreshVectorscopeForCurrentCoordinate();
+
   // If the user navigated while we were rendering, the dialog's current
   // index will already differ from what we just rendered — issue a follow-up.
   if (preview_dialog_->currentIndex() != rendered_index) {
@@ -64,11 +70,6 @@ void MainWindow::onPreviewReady(uint64_t request_id,
     updateAllPreviewComponents();
     return;
   }
-
-  // Keep shared coordinate in sync with the currently displayed preview before
-  // requesting vectorscope data for this settled frame/field.
-  preview_dialog_->setSharedPreviewCoordinate(buildCurrentPreviewCoordinate());
-  refreshVectorscopeForCurrentCoordinate();
 }
 
 void MainWindow::onVBIDataReady(uint64_t request_id,

@@ -59,30 +59,14 @@ For in-repo simulated external-plugin workflow details, see
 
 # Using Agentic Coding AI
 
-This repository includes repository-wide custom instructions for agentic coding AI tools. These instructions are **essential** for AI agents to understand the project architecture, build process, testing strategy, and CI/CD requirements.
-
-## GitHub Copilot
-
-If you are using **GitHub Copilot** (coding agent or code review), the custom instructions in [`.github/copilot-instructions.md`](.github/copilot-instructions.md) will be automatically available and used by Copilot.
+This repository includes repository-wide instructions for agentic coding AI tools in [AGENTS.md](AGENTS.md). These instructions are **essential** for AI agents to understand the project architecture, build process, testing strategy, and CI/CD requirements. All AI agents must read and follow them before performing any task.
 
 Key guidance includes:
 - **MVP Architecture:** Core, presenters, view-types, and UI layers must remain decoupled. Run `ctest -R MVPArchitectureCheck` before submitting PRs.
 - **Build & Test:** Use `nix develop` for reproducible setup, then `cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON` and `ctest --test-dir build --output-on-failure`.
-- **Testing Philosophy:** ~80% unit test coverage; mock dependencies; no filesystem/network/clock in unit tests.
+- **C++ Style:** Follow the Google C++ Style Guide; use `clang-format` for formatting and `clang-tidy` for static analysis (both available in the Nix environment).
+- **Testing Philosophy:** Unit test coverage is the primary methodology; mock all dependencies; no filesystem/network/clock access in unit tests.
 - **Multi-OS CI/CD:** Changes must align with Linux (Nix), macOS (DMG packaging), Windows (MSI packaging), and Flatpak workflows.
-
-## Other AI Coding Tools
-
-If you are using a different agentic coding AI tool (e.g., Claude, Gemini, or other coding assistants), **manually provide the instructions from [`.github/copilot-instructions.md`](.github/copilot-instructions.md)** to the AI when asking it to make changes or contributions to this repository. 
-
-This ensures the AI agent understands:
-1. The project's strict MVP architecture constraints
-2. The correct build commands and dependency setup
-3. The unit testing strategy and mocking conventions
-4. How to validate changes against the multi-platform CI/CD pipeline
-5. Contribution hygiene and PR expectations
-
-Sharing these instructions significantly improves the likelihood that AI-generated pull requests will pass CI/CD checks and meet project standards on the first attempt.
 
 # Crash Reporting
 

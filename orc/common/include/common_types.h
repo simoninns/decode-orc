@@ -70,6 +70,60 @@ inline VideoSystem video_system_from_string(const std::string& name) {
 /// Coarse two-bucket video format. Prefer VideoSystem for new code.
 enum class VideoFormat { NTSC, PAL, Unknown };
 
+// ============================================================================
+// Amplitude display unit
+// ============================================================================
+
+/**
+ * @brief Project-level amplitude display unit preference.
+ *
+ * All internal storage uses 10-bit sample values (CVBS_U10_4FSC domain).
+ * This enum governs how those values are presented to the user.
+ *
+ * Default per system: IRE for NTSC (SMPTE 170M-2004), mV for PAL/PAL-M
+ * (EBU Tech. 3280-E).
+ */
+enum class AmplitudeDisplayUnit {
+  IRE,  ///< Percentage of full active-video amplitude (0=blanking, 100=white)
+  Millivolts,   ///< mV referenced to blanking (700 mV PAL, 714.3 mV NTSC/PAL-M)
+  Samples10Bit  ///< Raw 10-bit CVBS_U10_4FSC sample value (0-1023)
+};
+
+inline std::string amplitude_unit_to_string(AmplitudeDisplayUnit u) {
+  switch (u) {
+    case AmplitudeDisplayUnit::IRE:
+      return "IRE";
+    case AmplitudeDisplayUnit::Millivolts:
+      return "mV";
+    case AmplitudeDisplayUnit::Samples10Bit:
+      return "10bit";
+    default:
+      return "IRE";
+  }
+}
+
+inline AmplitudeDisplayUnit amplitude_unit_from_string(const std::string& s) {
+  if (s == "mV") return AmplitudeDisplayUnit::Millivolts;
+  if (s == "10bit") return AmplitudeDisplayUnit::Samples10Bit;
+  return AmplitudeDisplayUnit::IRE;
+}
+
+/// Return the conventional display unit for a given video system.
+/// NTSC convention: IRE (SMPTE 170M-2004).
+/// PAL / PAL-M convention: mV (EBU Tech. 3280-E).
+/// Unknown: 10-bit samples (no video-system convention assumed).
+inline AmplitudeDisplayUnit default_amplitude_unit(VideoSystem system) {
+  switch (system) {
+    case VideoSystem::PAL:
+    case VideoSystem::PAL_M:
+      return AmplitudeDisplayUnit::Millivolts;
+    case VideoSystem::NTSC:
+      return AmplitudeDisplayUnit::IRE;
+    default:
+      return AmplitudeDisplayUnit::Samples10Bit;
+  }
+}
+
 // ITU-R BT.1700-1 / SMPTE 170M-2004: map VideoSystem to coarse PAL/NTSC bucket.
 inline VideoFormat video_format_from_system(VideoSystem system) {
   switch (system) {
@@ -210,7 +264,8 @@ struct FrameSNRStats {
  */
 struct FieldBurstLevelStats {
   FieldID field_id;
-  double median_burst_ire = 0.0;        ///< Median burst level in IRE
+  double median_burst_10bit =
+      0.0;  ///< Median burst amplitude in 10-bit sample units
   std::optional<int32_t> frame_number;  ///< Frame number if available from VBI
   bool has_data =
       false;  ///< True if burst level data was successfully extracted
@@ -221,8 +276,8 @@ struct FieldBurstLevelStats {
  */
 struct FrameBurstLevelStats {
   int32_t frame_number = 0;  ///< Frame number (1-based)
-  double median_burst_ire =
-      0.0;                 ///< Average burst level from both fields (IRE)
+  double median_burst_10bit =
+      0.0;  ///< Average burst amplitude from both fields (10-bit sample units)
   bool has_data = false;   ///< True if at least one field had data
   size_t field_count = 0;  ///< Number of fields with data (for averaging)
 };

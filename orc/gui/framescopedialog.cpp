@@ -104,8 +104,12 @@ void FrameScopeDialog::setupUI() {
 
   plot_widget_ = new PlotWidget(this);
   plot_widget_->setAxisTitle(Qt::Horizontal, "Time (µs)");
-  plot_widget_->setAxisTitle(Qt::Vertical, "mV (millivolts)");
-  plot_widget_->setAxisRange(Qt::Vertical, -350, 950);
+  plot_widget_->setAxisTitle(
+      Qt::Vertical,
+      QString::fromStdString(orc::amplitude_axis_title(amplitude_unit_)));
+  const auto [y_min_init, y_max_init] = orc::amplitude_display_range(
+      0, 256, 844, 1023, orc::VideoSystem::PAL, amplitude_unit_);
+  plot_widget_->setAxisRange(Qt::Vertical, y_min_init, y_max_init);
   plot_widget_->setYAxisIntegerLabels(false);
   plot_widget_->setGridEnabled(true);
   plot_widget_->setLegendEnabled(true);
@@ -348,15 +352,15 @@ void FrameScopeDialog::updatePlotData() {
     }
   }
 
-  // Resolve signal-level parameters for mV conversion
+  // Resolve signal-level parameters for amplitude conversion
   int32_t blanking_level = -1;
   int32_t white_level = -1;
-  double a_mv = 700.0;  // active_video_mv default
+  orc::VideoSystem vc_sys = orc::VideoSystem::Unknown;
   if (current_video_params_.has_value()) {
     const auto& vp = current_video_params_.value();
     blanking_level = vp.blanking_level;
     white_level = vp.white_level;
-    a_mv = active_video_mv(vp.system);
+    vc_sys = toOrcVideoSystem(vp.system);
   }
 
   const bool have_10bit_levels =
@@ -376,13 +380,15 @@ void FrameScopeDialog::updatePlotData() {
     }
 
     for (size_t i = 0; i < samps.size(); ++i) {
-      double mv_val;
+      double display_val;
       if (have_10bit_levels) {
-        mv_val = cvbs_sample_to_mv(samps[i], blanking_level, white_level, a_mv);
+        display_val = orc::samples10_to_display(
+            samps[i], blanking_level, white_level, vc_sys, amplitude_unit_);
       } else {
-        mv_val = static_cast<double>(samps[i]);
+        display_val = static_cast<double>(samps[i]);
       }
-      points.append(QPointF(static_cast<double>(i) * us_per_sample, mv_val));
+      points.append(
+          QPointF(static_cast<double>(i) * us_per_sample, display_val));
     }
     return points;
   };
@@ -489,20 +495,19 @@ void FrameScopeDialog::updatePlotData() {
     return;
   }
 
-  // ---- Y-axis range: sync_tip_mv … peak_mv, expanding for out-of-range data
-  double y_min_mv = -350.0;
-  double y_max_mv = 950.0;
+  // ---- Y-axis range: sync_tip … peak in selected display unit
+  auto [y_min, y_max] = orc::amplitude_display_range(
+      0, 256, 844, 1023, orc::VideoSystem::PAL, amplitude_unit_);
 
   if (have_10bit_levels && current_video_params_.has_value()) {
     const auto& vp = current_video_params_.value();
-    y_min_mv = cvbs_sample_to_mv(static_cast<int16_t>(vp.sync_tip_level),
-                                 blanking_level, white_level, a_mv);
-    y_max_mv = cvbs_sample_to_mv(static_cast<int16_t>(vp.peak_level),
-                                 blanking_level, white_level, a_mv);
+    std::tie(y_min, y_max) = orc::amplitude_display_range(
+        vp.sync_tip_level, blanking_level, white_level, vp.peak_level, vc_sys,
+        amplitude_unit_);
     // Add 5% headroom
-    const double span = y_max_mv - y_min_mv;
-    y_min_mv -= span * 0.05;
-    y_max_mv += span * 0.05;
+    const double span = y_max - y_min;
+    y_min -= span * 0.05;
+    y_max += span * 0.05;
   }
 
   // ---- X-axis range
@@ -523,13 +528,17 @@ void FrameScopeDialog::updatePlotData() {
       us_per_sample;
 
   plot_widget_->setAxisRange(Qt::Horizontal, 0, max_time_us);
-  plot_widget_->setAxisRange(Qt::Vertical, y_min_mv, y_max_mv);
+  plot_widget_->setAxisRange(Qt::Vertical, y_min, y_max);
+  plot_widget_->setAxisTitle(
+      Qt::Vertical,
+      QString::fromStdString(orc::amplitude_axis_title(amplitude_unit_)));
   plot_widget_->setAxisAutoScale(Qt::Horizontal, false);
   plot_widget_->setAxisAutoScale(Qt::Vertical, false);
   plot_widget_->setAxisTickStep(Qt::Horizontal, 2.0, 0.0);  // 2 µs ticks
-  plot_widget_->setAxisTickStep(Qt::Vertical, 100.0, 0.0);  // 100 mV ticks
+  plot_widget_->setAxisTickStep(
+      Qt::Vertical, orc::amplitude_major_tick(amplitude_unit_), 0.0);
 
-  // No secondary IRE axis — 10-bit domain renders mV directly.
+  // No secondary IRE axis — 10-bit domain renders in selected unit directly.
   plot_widget_->setSecondaryYAxisEnabled(false);
 
   // ---- Markers
@@ -570,32 +579,31 @@ void FrameScopeDialog::updatePlotData() {
     if (have_10bit_levels) {
       struct LevelSpec {
         int32_t raw;
-        const char* label;
+        const char* name;
         Qt::PenStyle style;
         double alpha;
       };
 
       const LevelSpec levels[] = {
-          // sync_tip — below blanking (negative mV), red dashed
           {vp.sync_tip_level, "Sync tip", Qt::DashLine, 0.60},
-          // blanking — 0 mV reference, dark gray dash
-          {vp.blanking_level, "Blanking (0 mV)", Qt::DashLine, 0.35},
-          // black — ~30 mV (PAL) / ~17 mV (NTSC), medium gray dash-dot
-          {vp.black_level, "Black", Qt::DashDotLine, 0.50},
-          // white — active_mv, light gray dashed
+          {vp.blanking_level, "Blanking", Qt::DashLine, 0.35},
+          {vp.black_level == vp.blanking_level ? -1 : vp.black_level, "Black",
+           Qt::DashDotLine, 0.50},
           {vp.white_level, "White", Qt::DashLine, 0.70},
-          // peak — above white, orange dashed
           {vp.peak_level, "Peak", Qt::DashLine, 0.55},
       };
 
       for (const auto& lv : levels) {
         if (lv.raw < 0) continue;
-        const double mv = cvbs_sample_to_mv(static_cast<int16_t>(lv.raw),
-                                            blanking_level, white_level, a_mv);
+        const double dv = orc::samples10_to_display(
+            lv.raw, blanking_level, white_level, vc_sys, amplitude_unit_);
+        const std::string amp = orc::format_amplitude(
+            lv.raw, blanking_level, white_level, vc_sys, amplitude_unit_);
         auto* m = plot_widget_->addMarker();
         m->setStyle(PlotMarker::HLine);
-        m->setPosition(QPointF(0, mv));
-        m->setLabel(QString::fromUtf8(lv.label));
+        m->setPosition(QPointF(0, dv));
+        m->setLabel(
+            QString::fromStdString(std::string(lv.name) + " (" + amp + ")"));
         m->setPen(
             QPen(theme_tokens::neutralLine(palette(), lv.alpha), 1, lv.style));
       }
@@ -658,21 +666,19 @@ void FrameScopeDialog::updateSampleMarker(int sample_x) {
                                current_video_params_->blanking_level;
 
   if (is_yc_source_ && channel_selector_->currentIndex() == 2) {
-    // Both mode: show Y and C mV side by side
+    // Both mode: show Y and C in selected display unit
     if (sample_x < static_cast<int>(current_y_samples_.size()) &&
         sample_x < static_cast<int>(current_c_samples_.size())) {
       if (have_levels) {
         const auto& vp = current_video_params_.value();
-        const double a_mv = active_video_mv(vp.system);
-        const double y_mv =
-            cvbs_sample_to_mv(current_y_samples_[sample_x], vp.blanking_level,
-                              vp.white_level, a_mv);
-        const double c_mv =
-            cvbs_sample_to_mv(current_c_samples_[sample_x], vp.blanking_level,
-                              vp.white_level, a_mv);
-        info += QString("\nY: %1 mV  C: %2 mV")
-                    .arg(y_mv, 0, 'f', 1)
-                    .arg(c_mv, 0, 'f', 1);
+        const orc::VideoSystem sys = toOrcVideoSystem(vp.system);
+        const std::string y_str = orc::format_amplitude(
+            current_y_samples_[sample_x], vp.blanking_level, vp.white_level,
+            sys, amplitude_unit_);
+        const std::string c_str = orc::format_amplitude(
+            current_c_samples_[sample_x], vp.blanking_level, vp.white_level,
+            sys, amplitude_unit_);
+        info += QString::fromStdString("\nY: " + y_str + "  C: " + c_str);
       } else {
         info += QString("\nY: %1  C: %2")
                     .arg(current_y_samples_[sample_x])
@@ -681,12 +687,12 @@ void FrameScopeDialog::updateSampleMarker(int sample_x) {
     }
   } else if (have_levels) {
     const auto& vp = current_video_params_.value();
-    const double mv =
-        cvbs_sample_to_mv(sample_val, vp.blanking_level, vp.white_level,
-                          active_video_mv(vp.system));
-    info += QString("\nmV: %1  10-bit: %2")
-                .arg(mv, 0, 'f', 1)
-                .arg(static_cast<int>(sample_val));
+    const std::string amp =
+        orc::format_amplitude(sample_val, vp.blanking_level, vp.white_level,
+                              toOrcVideoSystem(vp.system), amplitude_unit_);
+    info += QString::fromStdString(
+        "\n" + amp +
+        "  (10-bit: " + std::to_string(static_cast<int>(sample_val)) + ")");
   } else {
     info += QString("\n10-bit: %1").arg(static_cast<int>(sample_val));
   }
@@ -793,5 +799,25 @@ void FrameScopeDialog::refreshSamples() {
 void FrameScopeDialog::refreshSamplesAtCurrentPosition() {
   if (preview_image_width_ > 0) {
     emit refreshRequested(original_sample_x_, original_image_y_);
+  }
+}
+
+void FrameScopeDialog::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (amplitude_unit_ == unit) return;
+  amplitude_unit_ = unit;
+  const bool has_data = !current_samples_.empty() ||
+                        !current_y_samples_.empty() ||
+                        !current_c_samples_.empty();
+  if (has_data) {
+    updatePlotData();
+    updateSampleMarker(current_sample_x_);
+    plot_widget_->replot();
+  } else {
+    plot_widget_->setAxisTitle(
+        Qt::Vertical,
+        QString::fromStdString(orc::amplitude_axis_title(amplitude_unit_)));
+    const auto [y_min, y_max] = orc::amplitude_display_range(
+        0, 256, 844, 1023, orc::VideoSystem::PAL, amplitude_unit_);
+    plot_widget_->setAxisRange(Qt::Vertical, y_min, y_max);
   }
 }

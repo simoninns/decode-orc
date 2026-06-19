@@ -16,14 +16,16 @@
 namespace orc {
 
 /**
- * @brief Observer for color burst IRE level analysis
+ * @brief Observer for color burst amplitude analysis
  *
- * Analyzes the color burst signal amplitude and reports it in IRE units.
- * The burst level is useful for quality assessment and can indicate
- * signal degradation or processing artifacts.
+ * Analyzes the color burst signal amplitude and reports it in 10-bit sample
+ * units (CVBS_U10_4FSC domain). This is an AC amplitude — the peak burst
+ * excursion, not an absolute level. The burst level is useful for quality
+ * assessment and can indicate signal degradation or processing artifacts.
  *
  * Stores observations in the "burst_level" namespace:
- * - "median_burst_ire" (double): Median burst amplitude in IRE units
+ * - "median_burst_10bit" (double): Median burst peak amplitude in 10-bit
+ *   sample units
  */
 class BurstLevelObserver : public Observer {
  public:
@@ -39,8 +41,8 @@ class BurstLevelObserver : public Observer {
 
   std::vector<ObservationKey> get_provided_observations() const override {
     return {
-        {"burst_level", "median_burst_ire", ObservationType::DOUBLE,
-         "Median color burst amplitude in IRE"},
+        {"burst_level", "median_burst_10bit", ObservationType::DOUBLE,
+         "Median color burst peak amplitude in 10-bit sample units"},
     };
   }
 

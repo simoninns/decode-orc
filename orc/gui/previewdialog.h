@@ -10,6 +10,7 @@
 #ifndef PREVIEWDIALOG_H
 #define PREVIEWDIALOG_H
 
+#include <common_types.h>
 #include <node_id.h>
 #include <orc_preview_types.h>
 #include <orc_preview_views.h>
@@ -202,6 +203,12 @@ class PreviewDialog : public QDialog {
    * @brief Close all child dialogs (e.g., line scope)
    */
   void closeChildDialogs();
+
+  /**
+   * @brief Forward amplitude display unit to all owned supplementary dialogs.
+   * Called by MainWindow::propagateAmplitudeUnit() whenever the unit changes.
+   */
+  void forwardAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
 
   /**
    * @brief Check if line scope dialog is currently visible

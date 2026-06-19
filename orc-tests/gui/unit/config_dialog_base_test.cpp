@@ -113,18 +113,18 @@ TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesPresetAndMaskLevelRules) {
   ASSERT_NE(level_preset_combo, nullptr);
 
   preset_combo->setCurrentIndex(1);        // NTSC Closed Captions
-  level_preset_combo->setCurrentIndex(2);  // White (100 IRE)
+  level_preset_combo->setCurrentIndex(1);  // White (844)
 
   clickOk(dialog);
 
   const auto params = dialog.get_parameters();
   ASSERT_TRUE(params.find("lineSpec") != params.end());
-  ASSERT_TRUE(params.find("maskIRE") != params.end());
+  ASSERT_TRUE(params.find("maskSampleLevel") != params.end());
   ASSERT_TRUE(std::holds_alternative<std::string>(params.at("lineSpec")));
-  ASSERT_TRUE(std::holds_alternative<double>(params.at("maskIRE")));
+  ASSERT_TRUE(std::holds_alternative<int32_t>(params.at("maskSampleLevel")));
 
   EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "F:20");
-  EXPECT_DOUBLE_EQ(std::get<double>(params.at("maskIRE")), 100.0);
+  EXPECT_EQ(std::get<int32_t>(params.at("maskSampleLevel")), 844);
 }
 
 TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesCustomRangeRule) {
@@ -147,14 +147,14 @@ TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesCustomRangeRule) {
       fieldWidgetByRowLabel(*custom_group, "End Field Line:"));
   auto* level_preset_combo = qobject_cast<QComboBox*>(
       fieldWidgetByRowLabel(*level_group, "Level Preset:"));
-  auto* custom_ire = qobject_cast<QDoubleSpinBox*>(
-      fieldWidgetByRowLabel(*level_group, "Custom IRE:"));
+  auto* custom_level = qobject_cast<QSpinBox*>(
+      fieldWidgetByRowLabel(*level_group, "Custom Level:"));
   ASSERT_NE(custom_enabled, nullptr);
   ASSERT_NE(field_selection, nullptr);
   ASSERT_NE(start_line, nullptr);
   ASSERT_NE(end_line, nullptr);
   ASSERT_NE(level_preset_combo, nullptr);
-  ASSERT_NE(custom_ire, nullptr);
+  ASSERT_NE(custom_level, nullptr);
 
   EXPECT_FALSE(field_selection->isEnabled());
   EXPECT_FALSE(start_line->isEnabled());
@@ -169,20 +169,20 @@ TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesCustomRangeRule) {
   start_line->setValue(4);
   end_line->setValue(7);
 
-  level_preset_combo->setCurrentIndex(3);  // Custom
-  EXPECT_TRUE(custom_ire->isEnabled());
-  custom_ire->setValue(12.5);
+  level_preset_combo->setCurrentIndex(2);  // Custom
+  EXPECT_TRUE(custom_level->isEnabled());
+  custom_level->setValue(512);
 
   clickOk(dialog);
 
   const auto params = dialog.get_parameters();
   ASSERT_TRUE(params.find("lineSpec") != params.end());
-  ASSERT_TRUE(params.find("maskIRE") != params.end());
+  ASSERT_TRUE(params.find("maskSampleLevel") != params.end());
   ASSERT_TRUE(std::holds_alternative<std::string>(params.at("lineSpec")));
-  ASSERT_TRUE(std::holds_alternative<double>(params.at("maskIRE")));
+  ASSERT_TRUE(std::holds_alternative<int32_t>(params.at("maskSampleLevel")));
 
   EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "S:4-7");
-  EXPECT_DOUBLE_EQ(std::get<double>(params.at("maskIRE")), 12.5);
+  EXPECT_EQ(std::get<int32_t>(params.at("maskSampleLevel")), 512);
 }
 
 TEST(ConfigDialogBaseTest,

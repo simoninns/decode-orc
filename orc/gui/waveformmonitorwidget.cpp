@@ -18,9 +18,21 @@
 #include <algorithm>
 #include <cmath>
 
-#include "framescopedialog.h"  // cvbs_sample_to_mv, active_video_mv
-#include "plotwidget.h"        // PlotWidget::isDarkTheme()
+#include "plotwidget.h"  // PlotWidget::isDarkTheme()
 #include "theme_color_tokens.h"
+
+static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
+  switch (sys) {
+    case orc::presenters::VideoSystem::PAL:
+      return orc::VideoSystem::PAL;
+    case orc::presenters::VideoSystem::NTSC:
+      return orc::VideoSystem::NTSC;
+    case orc::presenters::VideoSystem::PAL_M:
+      return orc::VideoSystem::PAL_M;
+    default:
+      return orc::VideoSystem::Unknown;
+  }
+}
 
 WaveformMonitorWidget::WaveformMonitorWidget(QWidget* parent)
     : QWidget(parent) {
@@ -43,29 +55,25 @@ void WaveformMonitorWidget::setData(
     const std::optional<orc::presenters::VideoParametersView>& video_params) {
   video_params_ = video_params;
 
-  // Derive Y-axis range.
+  // Derive Y-axis range (always in mV — display unit only affects rendering).
   y_min_mv_ = -350.0;
   y_max_mv_ = 950.0;
   if (y_only_mode_) {
-    // Luma-legal range: blanking (0 mV) to white level, ±100 mV headroom.
-    // EBU Tech. 3280-E §1.1: PAL = 700 mV peak-to-peak luma.
-    // SMPTE 170M-2004 §11.4: NTSC/PAL-M = 714.3 mV (7.143 mV/IRE × 100 IRE).
-    const double amv = video_params.has_value()
-                           ? active_video_mv(video_params->system)
-                           : 700.0;
+    const double amv =
+        video_params.has_value()
+            ? orc::active_video_mv(toOrcVideoSystem(video_params->system))
+            : 700.0;
     y_min_mv_ = -100.0;
     y_max_mv_ = amv + 100.0;
   } else if (video_params.has_value()) {
     const auto& vp = *video_params;
     if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level &&
         vp.sync_tip_level >= 0 && vp.peak_level >= 0) {
-      const double amv = active_video_mv(vp.system);
-      const double sync_tip_mv =
-          cvbs_sample_to_mv(static_cast<int16_t>(vp.sync_tip_level),
-                            vp.blanking_level, vp.white_level, amv);
-      const double peak_mv =
-          cvbs_sample_to_mv(static_cast<int16_t>(vp.peak_level),
-                            vp.blanking_level, vp.white_level, amv);
+      const orc::VideoSystem sys = toOrcVideoSystem(vp.system);
+      const double sync_tip_mv = orc::samples10_to_mv(
+          vp.sync_tip_level, vp.blanking_level, vp.white_level, sys);
+      const double peak_mv = orc::samples10_to_mv(
+          vp.peak_level, vp.blanking_level, vp.white_level, sys);
       const double span = peak_mv - sync_tip_mv;
       if (span > 0.0) {
         y_min_mv_ = sync_tip_mv - span * 0.05;
@@ -104,7 +112,7 @@ void WaveformMonitorWidget::setData(
   int active_end = samples_per_line - 1;  // inclusive
   int32_t blanking_level = -1;
   int32_t white_level = -1;
-  double amv = 700.0;
+  orc::VideoSystem sys = orc::VideoSystem::Unknown;
 
   if (video_params.has_value()) {
     const auto& vp = *video_params;
@@ -115,7 +123,7 @@ void WaveformMonitorWidget::setData(
     }
     blanking_level = vp.blanking_level;
     white_level = vp.white_level;
-    amv = active_video_mv(vp.system);
+    sys = toOrcVideoSystem(vp.system);
   }
 
   active_video_start_ = active_start;
@@ -137,7 +145,7 @@ void WaveformMonitorWidget::setData(
   }
 
   accumulate(composite_samples, total_lines, active_start, active_end,
-             blanking_level, white_level, amv);
+             blanking_level, white_level, sys);
   line_count_ = total_lines;
   image_dirty_ = true;
   update();
@@ -147,7 +155,7 @@ void WaveformMonitorWidget::accumulate(const std::vector<int16_t>& samples,
                                        int total_lines, int active_start,
                                        int active_end, int32_t blanking_level,
                                        int32_t white_level,
-                                       double active_mv_val) {
+                                       orc::VideoSystem sys) {
   const int active_width = active_end - active_start + 1;
   if (active_width <= 0 || total_lines <= 0) return;
 
@@ -171,10 +179,9 @@ void WaveformMonitorWidget::accumulate(const std::vector<int16_t>& samples,
           samples[static_cast<size_t>(line_start) +
                   static_cast<size_t>(active_start) + static_cast<size_t>(x)];
 
-      const double mv = have_levels
-                            ? cvbs_sample_to_mv(raw, blanking_level,
-                                                white_level, active_mv_val)
-                            : static_cast<double>(raw);
+      const double mv = have_levels ? orc::samples10_to_mv(raw, blanking_level,
+                                                           white_level, sys)
+                                    : static_cast<double>(raw);
 
       const int y_bin = static_cast<int>((mv - y_min_mv_) / kBinWidthMv);
       if (y_bin >= 0 && y_bin < y_bins_) {
@@ -368,6 +375,21 @@ int WaveformMonitorWidget::mvToPixelY(double mv, const QRect& pa) const {
   return pa.bottom() - static_cast<int>(t * pa.height());
 }
 
+// Helper: resolve blanking/white/sys with PAL fallback.
+static void resolveVideoLevels(
+    const std::optional<orc::presenters::VideoParametersView>& vp,
+    int32_t& blanking, int32_t& white, orc::VideoSystem& sys) {
+  blanking = 256;
+  white = 844;
+  sys = orc::VideoSystem::PAL;
+  if (vp.has_value() && vp->blanking_level >= 0 &&
+      vp->white_level > vp->blanking_level) {
+    blanking = vp->blanking_level;
+    white = vp->white_level;
+    sys = toOrcVideoSystem(vp->system);
+  }
+}
+
 void WaveformMonitorWidget::drawYAxis(QPainter& painter,
                                       const QRect& pa) const {
   const QColor axis_color = displayAxis();
@@ -377,16 +399,42 @@ void WaveformMonitorWidget::drawYAxis(QPainter& painter,
   painter.drawLine(pa.left(), pa.top(), pa.left(), pa.bottom());
 
   const QFontMetrics fm(painter.font());
-  const double tick_step = 100.0;
-  const double first_tick = std::ceil(y_min_mv_ / tick_step) * tick_step;
 
-  for (double mv = first_tick; mv <= y_max_mv_ + 0.5; mv += tick_step) {
+  int32_t blanking, white;
+  orc::VideoSystem sys;
+  resolveVideoLevels(video_params_, blanking, white, sys);
+
+  const double tick_step = orc::amplitude_major_tick(amplitude_unit_);
+  double min_dv, max_dv;
+  if (amplitude_unit_ == orc::AmplitudeDisplayUnit::Millivolts) {
+    min_dv = y_min_mv_;
+    max_dv = y_max_mv_;
+  } else {
+    min_dv = orc::samples10_to_display(
+        orc::mv_to_samples10(y_min_mv_, blanking, white, sys), blanking, white,
+        sys, amplitude_unit_);
+    max_dv = orc::samples10_to_display(
+        orc::mv_to_samples10(y_max_mv_, blanking, white, sys), blanking, white,
+        sys, amplitude_unit_);
+  }
+
+  const double first_tick = orc::snap_ceil(min_dv, tick_step);
+  for (double dv = first_tick; dv <= max_dv + tick_step * 0.01;
+       dv += tick_step) {
+    double mv;
+    if (amplitude_unit_ == orc::AmplitudeDisplayUnit::Millivolts) {
+      mv = dv;
+    } else {
+      mv = orc::samples10_to_mv(
+          orc::display_to_samples10(dv, blanking, white, sys, amplitude_unit_),
+          blanking, white, sys);
+    }
     const int py = mvToPixelY(mv, pa);
     if (py < pa.top() || py > pa.bottom()) continue;
 
     painter.drawLine(pa.left() - 4, py, pa.left(), py);
 
-    const QString label = QString::number(static_cast<int>(std::round(mv)));
+    const QString label = QString::number(static_cast<int>(std::round(dv)));
     const QRect lr(0, py - fm.height() / 2, kLeftMargin - 6, fm.height());
     painter.drawText(lr, Qt::AlignRight | Qt::AlignVCenter, label);
   }
@@ -396,17 +444,44 @@ void WaveformMonitorWidget::drawYAxis(QPainter& painter,
   painter.setPen(axis_color);
   painter.translate(12, pa.center().y());
   painter.rotate(-90);
-  painter.drawText(QRect(-50, -10, 100, 20), Qt::AlignCenter, "mV");
+  painter.drawText(
+      QRect(-50, -10, 100, 20), Qt::AlignCenter,
+      QString::fromStdString(orc::amplitude_axis_title(amplitude_unit_)));
   painter.restore();
 }
 
 void WaveformMonitorWidget::drawGrid(QPainter& painter, const QRect& pa) const {
   painter.setPen(QPen(displayGrid(), 1, Qt::SolidLine));
 
-  // Horizontal lines at every 100 mV Y-axis tick position.
-  const double y_tick_step = 100.0;
-  const double first_y = std::ceil(y_min_mv_ / y_tick_step) * y_tick_step;
-  for (double mv = first_y; mv <= y_max_mv_ + 0.5; mv += y_tick_step) {
+  // Horizontal lines at display-unit major tick positions.
+  int32_t blanking, white;
+  orc::VideoSystem sys;
+  resolveVideoLevels(video_params_, blanking, white, sys);
+
+  const double y_tick_step = orc::amplitude_major_tick(amplitude_unit_);
+  double min_dv, max_dv;
+  if (amplitude_unit_ == orc::AmplitudeDisplayUnit::Millivolts) {
+    min_dv = y_min_mv_;
+    max_dv = y_max_mv_;
+  } else {
+    min_dv = orc::samples10_to_display(
+        orc::mv_to_samples10(y_min_mv_, blanking, white, sys), blanking, white,
+        sys, amplitude_unit_);
+    max_dv = orc::samples10_to_display(
+        orc::mv_to_samples10(y_max_mv_, blanking, white, sys), blanking, white,
+        sys, amplitude_unit_);
+  }
+  const double first_y = orc::snap_ceil(min_dv, y_tick_step);
+  for (double dv = first_y; dv <= max_dv + y_tick_step * 0.01;
+       dv += y_tick_step) {
+    double mv;
+    if (amplitude_unit_ == orc::AmplitudeDisplayUnit::Millivolts) {
+      mv = dv;
+    } else {
+      mv = orc::samples10_to_mv(
+          orc::display_to_samples10(dv, blanking, white, sys, amplitude_unit_),
+          blanking, white, sys);
+    }
     const int py = mvToPixelY(mv, pa);
     if (py < pa.top() || py > pa.bottom()) continue;
     painter.drawLine(pa.left(), py, pa.right(), py);
@@ -490,30 +565,29 @@ void WaveformMonitorWidget::drawLevelMarkers(QPainter& painter,
   const auto& vp = *video_params_;
   if (vp.blanking_level < 0 || vp.white_level <= vp.blanking_level) return;
 
-  const double amv = active_video_mv(vp.system);
+  const orc::VideoSystem sys = toOrcVideoSystem(vp.system);
 
   struct LevelSpec {
     int32_t raw;
-    const char* label;
+    const char* name;
     Qt::PenStyle style;
     qreal alpha;
   };
 
   const LevelSpec levels[] = {
       {vp.sync_tip_level, "Sync tip", Qt::DashLine, 0.60},
-      {vp.blanking_level, "Blanking (0 mV)", Qt::DashLine, 0.35},
-      {vp.black_level, "Black", Qt::DashDotLine, 0.50},
+      {vp.blanking_level, "Blanking", Qt::DashLine, 0.35},
+      {vp.black_level == vp.blanking_level ? -1 : vp.black_level, "Black",
+       Qt::DashDotLine, 0.50},
       {vp.white_level, "White", Qt::DashLine, 0.70},
       {vp.peak_level, "Peak", Qt::DashLine, 0.55},
   };
 
-  const QFontMetrics fm(painter.font());
-
   for (const auto& lv : levels) {
     if (lv.raw < 0) continue;
 
-    const double mv = cvbs_sample_to_mv(static_cast<int16_t>(lv.raw),
-                                        vp.blanking_level, vp.white_level, amv);
+    const double mv =
+        orc::samples10_to_mv(lv.raw, vp.blanking_level, vp.white_level, sys);
     const int py = mvToPixelY(mv, pa);
     if (py < pa.top() || py > pa.bottom()) continue;
 
@@ -526,7 +600,18 @@ void WaveformMonitorWidget::drawLevelMarkers(QPainter& painter,
     painter.setPen(QPen(lc, 1, lv.style));
     painter.drawLine(pa.left(), py, pa.right(), py);
 
+    const std::string amp = orc::format_amplitude(
+        lv.raw, vp.blanking_level, vp.white_level, sys, amplitude_unit_);
     painter.setPen(lc);
-    painter.drawText(pa.left() + 5, py - 3, QString::fromUtf8(lv.label));
+    painter.drawText(
+        pa.left() + 5, py - 3,
+        QString::fromStdString(std::string(lv.name) + " (" + amp + ")"));
   }
+}
+
+void WaveformMonitorWidget::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (amplitude_unit_ == unit) return;
+  amplitude_unit_ = unit;
+  image_dirty_ = true;
+  update();
 }

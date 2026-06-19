@@ -10,6 +10,9 @@
 #ifndef HINTSDIALOG_H
 #define HINTSDIALOG_H
 
+#include <amplitude_conversion.h>
+#include <common_types.h>
+
 #include <QDialog>
 #include <QGroupBox>
 #include <QLabel>
@@ -81,6 +84,8 @@ class HintsDialog : public QDialog {
    */
   void clearHints();
 
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+
  private:
   void setupUI();
   QString formatHintSource(orc::presenters::HintSourceView source);
@@ -104,9 +109,15 @@ class HintsDialog : public QDialog {
   QLabel* active_video_range_label_;
   QLabel* colour_burst_range_label_;
   QLabel* white_level_label_;
+  QLabel* white_level_header_label_;
   QLabel* blanking_level_label_;
+  QLabel* blanking_level_header_label_;
   QLabel* black_level_label_;
+  QLabel* black_level_header_label_;
   QLabel* sample_rate_label_;
+
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
+  std::optional<orc::presenters::VideoParametersView> cached_video_params_;
 };
 
 #endif  // HINTSDIALOG_H

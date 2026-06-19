@@ -27,10 +27,10 @@ namespace orc {
 
 MaskedFrameRepresentation::MaskedFrameRepresentation(
     std::shared_ptr<const VideoFrameRepresentation> source,
-    const std::string& line_spec, double mask_ire)
+    const std::string& line_spec, int32_t mask_sample_level)
     : VideoFrameRepresentationWrapper(std::move(source)),
       Artifact(ArtifactID("masked_frame"), Provenance{}),
-      mask_ire_(mask_ire) {
+      mask_sample_level_(mask_sample_level) {
   parse_line_spec(line_spec);
 }
 
@@ -73,22 +73,6 @@ bool MaskedFrameRepresentation::should_mask_line(size_t frame_line) const {
   return false;
 }
 
-int16_t MaskedFrameRepresentation::ire_to_sample(double ire) const {
-  auto params = source_ ? source_->get_video_parameters() : std::nullopt;
-  if (!params.has_value() || !params->is_valid()) {
-    // Fallback: use spec-defined PAL blanking/white.
-    const int32_t b = kPalBlanking;
-    const int32_t w = kPalWhite;
-    return static_cast<int16_t>(
-        std::clamp(static_cast<int32_t>(b + (ire / 100.0) * (w - b)), 0, 1023));
-  }
-  const int32_t b = params->blanking_level;
-  const int32_t w = params->white_level;
-  const int32_t range = (w > b) ? (w - b) : 1;
-  return static_cast<int16_t>(
-      std::clamp(static_cast<int32_t>(b + (ire / 100.0) * range), 0, 1023));
-}
-
 const MaskedFrameRepresentation::sample_type*
 MaskedFrameRepresentation::get_line(FrameID id, size_t line) const {
   if (!source_) return nullptr;
@@ -99,7 +83,8 @@ MaskedFrameRepresentation::get_line(FrameID id, size_t line) const {
   const size_t width = frame_line_sample_count(
       params->system, static_cast<size_t>(params->frame_width_nominal), line);
 
-  const int16_t val = ire_to_sample(mask_ire_);
+  const int16_t val =
+      static_cast<int16_t>(std::clamp(mask_sample_level_, 0, 1023));
   masked_line_buffer_.assign(width, val);
   return masked_line_buffer_.data();
 }
@@ -136,7 +121,8 @@ MaskedFrameRepresentation::get_line_luma(FrameID id, size_t line) const {
   const size_t width = frame_line_sample_count(
       params_luma->system,
       static_cast<size_t>(params_luma->frame_width_nominal), line);
-  const int16_t val = ire_to_sample(mask_ire_);
+  const int16_t val =
+      static_cast<int16_t>(std::clamp(mask_sample_level_, 0, 1023));
   masked_luma_buffer_.assign(width, val);
   return masked_luma_buffer_.data();
 }
@@ -151,7 +137,8 @@ MaskedFrameRepresentation::get_line_chroma(FrameID id, size_t line) const {
   const size_t width = frame_line_sample_count(
       params_chroma->system,
       static_cast<size_t>(params_chroma->frame_width_nominal), line);
-  const int16_t val = ire_to_sample(mask_ire_);
+  const int16_t val =
+      static_cast<int16_t>(std::clamp(mask_sample_level_, 0, 1023));
   masked_chroma_buffer_.assign(width, val);
   return masked_chroma_buffer_.data();
 }
@@ -201,7 +188,7 @@ std::shared_ptr<const VideoFrameRepresentation> MaskLineStage::process(
   if (!source) return nullptr;
   if (line_spec_.empty()) return source;  // pass-through
   return std::make_shared<MaskedFrameRepresentation>(source, line_spec_,
-                                                     mask_ire_);
+                                                     mask_sample_level_);
 }
 
 std::vector<ParameterDescriptor> MaskLineStage::get_parameter_descriptors(
@@ -219,19 +206,21 @@ std::vector<ParameterDescriptor> MaskLineStage::get_parameter_descriptors(
                                {},
                                false,
                                std::nullopt}},
-      ParameterDescriptor{"maskIRE", "Mask IRE Level",
-                          "IRE level for masked pixels (0=black, 100=white).",
-                          ParameterType::DOUBLE,
-                          ParameterConstraints{ParameterValue{0.0},
-                                               ParameterValue{100.0},
-                                               ParameterValue{0.0},
-                                               {},
-                                               false,
-                                               std::nullopt}}};
+      ParameterDescriptor{
+          "maskSampleLevel", "Mask Sample Level",
+          "10-bit sample level for masked pixels (0=sync tip, 256=blanking, "
+          "844=white for PAL/NTSC).",
+          ParameterType::INT32,
+          ParameterConstraints{ParameterValue{int32_t{0}},
+                               ParameterValue{int32_t{1023}},
+                               ParameterValue{int32_t{0}},
+                               {},
+                               false,
+                               std::nullopt}}};
 }
 
 std::map<std::string, ParameterValue> MaskLineStage::get_parameters() const {
-  return {{"lineSpec", line_spec_}, {"maskIRE", mask_ire_}};
+  return {{"lineSpec", line_spec_}, {"maskSampleLevel", mask_sample_level_}};
 }
 
 bool MaskLineStage::set_parameters(
@@ -239,8 +228,10 @@ bool MaskLineStage::set_parameters(
   for (const auto& [key, value] : params) {
     if (key == "lineSpec" && std::holds_alternative<std::string>(value)) {
       line_spec_ = std::get<std::string>(value);
-    } else if (key == "maskIRE" && std::holds_alternative<double>(value)) {
-      mask_ire_ = std::get<double>(value);
+    } else if (key == "maskSampleLevel" &&
+               std::holds_alternative<int32_t>(value)) {
+      mask_sample_level_ =
+          std::clamp(std::get<int32_t>(value), int32_t{0}, int32_t{1023});
     }
   }
   set_configuration_status(line_spec_.empty()

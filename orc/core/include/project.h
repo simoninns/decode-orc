@@ -129,6 +129,7 @@ void set_project_name(Project& project, const std::string& name);
 void set_project_description(Project& project, const std::string& description);
 void set_video_format(Project& project, VideoSystem video_format);
 void set_source_format(Project& project, SourceType source_format);
+void set_amplitude_unit(Project& project, AmplitudeDisplayUnit unit);
 }  // namespace project_io
 
 /**
@@ -220,6 +221,7 @@ class Project {
   const std::string& get_version() const { return version_; }
   VideoSystem get_video_format() const { return video_format_; }
   SourceType get_source_format() const { return source_format_; }
+  AmplitudeDisplayUnit get_amplitude_unit() const { return amplitude_unit_; }
   const std::vector<ProjectDAGNode>& get_nodes() const { return nodes_; }
   const std::vector<ProjectDAGEdge>& get_edges() const { return edges_; }
   const std::vector<ProjectPluginRequirement>& get_required_plugins() const {
@@ -252,6 +254,7 @@ class Project {
       project_root_;  // Absolute path to directory containing the YAML file
   VideoSystem video_format_ = VideoSystem::Unknown;  // NTSC or PAL
   SourceType source_format_ = SourceType::Unknown;   // Composite or YC
+  AmplitudeDisplayUnit amplitude_unit_ = AmplitudeDisplayUnit::Samples10Bit;
   std::vector<ProjectDAGNode> nodes_;
   std::vector<ProjectDAGEdge> edges_;
   std::vector<ProjectPluginRequirement> required_plugins_;
@@ -308,6 +311,8 @@ class Project {
                                            VideoSystem video_format);
   friend void project_io::set_source_format(Project& project,
                                             SourceType source_format);
+  friend void project_io::set_amplitude_unit(Project& project,
+                                             AmplitudeDisplayUnit unit);
 };
 
 /**

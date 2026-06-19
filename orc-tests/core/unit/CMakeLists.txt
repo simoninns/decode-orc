@@ -210,6 +210,7 @@ orc_add_core_unit_tests(
         types/frame_id_test.cpp
         types/cvbs_signal_constants_test.cpp
         types/line_numbering_test.cpp
+        types/amplitude_conversion_test.cpp
 )
 
 orc_add_core_unit_tests(

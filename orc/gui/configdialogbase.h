@@ -44,7 +44,7 @@
  * - No need for users to understand raw parameter values
  *
  * Example use cases:
- * - "Mask NTSC subtitles" checkbox -> sets lineSpec="F:21", maskIRE=0
+ * - "Mask NTSC subtitles" checkbox -> sets lineSpec="F:21", maskSampleLevel=256
  * - "VBI removal mode" dropdown -> sets different line ranges per selection
  * - "Field selection" radio buttons -> sets field-related parameters
  *

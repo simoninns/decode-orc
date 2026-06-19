@@ -116,7 +116,7 @@ TEST(BurstLevelAnalysisSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   std::vector<orc::FrameBurstLevelStats> expected_stats;
   orc::FrameBurstLevelStats stat{};
   stat.frame_number = 12;
-  stat.median_burst_ire = 8.5;
+  stat.median_burst_10bit = 8.5;
   stat.field_count = 2;
   stat.has_data = true;
   expected_stats.push_back(stat);
@@ -134,7 +134,7 @@ TEST(BurstLevelAnalysisSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   EXPECT_TRUE(stage.has_results());
   ASSERT_EQ(stage.frame_stats().size(), 1u);
   EXPECT_EQ(stage.frame_stats()[0].frame_number, 12);
-  EXPECT_DOUBLE_EQ(stage.frame_stats()[0].median_burst_ire, 8.5);
+  EXPECT_DOUBLE_EQ(stage.frame_stats()[0].median_burst_10bit, 8.5);
   EXPECT_EQ(stage.total_frames(), 240);
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
@@ -177,7 +177,7 @@ TEST(BurstLevelAnalysisSinkStageTest, Trigger_WritesCSVWhenDepsSucceeds) {
   std::vector<orc::FrameBurstLevelStats> expected_stats;
   orc::FrameBurstLevelStats stat{};
   stat.frame_number = 4;
-  stat.median_burst_ire = 10.25;
+  stat.median_burst_10bit = 10.25;
   stat.field_count = 2;
   stat.has_data = true;
   expected_stats.push_back(stat);
@@ -193,7 +193,7 @@ TEST(BurstLevelAnalysisSinkStageTest, Trigger_WritesCSVWhenDepsSucceeds) {
             EXPECT_EQ(path, "out.csv");
             EXPECT_EQ(frame_stats.size(), 1u);
             EXPECT_EQ(frame_stats[0].frame_number, 4);
-            EXPECT_DOUBLE_EQ(frame_stats[0].median_burst_ire, 10.25);
+            EXPECT_DOUBLE_EQ(frame_stats[0].median_burst_10bit, 10.25);
             return true;
           }));
 

@@ -67,35 +67,35 @@ TEST(MaskLineStageTest, Descriptor_DefaultsMatchRuntimeDefaults) {
   const auto params = stage.get_parameters();
 
   const auto* line_spec = find_descriptor(descs, "lineSpec");
-  const auto* mask_ire = find_descriptor(descs, "maskIRE");
+  const auto* mask_sample = find_descriptor(descs, "maskSampleLevel");
 
   ASSERT_NE(line_spec, nullptr);
-  ASSERT_NE(mask_ire, nullptr);
+  ASSERT_NE(mask_sample, nullptr);
   ASSERT_TRUE(line_spec->constraints.default_value.has_value());
-  ASSERT_TRUE(mask_ire->constraints.default_value.has_value());
+  ASSERT_TRUE(mask_sample->constraints.default_value.has_value());
 
   EXPECT_EQ(std::get<std::string>(*line_spec->constraints.default_value),
             std::get<std::string>(params.at("lineSpec")));
-  EXPECT_EQ(std::get<double>(*mask_ire->constraints.default_value),
-            std::get<double>(params.at("maskIRE")));
+  EXPECT_EQ(std::get<int32_t>(*mask_sample->constraints.default_value),
+            std::get<int32_t>(params.at("maskSampleLevel")));
 }
 
 TEST(MaskLineStageTest, SetParameters_AcceptsValidValues) {
   orc::MaskLineStage stage;
-  EXPECT_TRUE(stage.set_parameters(
-      {{"lineSpec", std::string("21,334")}, {"maskIRE", 50.0}}));
+  EXPECT_TRUE(stage.set_parameters({{"lineSpec", std::string("21,334")},
+                                    {"maskSampleLevel", int32_t{512}}}));
   const auto params = stage.get_parameters();
   EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "21,334");
-  EXPECT_EQ(std::get<double>(params.at("maskIRE")), 50.0);
+  EXPECT_EQ(std::get<int32_t>(params.at("maskSampleLevel")), 512);
 }
 
 TEST(MaskLineStageTest, SetParameters_IgnoresWrongTypes) {
   orc::MaskLineStage stage;
   EXPECT_TRUE(stage.set_parameters(
-      {{"lineSpec", 7.0}, {"maskIRE", std::string("bad")}}));
+      {{"lineSpec", 7.0}, {"maskSampleLevel", std::string("bad")}}));
   const auto params = stage.get_parameters();
   EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "");
-  EXPECT_EQ(std::get<double>(params.at("maskIRE")), 0.0);
+  EXPECT_EQ(std::get<int32_t>(params.at("maskSampleLevel")), 0);
 }
 
 TEST(MaskLineStageTest, Process_ReturnsSourceWhenNoLinesConfigured) {
@@ -115,7 +115,7 @@ TEST(MaskLineStageTest, Process_WrapsSourceWhenMaskingConfigured) {
       .WillRepeatedly(Return(std::nullopt));
 
   ASSERT_TRUE(stage.set_parameters(
-      {{"lineSpec", std::string("21")}, {"maskIRE", 0.0}}));
+      {{"lineSpec", std::string("21")}, {"maskSampleLevel", int32_t{0}}}));
   const auto result = stage.process(mock);
 
   ASSERT_NE(result, nullptr);
@@ -143,14 +143,14 @@ TEST(MaskLineStageTest, MaskedRepresentation_MasksSpecifiedLine) {
   EXPECT_CALL(*mock, get_line(fid, 20)).WillOnce(Return(kSourceLine));
 
   ASSERT_TRUE(stage.set_parameters(
-      {{"lineSpec", std::string("21")}, {"maskIRE", 0.0}}));
+      {{"lineSpec", std::string("21")}, {"maskSampleLevel", int32_t{0}}}));
   const auto masked = stage.process(mock);
   ASSERT_NE(masked, nullptr);
 
-  // Masked line 21: should return blanking level (IRE 0 = blanking_level=240)
+  // Masked line 21: maskSampleLevel=0 → sample value 0 (sync tip).
   const auto* masked_ptr = masked->get_line(fid, 21);
   ASSERT_NE(masked_ptr, nullptr);
-  EXPECT_EQ(masked_ptr[0], static_cast<int16_t>(params.blanking_level));
+  EXPECT_EQ(masked_ptr[0], static_cast<int16_t>(0));
 
   // Unmasked line 20: should forward to source.
   const auto* pass_ptr = masked->get_line(fid, 20);

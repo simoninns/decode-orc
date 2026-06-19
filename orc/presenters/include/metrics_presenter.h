@@ -28,9 +28,10 @@ namespace orc::presenters {
  * to hide its complexity from the GUI layer.
  */
 struct QualityMetrics {
-  double white_snr = 0.0;      ///< White SNR value (dB)
-  double black_psnr = 0.0;     ///< Black PSNR value (dB)
-  double burst_level = 0.0;    ///< Burst level (IRE)
+  double white_snr = 0.0;   ///< White SNR value (dB)
+  double black_psnr = 0.0;  ///< Black PSNR value (dB)
+  double burst_level_10bit =
+      0.0;                     ///< Burst peak amplitude (10-bit sample units)
   double quality_score = 0.0;  ///< Overall quality score (0-100)
   size_t dropout_count = 0;    ///< Count of dropouts
 

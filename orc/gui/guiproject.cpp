@@ -69,6 +69,21 @@ bool GUIProject::newEmptyProject(const QString& project_name,
     presenter_->setVideoFormat(video_format);
     presenter_->setSourceType(source_format);
 
+    // Default amplitude unit follows industry convention for the video system:
+    // NTSC → IRE (SMPTE 170M-2004), PAL → mV (EBU Tech. 3280-E).
+    orc::VideoSystem sys = orc::VideoSystem::Unknown;
+    switch (video_format) {
+      case orc::presenters::VideoFormat::NTSC:
+        sys = orc::VideoSystem::NTSC;
+        break;
+      case orc::presenters::VideoFormat::PAL:
+        sys = orc::VideoSystem::PAL;
+        break;
+      default:
+        break;
+    }
+    presenter_->setAmplitudeUnit(orc::default_amplitude_unit(sys));
+
     // New blank project should start unmodified
     presenter_->clearModifiedFlag();
 

@@ -403,6 +403,18 @@ void ProjectPresenter::setSourceType(SourceType source) {
   is_modified_ = true;
 }
 
+orc::AmplitudeDisplayUnit ProjectPresenter::getAmplitudeUnit() const {
+  if (!getProject()) {
+    return orc::AmplitudeDisplayUnit::IRE;
+  }
+  return getProject()->get_amplitude_unit();
+}
+
+void ProjectPresenter::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  orc::project_io::set_amplitude_unit(*getProject(), unit);
+  is_modified_ = true;
+}
+
 std::shared_ptr<const void> ProjectPresenter::createSnapshot() const {
   if (!project_) {
     return nullptr;

@@ -17,6 +17,17 @@
 #include <cmath>
 #include <limits>
 
+static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
+  switch (sys) {
+    case orc::presenters::VideoSystem::NTSC:
+      return orc::VideoSystem::NTSC;
+    case orc::presenters::VideoSystem::PAL_M:
+      return orc::VideoSystem::PAL_M;
+    default:
+      return orc::VideoSystem::PAL;
+  }
+}
+
 BurstLevelAnalysisDialog::BurstLevelAnalysisDialog(QWidget* parent)
     : AnalysisDialogBase(parent),
       plot_(nullptr),
@@ -76,74 +87,76 @@ void BurstLevelAnalysisDialog::startUpdate(int32_t numberOfFrames) {
 
 void BurstLevelAnalysisDialog::removeChartContents() {
   maxY_ = 0.0;
-  minY_ = 100.0;  // Initialize to high value for burst levels
+  minY_ = 1023.0;  // Initialize high for 10-bit domain
   burstPoints_.clear();
   plot_->replot();
 }
 
-void BurstLevelAnalysisDialog::addDataPoint(int32_t frameNumber,
-                                            double burstLevel) {
-  // Add burst level point if valid
-  if (!std::isnan(burstLevel)) {
+void BurstLevelAnalysisDialog::addDataPoint(
+    int32_t frameNumber, double burstLevel10bit,
+    const std::optional<orc::presenters::VideoParametersView>& video_params) {
+  if (video_params.has_value()) {
+    cached_video_params_ = video_params;
+  }
+  if (!std::isnan(burstLevel10bit)) {
+    // Store raw 10-bit value; display conversion happens in finishUpdate().
     burstPoints_.append(QPointF(static_cast<qreal>(frameNumber),
-                                static_cast<qreal>(burstLevel)));
-
-    // Keep track of the maximum and minimum Y values
-    if (burstLevel > maxY_) {
-      maxY_ = burstLevel;
-    }
-    if (burstLevel < minY_) {
-      minY_ = burstLevel;
-    }
+                                static_cast<qreal>(burstLevel10bit)));
+    if (burstLevel10bit > maxY_) maxY_ = burstLevel10bit;
+    if (burstLevel10bit < minY_) minY_ = burstLevel10bit;
   }
 }
 
 void BurstLevelAnalysisDialog::finishUpdate(int32_t currentFrameNumber) {
-  // Set up plot properties
-  plot_->updateTheme();  // Auto-detect theme and set appropriate background
+  current_frame_number_ = currentFrameNumber;
+
+  plot_->updateTheme();
   plot_->setGridEnabled(true);
   plot_->setZoomEnabled(true);
   plot_->setPanEnabled(true);
-  plot_->setYAxisIntegerLabels(false);  // Burst level values are decimal
+  plot_->setYAxisIntegerLabels(false);
 
-  // Set axis titles and ranges
   plot_->setAxisTitle(Qt::Horizontal, "Frame number");
-  plot_->setAxisTitle(Qt::Vertical, "Burst Level (IRE)");
+  plot_->setAxisTitle(Qt::Vertical,
+                      QString("Burst Level (%1)")
+                          .arg(QString::fromStdString(
+                              orc::amplitude_unit_suffix(amplitude_unit_))));
 
-  // Set X-axis range based on actual data points
+  // Resolve video levels for unit conversion.
+  int32_t blanking = 256, white = 844;
+  orc::VideoSystem sys = orc::VideoSystem::PAL;
+  if (cached_video_params_.has_value()) {
+    const auto& vp = *cached_video_params_;
+    if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
+      blanking = vp.blanking_level;
+      white = vp.white_level;
+      sys = toOrcVideoSystem(vp.system);
+    }
+  }
+
+  // X-axis range from actual data.
   double xMin = 0;
   double xMax = static_cast<double>(numberOfFrames_);
-
-  // Find the actual min and max frame numbers from the data
   if (!burstPoints_.isEmpty()) {
     double dataMin = std::numeric_limits<double>::max();
     double dataMax = 0;
-
     for (const auto& pt : burstPoints_) {
       if (pt.x() < dataMin) dataMin = pt.x();
       if (pt.x() > dataMax) dataMax = pt.x();
     }
-
-    // Use the actual data range
     if (dataMax > 0) {
-      xMin = std::floor(dataMin);  // Round down to integer
-      xMax = std::ceil(dataMax);   // Round up to integer
+      xMin = std::floor(dataMin);
+      xMax = std::ceil(dataMax);
     }
   }
-
   plot_->setAxisRange(Qt::Horizontal, xMin, xMax);
 
-  // Calculate appropriate tick step for nice round numbers
   double xRange = xMax - xMin;
   double xTickStep = 1.0;
   if (xRange > 0) {
-    // Determine tick step based on range to show ~10 ticks
     double idealStep = xRange / 10.0;
-
-    // Round to nice numbers: 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, etc.
     double magnitude = std::pow(10.0, std::floor(std::log10(idealStep)));
     double normalized = idealStep / magnitude;
-
     if (normalized < 1.5) {
       xTickStep = 1.0 * magnitude;
     } else if (normalized < 3.0) {
@@ -156,41 +169,52 @@ void BurstLevelAnalysisDialog::finishUpdate(int32_t currentFrameNumber) {
   }
   plot_->setAxisTickStep(Qt::Horizontal, xTickStep, 0.0);
 
-  // Calculate appropriate Y-axis range
-  // Burst levels are typically around 20 IRE for NTSC, 21.5 IRE for PAL
-  // Allow for some variation (e.g., 10-40 IRE range)
-  double yMax = 40.0;  // Default max
-  double yMin = 0.0;   // Default min
+  // Convert stored 10-bit Y values to display units.
+  QVector<QPointF> displayPoints;
+  double yMin = 0.0, yMax = 0.0;
 
-  // If we have data, adjust the range to show it better
   if (!burstPoints_.isEmpty()) {
-    yMax = ceil(maxY_ + 5);   // Add padding above
-    yMin = floor(minY_ - 5);  // Add padding below
+    double dispMin = std::numeric_limits<double>::max();
+    double dispMax = std::numeric_limits<double>::lowest();
+    displayPoints.reserve(burstPoints_.size());
+    for (const auto& pt : burstPoints_) {
+      double yDisp = orc::samples10_to_display(
+          static_cast<int32_t>(pt.y()), blanking, white, sys, amplitude_unit_);
+      displayPoints.append(QPointF(pt.x(), yDisp));
+      if (yDisp < dispMin) dispMin = yDisp;
+      if (yDisp > dispMax) dispMax = yDisp;
+    }
+    double padding = (dispMax - dispMin) * 0.1;
+    if (padding < 1.0) padding = 1.0;
+    yMin = std::floor(dispMin - padding);
+    yMax = std::ceil(dispMax + padding);
     if (yMin < 0) yMin = 0;
-    if (yMax < 30) yMax = 30;  // Ensure minimum range
+  } else {
+    const auto [r_min, r_max] = orc::amplitude_display_range(
+        0, blanking, white, 1023, sys, amplitude_unit_);
+    yMin = r_min;
+    yMax = r_max;
   }
 
+  display_y_min_ = yMin;
+  display_y_max_ = yMax;
   plot_->setAxisRange(Qt::Vertical, yMin, yMax);
+  plot_->setAxisTickStep(Qt::Vertical,
+                         orc::amplitude_major_tick(amplitude_unit_), 0.0);
 
-  // Set the data for the series with theme-aware colors
-  if (!burstPoints_.isEmpty()) {
-    // Sort points by X-coordinate (frame number) to ensure proper line drawing
-    std::sort(burstPoints_.begin(), burstPoints_.end(),
+  if (!displayPoints.isEmpty()) {
+    std::sort(displayPoints.begin(), displayPoints.end(),
               [](const QPointF& a, const QPointF& b) { return a.x() < b.x(); });
-
-    QColor burstColor = PlotWidget::isDarkTheme()
-                            ? Qt::yellow
-                            : QColor(180, 140, 0);  // Dark gold for light theme
+    QColor burstColor =
+        PlotWidget::isDarkTheme() ? Qt::yellow : QColor(180, 140, 0);
     burstSeries_->setPen(QPen(burstColor, 2));
-    burstSeries_->setData(burstPoints_);
+    burstSeries_->setData(displayPoints);
     burstSeries_->setVisible(true);
   }
 
-  // Set the frame marker position
-  plotMarker_->setPosition(
-      QPointF(static_cast<double>(currentFrameNumber), (yMax + yMin) / 2));
+  plotMarker_->setPosition(QPointF(static_cast<double>(currentFrameNumber),
+                                   (display_y_max_ + display_y_min_) / 2));
 
-  // Render the plot
   plot_->replot();
 }
 
@@ -207,23 +231,19 @@ void BurstLevelAnalysisDialog::showNoDataMessage(const QString& reason) {
 }
 
 void BurstLevelAnalysisDialog::calculateMarkerPosition(int32_t frameNumber) {
-  // Calculate the Y position for the marker (middle of the visible range)
-  double yMax = 40.0;
-  double yMin = 0.0;
+  plotMarker_->setPosition(QPointF(static_cast<double>(frameNumber),
+                                   (display_y_max_ + display_y_min_) / 2));
+}
 
+void BurstLevelAnalysisDialog::setAmplitudeUnit(
+    orc::AmplitudeDisplayUnit unit) {
+  if (amplitude_unit_ == unit) return;
+  amplitude_unit_ = unit;
   if (!burstPoints_.isEmpty()) {
-    yMax = ceil(maxY_ + 5);
-    yMin = floor(minY_ - 5);
-    if (yMin < 0) yMin = 0;
-    if (yMax < 30) yMax = 30;
+    finishUpdate(current_frame_number_);
   }
-
-  plotMarker_->setPosition(
-      QPointF(static_cast<double>(frameNumber), (yMax + yMin) / 2));
-  // No need to call plot->replot() - marker update() handles the redraw
 }
 
 void BurstLevelAnalysisDialog::onPlotAreaChanged() {
-  // Handle plot area changes if needed
-  // The PlotWidget handles zoom/pan internally
+  // The PlotWidget handles zoom/pan internally.
 }

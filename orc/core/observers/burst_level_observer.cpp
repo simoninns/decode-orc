@@ -41,9 +41,10 @@ void BurstLevelObserver::process_frame(
   size_t f1_lines = field1_lines(vp.system);
   size_t line_width = static_cast<size_t>(vp.frame_width_nominal);
 
-  // CVBS_U10_4FSC: IRE conversion uses SourceParameters levels.
-  double ire_per_unit =
-      100.0 / static_cast<double>(vp.white_level - vp.blanking_level);
+  // CVBS_U10_4FSC: threshold for outlier rejection in 10-bit sample domain.
+  // 30 IRE → 30.0 / ire_per_unit where ire_per_unit = 100 / (white - blanking).
+  const double outlier_threshold_10bit =
+      30.0 * static_cast<double>(vp.white_level - vp.blanking_level) / 100.0;
 
   for (size_t field_idx = 0; field_idx < 2; ++field_idx) {
     FieldID derived_fid(frame_id * 2 + field_idx);
@@ -120,8 +121,8 @@ void BurstLevelObserver::process_frame(
       // Convert RMS to peak amplitude: peak = RMS * sqrt(2)
       double peak_amplitude = rms * std::sqrt(2.0);
 
-      // Skip outliers (> 30 IRE equivalent)
-      if (peak_amplitude * ire_per_unit > 30.0) {
+      // Skip outliers (> 30 IRE equivalent in 10-bit domain)
+      if (peak_amplitude > outlier_threshold_10bit) {
         continue;
       }
 
@@ -135,13 +136,11 @@ void BurstLevelObserver::process_frame(
     }
 
     double median_raw = calculate_median(burst_levels_raw);
-    double median_burst_ire = median_raw * ire_per_unit;
 
-    context.set(derived_fid, "burst_level", "median_burst_ire",
-                median_burst_ire);
+    context.set(derived_fid, "burst_level", "median_burst_10bit", median_raw);
 
-    ORC_LOG_DEBUG("BurstLevelObserver: Field {} median_burst_ire={:.2f}",
-                  derived_fid.value(), median_burst_ire);
+    ORC_LOG_DEBUG("BurstLevelObserver: Field {} median_burst_10bit={:.2f}",
+                  derived_fid.value(), median_raw);
   }
 }
 

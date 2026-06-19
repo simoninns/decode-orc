@@ -12,8 +12,20 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <cmath>
 #include <set>
 #include <sstream>
+
+static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
+  switch (sys) {
+    case orc::presenters::VideoSystem::NTSC:
+      return orc::VideoSystem::NTSC;
+    case orc::presenters::VideoSystem::PAL_M:
+      return orc::VideoSystem::PAL_M;
+    default:
+      return orc::VideoSystem::PAL;
+  }
+}
 
 MaskLineConfigDialog::MaskLineConfigDialog(QWidget* parent)
     : ConfigDialogBase("Mask Line Configuration", parent), updating_ui_(false) {
@@ -79,19 +91,19 @@ MaskLineConfigDialog::MaskLineConfigDialog(QWidget* parent)
 
   add_info_label(
       level_layout,
-      "Set the IRE level for masked pixels (0 = black, 100 = white).");
+      "Set the 10-bit sample level for masked pixels. "
+      "Typical values: 256 = blanking/black, 844 = white (PAL/NTSC).");
 
   QStringList level_presets;
-  level_presets << "Black (0 IRE)" << "Gray (50 IRE)" << "White (100 IRE)"
-                << "Custom";
+  level_presets << "Blanking (256)" << "White (844)" << "Custom";
   mask_level_preset_combo_ =
       add_combobox(level_layout, "Level Preset:", level_presets,
-                   "Select a preset IRE level for masked lines");
+                   "Select a preset sample level for masked lines");
 
-  mask_ire_spinbox_ =
-      add_double_spinbox(level_layout, "Custom IRE:", 0.0, 100.0, 0.0, 1,
-                         "Custom IRE level for masked pixels");
-  mask_ire_spinbox_->setEnabled(false);
+  mask_level_spinbox_ =
+      add_spinbox(level_layout, "Custom Level:", 0, 1023, 256,
+                  "Custom 10-bit sample level for masked pixels (0–1023)");
+  mask_level_spinbox_->setEnabled(false);
 
   // Connect signals
   connect(preset_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -106,22 +118,26 @@ MaskLineConfigDialog::MaskLineConfigDialog(QWidget* parent)
 }
 
 void MaskLineConfigDialog::apply_configuration() {
-  // Build line specification from UI state
   std::string line_spec = build_line_spec_from_ui();
   set_parameter("lineSpec", line_spec);
 
-  // Get mask IRE level
-  double mask_ire;
-  if (mask_level_preset_combo_->currentIndex() == 3) {  // Custom
-    mask_ire = mask_ire_spinbox_->value();
-  } else if (mask_level_preset_combo_->currentIndex() == 1) {  // Gray
-    mask_ire = 50.0;
-  } else if (mask_level_preset_combo_->currentIndex() == 2) {  // White
-    mask_ire = 100.0;
-  } else {  // Black
-    mask_ire = 0.0;
+  int32_t blanking = 256, white = 844;
+  orc::VideoSystem sys = orc::VideoSystem::PAL;
+  resolveVideoLevels(blanking, white, sys);
+
+  int32_t mask_level;
+  const int preset_idx = mask_level_preset_combo_->currentIndex();
+  if (preset_idx == 1) {  // White
+    mask_level = white;
+  } else if (preset_idx == 2) {  // Custom — convert display → 10-bit
+    const double display_val =
+        static_cast<double>(mask_level_spinbox_->value());
+    mask_level = orc::display_to_samples10(display_val, blanking, white, sys,
+                                           amplitude_unit_);
+  } else {  // Blanking (default)
+    mask_level = blanking;
   }
-  set_parameter("maskIRE", mask_ire);
+  set_parameter("maskSampleLevel", mask_level);
 }
 
 void MaskLineConfigDialog::load_from_parameters(
@@ -141,25 +157,27 @@ void MaskLineConfigDialog::load_from_parameters(
     custom_enabled_checkbox_->setChecked(false);
   }
 
-  // Load mask IRE level
-  auto ire_it = params.find("maskIRE");
-  if (ire_it != params.end() &&
-      std::holds_alternative<double>(ire_it->second)) {
-    double ire = std::get<double>(ire_it->second);
+  // Load mask sample level (10-bit)
+  auto level_it = params.find("maskSampleLevel");
+  if (level_it != params.end() &&
+      std::holds_alternative<int32_t>(level_it->second)) {
+    int32_t level = std::get<int32_t>(level_it->second);
+    int32_t blanking = 256, white = 844;
+    orc::VideoSystem sys = orc::VideoSystem::PAL;
+    resolveVideoLevels(blanking, white, sys);
 
-    // Set preset combo based on IRE value
-    if (ire == 0.0) {
-      mask_level_preset_combo_->setCurrentIndex(0);  // Black
-    } else if (ire == 50.0) {
-      mask_level_preset_combo_->setCurrentIndex(1);  // Gray
-    } else if (ire == 100.0) {
-      mask_level_preset_combo_->setCurrentIndex(2);  // White
+    if (level == blanking) {
+      mask_level_preset_combo_->setCurrentIndex(0);  // Blanking
+    } else if (level == white) {
+      mask_level_preset_combo_->setCurrentIndex(1);  // White
     } else {
-      mask_level_preset_combo_->setCurrentIndex(3);  // Custom
-      mask_ire_spinbox_->setValue(ire);
+      mask_level_preset_combo_->setCurrentIndex(2);  // Custom
+      const double display_val = orc::samples10_to_display(
+          level, blanking, white, sys, amplitude_unit_);
+      mask_level_spinbox_->setValue(static_cast<int>(std::round(display_val)));
     }
   } else {
-    mask_level_preset_combo_->setCurrentIndex(0);  // Default to black
+    mask_level_preset_combo_->setCurrentIndex(0);  // Default to blanking
   }
 
   updating_ui_ = false;
@@ -209,18 +227,17 @@ void MaskLineConfigDialog::on_custom_enabled_changed(Qt::CheckState state) {
 }
 
 void MaskLineConfigDialog::on_mask_level_preset_changed(int index) {
-  bool custom = (index == 3);  // Custom option
-  mask_ire_spinbox_->setEnabled(custom);
+  bool custom = (index == 2);  // Custom option
+  mask_level_spinbox_->setEnabled(custom);
 
   if (!updating_ui_ && !custom) {
-    // Update spinbox to show the preset value
-    if (index == 0) {  // Black
-      mask_ire_spinbox_->setValue(0.0);
-    } else if (index == 1) {  // Gray
-      mask_ire_spinbox_->setValue(50.0);
-    } else if (index == 2) {  // White
-      mask_ire_spinbox_->setValue(100.0);
-    }
+    int32_t blanking = 256, white = 844;
+    orc::VideoSystem sys = orc::VideoSystem::PAL;
+    resolveVideoLevels(blanking, white, sys);
+    const int32_t raw = (index == 1) ? white : blanking;
+    const double disp =
+        orc::samples10_to_display(raw, blanking, white, sys, amplitude_unit_);
+    mask_level_spinbox_->setValue(static_cast<int>(std::round(disp)));
   }
 }
 
@@ -231,9 +248,9 @@ void MaskLineConfigDialog::update_ui_state() {
   start_line_spinbox_->setEnabled(custom_enabled);
   end_line_spinbox_->setEnabled(custom_enabled);
 
-  // Update mask IRE spinbox
-  bool ire_custom = (mask_level_preset_combo_->currentIndex() == 3);
-  mask_ire_spinbox_->setEnabled(ire_custom);
+  // Update mask level spinbox
+  bool level_custom = (mask_level_preset_combo_->currentIndex() == 2);
+  mask_level_spinbox_->setEnabled(level_custom);
 }
 
 void MaskLineConfigDialog::parse_line_spec_to_ui(const std::string& line_spec) {
@@ -378,4 +395,64 @@ std::string MaskLineConfigDialog::build_line_spec_from_ui() const {
   }
 
   return result;
+}
+
+void MaskLineConfigDialog::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (amplitude_unit_ == unit) return;
+  amplitude_unit_ = unit;
+
+  // Adjust spinbox range and suffix for the new unit.
+  switch (amplitude_unit_) {
+    case orc::AmplitudeDisplayUnit::Millivolts:
+      mask_level_spinbox_->setRange(-280, 840);
+      mask_level_spinbox_->setSuffix(" mV");
+      break;
+    case orc::AmplitudeDisplayUnit::Samples10Bit:
+      mask_level_spinbox_->setRange(0, 1023);
+      mask_level_spinbox_->setSuffix("");
+      break;
+    default:  // IRE
+      mask_level_spinbox_->setRange(-40, 120);
+      mask_level_spinbox_->setSuffix(" IRE");
+      break;
+  }
+
+  updatePresetLabels();
+}
+
+void MaskLineConfigDialog::setVideoParameters(
+    const std::optional<orc::presenters::VideoParametersView>& params) {
+  cached_video_params_ = params;
+  updatePresetLabels();
+}
+
+void MaskLineConfigDialog::updatePresetLabels() {
+  int32_t blanking = 256, white = 844;
+  orc::VideoSystem sys = orc::VideoSystem::PAL;
+  resolveVideoLevels(blanking, white, sys);
+
+  const std::string b_str =
+      orc::format_amplitude(blanking, blanking, white, sys, amplitude_unit_);
+  const std::string w_str =
+      orc::format_amplitude(white, blanking, white, sys, amplitude_unit_);
+
+  mask_level_preset_combo_->setItemText(
+      0, QString("Blanking (%1)").arg(QString::fromStdString(b_str)));
+  mask_level_preset_combo_->setItemText(
+      1, QString("White (%1)").arg(QString::fromStdString(w_str)));
+}
+
+void MaskLineConfigDialog::resolveVideoLevels(int32_t& blanking, int32_t& white,
+                                              orc::VideoSystem& sys) const {
+  blanking = 256;
+  white = 844;
+  sys = orc::VideoSystem::PAL;
+  if (cached_video_params_.has_value()) {
+    const auto& vp = *cached_video_params_;
+    if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
+      blanking = vp.blanking_level;
+      white = vp.white_level;
+      sys = toOrcVideoSystem(vp.system);
+    }
+  }
 }

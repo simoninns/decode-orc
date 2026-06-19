@@ -25,6 +25,7 @@ project:
   version: "2.0"
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
 dag:
   nodes: []
   edges: []
@@ -37,6 +38,7 @@ project:
   version: "1.0"
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
 dag:
   nodes: []
   edges: []
@@ -48,6 +50,34 @@ project:
   name: no-version-project
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
+dag:
+  nodes: []
+  edges: []
+)yaml";
+
+// Minimal v2.0 project with amplitude_unit set to 10-bit samples.
+constexpr const char* kProject10BitUnit = R"yaml(
+project:
+  name: ten-bit-project
+  version: "2.0"
+  video_format: PAL
+  source_format: Composite
+  amplitude_unit: 10bit
+dag:
+  nodes: []
+  edges: []
+)yaml";
+
+// Minimal v2.0 NTSC project (defaults to IRE when created via
+// create_empty_project).
+constexpr const char* kNtscProjectIRE = R"yaml(
+project:
+  name: ntsc-ire-project
+  version: "2.0"
+  video_format: NTSC
+  source_format: Composite
+  amplitude_unit: IRE
 dag:
   nodes: []
   edges: []
@@ -148,6 +178,7 @@ project:
   version: "2.0"
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
 dag:
   nodes:
     - id: 1
@@ -171,6 +202,7 @@ project:
   version: "2.0"
   video_format: NTSC
   source_format: Composite
+  amplitude_unit: IRE
 dag:
   nodes:
     - id: 1
@@ -194,6 +226,7 @@ project:
   version: "2.0"
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
 dag:
   nodes:
     - id: 3
@@ -222,6 +255,7 @@ project:
   version: "2.0"
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
 dag:
   nodes:
     - id: 1
@@ -245,6 +279,7 @@ project:
   version: "2.0"
   video_format: PAL
   source_format: Composite
+  amplitude_unit: mV
 dag:
   nodes:
     - id: 1
@@ -269,6 +304,7 @@ project:
   version: "2.0"
   video_format: NTSC
   source_format: Composite
+  amplitude_unit: IRE
 dag:
   nodes:
     - id: 1
@@ -281,6 +317,56 @@ dag:
 
   EXPECT_NO_THROW(orc::project_io::load_project_from_yaml(
       yaml, "/tmp/unified-source.orcprj"));
+}
+
+// ---------------------------------------------------------------------------
+// amplitude_unit storage and round-trip (Task 7.2)
+// ---------------------------------------------------------------------------
+
+TEST(ProjectFormatTest, AmplitudeUnit_LoadFromYaml_mV_ReturnsMillivolts) {
+  const auto project = orc::project_io::load_project_from_yaml(
+      kV2EmptyProject, "/tmp/au-mv.orcprj");
+  EXPECT_EQ(project.get_amplitude_unit(),
+            orc::AmplitudeDisplayUnit::Millivolts);
+}
+
+TEST(ProjectFormatTest, AmplitudeUnit_LoadFromYaml_IRE_ReturnsIRE) {
+  const auto project = orc::project_io::load_project_from_yaml(
+      kNtscProjectIRE, "/tmp/au-ire.orcprj");
+  EXPECT_EQ(project.get_amplitude_unit(), orc::AmplitudeDisplayUnit::IRE);
+}
+
+TEST(ProjectFormatTest, AmplitudeUnit_LoadFromYaml_10bit_ReturnsSamples10Bit) {
+  const auto project = orc::project_io::load_project_from_yaml(
+      kProject10BitUnit, "/tmp/au-10bit.orcprj");
+  EXPECT_EQ(project.get_amplitude_unit(),
+            orc::AmplitudeDisplayUnit::Samples10Bit);
+}
+
+TEST(ProjectFormatTest, AmplitudeUnit_SetAmplitudeUnit_MarksProjectModified) {
+  auto project = orc::project_io::create_empty_project(
+      "modify-test", orc::VideoSystem::PAL, orc::SourceType::Composite);
+  project.clear_modified_flag();
+  EXPECT_FALSE(project.has_unsaved_changes());
+
+  orc::project_io::set_amplitude_unit(project, orc::AmplitudeDisplayUnit::IRE);
+  EXPECT_TRUE(project.has_unsaved_changes());
+}
+
+TEST(ProjectFormatTest, AmplitudeUnit_SerializeReload_PreservesNonDefaultUnit) {
+  auto project = orc::project_io::create_empty_project(
+      "rt-unit", orc::VideoSystem::PAL, orc::SourceType::Composite);
+  // PAL default is Millivolts; explicitly override to Samples10Bit.
+  orc::project_io::set_amplitude_unit(project,
+                                      orc::AmplitudeDisplayUnit::Samples10Bit);
+
+  const std::string yaml = orc::project_io::serialize_project_to_yaml(
+      project, "/tmp/rt-unit.orcprj");
+  const auto reloaded =
+      orc::project_io::load_project_from_yaml(yaml, "/tmp/rt-unit.orcprj");
+
+  EXPECT_EQ(reloaded.get_amplitude_unit(),
+            orc::AmplitudeDisplayUnit::Samples10Bit);
 }
 
 }  // namespace orc_unit_test

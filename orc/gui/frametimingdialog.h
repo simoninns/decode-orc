@@ -10,6 +10,8 @@
 #ifndef FRAMETIMINGDIALOG_H
 #define FRAMETIMINGDIALOG_H
 
+#include <common_types.h>
+
 #include <QDialog>
 #include <QString>
 #include <cstdint>
@@ -78,6 +80,8 @@ class FrameTimingDialog : public QDialog {
    * @brief Get the timing widget
    */
   FrameTimingWidget* timingWidget() const { return timing_widget_; }
+
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
 
   /**
    * @brief Get the current field index being displayed

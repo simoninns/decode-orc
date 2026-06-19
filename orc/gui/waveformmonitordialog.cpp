@@ -341,3 +341,9 @@ std::vector<int16_t> WaveformMonitorDialog::extractYFromComposite(
   }
   return result;
 }
+
+void WaveformMonitorDialog::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (monitor_widget_) {
+    monitor_widget_->setAmplitudeUnit(unit);
+  }
+}

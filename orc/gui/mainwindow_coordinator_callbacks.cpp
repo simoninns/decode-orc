@@ -17,6 +17,7 @@
 #include "fieldpreviewwidget.h"
 #include "logging.h"
 #include "mainwindow.h"
+#include "presenters/include/render_presenter.h"
 #include "presenters/include/vbi_presenter.h"
 #include "presenters/include/vbi_view_models.h"
 #include "previewdialog.h"
@@ -650,13 +651,28 @@ void MainWindow::onBurstLevelDataReady(
     return;
   }
 
+  // Fetch video parameters for amplitude unit conversion.
+  std::optional<orc::presenters::VideoParametersView> video_params;
+  auto* core_project = project_.presenter()->getCoreProjectHandle();
+  if (core_project) {
+    orc::presenters::RenderPresenter render_presenter(core_project);
+    render_presenter.setDAG(project_.getDAG());
+    auto vp = render_presenter.getVideoParameters(node_id);
+    if (vp.has_value()) {
+      video_params = orc::presenters::toVideoParametersView(*vp);
+    }
+  }
+
   // Start update cycle
   dialog->startUpdate(total_frames);
 
   // Add all data points
+  bool first = true;
   for (const auto& stats : frame_stats) {
     if (stats.has_data) {
-      dialog->addDataPoint(stats.frame_number, stats.median_burst_ire);
+      dialog->addDataPoint(stats.frame_number, stats.median_burst_10bit,
+                           first ? video_params : std::nullopt);
+      first = false;
     }
   }
 

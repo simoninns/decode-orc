@@ -877,6 +877,7 @@ void MainWindow::onEditProject() {
       QString::fromStdString(project_.presenter()->getProjectName()));
   dialog.setProjectDescription(
       QString::fromStdString(project_.presenter()->getProjectDescription()));
+  dialog.setAmplitudeUnit(project_.presenter()->getAmplitudeUnit());
 
   if (dialog.exec() == QDialog::Accepted) {
     // Update project with new values
@@ -892,6 +893,8 @@ void MainWindow::onEditProject() {
     // Update project using presenter
     project_.presenter()->setProjectName(new_name.toStdString());
     project_.presenter()->setProjectDescription(new_description.toStdString());
+    project_.presenter()->setAmplitudeUnit(dialog.amplitudeUnit());
+    propagateAmplitudeUnit();
 
     ORC_LOG_INFO("Project properties updated: name='{}', description='{}'",
                  new_name.toStdString(), new_description.toStdString());
@@ -1041,6 +1044,7 @@ void MainWindow::newProject(orc::VideoSystem video_format,
 
   // Show dialog to choose project name and type if not specified
   QString project_name = "Untitled";
+  std::optional<orc::AmplitudeDisplayUnit> unit_override;
   if (video_format == orc::VideoSystem::Unknown ||
       source_format == orc::SourceType::Unknown) {
     QDialog dialog(this);
@@ -1054,9 +1058,21 @@ void MainWindow::newProject(orc::VideoSystem video_format,
     type_combo->addItems(
         {"NTSC Composite", "NTSC YC", "PAL Composite", "PAL YC"});
 
+    QComboBox* unit_combo = new QComboBox(&dialog);
+    unit_combo->addItem("IRE",
+                        static_cast<int>(orc::AmplitudeDisplayUnit::IRE));
+    unit_combo->addItem(
+        "mV (millivolts)",
+        static_cast<int>(orc::AmplitudeDisplayUnit::Millivolts));
+    unit_combo->addItem(
+        "10-bit samples",
+        static_cast<int>(orc::AmplitudeDisplayUnit::Samples10Bit));
+    unit_combo->setCurrentIndex(2);  // default: 10-bit samples
+
     QFormLayout* form = new QFormLayout;
     form->addRow(tr("Project name:"), name_edit);
     form->addRow(tr("Project type:"), type_combo);
+    form->addRow(tr("Amplitude units:"), unit_combo);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
@@ -1089,6 +1105,9 @@ void MainWindow::newProject(orc::VideoSystem video_format,
       video_format = orc::VideoSystem::PAL;
       source_format = orc::SourceType::YC;
     }
+
+    unit_override = static_cast<orc::AmplitudeDisplayUnit>(
+        unit_combo->currentData().toInt());
   }
 
   ORC_LOG_INFO("Creating new project");
@@ -1121,6 +1140,13 @@ void MainWindow::newProject(orc::VideoSystem video_format,
   if (dag_model_) {
     recreateDAGModelScene();
   }
+
+  // Apply user-selected amplitude unit (dialog path); newEmptyProject already
+  // set a convention default, this overrides it if the user chose explicitly.
+  if (unit_override.has_value()) {
+    project_.presenter()->setAmplitudeUnit(*unit_override);
+  }
+  propagateAmplitudeUnit();
 
   // Don't set a project path - leave it empty so user must use "Save As"
   // Project is marked as modified by create_empty_project()
@@ -1190,6 +1216,9 @@ void MainWindow::openProject(const QString& filename) {
 
   // Load DAG into embedded viewer
   loadProjectDAG();
+
+  // Push the loaded project's amplitude unit to all open dialogs
+  propagateAmplitudeUnit();
 
   // Automatically select the source stage with the lowest node ID
   selectLowestSourceStage();
@@ -1696,6 +1725,9 @@ void MainWindow::quickProject(const QString& filename) {
   updatePreviewRenderer();
   reportPluginRuntimeDiagnostics(false);
   loadProjectDAG();
+
+  // Push the project's amplitude unit to any open dialogs
+  propagateAmplitudeUnit();
 
   // Automatically select the source stage with the lowest node ID
   selectLowestSourceStage();
@@ -3361,6 +3393,21 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info,
     // Create and show the config dialog
     MaskLineConfigDialog dialog(this);
 
+    // Provide amplitude unit and video parameters for unit-aware display.
+    dialog.setAmplitudeUnit(project_.presenter()->getAmplitudeUnit());
+    {
+      auto* core_project = project_.presenter()->getCoreProjectHandle();
+      if (core_project) {
+        orc::presenters::RenderPresenter rp(core_project);
+        rp.setDAG(project_.getDAG());
+        auto vp = rp.getVideoParameters(node_id);
+        if (vp.has_value()) {
+          dialog.setVideoParameters(
+              orc::presenters::toVideoParametersView(*vp));
+        }
+      }
+    }
+
     // Load current parameters from presenter
     auto current_params = project_.presenter()->getNodeParameters(node_id);
     dialog.set_parameters(current_params);
@@ -4346,6 +4393,13 @@ void MainWindow::updateQualityMetricsDialog() {
     orc::presenters::RenderPresenter render_presenter(core_project);
     render_presenter.setDAG(project_.getDAG());
 
+    // Provide video parameters so burst level is displayed in the project unit.
+    auto vp_qm = render_presenter.getVideoParameters(current_view_node_id_);
+    if (vp_qm.has_value()) {
+      quality_metrics_dialog_->setVideoParameters(
+          orc::presenters::toVideoParametersView(*vp_qm));
+    }
+
     if (is_frame_mode) {
       // Render both fields to populate observation context, then update dialog
       // with both fields and frame averages
@@ -5204,4 +5258,24 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field,
   requestLineSamplesForNavigation(navigation_target.field_index,
                                   navigation_target.line_number, sample_x,
                                   preview_image_width);
+}
+
+void MainWindow::propagateAmplitudeUnit() {
+  if (!project_.presenter()) {
+    return;
+  }
+  const orc::AmplitudeDisplayUnit unit =
+      project_.presenter()->getAmplitudeUnit();
+  if (quality_metrics_dialog_) {
+    quality_metrics_dialog_->setAmplitudeUnit(unit);
+  }
+  if (hints_dialog_) {
+    hints_dialog_->setAmplitudeUnit(unit);
+  }
+  for (auto& [id, dlg] : burst_level_analysis_dialogs_) {
+    if (dlg) dlg->setAmplitudeUnit(unit);
+  }
+  if (preview_dialog_) {
+    preview_dialog_->forwardAmplitudeUnit(unit);
+  }
 }

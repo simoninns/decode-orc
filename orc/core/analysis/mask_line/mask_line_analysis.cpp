@@ -73,17 +73,18 @@ std::vector<ParameterDescriptor> MaskLineAnalysisTool::parameters() const {
   custom_lines.constraints.default_value = std::string("");
   params.push_back(custom_lines);
 
-  // Mask IRE level
-  ParameterDescriptor mask_ire;
-  mask_ire.name = "maskIRE";
-  mask_ire.display_name = "Mask IRE Level";
-  mask_ire.description =
-      "IRE level to write to masked pixels (0 = black, 100 = white)";
-  mask_ire.type = ParameterType::DOUBLE;
-  mask_ire.constraints.default_value = 0.0;
-  mask_ire.constraints.min_value = ParameterValue{0.0};
-  mask_ire.constraints.max_value = ParameterValue{100.0};
-  params.push_back(mask_ire);
+  // Mask sample level
+  ParameterDescriptor mask_sample;
+  mask_sample.name = "maskSampleLevel";
+  mask_sample.display_name = "Mask Sample Level";
+  mask_sample.description =
+      "10-bit sample level to write to masked pixels (256=blanking/black, "
+      "844=white for PAL/NTSC)";
+  mask_sample.type = ParameterType::INT32;
+  mask_sample.constraints.default_value = int32_t{0};
+  mask_sample.constraints.min_value = ParameterValue{int32_t{0}};
+  mask_sample.constraints.max_value = ParameterValue{int32_t{1023}};
+  params.push_back(mask_sample);
 
   return params;
 }
@@ -120,7 +121,7 @@ AnalysisResult MaskLineAnalysisTool::analyze(const AnalysisContext& ctx,
   (void)progress;
 
   // Build the configuration based on checkboxes
-  double mask_ire = 0.0;
+  int32_t mask_sample_level = 0;
 
   // Extract parameters
   bool mask_ntsc_cc = false;
@@ -143,10 +144,11 @@ AnalysisResult MaskLineAnalysisTool::analyze(const AnalysisContext& ctx,
     custom_lines = std::get<std::string>(it->second);
   }
 
-  it = ctx.parameters.find("maskIRE");
+  it = ctx.parameters.find("maskSampleLevel");
   if (it != ctx.parameters.end() &&
-      std::holds_alternative<double>(it->second)) {
-    mask_ire = std::get<double>(it->second);
+      std::holds_alternative<int32_t>(it->second)) {
+    mask_sample_level =
+        std::clamp(std::get<int32_t>(it->second), int32_t{0}, int32_t{1023});
   }
 
   // Build configuration
@@ -168,10 +170,7 @@ AnalysisResult MaskLineAnalysisTool::analyze(const AnalysisContext& ctx,
   }
 
   result.graphData["lineSpec"] = line_spec_result;
-
-  std::ostringstream mask_ire_str;
-  mask_ire_str << mask_ire;
-  result.graphData["maskIRE"] = mask_ire_str.str();
+  result.graphData["maskSampleLevel"] = std::to_string(mask_sample_level);
 
   // Build summary showing what will be applied
   std::ostringstream summary;
@@ -188,11 +187,13 @@ AnalysisResult MaskLineAnalysisTool::analyze(const AnalysisContext& ctx,
       summary << "  → PAL Teletext/WSS (field lines 6-22, both fields)\n";
     }
   }
-  summary << "\nMask IRE Level: " << mask_ire << " IRE";
-  if (mask_ire == 0.0) {
-    summary << " (black)";
-  } else if (mask_ire == 100.0) {
-    summary << " (white)";
+  summary << "\nMask Sample Level: " << mask_sample_level;
+  if (mask_sample_level == 0) {
+    summary << " (sync tip)";
+  } else if (mask_sample_level == 256) {
+    summary << " (blanking/black PAL/NTSC)";
+  } else if (mask_sample_level == 844) {
+    summary << " (white PAL/NTSC)";
   }
   summary << "\n\n";
 
@@ -232,14 +233,13 @@ bool MaskLineAnalysisTool::applyToGraph(AnalysisResult& result,
       updated_params["lineSpec"] = data_it->second;
     }
 
-    data_it = result.graphData.find("maskIRE");
+    data_it = result.graphData.find("maskSampleLevel");
     if (data_it != result.graphData.end()) {
-      // Convert string back to double
       try {
-        double mask_ire = std::stod(data_it->second);
-        updated_params["maskIRE"] = mask_ire;
+        int32_t level = std::clamp(std::stoi(data_it->second), 0, 1023);
+        updated_params["maskSampleLevel"] = level;
       } catch (const std::exception& e) {
-        ORC_LOG_WARN("Failed to parse maskIRE: {}", e.what());
+        ORC_LOG_WARN("Failed to parse maskSampleLevel: {}", e.what());
       }
     }
 

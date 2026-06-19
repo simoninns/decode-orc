@@ -32,14 +32,13 @@ namespace orc {
 //   "100-115"    – mask frame lines 100 through 115 (inclusive)
 //   "21,334-336" – mask line 21 and lines 334-336
 //
-// Mask value is in IRE units (0-100) converted to CVBS_U10_4FSC int16_t using
-// blanking_level and white_level from the source SourceParameters.
+// Mask value is a 10-bit sample level (0–1023, CVBS_U10_4FSC domain).
 class MaskedFrameRepresentation : public VideoFrameRepresentationWrapper,
                                   public Artifact {
  public:
   MaskedFrameRepresentation(
       std::shared_ptr<const VideoFrameRepresentation> source,
-      const std::string& line_spec, double mask_ire);
+      const std::string& line_spec, int32_t mask_sample_level);
 
   std::string type_name() const override {
     return "masked_frame_representation";
@@ -59,10 +58,9 @@ class MaskedFrameRepresentation : public VideoFrameRepresentationWrapper,
 
   bool should_mask_line(size_t frame_line) const;
   void parse_line_spec(const std::string& line_spec);
-  int16_t ire_to_sample(double ire) const;
 
   std::vector<LineRange> line_ranges_;
-  double mask_ire_;
+  int32_t mask_sample_level_;
 
   mutable std::vector<int16_t> masked_line_buffer_;
   mutable std::vector<int16_t> masked_luma_buffer_;
@@ -125,7 +123,7 @@ class MaskLineStage : public DAGStage,
 
  private:
   std::string line_spec_ = "";
-  double mask_ire_ = 0.0;
+  int32_t mask_sample_level_ = 0;
 
   mutable std::shared_ptr<const VideoFrameRepresentation> cached_output_;
 };

@@ -101,11 +101,11 @@ bool BurstLevelAnalysisSinkStageDeps::write_csv(
     return false;
   }
 
-  csv << "frame_number,median_burst_ire\n";
+  csv << "frame_number,median_burst_10bit\n";
   size_t rows_written = 0;
   for (const auto& fs : frame_stats) {
     csv << fs.frame_number << ','
-        << (fs.has_data ? fs.median_burst_ire : std::nan("")) << '\n';
+        << (fs.has_data ? fs.median_burst_10bit : std::nan("")) << '\n';
     rows_written++;
   }
 

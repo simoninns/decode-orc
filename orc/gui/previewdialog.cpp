@@ -653,6 +653,18 @@ void PreviewDialog::closeChildDialogs() {
   }
 }
 
+void PreviewDialog::forwardAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (frame_scope_dialog_) {
+    frame_scope_dialog_->setAmplitudeUnit(unit);
+  }
+  if (frame_timing_dialog_) {
+    frame_timing_dialog_->setAmplitudeUnit(unit);
+  }
+  if (waveform_monitor_dialog_) {
+    waveform_monitor_dialog_->setAmplitudeUnit(unit);
+  }
+}
+
 void PreviewDialog::closeVectorscopeDialogs() {
   if (vectorscope_dialog_) {
     vectorscope_dialog_->close();

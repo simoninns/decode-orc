@@ -38,10 +38,10 @@ QualityMetrics MetricsPresenter::extractFieldMetrics(
   }
 
   // Extract burst level from observation context
-  double burst_level = 0.0;
+  double burst_level_10bit = 0.0;
   if (extractDoubleValue(obs_context_handle, field_id, "burst_level",
-                         "median_burst_ire", burst_level)) {
-    metrics.burst_level = burst_level;
+                         "median_burst_10bit", burst_level_10bit)) {
+    metrics.burst_level_10bit = burst_level_10bit;
     metrics.has_burst_level = true;
   }
 
@@ -107,17 +107,17 @@ QualityMetrics MetricsPresenter::extractFrameMetrics(
   valid_count = 0;
 
   if (field1_metrics.has_burst_level) {
-    frame_metrics.burst_level += field1_metrics.burst_level;
+    frame_metrics.burst_level_10bit += field1_metrics.burst_level_10bit;
     frame_metrics.has_burst_level = true;
     valid_count++;
   }
   if (field2_metrics.has_burst_level) {
-    frame_metrics.burst_level += field2_metrics.burst_level;
+    frame_metrics.burst_level_10bit += field2_metrics.burst_level_10bit;
     if (valid_count > 0) frame_metrics.has_burst_level = true;
     valid_count++;
   }
   if (valid_count > 0) {
-    frame_metrics.burst_level /= valid_count;
+    frame_metrics.burst_level_10bit /= valid_count;
   }
   valid_count = 0;
 

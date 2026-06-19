@@ -51,6 +51,8 @@ class IProjectPresenter {
   virtual std::shared_ptr<const void> createSnapshot() const = 0;
   virtual SourceType getSourceType() const = 0;
   virtual void setSourceType(SourceType source) = 0;
+  virtual orc::AmplitudeDisplayUnit getAmplitudeUnit() const = 0;
+  virtual void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) = 0;
 
   // === DAG Management ===
   virtual NodeID addNode(const std::string& stage_name, double x_position,

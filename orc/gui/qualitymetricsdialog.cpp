@@ -17,6 +17,17 @@
 
 #include "logging.h"
 
+static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
+  switch (sys) {
+    case orc::presenters::VideoSystem::NTSC:
+      return orc::VideoSystem::NTSC;
+    case orc::presenters::VideoSystem::PAL_M:
+      return orc::VideoSystem::PAL_M;
+    default:
+      return orc::VideoSystem::PAL;
+  }
+}
+
 // Forward declaration for core type used via opaque pointer
 namespace orc {
 class ObservationContext;
@@ -151,8 +162,19 @@ void QualityMetricsDialog::updateFieldLabels(
   }
 
   if (metrics.has_burst_level) {
-    burst_level_label->setText(
-        QString("%1 IRE").arg(metrics.burst_level, 0, 'f', 2));
+    int32_t blanking = 256, white = 844;
+    orc::VideoSystem sys = orc::VideoSystem::PAL;
+    if (cached_video_params_.has_value()) {
+      const auto& vp = *cached_video_params_;
+      if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
+        blanking = vp.blanking_level;
+        white = vp.white_level;
+        sys = toOrcVideoSystem(vp.system);
+      }
+    }
+    burst_level_label->setText(QString::fromStdString(
+        orc::format_amplitude(static_cast<int32_t>(metrics.burst_level_10bit),
+                              blanking, white, sys, amplitude_unit_)));
   } else {
     burst_level_label->setText("N/A");
   }
@@ -203,15 +225,30 @@ void QualityMetricsDialog::updateFrameAverageLabels(
   }
 
   // Average burst level
+  int32_t blanking = 256, white = 844;
+  orc::VideoSystem sys = orc::VideoSystem::PAL;
+  if (cached_video_params_.has_value()) {
+    const auto& vp = *cached_video_params_;
+    if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
+      blanking = vp.blanking_level;
+      white = vp.white_level;
+      sys = toOrcVideoSystem(vp.system);
+    }
+  }
   if (field1.has_burst_level && field2.has_burst_level) {
-    double avg = (field1.burst_level + field2.burst_level) / 2.0;
-    frame_burst_level_label_->setText(QString("%1 IRE").arg(avg, 0, 'f', 2));
+    const double avg =
+        (field1.burst_level_10bit + field2.burst_level_10bit) / 2.0;
+    frame_burst_level_label_->setText(
+        QString::fromStdString(orc::format_amplitude(
+            static_cast<int32_t>(avg), blanking, white, sys, amplitude_unit_)));
   } else if (field1.has_burst_level) {
-    frame_burst_level_label_->setText(
-        QString("%1 IRE").arg(field1.burst_level, 0, 'f', 2));
+    frame_burst_level_label_->setText(QString::fromStdString(
+        orc::format_amplitude(static_cast<int32_t>(field1.burst_level_10bit),
+                              blanking, white, sys, amplitude_unit_)));
   } else if (field2.has_burst_level) {
-    frame_burst_level_label_->setText(
-        QString("%1 IRE").arg(field2.burst_level, 0, 'f', 2));
+    frame_burst_level_label_->setText(QString::fromStdString(
+        orc::format_amplitude(static_cast<int32_t>(field2.burst_level_10bit),
+                              blanking, white, sys, amplitude_unit_)));
   } else {
     frame_burst_level_label_->setText("N/A");
   }
@@ -341,8 +378,19 @@ void QualityMetricsDialog::updateMetricsForFrame(
   }
 
   if (metrics.has_burst_level) {
-    frame_burst_level_label_->setText(
-        QString("%1 IRE").arg(metrics.burst_level, 0, 'f', 2));
+    int32_t blanking = 256, white = 844;
+    orc::VideoSystem sys = orc::VideoSystem::PAL;
+    if (cached_video_params_.has_value()) {
+      const auto& vp = *cached_video_params_;
+      if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
+        blanking = vp.blanking_level;
+        white = vp.white_level;
+        sys = toOrcVideoSystem(vp.system);
+      }
+    }
+    frame_burst_level_label_->setText(QString::fromStdString(
+        orc::format_amplitude(static_cast<int32_t>(metrics.burst_level_10bit),
+                              blanking, white, sys, amplitude_unit_)));
   } else {
     frame_burst_level_label_->setText("N/A");
   }
@@ -360,4 +408,13 @@ void QualityMetricsDialog::updateMetricsForFrame(
   } else {
     frame_dropout_count_label_->setText("N/A");
   }
+}
+
+void QualityMetricsDialog::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  amplitude_unit_ = unit;
+}
+
+void QualityMetricsDialog::setVideoParameters(
+    const std::optional<orc::presenters::VideoParametersView>& params) {
+  cached_video_params_ = params;
 }

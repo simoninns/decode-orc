@@ -10,12 +10,17 @@
 #ifndef MASKLINECONFIGDIALOG_H
 #define MASKLINECONFIGDIALOG_H
 
+#include <amplitude_conversion.h>
+#include <common_types.h>
+
 #include <QCheckBox>
 #include <QComboBox>
-#include <QDoubleSpinBox>
 #include <QGroupBox>
+#include <QSpinBox>
+#include <optional>
 
 #include "configdialogbase.h"
+#include "presenters/include/hints_view_models.h"
 
 /**
  * @brief Configuration dialog for the mask line stage
@@ -27,7 +32,7 @@
  * - Common presets (NTSC closed captions, PAL teletext, etc.)
  * - Quick checkboxes for common masking scenarios
  * - Visual field/line selection
- * - IRE level control with presets (black, white, gray)
+ * - 10-bit sample level control with presets (blanking, white)
  *
  * The dialog translates user-friendly selections into the lineSpec parameter
  * format expected by MaskLineStage.
@@ -38,6 +43,10 @@ class MaskLineConfigDialog : public ConfigDialogBase {
  public:
   explicit MaskLineConfigDialog(QWidget* parent = nullptr);
   ~MaskLineConfigDialog() override = default;
+
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+  void setVideoParameters(
+      const std::optional<orc::presenters::VideoParametersView>& params);
 
  protected:
   void apply_configuration() override;
@@ -54,6 +63,9 @@ class MaskLineConfigDialog : public ConfigDialogBase {
   void update_ui_state();
   void parse_line_spec_to_ui(const std::string& line_spec);
   std::string build_line_spec_from_ui() const;
+  void updatePresetLabels();
+  void resolveVideoLevels(int32_t& blanking, int32_t& white,
+                          orc::VideoSystem& sys) const;
 
   // Preset configuration group
   QComboBox* preset_combo_;
@@ -70,11 +82,13 @@ class MaskLineConfigDialog : public ConfigDialogBase {
   QSpinBox* end_line_spinbox_;
 
   // Mask level group
-  QComboBox* mask_level_preset_combo_;  // Black/White/Gray/Custom
-  QDoubleSpinBox* mask_ire_spinbox_;
+  QComboBox* mask_level_preset_combo_;  // Blanking/White/Custom
+  QSpinBox* mask_level_spinbox_;
 
   // State tracking
   bool updating_ui_;  // Flag to prevent recursive updates
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
+  std::optional<orc::presenters::VideoParametersView> cached_video_params_;
 };
 
 #endif  // MASKLINECONFIGDIALOG_H

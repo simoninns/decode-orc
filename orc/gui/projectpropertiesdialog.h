@@ -10,6 +10,9 @@
 #ifndef PROJECTPROPERTIESDIALOG_H
 #define PROJECTPROPERTIESDIALOG_H
 
+#include <common_types.h>
+
+#include <QComboBox>
 #include <QDialog>
 #include <QString>
 
@@ -34,11 +37,16 @@ class ProjectPropertiesDialog : public QDialog {
   QString projectDescription() const;
   void setProjectDescription(const QString& description);
 
+  // Get/set amplitude display unit
+  orc::AmplitudeDisplayUnit amplitudeUnit() const;
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+
  private:
   void setupUI();
 
   QLineEdit* name_edit_;
   QTextEdit* description_edit_;
+  QComboBox* amplitude_unit_combo_;
 };
 
 #endif  // PROJECTPROPERTIESDIALOG_H

@@ -41,6 +41,10 @@ class MockProjectPresenter : public IProjectPresenter {
               (const, override));
   MOCK_METHOD(SourceType, getSourceType, (), (const, override));
   MOCK_METHOD(void, setSourceType, (SourceType source), (override));
+  MOCK_METHOD(orc::AmplitudeDisplayUnit, getAmplitudeUnit, (),
+              (const, override));
+  MOCK_METHOD(void, setAmplitudeUnit, (orc::AmplitudeDisplayUnit unit),
+              (override));
 
   MOCK_METHOD(NodeID, addNode,
               (const std::string& stage_name, double x_position,

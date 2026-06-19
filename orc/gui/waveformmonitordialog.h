@@ -10,6 +10,8 @@
 #ifndef WAVEFORMMONITORDIALOG_H
 #define WAVEFORMMONITORDIALOG_H
 
+#include <common_types.h>
+
 #include <QDialog>
 #include <cstdint>
 #include <optional>
@@ -69,6 +71,8 @@ class WaveformMonitorDialog : public QDialog {
       const std::optional<orc::presenters::VideoParametersView>& video_params);
 
   WaveformMonitorWidget* monitorWidget() const { return monitor_widget_; }
+
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
 
  private:
   void setupUI();

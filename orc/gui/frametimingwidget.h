@@ -10,6 +10,9 @@
 #ifndef FRAMETIMINGWIDGET_H
 #define FRAMETIMINGWIDGET_H
 
+#include <amplitude_conversion.h>
+#include <common_types.h>
+
 #include <QScrollBar>
 #include <QWidget>
 #include <cstdint>
@@ -95,6 +98,8 @@ class FrameTimingWidget : public QWidget {
    */
   void setDraftRenderMode(bool enabled);
 
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+
   /**
    * @brief Get the base pixels per sample needed to fit all samples
    * horizontally at 100% zoom This is independent of window size
@@ -142,6 +147,7 @@ class FrameTimingWidget : public QWidget {
   std::optional<orc::presenters::VideoParametersView> video_params_;
   std::optional<int> marker_sample_;
   ChannelMode channel_mode_{ChannelMode::YPlusC};
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
 
   // Display settings
   static constexpr int MARGIN = 40;

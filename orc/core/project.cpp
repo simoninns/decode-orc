@@ -521,6 +521,26 @@ Project load_project_from_yaml(const std::string& yaml_text,
                              "Valid values are: Composite, YC, or Unknown");
   }
 
+  // Load amplitude display unit (required)
+  if (!root["project"]["amplitude_unit"]) {
+    throw std::runtime_error(
+        "Invalid project file '" + filename_hint +
+        "': missing required 'amplitude_unit' field. "
+        "Please create a new project or manually add "
+        "'amplitude_unit: IRE' (or 'mV' or '10bit') to the project section.");
+  }
+
+  std::string amplitude_unit_str =
+      root["project"]["amplitude_unit"].as<std::string>();
+  project.amplitude_unit_ = amplitude_unit_from_string(amplitude_unit_str);
+  if (amplitude_unit_str != "IRE" && amplitude_unit_str != "mV" &&
+      amplitude_unit_str != "10bit") {
+    throw std::runtime_error("Invalid project file '" + filename_hint +
+                             "': invalid amplitude_unit '" +
+                             amplitude_unit_str +
+                             "'. Valid values are: IRE, mV, or 10bit");
+  }
+
   // Load DAG nodes
   if (root["dag"] && root["dag"]["nodes"] &&
       root["dag"]["nodes"].IsSequence()) {
@@ -736,6 +756,9 @@ std::string serialize_project_to_yaml(const Project& project,
         << source_type_to_string(project.source_format_);
   }
 
+  out << YAML::Key << "amplitude_unit" << YAML::Value
+      << amplitude_unit_to_string(project.amplitude_unit_);
+
   out << YAML::EndMap;
 
   // DAG
@@ -856,7 +879,7 @@ Project create_empty_project(const std::string& project_name,
   project.version_ = "2.0";
   project.video_format_ = video_format;
   project.source_format_ = source_format;
-  // Empty sources, nodes_, and edges
+  project.amplitude_unit_ = default_amplitude_unit(video_format);
   // Mark as modified since it's a newly created project
   project.is_modified_ = true;
   return project;
@@ -1349,6 +1372,11 @@ void set_video_format(Project& project, VideoSystem video_format) {
 
 void set_source_format(Project& project, SourceType source_format) {
   project.source_format_ = source_format;
+  project.is_modified_ = true;
+}
+
+void set_amplitude_unit(Project& project, AmplitudeDisplayUnit unit) {
+  project.amplitude_unit_ = unit;
   project.is_modified_ = true;
 }
 

@@ -20,9 +20,21 @@
 #include <algorithm>
 #include <cmath>
 
-#include "framescopedialog.h"
 #include "plotwidget.h"
 #include "theme_color_tokens.h"
+
+static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
+  switch (sys) {
+    case orc::presenters::VideoSystem::PAL:
+      return orc::VideoSystem::PAL;
+    case orc::presenters::VideoSystem::NTSC:
+      return orc::VideoSystem::NTSC;
+    case orc::presenters::VideoSystem::PAL_M:
+      return orc::VideoSystem::PAL_M;
+    default:
+      return orc::VideoSystem::Unknown;
+  }
+}
 
 namespace {
 std::vector<int16_t> buildCombinedYPlusC(
@@ -53,8 +65,8 @@ double FrameTimingWidget::convertSampleToMV(int16_t sample) const {
     return sample / 100.0;
   }
   const auto& vp = video_params_.value();
-  const double a_mv = active_video_mv(vp.system);
-  return cvbs_sample_to_mv(sample, vp.blanking_level, vp.white_level, a_mv);
+  return orc::samples10_to_mv(sample, vp.blanking_level, vp.white_level,
+                              toOrcVideoSystem(vp.system));
 }
 
 double FrameTimingWidget::getMVRange(double& min_mv, double& max_mv) const {
@@ -64,12 +76,12 @@ double FrameTimingWidget::getMVRange(double& min_mv, double& max_mv) const {
     return max_mv - min_mv;
   }
   const auto& vp = video_params_.value();
-  const double a_mv = active_video_mv(vp.system);
+  const orc::VideoSystem sys = toOrcVideoSystem(vp.system);
   if (vp.blanking_level >= 0 && vp.white_level > vp.blanking_level) {
-    min_mv = cvbs_sample_to_mv(static_cast<int16_t>(vp.sync_tip_level),
-                               vp.blanking_level, vp.white_level, a_mv);
-    max_mv = cvbs_sample_to_mv(static_cast<int16_t>(vp.peak_level),
-                               vp.blanking_level, vp.white_level, a_mv);
+    min_mv = orc::samples10_to_mv(vp.sync_tip_level, vp.blanking_level,
+                                  vp.white_level, sys);
+    max_mv = orc::samples10_to_mv(vp.peak_level, vp.blanking_level,
+                                  vp.white_level, sys);
   } else {
     min_mv = -400;
     max_mv = 1000;
@@ -425,11 +437,40 @@ void FrameTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
   double min_mv, max_mv;
   getMVRange(min_mv, max_mv);
 
-  // Calculate 50 mV tick marks with 0 mV as reference
-  // Find the starting tick (multiple of 50 mV that's <= min_mv)
-  double grid_step = 50.0;
-  double label_step = 100.0;
-  double first_tick = std::floor(min_mv / grid_step) * grid_step;
+  // Resolve video params for unit conversion (PAL defaults if unavailable).
+  int32_t blanking = 256, white = 844;
+  orc::VideoSystem sys = orc::VideoSystem::PAL;
+  if (video_params_.has_value() && video_params_->blanking_level >= 0 &&
+      video_params_->white_level > video_params_->blanking_level) {
+    blanking = video_params_->blanking_level;
+    white = video_params_->white_level;
+    sys = toOrcVideoSystem(video_params_->system);
+  }
+
+  // Convert mV range to display units for tick iteration.
+  double min_dv, max_dv;
+  if (amplitude_unit_ == orc::AmplitudeDisplayUnit::Millivolts) {
+    min_dv = min_mv;
+    max_dv = max_mv;
+  } else {
+    min_dv = orc::samples10_to_display(
+        orc::mv_to_samples10(min_mv, blanking, white, sys), blanking, white,
+        sys, amplitude_unit_);
+    max_dv = orc::samples10_to_display(
+        orc::mv_to_samples10(max_mv, blanking, white, sys), blanking, white,
+        sys, amplitude_unit_);
+  }
+
+  // Helper: convert display-unit tick value to mV for Y-coordinate mapping.
+  auto displayTickToMv = [&](double dv) -> double {
+    if (amplitude_unit_ == orc::AmplitudeDisplayUnit::Millivolts) return dv;
+    return orc::samples10_to_mv(
+        orc::display_to_samples10(dv, blanking, white, sys, amplitude_unit_),
+        blanking, white, sys);
+  };
+
+  const double minor_step = orc::amplitude_minor_tick(amplitude_unit_);
+  const double major_step = orc::amplitude_major_tick(amplitude_unit_);
 
   // Draw grid lines and labels
   QFont label_font = painter.font();
@@ -438,36 +479,29 @@ void FrameTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
 
   painter.setPen(grid_color);
 
-  // Draw grid lines at 50 mV intervals, labels at 100 mV intervals
-  for (double mv_value = first_tick; mv_value <= max_mv;
-       mv_value += grid_step) {
-    // Map mV to Y coordinate
-    double normalized = (mv_value - min_mv) / (max_mv - min_mv);
-    int y = graph_area.bottom() -
-            static_cast<int>(normalized * graph_area.height());
+  const double first_grid = std::floor(min_dv / minor_step) * minor_step;
+  for (double dv = first_grid; dv <= max_dv; dv += minor_step) {
+    const double mv = displayTickToMv(dv);
+    const double normalized = (mv - min_mv) / (max_mv - min_mv);
+    const int y = graph_area.bottom() -
+                  static_cast<int>(normalized * graph_area.height());
 
-    // Only draw if within bounds
     if (y >= graph_area.top() && y <= graph_area.bottom()) {
-      // Draw grid line
       painter.setPen(grid_color);
       painter.drawLine(graph_area.left(), y, graph_area.right(), y);
     }
   }
 
-  // Draw labels at 100 mV intervals
-  double first_label = std::floor(min_mv / label_step) * label_step;
   painter.setPen(label_color);
-  for (double mv_value = first_label; mv_value <= max_mv;
-       mv_value += label_step) {
-    // Map mV to Y coordinate
-    double normalized = (mv_value - min_mv) / (max_mv - min_mv);
-    int y = graph_area.bottom() -
-            static_cast<int>(normalized * graph_area.height());
+  const double first_label = std::floor(min_dv / major_step) * major_step;
+  for (double dv = first_label; dv <= max_dv; dv += major_step) {
+    const double mv = displayTickToMv(dv);
+    const double normalized = (mv - min_mv) / (max_mv - min_mv);
+    const int y = graph_area.bottom() -
+                  static_cast<int>(normalized * graph_area.height());
 
-    // Only draw if within bounds
     if (y >= graph_area.top() && y <= graph_area.bottom()) {
-      QString label = QString::number(static_cast<int>(mv_value)) + " mV";
-      // Draw label to the left of the graph area, well separated from the axis
+      const QString label = QString::number(static_cast<int>(std::round(dv)));
       QRect label_rect(MARGIN, y - 6, graph_area.left() - MARGIN - 5, 12);
       painter.drawText(label_rect,
                        static_cast<int>(Qt::AlignRight | Qt::AlignVCenter),
@@ -475,16 +509,19 @@ void FrameTimingWidget::drawGraph(QPainter& painter, const QRect& graph_area) {
     }
   }
 
+  // Y-axis title (rotated, in the outer left margin).
+  painter.save();
+  painter.setPen(label_color);
+  painter.translate(15, graph_area.center().y());
+  painter.rotate(-90);
+  painter.drawText(
+      QRect(-50, -10, 100, 20), Qt::AlignCenter,
+      QString::fromStdString(orc::amplitude_axis_title(amplitude_unit_)));
+  painter.restore();
+
   // Draw level indicator lines if we have video parameters
   if (video_params_.has_value()) {
     const auto& vp = video_params_.value();
-
-    // Determine mV conversion factor
-    double ire_to_mv = 7.0;
-    if (vp.system == orc::presenters::VideoSystem::NTSC ||
-        vp.system == orc::presenters::VideoSystem::PAL_M) {
-      ire_to_mv = 7.143;
-    }
 
     // Helper to draw horizontal level line
     auto drawLevelLine = [&](double mv, const QColor& color,
@@ -895,4 +932,10 @@ void FrameTimingWidget::drawSamples(QPainter& painter, const QRect& graph_area,
 
     painter.drawPath(path);
   }
+}
+
+void FrameTimingWidget::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (amplitude_unit_ == unit) return;
+  amplitude_unit_ = unit;
+  update();
 }

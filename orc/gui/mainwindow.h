@@ -259,6 +259,9 @@ class MainWindow : public QMainWindow {
   void saveSettings();
   void restoreSettings();
 
+  void propagateAmplitudeUnit();  ///< Push current project amplitude unit to
+                                  ///< all open dialogs
+
   // Project management
   GUIProject project_;
   std::unique_ptr<RenderCoordinator>

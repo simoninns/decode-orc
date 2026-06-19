@@ -10,6 +10,7 @@
 #ifndef FRAMESCOPEDIALOG_H
 #define FRAMESCOPEDIALOG_H
 
+#include <amplitude_conversion.h>
 #include <common_types.h>
 
 #include <QComboBox>
@@ -25,40 +26,6 @@
 
 #include "plotwidget.h"
 #include "presenters/include/hints_view_models.h"
-
-// ============================================================================
-// cvbs_sample_to_mv
-// ============================================================================
-// Convert a CVBS_U10_4FSC int16_t sample to millivolts.
-//
-// ITU-R BT.1700-1 / SMPTE 170M-2004 §11.4
-// Blanking level is defined as 0 mV; white level as active_mv.
-// active_mv: 700.0 mV for PAL (EBU Tech. 3280-E), 714.3 mV for NTSC/PAL_M
-// (7.143 mV/IRE × 100 IRE).
-//
-// The return value is unclamped — samples below sync_tip or above peak result
-// in negative mV or mV above active_mv respectively.  Y-axis auto-scale in
-// FrameScopeDialog uses this to detect headroom signals (design §3.5).
-inline double cvbs_sample_to_mv(int16_t sample, int32_t blanking_level,
-                                int32_t white_level, double active_mv) {
-  const double range = static_cast<double>(white_level - blanking_level);
-  if (range <= 0.0) {
-    return 0.0;
-  }
-  return static_cast<double>(sample - blanking_level) / range * active_mv;
-}
-
-// Active video amplitude in millivolts for the given video system.
-// ITU-R BT.1700-1 Table 2 / EBU Tech. 3280-E §1.1: PAL = 700 mV peak-to-peak.
-// SMPTE 170M-2004 §11.4: NTSC = 7.143 mV/IRE × 100 = 714.3 mV.
-// PAL_M follows NTSC amplitude (ITU-R BT.1700-1 Annex 1 Part B).
-inline double active_video_mv(orc::presenters::VideoSystem sys) {
-  if (sys == orc::presenters::VideoSystem::NTSC ||
-      sys == orc::presenters::VideoSystem::PAL_M) {
-    return 714.3;
-  }
-  return 700.0;
-}
 
 /**
  * @brief Dialog for displaying frame scope — all samples in a selected line
@@ -126,6 +93,11 @@ class FrameScopeDialog : public QDialog {
    */
   void refreshSamplesAtCurrentPosition();
 
+  /**
+   * @brief Set the amplitude display unit and re-render the current plot.
+   */
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+
  Q_SIGNALS:
   /// Emitted when the user navigates up/down by one line.
   void lineNavigationRequested(int direction, uint64_t current_frame_id,
@@ -187,6 +159,7 @@ class FrameScopeDialog : public QDialog {
 
   PlotMarker* sample_marker_ = nullptr;
   bool is_yc_source_ = false;
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
 };
 
 #endif  // FRAMESCOPEDIALOG_H

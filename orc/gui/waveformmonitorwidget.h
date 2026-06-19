@@ -10,6 +10,9 @@
 #ifndef WAVEFORMMONITORWIDGET_H
 #define WAVEFORMMONITORWIDGET_H
 
+#include <amplitude_conversion.h>
+#include <common_types.h>
+
 #include <QImage>
 #include <QWidget>
 #include <cstdint>
@@ -63,6 +66,8 @@ class WaveformMonitorWidget : public QWidget {
   void setYOnlyMode(bool y_only);
   bool yOnlyMode() const { return y_only_mode_; }
 
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+
  protected:
   void paintEvent(QPaintEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;
@@ -70,7 +75,7 @@ class WaveformMonitorWidget : public QWidget {
  private:
   void accumulate(const std::vector<int16_t>& samples, int total_lines,
                   int active_start, int active_end, int32_t blanking_level,
-                  int32_t white_level, double active_mv_val);
+                  int32_t white_level, orc::VideoSystem sys);
   void rebuildImage(const QRect& plot_area);
   void drawGrid(QPainter& painter, const QRect& plot_area) const;
   void drawYAxis(QPainter& painter, const QRect& plot_area) const;
@@ -100,6 +105,7 @@ class WaveformMonitorWidget : public QWidget {
   double gain_ = 1.0;
   bool phosphor_mode_ = false;
   bool y_only_mode_ = false;
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
   bool image_dirty_ = true;
   QImage cached_image_;
 

@@ -10,6 +10,8 @@
 #ifndef QUALITYMETRICSDIALOG_H
 #define QUALITYMETRICSDIALOG_H
 
+#include <amplitude_conversion.h>
+#include <common_types.h>
 #include <field_id.h>
 #include <metrics_presenter.h>
 
@@ -19,6 +21,9 @@
 #include <QLabel>
 #include <QVBoxLayout>
 #include <memory>
+#include <optional>
+
+#include "presenters/include/hints_view_models.h"
 
 /**
  * @brief Dialog for displaying quality metrics for the current field/frame
@@ -89,6 +94,10 @@ class QualityMetricsDialog : public QDialog {
    */
   void clearMetrics();
 
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+  void setVideoParameters(
+      const std::optional<orc::presenters::VideoParametersView>& params);
+
  private:
   void setupUI();
 
@@ -125,6 +134,9 @@ class QualityMetricsDialog : public QDialog {
 
   bool showing_frame_mode_;  // True if showing two fields, false if showing
                              // single field
+
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
+  std::optional<orc::presenters::VideoParametersView> cached_video_params_;
 };
 
 #endif  // QUALITYMETRICSDIALOG_H

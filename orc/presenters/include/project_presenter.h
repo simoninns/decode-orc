@@ -222,6 +222,16 @@ class ProjectPresenter : public IProjectPresenter {
    */
   void setSourceType(SourceType source) override;
 
+  /**
+   * @brief Get amplitude display unit
+   */
+  orc::AmplitudeDisplayUnit getAmplitudeUnit() const override;
+
+  /**
+   * @brief Set amplitude display unit
+   */
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) override;
+
   // === DAG Management ===
 
   /**

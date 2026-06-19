@@ -403,3 +403,9 @@ void FrameTimingDialog::finalizeRenderQuality() {
   zoom_settle_timer_->stop();
   timing_widget_->setDraftRenderMode(false);
 }
+
+void FrameTimingDialog::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (timing_widget_) {
+    timing_widget_->setAmplitudeUnit(unit);
+  }
+}

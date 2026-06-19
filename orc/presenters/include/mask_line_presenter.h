@@ -57,7 +57,7 @@ class MaskLinePresenter : public AnalysisToolPresenter {
    *
    * @param node_id The mask_line node to configure
    * @param parameters User-selected parameters (maskNTSC_CC, maskPAL_TT,
-   * customLines, maskIRE)
+   * customLines, maskSampleLevel)
    * @param progress_callback Optional progress updates (not used for instant
    * tool)
    * @return Analysis result with line specification configuration

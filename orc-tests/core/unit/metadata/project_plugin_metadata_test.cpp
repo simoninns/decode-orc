@@ -30,6 +30,7 @@ project:
   version: "2.0"
   video_format: NTSC
   source_format: Composite
+  amplitude_unit: IRE
 dag:
   nodes:
     - id: 1
@@ -80,6 +81,7 @@ project:
   version: "2.0"
   video_format: NTSC
   source_format: Composite
+  amplitude_unit: IRE
 dag:
   nodes:
     - id: 3

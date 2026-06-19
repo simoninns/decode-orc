@@ -102,15 +102,18 @@ void HintsDialog::setupUI() {
   colour_burst_range_label_ = new QLabel("-");
   videoParamsLayout->addWidget(colour_burst_range_label_, 1, 1);
 
-  videoParamsLayout->addWidget(new QLabel("Blanking Level (10-bit):"), 2, 0);
+  blanking_level_header_label_ = new QLabel("Blanking Level (10-bit):");
+  videoParamsLayout->addWidget(blanking_level_header_label_, 2, 0);
   blanking_level_label_ = new QLabel("-");
   videoParamsLayout->addWidget(blanking_level_label_, 2, 1);
 
-  videoParamsLayout->addWidget(new QLabel("Black Level (10-bit):"), 3, 0);
+  black_level_header_label_ = new QLabel("Black Level (10-bit):");
+  videoParamsLayout->addWidget(black_level_header_label_, 3, 0);
   black_level_label_ = new QLabel("-");
   videoParamsLayout->addWidget(black_level_label_, 3, 1);
 
-  videoParamsLayout->addWidget(new QLabel("White Level (10-bit):"), 4, 0);
+  white_level_header_label_ = new QLabel("White Level (10-bit):");
+  videoParamsLayout->addWidget(white_level_header_label_, 4, 0);
   white_level_label_ = new QLabel("-");
   videoParamsLayout->addWidget(white_level_label_, 4, 1);
 
@@ -244,6 +247,7 @@ void HintsDialog::updateActiveLineHint(
 
 void HintsDialog::updateVideoParameters(
     const std::optional<orc::presenters::VideoParametersView>& params) {
+  cached_video_params_ = params;
   if (!params.has_value()) {
     active_video_range_label_->setText("-");
     colour_burst_range_label_->setText("-");
@@ -272,24 +276,7 @@ void HintsDialog::updateVideoParameters(
     colour_burst_range_label_->setText("-");
   }
 
-  // Signal levels in CVBS_U10_4FSC 10-bit domain (0–1023).
-  if (params->white_level >= 0) {
-    white_level_label_->setText(QString::number(params->white_level));
-  } else {
-    white_level_label_->setText("-");
-  }
-  if (params->blanking_level >= 0) {
-    blanking_level_label_->setText(QString::number(params->blanking_level));
-  } else {
-    blanking_level_label_->setText("-");
-  }
-  if (params->black_level >= 0) {
-    black_level_label_->setText(QString::number(params->black_level));
-  } else {
-    black_level_label_->setText("-");
-  }
-
-  // Sample rate derived from the video system standard.
+  // Signal levels — displayed in the configured amplitude unit.
   const auto sys = [&]() -> orc::VideoSystem {
     switch (params->system) {
       case orc::presenters::VideoSystem::PAL:
@@ -302,6 +289,37 @@ void HintsDialog::updateVideoParameters(
         return orc::VideoSystem::Unknown;
     }
   }();
+
+  const int32_t blanking =
+      (params->blanking_level >= 0) ? params->blanking_level : 256;
+  const int32_t white =
+      (params->white_level > blanking) ? params->white_level : 844;
+  const std::string unit_suffix = orc::amplitude_unit_suffix(amplitude_unit_);
+  const QString header_suffix =
+      QString("(%1):").arg(QString::fromStdString(unit_suffix));
+
+  blanking_level_header_label_->setText("Blanking Level " + header_suffix);
+  black_level_header_label_->setText("Black Level " + header_suffix);
+  white_level_header_label_->setText("White Level " + header_suffix);
+
+  if (params->white_level >= 0) {
+    white_level_label_->setText(QString::fromStdString(orc::format_amplitude(
+        params->white_level, blanking, white, sys, amplitude_unit_)));
+  } else {
+    white_level_label_->setText("-");
+  }
+  if (params->blanking_level >= 0) {
+    blanking_level_label_->setText(QString::fromStdString(orc::format_amplitude(
+        params->blanking_level, blanking, white, sys, amplitude_unit_)));
+  } else {
+    blanking_level_label_->setText("-");
+  }
+  if (params->black_level >= 0) {
+    black_level_label_->setText(QString::fromStdString(orc::format_amplitude(
+        params->black_level, blanking, white, sys, amplitude_unit_)));
+  } else {
+    black_level_label_->setText("-");
+  }
   const double sr = orc::sample_rate_from_system(sys);
   if (sr > 0.0) {
     sample_rate_label_->setText(QString("%1 Hz").arg(sr, 0, 'f', 0));
@@ -329,6 +347,12 @@ void HintsDialog::clearHints() {
   blanking_level_label_->setText("-");
   black_level_label_->setText("-");
   sample_rate_label_->setText("-");
+}
+
+void HintsDialog::setAmplitudeUnit(orc::AmplitudeDisplayUnit unit) {
+  if (amplitude_unit_ == unit) return;
+  amplitude_unit_ = unit;
+  updateVideoParameters(cached_video_params_);
 }
 
 QString HintsDialog::formatHintSource(orc::presenters::HintSourceView source) {

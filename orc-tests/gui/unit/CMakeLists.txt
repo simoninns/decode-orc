@@ -117,4 +117,5 @@ orc_add_gui_unit_tests(
         config_dialog_base_test.cpp
         stage_parameter_dialog_test.cpp
         analysis_dialog_smoke_test.cpp
+        project_properties_dialog_test.cpp
 )

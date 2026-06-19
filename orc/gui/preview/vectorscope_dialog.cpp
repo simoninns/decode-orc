@@ -23,6 +23,9 @@ class VectorscopeDialogPrivate {
   uint64_t current_field_number = 0;
   std::optional<orc::VectorscopeData> last_data;
 
+  void drawColorZones(QPainter& painter, VectorscopeDialog* dialog,
+                      orc::VideoSystem system, int32_t cvbs_white,
+                      int32_t cvbs_blanking);
   void drawGraticule(QPainter& painter, VectorscopeDialog* dialog,
                      orc::VideoSystem system, int32_t cvbs_white,
                      int32_t cvbs_blanking);
@@ -528,14 +531,14 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
       ire_range, static_cast<int>(orc::VideoSystem::NTSC),
       static_cast<int>(orc::VideoSystem::PAL));
 
-  // Create image and render graticule before the sample pass.
+  // Create image; draw colour zones first so they sit behind the data plot.
   QImage image(size, size, QImage::Format_RGB888);
   image.fill(Qt::black);
   {
     QPainter painter(&image);
     if (graticule_mode != 0) {
-      d_->drawGraticule(painter, this, data.system, data.cvbs_white,
-                        data.cvbs_blanking);
+      d_->drawColorZones(painter, this, data.system, data.cvbs_white,
+                         data.cvbs_blanking);
     }
   }
 
@@ -661,6 +664,17 @@ void VectorscopeDialog::renderVectorscope(const orc::VectorscopeData& data) {
     }
   }
 
+  // Draw graticule overlay on top of the data plot (axes, circle, markers,
+  // target boxes and labels — colour zones were already drawn beneath the
+  // data).
+  {
+    QPainter painter(&image);
+    if (graticule_mode != 0) {
+      d_->drawGraticule(painter, this, data.system, data.cvbs_white,
+                        data.cvbs_blanking);
+    }
+  }
+
   // Overlay "no chroma" warning when all samples are near the origin.
   if (!has_chroma) {
     QPainter painter(&image);
@@ -749,16 +763,14 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter,
         for (int rgb = 1; rgb < 7; rgb++) {
           const orc::UVSample target = orc::gui::vectorscopeDisplayTargetUv(
               rgb, percent, orc::gui::kVectorscopeSignedFullScale, system);
-          const double barTheta = std::atan2(-target.v, target.u);
-          const double barMagnitude = std::hypot(target.u, target.v);
           const QPointF target_point = geometry.mapUV(target.u, target.v);
           const QColor target_color = vectorscopeTargetColor(rgb);
 
-          drawColorZone(painter, geometry, barTheta, barMagnitude,
-                        target_color);
           drawTargetBox(painter, geometry, target_point, target_color);
 
           if (with_labels) {
+            const double barTheta = std::atan2(-target.v, target.u);
+            const double barMagnitude = std::hypot(target.u, target.v);
             const double label_distance =
                 barMagnitude +
                 geometry.pixelsToMagnitude(kColorLabelOffsetPixels);
@@ -799,6 +811,37 @@ void VectorscopeDialogPrivate::drawGraticule(QPainter& painter,
   }
 }
 
+void VectorscopeDialogPrivate::drawColorZones(QPainter& painter,
+                                              VectorscopeDialog* dialog,
+                                              orc::VideoSystem system,
+                                              int32_t cvbs_white,
+                                              int32_t cvbs_blanking) {
+  const orc::gui::VectorscopePlotGeometry geometry;
+  const int graticule_mode = dialog->getGraticuleMode();
+  if (graticule_mode == 0) return;
+  if (cvbs_white <= cvbs_blanking) return;
+
+  painter.setRenderHint(QPainter::Antialiasing, true);
+
+  auto draw_zones_at_percent = [&](double percent) {
+    for (int rgb = 1; rgb < 7; rgb++) {
+      const orc::UVSample target = orc::gui::vectorscopeDisplayTargetUv(
+          rgb, percent, orc::gui::kVectorscopeSignedFullScale, system);
+      const double barTheta = std::atan2(-target.v, target.u);
+      const double barMagnitude = std::hypot(target.u, target.v);
+      drawColorZone(painter, geometry, barTheta, barMagnitude,
+                    vectorscopeTargetColor(rgb));
+    }
+  };
+
+  if (graticule_mode == 2 || graticule_mode == 3) {
+    draw_zones_at_percent(0.75);
+  }
+  if (graticule_mode == 1 || graticule_mode == 3) {
+    draw_zones_at_percent(1.0);
+  }
+}
+
 void VectorscopeDialog::clearDisplay() {
   QImage blank(orc::gui::kVectorscopeCanvasSize,
                orc::gui::kVectorscopeCanvasSize, QImage::Format_RGB888);
@@ -806,9 +849,11 @@ void VectorscopeDialog::clearDisplay() {
   {
     QPainter painter(&blank);
     if (d_->last_data.has_value()) {
-      d_->drawGraticule(painter, this, d_->last_data->system,
-                        d_->last_data->cvbs_white,
-                        d_->last_data->cvbs_blanking);
+      const auto& data = *d_->last_data;
+      d_->drawColorZones(painter, this, data.system, data.cvbs_white,
+                         data.cvbs_blanking);
+      d_->drawGraticule(painter, this, data.system, data.cvbs_white,
+                        data.cvbs_blanking);
     } else {
       const orc::gui::VectorscopePlotGeometry geometry;
       painter.setRenderHint(QPainter::Antialiasing, true);

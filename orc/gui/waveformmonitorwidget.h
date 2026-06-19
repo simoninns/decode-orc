@@ -105,6 +105,12 @@ class WaveformMonitorWidget : public QWidget {
 
   std::optional<orc::presenters::VideoParametersView> video_params_;
 
+  // Additive brightness floor applied to every non-zero count before dividing
+  // by 255. Lower values extend the low-intensity gradient range; the
+  // VirtualDub Color Tools reference used 128 (~52 % minimum), but 64 gives a
+  // more usable gradient (~27 % minimum).
+  static constexpr float kBrightnessBias = 64.0f;
+
   static constexpr int kLeftMargin = 55;
   static constexpr int kRightMargin = 10;
   static constexpr int kTopMargin = 15;

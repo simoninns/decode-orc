@@ -292,13 +292,14 @@ void WaveformMonitorWidget::rebuildImage(const QRect& pa) {
   // map into its fractional range.  This avoids missed-bin aliasing when
   // x_samples_ >> img_w.
   //
-  // Brightness mapping follows the Color Tools VirtualDub plugin reference:
+  // Brightness mapping adapted from the Color Tools VirtualDub plugin
+  // reference:
   //   clamp[0] = 0
-  //   clamp[j] = min(j + 128, 255)   for j >= 1
+  //   clamp[j] = min(j + kBrightnessBias, 255)   for j >= 1
   //   brightness = clamp[count * 5 * gain] / 255
   //
-  // Any non-zero count maps immediately to ~52 % brightness; full saturation
-  // is reached after ~26 occurrences at gain=1 (ITU-R BT.601 broadcast norm).
+  // Full saturation is reached after ~(255 - kBrightnessBias) / (5*gain)
+  // occurrences (ITU-R BT.601 broadcast norm).
   // The gain control moves the saturation knee: higher gain saturates faster.
   const float k = 5.0f * static_cast<float>(gain_);
 
@@ -327,8 +328,8 @@ void WaveformMonitorWidget::rebuildImage(const QRect& pa) {
       }
       if (max_count == 0) continue;
 
-      const float b =
-          std::min(1.0f, (static_cast<float>(max_count) * k + 128.0f) / 255.0f);
+      const float b = std::min(
+          1.0f, (static_cast<float>(max_count) * k + kBrightnessBias) / 255.0f);
       bright[static_cast<size_t>(py) * w + static_cast<size_t>(px)] = b;
     }
   }

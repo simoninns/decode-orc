@@ -102,15 +102,15 @@ void HintsDialog::setupUI() {
   colour_burst_range_label_ = new QLabel("-");
   videoParamsLayout->addWidget(colour_burst_range_label_, 1, 1);
 
-  videoParamsLayout->addWidget(new QLabel("Blanking Level (16-bit):"), 2, 0);
+  videoParamsLayout->addWidget(new QLabel("Blanking Level (10-bit):"), 2, 0);
   blanking_level_label_ = new QLabel("-");
   videoParamsLayout->addWidget(blanking_level_label_, 2, 1);
 
-  videoParamsLayout->addWidget(new QLabel("Black Level (16-bit):"), 3, 0);
+  videoParamsLayout->addWidget(new QLabel("Black Level (10-bit):"), 3, 0);
   black_level_label_ = new QLabel("-");
   videoParamsLayout->addWidget(black_level_label_, 3, 1);
 
-  videoParamsLayout->addWidget(new QLabel("White Level (16-bit):"), 4, 0);
+  videoParamsLayout->addWidget(new QLabel("White Level (10-bit):"), 4, 0);
   white_level_label_ = new QLabel("-");
   videoParamsLayout->addWidget(white_level_label_, 4, 1);
 

@@ -628,6 +628,7 @@ void PreviewDialog::onSampleMarkerMoved(int sample_x) {
 }
 
 void PreviewDialog::closeEvent(QCloseEvent* event) {
+  stopPlayback();
   closeChildDialogs();
   QDialog::closeEvent(event);
 }

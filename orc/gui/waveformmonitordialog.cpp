@@ -179,7 +179,9 @@ void WaveformMonitorDialog::setData(
 
   updateWidgetForCurrentChannel();
 
-  if (!isVisible()) {
+  // Only auto-show if the parent preview dialog is still open. Guards against
+  // pending async callbacks re-opening this dialog after the preview closes.
+  if (!isVisible() && parentWidget() && parentWidget()->isVisible()) {
     show();
     raise();
     activateWindow();

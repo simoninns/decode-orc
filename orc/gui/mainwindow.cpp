@@ -4047,6 +4047,10 @@ void MainWindow::onFrameTimingRequested() {
 }
 
 void MainWindow::onFrameScopeDialogClosed() {
+  ORC_LOG_DEBUG(
+      "onFrameScopeDialogClosed: resetting line scope state (was line={}, "
+      "field={})",
+      last_line_scope_line_number_, last_line_scope_field_index_);
   // Clear the marker state when line scope is closed
   last_line_scope_field_index_ = std::numeric_limits<uint64_t>::max();
   last_line_scope_line_number_ = -1;
@@ -4274,9 +4278,10 @@ void MainWindow::onFrameTimingDataReady(
       c_samples_2, video_params, marker_sample, first_field_height,
       second_field_height);
 
-  // Only show/raise/activate if not already visible
-  // This prevents stealing focus when the dialog is already open
-  if (!frame_timing_dialog->isVisible()) {
+  // Only show/raise/activate if not already visible, and only if the parent
+  // preview dialog is still open. Guards against pending async callbacks
+  // re-opening the dialog after the user has closed the preview window.
+  if (!frame_timing_dialog->isVisible() && preview_dialog_->isVisible()) {
     frame_timing_dialog->show();
     frame_timing_dialog->raise();
     frame_timing_dialog->activateWindow();
@@ -4821,6 +4826,10 @@ void MainWindow::onLineSamplesReady(
       preview_dialog_->previewWidget()->originalImageSize().height();
 
   // Store the actual field/line being displayed (0-based for core API)
+  ORC_LOG_DEBUG(
+      "onLineSamplesReady: storing field={}, line={} (was field={}, line={})",
+      field_index, line_number_0based, last_line_scope_field_index_,
+      last_line_scope_line_number_);
   last_line_scope_field_index_ = field_index;
   last_line_scope_line_number_ = line_number_0based;
 
@@ -4908,10 +4917,19 @@ void MainWindow::onLineSamplesReady(
     }
   }
 
+  const bool scope_was_visible = preview_dialog_->isLineScopeVisible();
   preview_dialog_->showLineScope(
       node_id_str, stage_index, field_index, line_number_1based, sample_index,
       samples, view_params, preview_image_width, original_sample_x,
       calculated_image_y, current_output_type_, y_samples, c_samples);
+
+  // If the dialog just became visible, navigation may have occurred while the
+  // initial line samples were in-flight (onLineScopeRefreshAtFieldLine skips
+  // when the dialog is not yet visible). Trigger a refresh now so the scope
+  // shows the current frame rather than the frame that was clicked on.
+  if (!scope_was_visible && preview_dialog_->isLineScopeVisible()) {
+    onLineScopeRefreshAtFieldLine();
+  }
 
   // Update field timing dialog if it's visible (to update the marker position)
   if (preview_dialog_->frameTimingDialog() &&
@@ -4953,6 +4971,11 @@ void MainWindow::requestLineSamplesForNavigation(uint64_t field_index,
   // This ensures all modes (Field, Frame, Split) handle updates consistently
   // Update stored field/line BEFORE requesting so they're available when
   // samples arrive
+  ORC_LOG_DEBUG(
+      "requestLineSamplesForNavigation: storing field={}, line={} (was "
+      "field={}, line={})",
+      field_index, line_number, last_line_scope_field_index_,
+      last_line_scope_line_number_);
   last_line_scope_field_index_ = field_index;
   last_line_scope_line_number_ = line_number;
 
@@ -5113,7 +5136,7 @@ void MainWindow::onLineScopeRefreshAtFieldLine() {
 
   // If we don't have a valid stored field, try to initialize from current
   // slider position
-  if (last_line_scope_field_index_ < 0) {
+  if (last_line_scope_field_index_ == std::numeric_limits<uint64_t>::max()) {
     ORC_LOG_DEBUG("No stored field index, initializing from current mode");
 
     if (current_output_type_ == orc::PreviewOutputType::Frame_Field1 ||

@@ -11,8 +11,8 @@
 
 #include <cvbs_signal_constants.h>
 
+#include <QCloseEvent>
 #include <QHBoxLayout>
-#include <QHideEvent>
 #include <QLabel>
 #include <QSettings>
 #include <QVBoxLayout>
@@ -90,8 +90,8 @@ FrameScopeDialog::FrameScopeDialog(QWidget* parent)
 
 FrameScopeDialog::~FrameScopeDialog() = default;
 
-void FrameScopeDialog::hideEvent(QHideEvent* event) {
-  QDialog::hideEvent(event);
+void FrameScopeDialog::closeEvent(QCloseEvent* event) {
+  QDialog::closeEvent(event);
   emit dialogClosed();
 }
 

@@ -107,7 +107,7 @@ class FrameScopeDialog : public QDialog {
   void sampleMarkerMoved(int sample_x);
   /// Emitted when a full refresh is needed (frame change).
   void refreshRequested(int image_x, int image_y);
-  /// Emitted when the dialog is hidden.
+  /// Emitted when the dialog is explicitly closed (not on transient WM hides).
   void dialogClosed();
 
  private slots:
@@ -118,7 +118,7 @@ class FrameScopeDialog : public QDialog {
   void onNumberingModeChanged(int index);
 
  protected:
-  void hideEvent(QHideEvent* event) override;
+  void closeEvent(QCloseEvent* event) override;
 
  private:
   void setupUI();

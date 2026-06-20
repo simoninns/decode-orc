@@ -243,8 +243,75 @@ PreviewImage render_standard_preview(
     }
   }
 
-  // Dropout regions are not populated for frame-domain previews;
-  // DropoutRun (frame-flat) and DropoutRegion (view-type) are distinct types.
+  // Convert DropoutRun (frame-flat offsets) to DropoutRegion (display-row
+  // coordinates) using the same interlace/sequential layout as above.
+  auto dropout_runs = representation->get_dropout_hints(frame_id);
+  const size_t spl_nom = static_cast<size_t>(width);
+  for (const auto& run : dropout_runs) {
+    uint64_t offset = run.sample_start;
+    uint32_t remaining = run.sample_count;
+    while (remaining > 0) {
+      auto [flat_line, sample_in_line] = frame_flat_offset_to_line_sample(
+          video_params->system, spl_nom, offset);
+      size_t line_len =
+          frame_line_sample_count(video_params->system, spl_nom, flat_line);
+      uint32_t samples_this_line = static_cast<uint32_t>(
+          std::min<uint64_t>(remaining, line_len - sample_in_line));
+
+      int32_t field = 1;
+      int32_t line_in_field = static_cast<int32_t>(flat_line);
+      switch (video_params->system) {
+        case VideoSystem::PAL:
+          if (flat_line >= static_cast<size_t>(kPalField1Lines)) {
+            field = 2;
+            line_in_field = static_cast<int32_t>(flat_line) - kPalField1Lines;
+          }
+          break;
+        case VideoSystem::NTSC:
+          if (flat_line >= static_cast<size_t>(kNtscField1Lines)) {
+            field = 2;
+            line_in_field = static_cast<int32_t>(flat_line) - kNtscField1Lines;
+          }
+          break;
+        case VideoSystem::PAL_M:
+          if (flat_line >= static_cast<size_t>(kPalMField1Lines)) {
+            field = 2;
+            line_in_field = static_cast<int32_t>(flat_line) - kPalMField1Lines;
+          }
+          break;
+        default:
+          break;
+      }
+
+      uint32_t display_row;
+      if (do_interlace) {
+        display_row = (field == 1)
+                          ? (field1_on_even_rows
+                                 ? static_cast<uint32_t>(line_in_field) * 2
+                                 : static_cast<uint32_t>(line_in_field) * 2 + 1)
+                          : (field1_on_even_rows
+                                 ? static_cast<uint32_t>(line_in_field) * 2 + 1
+                                 : static_cast<uint32_t>(line_in_field) * 2);
+      } else {
+        display_row = (field == 1) ? static_cast<uint32_t>(line_in_field)
+                                   : static_cast<uint32_t>(field1_lines) +
+                                         static_cast<uint32_t>(line_in_field);
+      }
+
+      if (display_row < height) {
+        DropoutRegion region;
+        region.line = display_row;
+        region.start_sample = static_cast<uint32_t>(sample_in_line);
+        region.end_sample =
+            static_cast<uint32_t>(sample_in_line + samples_this_line);
+        region.basis = DropoutRegion::DetectionBasis::HINT_DERIVED;
+        result.dropout_regions.push_back(region);
+      }
+
+      offset += samples_this_line;
+      remaining -= samples_this_line;
+    }
+  }
 
   return result;
 }

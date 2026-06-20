@@ -4757,6 +4757,13 @@ void MainWindow::onLineScopeRequested(int image_x, int image_y) {
   int field_line_0based = mapping.field_line;
   int field_line_1based = field_line_0based + 1;
 
+  // Store the clicked field/line immediately so that
+  // onLineScopeRefreshAtFieldLine can use the correct position before the async
+  // response arrives. Responses must not overwrite these — only user actions
+  // (click or up/down) should.
+  last_line_scope_field_index_ = field_index;
+  last_line_scope_line_number_ = field_line_0based;
+
   orc::PreviewCoordinate coordinate;
   coordinate.field_index = field_index;
   coordinate.line_index = static_cast<uint32_t>(std::max(field_line_0based, 0));
@@ -4825,13 +4832,11 @@ void MainWindow::onLineSamplesReady(
   int preview_image_height =
       preview_dialog_->previewWidget()->originalImageSize().height();
 
-  // Store the actual field/line being displayed (0-based for core API)
-  ORC_LOG_DEBUG(
-      "onLineSamplesReady: storing field={}, line={} (was field={}, line={})",
-      field_index, line_number_0based, last_line_scope_field_index_,
-      last_line_scope_line_number_);
-  last_line_scope_field_index_ = field_index;
-  last_line_scope_line_number_ = line_number_0based;
+  // NOTE: last_line_scope_field_index_ and last_line_scope_line_number_ are
+  // intentionally NOT updated here. They represent user intent (set by click
+  // or up/down navigation) and must not be overwritten by async responses,
+  // which would cause in-flight refresh responses to cancel navigation during
+  // playback.
 
   // Store context for sample marker updates
   last_line_scope_preview_width_ = preview_image_width;
@@ -5233,12 +5238,11 @@ void MainWindow::onLineScopeRefreshAtFieldLine() {
       new_field_index, last_line_scope_line_number_, sample_x, preview_width);
 }
 
-void MainWindow::onLineNavigation(int direction, uint64_t current_field,
-                                  int current_line, int sample_x,
+void MainWindow::onLineNavigation(int direction, uint64_t /*current_field*/,
+                                  int /*current_line*/, int sample_x,
                                   int preview_image_width) {
-  ORC_LOG_DEBUG(
-      "Line navigation requested: direction={}, field={}, line={}, sample_x={}",
-      direction, current_field, current_line, sample_x);
+  ORC_LOG_DEBUG("Line navigation requested: direction={}, sample_x={}",
+                direction, sample_x);
 
   if (!current_view_node_id_.is_valid() || !preview_dialog_) {
     return;
@@ -5248,14 +5252,54 @@ void MainWindow::onLineNavigation(int direction, uint64_t current_field,
   // navigation.
   last_line_scope_image_x_ = sample_x;
 
+  if (last_line_scope_line_number_ < 0 ||
+      last_line_scope_field_index_ == std::numeric_limits<uint64_t>::max()) {
+    ORC_LOG_DEBUG("Line navigation skipped: no valid stored field/line state");
+    return;
+  }
+
+  const uint64_t output_index = preview_dialog_->previewSlider()->value();
+
+  // The dialog's current_field may be from a past frame when the decoder is
+  // slow (e.g. chroma/FFmpeg). Recompute the effective field from our stored
+  // parity intent and the *current* slider position, matching the same logic
+  // as onLineScopeRefreshAtFieldLine, so that mapFieldToImage always receives
+  // a field that belongs to the current output frame.
+  uint64_t effective_field = last_line_scope_field_index_;
+
+  if (current_output_type_ == orc::PreviewOutputType::Frame_Field1_First ||
+      current_output_type_ == orc::PreviewOutputType::Frame_Reversed) {
+    auto frame_fields = render_coordinator_->getFrameFields(
+        current_view_node_id_, output_index);
+    if (frame_fields.is_valid) {
+      bool was_odd = (last_line_scope_field_index_ % 2) == 1;
+      bool first_is_odd = (frame_fields.first_field % 2) == 1;
+      effective_field = (was_odd == first_is_odd) ? frame_fields.first_field
+                                                  : frame_fields.second_field;
+      ORC_LOG_DEBUG("Frame {}: fields [{},{}], using field {} for navigation",
+                    output_index, frame_fields.first_field,
+                    frame_fields.second_field, effective_field);
+    } else {
+      ORC_LOG_WARN("Failed to get frame fields for navigation");
+      return;
+    }
+  } else if (current_output_type_ == orc::PreviewOutputType::Frame_Field1 ||
+             current_output_type_ == orc::PreviewOutputType::Frame_Field2) {
+    effective_field = output_index;
+  } else if (current_output_type_ == orc::PreviewOutputType::Split) {
+    bool was_odd = (last_line_scope_field_index_ % 2) == 1;
+    effective_field = was_odd ? (output_index * 2 + 1) : (output_index * 2);
+  }
+
+  const int effective_line = last_line_scope_line_number_;
+
   const int image_height =
       preview_dialog_->previewWidget()->originalImageSize().height();
-  const uint64_t output_index = preview_dialog_->previewSlider()->value();
   const auto navigation_target = orc::gui::computeLineNavigationTarget(
       {
           direction,
-          current_field,
-          current_line,
+          effective_field,
+          effective_line,
           image_height,
       },
       [this, output_index](uint64_t field_index, int line_number,

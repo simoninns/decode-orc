@@ -3608,37 +3608,26 @@ void MainWindow::runAnalysisForNode(const orc::AnalysisToolInfo& tool_info,
                                            source_repr, this);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
 
-    // Connect to handle the accepted signal
-    connect(dialog, &QDialog::accepted, this, [this, node_id, dialog]() {
-      // Get the edited dropout map
+    auto apply_dropout_map = [this, node_id, dialog]() {
       auto edited_map = dialog->getDropoutMap();
 
-      ORC_LOG_DEBUG("Dropout editor returned map with {} field entries",
+      ORC_LOG_DEBUG("Dropout editor returned map with {} frame entries",
                     edited_map.size());
 
-      // Save the dropout map via presenter
       if (dropout_presenter_->setDropoutMap(node_id, edited_map)) {
-        // Mark project as modified
         project_.setModified(true);
-
-        // Update UI to reflect modified state
         updateUIState();
-
-        // Rebuild DAG
         project_.rebuildDAG();
-
-        // Update the preview renderer with the new DAG (contains updated
-        // parameters)
         updatePreviewRenderer();
-
         ORC_LOG_DEBUG("Dropout map updated for node '{}'", node_id.to_string());
-
-        // Trigger preview update to show the changes
         updatePreview();
       } else {
         QMessageBox::warning(this, "Error", "Failed to save dropout map");
       }
-    });
+    };
+
+    connect(dialog, &QDialog::accepted, this, apply_dropout_map);
+    connect(dialog, &DropoutEditorDialog::applied, this, apply_dropout_map);
 
     // Show as non-modal window
     dialog->show();

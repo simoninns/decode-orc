@@ -319,7 +319,7 @@ bool ProjectPresenter::loadProject(const std::string& project_path) {
     is_modified_ = false;
     return true;
   } catch (const std::exception&) {
-    return false;
+    throw;
   }
 }
 

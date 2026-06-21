@@ -164,8 +164,8 @@ std::vector<ParameterDescriptor> DropoutMapStage::get_parameter_descriptors(
   desc.display_name = "Dropout Map";
   desc.description =
       "Per-frame dropout overrides: "
-      "[{field:N,add:[{line:L,start:S,end:E}],remove:[...]}] "
-      "(field = frame_id, line/start/end are frame-flat 0-based)";
+      "[{frame:N,add:[{line:L,start:S,end:E}],remove:[...]}] "
+      "(frame = 0-based frame_id, line/start/end are frame-flat 0-based)";
   desc.type = ParameterType::STRING;
   desc.constraints.default_value = std::string("[]");
   desc.constraints.required = false;
@@ -289,7 +289,7 @@ std::map<uint64_t, FrameDropoutMapEntry> DropoutMapStage::parse_dropout_map(
       if (!expect(':')) {
         break;
       }
-      if (key == "field") {
+      if (key == "frame") {
         entry.frame_id = static_cast<uint64_t>(parse_uint());
       } else if (key == "add") {
         entry.additions = parse_entry_list();
@@ -316,7 +316,7 @@ std::string DropoutMapStage::encode_dropout_map(
   for (const auto& [frame_id, entry] : map) {
     if (!first) oss << ",";
     first = false;
-    oss << "{field:" << frame_id;
+    oss << "{frame:" << frame_id;
     if (!entry.additions.empty()) {
       oss << ",add:[";
       bool fa = true;

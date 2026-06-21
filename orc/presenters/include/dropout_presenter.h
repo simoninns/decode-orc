@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include <field_id.h>
+#include <frame_id.h>
 #include <node_id.h>
 #include <orc_rendering.h>  // For DropoutRegion
 
@@ -34,15 +34,18 @@ namespace orc::presenters {
 using DropoutRegion = orc::DropoutRegion;
 
 /**
- * @brief Per-field dropout map view model
+ * @brief Per-frame dropout map view model
+ *
+ * Coordinates are frame-flat 0-based (line = frame-flat line index,
+ * start_sample/end_sample = sample within that line).
  */
-struct FieldDropoutMap {
-  FieldID field_id;
+struct FrameDropoutMap {
+  FrameID frame_id;
   std::vector<DropoutRegion> additions;  ///< Dropouts to add
   std::vector<DropoutRegion> removals;   ///< Dropouts to remove
 
-  FieldDropoutMap() : field_id(0) {}
-  explicit FieldDropoutMap(FieldID id) : field_id(id) {}
+  FrameDropoutMap() : frame_id(0) {}
+  explicit FrameDropoutMap(FrameID id) : frame_id(id) {}
 };
 
 /**
@@ -66,10 +69,10 @@ enum class DropoutDecision {
 };
 
 /**
- * @brief Dropout correction applied to a field
+ * @brief Dropout correction applied to a frame
  */
 struct DropoutCorrection {
-  FieldID field_id;               ///< Field this applies to
+  FrameID frame_id;               ///< Frame this applies to
   int line;                       ///< Line number
   int pixel_start;                ///< Start pixel
   int pixel_end;                  ///< End pixel
@@ -78,15 +81,15 @@ struct DropoutCorrection {
 };
 
 /**
- * @brief Statistics about dropouts in a field
+ * @brief Statistics about dropouts in a frame
  */
-struct FieldDropoutStats {
-  FieldID field_id;
+struct FrameDropoutStats {
+  FrameID frame_id;
   int total_detected;          ///< Total dropouts detected
   int confirmed_count;         ///< Number confirmed by user
   int concealed_count;         ///< Number being concealed
   int ignored_count;           ///< Number being ignored
-  double coverage_percentage;  ///< Percentage of field affected
+  double coverage_percentage;  ///< Percentage of frame affected
 };
 
 /**
@@ -94,10 +97,14 @@ struct FieldDropoutStats {
  *
  * This presenter extracts dropout editing logic from the GUI layer.
  * It provides a clean interface for:
- * - Detecting dropouts in fields
+ * - Detecting dropouts in frames
  * - Managing user decisions about dropouts
  * - Applying correction methods
  * - Tracking dropout statistics
+ *
+ * All coordinates are frame-flat 0-based (line = frame-flat line index,
+ * start_sample/end_sample = sample within that line), matching the
+ * DropoutMapStage serialisation format.
  *
  * The presenter coordinates between detection algorithms and
  * the correction pipeline.
@@ -125,105 +132,105 @@ class DropoutPresenter {
   // === Detection ===
 
   /**
-   * @brief Detect dropouts in a field
+   * @brief Detect dropouts in a frame
    * @param node_id Node to detect from
-   * @param field_id Field to analyze
+   * @param frame_id Frame to analyze
    * @return List of detected dropouts
    */
-  std::vector<DetectedDropout> detectDropouts(NodeID node_id, FieldID field_id);
+  std::vector<DetectedDropout> detectDropouts(NodeID node_id, FrameID frame_id);
 
   /**
    * @brief Get cached dropout detections
    * @param node_id Node to query
-   * @param field_id Field to query
+   * @param frame_id Frame to query
    * @return List of detected dropouts (empty if not cached)
    */
   std::vector<DetectedDropout> getDetectedDropouts(NodeID node_id,
-                                                   FieldID field_id) const;
+                                                   FrameID frame_id) const;
 
   /**
-   * @brief Clear detection cache for a field
+   * @brief Clear detection cache for a frame
    */
-  void clearDetections(NodeID node_id, FieldID field_id);
+  void clearDetections(NodeID node_id, FrameID frame_id);
 
   // === Decision Management ===
 
   /**
    * @brief Update dropout decision
    * @param node_id Node the dropout belongs to
-   * @param field_id Field the dropout is in
-   * @param line Line number
+   * @param frame_id Frame the dropout is in
+   * @param line Frame-flat line number
    * @param pixel_start Start pixel
    * @param decision User decision
    * @param correction_method Method to use (if concealing)
    */
-  void updateDropoutDecision(NodeID node_id, FieldID field_id, int line,
+  void updateDropoutDecision(NodeID node_id, FrameID frame_id, int line,
                              int pixel_start, DropoutDecision decision,
                              const std::string& correction_method = "");
 
   /**
-   * @brief Get all corrections for a field
+   * @brief Get all corrections for a frame
    * @param node_id Node to query
-   * @param field_id Field to query
+   * @param frame_id Frame to query
    * @return List of corrections
    */
   std::vector<DropoutCorrection> getCorrections(NodeID node_id,
-                                                FieldID field_id) const;
+                                                FrameID frame_id) const;
 
   /**
    * @brief Remove a correction
    * @param node_id Node the correction belongs to
-   * @param field_id Field the correction is in
-   * @param line Line number
+   * @param frame_id Frame the correction is in
+   * @param line Frame-flat line number
    * @param pixel_start Start pixel
    */
-  void removeCorrection(NodeID node_id, FieldID field_id, int line,
+  void removeCorrection(NodeID node_id, FrameID frame_id, int line,
                         int pixel_start);
 
   /**
-   * @brief Clear all corrections for a field
+   * @brief Clear all corrections for a frame
    */
-  void clearCorrections(NodeID node_id, FieldID field_id);
+  void clearCorrections(NodeID node_id, FrameID frame_id);
 
   // === Statistics ===
 
   /**
-   * @brief Get dropout statistics for a field
+   * @brief Get dropout statistics for a frame
    * @param node_id Node to query
-   * @param field_id Field to query
+   * @param frame_id Frame to query
    * @return Statistics
    */
-  FieldDropoutStats getFieldStats(NodeID node_id, FieldID field_id) const;
+  FrameDropoutStats getFrameStats(NodeID node_id, FrameID frame_id) const;
 
   /**
    * @brief Get overall dropout statistics for a node
    * @param node_id Node to query
-   * @return Map of field ID to statistics
+   * @return Map of frame ID to statistics
    */
-  std::map<FieldID, FieldDropoutStats> getAllStats(NodeID node_id) const;
+  std::map<FrameID, FrameDropoutStats> getAllStats(NodeID node_id) const;
 
   // === Batch Operations ===
 
   /**
-   * @brief Apply a decision to all similar dropouts in a field
+   * @brief Apply a decision to all similar dropouts in a frame
    * @param node_id Node to operate on
-   * @param field_id Field to operate on
+   * @param frame_id Frame to operate on
    * @param reference_dropout Reference dropout to match
    * @param decision Decision to apply
    * @return Number of dropouts affected
    */
-  int applyDecisionToSimilar(NodeID node_id, FieldID field_id,
+  int applyDecisionToSimilar(NodeID node_id, FrameID frame_id,
                              const DetectedDropout& reference_dropout,
                              DropoutDecision decision);
 
   /**
-   * @brief Auto-decide all dropouts in a field based on severity
+   * @brief Auto-decide all dropouts in a frame based on severity
    * @param node_id Node to operate on
-   * @param field_id Field to operate on
+   * @param frame_id Frame to operate on
    * @param severity_threshold Threshold for auto-concealment
    * @return Number of dropouts processed
    */
-  int autoDecideDropouts(NodeID node_id, FieldID field_id,
+  int autoDecideDropouts(NodeID node_id, FrameID frame_id,
                          double severity_threshold);
 
   // === Export/Import ===
@@ -244,51 +251,61 @@ class DropoutPresenter {
    */
   bool importCorrections(NodeID node_id, const std::string& file_path);
 
-  // === Field Access (for dropout editor) ===
+  // === Frame Access (for dropout editor) ===
 
   /**
-   * @brief Get field data for display from artifact
-   * @param field_repr_handle Opaque handle to field representation
-   * @param field_id Field to retrieve
-   * @param width Output field width
-   * @param height Output field height
-   * @return Grayscale field data (8-bit), or empty if not available
+   * @brief Get frame data for display from artifact
+   *
+   * Returns grayscale pixel data for the full frame (all lines). The returned
+   * image has dimensions (width × height) where width =
+   * samples_per_line_nominal and height = frame_height. Coordinates in the
+   * returned buffer are frame-flat 0-based (line 0 at top).
+   *
+   * @param vfr_handle Opaque handle to VideoFrameRepresentation
+   * @param frame_id Frame to retrieve
+   * @param width Output frame width (samples_per_line_nominal)
+   * @param height Output frame height (total lines)
+   * @return Grayscale frame data (8-bit), or empty if not available
    */
-  std::vector<uint8_t> getFieldData(
-      const std::shared_ptr<void>& field_repr_handle, FieldID field_id,
-      int& width, int& height);
+  std::vector<uint8_t> getFrameData(const std::shared_ptr<void>& vfr_handle,
+                                    FrameID frame_id, int& width, int& height);
 
   /**
-   * @brief Get source dropout regions from artifact
-   * @param field_repr_handle Opaque handle to field representation
-   * @param field_id Field to retrieve dropouts for
-   * @return List of detected dropout regions
+   * @brief Get source dropout regions for a frame from artifact
+   *
+   * Returns dropout regions in frame-flat coordinates (line = frame-flat
+   * 0-based line index, start_sample/end_sample = sample within that line).
+   * These match the DropoutEntrySpec coordinate system used by DropoutMapStage.
+   *
+   * @param vfr_handle Opaque handle to VideoFrameRepresentation
+   * @param frame_id Frame to retrieve dropouts for
+   * @return List of dropout regions in frame-flat coordinates
    */
   std::vector<DropoutRegion> getSourceDropouts(
-      const std::shared_ptr<void>& field_repr_handle, FieldID field_id);
+      const std::shared_ptr<void>& vfr_handle, FrameID frame_id);
 
   /**
-   * @brief Get total number of fields from artifact
-   * @param field_repr_handle Opaque handle to field representation
-   * @return Number of fields
+   * @brief Get total number of frames from artifact
+   * @param vfr_handle Opaque handle to VideoFrameRepresentation
+   * @return Number of frames
    */
-  size_t getFieldCount(const std::shared_ptr<void>& field_repr_handle);
+  size_t getFrameCount(const std::shared_ptr<void>& vfr_handle);
 
   /**
    * @brief Get dropout map for a node (if it's a dropout_map stage)
    * @param node_id Dropout map stage node
-   * @return Map of field IDs to dropout modifications
+   * @return Map of frame IDs to dropout modifications
    */
-  std::map<uint64_t, FieldDropoutMap> getDropoutMap(NodeID node_id);
+  std::map<uint64_t, FrameDropoutMap> getDropoutMap(NodeID node_id);
 
   /**
    * @brief Set dropout map for a node (if it's a dropout_map stage)
    * @param node_id Dropout map stage node
-   * @param dropout_map New dropout map
+   * @param dropout_map New dropout map (keyed by frame_id)
    * @return true on success
    */
   bool setDropoutMap(NodeID node_id,
-                     const std::map<uint64_t, FieldDropoutMap>& dropout_map);
+                     const std::map<uint64_t, FrameDropoutMap>& dropout_map);
 
  private:
   class Impl;

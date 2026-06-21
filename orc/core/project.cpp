@@ -742,7 +742,7 @@ std::string serialize_project_to_yaml(const Project& project,
   if (!project.description_.empty()) {
     out << YAML::Key << "description" << YAML::Value << project.description_;
   }
-  out << YAML::Key << "version" << YAML::Value << project.version_;
+  out << YAML::Key << "version" << YAML::Value << "2.0";
 
   // Save video format if set
   if (project.video_format_ != VideoSystem::Unknown) {
@@ -851,7 +851,7 @@ std::string serialize_project_to_yaml(const Project& project,
 
   std::ostringstream file_text;
   file_text << "# ORC Project File\n";
-  file_text << "# Version: " << project.version_ << "\n\n";
+  file_text << "# Version: 2.0\n\n";
   file_text << out.c_str();
   return file_text.str();
 }

@@ -10,7 +10,7 @@
 #ifndef DROPOUT_EDITOR_DIALOG_H
 #define DROPOUT_EDITOR_DIALOG_H
 
-#include <field_id.h>
+#include <frame_id.h>
 #include <node_id.h>
 
 #include <QDialog>
@@ -36,32 +36,35 @@
 
 /**
  * @brief Interactive widget for displaying and editing dropout regions on a
- * field image
+ * frame image
  *
- * This widget displays a video field and allows the user to:
+ * This widget displays a full video frame (non-interlaced, sequential lines)
+ * and allows the user to:
  * - View existing dropout regions (highlighted)
  * - Add new dropout regions by clicking and dragging
  * - Remove existing dropout regions by clicking on them
+ *
+ * All coordinates are frame-flat 0-based (line = 0-based frame line index,
+ * start_sample/end_sample = sample within that line).
  */
-class DropoutFieldView : public QLabel {
+class DropoutFrameView : public QLabel {
   Q_OBJECT
 
  public:
-  explicit DropoutFieldView(QWidget* parent = nullptr);
-  ~DropoutFieldView() = default;
+  explicit DropoutFrameView(QWidget* parent = nullptr);
+  ~DropoutFrameView() = default;
 
   /**
-   * @brief Set the field to display
-   * @param field_data Field pixel data (grayscale)
-   * @param width Field width in pixels
-   * @param height Field height in pixels
-   * @param source_dropouts Existing dropout regions from source (highlighted in
-   * yellow)
-   * @param additions Dropout regions to add (highlighted in green)
-   * @param removals Dropout regions to remove (highlighted in red)
+   * @brief Set the frame to display
+   * @param frame_data Frame pixel data (grayscale, frame-flat)
+   * @param width Frame width in pixels (samples_per_line_nominal)
+   * @param height Frame height in lines (total frame lines)
+   * @param source_dropouts Existing dropout regions from source (yellow)
+   * @param additions Dropout regions to add (green)
+   * @param removals Dropout regions to remove (red)
    */
-  void setField(
-      const std::vector<uint8_t>& field_data, int width, int height,
+  void setFrame(
+      const std::vector<uint8_t>& frame_data, int width, int height,
       const std::vector<orc::presenters::DropoutRegion>& source_dropouts,
       const std::vector<orc::presenters::DropoutRegion>& additions,
       const std::vector<orc::presenters::DropoutRegion>& removals);
@@ -92,20 +95,20 @@ class DropoutFieldView : public QLabel {
   void clearEdits();
 
   /**
-   * @brief Update the display (redraw the field with current data)
+   * @brief Update the display (redraw the frame with current data)
    */
   void updateDisplay();
 
   /**
-   * @brief Get field dimensions for external access
+   * @brief Get frame dimensions for external access
    */
-  int getFieldWidth() const { return field_width_; }
-  int getFieldHeight() const { return field_height_; }
+  int getFrameWidth() const { return frame_width_; }
+  int getFrameHeight() const { return frame_height_; }
 
   /**
-   * @brief Get field data for external access
+   * @brief Get frame data for external access
    */
-  const std::vector<uint8_t>& getFieldData() const { return field_data_; }
+  const std::vector<uint8_t>& getFrameData() const { return frame_data_; }
 
   /**
    * @brief Get source dropouts for external access
@@ -140,14 +143,12 @@ class DropoutFieldView : public QLabel {
   void removalCreated(int index);
 
   /**
-   * @brief Emitted when an addition is clicked for selection (index in
-   * additions list)
+   * @brief Emitted when an addition is clicked for selection
    */
   void additionClicked(int index);
 
   /**
-   * @brief Emitted when a removal is clicked for selection (index in removals
-   * list)
+   * @brief Emitted when a removal is clicked for selection
    */
   void removalClicked(int index);
 
@@ -162,12 +163,12 @@ class DropoutFieldView : public QLabel {
                        const orc::presenters::DropoutRegion& region) const;
   void removeRegionAtPoint(int x, int y);
 
-  // Field data
-  std::vector<uint8_t> field_data_;
-  int field_width_;
-  int field_height_;
+  // Frame data
+  std::vector<uint8_t> frame_data_;
+  int frame_width_;
+  int frame_height_;
 
-  // Dropout regions
+  // Dropout regions (all coordinates are frame-flat 0-based)
   std::vector<orc::presenters::DropoutRegion>
       source_dropouts_;  // From source TBC
   std::vector<orc::presenters::DropoutRegion> additions_;
@@ -200,7 +201,7 @@ class DropoutFieldView : public QLabel {
   QRubberBand* rubber_band_;
 
   // Hover highlighting
-  int hover_region_index_;  // Index in combined list, -1 for none
+  int hover_region_index_;
   HoverRegionType hover_region_type_;
 
   // Zoom support
@@ -211,10 +212,13 @@ class DropoutFieldView : public QLabel {
  * @brief Dialog for editing dropout map for a stage
  *
  * This dialog allows the user to:
- * - Navigate through fields in the source
+ * - Navigate through frames in the source
  * - Mark new dropout regions by clicking and dragging
  * - Remove false positive dropout regions
  * - Save changes back to the dropout map stage parameter
+ *
+ * All displayed and stored coordinates are frame-flat 0-based, matching the
+ * DropoutMapStage serialisation format.
  */
 class DropoutEditorDialog : public QDialog {
   Q_OBJECT
@@ -224,27 +228,33 @@ class DropoutEditorDialog : public QDialog {
    * @brief Create a dropout editor dialog
    * @param node_id Node ID of the dropout_map stage
    * @param presenter Dropout presenter for data access
-   * @param field_repr Source video field representation (from DAG execution)
+   * @param vfr_repr Source VideoFrameRepresentation handle (from DAG execution)
    * @param parent Parent widget
    */
   explicit DropoutEditorDialog(orc::NodeID node_id,
                                orc::presenters::DropoutPresenter* presenter,
-                               std::shared_ptr<const void> field_repr,
+                               std::shared_ptr<const void> vfr_repr,
                                QWidget* parent = nullptr);
 
   ~DropoutEditorDialog() = default;
 
   /**
    * @brief Get the edited dropout map
-   * @return Map of field IDs to dropout modifications
+   * @return Map of frame IDs to dropout modifications
    */
-  std::map<uint64_t, orc::presenters::FieldDropoutMap> getDropoutMap() const;
+  std::map<uint64_t, orc::presenters::FrameDropoutMap> getDropoutMap() const;
+
+ signals:
+  /**
+   * @brief Emitted when the user clicks Apply (map saved but dialog stays open)
+   */
+  void applied();
 
  private slots:
-  void onPreviousField();
-  void onNextField();
-  void onFieldNumberChanged(int value);
-  void onClearCurrentField();
+  void onPreviousFrame();
+  void onNextFrame();
+  void onFrameNumberChanged(int value);
+  void onClearCurrentFrame();
   void onRegionsModified();
   void onAddDropout();
   void onRemoveDropout();
@@ -256,23 +266,22 @@ class DropoutEditorDialog : public QDialog {
   void onDeleteDropout();
   void onAdditionsListItemClicked(QListWidgetItem* item);
   void onRemovalsListItemClicked(QListWidgetItem* item);
-  void onFieldViewZoomChanged(float zoom_level);
+  void onFrameViewZoomChanged(float zoom_level);
   void onAdditionCreated(int index);
   void onRemovalCreated(int index);
   void onAdditionClicked(int index);
   void onRemovalClicked(int index);
   void onAdditionsListSelectionChanged();
   void onRemovalsListSelectionChanged();
+  void onApply();
 
  private:
   void setupUI();
-  void loadField(uint64_t field_id);
-  void saveCurrentField();
-  void updateFieldInfo();
+  void loadFrame(orc::FrameID frame_id);
+  void saveCurrentFrame();
+  void updateFrameInfo();
   void keyPressEvent(QKeyEvent* event) override;
 
-  // Helper to set button states based on whether an addition or removal is
-  // selected
   void updateButtonStatesForSelection(bool is_addition);
 
   // Presenter and node info
@@ -280,24 +289,24 @@ class DropoutEditorDialog : public QDialog {
   orc::presenters::DropoutPresenter* presenter_;
 
   // Source data
-  std::shared_ptr<const void> field_repr_;
+  std::shared_ptr<const void> vfr_repr_;
 
   // Current state
-  uint64_t current_field_id_;
-  uint64_t total_fields_;
-  std::map<uint64_t, orc::presenters::FieldDropoutMap> dropout_map_;
+  orc::FrameID current_frame_id_;
+  size_t total_frames_;
+  std::map<uint64_t, orc::presenters::FrameDropoutMap> dropout_map_;
 
   // UI elements
-  QSpinBox* field_spin_box_;
-  QLabel* field_info_label_;
+  QSpinBox* frame_spin_box_;
+  QLabel* frame_info_label_;
   QPushButton* prev_button_;
   QPushButton* next_button_;
-  QPushButton* clear_field_button_;
+  QPushButton* clear_frame_button_;
   QPushButton* add_dropout_button_;
   QPushButton* remove_dropout_button_;
   QListWidget* additions_list_;
   QListWidget* removals_list_;
-  DropoutFieldView* field_view_;
+  DropoutFrameView* frame_view_;
   QScrollArea* scroll_area_;
   QPushButton* zoom_in_button_;
   QPushButton* zoom_out_button_;
@@ -306,8 +315,8 @@ class DropoutEditorDialog : public QDialog {
   QPushButton* move_up_button_;
   QPushButton* move_down_button_;
   QPushButton* delete_dropout_button_;
-  int selected_addition_index_;  // -1 if none selected
-  int selected_removal_index_;   // -1 if none selected
+  int selected_addition_index_;
+  int selected_removal_index_;
 
   // Interaction mode
   enum class EditMode { Add, Remove };

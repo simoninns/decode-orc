@@ -74,11 +74,11 @@ TEST(DropoutMapStageTest, SetParameters_AcceptsDropoutMapString) {
   const bool ok = stage.set_parameters(
       {{"dropout_map",
         std::string(
-            "[{field:0,add:[{line:10,start:100,end:200}],remove:[]}]")}});
+            "[{frame:0,add:[{line:10,start:100,end:200}],remove:[]}]")}});
   EXPECT_TRUE(ok);
   const auto params = stage.get_parameters();
   EXPECT_EQ(std::get<std::string>(params.at("dropout_map")),
-            "[{field:0,add:[{line:10,start:100,end:200}],remove:[]}]");
+            "[{frame:0,add:[{line:10,start:100,end:200}],remove:[]}]");
 }
 
 TEST(DropoutMapStageTest, Execute_ThrowsWhenInputMissing) {
@@ -106,7 +106,7 @@ TEST(DropoutMapStageTest, ParseEncodeRoundTrip_EmptyMap) {
 
 TEST(DropoutMapStageTest, ParseEncodeRoundTrip_SingleEntry) {
   const std::string spec =
-      "[{field:3,add:[{line:10,start:100,end:200}],remove:[{line:5,start:50,"
+      "[{frame:3,add:[{line:10,start:100,end:200}],remove:[{line:5,start:50,"
       "end:75}]}]";
   const auto map = orc::DropoutMapStage::parse_dropout_map(spec);
   ASSERT_EQ(map.size(), 1u);
@@ -218,6 +218,91 @@ TEST(DropoutMapStageTest, GetDropoutHints_NoChangeOnOtherFrame) {
   ASSERT_EQ(hints.size(), 1u);
   EXPECT_EQ(hints[0].sample_start, 500u);
   EXPECT_EQ(hints[0].sample_count, 10u);
+}
+
+TEST(DropoutMapStageTest,
+     GetDropoutHints_PassesThroughBothRuns_WhenAdditionEncompassesSource) {
+  // The map stage assembles hints faithfully; overlapping hints are passed
+  // through as-is so the dropout correction stage can handle them with full
+  // context.  Source has a small dropout; addition is wider.  Both runs must
+  // appear in the output — the correction stage iterates sample-by-sample and
+  // naturally covers the union of all hint ranges.
+  auto source =
+      std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid{0};
+
+  // Source: NTSC line 10, samples 100-200 → sample_start=9200, count=101
+  std::vector<orc::DropoutRun> src{{fid, 9200u, 101u, 128}};
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid)).WillByDefault(Return(src));
+
+  // Addition: line 10, start=50, end=250 → sample_start=9150, count=201
+  orc::FrameDropoutMapEntry entry;
+  entry.frame_id = 0;
+  entry.additions.push_back({10u, 50u, 250u});
+  std::map<uint64_t, orc::FrameDropoutMapEntry> dmap{{0, entry}};
+  const orc::DropoutMappedFrameRepresentation rep(source, dmap);
+
+  const auto hints = rep.get_dropout_hints(fid);
+  // Both source and addition runs are returned (sorted by sample_start).
+  ASSERT_EQ(hints.size(), 2u);
+  EXPECT_EQ(hints[0].sample_start, 9150u);  // addition (wider, starts earlier)
+  EXPECT_EQ(hints[0].sample_count, 201u);
+  EXPECT_EQ(hints[1].sample_start, 9200u);  // source
+  EXPECT_EQ(hints[1].sample_count, 101u);
+}
+
+TEST(DropoutMapStageTest,
+     GetDropoutHints_PassesThroughBothRuns_WhenAdditionExtendsSourceRight) {
+  // Addition starts inside the source and extends it to the right.  Both
+  // runs must be returned so the correction stage corrects the full union.
+  auto source =
+      std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid{0};
+
+  // Source: NTSC line 10, samples 100-300 → sample_start=9200, count=201
+  std::vector<orc::DropoutRun> src{{fid, 9200u, 201u, 128}};
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid)).WillByDefault(Return(src));
+
+  // Addition: line 10, start=150, end=400 → sample_start=9250, count=251
+  orc::FrameDropoutMapEntry entry;
+  entry.frame_id = 0;
+  entry.additions.push_back({10u, 150u, 400u});
+  std::map<uint64_t, orc::FrameDropoutMapEntry> dmap{{0, entry}};
+  const orc::DropoutMappedFrameRepresentation rep(source, dmap);
+
+  const auto hints = rep.get_dropout_hints(fid);
+  ASSERT_EQ(hints.size(), 2u);
+  EXPECT_EQ(hints[0].sample_start, 9200u);  // source (starts earlier)
+  EXPECT_EQ(hints[0].sample_count, 201u);
+  EXPECT_EQ(hints[1].sample_start, 9250u);  // addition
+  EXPECT_EQ(hints[1].sample_count, 251u);
+}
+
+TEST(DropoutMapStageTest,
+     GetDropoutHints_ReturnsBothRuns_WhenRunsDoNotOverlap) {
+  // Two additions on different lines: both runs are returned unchanged.
+  auto source =
+      std::make_shared<testing::NiceMock<MockVideoFrameRepresentation>>();
+  const orc::FrameID fid{0};
+
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(Return(make_ntsc_params()));
+  ON_CALL(*source, get_dropout_hints(fid))
+      .WillByDefault(Return(std::vector<orc::DropoutRun>{}));
+
+  orc::FrameDropoutMapEntry entry;
+  entry.frame_id = 0;
+  entry.additions.push_back({10u, 100u, 200u});  // line 10
+  entry.additions.push_back({20u, 100u, 200u});  // line 20
+  std::map<uint64_t, orc::FrameDropoutMapEntry> dmap{{0, entry}};
+  const orc::DropoutMappedFrameRepresentation rep(source, dmap);
+
+  const auto hints = rep.get_dropout_hints(fid);
+  ASSERT_EQ(hints.size(), 2u);
 }
 
 }  // namespace orc_unit_test

@@ -121,9 +121,7 @@ bool GUIProject::loadFromFile(const QString& path, QString* error) {
       presenter_ = std::make_unique<orc::presenters::ProjectPresenter>();
     }
 
-    if (!presenter_->loadProject(path.toStdString())) {
-      throw std::runtime_error("Failed to load project from file");
-    }
+    presenter_->loadProject(path.toStdString());
     project_path_ = path;
 
     ORC_LOG_DEBUG("Building DAG from project");

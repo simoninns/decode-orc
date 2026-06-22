@@ -1,0 +1,89 @@
+# ORC Project File
+# Version: 2.0
+
+project:
+  name: PAL-Stacking-Test-1
+  version: 2.0
+  video_format: PAL
+  source_format: Composite
+  amplitude_unit: 10bit
+dag:
+  nodes:
+    - id: 1
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: PAL CVBS Source
+      x: 50
+      y: 50
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_stacking_1001.composite
+    - id: 2
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: PAL CVBS Source
+      x: 50
+      y: 175
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_stacking_2002.composite
+    - id: 3
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: PAL CVBS Source
+      x: 50
+      y: 300
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_stacking_3003.composite
+    - id: 4
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: PAL CVBS Source
+      x: 50
+      y: 425
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_stacking_4004.composite
+    - id: 5
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 275
+      y: 50
+    - id: 6
+      stage: dropout_correct
+      node_type: TRANSFORM
+      display_name: Dropout Correction
+      user_label: Dropout Correction
+      x: 500
+      y: 50
+    - id: 7
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 725
+      y: 50
+  edges:
+    - from: 1
+      to: 5
+    - from: 2
+      to: 5
+    - from: 3
+      to: 5
+    - from: 4
+      to: 5
+    - from: 6
+      to: 7
+    - from: 5
+      to: 6

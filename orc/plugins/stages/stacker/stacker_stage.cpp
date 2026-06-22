@@ -242,6 +242,18 @@ StackedVideoFrameRepresentation::get_frame(FrameID id) const {
   return (p && !p->empty()) ? p->data() : nullptr;
 }
 
+const VideoFrameRepresentation::sample_type*
+StackedVideoFrameRepresentation::get_line(FrameID id, size_t line) const {
+  const sample_type* frame = get_frame(id);
+  if (!frame) return nullptr;
+  auto params = get_video_parameters();
+  if (!params) return nullptr;
+  if (line >= static_cast<size_t>(params->frame_height)) return nullptr;
+  return frame + frame_line_sample_offset(
+                     params->system,
+                     static_cast<size_t>(params->frame_width_nominal), line);
+}
+
 std::vector<VideoFrameRepresentation::sample_type>
 StackedVideoFrameRepresentation::get_frame_copy(FrameID id) const {
   {
@@ -832,14 +844,21 @@ void StackerStage::process_lines_range(
       bool all_do =
           std::all_of(is_do.begin(), is_do.end(), [](bool b) { return b; });
 
+      // diff_dod may recover values when all sources share a dropout, but
+      // those values still originate from dropout-flagged samples, so we
+      // must mark the output as a dropout regardless of whether recovery
+      // produced usable data.
+      bool diff_dod_all_dropout = false;
       if (all_do && num_sources >= 3 && !m_no_diff_dod &&
           !dropout_values.empty()) {
         good_values = diff_dod(dropout_values, black_level);
+        diff_dod_all_dropout = !good_values.empty();
       }
 
       int16_t stacked;
-      if (good_values.empty()) {
-        stacked = static_cast<int16_t>(black_level);
+      if (good_values.empty() || diff_dod_all_dropout) {
+        stacked = good_values.empty() ? static_cast<int16_t>(black_level)
+                                      : stack_mode(good_values, all_do);
         ++total_dropouts;
         if (!in_dropout) {
           do_start = static_cast<uint64_t>(off);

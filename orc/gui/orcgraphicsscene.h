@@ -80,6 +80,13 @@ class OrcGraphicsScene : public QtNodes::BasicGraphicsScene {
                             const NodeID& node_id,
                             const std::string& stage_name);
 
+ public slots:
+  // Overridden to reset _draftConnection before QGraphicsScene::clear() runs.
+  // Without this, onModelReset() deletes the draft ConnectionGraphicsObject
+  // via Qt scene ownership while _draftConnection still holds the pointer,
+  // causing a use-after-free vtable crash on the next makeDraftConnection call.
+  void onModelReset() override;
+
  private slots:
   void onSelectionChanged();
   void onNodeContextMenu(QtNodes::NodeId nodeId, QPointF const pos);

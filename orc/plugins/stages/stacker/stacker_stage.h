@@ -65,6 +65,7 @@ class StackedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
 
   // Flat access — stacks on demand, caches result
   const sample_type* get_frame(FrameID id) const override;
+  const sample_type* get_line(FrameID id, size_t line) const override;
   std::vector<sample_type> get_frame_copy(FrameID id) const override;
 
   // YC

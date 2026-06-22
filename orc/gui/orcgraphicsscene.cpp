@@ -62,6 +62,11 @@ OrcGraphicsScene::~OrcGraphicsScene() {
   disconnect();
 }
 
+void OrcGraphicsScene::onModelReset() {
+  resetDraftConnection();
+  BasicGraphicsScene::onModelReset();
+}
+
 void OrcGraphicsScene::selectNode(QtNodes::NodeId nodeId) {
   // Clear current selection first
   clearSelection();

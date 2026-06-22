@@ -1,0 +1,134 @@
+# ORC Project File
+# Version: 2.0
+
+project:
+  name: NTSC-Stacking-Test-1
+  version: 2.0
+  video_format: NTSC
+  source_format: Composite
+  amplitude_unit: 10bit
+dag:
+  nodes:
+    - id: 1
+      stage: NTSC_CVBS_Source
+      node_type: SOURCE
+      display_name: NTSC CVBS Source
+      user_label: NTSC CVBS Source
+      x: 50
+      y: 50
+      parameters:
+        input_path:
+          type: string
+          value: /home/sdi/Coding/videosynth/tests/projects/output-stacking/videosynth_ntsc_stacking_1001.composite
+    - id: 2
+      stage: NTSC_CVBS_Source
+      node_type: SOURCE
+      display_name: NTSC CVBS Source
+      user_label: NTSC CVBS Source
+      x: 50
+      y: 175
+      parameters:
+        input_path:
+          type: string
+          value: /home/sdi/Coding/videosynth/tests/projects/output-stacking/videosynth_ntsc_stacking_2002.composite
+    - id: 3
+      stage: NTSC_CVBS_Source
+      node_type: SOURCE
+      display_name: NTSC CVBS Source
+      user_label: NTSC CVBS Source
+      x: 50
+      y: 300
+      parameters:
+        input_path:
+          type: string
+          value: /home/sdi/Coding/videosynth/tests/projects/output-stacking/videosynth_ntsc_stacking_3003.composite
+    - id: 4
+      stage: NTSC_CVBS_Source
+      node_type: SOURCE
+      display_name: NTSC CVBS Source
+      user_label: NTSC CVBS Source
+      x: 50
+      y: 425
+      parameters:
+        input_path:
+          type: string
+          value: /home/sdi/Coding/videosynth/tests/projects/output-stacking/videosynth_ntsc_stacking_4004.composite
+    - id: 5
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 275
+      y: 50
+    - id: 6
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 725
+      y: 50
+    - id: 7
+      stage: dropout_correct
+      node_type: TRANSFORM
+      display_name: Dropout Correction
+      user_label: Dropout Correction
+      x: 500
+      y: 50
+    - id: 8
+      stage: dropout_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: Dropout Analysis Sink
+      user_label: Dropout Analysis Sink
+      x: 500
+      y: 175
+    - id: 10
+      stage: dropout_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: Dropout Analysis Sink
+      user_label: Dropout Analysis Sink
+      x: 275
+      y: 175
+    - id: 11
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 500
+      y: 300
+    - id: 12
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 275
+      y: 300
+    - id: 13
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 275
+      y: 425
+  edges:
+    - from: 1
+      to: 5
+    - from: 2
+      to: 5
+    - from: 3
+      to: 5
+    - from: 4
+      to: 5
+    - from: 5
+      to: 7
+    - from: 7
+      to: 6
+    - from: 5
+      to: 8
+    - from: 4
+      to: 10
+    - from: 5
+      to: 11
+    - from: 4
+      to: 12
+    - from: 4
+      to: 13

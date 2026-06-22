@@ -1,0 +1,77 @@
+# ORC Project File
+# Version: 2.0
+
+project:
+  name: cc-test1
+  version: 2.0
+  video_format: NTSC
+  source_format: Composite
+  amplitude_unit: IRE
+dag:
+  nodes:
+    - id: 1
+      stage: tbc_source
+      node_type: SOURCE
+      display_name: TBC Source
+      user_label: TBC Source
+      x: 50
+      y: 50
+      parameters:
+        db_path:
+          type: string
+          value: /home/sdi/raid/decodes/cc_test/cc-test1.tbc.db
+        efm_path:
+          type: string
+          value: /home/sdi/raid/decodes/cc_test/cc-test1.efm
+        input_path:
+          type: string
+          value: /home/sdi/raid/decodes/cc_test/cc-test1.tbc
+        pcm_path:
+          type: string
+          value: /home/sdi/raid/decodes/cc_test/cc-test1.pcm
+    - id: 2
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 500
+      y: 50
+    - id: 3
+      stage: burst_level_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: Burst Level Analysis Sink
+      user_label: Burst Level Analysis Sink
+      x: 275
+      y: 50
+    - id: 4
+      stage: dropout_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: Dropout Analysis Sink
+      user_label: Dropout Analysis Sink
+      x: 275
+      y: 175
+    - id: 5
+      stage: snr_analysis_sink
+      node_type: ANALYSIS_SINK
+      display_name: SNR Analysis Sink
+      user_label: SNR Analysis Sink
+      x: 275
+      y: 300
+    - id: 6
+      stage: dropout_correct
+      node_type: TRANSFORM
+      display_name: Dropout Correction
+      user_label: Dropout Correction
+      x: 275
+      y: 425
+  edges:
+    - from: 1
+      to: 3
+    - from: 1
+      to: 4
+    - from: 1
+      to: 5
+    - from: 1
+      to: 6
+    - from: 6
+      to: 2

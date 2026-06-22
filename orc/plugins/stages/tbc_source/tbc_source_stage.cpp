@@ -200,7 +200,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // --------------------------------------------------------------------------
   FrameIDRange frame_range() const override {
     if (frame_count() == 0) return FrameIDRange{0, 0};
-    return FrameIDRange{0, static_cast<FrameID>(frame_count())};
+    return FrameIDRange{0, static_cast<FrameID>(frame_count() - 1)};
   }
 
   size_t frame_count() const override {
@@ -484,14 +484,31 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
         return {};
     }
 
-    // Targeted seek+read of just the one line needed — avoids loading the
-    // full field (~700KB) when only a few lines are required.
-    std::string err;
     const int32_t line_sample_offset = field_line * stored_spl;
-    const std::vector<uint16_t> raw_line = deps_->read_field_samples_at(
-        tbc_path_, tbc_field_idx, stored_field_size, line_sample_offset,
-        stored_spl, err);
-    if (raw_line.empty()) return {};
+
+    // Field-level buffer: the first call for a given tbc_field_idx loads the
+    // full field in one sequential read; subsequent calls for other lines of
+    // the same field are served from the buffer without re-opening the file.
+    // This reduces 6 scattered ~2 KB reads per frame to 2 sequential ~710 KB
+    // reads and eliminates the per-line file-open overhead.
+    std::lock_guard<std::mutex> lock(line_buffer_mutex_);
+
+    if (line_buffer_field_idx_ != tbc_field_idx) {
+      std::string buf_err;
+      line_buffer_ =
+          deps_->read_field_samples(tbc_path_, tbc_field_idx, stored_field_size,
+                                    stored_field_size, buf_err);
+      if (line_buffer_.empty()) {
+        line_buffer_field_idx_ = -1;
+        return {};
+      }
+      line_buffer_field_idx_ = tbc_field_idx;
+    }
+
+    const size_t offset = static_cast<size_t>(line_sample_offset);
+    if (offset + static_cast<size_t>(stored_spl) > line_buffer_.size()) {
+      return {};
+    }
 
     // Convert TBC 16-bit unsigned → CVBS_U10_4FSC int16_t.
     const double tbc_blank = static_cast<double>(video_params_.blanking_16b);
@@ -503,6 +520,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
         static_cast<double>(source_params_.blanking_level);
 
     std::vector<sample_type> result(static_cast<size_t>(stored_spl));
+    const uint16_t* raw_line = line_buffer_.data() + offset;
     for (int32_t i = 0; i < stored_spl; ++i) {
       const double v =
           (static_cast<double>(raw_line[static_cast<size_t>(i)]) - tbc_blank) *
@@ -810,6 +828,10 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
 
   static constexpr size_t kFrameCacheSize = 150;
   mutable LRUCache<FrameID, CachedFrame> frame_cache_{kFrameCacheSize};
+
+  mutable std::mutex line_buffer_mutex_;
+  mutable int32_t line_buffer_field_idx_{-1};
+  mutable std::vector<uint16_t> line_buffer_;
 };
 
 // ---------------------------------------------------------------------------

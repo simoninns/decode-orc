@@ -485,11 +485,6 @@ std::vector<ArtifactPtr> StackerStage::execute(
     throw DAGExecutionError("StackerStage supports maximum 16 inputs");
   }
 
-  if (!parameters.empty()) {
-    set_parameters(parameters);
-    cached_output_.reset();
-  }
-
   std::vector<std::shared_ptr<const VideoFrameRepresentation>> sources;
   for (const auto& inp : inputs) {
     auto vfr = std::dynamic_pointer_cast<const VideoFrameRepresentation>(inp);
@@ -500,24 +495,36 @@ std::vector<ArtifactPtr> StackerStage::execute(
     sources.push_back(vfr);
   }
 
-  bool reuse = false;
-  if (cached_output_ && cached_sources_.size() == sources.size()) {
-    reuse = true;
-    for (size_t i = 0; i < sources.size(); ++i) {
-      if (cached_sources_[i] != sources[i]) {
-        reuse = false;
-        break;
+  // Serialize access to cached_output_ and cached_sources_: two concurrent
+  // DAG render threads share the same stage instance, so the read-check-update
+  // of the cache must be atomic to avoid heap corruption via shared_ptr races.
+  std::shared_ptr<const VideoFrameRepresentation> result;
+  {
+    std::lock_guard<std::mutex> lk(execute_mutex_);
+
+    if (!parameters.empty()) {
+      set_parameters(parameters);
+      cached_output_.reset();
+    }
+
+    bool reuse = false;
+    if (cached_output_ && cached_sources_.size() == sources.size()) {
+      reuse = true;
+      for (size_t i = 0; i < sources.size(); ++i) {
+        if (cached_sources_[i] != sources[i]) {
+          reuse = false;
+          break;
+        }
       }
     }
-  }
 
-  std::shared_ptr<const VideoFrameRepresentation> result;
-  if (reuse) {
-    result = cached_output_;
-  } else {
-    result = process(sources);
-    cached_output_ = result;
-    cached_sources_ = sources;
+    if (reuse) {
+      result = cached_output_;
+    } else {
+      result = process(sources);
+      cached_output_ = result;
+      cached_sources_ = sources;
+    }
   }
 
   // When process() returns the single input source unchanged (passthrough),
@@ -1400,6 +1407,7 @@ bool StackerStage::set_parameters(
 // ──────────────────────────────────────────────────────────
 
 StagePreviewCapability StackerStage::get_preview_capability() const {
+  std::lock_guard<std::mutex> lk(execute_mutex_);
   return PreviewHelpers::make_signal_preview_capability(cached_output_);
 }
 

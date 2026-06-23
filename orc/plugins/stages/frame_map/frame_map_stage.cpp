@@ -81,7 +81,8 @@ void FrameMappedRepresentation::ensure_black_frame() const {
 
 FrameIDRange FrameMappedRepresentation::frame_range() const {
   if (frame_mapping_.empty()) return FrameIDRange{FrameID{0}, FrameID{0}};
-  return FrameIDRange{FrameID{0}, FrameID{frame_mapping_.size()}};
+  // FrameIDRange.last is inclusive; the last valid index is size() - 1.
+  return FrameIDRange{FrameID{0}, FrameID{frame_mapping_.size() - 1}};
 }
 
 bool FrameMappedRepresentation::has_frame(FrameID id) const {
@@ -98,7 +99,28 @@ std::optional<FrameDescriptor> FrameMappedRepresentation::get_frame_descriptor(
 
   if (is_padding(*idx)) {
     const auto* pd = find_padding(id);
-    if (!pd) return std::nullopt;
+    if (!pd) {
+      // Range-spec PAD frames (from "PAD_N" in the mapping spec) have no
+      // PaddingDescriptor because apply_pad_gaps is not called for them.
+      // Returning nullopt here would cause the stacker to treat the frame as
+      // present-but-unknown and search ±4 frames for a CFI match — the PAL
+      // 4-frame cycle guarantees a hit 4 positions back, which is a real frame
+      // from a different disc picture. Synthesise a minimal is_padding_frame
+      // descriptor so callers correctly exclude this source.
+      FrameDescriptor desc;
+      desc.frame_id = id;
+      desc.is_padding_frame = true;
+      if (source_) {
+        if (const auto params = source_->get_video_parameters()) {
+          desc.system = params->system;
+          desc.height = static_cast<size_t>(params->frame_height);
+          desc.samples_per_line_nominal =
+              static_cast<size_t>(params->frame_width_nominal);
+          desc.samples_total = desc.height * desc.samples_per_line_nominal;
+        }
+      }
+      return desc;
+    }
     FrameDescriptor desc;
     desc.frame_id = id;
     desc.system = pd->system;
@@ -340,7 +362,7 @@ std::vector<FrameID> FrameMapStage::build_frame_mapping(
       continue;
     }
     for (uint64_t id = s; id <= e; ++id) {
-      if (id >= src_end) {
+      if (id > src_end) {
         ORC_LOG_WARN("FrameMapStage: frame {} out of source range, skipping",
                      id);
         continue;

@@ -280,12 +280,12 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
     set_parameters(parameters);
   }
 
-  input_sources_ = sources;
-
   std::vector<FrameID> offsets;
 
   if (alignment_map_.empty()) {
     if (sources.size() == 1) {
+      std::lock_guard<std::mutex> lk(execute_mutex_);
+      input_sources_ = sources;
       alignment_offsets_ = {FrameID{0}};
       cached_outputs_ = {sources[0]};
       return {inputs[0]};
@@ -310,32 +310,41 @@ std::vector<ArtifactPtr> SourceAlignStage::execute(
   }
   ORC_LOG_DEBUG("Using alignment map: {}", alignment_map_);
 
-  alignment_offsets_ = offsets;
-
+  // Build outputs locally before acquiring the lock so the lock is held
+  // only for the pointer-swap, not during object construction.
   std::vector<ArtifactPtr> outputs;
-  cached_outputs_.clear();
+  std::vector<std::shared_ptr<const VideoFrameRepresentation>> new_cached;
 
   const FrameID kExcluded = std::numeric_limits<FrameID>::max();
 
   for (size_t i = 0; i < sources.size(); ++i) {
     if (offsets[i] == kExcluded) {
-      cached_outputs_.push_back(nullptr);
+      new_cached.push_back(nullptr);
       ORC_LOG_DEBUG("  Source {}: EXCLUDED from output", i);
       continue;
     }
 
     if (offsets[i] == 0) {
       outputs.push_back(inputs[i]);
-      cached_outputs_.push_back(sources[i]);
+      new_cached.push_back(sources[i]);
       ORC_LOG_DEBUG("  Source {}: pass-through (offset=0)", i);
     } else {
       auto aligned = std::make_shared<AlignedSourceFrameRepresentation>(
           sources[i], offsets[i], i);
       outputs.push_back(aligned);
-      cached_outputs_.push_back(aligned);
+      new_cached.push_back(aligned);
       ORC_LOG_DEBUG("  Source {}: offset by {} frames, {} remaining", i,
                     offsets[i], aligned->frame_count());
     }
+  }
+
+  // Atomically publish the new cached state so concurrent preview calls
+  // always observe a consistent snapshot.
+  {
+    std::lock_guard<std::mutex> lk(execute_mutex_);
+    input_sources_ = sources;
+    alignment_offsets_ = offsets;
+    cached_outputs_ = std::move(new_cached);
   }
 
   return outputs;
@@ -424,6 +433,7 @@ PreviewImage render_vfr_grayscale(const VideoFrameRepresentation& vfr,
 }  // namespace
 
 StagePreviewCapability SourceAlignStage::get_preview_capability() const {
+  std::lock_guard<std::mutex> lk(execute_mutex_);
   for (const auto& out : cached_outputs_) {
     if (out && out->frame_count() > 0) {
       return PreviewHelpers::make_signal_preview_capability(out);
@@ -433,6 +443,7 @@ StagePreviewCapability SourceAlignStage::get_preview_capability() const {
 }
 
 std::vector<PreviewOption> SourceAlignStage::get_preview_options() const {
+  std::lock_guard<std::mutex> lk(execute_mutex_);
   std::vector<PreviewOption> options;
   for (size_t i = 0; i < cached_outputs_.size(); ++i) {
     const auto& out = cached_outputs_[i];
@@ -463,11 +474,18 @@ PreviewImage SourceAlignStage::render_preview(const std::string& option_id,
       throw std::runtime_error("Invalid preview option_id: " + option_id);
     }
   }
-  if (src_idx >= cached_outputs_.size() || !cached_outputs_[src_idx]) {
-    throw std::runtime_error("No cached output for preview");
+
+  // Take a local copy of the shared_ptr under the lock so rendering can
+  // proceed without holding the lock (rendering can be slow).
+  std::shared_ptr<const VideoFrameRepresentation> out;
+  {
+    std::lock_guard<std::mutex> lk(execute_mutex_);
+    if (src_idx >= cached_outputs_.size() || !cached_outputs_[src_idx]) {
+      throw std::runtime_error("No cached output for preview");
+    }
+    out = cached_outputs_[src_idx];
   }
 
-  const auto& out = cached_outputs_[src_idx];
   const FrameID fid = static_cast<FrameID>(index);
   if (!out->has_frame(fid)) {
     return PreviewImage{};

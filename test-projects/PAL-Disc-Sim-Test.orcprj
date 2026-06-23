@@ -1,0 +1,185 @@
+# ORC Project File
+# Version: 2.0
+
+project:
+  name: PAL-Disc-Sim-Test
+  version: 2.0
+  video_format: PAL
+  source_format: Composite
+  amplitude_unit: 10bit
+dag:
+  nodes:
+    - id: 1
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: Source A (seed 1001)
+      x: 50
+      y: 50
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_discsim_A.composite
+    - id: 2
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: Source B (seed 2002)
+      x: 50
+      y: 175
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_discsim_B.composite
+    - id: 3
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: Source C (seed 3003)
+      x: 50
+      y: 300
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_discsim_C.composite
+    - id: 4
+      stage: PAL_CVBS_Source
+      node_type: SOURCE
+      display_name: PAL CVBS Source
+      user_label: Source D (seed 4004)
+      x: 50
+      y: 425
+      parameters:
+        input_path:
+          type: string
+          value: ../../videosynth/tests/projects/output-stacking/videosynth_pal_discsim_D.composite
+    - id: 5
+      stage: source_align
+      node_type: COMPLEX
+      display_name: Source Align
+      user_label: Source Align
+      x: 500
+      y: 50
+      parameters:
+        alignmentMap:
+          type: string
+          value: 1+7, 2+3, 3+5, 4+0
+    - id: 6
+      stage: stacker
+      node_type: MERGER
+      display_name: Stacker
+      user_label: Stacker
+      x: 725
+      y: 50
+      parameters:
+        mode:
+          type: string
+          value: Auto
+        no_diff_dod:
+          type: bool
+          value: false
+        passthrough:
+          type: bool
+          value: false
+        smart_threshold:
+          type: int32
+          value: 15
+    - id: 7
+      stage: dropout_correct
+      node_type: TRANSFORM
+      display_name: Dropout Correction
+      user_label: Dropout Correction
+      x: 950
+      y: 50
+    - id: 8
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 1175
+      y: 50
+    - id: 9
+      stage: frame_map
+      node_type: TRANSFORM
+      display_name: Frame Map
+      user_label: Frame Map
+      x: 275
+      y: 50
+      parameters:
+        ranges:
+          type: string
+          value: 0-19,24-43
+    - id: 10
+      stage: frame_map
+      node_type: TRANSFORM
+      display_name: Frame Map
+      user_label: Frame Map
+      x: 275
+      y: 175
+      parameters:
+        ranges:
+          type: string
+          value: 0-15,PAD_2,16-33
+    - id: 11
+      stage: frame_map
+      node_type: TRANSFORM
+      display_name: Frame Map
+      user_label: Frame Map
+      x: 275
+      y: 300
+      parameters:
+        ranges:
+          type: string
+          value: 0-9,14-29,PAD_2,30-39
+    - id: 12
+      stage: frame_map
+      node_type: TRANSFORM
+      display_name: Frame Map
+      user_label: Frame Map
+      x: 275
+      y: 425
+      parameters:
+        ranges:
+          type: string
+          value: 0-19,23-29,PAD_2,30-33
+    - id: 13
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 620
+      y: 383
+    - id: 14
+      stage: ffmpeg_video_sink
+      node_type: SINK
+      display_name: FFmpeg Video Sink
+      user_label: FFmpeg Video Sink
+      x: 953
+      y: 247
+  edges:
+    - from: 6
+      to: 7
+    - from: 7
+      to: 8
+    - from: 5
+      to: 6
+    - from: 1
+      to: 9
+    - from: 2
+      to: 10
+    - from: 3
+      to: 11
+    - from: 4
+      to: 12
+    - from: 9
+      to: 5
+    - from: 10
+      to: 5
+    - from: 11
+      to: 5
+    - from: 12
+      to: 5
+    - from: 9
+      to: 13
+    - from: 6
+      to: 14

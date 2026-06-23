@@ -262,29 +262,26 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
     }
 
     // Structure to track VBI frames found in each source
-    // FieldIDRange derived from the VFR's frame_range (start = first*2, end =
-    // (last+1)*2).  Stored as FieldIDRange so downstream summary code that
-    // prints field numbers remains unchanged.
     struct SourceVBIInfo {
-      FieldIDRange range;
-      std::set<int32_t> vbi_frames;               // VBI frames found so far
-      std::map<int32_t, FieldID> frame_to_field;  // Map VBI frame to field_id
+      FrameIDRange range;
+      std::set<int32_t> vbi_frames;
+      std::map<int32_t, FrameID>
+          frame_to_frame;  // Map VBI frame number to source FrameID
       int32_t first_vbi = -1;
       int32_t last_vbi = -1;
-      size_t total_vbi_count = 0;  // Total VBI frames found during full scan
+      size_t total_vbi_count = 0;
       bool fully_scanned = false;
     };
 
     std::vector<SourceVBIInfo> source_info(input_sources.size());
 
     // Phase 1: Quick scan - find the first few VBI frames from each source
-    // We'll scan up to MAX_SCAN_FIELDS per source to find initial VBI frames
-    constexpr size_t MAX_SCAN_FIELDS = 1000;  // Usually enough to find VBI data
+    constexpr size_t MAX_SCAN_FRAMES = 500;
 
     ORC_LOG_DEBUG(
-        "Phase 1: Quick scan for initial VBI frames (up to {} fields per "
+        "Phase 1: Quick scan for initial VBI frames (up to {} frames per "
         "source)",
-        MAX_SCAN_FIELDS);
+        MAX_SCAN_FRAMES);
 
     // Create observation context and biphase observer for VBI scanning
     ObservationContext observation_context;
@@ -297,57 +294,54 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
       }
 
       auto& info = source_info[src_idx];
-      // Derive field-level range from the VFR frame range.
-      auto src_frame_range = source->frame_range();
-      info.range = FieldIDRange(FieldID(src_frame_range.first * 2),
-                                FieldID((src_frame_range.last + 1) * 2));
+      info.range = source->frame_range();
 
       // Determine if source is PAL
       bool is_pal = false;
-      if (auto first_desc =
-              source->get_frame_descriptor(src_frame_range.first)) {
+      if (auto first_desc = source->get_frame_descriptor(info.range.first)) {
         is_pal = (first_desc->system == VideoSystem::PAL);
       }
 
-      ORC_LOG_DEBUG("  Source {}: quick scan (range {}-{})", src_idx + 1,
-                    info.range.start.value(), info.range.end.value() - 1);
+      ORC_LOG_DEBUG("  Source {}: quick scan (frame range {}-{})", src_idx + 1,
+                    info.range.first, info.range.last);
 
       size_t scanned = 0;
-      std::set<FrameID> processed_frames_q;
-      for (FieldID field_id = info.range.start;
-           field_id < info.range.end && scanned < MAX_SCAN_FIELDS; ++field_id) {
-        FrameID frid = field_id.value() / 2;
-        if (!source->has_frame(frid)) {
+      for (uint64_t i = 0; i < info.range.count() && scanned < MAX_SCAN_FRAMES;
+           ++i) {
+        FrameID frame_id = info.range.first + i;
+        if (!source->has_frame(frame_id)) {
           continue;
         }
 
-        scanned++;
+        ++scanned;
 
-        // Process frame to populate observations (both fields).
-        if (processed_frames_q.find(frid) == processed_frames_q.end()) {
-          biphase_observer.process_frame(*source, frid, observation_context);
-          processed_frames_q.insert(frid);
+        biphase_observer.process_frame(*source, frame_id, observation_context);
+
+        // Check both fields of this frame for VBI data.
+        int32_t frame_num = -1;
+        for (int field = 0; field < 2 && frame_num < 0; ++field) {
+          FieldID field_id =
+              FieldID(frame_id * 2 + static_cast<uint64_t>(field));
+          frame_num =
+              get_frame_number_from_vbi(observation_context, field_id, is_pal);
         }
 
-        // Query the observation context for VBI frame number for this field.
-        int32_t frame_num =
-            get_frame_number_from_vbi(observation_context, field_id, is_pal);
         if (frame_num >= 0) {
           info.vbi_frames.insert(frame_num);
-          info.frame_to_field[frame_num] = field_id;
+          info.frame_to_frame[frame_num] = frame_id;
 
           if (info.first_vbi < 0) {
             info.first_vbi = frame_num;
             ORC_LOG_DEBUG(
-                "    Source {}: first VBI frame {} found at field_id {}",
-                src_idx + 1, frame_num, field_id.value());
+                "    Source {}: first VBI frame {} found at frame_id {}",
+                src_idx + 1, frame_num, frame_id);
           }
           info.last_vbi = frame_num;
         }
       }
 
       ORC_LOG_DEBUG(
-          "    Source {}: found {} unique VBI frames in first {} fields",
+          "    Source {}: found {} unique VBI frames in first {} frames",
           src_idx + 1, info.vbi_frames.size(), scanned);
 
       if (progress && progress->isCancelled()) {
@@ -427,41 +421,40 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
         }
 
         auto& info = source_info[src_idx];
-        auto src_frame_range2 = source->frame_range();
 
         // Determine if source is PAL
         bool is_pal = false;
-        if (auto first_desc =
-                source->get_frame_descriptor(src_frame_range2.first)) {
+        if (auto first_desc = source->get_frame_descriptor(info.range.first)) {
           is_pal = (first_desc->system == VideoSystem::PAL);
         }
 
-        ORC_LOG_DEBUG("  Source {}: full scan of {} fields", src_idx + 1,
-                      source->frame_count() * 2);
+        ORC_LOG_DEBUG("  Source {}: full scan of {} frames", src_idx + 1,
+                      info.range.count());
 
-        std::set<FrameID> processed_frames_f;
-        for (FieldID field_id = info.range.start; field_id < info.range.end;
-             ++field_id) {
-          FrameID frid = field_id.value() / 2;
-          if (!source->has_frame(frid)) {
+        for (uint64_t i = 0; i < info.range.count(); ++i) {
+          FrameID frame_id = info.range.first + i;
+          if (!source->has_frame(frame_id)) {
             continue;
           }
 
-          // Process frame to populate observations (both fields).
-          if (processed_frames_f.find(frid) == processed_frames_f.end()) {
-            biphase_observer.process_frame(*source, frid, observation_context);
-            processed_frames_f.insert(frid);
+          biphase_observer.process_frame(*source, frame_id,
+                                         observation_context);
+
+          // Check both fields of this frame for VBI data.
+          int32_t frame_num = -1;
+          for (int field = 0; field < 2 && frame_num < 0; ++field) {
+            FieldID field_id =
+                FieldID(frame_id * 2 + static_cast<uint64_t>(field));
+            frame_num = get_frame_number_from_vbi(observation_context, field_id,
+                                                  is_pal);
           }
 
-          // Query the observation context for VBI frame number for this field.
-          int32_t frame_num =
-              get_frame_number_from_vbi(observation_context, field_id, is_pal);
           if (frame_num >= 0) {
             if (info.vbi_frames.find(frame_num) == info.vbi_frames.end()) {
               info.vbi_frames.insert(frame_num);
-              info.frame_to_field[frame_num] = field_id;
+              info.frame_to_frame[frame_num] = frame_id;
             }
-            info.total_vbi_count++;
+            ++info.total_vbi_count;
             info.last_vbi = frame_num;
           }
         }
@@ -485,7 +478,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
     }
 
     // Phase 4: Determine the best alignment based on available data
-    std::vector<FieldID> alignment_offsets(input_sources.size());
+    std::vector<FrameID> alignment_offsets(input_sources.size(), FrameID{0});
     std::vector<size_t> participating_sources;
     size_t max_sources_found = 0;
 
@@ -495,8 +488,8 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
       max_sources_found = input_sources.size();
       for (size_t src_idx = 0; src_idx < input_sources.size(); ++src_idx) {
         const auto& info = source_info[src_idx];
-        auto it = info.frame_to_field.find(first_common_frame);
-        if (it != info.frame_to_field.end()) {
+        auto it = info.frame_to_frame.find(first_common_frame);
+        if (it != info.frame_to_frame.end()) {
           alignment_offsets[src_idx] = it->second;
           participating_sources.push_back(src_idx);
         }
@@ -522,7 +515,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
           for (size_t src_idx : sources) {
             participating_sources.push_back(src_idx);
             alignment_offsets[src_idx] =
-                source_info[src_idx].frame_to_field[frame_num];
+                source_info[src_idx].frame_to_frame[frame_num];
           }
 
           // If all sources have this frame, we're done
@@ -537,7 +530,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
     std::vector<int32_t> first_vbi_frames;
     std::vector<int32_t> last_vbi_frames;
     std::vector<size_t> vbi_counts;
-    std::vector<FieldIDRange> source_ranges;
+    std::vector<FrameIDRange> source_ranges;
 
     for (const auto& info : source_info) {
       first_vbi_frames.push_back(info.first_vbi);
@@ -564,8 +557,8 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
         info_item.type = "info";
         std::ostringstream msg;
         msg << "Source " << (i + 1) << ": "
-            << "fields " << source_ranges[i].start.value() << "-"
-            << source_ranges[i].end.value() << " (" << source_ranges[i].size()
+            << "frames " << source_ranges[i].first << "-"
+            << source_ranges[i].last << " (" << source_ranges[i].count()
             << " total), " << vbi_counts[i] << " with VBI";
         if (first_vbi_frames[i] >= 0) {
           msg << ", VBI frames " << first_vbi_frames[i] << "-"
@@ -582,9 +575,9 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
     ORC_LOG_DEBUG("  Best common VBI frame {} found in {} of {} sources:",
                   first_common_frame, max_sources_found, input_sources.size());
     for ([[maybe_unused]] size_t src_idx : participating_sources) {
-      ORC_LOG_DEBUG("    Source {}: at field_id {} (offset = {})", src_idx + 1,
-                    alignment_offsets[src_idx].value(),
-                    alignment_offsets[src_idx].value());
+      ORC_LOG_DEBUG("    Source {}: at frame_id {} (frame offset = {})",
+                    src_idx + 1, alignment_offsets[src_idx],
+                    alignment_offsets[src_idx]);
     }
 
     // If not all sources participate, add a warning
@@ -627,12 +620,11 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
       result.items.push_back(warning_item);
     }
 
-    // Check if all participating sources already start at the same field_id
-    // with the same VBI frame This indicates they may have already been aligned
-    // by upstream field_map stages
+    // Check if all participating sources already start at frame 0 with the
+    // same VBI frame — may indicate pre-alignment by upstream stages
     bool all_start_at_zero = true;
     for (size_t src_idx : participating_sources) {
-      if (alignment_offsets[src_idx].value() != 0) {
+      if (alignment_offsets[src_idx] != FrameID{0}) {
         all_start_at_zero = false;
         break;
       }
@@ -640,8 +632,8 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
 
     if (all_start_at_zero && participating_sources.size() > 1) {
       ORC_LOG_WARN(
-          "All participating sources start at field_id 0 with VBI frame {} - "
-          "they may have been pre-aligned by field_map stages",
+          "All participating sources start at frame 0 with VBI frame {} - "
+          "they may have been pre-aligned by upstream stages",
           first_common_frame);
     }
 
@@ -659,9 +651,7 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
         alignment_map << ", ";
       }
       first = false;
-      // Format: input_id+offset (1-indexed input IDs)
-      alignment_map << (src_idx + 1) << "+"
-                    << alignment_offsets[src_idx].value();
+      alignment_map << (src_idx + 1) << "+" << alignment_offsets[src_idx];
     }
 
     // Build comprehensive summary
@@ -691,31 +681,32 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
       }
       summary << ":\n";
 
-      summary << "    Field range: " << source_ranges[i].start.value() << "-"
-              << source_ranges[i].end.value() << " (" << source_ranges[i].size()
-              << " fields)\n";
+      summary << "    Frame range: " << source_ranges[i].first << "-"
+              << source_ranges[i].last << " (" << source_ranges[i].count()
+              << " frames)\n";
 
       if (first_vbi_frames[i] >= 0) {
         summary << "    VBI range: frame " << first_vbi_frames[i] << "-"
                 << last_vbi_frames[i] << " (" << vbi_counts[i]
-                << " fields with VBI)\n";
+                << " frames with VBI)\n";
 
         if (is_participating) {
-          // Show where the first common frame appears in this source
+          const FrameID frame_offset = alignment_offsets[i];
           summary << "    First common VBI frame (" << first_common_frame
-                  << ") at field: " << alignment_offsets[i].value() << "\n";
+                  << ") at frame: " << frame_offset << "\n";
 
-          summary << "    Alignment offset: " << alignment_offsets[i].value()
-                  << " fields";
-          if (alignment_offsets[i].value() > 0) {
-            summary << " (skip first " << alignment_offsets[i].value() << ")";
+          summary << "    Alignment offset: " << frame_offset << " frames";
+          if (frame_offset > FrameID{0}) {
+            summary << " (skip first " << frame_offset << ")";
           }
           summary << "\n";
 
-          size_t output_fields =
-              source_ranges[i].size() - alignment_offsets[i].value();
-          summary << "    Output: " << output_fields
-                  << " fields after alignment\n";
+          size_t output_frames =
+              (frame_offset < source_ranges[i].count())
+                  ? static_cast<size_t>(source_ranges[i].count() - frame_offset)
+                  : 0;
+          summary << "    Output: " << output_frames
+                  << " frames after alignment\n";
         } else {
           summary
               << "    Status: VBI range does not overlap with other sources\n";
@@ -749,18 +740,22 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
     result.statistics["firstCommonVBIFrame"] =
         static_cast<int64_t>(first_common_frame);
 
-    size_t total_output_fields = 0;
-    size_t total_dropped_fields = 0;
+    size_t total_output_frames = 0;
+    size_t total_dropped_frames = 0;
     for (size_t src_idx : participating_sources) {
-      size_t output_fields =
-          source_ranges[src_idx].size() - alignment_offsets[src_idx].value();
-      total_output_fields += output_fields;
-      total_dropped_fields += alignment_offsets[src_idx].value();
+      const FrameID frame_offset = alignment_offsets[src_idx];
+      size_t output_frames =
+          (frame_offset < source_ranges[src_idx].count())
+              ? static_cast<size_t>(source_ranges[src_idx].count() -
+                                    frame_offset)
+              : 0;
+      total_output_frames += output_frames;
+      total_dropped_frames += static_cast<size_t>(frame_offset);
     }
-    result.statistics["totalOutputFields"] =
-        static_cast<int64_t>(total_output_fields);
-    result.statistics["totalDroppedFields"] =
-        static_cast<int64_t>(total_dropped_fields);
+    result.statistics["totalOutputFrames"] =
+        static_cast<int64_t>(total_output_frames);
+    result.statistics["totalDroppedFrames"] =
+        static_cast<int64_t>(total_dropped_frames);
 
     // Add result items for individual sources (these show up in the details
     // view)
@@ -773,8 +768,8 @@ AnalysisResult SourceAlignmentAnalysisTool::analyze(
       if (is_participating) {
         source_item.type = "info";
         source_item.message = "Source " + std::to_string(i + 1) + ": offset +" +
-                              std::to_string(alignment_offsets[i].value()) +
-                              " fields, VBI frames " +
+                              std::to_string(alignment_offsets[i]) +
+                              " frames, VBI frames " +
                               std::to_string(first_vbi_frames[i]) + "-" +
                               std::to_string(last_vbi_frames[i]);
       } else {

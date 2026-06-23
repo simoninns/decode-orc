@@ -196,6 +196,7 @@ class StackerStage : public DAGStage,
 
   std::map<std::string, ParameterValue> parameters_;
 
+  mutable std::mutex execute_mutex_;
   mutable std::shared_ptr<const VideoFrameRepresentation> cached_output_;
   mutable std::vector<std::shared_ptr<const VideoFrameRepresentation>>
       cached_sources_;

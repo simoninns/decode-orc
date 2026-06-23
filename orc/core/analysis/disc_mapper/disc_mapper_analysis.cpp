@@ -50,9 +50,7 @@ bool DiscMapperAnalysisTool::canAnalyze(AnalysisSourceType source_type) const {
 
 bool DiscMapperAnalysisTool::isApplicableToStage(
     const std::string& stage_name) const {
-  // Field mapping analysis is only applicable to field_map stages
-  // because it generates a mapping specification that the field_map stage uses
-  return stage_name == "field_map";
+  return stage_name == "frame_map";
 }
 
 AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
@@ -65,7 +63,7 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
   }
 
   // Get the VideoFrameRepresentation from the DAG execution
-  // The field_map node should have exactly one input
+  // The frame_map node should have exactly one input
   if (!ctx.dag || !ctx.project) {
     result.status = AnalysisResult::Failed;
     result.summary = "No DAG or project provided for analysis";
@@ -73,7 +71,7 @@ AnalysisResult DiscMapperAnalysisTool::analyze(const AnalysisContext& ctx,
     return result;
   }
 
-  // Find the field_map node in the DAG
+  // Find the frame_map node in the DAG
   const auto& dag_nodes = ctx.dag->nodes();
   auto node_it = std::find_if(
       dag_nodes.begin(), dag_nodes.end(),
@@ -385,14 +383,14 @@ bool DiscMapperAnalysisTool::applyToGraph(AnalysisResult& result,
     std::cout << "  Rationale: " << rationale_it->second << std::endl;
   }
 
-  // Set the FieldMapStage's "ranges" parameter via parameterChanges
+  // Set the FrameMapStage's "ranges" parameter via parameterChanges
   // The presenter will apply these changes properly
   result.parameterChanges["ranges"] = mappingSpec;
 
   ORC_LOG_DEBUG(
-      "Successfully prepared mapping spec for FieldMapStage 'ranges' "
+      "Successfully prepared mapping spec for FrameMapStage 'ranges' "
       "parameter");
-  std::cout << "Successfully prepared mapping spec for FieldMapStage 'ranges' "
+  std::cout << "Successfully prepared mapping spec for FrameMapStage 'ranges' "
                "parameter"
             << std::endl;
   return true;

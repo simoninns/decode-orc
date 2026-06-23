@@ -10,6 +10,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -86,6 +87,8 @@ class SourceAlignStage : public DAGStage,
 
   static std::vector<std::pair<size_t, size_t>> parse_alignment_map(
       const std::string& alignment_spec);
+
+  mutable std::mutex execute_mutex_;
 
   // Reporting state
   mutable std::vector<FrameID> alignment_offsets_;

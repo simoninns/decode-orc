@@ -113,8 +113,8 @@ orc::AnalysisResult DiscMapperPresenter::runAnalysis(
   }
 
   if (!node_it->stage ||
-      node_it->stage->get_node_type_info().stage_name != "field_map") {
-    result.summary = "Disc Mapper only applies to field_map stages";
+      node_it->stage->get_node_type_info().stage_name != "frame_map") {
+    result.summary = "Disc Mapper only applies to frame_map stages";
     ORC_LOG_ERROR("{}", result.summary);
     return result;
   }

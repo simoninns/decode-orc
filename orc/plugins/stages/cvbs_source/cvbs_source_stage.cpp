@@ -224,8 +224,8 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // Navigation
   // --------------------------------------------------------------------------
   FrameIDRange frame_range() const override {
-    if (frame_count_ == 0) return FrameIDRange{0, 0};
-    return FrameIDRange{0, static_cast<FrameID>(frame_count_)};
+    if (frame_count_ == 0) return FrameIDRange{1, 0};  // empty: last < first
+    return FrameIDRange{0, static_cast<FrameID>(frame_count_ - 1)};
   }
 
   size_t frame_count() const override { return frame_count_; }

@@ -644,15 +644,22 @@ Project load_project_from_yaml(const std::string& yaml_text,
     }
 
     if (project.source_format_ != SourceType::Unknown) {
-      bool is_yc_stage = (node.stage_name.find("YC") != std::string::npos ||
-                          node.stage_name.find("Yc") != std::string::npos ||
-                          node.stage_name.find("_yc") != std::string::npos);
-      if (is_yc_stage && project.source_format_ != SourceType::YC) {
-        throw std::runtime_error(
-            "Project source_format mismatch: project declares 'Composite' "
-            "but source stage '" +
-            node.stage_name + "' (node " + node.node_id.to_string() +
-            ") is a YC source.");
+      // CVBS source stages and tbc_source are dual-mode; skip name-based check.
+      const bool is_dual_mode = (node.stage_name == "tbc_source" ||
+                                 node.stage_name == "NTSC_CVBS_Source" ||
+                                 node.stage_name == "PAL_CVBS_Source" ||
+                                 node.stage_name == "PALM_CVBS_Source");
+      if (!is_dual_mode) {
+        bool is_yc_stage = (node.stage_name.find("YC") != std::string::npos ||
+                            node.stage_name.find("Yc") != std::string::npos ||
+                            node.stage_name.find("_yc") != std::string::npos);
+        if (is_yc_stage && project.source_format_ != SourceType::YC) {
+          throw std::runtime_error(
+              "Project source_format mismatch: project declares 'Composite' "
+              "but source stage '" +
+              node.stage_name + "' (node " + node.node_id.to_string() +
+              ") is a YC source.");
+        }
       }
     }
   }
@@ -953,9 +960,12 @@ NodeID add_node(Project& project, const std::string& stage_name,
   // Validate source stage compatibility with project's video and source format
   if (type_info->type == NodeType::SOURCE) {
     // Check source_format if set.
-    // tbc_source is dual-mode: composite or YC is determined by parameters,
-    // not by stage name, so it is valid for any source format.
-    const bool is_dual_mode_source = (stage_name == "tbc_source");
+    // tbc_source and the CVBS source stages are dual-mode: whether they carry
+    // composite or YC signal is determined by their file-path parameters, not
+    // by the stage name, so they are valid for any source format.
+    const bool is_dual_mode_source =
+        (stage_name == "tbc_source" || stage_name == "NTSC_CVBS_Source" ||
+         stage_name == "PAL_CVBS_Source" || stage_name == "PALM_CVBS_Source");
     if (!is_dual_mode_source && project.source_format_ != SourceType::Unknown) {
       bool is_yc_stage = (stage_name.find("YC") != std::string::npos);
       SourceType stage_type =

@@ -188,7 +188,7 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
       uint32_t audio_pairs_per_frame, bool has_efm, std::string efm_data_path,
       std::vector<CVBSExtensionFrameRef> efm_table, bool has_ac3,
       std::string ac3_data_path, std::vector<CVBSExtensionFrameRef> ac3_table,
-      ArtifactID artifact_id, Provenance provenance)
+      std::string c_path, ArtifactID artifact_id, Provenance provenance)
       : Artifact(std::move(artifact_id), std::move(provenance)),
         system_(system),
         frame_count_(static_cast<size_t>(frame_count)),
@@ -211,7 +211,8 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
         efm_table_(std::move(efm_table)),
         has_ac3_(has_ac3),
         ac3_data_path_(std::move(ac3_data_path)),
-        ac3_table_(std::move(ac3_table)) {}
+        ac3_table_(std::move(ac3_table)),
+        c_path_(std::move(c_path)) {}
 
   // --------------------------------------------------------------------------
   // Artifact
@@ -391,6 +392,34 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
     return result;
   }
 
+  // --------------------------------------------------------------------------
+  // YC (separate luma / chroma) access
+  // --------------------------------------------------------------------------
+  bool has_separate_channels() const override { return !c_path_.empty(); }
+
+  const sample_type* get_frame_luma(FrameID id) const override {
+    return has_separate_channels() ? get_frame(id) : nullptr;
+  }
+
+  const sample_type* get_frame_chroma(FrameID id) const override {
+    if (c_path_.empty() || !has_frame(id)) return nullptr;
+    ensure_c_frame_cached(id);
+    const DecodedFrame* df = c_frame_cache_.get_ptr(id);
+    return df ? df->samples.data() : nullptr;
+  }
+
+  const sample_type* get_line_luma(FrameID id, size_t line) const override {
+    const sample_type* frame = get_frame_luma(id);
+    if (!frame || line >= frame_height_) return nullptr;
+    return frame + frame_line_sample_offset(system_, spl_nominal_, line);
+  }
+
+  const sample_type* get_line_chroma(FrameID id, size_t line) const override {
+    const sample_type* frame = get_frame_chroma(id);
+    if (!frame || line >= frame_height_) return nullptr;
+    return frame + frame_line_sample_offset(system_, spl_nominal_, line);
+  }
+
  private:
   struct DecodedFrame {
     std::vector<sample_type> samples;
@@ -398,34 +427,34 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
 
   void ensure_frame_cached(FrameID id) const {
     if (frame_cache_.contains(id)) return;
-    DecodedFrame decoded = decode_frame(id);
-    frame_cache_.put(id, std::move(decoded));
+    frame_cache_.put(id, decode_channel_frame(input_path_, id));
   }
 
-  DecodedFrame decode_frame(FrameID id) const {
-    const size_t word_offset = static_cast<size_t>(id) * frame_samples_;
+  void ensure_c_frame_cached(FrameID id) const {
+    if (c_frame_cache_.contains(id)) return;
+    c_frame_cache_.put(id, decode_channel_frame(c_path_, id));
+  }
 
+  DecodedFrame decode_channel_frame(const std::string& path, FrameID id) const {
+    const size_t word_offset = static_cast<size_t>(id) * frame_samples_;
     std::vector<uint16_t> raw_words;
     std::string err;
-    if (!deps_->read_input_words_at(input_path_, word_offset, frame_samples_,
+    if (!deps_->read_input_words_at(path, word_offset, frame_samples_,
                                     raw_words, err)) {
       throw std::runtime_error("CVBS: failed to read frame " +
-                               std::to_string(id) + " from '" + input_path_ +
+                               std::to_string(id) + " from '" + path +
                                "': " + err);
     }
     if (raw_words.size() < frame_samples_) {
       throw std::runtime_error("CVBS: short read at frame " +
-                               std::to_string(id) + " in '" + input_path_ +
-                               "'");
+                               std::to_string(id) + " in '" + path + "'");
     }
-
     DecodedFrame result;
     result.samples.reserve(frame_samples_);
     for (size_t i = 0; i < frame_samples_; ++i) {
       result.samples.push_back(normalize_to_cvbs_u10(
           raw_words[i], sample_encoding_, blanking_level_));
     }
-
     return result;
   }
 
@@ -459,6 +488,9 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
   bool has_ac3_ = false;
   std::string ac3_data_path_;
   std::vector<CVBSExtensionFrameRef> ac3_table_;
+
+  std::string c_path_;
+  mutable LRUCache<FrameID, DecodedFrame> c_frame_cache_{kFrameCacheSize};
 };
 
 // ---------------------------------------------------------------------------
@@ -847,21 +879,41 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
                              ": source stage expects no inputs");
   }
 
-  auto it = parameters.find("input_path");
-  if (it == parameters.end() || std::get<std::string>(it->second).empty()) {
-    ORC_LOG_DEBUG("{}: no input_path configured", stage_name_);
+  // Detect mode: dual-file YC (y_path + c_path) vs single-file composite.
+  auto get_str_param = [&](const char* key) -> std::string {
+    auto it = parameters.find(key);
+    if (it == parameters.end()) return {};
+    const auto* s = std::get_if<std::string>(&it->second);
+    return s ? *s : std::string{};
+  };
+
+  const std::string y_path = get_str_param("y_path");
+  const std::string c_path = get_str_param("c_path");
+  const std::string single_path = get_str_param("input_path");
+
+  const bool is_yc = !y_path.empty() && !c_path.empty();
+  const std::string input_path = is_yc ? y_path : single_path;
+
+  if (input_path.empty()) {
+    ORC_LOG_DEBUG("{}: no input configured", stage_name_);
     return {};
   }
-  const std::string input_path = std::get<std::string>(it->second);
 
-  if (cached_representation_ && cached_input_path_ == input_path) {
+  const std::string cache_key = is_yc ? (y_path + "|" + c_path) : input_path;
+  if (cached_representation_ && cached_input_path_ == cache_key) {
     return {cached_representation_};
   }
 
-  // --- Validate input file ---
+  // --- Validate input file(s) ---
   std::string err;
   if (!deps_->validate_input_file(input_path, err)) {
     throw UserDataError(err);
+  }
+  if (is_yc) {
+    std::string c_err;
+    if (!deps_->validate_input_file(c_path, c_err)) {
+      throw UserDataError(c_err);
+    }
   }
 
   // --- Load and validate metadata ---
@@ -1045,10 +1097,11 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
       meta.ntsc_j_black_level, std::move(dropout_runs), has_audio,
       audio_locked_flag, wav_path, audio_pairs, has_efm, efm_data_path,
       std::move(efm_table), has_ac3, ac3_data_path, std::move(ac3_table),
-      ArtifactID(std::string(stage_name_) + ":" + input_path), std::move(prov));
+      is_yc ? c_path : std::string{},
+      ArtifactID(std::string(stage_name_) + ":" + cache_key), std::move(prov));
 
   cached_representation_ = representation;
-  cached_input_path_ = input_path;
+  cached_input_path_ = cache_key;
   input_path_ = input_path;
   return {representation};
 }
@@ -1058,24 +1111,56 @@ FixedFormatCVBSSourceStage::get_parameter_descriptors(
     VideoSystem /*project_format*/, SourceType /*source_type*/) const {
   std::vector<ParameterDescriptor> desc;
 
-  ParameterDescriptor pd;
-  pd.name = "input_path";
-  pd.display_name = "CVBS File Path";
-  pd.description =
-      "Path to the CVBS data file (.composite or .y/.c). "
-      "A <basename>.meta sidecar is required.";
-  pd.type = ParameterType::FILE_PATH;
-  pd.constraints.required = false;
-  pd.constraints.default_value = std::string("");
-  pd.file_extension_hint = ".composite";
-  desc.push_back(pd);
+  {
+    ParameterDescriptor pd;
+    pd.name = "input_path";
+    pd.display_name = "CVBS File Path";
+    pd.description =
+        "Path to the CVBS composite data file (.composite). "
+        "A <basename>.meta sidecar is required.";
+    pd.type = ParameterType::FILE_PATH;
+    pd.constraints.required = false;
+    pd.constraints.default_value = std::string("");
+    pd.file_extension_hint = ".composite";
+    desc.push_back(pd);
+  }
+
+  {
+    ParameterDescriptor pd;
+    pd.name = "y_path";
+    pd.display_name = "CVBS Y (Luma) File Path";
+    pd.description =
+        "Path to the CVBS luma channel file (.y) for YC sources. "
+        "Set together with c_path; a shared <basename>.meta sidecar is "
+        "required.";
+    pd.type = ParameterType::FILE_PATH;
+    pd.constraints.required = false;
+    pd.constraints.default_value = std::string("");
+    pd.file_extension_hint = ".y";
+    desc.push_back(pd);
+  }
+
+  {
+    ParameterDescriptor pd;
+    pd.name = "c_path";
+    pd.display_name = "CVBS C (Chroma) File Path";
+    pd.description =
+        "Path to the CVBS chroma channel file (.c) for YC sources. "
+        "Set together with y_path.";
+    pd.type = ParameterType::FILE_PATH;
+    pd.constraints.required = false;
+    pd.constraints.default_value = std::string("");
+    pd.file_extension_hint = ".c";
+    desc.push_back(pd);
+  }
 
   return desc;
 }
 
 std::map<std::string, ParameterValue>
 FixedFormatCVBSSourceStage::get_parameters() const {
-  return {{"input_path", input_path_}};
+  return {
+      {"input_path", input_path_}, {"y_path", y_path_}, {"c_path", c_path_}};
 }
 
 bool FixedFormatCVBSSourceStage::set_parameters(
@@ -1083,28 +1168,37 @@ bool FixedFormatCVBSSourceStage::set_parameters(
   for (const auto& [key, value] : params) {
     if (key == "input_path") {
       input_path_ = std::get<std::string>(value);
+    } else if (key == "y_path") {
+      y_path_ = std::get<std::string>(value);
+    } else if (key == "c_path") {
+      c_path_ = std::get<std::string>(value);
     } else {
       ORC_LOG_WARN("{}: unknown parameter '{}'", stage_name_, key);
       return false;
     }
   }
 
-  if (input_path_.empty()) {
+  // Determine the primary path for validation (y_path in YC mode, else
+  // input_path).
+  const bool is_yc = !y_path_.empty() && !c_path_.empty();
+  const std::string& primary = is_yc ? y_path_ : input_path_;
+
+  if (primary.empty()) {
     set_configuration_status(orc::ConfigurationStatus::Red);
     return true;
   }
 
-  // Validate the source file and its metadata now so the status dot reflects
-  // a format mismatch immediately, rather than only at execute() time.
+  // Validate the primary source file and its metadata so the status dot
+  // reflects a format mismatch immediately, rather than only at execute() time.
   std::string err;
-  if (!deps_->validate_input_file(input_path_, err)) {
+  if (!deps_->validate_input_file(primary, err)) {
     ORC_LOG_WARN("{}: source file not accessible: {}", stage_name_, err);
     set_configuration_status(orc::ConfigurationStatus::Yellow);
     return true;
   }
 
   namespace fs = std::filesystem;
-  const fs::path p(input_path_);
+  const fs::path p(primary);
   const std::string meta_path = (p.parent_path() / p.stem()).string() + ".meta";
 
   std::string meta_err;

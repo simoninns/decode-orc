@@ -1634,41 +1634,27 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
     } else {
-      // CVBS YC: Y source and C source, both connected to sink
+      // CVBS YC: single source stage with both y_path and c_path, wired to sink
       const std::string y_file = (ext == "y") ? primary_file : secondary_file;
       const std::string c_file = (ext == "c") ? primary_file : secondary_file;
 
-      ORC_LOG_INFO("Adding CVBS Y source stage: {}", source_stage_name);
-      orc::NodeID y_node_id;
+      ORC_LOG_INFO("Adding CVBS YC source stage: {}", source_stage_name);
+      orc::NodeID source_node_id;
       try {
-        y_node_id = project_.presenter()->addNode(source_stage_name,
-                                                  grid_offset_x, grid_offset_y);
+        source_node_id = project_.presenter()->addNode(
+            source_stage_name, grid_offset_x, grid_offset_y);
       } catch (const std::exception& e) {
         QMessageBox::critical(
             this, "Error",
-            QString("Failed to add Y source stage: %1").arg(e.what()));
-        return;
-      }
-
-      ORC_LOG_INFO("Adding CVBS C source stage: {}", source_stage_name);
-      orc::NodeID c_node_id;
-      try {
-        c_node_id = project_.presenter()->addNode(
-            source_stage_name, grid_offset_x, grid_offset_y + grid_spacing_y);
-      } catch (const std::exception& e) {
-        QMessageBox::critical(
-            this, "Error",
-            QString("Failed to add C source stage: %1").arg(e.what()));
+            QString("Failed to add YC source stage: %1").arg(e.what()));
         return;
       }
 
       ORC_LOG_INFO("Adding FFmpeg video sink stage");
       orc::NodeID sink_node_id;
       try {
-        // Vertically centre sink between the two source stages
         sink_node_id = project_.presenter()->addNode(
-            "ffmpeg_video_sink", grid_offset_x + grid_spacing_x,
-            grid_offset_y + grid_spacing_y / 2.0);
+            "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
       } catch (const std::exception& e) {
         QMessageBox::critical(
             this, "Error",
@@ -1676,35 +1662,23 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
 
-      std::map<std::string, orc::ParameterValue> y_params;
-      y_params["input_path"] = y_file;
+      std::map<std::string, orc::ParameterValue> yc_params;
+      yc_params["y_path"] = y_file;
+      yc_params["c_path"] = c_file;
       try {
-        project_.presenter()->setNodeParameters(y_node_id, y_params);
+        project_.presenter()->setNodeParameters(source_node_id, yc_params);
       } catch (const std::exception& e) {
         QMessageBox::critical(
             this, "Error",
-            QString("Failed to set parameters on Y source stage: %1")
-                .arg(e.what()));
-        return;
-      }
-
-      std::map<std::string, orc::ParameterValue> c_params;
-      c_params["input_path"] = c_file;
-      try {
-        project_.presenter()->setNodeParameters(c_node_id, c_params);
-      } catch (const std::exception& e) {
-        QMessageBox::critical(
-            this, "Error",
-            QString("Failed to set parameters on C source stage: %1")
+            QString("Failed to set parameters on YC source stage: %1")
                 .arg(e.what()));
         return;
       }
       ORC_LOG_INFO("CVBS YC source stage parameters set successfully");
 
-      ORC_LOG_INFO("Connecting CVBS YC source stages to sink stage");
+      ORC_LOG_INFO("Connecting CVBS YC source stage to sink stage");
       try {
-        project_.presenter()->addEdge(y_node_id, sink_node_id);
-        project_.presenter()->addEdge(c_node_id, sink_node_id);
+        project_.presenter()->addEdge(source_node_id, sink_node_id);
       } catch (const std::exception& e) {
         QMessageBox::critical(
             this, "Error",

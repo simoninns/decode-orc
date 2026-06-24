@@ -273,11 +273,13 @@ TEST(CVBSSourceStageIdentityTest, Stage_VersionIsCurrentPhase) {
 // Parameter descriptors
 // ===========================================================================
 
-TEST(CVBSSourceStageParamTest, HasExactlyOneParameter) {
+TEST(CVBSSourceStageParamTest, HasThreeParameters) {
   PALCVBSSourceStage stage;
   auto descs = stage.get_parameter_descriptors();
-  ASSERT_EQ(descs.size(), 1u);
+  ASSERT_EQ(descs.size(), 3u);
   EXPECT_EQ(descs[0].name, "input_path");
+  EXPECT_EQ(descs[1].name, "y_path");
+  EXPECT_EQ(descs[2].name, "c_path");
 }
 
 TEST(CVBSSourceStageParamTest, InputPath_IsFilePathType) {

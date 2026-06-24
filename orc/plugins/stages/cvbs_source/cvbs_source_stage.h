@@ -130,7 +130,12 @@ class ICVBSSourceStageDeps {
 // without output clamping so that headroom is preserved.
 //
 // Parameters:
-//   input_path  – path to the CVBS data file (.composite or .y/.c for YC)
+//   input_path  – path to the CVBS composite data file (.composite)
+//   y_path      – path to the luma channel file (.y) for YC mode
+//   c_path      – path to the chroma channel file (.c) for YC mode
+//
+// YC mode is active when both y_path and c_path are non-empty; composite mode
+// uses input_path.  The two modes are mutually exclusive.
 class FixedFormatCVBSSourceStage : public DAGStage,
                                    public ParameterizedStage,
                                    public IStagePreviewCapability {
@@ -192,7 +197,9 @@ class FixedFormatCVBSSourceStage : public DAGStage,
   const char* description_;
   VideoFormatCompatibility compatible_formats_;
 
-  std::string input_path_;
+  std::string input_path_;  // composite / single-channel mode
+  std::string y_path_;      // YC mode: luma path
+  std::string c_path_;      // YC mode: chroma path
 
   mutable std::mutex execute_mutex_;
   mutable std::string cached_input_path_;

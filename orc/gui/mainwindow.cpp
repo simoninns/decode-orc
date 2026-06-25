@@ -2016,8 +2016,27 @@ void MainWindow::updateWindowTitle() {
       default:
         break;
     }
-    if (!fmt_label.isEmpty()) {
-      title += " [" + fmt_label + "]";
+
+    // Append source type (Composite / Y/C) when known.
+    const auto src = project_.presenter()->getSourceType();
+    QString src_label;
+    switch (src) {
+      case orc::presenters::SourceType::Composite:
+        src_label = "Composite";
+        break;
+      case orc::presenters::SourceType::YC:
+        src_label = "Y/C";
+        break;
+      default:
+        break;
+    }
+
+    if (!fmt_label.isEmpty() || !src_label.isEmpty()) {
+      QString bracket;
+      if (!fmt_label.isEmpty()) bracket += fmt_label;
+      if (!fmt_label.isEmpty() && !src_label.isEmpty()) bracket += " - ";
+      if (!src_label.isEmpty()) bracket += src_label;
+      title += " [" + bracket + "]";
     }
 
     // Add source name if available

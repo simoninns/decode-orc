@@ -751,6 +751,7 @@ PluginRegistryInfo ProjectPresenter::readPluginRegistry() {
     info.license_spdx = entry.license_spdx;
     info.is_core_plugin = entry.is_core_plugin;
     info.required_host_abi = entry.required_host_abi;
+    info.sha256 = entry.sha256;
     info.is_loaded = loaded_paths.count(entry.path) > 0 ||
                      (!entry.plugin_id.empty() &&
                       loaded_plugin_ids.count(entry.plugin_id) > 0);
@@ -864,6 +865,7 @@ PluginRegistryMutationResult ProjectPresenter::addPluginRegistryEntry(
   new_entry.license_spdx = entry_info.license_spdx;
   new_entry.is_core_plugin = false;
   new_entry.required_host_abi = entry_info.required_host_abi;
+  new_entry.sha256 = entry_info.sha256;
   entries.push_back(std::move(new_entry));
 
   std::string error;
@@ -977,6 +979,40 @@ PluginRegistryMutationResult ProjectPresenter::removePluginRegistryEntry(
   return result;
 }
 
+// Find a registry entry by plugin_id. If no direct match exists, fall back
+// to matching a loaded plugin's path against entries whose plugin_id is
+// still empty (happens when plugins are added via file before their ID is
+// known) and backfill the id.
+static std::vector<orc::StagePluginRegistryEntry>::iterator
+findRegistryEntryByPluginId(std::vector<orc::StagePluginRegistryEntry>& entries,
+                            const std::string& plugin_id) {
+  auto it = std::find_if(entries.begin(), entries.end(),
+                         [&plugin_id](const orc::StagePluginRegistryEntry& e) {
+                           return e.plugin_id == plugin_id;
+                         });
+
+  if (it == entries.end()) {
+    const auto& loaded_plugins =
+        orc::StageRegistry::instance().get_loaded_plugins();
+    auto loaded_it = std::find_if(
+        loaded_plugins.begin(), loaded_plugins.end(),
+        [&plugin_id](const auto& lp) { return lp.plugin_id == plugin_id; });
+
+    if (loaded_it != loaded_plugins.end()) {
+      it = std::find_if(entries.begin(), entries.end(),
+                        [&loaded_it](const orc::StagePluginRegistryEntry& e) {
+                          return !e.path.empty() && e.path == loaded_it->path;
+                        });
+
+      if (it != entries.end() && it->plugin_id.empty()) {
+        it->plugin_id = plugin_id;
+      }
+    }
+  }
+
+  return it;
+}
+
 PluginRegistryMutationResult ProjectPresenter::setPluginRegistryEntryEnabled(
     const std::string& plugin_id, bool enabled) {
   PluginRegistryMutationResult result;
@@ -990,37 +1026,7 @@ PluginRegistryMutationResult ProjectPresenter::setPluginRegistryEntryEnabled(
   auto entries = persisted_registry.entries;
   const std::string registry_path = persisted_registry.registry_path;
 
-  // First, try to find entry by exact plugin_id match
-  auto it = std::find_if(entries.begin(), entries.end(),
-                         [&plugin_id](const orc::StagePluginRegistryEntry& e) {
-                           return e.plugin_id == plugin_id;
-                         });
-
-  // If not found and plugin_id is non-empty, also look for entries with empty
-  // plugin_id where the loaded plugin matches this ID (happens when plugins are
-  // added via file before their ID is known)
-  if (it == entries.end()) {
-    const auto& loaded_plugins =
-        orc::StageRegistry::instance().get_loaded_plugins();
-    auto loaded_it = std::find_if(
-        loaded_plugins.begin(), loaded_plugins.end(),
-        [&plugin_id](const auto& lp) { return lp.plugin_id == plugin_id; });
-
-    if (loaded_it != loaded_plugins.end()) {
-      // Found a loaded plugin with this ID - now find the registry entry that
-      // matches its path
-      it = std::find_if(entries.begin(), entries.end(),
-                        [&loaded_it](const orc::StagePluginRegistryEntry& e) {
-                          return !e.path.empty() && e.path == loaded_it->path;
-                        });
-
-      // If found, populate the plugin_id in the registry entry (it was empty
-      // before)
-      if (it != entries.end() && it->plugin_id.empty()) {
-        it->plugin_id = plugin_id;
-      }
-    }
-  }
+  auto it = findRegistryEntryByPluginId(entries, plugin_id);
 
   if (it == entries.end()) {
     result.error_message =
@@ -1029,6 +1035,46 @@ PluginRegistryMutationResult ProjectPresenter::setPluginRegistryEntryEnabled(
   }
 
   it->enabled = enabled;
+
+  std::string error;
+  if (!orc::StagePluginRegistry::save(registry_path, entries, &error)) {
+    result.error_message = "Failed to save registry: " + error;
+    return result;
+  }
+
+  result.success = true;
+  return result;
+}
+
+PluginRegistryMutationResult ProjectPresenter::setPluginRegistryEntryTrusted(
+    const std::string& plugin_id, bool trusted) {
+  PluginRegistryMutationResult result;
+
+  if (plugin_id.empty()) {
+    result.error_message = "Plugin id cannot be empty";
+    return result;
+  }
+
+  const auto persisted_registry = orc::StagePluginRegistry::load_default();
+  auto entries = persisted_registry.entries;
+  const std::string registry_path = persisted_registry.registry_path;
+
+  auto it = findRegistryEntryByPluginId(entries, plugin_id);
+
+  if (it == entries.end()) {
+    result.error_message =
+        "No plugin with id '" + plugin_id + "' found in registry";
+    return result;
+  }
+
+  if (it->is_core_plugin) {
+    result.error_message =
+        "Core plugins are always trusted; their trust "
+        "state cannot be changed";
+    return result;
+  }
+
+  it->trust_state = trusted ? "trusted" : "untrusted";
 
   std::string error;
   if (!orc::StagePluginRegistry::save(registry_path, entries, &error)) {

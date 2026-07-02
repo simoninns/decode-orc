@@ -95,6 +95,8 @@ class MockProjectPresenter : public IProjectPresenter {
               (const std::string& plugin_id), (const, override));
   MOCK_METHOD(PluginRegistryMutationResult, setPluginEnabled,
               (const std::string& plugin_id, bool enabled), (const, override));
+  MOCK_METHOD(PluginRegistryMutationResult, setPluginTrusted,
+              (const std::string& plugin_id, bool trusted), (const, override));
 
   MOCK_METHOD(bool, canTriggerNode, (NodeID node_id, std::string* reason),
               (const, override));

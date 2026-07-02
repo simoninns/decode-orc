@@ -80,4 +80,42 @@ TEST(PluginRemoteLoaderTest, Download_RejectsInvalidAssetNames) {
               std::string::npos);
 }
 
+// Checksum verification decision logic operates on in-memory data; the
+// file/download plumbing that feeds it is covered by functional tests.
+
+TEST(PluginRemoteLoaderTest, Verify_ChecksumMatchesKnownDigest) {
+  // sha256("abc")
+  const auto status = orc::PluginRemoteLoader::verify_checksum_hex(
+      "abc",
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  EXPECT_EQ(status, orc::PluginRemoteLoader::ChecksumStatus::Match);
+}
+
+TEST(PluginRemoteLoaderTest, Verify_ChecksumIsCaseInsensitive) {
+  const auto status = orc::PluginRemoteLoader::verify_checksum_hex(
+      "abc",
+      "BA7816BF8F01CFEA414140DE5DAE2223B00361A396177A9CB410FF61F20015AD");
+  EXPECT_EQ(status, orc::PluginRemoteLoader::ChecksumStatus::Match);
+}
+
+TEST(PluginRemoteLoaderTest, Verify_ChecksumReportsMismatch) {
+  const auto status = orc::PluginRemoteLoader::verify_checksum_hex(
+      "tampered payload",
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  EXPECT_EQ(status, orc::PluginRemoteLoader::ChecksumStatus::Mismatch);
+}
+
+TEST(PluginRemoteLoaderTest, Verify_ChecksumAbsentReportsNotProvided) {
+  const auto status =
+      orc::PluginRemoteLoader::verify_checksum_hex("anything", "");
+  EXPECT_EQ(status, orc::PluginRemoteLoader::ChecksumStatus::NotProvided);
+}
+
+TEST(PluginRemoteLoaderTest, Verify_MalformedExpectedDigestNeverMatches) {
+  // A registry typo (wrong length / non-hex) must fail closed.
+  const auto status =
+      orc::PluginRemoteLoader::verify_checksum_hex("abc", "not-a-digest");
+  EXPECT_EQ(status, orc::PluginRemoteLoader::ChecksumStatus::Mismatch);
+}
+
 }  // namespace orc_unit_test

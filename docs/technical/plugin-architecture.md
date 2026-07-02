@@ -17,9 +17,11 @@ registered through a common host runtime.
   diagnostic.
 - **Registry-based distribution:** Plugins are declared in a persistent YAML
   registry and can be fetched automatically from GitHub release assets at
-  startup. Note: registry entries are not currently signature- or
-  checksum-verified, and the recorded `trust_state` is informational — it is
-  not yet enforced at load time.
+  startup. Non-core registry entries must be explicitly marked trusted
+  before they are downloaded or loaded, and downloaded artifacts are
+  verified against a recorded SHA-256 checksum (see
+  [Distribution integrity](#distribution-integrity)). Plugin binaries are
+  **not** code-signed.
 
 ## Runtime Flow
 
@@ -34,7 +36,10 @@ Host startup
   │      (development build dir or executable-relative install dir)
    │
    ├─ For each registry entry
-   │      ├─ Resolve local path (download from GitHub releases if absent)
+   │      ├─ Check trust_state (untrusted non-core entries are skipped
+   │      │      with a warning diagnostic; nothing is downloaded or loaded)
+   │      ├─ Resolve local path (download from GitHub releases if absent;
+   │      │      verify sha256 checksum, quarantining mismatches)
    │      ├─ dlopen / LoadLibrary the shared library
    │      ├─ Resolve entrypoints:
    │      │      orc_get_stage_plugin_descriptor
@@ -186,15 +191,43 @@ Each entry records:
 | `target_platform` | Optional platform hint for cache selection |
 | `local_dev_path` | Optional development override used before remote download |
 | `enabled` | Whether the plugin is loaded at startup |
-| `trust_state` | Trust level (`untrusted`, etc.); recorded but not yet enforced at load time |
+| `trust_state` | Trust level, enforced before loading: entries other than `trusted` are neither downloaded nor `dlopen`ed unless `is_core_plugin` is set. Change it with `orc-cli plugins trust <id>` / `untrust <id>` or the GUI Plugin Manager's Trusted checkbox |
 | `license_spdx` | SPDX license identifier |
-| `is_core_plugin` | Marks entries supplied by Decode-Orc itself |
+| `is_core_plugin` | Marks entries supplied by Decode-Orc itself; implicitly trusted |
 | `required_host_abi` | Expected host ABI version |
+| `sha256` | Optional SHA-256 digest (64 hex chars) of the plugin binary for `github_release_asset` entries; verified after download and on cache hits |
 
 Entries with `artifact_source: github_release_asset` and an absent or empty
 `path` are resolved automatically: the host downloads the binary from the
 declared GitHub release and caches it to
-`~/.config/decode-orc/plugin-cache/<platform>/` before loading.
+`~/.config/decode-orc/plugin-cache/<platform>/` before loading. The download
+only happens for trusted entries. When the entry records a `sha256`, the
+digest is checked both after a fresh download and on every cache hit; a
+mismatching file is quarantined (renamed with a `.quarantined` suffix) and
+reported as an error, and a mismatching cache hit triggers one fresh
+download attempt. When no `sha256` is recorded, the host loads the artifact
+but emits a warning that its integrity could not be verified.
+
+### Distribution integrity
+
+What the host verifies before running plugin code, and what it does not:
+
+**Verified:**
+
+- `trust_state` — untrusted non-core registry entries are never downloaded
+  or `dlopen`ed (`stage_plugin_registry.cpp`, `stage_registry.cpp`).
+- `sha256` — downloaded artifacts (and cached copies) are checked against
+  the registry digest when one is recorded (`plugin_remote_loader.cpp`).
+- `host_abi_version` and `plugin_api_version` — exact-match at load time
+  (`stage_plugin_loader.cpp`).
+- `toolchain_tag` — exact-match against the host's compiler/stdlib/build
+  configuration tag (ABI v5).
+
+**Not verified (future work):**
+
+- Code signing. Plugin binaries carry no cryptographic signature and the
+  registry itself is not signed; the `sha256` field authenticates the
+  artifact only as strongly as the registry file that records it.
 
 ## Project-Level Plugin Metadata
 

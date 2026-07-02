@@ -238,13 +238,27 @@ std::vector<std::string> collect_default_plugin_search_paths() {
   return paths;
 }
 
-std::vector<std::string> collect_registry_plugin_paths(
+}  // namespace
+
+std::vector<std::string> collect_trusted_registry_plugin_paths(
     const std::vector<StagePluginRegistryEntry>& entries,
     std::vector<StagePluginDiagnostic>& diagnostics) {
   std::vector<std::string> paths;
 
   for (const auto& entry : entries) {
     if (!entry.enabled) {
+      continue;
+    }
+
+    if (!StagePluginRegistry::is_entry_trusted(entry)) {
+      const std::string label =
+          entry.plugin_id.empty() ? entry.path : entry.plugin_id;
+      diagnostics.push_back(
+          {StagePluginDiagnosticSeverity::Warning, entry.path,
+           "Plugin registry entry '" + label +
+               "' is untrusted and was not loaded; mark it trusted to enable "
+               "it (e.g. 'orc-cli plugins trust " +
+               label + "')"});
       continue;
     }
 
@@ -259,8 +273,6 @@ std::vector<std::string> collect_registry_plugin_paths(
 
   return paths;
 }
-
-}  // namespace
 
 StageRegistry& StageRegistry::instance() {
   static StageRegistry registry;
@@ -375,7 +387,7 @@ void StageRegistry::initialize_runtime_plugins() {
         "Using default runtime plugin search paths from build/install layout");
   }
 
-  const auto registry_paths = collect_registry_plugin_paths(
+  const auto registry_paths = collect_trusted_registry_plugin_paths(
       plugin_registry_entries_, plugin_diagnostics_);
   unique_search_paths.insert(registry_paths.begin(), registry_paths.end());
 

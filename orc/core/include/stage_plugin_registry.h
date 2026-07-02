@@ -43,6 +43,9 @@ struct StagePluginRegistryEntry {
   std::string license_spdx;
   bool is_core_plugin = false;
   uint32_t required_host_abi = 0;
+  // Expected SHA-256 digest (64 hex chars) of the plugin binary for
+  // github_release_asset entries; verified after download and on cache hits.
+  std::string sha256;
 };
 
 class StagePluginRegistry {
@@ -56,6 +59,12 @@ class StagePluginRegistry {
 
   static std::string default_registry_path();
   static LoadResult load_default();
+
+  // Trust policy: core plugins are implicitly trusted; every other entry
+  // must carry trust_state == "trusted" before its binary may be downloaded
+  // or dlopen'ed.
+  static bool is_entry_trusted(const StagePluginRegistryEntry& entry);
+
   static LoadResult parse_yaml(const std::string& yaml_text,
                                const std::string& registry_path = "<memory>");
   static std::string serialize_yaml(

@@ -88,6 +88,7 @@ add_library(orc-core SHARED
     stage_plugin_loader.cpp
     stage_plugin_registry.cpp
     plugin_remote_loader.cpp
+    sha256_hash.cpp
     
     # DAG serialization
     dag_serialization.cpp

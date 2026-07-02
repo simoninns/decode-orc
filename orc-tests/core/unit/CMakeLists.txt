@@ -200,7 +200,9 @@ orc_add_core_unit_tests(
         metadata/video_system_parsing_test.cpp
         metadata/project_plugin_metadata_test.cpp
         metadata/stage_plugin_registry_test.cpp
+        metadata/stage_registry_trust_test.cpp
         metadata/plugin_remote_loader_test.cpp
+        metadata/sha256_hash_test.cpp
         metadata/skeleton_plugin_registry_test.cpp
         metadata/dropout_util_test.cpp
 )

@@ -13,9 +13,9 @@
 #              is how third-party plugin authors run the gate against their
 #              own repository.
 #
-# The SDK header allowlist below is the contract surface defined in
-# docs-tech/plugin-sdk-header-inventory.md (§2). Adding a header to the SDK
-# requires updating both the inventory document and this list — that is
+# The SDK header allowlist below is the contract surface documented in
+# docs/technical/plugin-sdk.md (SDK Headers section). Adding a header to the
+# SDK requires updating both that document and this list — that is
 # deliberate: the allowlist is the enforced contract.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -356,7 +356,7 @@ else
     echo "   - Permitted third-party headers (fmt/spdlog; plugin-declared deps)"
     echo
     echo "   If an SDK capability is missing, expand the SDK contract first"
-    echo "   (docs-tech/plugin-sdk-header-inventory.md) rather than bypassing it."
+    echo "   (docs/technical/plugin-sdk.md) rather than bypassing it."
     echo
     exit 1  # Hard gate: fail CI on violations
 fi

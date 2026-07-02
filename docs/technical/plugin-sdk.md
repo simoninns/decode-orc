@@ -69,8 +69,30 @@ This list, together with the `<orc/plugin/...>` family above, is the
 include outside it, other than plugin-local headers, standard-library and
 platform headers, and permitted third-party headers (`fmt`/`spdlog`
 unconditionally; other libraries when declared by the plugin's own CMake
-target). The design rationale for each header is recorded in
-`docs-tech/plugin-sdk-header-inventory.md`.
+target).
+
+### Design Notes on the Allowlist
+
+A few allowlist entries carry rationale worth knowing:
+
+- **Logging surface.** In-tree plugins use the `ORC_LOG_*` macro family from
+  `<orc/stage/logging.h>`, backed by the host's spdlog logger and linked from
+  orc-core like every other contract symbol. Out-of-tree plugins should
+  prefer the services-table macros (`ORC_PLUGIN_LOG_*` from
+  `<orc/plugin/orc_plugin_services_helpers.h>`) to avoid a direct spdlog
+  dependency. The application logging header `orc/common/include/logging.h`
+  (`get_app_logger()`) is unrelated and is the GUI/CLI surface only; the
+  contract header lives at `<orc/stage/logging.h>` precisely so the two can
+  never be confused via include-path order.
+- **Observer headers are provisional.** The `observers/*.h` entries exist
+  because the analysis sinks instantiate concrete host observers to
+  (re)compute observations at trigger time. The cleaner long-term design is a
+  host-side observation service exposed through `IStageServices`; if that is
+  added, these headers return to host-only status. Do not grow new
+  dependencies on them.
+- **`lru_cache.h`** is a self-contained generic container with no host
+  coupling, allowlisted because several plugins legitimately use it for frame
+  caching — preferable to each plugin vendoring a copy.
 
 ### Stability Guarantees
 
@@ -482,10 +504,21 @@ Users register your plugin by adding an entry to their plugin registry YAML:
   enabled:            true
   trust_state:        untrusted
   license_spdx:       MIT
+  sha256:             9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 ```
 
-The host downloads and caches the binary automatically the first time it starts
-with this entry present.
+The host downloads and caches the binary automatically the first time it
+starts with this entry present — but only once the user has marked the entry
+trusted (`orc-cli plugins trust <id>` or the GUI Plugin Manager's Trusted
+checkbox); entries with `trust_state: untrusted` are neither downloaded nor
+loaded. Publish the artifact's SHA-256 digest so users can record it in the
+optional `sha256` field: the host then verifies the download (and every
+cache hit) against it and quarantines mismatching files. Without a `sha256`
+the plugin still loads, with a warning that its integrity was not verified.
+Plugin binaries are not code-signed; see the "Distribution integrity"
+section of
+[plugin-architecture.md](plugin-architecture.md#distribution-integrity) for
+exactly what is and is not verified.
 
 ## Versioning and Compatibility Policy
 

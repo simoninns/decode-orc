@@ -20,12 +20,19 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace orc {
 
 class PluginRemoteLoader {
  public:
+  enum class ChecksumStatus {
+    NotProvided,  // No expected digest supplied; integrity not verifiable
+    Match,        // Computed SHA-256 equals the expected digest
+    Mismatch,     // Computed SHA-256 differs from the expected digest
+  };
+
   struct ResolveReleaseAssetResult {
     bool success = false;
     std::string source_repo_url;
@@ -51,6 +58,11 @@ class PluginRemoteLoader {
    * orc-plugin_<stage>_<platform>.<ext> pattern)
    * @param target_platform Platform identifier (linux, macos, windows)
    * @param warnings Optional warning accumulator for informational messages
+   * @param expected_sha256 Optional SHA-256 digest (64 hex chars). When
+   *        provided, both cache hits and fresh downloads are verified
+   *        against it; a mismatching file is quarantined (renamed with a
+   *        `.quarantined` suffix) and the download fails with an error.
+   *        When absent, a warning notes the artifact cannot be verified.
    *
    * @return DownloadResult with success flag, local path (if success), and
    * error message (if failure)
@@ -62,7 +74,22 @@ class PluginRemoteLoader {
   static DownloadResult download_release_asset(
       const std::string& github_release_url, const std::string& asset_name,
       const std::string& target_platform,
-      std::vector<std::string>* warnings = nullptr);
+      std::vector<std::string>* warnings = nullptr,
+      const std::string& expected_sha256 = "");
+
+  /**
+   * Compare in-memory artifact bytes against an expected SHA-256 digest.
+   *
+   * @param data Raw artifact bytes
+   * @param expected_sha256_hex Expected digest as hexadecimal text
+   *        (case-insensitive); empty means "no checksum recorded"
+   * @return NotProvided when expected_sha256_hex is empty, otherwise
+   *         Match/Mismatch
+   *
+   * Thread safety: pure function, safe to call concurrently.
+   */
+  static ChecksumStatus verify_checksum_hex(
+      std::string_view data, const std::string& expected_sha256_hex);
 
   /**
    * Resolve a GitHub releases URL to a concrete release asset for the target

@@ -89,6 +89,8 @@ class IProjectPresenter {
       const std::string& plugin_id) const = 0;
   virtual PluginRegistryMutationResult setPluginEnabled(
       const std::string& plugin_id, bool enabled) const = 0;
+  virtual PluginRegistryMutationResult setPluginTrusted(
+      const std::string& plugin_id, bool trusted) const = 0;
 
   // === Batch Operations ===
   virtual bool canTriggerNode(NodeID node_id, std::string* reason) const = 0;

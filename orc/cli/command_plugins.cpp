@@ -32,6 +32,10 @@ void print_plugins_usage(const char* program_name) {
                "persistent registry\n";
   std::cerr << "  enable <id>                    Enable a registered plugin\n";
   std::cerr << "  disable <id>                   Disable a registered plugin\n";
+  std::cerr << "  trust <id>                     Mark a registered plugin as "
+               "trusted (allows download and loading)\n";
+  std::cerr << "  untrust <id>                   Mark a registered plugin as "
+               "untrusted (blocks download and loading)\n";
   std::cerr << "\n";
   std::cerr << "Options for 'add':\n";
   std::cerr << "  --id ID                        Plugin identifier (e.g. "
@@ -69,7 +73,9 @@ int cmd_plugins_list() {
       std::cout << "  version:  " << version << "\n";
       std::cout << "  license:  " << license << "\n";
       std::cout << "  enabled:  " << (e.enabled ? "yes" : "no") << "\n";
-      std::cout << "  trusted:  " << (e.trust_state == "trusted" ? "yes" : "no")
+      std::cout << "  trusted:  "
+                << ((e.is_core_plugin || e.trust_state == "trusted") ? "yes"
+                                                                     : "no")
                 << "\n";
       std::cout << "  core:     " << (e.is_core_plugin ? "yes" : "no") << "\n";
       std::cout << "  exists:   " << (e.path_exists ? "yes" : "no") << "\n";
@@ -179,6 +185,30 @@ int cmd_plugins_set_enabled(int argc, char* argv[], bool enabled) {
   return 0;
 }
 
+int cmd_plugins_set_trusted(int argc, char* argv[], bool trusted) {
+  const std::string subcommand = trusted ? "trust" : "untrust";
+  if (argc < 2) {
+    std::cerr << "Error: '" << subcommand << "' requires a plugin id\n";
+    std::cerr << "Usage: orc-cli plugins " << subcommand << " <id>\n";
+    return 1;
+  }
+
+  const std::string plugin_id = argv[1];
+  const auto result =
+      orc::presenters::ProjectPresenter::setPluginRegistryEntryTrusted(
+          plugin_id, trusted);
+
+  if (!result.success) {
+    std::cerr << "Error: " << result.error_message << "\n";
+    return 1;
+  }
+
+  std::cout << "Plugin '" << plugin_id << "' marked as "
+            << (trusted ? "trusted" : "untrusted") << ".\n";
+  std::cout << "Note: Changes take effect on the next application launch.\n";
+  return 0;
+}
+
 }  // namespace
 
 int plugins_command(int argc, char* argv[]) {
@@ -214,6 +244,14 @@ int plugins_command(int argc, char* argv[]) {
 
   if (subcommand == "disable") {
     return cmd_plugins_set_enabled(argc - 1, argv + 1, false);
+  }
+
+  if (subcommand == "trust") {
+    return cmd_plugins_set_trusted(argc - 1, argv + 1, true);
+  }
+
+  if (subcommand == "untrust") {
+    return cmd_plugins_set_trusted(argc - 1, argv + 1, false);
   }
 
   std::cerr << "Error: Unknown plugins subcommand: " << subcommand << "\n\n";

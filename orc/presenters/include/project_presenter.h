@@ -361,6 +361,10 @@ class ProjectPresenter : public IProjectPresenter {
                                                 bool enabled) const override {
     return ProjectPresenter::setPluginRegistryEntryEnabled(plugin_id, enabled);
   }
+  PluginRegistryMutationResult setPluginTrusted(const std::string& plugin_id,
+                                                bool trusted) const override {
+    return ProjectPresenter::setPluginRegistryEntryTrusted(plugin_id, trusted);
+  }
 
   // === Stage Registry ===
 
@@ -443,6 +447,16 @@ class ProjectPresenter : public IProjectPresenter {
    */
   static PluginRegistryMutationResult setPluginRegistryEntryEnabled(
       const std::string& plugin_id, bool enabled);
+
+  /**
+   * @brief Mark a plugin entry as trusted or untrusted in the persistent
+   * registry
+   *
+   * Untrusted non-core entries are neither downloaded nor loaded at startup.
+   * Core plugin entries are implicitly trusted and cannot be changed.
+   */
+  static PluginRegistryMutationResult setPluginRegistryEntryTrusted(
+      const std::string& plugin_id, bool trusted);
 
   /**
    * @brief Clear persistent plugin registry entries for safe startup mode

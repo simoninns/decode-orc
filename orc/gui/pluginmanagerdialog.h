@@ -46,6 +46,7 @@ class PluginManagerDialog : public QDialog {
  private:
   void buildUI();
   void refresh();
+  void onTrustedItemChanged(QTableWidgetItem* item);
   void captureInitialRegistrySnapshot();
   bool restoreInitialRegistrySnapshot(QString* error_message);
 

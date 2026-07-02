@@ -60,6 +60,7 @@ struct PluginRegistryEntryInfo {
   std::string license_spdx;
   bool is_core_plugin = false;
   uint32_t required_host_abi = 0;
+  std::string sha256;
   bool is_loaded = false;
   bool path_exists = false;
 };

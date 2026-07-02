@@ -277,4 +277,113 @@ plugins:
   EXPECT_EQ(result.entries.front().path, "/tmp/suspicious/libmalicious.so");
 }
 
+// ---------------------------------------------------------------------------
+// Trust enforcement and download gating
+// ---------------------------------------------------------------------------
+
+TEST(StagePluginRegistryTest, IsEntryTrusted_RequiresTrustedStateForNonCore) {
+  orc::StagePluginRegistryEntry entry;
+  entry.is_core_plugin = false;
+
+  entry.trust_state = "untrusted";
+  EXPECT_FALSE(orc::StagePluginRegistry::is_entry_trusted(entry));
+
+  entry.trust_state = "trusted";
+  EXPECT_TRUE(orc::StagePluginRegistry::is_entry_trusted(entry));
+
+  // Anything that is not exactly "trusted" is treated as untrusted.
+  entry.trust_state = "Trusted";
+  EXPECT_FALSE(orc::StagePluginRegistry::is_entry_trusted(entry));
+}
+
+TEST(StagePluginRegistryTest, IsEntryTrusted_CorePluginsAreImplicitlyTrusted) {
+  orc::StagePluginRegistryEntry entry;
+  entry.is_core_plugin = true;
+  entry.trust_state = "untrusted";
+  EXPECT_TRUE(orc::StagePluginRegistry::is_entry_trusted(entry));
+}
+
+TEST(StagePluginRegistryTest,
+     ParseYaml_SkipsDownloadForUntrustedRemoteEntryButKeepsIt) {
+  // No path and an untrusted remote source: the parser must not attempt any
+  // download (which would hit the network) and must keep the entry visible
+  // so the user can mark it trusted.
+  const std::string yaml_text = R"yaml(
+version: 2
+plugins:
+  - plugin_id: remote.untrusted.plugin
+    artifact_source: github_release_asset
+    release_asset_url: https://example.invalid/remote/releases/download/v1.0.0/orc-plugin_remote_linux.so
+    release_asset_name: orc-plugin_remote_linux.so
+    target_platform: linux
+    enabled: true
+    trust_state: untrusted
+)yaml";
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(yaml_text);
+
+  ASSERT_EQ(result.entries.size(), 1U);
+  EXPECT_EQ(result.entries.front().plugin_id, "remote.untrusted.plugin");
+  EXPECT_TRUE(result.entries.front().path.empty());
+
+  ASSERT_EQ(result.warnings.size(), 1U);
+  EXPECT_TRUE(result.warnings.front().find("untrusted") != std::string::npos);
+  EXPECT_TRUE(result.warnings.front().find("skipping artifact download") !=
+              std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// sha256 field handling
+// ---------------------------------------------------------------------------
+
+TEST(StagePluginRegistryTest, ParseYaml_ReadsSha256Field) {
+  const std::string yaml_text = R"yaml(
+version: 2
+plugins:
+  - plugin_id: checksummed.plugin
+    path: /plugins/libchecksummed.so
+    sha256: ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+    enabled: true
+)yaml";
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(yaml_text);
+
+  ASSERT_TRUE(result.warnings.empty());
+  ASSERT_EQ(result.entries.size(), 1U);
+  EXPECT_EQ(result.entries.front().sha256,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+}
+
+TEST(StagePluginRegistryTest, Parse_YamlWarnsOnMalformedSha256) {
+  const std::string yaml_text = R"yaml(
+version: 2
+plugins:
+  - plugin_id: bad.checksum.plugin
+    path: /plugins/libbadchecksum.so
+    sha256: not-a-valid-digest
+    enabled: true
+)yaml";
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(yaml_text);
+
+  ASSERT_EQ(result.entries.size(), 1U);
+  ASSERT_EQ(result.warnings.size(), 1U);
+  EXPECT_TRUE(result.warnings.front().find("invalid sha256") !=
+              std::string::npos);
+}
+
+TEST(StagePluginRegistryTest, Serialize_YamlRoundTripsSha256) {
+  orc::StagePluginRegistryEntry entry;
+  entry.plugin_id = "roundtrip.checksum.plugin";
+  entry.path = "/plugins/libroundtrip.so";
+  entry.sha256 =
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+  const auto yaml_text = orc::StagePluginRegistry::serialize_yaml({entry});
+  const auto reparsed = orc::StagePluginRegistry::parse_yaml(yaml_text);
+
+  ASSERT_EQ(reparsed.entries.size(), 1U);
+  EXPECT_EQ(reparsed.entries.front().sha256, entry.sha256);
+}
+
 }  // namespace orc_unit_test

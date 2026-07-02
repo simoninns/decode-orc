@@ -375,7 +375,7 @@ Plugin architecture and SDK documentation are published in `docs/technical/plugi
 | Change | Doc to update |
 |--------|---------------|
 | `kStagePluginHostAbiVersion` or `kStagePluginApiVersion` bumped | Both files — update version tables and compatibility sections |
-| New or removed public SDK header (`orc/sdk/include/orc/plugin/` or `orc/sdk/include/orc/stage/`) | `plugin-sdk.md` — SDK Headers section, the allowlist in `cmake/check_plugin_private_includes.sh`, and `docs-tech/plugin-sdk-header-inventory.md` |
+| New or removed public SDK header (`orc/sdk/include/orc/plugin/` or `orc/sdk/include/orc/stage/`) | `plugin-sdk.md` — SDK Headers section, and the allowlist in `cmake/check_plugin_private_includes.sh` |
 | `StagePluginDescriptor`, entrypoint signatures, or callback contract changed | `plugin-architecture.md` — Compatibility Gating section |
 | Registry YAML schema fields added or removed | `plugin-architecture.md` — Plugin Registry table |
 | Artifact naming convention changed | Both files |

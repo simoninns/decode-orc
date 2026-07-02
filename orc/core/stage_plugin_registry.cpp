@@ -12,6 +12,7 @@
 #include <spdlog/spdlog.h>
 #include <yaml-cpp/yaml.h>
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -23,6 +24,18 @@ namespace orc {
 namespace {
 
 constexpr int kRegistrySchemaVersion = 2;
+
+bool is_valid_sha256_hex(const std::string& value) {
+  if (value.size() != 64) {
+    return false;
+  }
+  for (char ch : value) {
+    if (!std::isxdigit(static_cast<unsigned char>(ch))) {
+      return false;
+    }
+  }
+  return true;
+}
 
 bool is_valid_release_asset_name(const std::string& name) {
   // Phase 7C convention:
@@ -126,6 +139,14 @@ StagePluginRegistryEntry parse_plugin_entry(
   entry.license_spdx = node["license_spdx"].as<std::string>("");
   entry.is_core_plugin = node["is_core_plugin"].as<bool>(false);
   entry.required_host_abi = node["required_host_abi"].as<uint32_t>(0);
+  entry.sha256 = node["sha256"].as<std::string>("");
+
+  if (!entry.sha256.empty() && !is_valid_sha256_hex(entry.sha256)) {
+    warnings.push_back(
+        "Registry entry has invalid sha256 '" + entry.sha256 +
+        "' (expected 64 hexadecimal characters); the artifact will fail "
+        "checksum verification");
+  }
 
   if (entry.artifact_source != "local_path" &&
       entry.artifact_source != "github_release_asset") {
@@ -194,6 +215,7 @@ YAML::Node to_yaml_node(const StagePluginRegistryEntry& entry) {
   node["license_spdx"] = entry.license_spdx;
   node["is_core_plugin"] = entry.is_core_plugin;
   node["required_host_abi"] = entry.required_host_abi;
+  node["sha256"] = entry.sha256;
   return node;
 }
 
@@ -201,6 +223,11 @@ YAML::Node to_yaml_node(const StagePluginRegistryEntry& entry) {
 
 std::string StagePluginRegistry::default_registry_path() {
   return (resolve_default_config_dir() / "stage-plugins.yaml").string();
+}
+
+bool StagePluginRegistry::is_entry_trusted(
+    const StagePluginRegistryEntry& entry) {
+  return entry.is_core_plugin || entry.trust_state == "trusted";
 }
 
 StagePluginRegistry::LoadResult StagePluginRegistry::parse_yaml(
@@ -236,6 +263,19 @@ StagePluginRegistry::LoadResult StagePluginRegistry::parse_yaml(
     // download it
     if (entry.path.empty() && entry.artifact_source == "github_release_asset" &&
         !entry.release_asset_url.empty() && !entry.release_asset_name.empty()) {
+      if (!is_entry_trusted(entry)) {
+        // Trust gate: never fetch code the loader would refuse to load.
+        // Keep the entry (with its empty path) so GUI/CLI listings still
+        // show it and the user can mark it trusted.
+        result.warnings.push_back(
+            "Plugin '" + entry.plugin_id +
+            "' is untrusted; skipping artifact download and load (mark it "
+            "trusted to enable it, e.g. 'orc-cli plugins trust " +
+            entry.plugin_id + "')");
+        result.entries.push_back(std::move(entry));
+        continue;
+      }
+
       spdlog::debug(
           "Attempting to download remote plugin '{}' from GitHub release: {}",
           entry.plugin_id, entry.release_asset_url);
@@ -255,7 +295,7 @@ StagePluginRegistry::LoadResult StagePluginRegistry::parse_yaml(
 
       auto download_result = PluginRemoteLoader::download_release_asset(
           entry.release_asset_url, entry.release_asset_name, target_platform,
-          &result.warnings);
+          &result.warnings, entry.sha256);
 
       if (download_result.success) {
         entry.path = download_result.downloaded_path;

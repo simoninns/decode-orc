@@ -61,6 +61,21 @@ struct StagePluginDiagnostic {
 };
 
 /**
+ * @brief Collect loadable plugin paths from persistent registry entries
+ *
+ * Applies the registry trust policy before any path reaches dlopen: disabled
+ * entries are skipped silently, and enabled non-core entries whose
+ * trust_state is not "trusted" are skipped with a warning diagnostic
+ * (StagePluginRegistry::is_entry_trusted). Core-plugin default search paths
+ * are not affected — they never pass through registry entries.
+ *
+ * Thread safety: pure function over its arguments; safe to call concurrently.
+ */
+std::vector<std::string> collect_trusted_registry_plugin_paths(
+    const std::vector<StagePluginRegistryEntry>& entries,
+    std::vector<StagePluginDiagnostic>& diagnostics);
+
+/**
  * @brief Factory for creating DAG stages by name
  *
  * The registry maps stage names (strings) to factory functions that create

@@ -18,6 +18,8 @@
 #include <fstream>
 #include <regex>
 
+#include "include/sha256_hash.h"
+
 namespace orc {
 namespace {
 
@@ -183,6 +185,49 @@ std::string sanitize_cache_component(std::string value) {
   }
 
   return value;
+}
+
+bool hex_digests_equal(const std::string& lhs, const std::string& rhs) {
+  if (lhs.size() != rhs.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < lhs.size(); ++i) {
+    if (std::tolower(static_cast<unsigned char>(lhs[i])) !=
+        std::tolower(static_cast<unsigned char>(rhs[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Move a checksum-mismatching artifact aside so it can never be dlopen'ed,
+// while preserving it for inspection. Returns the quarantine path, or an
+// empty string if the rename failed (in which case the file is removed).
+std::string quarantine_artifact(const std::string& path) {
+  const std::string quarantine_path = path + ".quarantined";
+  std::error_code error_code;
+  std::filesystem::remove(quarantine_path, error_code);
+  error_code.clear();
+  std::filesystem::rename(path, quarantine_path, error_code);
+  if (error_code) {
+    std::filesystem::remove(path, error_code);
+    return "";
+  }
+  return quarantine_path;
+}
+
+// Compute the digest of a cached/downloaded file and compare it to the
+// registry's expected digest.
+PluginRemoteLoader::ChecksumStatus verify_file_checksum(
+    const std::string& path, const std::string& expected_sha256_hex) {
+  if (expected_sha256_hex.empty()) {
+    return PluginRemoteLoader::ChecksumStatus::NotProvided;
+  }
+  const std::string actual = sha256_hex_of_file(path);
+  if (!actual.empty() && hex_digests_equal(actual, expected_sha256_hex)) {
+    return PluginRemoteLoader::ChecksumStatus::Match;
+  }
+  return PluginRemoteLoader::ChecksumStatus::Mismatch;
 }
 
 std::string extract_release_tag_from_asset_url(
@@ -372,9 +417,20 @@ std::string PluginRemoteLoader::get_cache_path(
   return cache_path.string();
 }
 
+PluginRemoteLoader::ChecksumStatus PluginRemoteLoader::verify_checksum_hex(
+    std::string_view data, const std::string& expected_sha256_hex) {
+  if (expected_sha256_hex.empty()) {
+    return ChecksumStatus::NotProvided;
+  }
+  return hex_digests_equal(sha256_hex(data), expected_sha256_hex)
+             ? ChecksumStatus::Match
+             : ChecksumStatus::Mismatch;
+}
+
 PluginRemoteLoader::DownloadResult PluginRemoteLoader::download_release_asset(
     const std::string& github_release_url, const std::string& asset_name,
-    const std::string& target_platform, std::vector<std::string>* warnings) {
+    const std::string& target_platform, std::vector<std::string>* warnings,
+    const std::string& expected_sha256) {
   DownloadResult result;
 
   // Validate asset name format
@@ -399,10 +455,28 @@ PluginRemoteLoader::DownloadResult PluginRemoteLoader::download_release_asset(
   std::string cache_path =
       get_cache_path(asset_name, target_platform, release_tag);
   if (!cache_path.empty() && std::filesystem::exists(cache_path)) {
-    spdlog::debug("Plugin binary found in cache: {}", cache_path);
-    result.success = true;
-    result.downloaded_path = cache_path;
-    return result;
+    // Re-verify cache hits so a tampered or corrupted cached binary is
+    // quarantined and replaced by a fresh download instead of being loaded.
+    const auto cached_status =
+        verify_file_checksum(cache_path, expected_sha256);
+    if (cached_status == ChecksumStatus::Mismatch) {
+      const std::string quarantine_path = quarantine_artifact(cache_path);
+      const std::string warning =
+          "Cached plugin binary failed sha256 verification and was "
+          "quarantined" +
+          (quarantine_path.empty() ? std::string(" (and removed)")
+                                   : " to: " + quarantine_path) +
+          "; re-downloading " + asset_name;
+      spdlog::warn("{}", warning);
+      if (warnings) {
+        warnings->push_back(warning);
+      }
+    } else {
+      spdlog::debug("Plugin binary found in cache: {}", cache_path);
+      result.success = true;
+      result.downloaded_path = cache_path;
+      return result;
+    }
   }
 
   // Ensure cache directory exists
@@ -552,6 +626,35 @@ PluginRemoteLoader::DownloadResult PluginRemoteLoader::download_release_asset(
     }
 
     return result;
+  }
+
+  // Integrity gate: verify the download against the registry's expected
+  // digest before it becomes a loadable cache entry.
+  switch (verify_file_checksum(cache_path, expected_sha256)) {
+    case ChecksumStatus::Match:
+      break;
+    case ChecksumStatus::Mismatch: {
+      const std::string quarantine_path = quarantine_artifact(cache_path);
+      result.error_message =
+          "Downloaded plugin binary failed sha256 verification (expected " +
+          expected_sha256 + "); the file was quarantined" +
+          (quarantine_path.empty() ? std::string(" (and removed)")
+                                   : " to: " + quarantine_path);
+      if (warnings) {
+        warnings->push_back(result.error_message);
+      }
+      return result;
+    }
+    case ChecksumStatus::NotProvided: {
+      const std::string warning =
+          "No sha256 recorded for downloaded plugin asset '" + asset_name +
+          "'; artifact integrity was not verified";
+      spdlog::warn("{}", warning);
+      if (warnings) {
+        warnings->push_back(warning);
+      }
+      break;
+    }
   }
 
   spdlog::debug("Successfully downloaded plugin binary to cache: {} ({} bytes)",

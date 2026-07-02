@@ -133,10 +133,6 @@ set(ORC_GUI_LIB_SOURCES
     burstlevelanalysisdialog.cpp
     burstlevelanalysisdialog.h
     
-    # Quality metrics dialog
-    qualitymetricsdialog.cpp
-    qualitymetricsdialog.h
-
     # Plugin manager dialog
     pluginmanagerdialog.cpp
     pluginmanagerdialog.h

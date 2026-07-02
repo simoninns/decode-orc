@@ -35,6 +35,9 @@ TEST(GUIProjectTest, NewEmptyProject_DelegatesLifecycleAndClearsModified) {
   EXPECT_CALL(*mock_presenter,
               setSourceType(orc::presenters::SourceType::Composite))
       .Times(1);
+  // NTSC projects default to IRE (SMPTE 170M-2004 convention).
+  EXPECT_CALL(*mock_presenter, setAmplitudeUnit(orc::AmplitudeDisplayUnit::IRE))
+      .Times(1);
   EXPECT_CALL(*mock_presenter, clearModifiedFlag()).Times(1);
 
   QString error;

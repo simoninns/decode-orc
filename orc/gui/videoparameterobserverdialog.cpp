@@ -9,8 +9,35 @@
 
 #include "videoparameterobserverdialog.h"
 
+#include <amplitude_conversion.h>
+
 #include <QGridLayout>
 #include <QVBoxLayout>
+
+// Burst level is an AC amplitude (peak burst excursion, not an absolute
+// level), so IRE/mV conversion scales by the blanking-to-white range without
+// translating from blanking.
+static double burstAmplitudeToDisplay(double amplitude_10bit, int32_t blanking,
+                                      int32_t white, orc::VideoSystem sys,
+                                      orc::AmplitudeDisplayUnit unit) {
+  const double range = static_cast<double>(white - blanking);
+  if (range <= 0.0) return 0.0;
+  if (unit == orc::AmplitudeDisplayUnit::Millivolts) {
+    return amplitude_10bit / range * orc::active_video_mv(sys);
+  }
+  return amplitude_10bit / range * 100.0;
+}
+
+static orc::VideoSystem toOrcVideoSystem(orc::presenters::VideoSystem sys) {
+  switch (sys) {
+    case orc::presenters::VideoSystem::NTSC:
+      return orc::VideoSystem::NTSC;
+    case orc::presenters::VideoSystem::PAL_M:
+      return orc::VideoSystem::PAL_M;
+    default:
+      return orc::VideoSystem::PAL;
+  }
+}
 
 VideoParameterObserverDialog::VideoParameterObserverDialog(QWidget* parent)
     : QDialog(parent) {
@@ -76,7 +103,8 @@ void VideoParameterObserverDialog::setupUI() {
 
   f1->addWidget(new QLabel("Burst level:"), row, 0);
   field1_burst_label_ = new QLabel("-");
-  field1_burst_label_->setToolTip("Median colour burst amplitude (10-bit ADU)");
+  field1_burst_label_->setToolTip(
+      "Median colour burst amplitude (in the project's amplitude unit)");
   f1->addWidget(field1_burst_label_, row++, 1);
 
   f1->addWidget(new QLabel("White SNR:"), row, 0);
@@ -245,10 +273,7 @@ void VideoParameterObserverDialog::updateFieldGroup(
     colour_frame_label->setText("-");
   }
 
-  burst_label->setText(obs.burst_level_10bit.has_value()
-                           ? QString::number(*obs.burst_level_10bit, 'f', 1) +
-                                 " ADU"
-                           : "-");
+  burst_label->setText(formatBurstLevel(obs));
   snr_label->setText(fmtOptDouble(obs.white_snr_db, " dB"));
   psnr_label->setText(fmtOptDouble(obs.black_psnr_db, " dB"));
 
@@ -261,6 +286,30 @@ void VideoParameterObserverDialog::updateFieldGroup(
   dropout_label->setText(obs.dropout_count.has_value()
                              ? QString::number(*obs.dropout_count)
                              : "-");
+}
+
+QString VideoParameterObserverDialog::formatBurstLevel(
+    const orc::presenters::VideoParameterObservationView& obs) const {
+  if (!obs.burst_level_10bit.has_value()) return "-";
+  const double burst = *obs.burst_level_10bit;
+
+  // IRE/mV need valid blanking/white levels; fall back to raw 10-bit ADU.
+  if (amplitude_unit_ != orc::AmplitudeDisplayUnit::Samples10Bit &&
+      obs.video_params.has_value() && obs.video_params->blanking_level >= 0 &&
+      obs.video_params->white_level > obs.video_params->blanking_level) {
+    const auto& vp = *obs.video_params;
+    const double value =
+        burstAmplitudeToDisplay(burst, vp.blanking_level, vp.white_level,
+                                toOrcVideoSystem(vp.system), amplitude_unit_);
+    return QString::number(value, 'f', 1) + " " +
+           QString::fromStdString(orc::amplitude_unit_suffix(amplitude_unit_));
+  }
+  return QString::number(burst, 'f', 1) + " ADU";
+}
+
+void VideoParameterObserverDialog::setAmplitudeUnit(
+    orc::AmplitudeDisplayUnit unit) {
+  amplitude_unit_ = unit;
 }
 
 QString VideoParameterObserverDialog::systemName(

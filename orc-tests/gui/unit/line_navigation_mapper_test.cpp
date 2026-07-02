@@ -11,10 +11,13 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 namespace gui_unit_test {
 
-TEST(LineNavigationMapperTest, ComputeTargetValidStepDown_MapsToNextFieldLine) {
-  int observed_next_image_y = -1;
+TEST(LineNavigationMapperTest,
+     ComputeTargetValidStepDown_SkipsSameFieldLineAndMapsToNext) {
+  std::vector<int> observed_image_ys;
   int observed_next_height = -1;
 
   const auto result = orc::gui::computeLineNavigationTarget(
@@ -30,17 +33,23 @@ TEST(LineNavigationMapperTest, ComputeTargetValidStepDown_MapsToNextFieldLine) {
         EXPECT_EQ(image_height, 525);
         return orc::FieldToImageMappingResult{true, 241};
       },
-      [&observed_next_image_y, &observed_next_height](int image_y,
-                                                      int image_height) {
-        observed_next_image_y = image_y;
+      [&observed_image_ys, &observed_next_height](int image_y,
+                                                  int image_height) {
+        observed_image_ys.push_back(image_y);
         observed_next_height = image_height;
-        return orc::ImageToFieldMappingResult{true, 4, 120};
+        // Interlaced frame: row 242 is the other field on the same scan
+        // line (visually unchanged), so the mapper must step once more to
+        // row 243 to reach the next field line.
+        if (image_y == 242) {
+          return orc::ImageToFieldMappingResult{true, 4, 120};
+        }
+        return orc::ImageToFieldMappingResult{true, 4, 121};
       });
 
   EXPECT_TRUE(result.is_valid);
   EXPECT_EQ(result.field_index, 4u);
-  EXPECT_EQ(result.line_number, 120);
-  EXPECT_EQ(observed_next_image_y, 242);
+  EXPECT_EQ(result.line_number, 121);
+  EXPECT_EQ(observed_image_ys, (std::vector<int>{242, 243}));
   EXPECT_EQ(observed_next_height, 525);
 }
 

@@ -65,6 +65,11 @@ class MockRenderPresenter : public IRenderPresenter {
 
   MOCK_METHOD(uint64_t, triggerStage,
               (NodeID node_id, TriggerProgressCallback callback), (override));
+  MOCK_METHOD(
+      uint64_t, triggerStage,
+      (NodeID node_id, TriggerProgressCallback callback,
+       (std::map<std::string, orc::ParameterValue> parameter_overrides)),
+      (override));
   MOCK_METHOD(void, cancelTrigger, (), (override));
 
   MOCK_METHOD(bool, savePNG,

@@ -43,7 +43,6 @@ class NtscObserverDialog;
 class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
-class QualityMetricsDialog;
 class RenderCoordinator;
 
 namespace orc {
@@ -125,8 +124,6 @@ class MainWindow : public QMainWindow {
   void updateVBIDialog();
   void onShowVideoParameterObserverDialog();
   void updateVideoParameterObserverDialog();
-  void onShowQualityMetricsDialog();
-  void updateQualityMetricsDialog();
   void onShowNtscObserverDialog();
   void updateNtscObserverDialog();
   void onLineScopeRequested(int image_x, int image_y);
@@ -302,7 +299,6 @@ class MainWindow : public QMainWindow {
 
   // UI components
   PreviewDialog* preview_dialog_;
-  QualityMetricsDialog* quality_metrics_dialog_;
   VBIDialog* vbi_dialog_;
   VideoParameterObserverDialog* video_parameter_observer_dialog_;
   std::unique_ptr<orc::presenters::DropoutPresenter> dropout_presenter_;

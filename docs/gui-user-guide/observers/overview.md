@@ -61,13 +61,13 @@ A numerical value in dB representing the signal-to-noise ratio in white regions.
 **Purpose:** Analyzes the color burst signal amplitude.
 
 **What it measures:**
-- Median color burst amplitude in IRE units
+- Median color burst peak amplitude in 10-bit sample units (CVBS_U10_4FSC domain)
 
 **How it works:**
-The observer examines the color burst signal (the reference signal for color decoding located after the horizontal sync pulse) across multiple lines. It measures the amplitude of the burst and calculates the median value in IRE (Institute of Radio Engineers) units. The burst level is important for color reproduction quality and can indicate signal degradation or processing artifacts.
+The observer examines the color burst signal (the reference signal for color decoding located after the horizontal sync pulse) on three sample lines in each field of the frame. For each line it computes the RMS of the burst window and converts it to a peak amplitude (RMS × √2 for a sinusoidal burst), rejecting outliers, then records the median across the sampled lines. The result is an AC amplitude — the peak excursion of the burst from its mean, not an absolute signal level. The burst level is important for color reproduction quality and can indicate signal degradation or processing artifacts.
 
 **What it looks like:**
-A numerical value representing the burst amplitude in IRE units. Standard color burst amplitude should be approximately 40 IRE for NTSC signals.
+A numerical value stored in 10-bit sample units. The GUI (for example the Video Parameter Observer dialogue and the Burst Level Analysis chart) converts it for display into the project's amplitude unit — 10-bit samples, IRE, or mV. A standard-amplitude burst corresponds to a peak excursion of roughly 20 IRE: the burst swings ±20 IRE around blanking (40 IRE peak-to-peak for NTSC; 300 mV peak-to-peak for PAL).
 
 ---
 
@@ -86,6 +86,22 @@ The observer reads line 21 for NTSC (or line 22 for PAL) from the second field o
 
 **What it looks like:**
 Two bytes of caption data per field, which can be decoded into text characters and control codes by caption decoders. The data appears only on field 2 of NTSC video.
+
+---
+
+## Colour Frame Phase Observer
+
+**Purpose:** Determines each field's position within the repeating colour subcarrier sequence.
+
+**What it measures:**
+- Per-field colour-sequence phase ID (PAL/PAL-M: 1–8, NTSC: 1–4)
+- Colour-frame sequence index derived from the phase ID (PAL/PAL-M: 1–4, NTSC: 0–1)
+
+**How it works:**
+The observer measures the colour burst phase of both fields in a frame and classifies each field's position within the colour subcarrier sequence: an 8-field sequence for PAL and PAL-M (EBU Tech. 3280-E, ITU-R BT.1700-1) or a 4-field sequence for NTSC (SMPTE 244M). Each field's phase ID is then reduced to a frame-level colour-frame index. A value of -1 is recorded when the burst is absent or too weak to classify (for example blank tape or a pre-programme leader).
+
+**What it looks like:**
+Two integer values per field in the observation context. The Video Parameter Observer dialogue shows the colour frame index for the currently previewed field or frame. Colour-frame information matters wherever colour sequence continuity does — for example validating source alignment or diagnosing chroma decoding issues.
 
 ---
 

@@ -36,7 +36,6 @@
 #include "presenters/include/video_parameter_observation_presenter.h"
 #include "previewdialog.h"
 #include "projectpropertiesdialog.h"
-#include "qualitymetricsdialog.h"
 #include "render_coordinator.h"
 #include "snranalysisdialog.h"
 #include "stage_help_dialog.h"
@@ -458,11 +457,6 @@ void MainWindow::setupUI() {
   // per-stage in runAnalysisForNode() to allow each stage to have its own
   // independent dialog
 
-  // Create quality metrics dialog (initially hidden)
-  quality_metrics_dialog_ = new QualityMetricsDialog(this);
-  quality_metrics_dialog_->setWindowTitle("Field/Frame Quality Metrics");
-  quality_metrics_dialog_->setAttribute(Qt::WA_DeleteOnClose, false);
-
   // Connect preview dialog signals.
   // PreviewDialog owns all navigation state (position, clamping, debouncing).
   // positionChanged  — fires on every scrub/click so MainWindow can update
@@ -500,8 +494,6 @@ void MainWindow::setupUI() {
   connect(preview_dialog_,
           &PreviewDialog::showVideoParameterObserverDialogRequested, this,
           &MainWindow::onShowVideoParameterObserverDialog);
-  connect(preview_dialog_, &PreviewDialog::showQualityMetricsDialogRequested,
-          this, &MainWindow::onShowQualityMetricsDialog);
   connect(preview_dialog_, &PreviewDialog::showNtscObserverDialogRequested,
           this, &MainWindow::onShowNtscObserverDialog);
   connect(preview_dialog_, &PreviewDialog::lineScopeRequested, this,
@@ -949,9 +941,6 @@ void MainWindow::closeAllDialogs() {
   }
   if (ntsc_observer_dialog_ && ntsc_observer_dialog_->isVisible()) {
     ntsc_observer_dialog_->hide();
-  }
-  if (quality_metrics_dialog_ && quality_metrics_dialog_->isVisible()) {
-    quality_metrics_dialog_->hide();
   }
 
   // Close and delete all per-node analysis dialogs
@@ -4033,20 +4022,6 @@ void MainWindow::onShowVideoParameterObserverDialog() {
   updateVideoParameterObserverDialog();
 }
 
-void MainWindow::onShowQualityMetricsDialog() {
-  if (!quality_metrics_dialog_) {
-    return;
-  }
-
-  // Show the dialog first
-  quality_metrics_dialog_->show();
-  quality_metrics_dialog_->raise();
-  quality_metrics_dialog_->activateWindow();
-
-  // Update quality metrics information after showing
-  updateQualityMetricsDialog();
-}
-
 void MainWindow::onShowNtscObserverDialog() {
   if (!ntsc_observer_dialog_) {
     return;
@@ -4382,99 +4357,6 @@ void MainWindow::onWaveformMonitorDataReady(
                      second_field_height, video_params);
 }
 
-void MainWindow::updateQualityMetricsDialog() {
-  // Only update if dialog is visible
-  if (!quality_metrics_dialog_ || !quality_metrics_dialog_->isVisible()) {
-    return;
-  }
-
-  // Get current field/frame being displayed
-  if (!current_view_node_id_.is_valid()) {
-    quality_metrics_dialog_->clearMetrics();
-    return;
-  }
-
-  // Get the current index from the preview slider
-  int current_index = preview_dialog_->previewSlider()->value();
-
-  // Check if we're in frame mode (any mode that shows two fields)
-  bool is_frame_mode =
-      (current_output_type_ == orc::PreviewOutputType::Frame_Field1_First ||
-       current_output_type_ == orc::PreviewOutputType::Frame_Reversed ||
-       current_output_type_ == orc::PreviewOutputType::Split);
-
-  // Get field IDs from core library (handles field ordering correctly)
-  orc::FieldID field1_id;
-  orc::FieldID field2_id;
-
-  if (is_frame_mode) {
-    // Use core library to determine which fields make up this frame
-    auto frame_fields = render_coordinator_->getFrameFields(
-        current_view_node_id_, current_index);
-    if (!frame_fields.is_valid) {
-      quality_metrics_dialog_->clearMetrics();
-      return;
-    }
-    field1_id = orc::FieldID(frame_fields.first_field);
-    field2_id = orc::FieldID(frame_fields.second_field);
-  } else {
-    // Field mode - simple mapping
-    field1_id = orc::FieldID(current_index);
-    field2_id = orc::FieldID(0);
-  }
-
-  // Get quality metrics using presenter (no direct DAGFrameRenderer access)
-  try {
-    // Create temporary RenderPresenter for metrics extraction
-    auto* core_project = project_.presenter()->getCoreProjectHandle();
-    if (!core_project) {
-      quality_metrics_dialog_->clearMetrics();
-      return;
-    }
-
-    orc::presenters::RenderPresenter render_presenter(core_project);
-    render_presenter.setDAG(project_.getDAG());
-
-    // Provide video parameters so burst level is displayed in the project unit.
-    auto vp_qm = render_presenter.getVideoParameters(current_view_node_id_);
-    if (vp_qm.has_value()) {
-      quality_metrics_dialog_->setVideoParameters(
-          orc::presenters::toVideoParametersView(*vp_qm));
-    }
-
-    if (is_frame_mode) {
-      // Render both fields to populate observation context, then update dialog
-      // with both fields and frame averages
-      (void)render_presenter.getObservationContext(current_view_node_id_,
-                                                   field1_id);
-      (void)render_presenter.getObservationContext(current_view_node_id_,
-                                                   field2_id);
-      const void* ctx_ptr = render_presenter.getObservationContext(
-          current_view_node_id_, field1_id);
-      if (!ctx_ptr) {
-        quality_metrics_dialog_->clearMetrics();
-        return;
-      }
-      quality_metrics_dialog_->updateMetricsForFrameFromContext(
-          field1_id, field2_id, ctx_ptr);
-    } else {
-      // Single field mode: render field to populate observation context, then
-      // update dialog
-      const void* ctx_ptr = render_presenter.getObservationContext(
-          current_view_node_id_, field1_id);
-      if (!ctx_ptr) {
-        quality_metrics_dialog_->clearMetrics();
-        return;
-      }
-      quality_metrics_dialog_->updateMetricsFromContext(field1_id, ctx_ptr);
-    }
-
-  } catch (const std::exception& e) {
-    ORC_LOG_ERROR("Failed to update quality metrics: {}", e.what());
-    quality_metrics_dialog_->clearMetrics();
-  }
-}
-
 // Vectorscope is preview-owned and refreshed through the registry request
 // contract.
 
@@ -4505,7 +4387,6 @@ void MainWindow::updateAllPreviewComponents() {
   // previewFrameChanged signal
   updateVBIDialog();
   updateVideoParameterObserverDialog();
-  updateQualityMetricsDialog();
   updateNtscObserverDialog();
 
   // Notify line scope dialog that preview frame has changed
@@ -5386,8 +5267,10 @@ void MainWindow::propagateAmplitudeUnit() {
   }
   const orc::AmplitudeDisplayUnit unit =
       project_.presenter()->getAmplitudeUnit();
-  if (quality_metrics_dialog_) {
-    quality_metrics_dialog_->setAmplitudeUnit(unit);
+  if (video_parameter_observer_dialog_) {
+    video_parameter_observer_dialog_->setAmplitudeUnit(unit);
+    // Re-render with the new unit if the dialog is currently visible.
+    updateVideoParameterObserverDialog();
   }
   for (auto& [id, dlg] : burst_level_analysis_dialogs_) {
     if (dlg) dlg->setAmplitudeUnit(unit);

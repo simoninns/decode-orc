@@ -95,24 +95,40 @@ void clickOk(ConfigDialogBase& dialog) {
 
 }  // namespace
 
-TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesPresetAndMaskLevelRules) {
+TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesRangeAndMaskLevelRules) {
   (void)ensureApplication();
 
   MaskLineConfigDialog dialog;
 
-  auto* preset_group = findGroupByTitle(dialog, "Quick Presets");
+  auto* lines_group = findGroupByTitle(dialog, "Lines to Mask");
   auto* level_group = findGroupByTitle(dialog, "Mask Level");
-  ASSERT_NE(preset_group, nullptr);
+  ASSERT_NE(lines_group, nullptr);
   ASSERT_NE(level_group, nullptr);
 
-  auto* preset_combo =
-      qobject_cast<QComboBox*>(fieldWidgetByRowLabel(*preset_group, "Preset:"));
+  auto* start_line = qobject_cast<QSpinBox*>(
+      fieldWidgetByRowLabel(*lines_group, "Start Line:"));
+  auto* end_line =
+      qobject_cast<QSpinBox*>(fieldWidgetByRowLabel(*lines_group, "End Line:"));
   auto* level_preset_combo = qobject_cast<QComboBox*>(
       fieldWidgetByRowLabel(*level_group, "Level Preset:"));
-  ASSERT_NE(preset_combo, nullptr);
+  ASSERT_NE(start_line, nullptr);
+  ASSERT_NE(end_line, nullptr);
   ASSERT_NE(level_preset_combo, nullptr);
 
-  preset_combo->setCurrentIndex(1);        // NTSC Closed Captions
+  QPushButton* add_button = nullptr;
+  for (auto* button : dialog.findChildren<QPushButton*>()) {
+    if (button->text() == "Add Range") {
+      add_button = button;
+      break;
+    }
+  }
+  ASSERT_NE(add_button, nullptr);
+
+  // Broadcast line 20 (single line, field 1).
+  start_line->setValue(20);
+  end_line->setValue(20);
+  add_button->click();
+
   level_preset_combo->setCurrentIndex(1);  // White (844)
 
   clickOk(dialog);
@@ -123,52 +139,51 @@ TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesPresetAndMaskLevelRules) {
   ASSERT_TRUE(std::holds_alternative<std::string>(params.at("lineSpec")));
   ASSERT_TRUE(std::holds_alternative<int32_t>(params.at("maskSampleLevel")));
 
-  EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "F:20");
+  // Broadcast line 20 → frame-flat 0-based line 19 in field 1, mirrored to
+  // line 332 (313 + 19) in field 2 (PAL default: 313 lines in field 1).
+  EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "19,332");
   EXPECT_EQ(std::get<int32_t>(params.at("maskSampleLevel")), 844);
 }
 
-TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesCustomRangeRule) {
+TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesCustomLevelAndRangeRule) {
   (void)ensureApplication();
 
   MaskLineConfigDialog dialog;
 
-  auto* custom_group = findGroupByTitle(dialog, "Custom Line Range");
+  auto* lines_group = findGroupByTitle(dialog, "Lines to Mask");
   auto* level_group = findGroupByTitle(dialog, "Mask Level");
-  ASSERT_NE(custom_group, nullptr);
+  ASSERT_NE(lines_group, nullptr);
   ASSERT_NE(level_group, nullptr);
 
-  auto* custom_enabled = qobject_cast<QCheckBox*>(
-      fieldWidgetByRowLabel(*custom_group, "Enable Custom Range"));
-  auto* field_selection = qobject_cast<QComboBox*>(
-      fieldWidgetByRowLabel(*custom_group, "Field Selection:"));
   auto* start_line = qobject_cast<QSpinBox*>(
-      fieldWidgetByRowLabel(*custom_group, "Start Field Line:"));
-  auto* end_line = qobject_cast<QSpinBox*>(
-      fieldWidgetByRowLabel(*custom_group, "End Field Line:"));
+      fieldWidgetByRowLabel(*lines_group, "Start Line:"));
+  auto* end_line =
+      qobject_cast<QSpinBox*>(fieldWidgetByRowLabel(*lines_group, "End Line:"));
   auto* level_preset_combo = qobject_cast<QComboBox*>(
       fieldWidgetByRowLabel(*level_group, "Level Preset:"));
   auto* custom_level = qobject_cast<QSpinBox*>(
-      fieldWidgetByRowLabel(*level_group, "Custom Level:"));
-  ASSERT_NE(custom_enabled, nullptr);
-  ASSERT_NE(field_selection, nullptr);
+      fieldWidgetByRowLabel(*level_group, "Custom (0–1023):"));
   ASSERT_NE(start_line, nullptr);
   ASSERT_NE(end_line, nullptr);
   ASSERT_NE(level_preset_combo, nullptr);
   ASSERT_NE(custom_level, nullptr);
 
-  EXPECT_FALSE(field_selection->isEnabled());
-  EXPECT_FALSE(start_line->isEnabled());
-  EXPECT_FALSE(end_line->isEnabled());
+  QPushButton* add_button = nullptr;
+  for (auto* button : dialog.findChildren<QPushButton*>()) {
+    if (button->text() == "Add Range") {
+      add_button = button;
+      break;
+    }
+  }
+  ASSERT_NE(add_button, nullptr);
 
-  custom_enabled->setChecked(true);
-  EXPECT_TRUE(field_selection->isEnabled());
-  EXPECT_TRUE(start_line->isEnabled());
-  EXPECT_TRUE(end_line->isEnabled());
-
-  field_selection->setCurrentIndex(1);  // Second field only
+  // Broadcast lines 4–7 (field 1 range).
   start_line->setValue(4);
   end_line->setValue(7);
+  add_button->click();
 
+  // Custom spinbox is only editable when the "Custom" preset is selected.
+  EXPECT_FALSE(custom_level->isEnabled());
   level_preset_combo->setCurrentIndex(2);  // Custom
   EXPECT_TRUE(custom_level->isEnabled());
   custom_level->setValue(512);
@@ -181,7 +196,9 @@ TEST(ConfigDialogBaseTest, MaskLineDialog_AppliesCustomRangeRule) {
   ASSERT_TRUE(std::holds_alternative<std::string>(params.at("lineSpec")));
   ASSERT_TRUE(std::holds_alternative<int32_t>(params.at("maskSampleLevel")));
 
-  EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "S:4-7");
+  // Broadcast 4–7 → frame-flat 3-6 in field 1, mirrored to 316-319 in
+  // field 2 (PAL default: 313 lines in field 1).
+  EXPECT_EQ(std::get<std::string>(params.at("lineSpec")), "3-6,316-319");
   EXPECT_EQ(std::get<int32_t>(params.at("maskSampleLevel")), 512);
 }
 

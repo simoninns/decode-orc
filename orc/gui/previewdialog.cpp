@@ -149,12 +149,6 @@ void PreviewDialog::setupUI() {
   connect(show_vbi_action_, &QAction::triggered, this,
           &PreviewDialog::showVBIDialogRequested);
 
-  show_quality_metrics_action_ = observersMenu->addAction("&Quality Metrics");
-  show_quality_metrics_action_->setShortcut(
-      QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_M));
-  connect(show_quality_metrics_action_, &QAction::triggered, this,
-          &PreviewDialog::showQualityMetricsDialogRequested);
-
   show_ntsc_observer_action_ = observersMenu->addAction("&NTSC Observer");
   show_ntsc_observer_action_->setShortcut(
       QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));

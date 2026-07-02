@@ -10,6 +10,7 @@
 #ifndef VIDEOPARAMETEROBSERVERDIALOG_H
 #define VIDEOPARAMETEROBSERVERDIALOG_H
 
+#include <common_types.h>
 #include <field_id.h>
 
 #include <QDialog>
@@ -60,6 +61,14 @@ class VideoParameterObserverDialog : public QDialog {
    */
   void clearObservations();
 
+  /**
+   * @brief Set the amplitude display unit used for the burst level.
+   *
+   * Takes effect on the next update; the main window refreshes the dialog
+   * after propagating a unit change.
+   */
+  void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
+
  private:
   void setupUI();
   void updateFieldGroup(
@@ -69,6 +78,9 @@ class VideoParameterObserverDialog : public QDialog {
       const orc::presenters::VideoParameterObservationView& obs);
   void updateSignalParams(
       const orc::presenters::VideoParameterObservationView& obs);
+
+  QString formatBurstLevel(
+      const orc::presenters::VideoParameterObservationView& obs) const;
 
   static QString systemName(orc::presenters::VideoSystem sys);
   static QString fmtOptDouble(const std::optional<double>& v,
@@ -99,6 +111,8 @@ class VideoParameterObserverDialog : public QDialog {
   QLabel* field2_psnr_label_;
   QLabel* field2_quality_label_;
   QLabel* field2_dropout_label_;
+
+  orc::AmplitudeDisplayUnit amplitude_unit_ = orc::AmplitudeDisplayUnit::IRE;
 };
 
 #endif  // VIDEOPARAMETEROBSERVERDIALOG_H

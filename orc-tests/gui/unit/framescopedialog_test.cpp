@@ -243,7 +243,7 @@ TEST(FrameScopeDialogSmokeTest, Dialog_HasLineNumberingModeCombo) {
   EXPECT_NE(combo, nullptr);
 }
 
-TEST(FrameScopeDialogSmokeTest, Dialog_ShowAndHide_EmitsDialogClosed) {
+TEST(FrameScopeDialogSmokeTest, Dialog_ShowAndClose_EmitsDialogClosed) {
   (void)ensureApplication();
   FrameScopeDialog dialog;
   bool closed_signal_received = false;
@@ -254,7 +254,9 @@ TEST(FrameScopeDialogSmokeTest, Dialog_ShowAndHide_EmitsDialogClosed) {
   QCoreApplication::processEvents();
   EXPECT_TRUE(dialog.isVisible());
 
-  dialog.hide();
+  // dialogClosed is emitted from closeEvent; close() delivers it (hide()
+  // would not).
+  dialog.close();
   QCoreApplication::processEvents();
   EXPECT_TRUE(closed_signal_received);
 }

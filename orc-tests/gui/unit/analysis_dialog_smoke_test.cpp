@@ -11,16 +11,16 @@
 
 #include <QApplication>
 #include <QCoreApplication>
+#include <algorithm>
 
 #include "burstlevelanalysisdialog.h"
 #include "dropoutanalysisdialog.h"
 #include "framescopedialog.h"
 #include "frametimingdialog.h"
-#include "hintsdialog.h"
 #include "ntscobserverdialog.h"
-#include "qualitymetricsdialog.h"
 #include "snranalysisdialog.h"
 #include "vbidialog.h"
+#include "videoparameterobserverdialog.h"
 
 // GenericAnalysisDialog and DropoutEditorDialog are intentionally omitted:
 // - GenericAnalysisDialog requires a live AnalysisPresenter* and
@@ -129,10 +129,10 @@ TEST(AnalysisDialogSmokeTest, NtscObserverDialog_CanShowAndClose) {
   EXPECT_FALSE(dialog.isVisible());
 }
 
-TEST(AnalysisDialogSmokeTest, QualityMetricsDialog_CanShowAndClose) {
+TEST(AnalysisDialogSmokeTest, VideoParameterObserverDialog_CanShowAndClose) {
   (void)ensureApplication();
 
-  QualityMetricsDialog dialog;
+  VideoParameterObserverDialog dialog;
 
   dialog.show();
   QCoreApplication::processEvents();
@@ -143,6 +143,65 @@ TEST(AnalysisDialogSmokeTest, QualityMetricsDialog_CanShowAndClose) {
   QCoreApplication::processEvents();
 
   EXPECT_FALSE(dialog.isVisible());
+}
+
+namespace {
+
+orc::presenters::VideoParameterObservationView makeBurstObservation() {
+  orc::presenters::VideoParameterObservationView obs;
+  orc::presenters::VideoParametersView vp;
+  vp.system = orc::presenters::VideoSystem::PAL;
+  vp.blanking_level = 256;
+  vp.white_level = 844;
+  obs.video_params = vp;
+  obs.burst_level_10bit = 100.0;
+  return obs;
+}
+
+// True if any label in the dialog shows the given text.
+bool dialogShowsText(const QDialog& dialog, const QString& text) {
+  const auto labels = dialog.findChildren<QLabel*>();
+  return std::any_of(labels.cbegin(), labels.cend(),
+                     [&text](const QLabel* l) { return l->text() == text; });
+}
+
+}  // namespace
+
+TEST(AnalysisDialogSmokeTest,
+     VideoParameterObserverDialog_BurstLevelFollowsAmplitudeUnit) {
+  (void)ensureApplication();
+
+  VideoParameterObserverDialog dialog;
+  const orc::FieldID field_id(0);
+  const auto obs = makeBurstObservation();
+
+  // 10-bit: raw ADU value.
+  dialog.setAmplitudeUnit(orc::AmplitudeDisplayUnit::Samples10Bit);
+  dialog.updateObservations(field_id, obs);
+  EXPECT_TRUE(dialogShowsText(dialog, "100.0 ADU"));
+
+  // IRE: AC amplitude scaled by blanking-to-white range (588 ADU = 100 IRE).
+  dialog.setAmplitudeUnit(orc::AmplitudeDisplayUnit::IRE);
+  dialog.updateObservations(field_id, obs);
+  EXPECT_TRUE(dialogShowsText(dialog, "17.0 IRE"));
+
+  // mV: PAL active video is 700 mV.
+  dialog.setAmplitudeUnit(orc::AmplitudeDisplayUnit::Millivolts);
+  dialog.updateObservations(field_id, obs);
+  EXPECT_TRUE(dialogShowsText(dialog, "119.0 mV"));
+}
+
+TEST(AnalysisDialogSmokeTest,
+     VideoParameterObserverDialog_BurstLevelFallsBackToAduWithoutLevels) {
+  (void)ensureApplication();
+
+  VideoParameterObserverDialog dialog;
+  auto obs = makeBurstObservation();
+  obs.video_params->blanking_level = -1;  // Unmigrated source: no levels.
+
+  dialog.setAmplitudeUnit(orc::AmplitudeDisplayUnit::IRE);
+  dialog.updateObservations(orc::FieldID(0), obs);
+  EXPECT_TRUE(dialogShowsText(dialog, "100.0 ADU"));
 }
 
 TEST(AnalysisDialogSmokeTest, VbiDialog_CanShowAndClose) {
@@ -165,22 +224,6 @@ TEST(AnalysisDialogSmokeTest, FrameScopeDialog_CanShowAndClose) {
   (void)ensureApplication();
 
   FrameScopeDialog dialog;
-
-  dialog.show();
-  QCoreApplication::processEvents();
-
-  EXPECT_TRUE(dialog.isVisible());
-
-  dialog.close();
-  QCoreApplication::processEvents();
-
-  EXPECT_FALSE(dialog.isVisible());
-}
-
-TEST(AnalysisDialogSmokeTest, HintsDialog_CanShowAndClose) {
-  (void)ensureApplication();
-
-  HintsDialog dialog;
 
   dialog.show();
   QCoreApplication::processEvents();

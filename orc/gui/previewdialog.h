@@ -327,8 +327,6 @@ class PreviewDialog : public QDialog {
   void
   showVideoParameterObserverDialogRequested();  // Emitted when Video Parameter
                                                 // Observer menu item selected
-  void showQualityMetricsDialogRequested();     // Emitted when Quality Metrics
-                                                // menu item selected
   void showNtscObserverDialogRequested();  // Emitted when NTSC Observer menu
                                            // item selected
   void showDropoutsChanged(
@@ -379,7 +377,6 @@ class PreviewDialog : public QDialog {
   QAction* export_png_action_;
   QAction* show_vbi_action_;
   QAction* show_video_parameter_observer_action_;
-  QAction* show_quality_metrics_action_;
   QAction* show_ntsc_observer_action_;
   QAction* show_frame_timing_action_;
   QAction* show_waveform_monitor_action_;

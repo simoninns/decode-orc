@@ -31,7 +31,7 @@ static orc::presenters::NodeInfo makeNodeInfo(int32_t id,
                                               const std::string& label,
                                               double x, double y) {
   return orc::presenters::NodeInfo{
-      orc::NodeID(id), stage, label, x, y, true, true, false, "", "", ""};
+      orc::NodeID(id), stage, label, x, y, true, true, "", ""};
 }
 
 TEST(OrcGraphModelTest, Constructor_BuildsMappingsAndProjectsNodeData) {

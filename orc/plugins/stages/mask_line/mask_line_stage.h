@@ -9,14 +9,15 @@
 
 #pragma once
 
+#include <orc/plugin/orc_stage_runtime.h>
+#include <orc/plugin/orc_stage_tooling.h>
+
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <vector>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
 #include "artifact.h"
 #include "preview_renderer.h"
 #include "stage_parameter.h"

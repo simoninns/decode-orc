@@ -31,8 +31,9 @@ endif()
 #     [RUNTIME_DEPENDENCIES <path>...])
 # ---------------------------------------------------------------------------
 #
-# Creates a MODULE (shared plugin library) target configured for decode-orc
-# stage plugin conventions:
+# Creates a SHARED plugin library target configured for decode-orc stage
+# plugin conventions (SHARED rather than MODULE so in-tree test executables
+# can link stage classes directly; the host loads plugins via dlopen):
 #
 #   - Links to orc::plugin-sdk (or orc-plugin-sdk for in-tree builds) which
 #     provides all SDK include paths and orc-core.
@@ -60,6 +61,11 @@ function(orc_add_stage_plugin target)
         message(FATAL_ERROR "orc_add_stage_plugin(${target}) requires SOURCES")
     endif()
 
+    # SHARED (not MODULE) is deliberate: plugins are dlopen'd by the host at
+    # runtime, but the in-tree unit/functional test executables also link
+    # stage plugin targets directly to exercise stage classes in-process
+    # (see orc-tests/core/unit/CMakeLists.txt). MODULE targets cannot be
+    # linked, so SHARED is required for that dual use.
     add_library(${target} SHARED ${ORCSP_SOURCES})
 
     if(ORCSP_OUTPUT_NAME)

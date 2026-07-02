@@ -17,6 +17,8 @@
 
 #include <frame_id.h>
 #include <node_type.h>
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
 #include <orc_source_parameters.h>
 #include <video_frame_representation.h>
 
@@ -24,8 +26,6 @@
 #include <optional>
 #include <thread>
 
-#include "../../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "preview_renderer.h"  // For PreviewImage definition
 #include "stage_parameter.h"
 

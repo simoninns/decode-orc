@@ -17,6 +17,14 @@
 
 #include <orc/plugin/orc_plugin_services.h>
 
+#include <string>
+
+// The ORC_PLUGIN_LOG_* macros below format via fmt and materialise a
+// std::string at each expansion site, so this header owns those includes.
+#if __has_include(<fmt/format.h>)
+#include <fmt/format.h>
+#endif
+
 // =============================================================================
 // Logging macros
 // =============================================================================

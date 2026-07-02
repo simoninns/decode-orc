@@ -10,7 +10,8 @@
 #ifndef DECODE_ORC_ROOT_DAPHNE_VBI_WRITER_UTIL_INTERFACE_H
 #define DECODE_ORC_ROOT_DAPHNE_VBI_WRITER_UTIL_INTERFACE_H
 
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
+#include <orc/plugin/orc_stage_runtime.h>
+
 #include "field_id.h"
 #include "file_io_interface.h"
 

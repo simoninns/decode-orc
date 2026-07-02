@@ -12,6 +12,9 @@
 #define ORC_CORE_SNR_ANALYSIS_SINK_STAGE_H
 
 #include <node_type.h>
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
+#include <orc/plugin/orc_stage_tooling.h>
 
 #include <atomic>
 #include <map>
@@ -20,9 +23,6 @@
 #include <string>
 #include <vector>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
 #include "analysis_sink_results.h"
 #include "snr_analysis_sink_deps_interface.h"
 #include "snr_analysis_types.h"

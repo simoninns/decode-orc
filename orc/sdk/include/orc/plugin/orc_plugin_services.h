@@ -40,11 +40,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string>
-
-#if __has_include(<fmt/format.h>)
-#include <fmt/format.h>
-#endif
 
 // Forward declarations for preview types. Full definitions come from
 // orc_rendering.h (included by orc_stage_api.h in the SDK umbrella).

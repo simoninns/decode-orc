@@ -9,13 +9,14 @@
 
 #pragma once
 
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
+
 #include <memory>
 #include <mutex>
 #include <string>
 #include <vector>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_custom_preview_renderer.h"
 #include "stage_parameter.h"
 #include "video_frame_representation.h"

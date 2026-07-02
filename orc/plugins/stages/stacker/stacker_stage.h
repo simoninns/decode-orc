@@ -9,13 +9,14 @@
 
 #pragma once
 
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
+
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "dropout_run.h"
 #include "frame_descriptor.h"
 #include "frame_id.h"

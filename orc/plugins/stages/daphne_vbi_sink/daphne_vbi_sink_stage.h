@@ -11,6 +11,8 @@
 #define ORC_CORE_VBI_SINK_STAGE_H
 
 #include <node_type.h>
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
 
 #include <atomic>
 #include <functional>
@@ -18,8 +20,6 @@
 #include <string>
 #include <utility>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"
 #include "video_frame_representation.h"

@@ -9,10 +9,11 @@
 
 #include "cc_sink_stage.h"
 
+#include <orc/plugin/orc_stage_runtime.h>
+
 #include <memory>
 #include <stdexcept>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "cc_sink_stage_deps.h"
 #include "logging.h"
 

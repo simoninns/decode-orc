@@ -139,22 +139,32 @@ explicitly:
 
 Small mechanical cleanups with no ABI impact.
 
-### Task 2.1 — Use MODULE library type for plugin targets
+### Task 2.1 — Reconcile plugin library type documentation (resolved: SHARED)
 
 `orc_add_stage_plugin()` in
 [DecodeOrcPluginSDKHelpers.cmake](../cmake/decode-orc-plugin-sdk/DecodeOrcPluginSDKHelpers.cmake)
-creates `SHARED` libraries while its documentation says MODULE. Switch to
-`add_library(${target} MODULE ...)`, which is the correct type for
-dlopen-only artifacts, and confirm output naming (`lib*.so` on Linux,
-`.so`/`.dylib` on macOS) still matches what
-`discover_plugin_candidates()` and the `instructions.md` copy logic expect.
+created `SHARED` libraries while its documentation said MODULE. MODULE would
+be the semantically correct type for dlopen-only artifacts, but the in-tree
+test architecture deliberately links stage plugin targets into the unit and
+functional test executables to exercise stage classes in-process
+([orc-tests/core/unit/CMakeLists.txt](../orc-tests/core/unit/CMakeLists.txt),
+[orc-tests/core/functional/CMakeLists.txt](../orc-tests/core/functional/CMakeLists.txt)),
+and MODULE targets cannot be linked. Converting would require splitting
+every plugin into an object library plus a MODULE wrapper and separating the
+`extern "C"` entrypoint TU in all plugin builds (the entrypoint symbols would
+otherwise collide when multiple plugins are linked into one test binary) — a
+restructuring that is not justified by the hygiene benefit.
+
+**Resolution:** plugins remain `SHARED`; the helper's comments document the
+dual use (dlopen at runtime, direct linking in tests) so the SHARED choice
+reads as deliberate rather than accidental.
 
 **Acceptance criteria:**
+- `orc_add_stage_plugin()` comments state the SHARED rationale; no comment
+  claims MODULE.
 - All in-tree plugins build, are discovered, and load at runtime on Linux
   (`ctest --test-dir build -R "StagePluginLoader" --output-on-failure`
-  passes; `orc-cli` plugin listing shows all bundled stages).
-- The `instructions.md` sidecar naming still resolves via
-  `ORC_STAGE_INSTRUCTIONS_MD` (stage help renders in the GUI or via CLI).
+  passes).
 
 ### Task 2.2 — Replace relative SDK include paths in plugin code
 

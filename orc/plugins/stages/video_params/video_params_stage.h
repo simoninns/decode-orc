@@ -9,9 +9,10 @@
 
 #pragma once
 
+#include <orc/plugin/orc_stage_runtime.h>
+
 #include <memory>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "artifact.h"
 #include "preview_renderer.h"
 #include "stage_parameter.h"

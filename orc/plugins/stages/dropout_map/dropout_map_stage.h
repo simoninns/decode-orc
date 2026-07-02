@@ -9,14 +9,15 @@
 
 #pragma once
 
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
+#include <orc/plugin/orc_stage_tooling.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_tooling.h"
 #include "artifact.h"
 #include "dropout_run.h"
 #include "dropout_util.h"

@@ -73,6 +73,10 @@ inline constexpr uint32_t kStagePluginHostAbiVersion = 4;
 ///   #endif
 #define ORC_SDK_ABI_VERSION 4
 
+static_assert(kStagePluginHostAbiVersion == ORC_SDK_ABI_VERSION,
+              "ORC_SDK_ABI_VERSION must be kept in sync with "
+              "kStagePluginHostAbiVersion; update both when bumping the ABI");
+
 /// Plugin API version — stage contract compatibility boundary.
 ///
 /// History:

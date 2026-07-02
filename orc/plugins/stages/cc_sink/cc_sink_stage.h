@@ -11,12 +11,12 @@
 #define ORC_CORE_CC_SINK_STAGE_H
 
 #include <node_type.h>
+#include <orc/plugin/orc_stage_runtime.h>
 
 #include <atomic>
 #include <memory>
 #include <string>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "cc_sink_stage_deps_interface.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"

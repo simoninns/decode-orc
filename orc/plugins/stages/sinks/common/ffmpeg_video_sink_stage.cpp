@@ -9,7 +9,8 @@
 
 #include "ffmpeg_video_sink_stage.h"
 
-#include "../../../../sdk/include/orc/plugin/orc_stage_runtime.h"
+#include <orc/plugin/orc_stage_runtime.h>
+
 #include "biphase_observer.h"
 #include "closed_caption_observer.h"
 #include "logging.h"

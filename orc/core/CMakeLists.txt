@@ -107,6 +107,10 @@ target_include_directories(orc-core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/../view-types  # Access to view types (MVP architecture allows core -> view dependency)
     ${CMAKE_CURRENT_SOURCE_DIR}/observers
     ${CMAKE_CURRENT_SOURCE_DIR}/analysis
+    # Plugin SDK headers (<orc/plugin/...>): stage plugin headers include them
+    # by angle path, and core (stage_factories.cpp) and the test tree compile
+    # against plugin stage headers directly.
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../sdk/include>
     ${EZPWD_INCLUDE_DIR}
 )
 

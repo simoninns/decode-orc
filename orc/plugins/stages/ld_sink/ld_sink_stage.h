@@ -11,14 +11,14 @@
 #define ORC_CORE_LD_SINK_STAGE_H
 
 #include <node_type.h>
+#include <orc/plugin/orc_stage_preview.h>
+#include <orc/plugin/orc_stage_runtime.h>
 
 #include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
 
-#include "../../../sdk/include/orc/plugin/orc_stage_preview.h"
-#include "../../../sdk/include/orc/plugin/orc_stage_runtime.h"
 #include "observation_schema.h"
 #include "stage_parameter.h"
 #include "triggerable_stage.h"

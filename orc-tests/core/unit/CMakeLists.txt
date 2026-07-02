@@ -179,6 +179,13 @@ gtest_discover_tests(orc-core-unit-tests-loader-rejection
         PROPERTIES LABELS "unit\;contracts")
 
 orc_add_core_unit_tests(
+        orc-core-unit-tests-plugin-keepalive
+        "unit;contracts"
+
+        contracts/stage_plugin_keepalive_test.cpp
+)
+
+orc_add_core_unit_tests(
         orc-core-unit-tests-metadata
         "unit"
 

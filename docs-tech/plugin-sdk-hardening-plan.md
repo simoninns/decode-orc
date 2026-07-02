@@ -204,25 +204,33 @@ Runtime behaviour changes to the plugin loader. Each task needs unit-test
 coverage per [TESTING.md](../TESTING.md) (mocked; `unit` label) plus the
 existing `StagePluginLoader` functional coverage.
 
-### Task 3.1 — Load plugins with RTLD_LOCAL and hidden default visibility
+### Task 3.1 — Load plugins with RTLD_LOCAL (hidden visibility resolved: not applied)
 
 - Change `open_shared_library()` in
   [stage_plugin_loader.cpp](../orc/core/stage_plugin_loader.cpp) from
-  `RTLD_NOW | RTLD_GLOBAL` to `RTLD_NOW | RTLD_LOCAL`.
-- In `orc_add_stage_plugin()`, set `CXX_VISIBILITY_PRESET hidden` and
-  `VISIBILITY_INLINES_HIDDEN ON` on plugin targets. The two entrypoints stay
-  exported via `ORC_STAGE_PLUGIN_EXPORT`.
+  `RTLD_NOW | RTLD_GLOBAL` to `RTLD_NOW | RTLD_LOCAL`. This alone removes
+  the cross-plugin hazard: each plugin's symbols (including SDK inline
+  variables such as `orc::plugin::g_services`) stay private to that plugin
+  instead of unifying with the first-loaded plugin's copies.
+- **Hidden default visibility is deliberately not applied.** The in-tree
+  test executables link plugin libraries and reference stage class symbols
+  directly (same constraint as Task 2.1); `CXX_VISIBILITY_PRESET hidden`
+  would make those symbols undefined at test link time. Default visibility
+  also keeps typeinfo names as ordinary strings, which is what allows
+  libstdc++'s string-comparison RTTI fallback to work across the
+  `RTLD_LOCAL` boundary.
 - Verify cross-boundary RTTI: the host performs `dynamic_cast` on
   plugin-created stages to `ParameterizedStage`, `TriggerableStage`,
   `IStagePreviewCapability`, `StageToolProvider`, and
   `AnalysisToolProvider`. Add a functional test that loads a real plugin
-  and confirms each mixin cast succeeds under the new flags.
+  through a test executable that does **not** link any plugin target (a
+  linked plugin would be pre-mapped and make the check trivial) and
+  confirms each implemented mixin cast succeeds under `RTLD_LOCAL`.
 
 **Acceptance criteria:**
-- All bundled plugins load; every stage's mixin interfaces are reachable via
-  `dynamic_cast` (new functional test, labelled `functional` + `contracts`).
-- `nm -D` on two different plugin binaries shows no shared inline-variable
-  exports (e.g. `orc::plugin::g_services`) with default visibility.
+- All bundled plugins load; mixin interfaces are reachable via
+  `dynamic_cast` from a non-plugin-linked functional test (labelled
+  `functional` + `contracts`).
 - GUI smoke: parameter dialogs and stage tools still resolve for plugin
   stages.
 

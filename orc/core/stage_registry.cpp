@@ -423,6 +423,13 @@ void StageRegistry::initialize_runtime_plugins() {
           DAGStagePtr stage;
           std::optional<NodeTypeInfo> node_type_info;
           std::string fault_error;
+          // Fault-guard note (see plugin_safe_call.h): this guarded region
+          // does NOT meet the "raw C function pointers only" constraint — the
+          // factory constructs a C++ stage object and get_node_type_info()
+          // builds strings. If the plugin faults here, siglongjmp abandons
+          // those objects in flight (leaking memory). Accepted residual risk:
+          // this runs once per stage at startup, and surviving a faulty
+          // plugin with a diagnostic beats crashing the host.
           bool metadata_ok = core_internal::plugin_safe_call(
               [&] {
                 try {

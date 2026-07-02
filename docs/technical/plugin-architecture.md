@@ -50,6 +50,11 @@ Host startup
 Loading happens once at startup. Hot-reload is not supported in the current
 version.
 
+Plugins are loaded with `RTLD_LOCAL` (each plugin's symbols stay private to
+that plugin), and plugin libraries are reference-counted: every registered
+stage factory and every live stage instance holds a keep-alive reference, so
+a plugin's code is never unmapped while one of its stages can still run.
+
 `orc-gui` and `orc-cli` share the same persistent registry file. The difference
 between development and packaged installs is the default plugin search path, not
 a separate per-application registry.

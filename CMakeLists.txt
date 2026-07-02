@@ -7,6 +7,20 @@ project(decode-orc-root)
 # Use a discoverable bash for script execution (Nix-friendly)
 find_program(BASH_EXECUTABLE bash REQUIRED)
 
+# Prefer the mold linker on Linux when available (the Nix dev shell provides
+# it); links of the plugin/test shared objects are several times faster than
+# with BFD ld. Silently falls back to the default linker when mold is absent
+# (Nix package builds, macOS, Windows) or CMake predates CMAKE_LINKER_TYPE.
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux"
+   AND NOT DEFINED CMAKE_LINKER_TYPE
+   AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.29)
+    find_program(MOLD_EXECUTABLE mold)
+    if(MOLD_EXECUTABLE)
+        set(CMAKE_LINKER_TYPE MOLD)
+        message(STATUS "Linker: mold (${MOLD_EXECUTABLE})")
+    endif()
+endif()
+
 # If PROJECT_VERSION_OVERRIDE is provided (for release builds), use it globally
 if(DEFINED PROJECT_VERSION_OVERRIDE)
     message(STATUS "Using global version override: ${PROJECT_VERSION_OVERRIDE}")

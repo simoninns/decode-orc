@@ -67,12 +67,13 @@ The `nix develop` shell includes all build tools and dependencies:
 nix develop
 
 # Inside the shell, you have access to:
-# - cmake, ninja
+# - cmake, ninja (Ninja is the default generator via CMAKE_GENERATOR)
 # - Qt6 (qtbase, qttools)
 # - FFmpeg, spdlog, yaml-cpp, sqlite, libpng, fftw
 # - Google Test (gtest) for unit testing
 # - pkg-config for dependency discovery
 # - Clang tools, ccache, doxygen, graphviz (on Linux/macOS)
+# - mold linker (Linux; picked up automatically by CMake when present)
 # - gdb/lldb debuggers
 
 # Typical workflow:
@@ -296,6 +297,18 @@ Use ccache to speed up incremental builds:
 export CMAKE_CXX_COMPILER_LAUNCHER=ccache
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_UNIT_TESTS=ON
 ```
+
+The default ccache cache size (5 GiB) is too small for this project's Debug
+objects and causes constant eviction; raise it once with:
+```bash
+ccache --max-size=30G
+```
+
+Inside `nix develop`, ccache is enabled automatically, the Ninja generator is
+the default (`CMAKE_GENERATOR=Ninja`), and on Linux the mold linker is used
+automatically when CMake ≥ 3.29 finds it. A build tree configured with the
+old "Unix Makefiles" generator must be recreated once (`rm -rf build`) before
+the Ninja default applies.
 
 ## Further Reading
 

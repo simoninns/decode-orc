@@ -403,6 +403,7 @@
             perf
             hotspot
             heaptrack
+            mold
           ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
             lldb
           ];
@@ -430,6 +431,9 @@
 
           # Environment variables
           CMAKE_EXPORT_COMPILE_COMMANDS = 1;
+          # Default to Ninja when no -G is given (existing build trees keep
+          # their configured generator; a Makefiles tree must be recreated).
+          CMAKE_GENERATOR = "Ninja";
           QT_QPA_PLATFORM = pkgs.lib.optionalString pkgs.stdenv.isLinux "xcb"; # For Linux
         };
 

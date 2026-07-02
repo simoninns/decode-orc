@@ -59,11 +59,11 @@ struct OrcPluginServices;
 ///   3 — Added OrcPluginServices table; orc_register_stage_plugin now receives
 ///        a const OrcPluginServices* as its first parameter. Plugins must use
 ///        the services table for logging instead of resolving host symbols
-///        directly.
+///        directly. The table later gained the appended stage_services field
+///        (IStageServices; guarded by services_size).
 ///   4 — Decode-Orc 2.0: VideoFrameRepresentation replaces
-///        VideoFieldRepresentation as the primary frame-data contract.
-///        IStageServices gains VFrameR delivery methods. All stage plugins must
-///        be rebuilt against the v2.0 SDK.
+///        VideoFieldRepresentation as the primary frame-data contract. All
+///        stage plugins must be rebuilt against the v2.0 SDK.
 inline constexpr uint32_t kStagePluginHostAbiVersion = 4;
 
 /// Preprocessor alias for kStagePluginHostAbiVersion.  Allows plugin code to

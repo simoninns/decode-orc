@@ -30,14 +30,16 @@
  *   } // namespace
  *
  *   ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor*
- * orc_get_stage_plugin_descriptor() { return &kDescriptor;
+ *   orc_get_stage_plugin_descriptor() {
+ *       return &kDescriptor;
  *   }
  *
  *   ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
- *       void* ctx,
+ *       const orc::OrcPluginServices* services, void* ctx,
  *       bool (*reg)(void*, const char*, orc::OrcStageFactoryFn),
  *       const char** err)
  *   {
+ *       orc::plugin::set_services(services);
  *       if (!reg) { if (err) *err = "null callback"; return false; }
  *       if (!reg(ctx, "my_filter", &create_my_stage)) {
  *           if (err) *err = "registration failed"; return false;
@@ -90,8 +92,7 @@
 // types work.)
 #include <orc/plugin/orc_plugin_services.h>
 
-// Plugin service helpers: ORC_PLUGIN_LOG_* macros, render_colour_preview()
-// wrapper. (Must come after all other includes so that preview types are fully
-// defined when
-//  inline functions are instantiated.)
+// Plugin service helpers: ORC_PLUGIN_LOG_* logging macros.
+// (Must come after all other includes so that preview types are fully defined
+// when inline functions are instantiated.)
 #include <orc/plugin/orc_plugin_services_helpers.h>

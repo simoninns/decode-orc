@@ -32,8 +32,12 @@ This pulls in all stable contracts:
 |--------|----------|
 | `<orc/plugin/orc_plugin_abi.h>` | `StagePluginDescriptor`, `OrcStageFactoryFn`, `ORC_STAGE_PLUGIN_EXPORT`, `kStagePluginHostAbiVersion`, `kStagePluginApiVersion`, entrypoint symbol names |
 | `<orc/plugin/orc_stage_api.h>` | `ParameterizedStage`, `TriggerableStage`, `NodeTypeInfo`, `ParameterValue`, `ParameterDescriptor`, `VideoSystem`, `SourceType` |
-| `<orc/plugin/orc_stage_services.h>` | `IStageServices` — canonical host-provided stage services (artifact I/O, logging, progress) |
-| `<orc/plugin/orc_stage_tooling.h>` | `StageToolDescriptor`, `StageToolProvider`, `AnalysisToolDescriptor`, `AnalysisToolProvider` — optional interactive tool contracts |
+| `<orc/plugin/orc_stage_runtime.h>` | Stage runtime include surface for stage implementations (observation context, triggerable stage) |
+| `<orc/plugin/orc_stage_preview.h>` | Preview capability and carrier contracts for preview-capable stages |
+| `<orc/plugin/orc_stage_services.h>` | `IStageServices`, `IFileWriterUint8`, `IFileWriterUint16` — host-provided buffered file-output factories for sink stages |
+| `<orc/plugin/orc_stage_tooling.h>` | `StageToolDescriptor`, `StageToolProvider`, `AnalysisToolDescriptor`, `AnalysisToolProvider`, `ORC_STAGE_INSTRUCTIONS_MD` — optional tool contracts and stage self-documentation |
+| `<orc/plugin/orc_plugin_services.h>` | `OrcPluginServices` host service table, `OrcPluginLogLevel`, `orc::plugin::set_services()`, `orc::plugin::get_stage_services()` |
+| `<orc/plugin/orc_plugin_services_helpers.h>` | `ORC_PLUGIN_LOG_*` logging macros |
 
 ### Stability Guarantees
 
@@ -118,32 +122,64 @@ orc-plugin_<stage-name>_<platform>.<ext>
 
 ```cpp
 #include <orc/plugin/orc_plugin_sdk.h>
-#include "my_stage.h"   // Your DAGStage subclass
 
-// Plugin descriptor
-static const orc::StagePluginDescriptor kDescriptor {
-    .host_abi_version  = orc::kStagePluginHostAbiVersion,
-    .plugin_api_version = orc::kStagePluginApiVersion,
-    .plugin_id         = "com.example.my-stage",
-    .plugin_version    = "1.0.0",
-    .license           = "MIT",
+#include "my_stage.h"  // Your DAGStage subclass
+
+namespace {
+
+// Factory the host calls to create stage instances on demand.
+// Must match orc::OrcStageFactoryFn: std::shared_ptr<DAGStage> (*)().
+orc::DAGStagePtr create_my_stage() { return std::make_shared<MyStage>(); }
+
+// Plugin descriptor. Fields are positional and must follow the declaration
+// order in <orc/plugin/orc_plugin_abi.h>. All pointer fields must point to
+// static storage.
+constexpr orc::StagePluginDescriptor kDescriptor{
+    "com.example.stage.my-filter",    // plugin_id
+    "1.0.0",                          // plugin_version
+    orc::kStagePluginHostAbiVersion,  // host_abi_version
+    orc::kStagePluginApiVersion,      // plugin_api_version
+    "MIT",                            // license_spdx
+    false,                            // is_core_plugin
 };
 
-ORC_STAGE_PLUGIN_EXPORT
-const orc::StagePluginDescriptor* orc_get_stage_plugin_descriptor() {
-    return &kDescriptor;
+}  // namespace
+
+ORC_STAGE_PLUGIN_EXPORT const orc::StagePluginDescriptor*
+orc_get_stage_plugin_descriptor() {
+  return &kDescriptor;
 }
 
-ORC_STAGE_PLUGIN_EXPORT
-void orc_register_stage_plugin(orc::OrcStageRegisterFn register_fn,
-                                void* host_ctx)
-{
-    auto services = orc::plugin::get_stage_services(host_ctx);
-    register_fn("my.stage.id", host_ctx, [services]() {
-        return std::make_unique<MyStage>(services);
-    });
+ORC_STAGE_PLUGIN_EXPORT bool orc_register_stage_plugin(
+    const orc::OrcPluginServices* services, void* context,
+    bool (*register_stage)(void* context, const char* stage_name,
+                           orc::OrcStageFactoryFn factory),
+    const char** error_message) {
+  // Store the host service table before registering any stage; the pointer
+  // remains valid for the lifetime of the loaded plugin.
+  orc::plugin::set_services(services);
+
+  if (!register_stage) {
+    if (error_message) {
+      *error_message = "Missing stage registration callback";
+    }
+    return false;
+  }
+
+  if (!register_stage(context, "my_filter", &create_my_stage)) {
+    if (error_message) {
+      *error_message = "Host rejected stage registration";
+    }
+    return false;
+  }
+
+  return true;
 }
 ```
+
+The same pattern is used by every bundled stage plugin — see
+`orc/plugins/stages/mask_line/plugin.cpp` in the Decode-Orc repository for a
+complete real-world example.
 
 ### Stage interfaces
 
@@ -162,10 +198,21 @@ nodes. Return a vector of `ArtifactPtr` outputs to pass downstream.
 
 ### Parameters
 
-`ParameterizedStage` exposes `get_parameters()` returning a list of
-`ParameterDescriptor` records, and `set_parameter()` / `get_parameter()` for
-runtime value access. Use `ParameterValue` (a `std::variant`) to hold typed
-values: `bool`, `int64_t`, `double`, `std::string`, and enumerated choices.
+`ParameterizedStage` exposes three methods:
+
+- `get_parameter_descriptors(VideoSystem, SourceType)` — returns the list of
+  `ParameterDescriptor` records this stage supports, filtered by the project's
+  video format and source type (a no-argument convenience overload passes
+  `Unknown` for both).
+- `get_parameters()` — returns the current values as a
+  `std::map<std::string, ParameterValue>`.
+- `set_parameters(const std::map<std::string, ParameterValue>&)` — applies new
+  values; returns `true` if all parameters were valid and set successfully.
+
+`ParameterValue` is a `std::variant` holding one of: `int32_t`, `uint32_t`,
+`double`, `bool`, or `std::string`. The corresponding `ParameterType` enum
+additionally distinguishes `FILE_PATH` (a string for which the GUI shows a
+file browser).
 
 ### Configuration status
 
@@ -212,12 +259,33 @@ Read the current value with `get_configuration_status()` if needed. The default
 
 ### Host services
 
-Obtain `IStageServices` via `orc::plugin::get_stage_services(host_ctx)` during
-`orc_register_stage_plugin`. Use its methods for:
+The host passes an `OrcPluginServices` table as the first argument to
+`orc_register_stage_plugin()`. Store it with `orc::plugin::set_services()`
+before registering any stage. The table provides:
 
-- `log_message()` — structured diagnostic output routed through the host logger
-- `report_progress()` — progress updates surfaced in the GUI/CLI
-- Artifact delivery callbacks (source stages)
+- `log` — pre-formatted message logging routed to the host logger. Use the
+  `ORC_PLUGIN_LOG_TRACE` / `DEBUG` / `INFO` / `WARN` / `ERROR` / `CRITICAL`
+  macros (from `<orc/plugin/orc_plugin_services_helpers.h>`) rather than
+  calling the function pointer directly. Logging does **not** go through
+  `IStageServices`.
+- `render_colour_preview` — converts a decoded `ColourFrameCarrier` to a
+  display-ready `PreviewImage` for preview-capable stages.
+- `stage_services` — optional pointer to the consolidated `IStageServices`
+  interface; may be `nullptr` when the capability is unavailable. Retrieve it
+  with `orc::plugin::get_stage_services()` (no arguments), which returns
+  `nullptr` if the services table is absent or predates the field.
+
+`IStageServices` currently exposes exactly two factory methods, used by sink
+stages for buffered file output:
+
+- `create_buffered_file_writer_uint8(size_t buffer_size)` — returns a
+  `std::shared_ptr<IFileWriterUint8>`
+- `create_buffered_file_writer_uint16(size_t buffer_size)` — returns a
+  `std::shared_ptr<IFileWriterUint16>`
+
+Progress reporting and artifact-delivery callbacks are **not** part of the
+current services contract. If your stage needs a host capability that is
+missing, request an SDK extension rather than working around it.
 
 ### Optional: Stage tools
 
@@ -281,6 +349,23 @@ with this entry present.
 
 ## Versioning and Compatibility Policy
 
+### Binary compatibility model
+
+The plugin boundary is a **C++ ABI**, not a C ABI. `std::shared_ptr`,
+`std::string`, STL containers, exceptions, and virtual-function tables all
+cross the host/plugin boundary. Matching version numbers are therefore
+necessary but not sufficient: a plugin must be built with the same compiler
+family, the same C++ standard library, and a compatible build configuration
+as the host. On Windows this includes the CRT flavour — a Debug-CRT plugin
+cannot be loaded by a Release-CRT host.
+
+The host requires **exact equality** for both `host_abi_version` and
+`plugin_api_version`; a mismatch in either causes the plugin to be rejected
+with a logged diagnostic. The `services_size` field in `OrcPluginServices`
+is an intra-version safety net only: it guards access to service-table
+fields appended within the current ABI version. It is not a cross-version
+compatibility mechanism.
+
 ### Version history
 
 | `host_abi_version` | `plugin_api_version` | Change |
@@ -288,7 +373,7 @@ with this entry present.
 | 1 | — | Initial internal release; `plugin_api_version` not yet in descriptor |
 | 2 | 1 | `plugin_api_version` added to `StagePluginDescriptor`; public SDK headers published |
 | 3 | 1 | `OrcPluginServices` table added; `orc_register_stage_plugin` now receives `const OrcPluginServices*` as its first parameter; plugins must use the services table for logging instead of resolving host symbols directly |
-| 4 | 2 | Decode-Orc 2.0: `VideoFrameRepresentation` replaces `VideoFieldRepresentation` as the primary frame-data contract; `IStageServices` gains VFrameR delivery methods; `DAGStage::execute()` receives `VideoFrameRepresentationPtr` (frame-based); `DropoutRun` replaces `DropoutRegion`; `FieldID`/`FieldIDRange` removed — use `FrameID`/`FrameIDRange` |
+| 4 | 2 | Decode-Orc 2.0: `VideoFrameRepresentation` replaces `VideoFieldRepresentation` as the primary frame-data contract; `DAGStage::execute()` operates on frame-based artifacts; `DropoutRun` replaces `DropoutRegion`; `FieldID`/`FieldIDRange` removed — use `FrameID`/`FrameIDRange`. All plugins must be rebuilt against the v2.0 SDK |
 
 ### When the host increments a version
 

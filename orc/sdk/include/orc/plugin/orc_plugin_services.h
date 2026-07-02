@@ -26,7 +26,8 @@
  *   translation unit.  The macros call the host-supplied logging callback
  *   through the stored services pointer.
  *
- *   For preview rendering, call orc::plugin::render_colour_preview().
+ *   For preview rendering, call the render_colour_preview function pointer
+ *   on the stored services table (orc::plugin::g_services).
  *
  * ABI SAFETY:
  *   OrcPluginServices::services_size is set to sizeof(OrcPluginServices) by

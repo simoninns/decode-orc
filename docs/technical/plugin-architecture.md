@@ -15,8 +15,11 @@ registered through a common host runtime.
 - **Stable binary interface:** Explicit ABI and API version numbers govern
   compatibility, and the host refuses to load mismatched plugins with a clear
   diagnostic.
-- **Signed-registry distribution:** Plugins are declared in a persistent YAML
-  registry and can be fetched automatically from GitHub release assets at startup.
+- **Registry-based distribution:** Plugins are declared in a persistent YAML
+  registry and can be fetched automatically from GitHub release assets at
+  startup. Note: registry entries are not currently signature- or
+  checksum-verified, and the recorded `trust_state` is informational — it is
+  not yet enforced at load time.
 
 ## Runtime Flow
 
@@ -61,15 +64,44 @@ Plugins are native shared libraries:
 | macOS    | `.dylib`  |
 | Windows  | `.dll`    |
 
-Each plugin must export two C-linkage entrypoints:
+Each plugin must export two C-linkage entrypoints (C++ types cross the
+boundary — see Binary Compatibility Model below):
 
-```c
-// Returns the plugin descriptor (ABI version, API version, metadata)
-const StagePluginDescriptor* orc_get_stage_plugin_descriptor(void);
+```cpp
+// Returns the plugin descriptor (ABI version, API version, metadata).
+// All descriptor pointer fields must reference static storage.
+const orc::StagePluginDescriptor* orc_get_stage_plugin_descriptor();
 
-// Registers one or more stage types with the host
-void orc_register_stage_plugin(OrcStageRegisterFn register_fn, void* host_ctx);
+// Receives the host service table and registers one or more stage types
+// with the host by invoking register_stage once per exported stage.
+// Returns true when every stage registered successfully.
+bool orc_register_stage_plugin(
+    const orc::OrcPluginServices* services, void* context,
+    bool (*register_stage)(void* context, const char* stage_name,
+                           orc::OrcStageFactoryFn factory),
+    const char** error_message);
 ```
+
+Both symbols are declared with `ORC_STAGE_PLUGIN_EXPORT` (C linkage, default
+visibility). Stage factories match `orc::OrcStageFactoryFn` and return
+`std::shared_ptr<orc::DAGStage>`.
+
+## Binary Compatibility Model
+
+The plugin boundary is a **C++ ABI**, not a C ABI. `std::shared_ptr`,
+`std::string`, STL containers, exceptions, and virtual-function tables all
+cross the host/plugin boundary. Matching version numbers are therefore
+necessary but not sufficient: a plugin must be built with the same compiler
+family, the same C++ standard library, and a compatible build configuration
+as the host. On Windows this includes the CRT flavour — a Debug-CRT plugin
+cannot be loaded by a Release-CRT host.
+
+The host requires **exact equality** for both `host_abi_version` and
+`plugin_api_version`; a mismatch in either causes the plugin to be rejected
+with a logged diagnostic. The `services_size` field in `OrcPluginServices`
+is an intra-version safety net only: it guards access to service-table
+fields appended within the current ABI version. It is not a cross-version
+compatibility mechanism.
 
 ## Compatibility Gating
 
@@ -133,7 +165,7 @@ Each entry records:
 | `target_platform` | Optional platform hint for cache selection |
 | `local_dev_path` | Optional development override used before remote download |
 | `enabled` | Whether the plugin is loaded at startup |
-| `trust_state` | Trust level (`untrusted`, etc.) |
+| `trust_state` | Trust level (`untrusted`, etc.); recorded but not yet enforced at load time |
 | `license_spdx` | SPDX license identifier |
 | `is_core_plugin` | Marks entries supplied by Decode-Orc itself |
 | `required_host_abi` | Expected host ABI version |
@@ -204,16 +236,27 @@ and as the recommended standard for third-party authors.
 ## Stage Services
 
 Plugins interact with the host through explicit service interfaces rather than
-direct calls into host internals. The `IStageServices` contract (declared in
-`<orc/plugin/orc_stage_services.h>`) exposes:
+direct calls into host internals. The host builds an `OrcPluginServices` table
+(declared in `<orc/plugin/orc_plugin_services.h>`) and passes it as the first
+argument to `orc_register_stage_plugin()`. The table provides:
 
-- Artifact I/O callbacks (field/frame delivery)
-- Logging and diagnostics
-- Progress reporting
+- `log` — pre-formatted message logging routed to the host logger (plugins use
+  the `ORC_PLUGIN_LOG_*` macros)
+- `render_colour_preview` — converts a decoded `ColourFrameCarrier` to a
+  display-ready `PreviewImage`
+- `stage_services` — optional pointer to the consolidated `IStageServices`
+  interface (may be `nullptr` when the capability is unavailable)
 
-The host provides a concrete `IStageServices` implementation at registration
-time. Plugins call `orc::plugin::get_stage_services()` to obtain the pointer
-within their `orc_register_stage_plugin` implementation.
+The `IStageServices` contract (declared in `<orc/plugin/orc_stage_services.h>`)
+currently exposes buffered file-output factories used by sink stages:
+`create_buffered_file_writer_uint8()` and `create_buffered_file_writer_uint16()`.
+It does not currently provide artifact delivery, logging, or progress
+reporting.
+
+Plugins store the table with `orc::plugin::set_services()` at the start of
+`orc_register_stage_plugin`, and obtain the `IStageServices` pointer later via
+`orc::plugin::get_stage_services()` (which returns `nullptr` when the host does
+not provide it).
 
 ## Stage Tools
 

@@ -9,7 +9,9 @@ finish-args:
   - --socket=x11
   - --socket=wayland
   - --device=dri
-  - --filesystem=host
+  # Home access covers typical capture/decode file locations; broader host
+  # access is a Flathub-rejectable permission. Prefer portals longer-term.
+  - --filesystem=home
 
 modules:
   - name: nasm
@@ -160,7 +162,8 @@ modules:
     sources:
       - type: git
         url: https://github.com/paceholder/nodeeditor
-        commit: f953fcab52f505a74271c5f665d6627dce63b66d
+        # Keep in sync with the qtnodes input in flake.nix
+        commit: 1b173f885b52e4fd9616f663ea288435ccf1d0d8
 
   - name: ezpwd-reed-solomon
     buildsystem: simple

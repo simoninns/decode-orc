@@ -21,17 +21,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Ensure QtNodes source is present
+      - name: Fetch QtNodes source
         shell: bash
         run: |
-          if [[ ! -f external/qtnodes/CMakeLists.txt ]]; then
-            echo "QtNodes submodule not present in checkout; cloning fallback source..."
-            mkdir -p external
-            git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
-          fi
+          # Pin to the same commit as the qtnodes input in flake.nix
+          git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
+          git -C external/qtnodes fetch --depth 1 origin 1b173f885b52e4fd9616f663ea288435ccf1d0d8
+          git -C external/qtnodes checkout 1b173f885b52e4fd9616f663ea288435ccf1d0d8
 
       - name: Resolve package version
         id: version
@@ -252,7 +249,9 @@ jobs:
             exit 1
           fi
 
-          DMG_NAME="Decode-Orc-${{ steps.version.outputs.version }}-macos.dmg"
+          # macos-latest runners are Apple Silicon; name the artifact accordingly
+          # so Intel users don't download a binary that won't run.
+          DMG_NAME="Decode-Orc-${{ steps.version.outputs.version }}-macos-arm64.dmg"
           DMG_PATH="dist/$DMG_NAME"
           VOL_NAME="Decode Orc ${{ steps.version.outputs.version }}"
           MAX_ATTEMPTS=5

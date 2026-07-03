@@ -21,8 +21,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Resolve package version
         id: version
@@ -71,11 +69,21 @@ jobs:
           # Update the metainfo.xml with current version
           VERSION="${{ steps.version.outputs.version }}"
           DATE=$(date +%Y-%m-%d)
-          
+
           if [[ -f orc/gui/io.github.simoninns.decode-orc.metainfo.xml ]]; then
             sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\">|<release version=\"${VERSION}\" date=\"${DATE}\">|" \
               orc/gui/io.github.simoninns.decode-orc.metainfo.xml
           fi
+
+          # Inject the resolved version into the decode-orc module so the app
+          # reports a real version (the dir: source may not carry .git, so the
+          # CMake git-hash fallback is not reliable inside flatpak-builder).
+          sed -i "s|^      - -DEZPWD_INCLUDE_DIR=/app/include$|&\n      - -DPROJECT_VERSION_OVERRIDE=${VERSION}|" \
+            io.github.simoninns.decode-orc.yml
+          grep -q "PROJECT_VERSION_OVERRIDE=${VERSION}" io.github.simoninns.decode-orc.yml || {
+            echo "Failed to inject PROJECT_VERSION_OVERRIDE into Flatpak manifest" >&2
+            exit 1
+          }
 
       - name: Build Flatpak
         shell: bash

@@ -6,7 +6,9 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
     qtnodes = {
-      url = "github:paceholder/nodeeditor";
+      # Pinned commit; keep in sync with io.github.simoninns.decode-orc.yml
+      # and the QtNodes fetch steps in .github/workflows/package-{macos,windows}.yml.
+      url = "github:paceholder/nodeeditor/1b173f885b52e4fd9616f663ea288435ccf1d0d8";
       flake = false;
     };
     ezpwd = {

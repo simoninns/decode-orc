@@ -21,17 +21,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - name: Ensure QtNodes source is present
+      - name: Fetch QtNodes source
         shell: pwsh
         run: |
-          if (-not (Test-Path "external/qtnodes/CMakeLists.txt")) {
-            Write-Host "QtNodes submodule not present in checkout; cloning fallback source..."
-            New-Item -ItemType Directory -Force -Path external
-            git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
-          }
+          # Pin to the same commit as the qtnodes input in flake.nix
+          git clone --depth 1 https://github.com/paceholder/nodeeditor external/qtnodes
+          git -C external/qtnodes fetch --depth 1 origin 1b173f885b52e4fd9616f663ea288435ccf1d0d8
+          git -C external/qtnodes checkout 1b173f885b52e4fd9616f663ea288435ccf1d0d8
 
       - name: Resolve package version
         id: version
@@ -46,8 +43,10 @@ jobs:
           if ($version -match '^v?(\d+\.\d+\.\d+)$') {
             $cmakeVersion = $Matches[1]
           } else {
-            # Fallback for non-tag builds; keep deterministic semver-ish value
-            $cmakeVersion = "0.0.0"
+            # Non-tag builds: 0.0.<run-number> keeps versions numeric, increasing,
+            # and always lower than any real release, so a dev MSI can never
+            # block a future tagged release via the MajorUpgrade downgrade check.
+            $cmakeVersion = "0.0.$env:GITHUB_RUN_NUMBER"
           }
           echo "version=$version" >> $env:GITHUB_OUTPUT
           echo "cmake_version=$cmakeVersion" >> $env:GITHUB_OUTPUT
@@ -57,9 +56,21 @@ jobs:
         run: |
           Write-Host "Installing WiX Toolset v3..."
           choco install wixtoolset -y
-          echo "C:\Program Files (x86)\WiX Toolset v3.11\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          
-          # Also install ImageMagick for icon conversion
+
+          # Locate the installed WiX bin directory instead of hardcoding a
+          # version-specific path (choco moves between 3.11/3.14/... over time).
+          $wixBin = Get-ChildItem "${env:ProgramFiles(x86)}" -Directory -Filter "WiX Toolset*" -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            Select-Object -First 1 |
+            ForEach-Object { Join-Path $_.FullName "bin" }
+          if (-not $wixBin -or -not (Test-Path $wixBin)) {
+            Write-Error "WiX Toolset bin directory not found under ${env:ProgramFiles(x86)}"
+            exit 1
+          }
+          Write-Host "WiX bin directory: $wixBin"
+          echo "$wixBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+          # Also install ImageMagick for icon conversion (choco shims `magick` into PATH)
           choco install imagemagick -y
 
       - name: Cache vcpkg bootstrap
@@ -104,7 +115,10 @@ jobs:
             -Username "${{ github.actor }}" `
             -Password "${{ secrets.GITHUB_TOKEN }}" `
             -StorePasswordInClearText
-          echo "VCPKG_BINARY_SOURCES=clear;nuget,GitHub,read" >> $env:GITHUB_ENV
+          # readwrite: populate the feed from trusted contexts (packaging only
+          # runs on main pushes, tags, and manual dispatch — never fork PRs).
+          # Requires packages: write, granted by the caller job in main.yml.
+          echo "VCPKG_BINARY_SOURCES=clear;nuget,GitHub,readwrite" >> $env:GITHUB_ENV
 
       - name: Restore vcpkg installed tree
         id: vcpkg-installed-cache
@@ -132,13 +146,14 @@ jobs:
           Write-Host "Dependencies installed from vcpkg manifest (including FFmpeg)"
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+        uses: jurplel/install-qt-action@48d3ad6db93f3627c8ee7a0454bc6f3744f7e730 # v4.3.1
         with:
-          version: '6.8.*'
+          # Kept aligned with the Flatpak KDE runtime (Qt 6.9)
+          version: '6.9.*'
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2022_64'
-          cache: false
+          cache: true
 
       - name: Fetch ezpwd-reed-solomon headers
         shell: pwsh
@@ -154,9 +169,6 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
 
-          # Ensure ImageMagick is in path for icon generation
-          $env:PATH = "C:\Program Files\ImageMagick-7.1.1-Q16-HDRI;$env:PATH"
-          
           # Setup MSVC environment
           $vsPath = &"${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
           Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
@@ -277,7 +289,7 @@ jobs:
           # Convert PNG to ICO using ImageMagick
           if (Test-Path "assets/orc-gui-icon-256.png") {
             Write-Host "Converting PNG icon to ICO format..."
-            & magick convert "assets/orc-gui-icon-256.png" `
+            & magick "assets/orc-gui-icon-256.png" `
               -define icon:auto-resize=256,128,96,64,48,32,16 `
               "build/icons/orc-gui.ico"
             
@@ -305,8 +317,9 @@ jobs:
           } elseif ($version -match '^v?(\d+)\.(\d+)\.(\d+)$') {
             $wixVersion = $Matches[1] + "." + $Matches[2] + "." + $Matches[3]
           } else {
-            # Default version for non-standard versions
-            $wixVersion = "1.0.0"
+            # Non-tag builds reuse the 0.0.<run-number> value resolved earlier so
+            # the MSI ProductVersion always sorts below any real tagged release.
+            $wixVersion = "${{ steps.version.outputs.cmake_version }}"
           }
           
           # Icon should now exist from conversion step
@@ -343,7 +356,7 @@ jobs:
           # Build both WiX images from the same decode-orc logotype so all dialogs are consistent.
           # Keep aspect ratio (no distortion) and right-align on a white canvas.
           if (Test-Path "assets/decode-orc_logotype-1024x286.png") {
-            & magick convert "assets/decode-orc_logotype-1024x286.png" `
+            & magick "assets/decode-orc_logotype-1024x286.png" `
               -resize x44 `
               -background white `
               -gravity east `
@@ -353,7 +366,7 @@ jobs:
               "wix/images/banner.bmp"
             Write-Host "Created WiX banner from logo"
 
-            & magick convert "assets/decode-orc_logotype-1024x286.png" `
+            & magick "assets/decode-orc_logotype-1024x286.png" `
               -resize x44 `
               -background white `
               -gravity east `
@@ -404,11 +417,13 @@ jobs:
           @'
           <?xml version="1.0" encoding="UTF-8"?>
           <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-            <Product Id="*" 
-                     Name="Decode-Orc" 
-                     Language="1033" 
-                     Version="${{ steps.wix_prep.outputs.wixVersion }}" 
-                     Manufacturer="Simon Inns" 
+            <!-- UpgradeCode must NEVER change: it is how Windows Installer
+                 identifies this product across versions for upgrades. -->
+            <Product Id="*"
+                     Name="Decode-Orc"
+                     Language="1033"
+                     Version="${{ steps.wix_prep.outputs.wixVersion }}"
+                     Manufacturer="Simon Inns"
                      UpgradeCode="A8B7C6D5-E4F3-4C2B-A1B2-123456789ABC">
               
               <Package InstallerVersion="405" 
@@ -533,7 +548,11 @@ jobs:
           $binDir = (Get-ChildItem -Path "package-root" -Recurse -Filter "orc-gui.exe" | Select-Object -First 1).Directory.FullName
           New-Item -ItemType Directory -Force -Path "wix" | Out-Null
           
-          # Harvest all files in bin directory
+          # Harvest all files in bin directory.
+          # Note: -gg regenerates component GUIDs on every build. That is only
+          # safe because product.wxs uses MajorUpgrade (full uninstall/reinstall
+          # on upgrade). Do not switch to minor/patch upgrades without moving to
+          # stable component GUIDs first.
           & heat dir "$binDir" `
             -cg AllDependencies `
             -gg -sfrag -srd -sreg `

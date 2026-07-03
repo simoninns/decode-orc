@@ -15,6 +15,16 @@
 # clang-tidy is optional; if not found everything is silently skipped so
 # that sandboxed (Nix derivation) builds are not affected.
 
+# clang-tidy cannot parse MSVC (cl.exe) command lines when invoked through
+# CMAKE_CXX_CLANG_TIDY: /EH and Windows SDK defines are misread, producing
+# thousands of false "exceptions disabled" / unknown-type errors that fail
+# the build. The Visual Studio generator never ran this hook, so skipping
+# MSVC preserves long-standing Windows behaviour (analysis runs on Linux CI).
+if(MSVC)
+    message(STATUS "clang-tidy: skipped for MSVC toolchain")
+    return()
+endif()
+
 find_program(CLANG_TIDY_EXECUTABLE
     NAMES
         clang-tidy

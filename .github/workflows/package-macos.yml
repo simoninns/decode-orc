@@ -118,7 +118,23 @@ jobs:
             exit 1
           fi
 
+          # macdeployqt otool-scans every file under Contents/PlugIns and logs a
+          # noisy "ERROR: Could not parse otool output ... is not an object file"
+          # line for each plugin instructions .md file. Stash them during the
+          # scan and restore them afterwards — they must sit next to the plugin
+          # dylibs in the final bundle for the runtime stage-help system.
+          PLUGIN_DIR="$APP_BUNDLE/Contents/PlugIns/orc-stage-plugins"
+          MD_STASH="$(mktemp -d)"
+          if [[ -d "$PLUGIN_DIR" ]]; then
+            find "$PLUGIN_DIR" -maxdepth 1 -type f -name "*.md" -exec mv {} "$MD_STASH/" \;
+          fi
+
           macdeployqt "$APP_BUNDLE" -always-overwrite -executable="$APP_BUNDLE/Contents/MacOS/orc-cli"
+
+          if compgen -G "$MD_STASH/*.md" > /dev/null; then
+            mv "$MD_STASH"/*.md "$PLUGIN_DIR/"
+          fi
+          rmdir "$MD_STASH" 2>/dev/null || true
 
           # Build Qt framework search paths so dylibbundler can resolve @rpath/Qt*.framework refs.
           # dylibbundler cannot recurse into .framework bundles; we point it at each Versions/A dir.

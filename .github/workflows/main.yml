@@ -1,9 +1,11 @@
 name: Main CI/CD
 
 on:
+  # All branch pushes run the build-and-test gate; packaging is additionally
+  # gated below to main, tags, and manual dispatch.
   push:
     branches:
-      - main
+      - "**"
     tags:
       - "v*"
   pull_request:
@@ -20,11 +22,11 @@ jobs:
     uses: ./.github/workflows/build-and-test.yml
     secrets: inherit
 
-  # Packaging runs on pushes to main, tags, and manual dispatch — not on PRs.
-  # Use workflow_dispatch to produce packages for a feature branch when needed.
+  # Packaging runs only on main, tags, and manual dispatch — not on feature
+  # branches or PRs. Use workflow_dispatch to produce packages for a branch.
   package-macos:
     name: Package MacOS DMG
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     needs: build-and-test
     uses: ./.github/workflows/package-macos.yml
     with:
@@ -34,7 +36,7 @@ jobs:
 
   package-flatpak:
     name: Package Linux Flatpak
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     needs: build-and-test
     uses: ./.github/workflows/package-flatpak.yml
     with:
@@ -44,7 +46,7 @@ jobs:
 
   package-windows:
     name: Package Windows MSI
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     needs: build-and-test
     uses: ./.github/workflows/package-windows.yml
     with:

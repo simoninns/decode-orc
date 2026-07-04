@@ -59,7 +59,7 @@ Reads CVBS composite payloads from `.composite` files. Normalises `CVBS_U10_4FSC
 
 **`cvbs_sink` — CVBS file sink stage**
 
-Writes CVBS_U10_4FSC frame data to the CVBS file-format family. Always writes `signal_state_preset = 'STANDARD_TBC_LOCKED'` and `sample_encoding_preset = 'CVBS_U10_4FSC'`. Round-trips cleanly with `cvbs_source`. Writes dropout, audio, EFM, and AC3 sidecars when the upstream source provides them.
+Writes frame data to the CVBS file-format family in a user-selectable sample encoding (`CVBS_U10_4FSC` default, plus `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, and `CVBS_S16_FSC`). Always writes `signal_state_preset = 'STANDARD_TBC_LOCKED'`. Round-trips cleanly with `cvbs_source`. Writes dropout, audio, EFM, and AC3 sidecars when the upstream source provides them.
 
 **`frame_map` enhancements**
 

@@ -1,7 +1,7 @@
 /*
  * File:        cvbs_sink_stage.cpp
  * Module:      orc-core
- * Purpose:     CVBS Sink Stage - writes raw CVBS_U10_4FSC frames to file
+ * Purpose:     CVBS Sink Stage - writes CVBS file-format family output
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -14,10 +14,32 @@
 
 #include <stdexcept>
 
+#include "cvbs_sink_encode.h"
 #include "cvbs_sink_stage_deps.h"
 #include "cvbs_sink_stage_deps_interface.h"
 
 namespace orc {
+
+namespace {
+
+// Output sample encodings offered by the sample_encoding parameter, in the
+// order presented to the user. CVBS_U10_4FSC is the normative default.
+constexpr const char* kOutputEncodings[] = {"CVBS_U10_4FSC", "CVBS_U16_4FSC",
+                                            "CVBS_TPG21_4FSC", "CVBS_S16_FSC"};
+
+constexpr const char* kSignalTypeComposite = "composite";
+constexpr const char* kSignalTypeYC = "yc";
+
+std::string get_string_param(
+    const std::map<std::string, ParameterValue>& parameters,
+    const std::string& name, const std::string& fallback) {
+  const auto it = parameters.find(name);
+  if (it == parameters.end()) return fallback;
+  const auto* s = std::get_if<std::string>(&it->second);
+  return (s && !s->empty()) ? *s : fallback;
+}
+
+}  // namespace
 
 CVBSSinkStage::CVBSSinkStage() {
   set_configuration_status(orc::ConfigurationStatus::Red);
@@ -27,8 +49,9 @@ NodeTypeInfo CVBSSinkStage::get_node_type_info() const {
   return NodeTypeInfo{
       NodeType::SINK,
       "CVBSSink",
-      "CVBS Data Sink",
-      "Writes raw CVBS_U10_4FSC frame data (int16_t samples) to a binary file",
+      "CVBS Sink",
+      "Writes frames to the CVBS file format (.composite or .y/.c payload, "
+      ".meta sidecar, and dropout/audio/EFM/AC3 sidecars when present)",
       1,
       1,
       0,
@@ -51,19 +74,60 @@ std::vector<ArtifactPtr> CVBSSinkStage::execute(
 std::vector<ParameterDescriptor> CVBSSinkStage::get_parameter_descriptors(
     VideoSystem project_format, SourceType source_type) const {
   (void)project_format;
-  (void)source_type;
   std::vector<ParameterDescriptor> descriptors;
+
+  // The output signal type is not a choice: it follows the project type.
+  // A composite project writes <base>.composite; a Y/C project writes
+  // <base>.y + <base>.c (CVBS file format spec, File Naming Convention).
+  const bool yc_project = (source_type == SourceType::YC);
 
   {
     ParameterDescriptor desc;
     desc.name = "output_path";
     desc.display_name = "Output CVBS File";
     desc.description =
-        "Path to output CVBS data file (raw int16_t samples, frame-flat)";
+        std::string(
+            "Base path for the output files. The stage appends the payload "
+            "extension and .meta automatically based on the project type (") +
+        (yc_project ? ".y/.c for this Y/C project"
+                    : ".composite for this composite project") +
+        "); a trailing .composite/.y/.c extension is stripped when present.";
     desc.type = ParameterType::FILE_PATH;
     desc.constraints.required = true;
     desc.constraints.default_value = std::string("");
-    desc.file_extension_hint = ".cvbs";
+    desc.file_extension_hint = yc_project ? ".y" : ".composite";
+    descriptors.push_back(desc);
+  }
+
+  {
+    ParameterDescriptor desc;
+    desc.name = "sample_encoding";
+    desc.display_name = "Sample Encoding";
+    desc.description =
+        "Sample encoding of the output CVBS data, recorded as "
+        "sample_encoding_preset in the .meta sidecar. CVBS_U10_4FSC (the "
+        "default) preserves the internal 10-bit domain losslessly, including "
+        "headroom; the other encodings clamp to their representable domain "
+        "before scaling.";
+    desc.type = ParameterType::STRING;
+    desc.constraints.required = false;
+    desc.constraints.default_value = std::string(kOutputEncodings[0]);
+    for (const char* encoding : kOutputEncodings) {
+      desc.constraints.allowed_strings.push_back(encoding);
+    }
+    descriptors.push_back(desc);
+  }
+
+  {
+    ParameterDescriptor desc;
+    desc.name = "capture_notes";
+    desc.display_name = "Capture Notes";
+    desc.description =
+        "Optional free-text notes written to the capture_notes field of the "
+        ".meta sidecar. Left out of the metadata when empty.";
+    desc.type = ParameterType::STRING;
+    desc.constraints.required = false;
+    desc.constraints.default_value = std::string("");
     descriptors.push_back(desc);
   }
 
@@ -111,10 +175,29 @@ bool CVBSSinkStage::trigger(
     if (output_path_it == parameters.end()) {
       throw std::runtime_error("output_path parameter is required");
     }
-    const std::string output_path =
-        std::get<std::string>(output_path_it->second);
 
-    ORC_LOG_INFO("CVBSSink: Writing CVBS data to {}", output_path);
+    CVBSSinkWriteConfig config;
+    config.output_base_path = std::get<std::string>(output_path_it->second);
+
+    const std::string encoding_name =
+        get_string_param(parameters, "sample_encoding", kOutputEncodings[0]);
+    const auto encoding = parse_cvbs_sample_encoding(encoding_name);
+    if (!encoding.has_value()) {
+      throw std::runtime_error("Unsupported sample encoding '" + encoding_name +
+                               "'");
+    }
+    config.sample_encoding = *encoding;
+
+    // The signal type is not user-selectable: it follows the input. A Y/C
+    // project produces representations with separate channels and is written
+    // as .y/.c; a composite project is written as .composite.
+    config.signal_type =
+        vfr->has_separate_channels() ? kSignalTypeYC : kSignalTypeComposite;
+
+    config.capture_notes = get_string_param(parameters, "capture_notes", "");
+
+    ORC_LOG_INFO("CVBSSink: Writing CVBS data to {} ({}, {})",
+                 config.output_base_path, config.signal_type, encoding_name);
 
     std::shared_ptr<ICVBSSinkStageDeps> deps = deps_override_;
     if (!deps) {
@@ -123,7 +206,7 @@ bool CVBSSinkStage::trigger(
       deps = deps_impl;
     }
 
-    const auto result = deps->write_cvbs(vfr.get(), output_path);
+    const auto result = deps->write_cvbs(vfr.get(), config);
     last_status_ = result.status_message;
 
     if (!result.success) {

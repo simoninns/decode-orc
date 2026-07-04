@@ -18,6 +18,8 @@
 
 namespace orc {
 
+// Production writer for the CVBS file-format family: payload file(s), the
+// .meta SQLite sidecar, and the dropout/audio/EFM/AC3 extension sidecars.
 class CVBSSinkStageDeps : public ICVBSSinkStageDeps {
  public:
   CVBSSinkStageDeps() = default;
@@ -26,7 +28,7 @@ class CVBSSinkStageDeps : public ICVBSSinkStageDeps {
             std::atomic<bool>* cancel_requested) override;
 
   CVBSSinkWriteResult write_cvbs(const VideoFrameRepresentation* representation,
-                                 const std::string& output_path) override;
+                                 const CVBSSinkWriteConfig& config) override;
 
  private:
   TriggerProgressCallback progress_callback_;

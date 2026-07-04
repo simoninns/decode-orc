@@ -1,7 +1,7 @@
 /*
  * File:        cvbs_sink_stage.h
  * Module:      orc-core
- * Purpose:     CVBS Sink Stage - writes raw CVBS_U10_4FSC frames to file
+ * Purpose:     CVBS Sink Stage - writes CVBS file-format family output
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors

@@ -23,7 +23,7 @@ A pipeline may contain **multiple sink stages** in parallel, allowing the same p
 
 **What it does**
 
-This stage writes processed CVBS_U10_4FSC frame data to a `.composite` file (or `.y`/`.c` pair for Y/C signal type) and a `.meta` SQLite sidecar. The `.meta` file always carries `sample_encoding_preset = 'CVBS_U10_4FSC'` and `signal_state_preset = 'STANDARD_TBC_LOCKED'`. These values are not user-configurable — they reflect the pipeline invariant that only locked, standard-state signals appear at this point.
+This stage writes processed frame data using the selected sample encoding, and a `.meta` SQLite sidecar. The output signal type follows the project type automatically: a composite project is written as a single `.composite` file and a Y/C project as a `.y`/`.c` pair (per the CVBS file format naming convention) — Y/C cannot be derived from a composite signal, so this is not a choice. The `.meta` file records the signal type and the selected `sample_encoding_preset`, and always carries `signal_state_preset = 'STANDARD_TBC_LOCKED'`. The signal state is not user-configurable — it reflects the pipeline invariant that only locked, standard-state signals appear at this point.
 
 Associated sidecars are written automatically when the upstream source provides them:
 - `.dropouts.meta` — when dropout hints are present
@@ -36,13 +36,13 @@ A CVBS file written by this stage can be round-tripped back through the CVBS Sou
 **Parameters**
 
 * `output_path` (string)
-    - Base path for output files (without extension).
+    - Base path for output files. A trailing `.composite`, `.y`, or `.c` extension is stripped when present.
     - Required.
 
-* `signal_type` (string)
-    - Signal type to write.
-    - Allowed values: `composite`, `yc`.
-    - Default: `composite`.
+* `sample_encoding` (string)
+    - Sample encoding of the output data, recorded as `sample_encoding_preset` in the `.meta` file.
+    - Allowed values: `CVBS_U10_4FSC`, `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, `CVBS_S16_FSC`.
+    - Default: `CVBS_U10_4FSC` (lossless; preserves headroom). The other encodings clamp to their representable domain before scaling.
 
 * `capture_notes` (string)
     - Optional free-text notes written to the `.meta` file.

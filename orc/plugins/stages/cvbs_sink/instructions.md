@@ -1,6 +1,6 @@
 # CVBS Sink
 
-Writes processed CVBS video data to the CVBS file format for archival, interchange, or round-trip testing. The output consists of a `.composite` binary file and a `.meta` SQLite sidecar, and can be re-opened by the CVBS Source stage.
+Writes processed CVBS video data to the CVBS file format for archival, interchange, or round-trip testing. The output consists of a `.composite` binary file (or `.y`/`.c` pair) and a `.meta` SQLite sidecar, and can be re-opened by the CVBS Source stage.
 
 ## When to use
 
@@ -8,23 +8,32 @@ Use this sink at the end of a CVBS processing pipeline when you want to save the
 
 ## What it does
 
-Writes the incoming video stream to a `.composite` binary file (or `.y`/`.c` pair for Y/C signal type) and a `.meta` SQLite sidecar database. The sidecar is written with `sample_encoding_preset = CVBS_U10_4FSC` and `signal_state_preset = STANDARD_TBC_LOCKED`; these values are fixed and not user-configurable. Associated dropout, audio, EFM, and AC3 data are written automatically as sidecar files when present in the stream.
+Writes the incoming video stream using the selected sample encoding, plus a `.meta` SQLite sidecar database. The output signal type follows the project type automatically and is not user-selectable: a composite project is written as a single `.composite` file, and a Y/C project is written as a `.y`/`.c` pair (per the CVBS file format naming convention). The sidecar records the video standard preset, the selected `sample_encoding_preset`, the signal type, the frame count, and `signal_state_preset = STANDARD_TBC_LOCKED` (the signal state is fixed: only locked, standard-state signals reach a sink).
+
+Associated data are written automatically as sidecar files when present in the incoming stream:
+
+- `.dropouts.meta` — dropout annotations (dropout extension format)
+- `_audio_00.wav` — frame-locked stereo PCM audio
+- `.efm` + `.efm.meta` — EFM t-value data
+- `.ac3` + `.ac3.meta` — AC3 RF data
 
 ## Parameters
 
-### output_path (string)
-Base path for output files, without extension. The stage appends `.composite` (or `.y`/`.c`) and `.meta` automatically. Required.
+### output_path (file path)
+Base path for output files. The stage appends the payload extension (`.composite` for a composite project, `.y`/`.c` for a Y/C project) and `.meta` automatically; a trailing `.composite`, `.y`, or `.c` extension is stripped when present. Required.
 
-### signal_type (string)
-Signal type to write. Use `composite` for standard CVBS output, or `yc` to write separate Y and C component files. Default: `composite`.
+### sample_encoding (string)
+Sample encoding of the output data, recorded as `sample_encoding_preset` in the `.meta` file. One of `CVBS_U10_4FSC` (default), `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, or `CVBS_S16_FSC`. `CVBS_U10_4FSC` preserves the internal 10-bit domain losslessly, including headroom values outside 0–1023; the other encodings clamp to their representable domain before scaling, as required by the CVBS file format specification.
 
 ### capture_notes (string)
 Optional free-text notes written to the `.meta` file. When left empty, no notes field is written. Default: `""`.
 
 ## Notes
 
-- The `.meta` SQLite sidecar uses fixed encoding and signal-state presets; these cannot be changed via parameters.
-- Sidecar files for dropout, audio, EFM, and AC3 data are written automatically alongside the main output when those data streams are present.
+- The output signal type (`composite` vs `yc`) follows the project type and cannot be overridden — Y/C cannot be derived from a composite signal.
+- `signal_state_preset` in the output `.meta` is always `STANDARD_TBC_LOCKED` and cannot be overridden.
+- Sidecar files for dropout, audio, EFM, and AC3 data are written automatically alongside the main output when those data streams are present; absent streams produce no sidecar files (this is not an error).
+- Only frame-locked audio can be written; the `.meta` `audio_locked` field is set accordingly.
 - The output is compatible with the CVBS Source stage for round-trip workflows.
 
 ## Status Indicator

@@ -35,7 +35,7 @@ Decode-Orc 2.0 introduces a new frame-based internal representation (CVBS_U10_4F
 | Stage ID | Description |
 |----------|-------------|
 | `cvbs_source` | Load CVBS captures in the CVBS file-format family |
-| `cvbs_sink` | Write CVBS_U10_4FSC output to the CVBS file-format family |
+| `cvbs_sink` | Write output to the CVBS file-format family in a selectable sample encoding |
 
 **Signal level domain**: All internal signal levels in v2.0 are in the CVBS_U10_4FSC 10-bit domain (blanking = 256, white = 844 for PAL; blanking = 240, white = 800 for NTSC). The 16-bit IRE-based domain used in v1.x is gone. The `video_params` stage parameters for level overrides now use 10-bit values.
 

@@ -2,7 +2,7 @@
 
 The Orc-GUI main window contains:
 
-* A **menu bar** (File / View / Help)
+* A **menu bar** (File / View / Tools / Help)
 * A central **processing graph editor** where you build your pipeline using **stages** and **connections**
 * A **status bar** that shows short messages about what the application is doing
 
@@ -24,6 +24,10 @@ When you choose **File → New Project…**, Orc-GUI asks you to select a projec
 * NTSC YC
 * PAL Composite
 * PAL YC
+* PAL-M Composite
+* PAL-M YC
+
+You can also choose the project's amplitude display unit (IRE, millivolts, or 10-bit samples; the default is 10-bit samples), which is used by dialogs such as the Line Scope.
 
 A new project starts with an empty graph (no stages are added automatically). You add stages yourself in the graph editor.
 
@@ -33,18 +37,21 @@ Creates a ready-to-run starter project from an existing capture.
 
 When you choose **File → Quick Project…**, Orc-GUI asks you to select a video file:
 
-* `.tbc` (composite)
-* `.tbcc` / `.tbcy` (YC; requires both files as a pair)
+* `.tbc` (composite TBC)
+* `.tbcc` / `.tbcy` (YC TBC; requires both files as a pair)
+* `.composite` (composite CVBS)
+* `.y` / `.c` (YC CVBS; requires both files as a pair)
 
-Orc-GUI then looks for the associated metadata database alongside the file:
+Orc-GUI then looks for the associated metadata alongside the file:
 
-* `<base>.tbc.db`
+* `<base>.tbc.db` for TBC captures (legacy `<base>.tbc.json` metadata is accepted with a warning)
+* `<base>.meta` for CVBS captures
 
 If the metadata file is missing, the quick project cannot be created.
 
 What Quick Project sets up for you:
 
-* Detects whether the capture is **PAL** or **NTSC** from the metadata
+* Detects whether the capture is **PAL**, **NTSC**, or **PAL-M** from the metadata
 * Adds the appropriate **source stage** for the detected system and input type
 * Adds an **FFmpeg video sink** stage
 * Creates a **connection** from the source stage to the sink stage
@@ -102,7 +109,19 @@ Use this when your graph becomes messy after adding or moving stages.
 
 ---
 
+### Tools Menu
+
+#### Plugin Manager…
+
+Opens the plugin manager, which lists the loaded stage plugins and their status.
+
+---
+
 ### Help Menu
+
+#### User Guide…
+
+Opens this user guide.
 
 #### About Orc GUI…
 
@@ -122,15 +141,16 @@ The graph editor is the central workspace where you build your processing pipeli
 To add a stage:
 
 * Right-click on empty space in the graph editor
-* Choose **Add** (shown as “Add Stage” in the menu)
+* Choose **Add Stage**
 * Pick a stage from one of the categories:
 
   * Source
   * Transform
-  * Sink
-  * Analysis Sink
+  * Sink (Core)
+  * Sink (Analysis)
+  * Sink (3rd party)
 
-Orc-GUI filters the available stages to match your project’s video system (PAL/NTSC). For source stages it also filters by input type (Composite vs YC).
+Orc-GUI filters the available stages to match your project’s video system (PAL/NTSC/PAL-M). For source stages it also filters by input type (Composite vs YC).
 
 The new stage is placed where you clicked.
 
@@ -173,9 +193,9 @@ This changes the label shown on the stage.
 
 Use this to set file paths, decoding options, thresholds, output settings, and other stage-specific behaviour.
 
-### Running Stage Tools (Analysis)
+### Running Stage Tools
 
-Some stages offer tools such as analysis and visualisation.
+Some stages offer interactive tools such as analysis, visualisation, and configuration helpers (e.g. the Disc Mapper, Dropout Editor, or FFmpeg Preset Config).
 
 To access them:
 
@@ -185,14 +205,23 @@ To access them:
 
 If no tools apply to the selected stage, the menu will show that none are available.
 
-### Inspecting or Triggering a Stage
+### Triggering a Stage
 
-Some stages can be inspected or triggered directly.
+Sink stages are executed by triggering them.
 
 * Right-click a stage
-* Use **Inspect Stage…** or **Trigger Stage** (if enabled)
+* Choose **Trigger Stage** (if enabled)
 
 If an action is unavailable, it is disabled and may show a tooltip explaining why.
+
+### Stage Help
+
+Every stage documents itself.
+
+* Right-click a stage
+* Choose **Help…**
+
+This opens the stage's built-in documentation (purpose, parameters, tools, and status-indicator meanings).
 
 ---
 

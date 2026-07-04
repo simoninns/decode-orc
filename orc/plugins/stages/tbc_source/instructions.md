@@ -1,6 +1,6 @@
 # TBC Source
 
-Reads one or more TBC files produced by ld-decode or vhs-decode and presents the decoded video as a frame-domain representation for downstream stages. The stage detects the video system (PAL, NTSC, PAL-M) and signal type (composite or Y/C) from the `.tbc.json.db` metadata, remaps all sample levels from the ld-decode 16-bit internal domain to the 10-bit CVBS domain, and assembles full-frame buffers ready for processing.
+Reads one or more TBC files produced by ld-decode or vhs-decode and presents the decoded video as a frame-domain representation for downstream stages. The stage detects the video system (PAL, NTSC, PAL-M) and signal type (composite or Y/C) from the `.tbc.db` metadata database, remaps all sample levels from the ld-decode 16-bit internal domain to the 10-bit CVBS domain, and assembles full-frame buffers ready for processing.
 
 ## When to use
 
@@ -8,7 +8,7 @@ Add TBC Source as the first stage in any pipeline that starts from ld-decode or 
 
 ## What it does
 
-At execute time the stage opens the `.tbc.json.db` metadata database and reads the video system, field dimensions, and signal levels. It then selects the correct converter (PAL composite, PAL Y/C, NTSC composite, NTSC Y/C, or PAL-M composite) and reads each pair of TBC fields, remapping the 16-bit ld-decode levels to the 10-bit CVBS domain. The resulting full-frame buffers are assembled in order and returned as a VideoFrameRepresentation.
+At execute time the stage opens the `.tbc.db` metadata database (falling back to legacy `.tbc.json` metadata produced by older ld-decode/vhs-decode versions) and reads the video system, field dimensions, and signal levels. It then selects the correct converter (PAL composite, PAL Y/C, NTSC composite, NTSC Y/C, or PAL-M composite) and reads each pair of TBC fields, remapping the 16-bit ld-decode levels to the 10-bit CVBS domain. The resulting full-frame buffers are assembled in order and returned as a VideoFrameRepresentation.
 
 Frame sizes after assembly: PAL frames contain 709,379 samples; NTSC frames contain 477,750 samples; PAL-M frames contain 477,225 samples.
 

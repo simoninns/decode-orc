@@ -109,7 +109,7 @@ The Frame-scope reflects **exactly what a downstream stage will see**.
 Examples:
 
 * After `video_params`, black/white level overrides are visible immediately.
-* After `mask_line`, masked regions appear flattened at the mask IRE level.
+* After `mask_line`, masked regions appear flattened at the configured mask sample level.
 * After `dropout_correct`, corrected samples can be inspected directly.
 * After `stacker`, per-sample noise reduction effects are visible.
 

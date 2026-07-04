@@ -12,7 +12,11 @@ Estimates signal-to-noise ratio using spatial and temporal analysis of the incom
 
 ## Parameters
 
-This stage has no user-configurable parameters.
+### output_path (file path)
+Destination CSV file for the SNR metrics. Leave empty to skip file output.
+
+### write_csv (bool)
+Enable writing the results to CSV at trigger time. Default: `false`.
 
 ## Tools
 

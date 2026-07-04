@@ -12,7 +12,11 @@ Reads each field from the incoming stream and measures the colour burst amplitud
 
 ## Parameters
 
-This stage has no user-configurable parameters.
+### output_path (file path)
+Destination CSV file for the burst metrics. Leave empty to skip file output.
+
+### write_csv (bool)
+Enable writing the results to CSV at trigger time. Default: `false`.
 
 ## Tools
 

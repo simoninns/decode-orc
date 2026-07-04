@@ -6,7 +6,7 @@ Analysis sinks:
 
 * Do not modify video, audio, or metadata
 * Do not produce outputs that can be connected further downstream
-* May write reports to disk and/or emit structured statistics to the UI
+* Display results in a chart window and can optionally write a CSV file
 
 They are typically used to:
 
@@ -14,13 +14,15 @@ They are typically used to:
 * Validate signal stability and decode quality
 * Quantify the effects of transform stages such as stacking or dropout correction
 
+All three analysis sinks work the same way: trigger the stage to compute the dataset, after which the matching analysis chart dialog opens automatically. The dataset is cached in the stage and the chart can be re-opened at any time from the **Stage Tools** menu.
+
 ---
 
 ## Burst Level Analysis Sink
 
 | | |
 |-|-|
-| **Stage id** | `burst_level_analysis` |
+| **Stage id** | `burst_level_analysis_sink` |
 | **Stage name** | Burst Level Analysis Sink |
 | **Connections** | 1 input → no outputs |
 | **Purpose** | Measure colour burst level stability across fields |
@@ -33,24 +35,24 @@ They are typically used to:
 
 **What it does**
 
-This stage measures the amplitude of the colour burst for each field and generates statistics describing burst level variation over time.
-
-The analysis is typically performed on the burst window defined by the active video parameters (either from the source or overridden upstream).
+This stage measures the amplitude of the colour burst for each field and generates statistics describing burst level variation over time (per-field measurements plus aggregate mean, variance, min/max). After triggering, the Burst Level Analysis chart is opened automatically.
 
 **Parameters**
 
-* None.
+* `output_path` (file path)
+    - Destination CSV file for burst metrics. Leave empty to skip file output.
+* `write_csv` (bool)
+    - Enable writing results to CSV at trigger time.
 
-**Analysis output**
+**Stage tools**
 
-* Per-field burst amplitude measurements
-* Aggregate statistics (mean, variance, min/max)
-* Optional time-series data for plotting burst stability
+* **Burst Level Analysis** — displays per-frame colour-burst amplitude measurements in a chart window. Invoked automatically after triggering; can be re-opened from the Stage Tools menu.
 
 **Notes**
 
 * Results are meaningful only if colour burst timing is correct upstream.
 * Masking or altering the burst region before this stage will invalidate results.
+* Connect one instance before and one after the Stacker stage to compare burst stability across captures.
 
 ---
 
@@ -58,7 +60,7 @@ The analysis is typically performed on the burst window defined by the active vi
 
 | | |
 |-|-|
-| **Stage id** | `dropout_analysis` |
+| **Stage id** | `dropout_analysis_sink` |
 | **Stage name** | Dropout Analysis Sink |
 | **Connections** | 1 input → no outputs |
 | **Purpose** | Produce statistics describing dropout frequency, size, and distribution |
@@ -71,25 +73,26 @@ The analysis is typically performed on the burst window defined by the active vi
 
 **What it does**
 
-This stage reads dropout hints present in the stream (originating from the source or modified by transform stages such as `dropout_map`) and generates statistical summaries.
+This stage reads dropout hints present in the stream (originating from the source or modified by transform stages such as `dropout_map`) and generates statistical summaries: total dropout count, per-field counts, size distributions, and line/field density metrics. After triggering, the Dropout Analysis chart is opened automatically.
 
 It does **not** perform dropout detection or correction itself.
 
 **Parameters**
 
-* None.
+* `output_path` (file path)
+    - Destination CSV file for dropout metrics. Leave empty to skip file output.
+* `write_csv` (bool)
+    - Enable writing results to CSV at trigger time.
 
-**Analysis output**
+**Stage tools**
 
-* Total number of dropouts
-* Dropout counts per field
-* Dropout size distributions (length and area)
-* Line-based and field-based dropout density metrics
+* **Dropout Analysis** — displays dropout frequency, size, and distribution charts. Invoked automatically after triggering; can be re-opened from the Stage Tools menu.
 
 **Notes**
 
 * Results depend on the quality of upstream dropout detection.
 * Removing or adding dropouts upstream will directly affect analysis output.
+* Connect one instance before the Stacker and one after to see the dropout reduction achieved by stacking.
 
 ---
 
@@ -97,7 +100,7 @@ It does **not** perform dropout detection or correction itself.
 
 | | |
 |-|-|
-| **Stage id** | `snr_analysis` |
+| **Stage id** | `snr_analysis_sink` |
 | **Stage name** | SNR Analysis Sink |
 | **Connections** | 1 input → no outputs |
 | **Purpose** | Produce signal-to-noise metrics for capture quality comparison |
@@ -110,22 +113,24 @@ It does **not** perform dropout detection or correction itself.
 
 **What it does**
 
-This stage estimates signal-to-noise ratio (SNR) using spatial and/or temporal analysis of the incoming video stream. The exact method depends on the implementation but is designed to be consistent across comparable pipelines.
+This stage estimates signal-to-noise ratio using spatial and temporal analysis of the incoming video stream, reporting **white SNR** and **black SNR** per field along with aggregate statistics. Results are consistent across comparable pipelines, allowing meaningful cross-capture comparison. After triggering, the SNR Analysis chart is opened automatically.
 
 **Parameters**
 
-* None.
+* `output_path` (file path)
+    - Destination CSV file for SNR metrics. Leave empty to skip file output.
+* `write_csv` (bool)
+    - Enable writing results to CSV at trigger time.
 
-**Analysis output**
+**Stage tools**
 
-* Overall SNR estimate
-* Per-field or per-region SNR measurements (where applicable)
-* Aggregate statistics suitable for cross-capture comparison
+* **SNR Analysis** — displays white SNR and black SNR metrics over time in a chart window. Invoked automatically after triggering; can be re-opened from the Stage Tools menu.
 
 **Notes**
 
 * Meaningful SNR comparison requires aligned sources.
 * Use `source_align` and `stacker` appropriately upstream when comparing captures.
+* Stacking improves SNR only where sources contain independent noise; identical sources will not show an SNR improvement on dropout-free areas.
 
 ---
 
@@ -135,5 +140,3 @@ This stage estimates signal-to-noise ratio (SNR) using spatial and/or temporal a
 * Multiple analysis sinks may consume the same upstream output.
 * Analysis sinks are side-effect-free with respect to media data.
 * Results are intended for diagnostics, comparison, and validation—not for further pipeline processing.
-
-This document complements the source-stage, transform-stage, and sink-stage documentation and provides a reference for decode-orc diagnostic workflows :contentReference[oaicite:0]{index=0}.

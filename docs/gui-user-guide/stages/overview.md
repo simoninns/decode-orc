@@ -11,6 +11,6 @@ A *stage* is a discrete processing unit with defined inputs and outputs. Stages 
 
 Since there are quite a large number of sink stages they are divided into 3 sub-sections:
 
-* Sink (Core) - These are the core ld-decode and vhs-decode supporting sinks
-* Sink (Analysis) - There are analysis sinks that output statistics
-* Sink (3rd Party) - These are sinks to support 3rd party application such as HackDAC and Daphne
+* Sink (Core) - The core media/data output sinks (TBC, CVBS, encoded video, audio, EFM, AC3, closed captions)
+* Sink (Analysis) - Analysis sinks that compute statistics and display charts
+* Sink (3rd Party) - Sinks that support 3rd party applications such as Daphne

@@ -12,7 +12,11 @@ Reads dropout hints present in the incoming stream and computes statistical summ
 
 ## Parameters
 
-This stage has no user-configurable parameters.
+### output_path (file path)
+Destination CSV file for the dropout metrics. Leave empty to skip file output.
+
+### write_csv (bool)
+Enable writing the results to CSV at trigger time. Default: `false`.
 
 ## Tools
 

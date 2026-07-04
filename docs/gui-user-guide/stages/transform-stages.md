@@ -52,8 +52,11 @@ Frame Map parses a comma-separated list of frame ranges (e.g. `0-10,20-30,11-19`
     - Allowed values: `nearest`, `black`.
     - Default: `nearest`.
 
-**Analysis / preview tools**
+**Stage tools**
 
+* **Disc Mapper** — analyses the incoming frame stream for tracking errors (skipped, repeated, or missing frames caused by LaserDisc player seek problems) and writes a corrected `ranges` specification back to the stage. Works for both CAV and CLV discs; the analysis can be cancelled from the tool dialog. LaserDisc sources only.
+* **Frame Map Range Finder** — locates a section of the disc by picture number or CLV timecode (e.g. `12345` or `0:1:23.4`) and writes the corresponding `ranges` string to the stage. Uses a binary-chop search over the disc's VBI picture numbers, falling back to a sequential scan when the numbering is not monotonic. Cancellable. LaserDisc sources only.
+* **Frame Corruption Generator** — injects synthetic corruption patterns (skips, repeats, gaps) into the frame mapping for testing the Disc Mapper tool.
 * Supports standard GUI previews (via `PreviewableStage`).
 
 ---
@@ -75,17 +78,18 @@ Frame Map parses a comma-separated list of frame ranges (e.g. `0-10,20-30,11-19`
 
 **What it does**
 
-Source Align finds the **first common frame** across all inputs using **VBI frame numbers (CAV)** or **CLV timecodes**, then drops frames as needed so output frame indices are synchronised across all aligned outputs. The stage verifies that `colour_frame_index` is consistent across all aligned sources.
+Source Align finds the **first common frame** across all inputs using **VBI frame numbers (CAV)** or **CLV timecodes**, then drops the leading fields that precede it in each input so output frame indices are synchronised across all aligned outputs. The stage verifies that `colour_frame_index` is consistent across all aligned sources.
 
 **Parameters**
 
 * `alignmentMap` (string)
-    - Manual alignment specification.
+    - Manual alignment specification. When set, automatic detection is skipped and the specified per-input offsets (in fields) are applied directly.
     - Format: `input_id+offset` per input, e.g. `1+2, 2+2, 3+1, 4+1`.
     - Default: `""` (empty) meaning auto-detect from VBI/timecode.
 
-**Analysis / preview tools**
+**Stage tools**
 
+* **Source Alignment Analysis** — analyses all connected sources and writes the optimal offset map to `alignmentMap`. Two alignment modes are offered: `pad_for_alignment` prepends synthetic padding frames so all sources start from the earliest VBI frame available (no frames are lost), while `first_common_frame` trims all sources to the first VBI frame present in every input (may discard unique leading content). Cancellable. LaserDisc sources only.
 * Supports standard GUI previews (via `PreviewableStage`).
 * Generates a stage report after execution, including per-input alignment offsets and related alignment details.
 
@@ -114,21 +118,23 @@ If only **1 input** is provided, the stage acts as a passthrough.
 **Parameters**
 
 * `mode` (string)
-    - Stacking algorithm.
-    - Allowed values:
-        - `Auto`
-        - `Mean`
-        - `Median`
-        - `Smart Mean`
-        - `Smart Neighbor`
-        - `Neighbor`
+    - Stacking algorithm, applied per pixel to the usable (non-dropout) values across all sources.
     - Default: `Auto`.
 
+| Mode | Behaviour per pixel |
+|------|--------------------|
+| `Auto` | `Smart Mean` when 3 or more usable source values are available; plain `Mean` otherwise. |
+| `Mean` | Arithmetic mean of all usable source values. |
+| `Median` | Median of the usable source values (mean of the middle two for an even count). |
+| `Smart Mean` | Mean of the values within `smart_threshold` of the median, rejecting outliers; falls back to the median when no value qualifies. |
+| `Smart Neighbor` | Not yet implemented — currently behaves as `Median`. |
+| `Neighbor` | Not yet implemented — currently behaves as `Median`. |
+
 * `smart_threshold` (int32)
-    - Threshold used by smart modes.
+    - Pixel-value threshold used by `Smart Mean` (and by `Auto` when it selects `Smart Mean`) to exclude outliers before averaging.
     - Range: 0–128.
     - Default: 15.
-    - Only used when `mode` is `Smart Mean` or `Smart Neighbor`.
+    - Has no effect for other modes.
 
 * `no_diff_dod` (bool)
     - Disable differential dropout detection.
@@ -142,7 +148,7 @@ If only **1 input** is provided, the stage acts as a passthrough.
 * `audio_stacking` (string)
     - How to combine audio across sources.
     - Allowed values:
-        - `Disabled` (use audio from the best frame, as determined by video quality)
+        - `Disabled` (use audio from the source with the fewest dropouts)
         - `Mean`
         - `Median`
     - Default: `Mean`.
@@ -150,10 +156,14 @@ If only **1 input** is provided, the stage acts as a passthrough.
 * `efm_stacking` (string)
     - How to combine EFM t-values across sources.
     - Allowed values:
-        - `Disabled` (use EFM from the best frame, as determined by video quality)
+        - `Disabled` (use EFM from the source with the fewest dropouts)
         - `Mean`
         - `Median`
     - Default: `Mean`.
+
+**Notes**
+
+* Stacking reduces noise only when the sources contain independent noise (separate captures). Sources that are identical apart from dropouts stack to the same underlying signal, so SNR will not improve on dropout-free picture areas.
 
 **Analysis / preview tools**
 
@@ -169,7 +179,7 @@ If only **1 input** is provided, the stage acts as a passthrough.
 | **Stage id** | `dropout_map` |
 | **Stage name** | Dropout Map |
 | **Connections** | 1 input → 1 output (fan-out supported) |
-| **Purpose** | Manually override dropout hints on a per-frame basis without modifying samples |
+| **Purpose** | Manually override dropout hints on a per-field basis without modifying samples |
 
 **Use this stage when:**
 
@@ -180,18 +190,20 @@ If only **1 input** is provided, the stage acts as a passthrough.
 
 **What it does**
 
-This stage modifies the **dropout hint regions** seen by downstream stages. It does not change the underlying video samples. Dropout specifications are authored in field-line-sample form for compatibility with existing project files; the stage converts these internally to frame-flat sample offsets.
+This stage modifies the **dropout hint regions** seen by downstream stages. It does not change the underlying video samples. For each field with an entry in the `dropout_map` parameter, additions are merged into the hint list and removals are subtracted before the hints are passed downstream; fields without an entry are forwarded unchanged.
 
 **Parameters**
 
 * `dropout_map` (string)
-    - Per-frame dropout overrides in a JSON-like format.
+    - Per-field dropout overrides in a JSON-like format.
     - Default: `[]`.
     - Example:
-        - `[{frame:0,add:[{field:1,line:10,start:100,end:200}],remove:[{field:1,line:15,start:50,end:75}]}]`
+        - `[{field:0,add:[{field:1,line:10,start:100,end:200}],remove:[{field:1,line:15,start:50,end:75}]}]`
+    - Use the Dropout Editor tool to build this string interactively rather than writing it by hand.
 
-**Analysis / preview tools**
+**Stage tools**
 
+* **Dropout Editor** — opens an interactive editor for drawing new dropout regions or deleting existing ones on a per-field basis. Changes are saved back to the `dropout_map` parameter automatically.
 * Supports standard GUI previews (via `PreviewableStage`).
 
 ---
@@ -263,31 +275,28 @@ Dropout Correction reads dropout hints (from the source or from an upstream `dro
 
 **What it does**
 
-Mask Line overwrites selected frame lines with a constant level defined in IRE units. Selection is driven by a line specification string that supports field-parity qualifiers. Line numbers are **0-based frame-flat** indices. For PAL, any 1136-sample line (at the four non-orthogonal positions) is zeroed across all 1136 samples.
+Mask Line overwrites selected frame lines with a constant 10-bit sample level. Line numbers are **0-based frame-flat** indices. For Y/C sources both the luma and chroma buffers of a masked line are filled with the mask value. All other lines, and the audio/EFM streams, are forwarded unchanged.
 
 **Parameters**
 
 * `lineSpec` (string)
-    - Lines to mask.
-    - Format: `PARITY:LINE` or `PARITY:START-END`.
-    - Parity:
-        - `F` = field 1 lines only
-        - `S` = field 2 lines only
-        - `A` = all lines
+    - Comma-separated list of frame-flat 0-based line indices or inclusive ranges to mask.
+    - Format: `LINE` or `START-END`.
     - Examples:
-        - `F:21` — mask line 21 of field 1
-        - `S:6-22` — mask lines 6–22 of field 2
-        - `A:10,F:21`
-    - Line numbers are 0-based frame-flat indices.
-    - Default: `""` (no masking).
+        - `20` — mask frame-flat line 20 (broadcast line 21, field 1 in PAL/NTSC)
+        - `5-21` — mask frame-flat lines 5 through 21 (broadcast lines 6–22)
+        - `5-21,318-334` — mask the VBI area in both fields of a PAL frame
+    - Default: `""` (no masking, pass-through).
+    - Use the **Mask Line Config** tool to generate this value from broadcast line numbers without writing the spec manually.
 
-* `maskIRE` (double)
-    - IRE level to write (0 = black, 100 = white).
-    - Range: 0.0–100.0.
-    - Default: 0.0.
+* `maskSampleLevel` (integer)
+    - 10-bit sample level (0–1023) written to all masked lines.
+    - Default: 0 (sync tip).
+    - Typical values: 240 = blanking/black (NTSC/PAL-M), 256 = blanking/black (PAL), 800 = white (NTSC/PAL-M), 844 = white (PAL).
 
-**Analysis / preview tools**
+**Stage tools**
 
+* **Mask Line Config** — a configuration dialog that accepts **full-frame broadcast line numbers** (1-based; PAL 1–625, NTSC/PAL-M 1–525) and converts them automatically to the frame-flat `lineSpec` format, masking each range in **both** fields. Example: PAL range 6–22 produces `lineSpec` = `5-21,318-334`.
 * Supports standard GUI previews (via `PreviewableStage`).
 
 ---

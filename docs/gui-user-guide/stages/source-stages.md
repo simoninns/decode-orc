@@ -30,7 +30,7 @@ Source stages do not improve or modify the signal. Their purpose is to:
 
 **What it does**
 
-This stage reads one or more TBC files, detects the video system and signal type (composite or Y/C) from the `.tbc.json.db` metadata, and assembles full-frame CVBS_U10_4FSC buffers for downstream processing. The stage display name is resolved at load time from the metadata (`PAL TBC Composite`, `NTSC TBC YC`, etc.).
+This stage reads one or more TBC files, detects the video system and signal type (composite or Y/C) from the `.tbc.db` metadata database, and assembles full-frame CVBS_U10_4FSC buffers for downstream processing. The stage display name is resolved at load time from the metadata (`PAL TBC Composite`, `NTSC TBC YC`, etc.).
 
 All TBC level values are remapped from the ld-decode/vhs-decode internal 16-bit domain to the CVBS_U10_4FSC 10-bit domain. PAL frames have exactly 709,379 samples; NTSC frames have 477,750 samples; PAL-M frames have 477,225 samples.
 
@@ -39,7 +39,7 @@ Associated audio (analogue `.pcm`), EFM disc data, and AC3 RF are attached autom
 **Composite variant user-facing inputs**
 
 * **TBC file** (`.tbc`)
-* Accompanying metadata database (`.tbc.json.db`)
+* Accompanying metadata database (`.tbc.db`)
 * PCM audio file (optional, auto-detected)
 * EFM data file (optional, auto-detected)
 
@@ -55,6 +55,7 @@ Associated audio (analogue `.pcm`), EFM disc data, and AC3 RF are attached autom
 
 * The stage validates that the Y/C colour-frame phase is aligned at open time. Misaligned Y/C files are rejected with a clear error.
 * NTSC-J sources with a non-standard black level are detected automatically from metadata and exposed via a per-frame black level override.
+* Legacy `.tbc.json` metadata produced by older ld-decode/vhs-decode versions is accepted with a warning; re-decoding with a current version (which produces `.tbc.db`) is recommended.
 
 ---
 
@@ -62,26 +63,25 @@ Associated audio (analogue `.pcm`), EFM disc data, and AC3 RF are attached autom
 
 | | |
 |-|-|
-| **Stage id** | `cvbs_source` |
-| **Stage name** | *derived from metadata at load time* (e.g. `PAL CVBS Composite`) |
+| **Stage id** | `PAL_CVBS_Source`, `NTSC_CVBS_Source`, or `PAL_M_CVBS_Source` (one variant per video system; the stage picker offers the one matching the project) |
+| **Stage name** | CVBS Source |
 | **Connections** | No inputs → 1 output |
 | **Purpose** | Load CVBS captures stored in the CVBS file-format family |
 
 **Use this stage when:**
 
-* Your source is a CVBS composite file (`.composite`) rather than a TBC capture
-* You have a matching `.meta` SQLite sidecar
+* Your source is a CVBS file (`.composite`, or a `.y`/`.c` pair for Y/C projects) rather than a TBC capture
 
 **What it does**
 
-This stage reads CVBS payloads from `.composite` files and normalises them to the CVBS_U10_4FSC 10-bit domain. The stage detects the video system and encoding from the `.meta` sidecar.
+This stage reads CVBS payloads from `.composite` files (or `.y`/`.c` pairs) and normalises them to the CVBS_U10_4FSC 10-bit domain. By default the video system, sample encoding, and signal state are read from the `.meta` SQLite sidecar; because the CVBS file format declares metadata optional, the sample encoding can also be selected manually so that sources without a sidecar can be used.
 
-Only the `STANDARD_TBC_LOCKED` signal-state preset is accepted. Files with any other signal state are rejected with a clear error before any frame data is returned.
+Only the `STANDARD_TBC_LOCKED` signal-state preset is accepted. Files with any other signal state are rejected with a clear error before any frame data is returned. When a sample encoding is selected manually the sidecar is ignored: the signal is assumed to be TBC-locked, the frame count is measured from the file size, and any audio sidecar is treated as free-running.
 
 The following sample encodings are normalised automatically:
 
-| Encoding in `.meta` | Normalisation |
-|---------------------|---------------|
+| Encoding | Normalisation |
+|----------|---------------|
 | `CVBS_U10_4FSC` | Identity (already 10-bit) |
 | `CVBS_U16_4FSC` | `value = uint16_value / 64` |
 | `CVBS_TPG21_4FSC` | `value = int16_value / 64 + 508` |
@@ -89,9 +89,19 @@ The following sample encodings are normalised automatically:
 
 Associated dropout, audio, EFM, and AC3 sidecars are loaded automatically if present.
 
-**User-facing inputs**
+**Parameters**
 
-* **CVBS file path** (`.composite`, `.meta`)
+The file-path parameters offered match the project's source type: a composite project shows only the CVBS file path, while a Y/C project shows only the Y (luma) and C (chroma) paths.
+
+* `input_path` (file path)
+    - Path to the composite data file (`.composite`). Composite projects only.
+
+* `y_path` / `c_path` (file paths)
+    - Paths to the luma (`.y`) and chroma (`.c`) channel files. Y/C projects only; set together.
+
+* `sample_encoding` (string)
+    - `From metadata` (default) reads the encoding from the `.meta` sidecar.
+    - Selecting `CVBS_U10_4FSC`, `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, or `CVBS_S16_FSC` manually makes the sidecar optional.
 
 **Notes**
 

@@ -1,6 +1,6 @@
 # LD Sink
 
-Writes the processed pipeline result back to the ld-decode / vhs-decode TBC file format, producing a `.tbc` video file, a `.tbc.json.db` metadata database, and any attached audio, EFM, or AC3 data streams. The output is fully compatible with the ld-tools ecosystem.
+Writes the processed pipeline result back to the ld-decode / vhs-decode TBC file format, producing a `.tbc` video file and a `.tbc.db` metadata database. The output is fully compatible with the ld-tools ecosystem.
 
 ## When to use
 
@@ -8,16 +8,16 @@ Use this stage as the final output stage when you want to feed the processed res
 
 ## What it does
 
-For every field that passes through the pipeline, LD Sink writes the raw field samples to a `.tbc` binary file and records the associated metadata (field number, parity, VBI observations, hints, and all per-field observations) to a `.tbc.json.db` SQLite database. Any analogue audio, EFM, or AC3 RF data attached to the VideoFieldRepresentation is written to the corresponding sidecar files (e.g. `_audio_00.pcm`, `.efm`, `.ac3`). The stage also supports pipeline preview — you can inspect what will be written before triggering.
+For every field that passes through the pipeline, LD Sink writes the raw field samples to a `.tbc` binary file and records the associated metadata (field number, parity, VBI observations, hints, and all per-field observations) to a `.tbc.db` SQLite database. The stage also supports pipeline preview — you can inspect what will be written before triggering.
 
 ## Parameters
 
-### output (string)
-Base path for all output files, without extension. Required. The stage appends the appropriate extensions automatically: `.tbc` for video fields, `.tbc.json.db` for metadata, `_audio_00.pcm` for analogue audio, `.efm` for raw EFM, and `.ac3` for AC3 RF data.
+### output_path (string)
+Base path for the output files. Required. The stage appends the extensions automatically: `.tbc` for video fields (a trailing `.tbc` in the parameter is kept as-is) and `.tbc.db` for the metadata database.
 
 ## Notes
 
-The output path must be writable. If the target directory does not exist the stage will fail at trigger time. Do not include a file extension in the `output` parameter — the stage manages all extensions itself.
+The output path must be writable. If the target directory does not exist the stage will fail at trigger time. This stage writes video and metadata only — export analogue audio, EFM, or AC3 RF data with the Analogue Audio Sink, Raw EFM Data Sink / EFM Decoder Sink, or AC3 RF Sink stages connected in parallel.
 
 ## Status Indicator
 

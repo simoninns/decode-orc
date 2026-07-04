@@ -8,12 +8,15 @@ Add this sink when you are processing an NTSC LaserDisc that carries Line 21 clo
 
 ## What it does
 
-For each field in the pipeline, the stage reads the two caption bytes embedded in VBI Line 21 from the VideoFieldRepresentation. It accumulates the byte pairs across the full field sequence and writes them in the chosen format: Scenarist SCC V1.0 (industry-standard, includes HH:MM:SS:FF timestamps and hex byte pairs) or plain text (printable ASCII only, control codes stripped). A CSV diagnostic file can optionally be written alongside the main output.
+For each field in the pipeline, the stage reads the two caption bytes embedded in VBI Line 21 from the VideoFieldRepresentation. It accumulates the byte pairs across the full field sequence and writes them in the chosen format: Scenarist SCC V1.0 (industry-standard, includes HH:MM:SS:FF timestamps and hex byte pairs) or plain text (printable ASCII only, control codes stripped).
 
 ## Parameters
 
-### output (string)
-Path to the closed-caption output file. Required. Use a `.scc` extension for SCC format or `.txt` for plain text.
+### output_path (string)
+Path to the closed-caption output file. Required. Conventionally uses a `.scc` extension for SCC format or `.txt` for plain text.
+
+### format (string)
+Export format. Values: `Scenarist SCC` (Scenarist SCC V1.0) or `Plain Text`. Default: `Scenarist SCC`.
 
 ## Notes
 

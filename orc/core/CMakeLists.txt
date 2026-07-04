@@ -52,6 +52,7 @@ add_library(orc-core SHARED
     analysis/disc_mapper/disc_mapper_analysis.cpp
     analysis/disc_mapper/disc_mapper_analyzer.cpp
     analysis/frame_map_range/frame_map_range_analysis.cpp
+    analysis/frame_map_range/frame_map_range_search.cpp
     
     # Frame corruption analysis (testing tool)
     analysis/frame_corruption/frame_corruption_analyzer.cpp

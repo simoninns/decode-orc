@@ -18,14 +18,16 @@
 #include <cctype>
 #include <cstdint>
 #include <limits>
-#include <set>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "../../include/dag_executor.h"
 #include "../../include/project.h"
 #include "../analysis_registry.h"
+#include "frame_map_range_search.h"
 
 namespace orc {
 
@@ -398,168 +400,68 @@ AnalysisResult FrameMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
   }
 
   if (progress) {
-    progress->setStatus("Finding first valid VBI to establish baseline...");
-    progress->setProgress(10);
+    progress->setStatus("Locating start address...");
+    progress->setProgress(30);
   }
 
   BiphaseObserver biphase_observer;
   auto& obs_context = executor.get_observation_context();
-  std::set<FrameID> processed_frames;
 
-  auto extract_vbi_if_needed = [&](FrameID frame_id) {
-    if (processed_frames.find(frame_id) == processed_frames.end()) {
-      biphase_observer.process_frame(*source, frame_id, obs_context);
-      processed_frames.insert(frame_id);
+  // Memoized probe: each frame is biphase-decoded at most once.
+  std::unordered_map<int64_t, std::optional<int32_t>> picture_cache;
+  auto probe = [&](int64_t fid) -> std::optional<int32_t> {
+    auto it = picture_cache.find(fid);
+    if (it != picture_cache.end()) {
+      return it->second;
     }
+    FrameID frame_id = static_cast<FrameID>(fid);
+    biphase_observer.process_frame(*source, frame_id, obs_context);
+    auto pn = get_picture_number_from_frame(obs_context, frame_id, is_pal);
+    picture_cache.emplace(fid, pn);
+    return pn;
   };
-
-  // Find the first frame with valid VBI to establish a prediction baseline
-  std::optional<int32_t> first_picture_number;
-  FrameID first_valid_frame = frame_range.first;
-
-  for (FrameID fid = frame_range.first; fid <= frame_range.last; ++fid) {
-    extract_vbi_if_needed(fid);
-    auto pn_opt = get_picture_number_from_frame(obs_context, fid, is_pal);
-    if (pn_opt) {
-      first_picture_number = pn_opt;
-      first_valid_frame = fid;
-      ORC_LOG_DEBUG("First valid VBI at frame {}: picture number {}", fid,
-                    *pn_opt);
-      break;
-    }
-  }
-
-  if (!first_picture_number) {
-    result.status = AnalysisResult::Failed;
-    result.summary =
-        "No valid VBI data found in source. Cannot locate picture "
-        "numbers/timecodes.";
-    return result;
-  }
-
-  if (progress) {
-    progress->setStatus("Analyzing picture-to-frame mapping...");
-    progress->setProgress(20);
-  }
-
-  // Sample spread points to measure the frames-per-picture ratio (handles gaps
-  // and non-uniform spacing; expected ~1.0 for normal CAV/CLV discs)
-  std::vector<std::pair<int64_t, int32_t>> samples;  // (frame_id, picture_num)
-  samples.push_back(
-      {static_cast<int64_t>(first_valid_frame), first_picture_number.value()});
-
-  const size_t max_samples = 11;
-  size_t sample_interval =
-      std::max<size_t>(1, total_frames / (max_samples * 10));
-
-  for (size_t i = 1; i < max_samples && samples.size() < max_samples; i++) {
-    FrameID sample_frame = first_valid_frame + (i * sample_interval);
-    if (sample_frame > frame_range.last) break;
-    extract_vbi_if_needed(sample_frame);
-    auto pn_opt =
-        get_picture_number_from_frame(obs_context, sample_frame, is_pal);
-    if (pn_opt) {
-      samples.push_back({static_cast<int64_t>(sample_frame), *pn_opt});
-    }
-  }
-
-  double avg_frames_per_picture = 1.0;  // default fallback
-  if (samples.size() > 1) {
-    int64_t total_frame_delta = 0;
-    int64_t total_picture_delta = 0;
-    for (size_t i = 1; i < samples.size(); i++) {
-      int64_t frame_delta = samples[i].first - samples[i - 1].first;
-      int64_t picture_delta = samples[i].second - samples[i - 1].second;
-      if (picture_delta > 0 && frame_delta > 0) {
-        total_frame_delta += frame_delta;
-        total_picture_delta += picture_delta;
-      }
-    }
-    if (total_picture_delta > 0) {
-      avg_frames_per_picture = static_cast<double>(total_frame_delta) /
-                               static_cast<double>(total_picture_delta);
-    }
-  }
-
-  ORC_LOG_DEBUG("Sampled {} points, calculated avg frames per picture: {:.2f}",
-                samples.size(), avg_frames_per_picture);
-
-  int64_t start_picture_offset =
-      start_addr.picture_number - first_picture_number.value();
-  int64_t end_picture_offset =
-      end_addr.picture_number - first_picture_number.value();
+  auto cancel_check = [&]() { return progress && progress->isCancelled(); };
 
   int64_t src_first = static_cast<int64_t>(frame_range.first);
   int64_t src_last = static_cast<int64_t>(frame_range.last);
 
-  int64_t predicted_start_frame =
-      static_cast<int64_t>(first_valid_frame) +
-      static_cast<int64_t>(static_cast<double>(start_picture_offset) *
-                           avg_frames_per_picture);
-  int64_t predicted_end_frame =
-      static_cast<int64_t>(first_valid_frame) +
-      static_cast<int64_t>(static_cast<double>(end_picture_offset) *
-                           avg_frames_per_picture);
+  using frame_map_range::SearchStatus;
 
-  predicted_start_frame =
-      std::max(src_first, std::min(predicted_start_frame, src_last));
-  predicted_end_frame =
-      std::max(src_first, std::min(predicted_end_frame, src_last));
-
-  ORC_LOG_DEBUG(
-      "Predicted start frame: {} (picture {}), predicted end frame: {} "
-      "(picture {})",
-      predicted_start_frame, start_addr.picture_number, predicted_end_frame,
-      end_addr.picture_number);
-
-  if (progress) {
-    progress->setStatus("Jumping to predicted start position...");
-    progress->setProgress(40);
+  // Binary chop over the monotonic picture numbers: O(log n) frame decodes
+  // instead of a sequential hunt.
+  auto start_outcome = frame_map_range::find_first_frame_with_picture(
+      src_first, src_last, start_addr.picture_number, probe, cancel_check);
+  if (start_outcome.status == SearchStatus::Cancelled) {
+    result.status = AnalysisResult::Cancelled;
+    return result;
   }
 
-  bool start_found = false;
-  FrameID start_frame = frame_range.first;
-
-  // ±2500 frames (~100 s at 25 fps) around the predicted position
-  const int64_t search_radius = 2500;
-  int64_t start_search_begin =
-      std::max(src_first, predicted_start_frame - search_radius);
-  int64_t start_search_end =
-      std::min(src_last + 1, predicted_start_frame + search_radius);
-
-  ORC_LOG_DEBUG(
-      "Searching for start picture {} in frame range {}-{} (predicted: {})",
-      start_addr.picture_number, start_search_begin, start_search_end,
-      predicted_start_frame);
-
-  for (int64_t fid = start_search_begin; fid < start_search_end; ++fid) {
-    FrameID frame_id = static_cast<FrameID>(fid);
-    extract_vbi_if_needed(frame_id);
-    auto pn_opt = get_picture_number_from_frame(obs_context, frame_id, is_pal);
-    if (pn_opt && *pn_opt == start_addr.picture_number) {
-      start_found = true;
-      start_frame = frame_id;
-      ORC_LOG_DEBUG("Start position found at frame {}: picture number {}", fid,
-                    *pn_opt);
-      break;
-    }
+  bool start_found = start_outcome.status == SearchStatus::Found;
+  FrameID start_frame = start_found ? static_cast<FrameID>(start_outcome.frame)
+                                    : frame_range.first;
+  if (start_found) {
+    ORC_LOG_DEBUG("Start position found at frame {}: picture number {}",
+                  start_frame, start_addr.picture_number);
   }
 
-  // Fallback: full scan from the beginning
+  // Fallback: sequential scan handles non-monotonic picture numbers (e.g.
+  // the player skipped backwards during capture)
   if (!start_found) {
     ORC_LOG_WARN(
-        "Start not found in predicted range, falling back to full scan");
+        "Start not found by binary search, falling back to sequential scan");
     if (progress) {
-      progress->setStatus(
-          "Start not in predicted range, scanning from beginning...");
+      progress->setStatus("Start not found by binary search, scanning...");
     }
 
-    for (FrameID fid = frame_range.first; fid <= frame_range.last; ++fid) {
-      extract_vbi_if_needed(fid);
-      auto pn_opt = get_picture_number_from_frame(obs_context, fid, is_pal);
+    for (int64_t fid = src_first; fid <= src_last; ++fid) {
+      if (cancel_check()) {
+        result.status = AnalysisResult::Cancelled;
+        return result;
+      }
+      auto pn_opt = probe(fid);
       if (pn_opt && *pn_opt == start_addr.picture_number) {
         start_found = true;
-        start_frame = fid;
+        start_frame = static_cast<FrameID>(fid);
         ORC_LOG_DEBUG(
             "Start position found at frame {} (full scan): picture number {}",
             fid, *pn_opt);
@@ -568,14 +470,8 @@ AnalysisResult FrameMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
 
       if (progress && (fid % 2500 == 0)) {
         progress->setProgress(
-            50 + static_cast<int>(15.0 *
-                                  static_cast<double>(fid - frame_range.first) /
+            40 + static_cast<int>(20.0 * static_cast<double>(fid - src_first) /
                                   static_cast<double>(total_frames)));
-        if (progress->isCancelled()) {
-          AnalysisResult cancelled_result;
-          cancelled_result.status = AnalysisResult::Cancelled;
-          return cancelled_result;
-        }
       }
     }
   }
@@ -587,7 +483,7 @@ AnalysisResult FrameMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
   }
 
   if (progress) {
-    progress->setStatus("Searching for end position...");
+    progress->setStatus("Locating end address...");
     progress->setProgress(70);
     if (progress->isCancelled()) {
       result.status = AnalysisResult::Cancelled;
@@ -603,66 +499,56 @@ AnalysisResult FrameMapRangeAnalysisTool::analyze(const AnalysisContext& ctx,
     ORC_LOG_DEBUG("End position (same as start) at frame {}: picture number {}",
                   end_frame, start_addr.picture_number);
   } else {
-    int64_t end_search_begin = std::max(static_cast<int64_t>(start_frame),
-                                        predicted_end_frame - search_radius);
-    int64_t end_search_end =
-        std::min(src_last + 1, predicted_end_frame + search_radius);
-
-    ORC_LOG_DEBUG(
-        "Searching for end picture {} in frame range {}-{} (predicted: {})",
-        end_addr.picture_number, end_search_begin, end_search_end,
-        predicted_end_frame);
-
-    std::optional<FrameID> last_matching_frame;
-    for (int64_t fid = end_search_begin; fid < end_search_end; ++fid) {
-      FrameID frame_id = static_cast<FrameID>(fid);
-      extract_vbi_if_needed(frame_id);
-      auto pn_opt =
-          get_picture_number_from_frame(obs_context, frame_id, is_pal);
-      if (pn_opt && *pn_opt == end_addr.picture_number) {
-        last_matching_frame = frame_id;
-      }
+    // The end address may repeat across consecutive frames (player
+    // hesitation); take the last matching frame, as the sequential
+    // implementation did.
+    auto end_outcome = frame_map_range::find_last_frame_with_picture(
+        static_cast<int64_t>(start_frame), src_last, end_addr.picture_number,
+        probe, cancel_check);
+    if (end_outcome.status == SearchStatus::Cancelled) {
+      result.status = AnalysisResult::Cancelled;
+      return result;
     }
 
-    if (last_matching_frame) {
+    if (end_outcome.status == SearchStatus::Found) {
       end_found = true;
-      end_frame = *last_matching_frame;
+      end_frame = static_cast<FrameID>(end_outcome.frame);
       ORC_LOG_DEBUG("End position found at frame {}: picture number {}",
                     end_frame, end_addr.picture_number);
     }
 
-    // Fallback: scan forward from start
+    // Fallback: scan forward from start (non-monotonic picture numbers)
     if (!end_found) {
       ORC_LOG_WARN(
-          "End not found in predicted range, falling back to scan from start "
+          "End not found by binary search, falling back to scan from start "
           "position");
       if (progress) {
         progress->setStatus(
-            "End not in predicted range, scanning from start...");
+            "End not found by binary search, scanning from start...");
       }
 
-      for (FrameID fid = start_frame + 1; fid <= frame_range.last; ++fid) {
-        extract_vbi_if_needed(fid);
-        auto pn_opt = get_picture_number_from_frame(obs_context, fid, is_pal);
+      for (int64_t fid = static_cast<int64_t>(start_frame) + 1; fid <= src_last;
+           ++fid) {
+        if (cancel_check()) {
+          result.status = AnalysisResult::Cancelled;
+          return result;
+        }
+        auto pn_opt = probe(fid);
         if (pn_opt && *pn_opt == end_addr.picture_number) {
           end_found = true;
-          end_frame = fid;
+          end_frame = static_cast<FrameID>(fid);
         } else if (end_found && pn_opt && *pn_opt != end_addr.picture_number) {
           break;
         }
 
         if (progress && (fid % 2500 == 0)) {
-          FrameID frames_from_start = fid - start_frame;
-          FrameID total_to_scan = frame_range.last - start_frame;
+          int64_t frames_from_start = fid - static_cast<int64_t>(start_frame);
+          int64_t total_to_scan = src_last - static_cast<int64_t>(start_frame);
           progress->setProgress(
               70 +
               static_cast<int>(
                   20.0 * static_cast<double>(frames_from_start) /
-                  static_cast<double>(std::max<FrameID>(1, total_to_scan))));
-          if (progress->isCancelled()) {
-            result.status = AnalysisResult::Cancelled;
-            return result;
-          }
+                  static_cast<double>(std::max<int64_t>(1, total_to_scan))));
         }
       }
 

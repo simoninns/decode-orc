@@ -60,12 +60,14 @@ class MaskLinePresenter : public AnalysisToolPresenter {
    * customLines, maskSampleLevel)
    * @param progress_callback Optional progress updates (not used for instant
    * tool)
+   * @param cancel_check Optional poll; return true to cancel the analysis
    * @return Analysis result with line specification configuration
    */
   orc::AnalysisResult runAnalysis(
       NodeID node_id,
       const std::map<std::string, orc::ParameterValue>& parameters,
-      std::function<void(int, const std::string&)> progress_callback = nullptr);
+      std::function<void(int, const std::string&)> progress_callback = nullptr,
+      std::function<bool()> cancel_check = nullptr);
 
  protected:
   std::string toolId() const override;

@@ -99,6 +99,7 @@ orc_add_core_unit_tests(
 
         stages/stacker/stacker_stage_test.cpp
         stages/frame_map/frame_map_stage_test.cpp
+        analysis/frame_map_range_search_test.cpp
         stages/video_params/video_params_stage_test.cpp
         stages/dropout_correct/dropout_correct_stage_test.cpp
         stages/dropout_map/dropout_map_stage_test.cpp

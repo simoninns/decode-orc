@@ -37,15 +37,17 @@ std::string DiscMapperPresenter::toolName() const { return "Disc Mapper"; }
 orc::AnalysisResult DiscMapperPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
-    std::function<void(int, const std::string&)> progress_callback) {
+    std::function<void(int, const std::string&)> progress_callback,
+    std::function<bool()> cancel_check) {
   orc::AnalysisResult result;
   result.status = orc::AnalysisResult::Status::Failed;
 
   // Progress helper mapping core progress to GUI callback
   class ProgressAdapter : public orc::AnalysisProgress {
    public:
-    explicit ProgressAdapter(std::function<void(int, const std::string&)> cb)
-        : callback_(std::move(cb)) {}
+    ProgressAdapter(std::function<void(int, const std::string&)> cb,
+                    std::function<bool()> cancel_check)
+        : callback_(std::move(cb)), cancel_check_(std::move(cancel_check)) {}
 
     void setProgress(int percentage) override {
       last_progress_ = percentage;
@@ -72,15 +74,18 @@ orc::AnalysisResult DiscMapperPresenter::runAnalysis(
       }
     }
 
-    bool isCancelled() const override { return false; }
+    bool isCancelled() const override {
+      return cancel_check_ && cancel_check_();
+    }
 
     void reportPartialResult(const orc::AnalysisResult::ResultItem&) override {}
 
    private:
     std::function<void(int, const std::string&)> callback_;
+    std::function<bool()> cancel_check_;
     int last_progress_ = 0;
     std::string status_;
-  } progress(progress_callback);
+  } progress(progress_callback, cancel_check);
 
   if (progress_callback) {
     progress_callback(0, "Initializing disc mapper...");
@@ -151,6 +156,8 @@ orc::AnalysisResult DiscMapperPresenter::runAnalysis(
   if (progress_callback) {
     if (core_result.status == orc::AnalysisResult::Success) {
       progress_callback(100, "Analysis complete");
+    } else if (core_result.status == orc::AnalysisResult::Cancelled) {
+      progress_callback(0, "Analysis cancelled");
     } else {
       progress_callback(0, "Analysis failed");
     }

@@ -62,7 +62,8 @@ bool MaskLinePresenter::validateNode(NodeID node_id,
 orc::AnalysisResult MaskLinePresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
-    std::function<void(int, const std::string&)> progress_callback) {
+    std::function<void(int, const std::string&)> progress_callback,
+    std::function<bool()> cancel_check) {
   orc::AnalysisResult result;
   result.status = orc::AnalysisResult::Status::Failed;
 
@@ -111,9 +112,11 @@ orc::AnalysisResult MaskLinePresenter::runAnalysis(
   // Create progress adapter (though tool completes instantly)
   class ProgressAdapter : public orc::AnalysisProgress {
    public:
-    explicit ProgressAdapter(
-        std::function<void(int, const std::string&)> callback)
-        : callback_(callback), cancelled_(false), current_percentage_(0) {}
+    ProgressAdapter(std::function<void(int, const std::string&)> callback,
+                    std::function<bool()> cancel_check)
+        : callback_(callback),
+          cancel_check_(std::move(cancel_check)),
+          current_percentage_(0) {}
 
     void setProgress(int percentage) override {
       current_percentage_ = percentage;
@@ -134,7 +137,9 @@ orc::AnalysisResult MaskLinePresenter::runAnalysis(
       setStatus(message);
     }
 
-    bool isCancelled() const override { return cancelled_; }
+    bool isCancelled() const override {
+      return cancel_check_ && cancel_check_();
+    }
 
     void reportPartialResult(const orc::AnalysisResult::ResultItem&) override {
       // Not used for this presenter
@@ -142,12 +147,12 @@ orc::AnalysisResult MaskLinePresenter::runAnalysis(
 
    private:
     std::function<void(int, const std::string&)> callback_;
-    std::atomic<bool> cancelled_;
+    std::function<bool()> cancel_check_;
     int current_percentage_;
     std::string current_status_;
   };
 
-  ProgressAdapter progress_adapter(progress_callback);
+  ProgressAdapter progress_adapter(progress_callback, cancel_check);
 
   // Run the analysis tool
   auto core_result = tool->analyze(ctx, &progress_adapter);

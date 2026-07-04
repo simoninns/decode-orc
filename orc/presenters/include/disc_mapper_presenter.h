@@ -25,10 +25,18 @@ class DiscMapperPresenter : public AnalysisToolPresenter {
  public:
   explicit DiscMapperPresenter(void* project_handle);
 
+  /**
+   * @brief Run the disc mapper analysis
+   * @param node_id Frame map node to analyse
+   * @param parameters Tool parameters
+   * @param progress_callback Optional (percentage, status) progress sink
+   * @param cancel_check Optional poll; return true to cancel the analysis
+   */
   orc::AnalysisResult runAnalysis(
       NodeID node_id,
       const std::map<std::string, orc::ParameterValue>& parameters,
-      std::function<void(int, const std::string&)> progress_callback = nullptr);
+      std::function<void(int, const std::string&)> progress_callback = nullptr,
+      std::function<bool()> cancel_check = nullptr);
 
  protected:
   std::string toolId() const override;

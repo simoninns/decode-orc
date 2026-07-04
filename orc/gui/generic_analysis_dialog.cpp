@@ -76,28 +76,32 @@ class GenericAnalysisDialog::AnalysisWorker : public QThread {
       emit progressUpdate(percentage, QString::fromStdString(status));
     };
 
+    // Cancel button requests QThread interruption; poll it so the core
+    // tool can stop cooperatively instead of relying on terminate().
+    auto cancel_check = [this] { return isInterruptionRequested(); };
+
     // Run analysis using specialized presenter
     if (disc_mapper_presenter_) {
-      result_ = disc_mapper_presenter_->runAnalysis(node_id_, parameters_,
-                                                    progress_callback);
+      result_ = disc_mapper_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else if (frame_map_range_presenter_) {
-      result_ = frame_map_range_presenter_->runAnalysis(node_id_, parameters_,
-                                                        progress_callback);
+      result_ = frame_map_range_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else if (frame_corruption_presenter_) {
-      result_ = frame_corruption_presenter_->runAnalysis(node_id_, parameters_,
-                                                         progress_callback);
+      result_ = frame_corruption_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else if (source_alignment_presenter_) {
-      result_ = source_alignment_presenter_->runAnalysis(node_id_, parameters_,
-                                                         progress_callback);
+      result_ = source_alignment_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else if (mask_line_presenter_) {
-      result_ = mask_line_presenter_->runAnalysis(node_id_, parameters_,
-                                                  progress_callback);
+      result_ = mask_line_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else if (ffmpeg_preset_presenter_) {
-      result_ = ffmpeg_preset_presenter_->runAnalysis(node_id_, parameters_,
-                                                      progress_callback);
+      result_ = ffmpeg_preset_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else if (dropout_editor_presenter_) {
-      result_ = dropout_editor_presenter_->runAnalysis(node_id_, parameters_,
-                                                       progress_callback);
+      result_ = dropout_editor_presenter_->runAnalysis(
+          node_id_, parameters_, progress_callback, cancel_check);
     } else {
       // Unknown tool
       result_.status = orc::AnalysisResult::Status::Failed;

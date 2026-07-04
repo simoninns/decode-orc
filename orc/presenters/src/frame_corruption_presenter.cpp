@@ -103,7 +103,8 @@ int32_t FrameCorruptionPresenter::getExistingSeed(NodeID node_id) {
 orc::AnalysisResult FrameCorruptionPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
-    std::function<void(int, const std::string&)> progress_callback) {
+    std::function<void(int, const std::string&)> progress_callback,
+    std::function<bool()> cancel_check) {
   orc::AnalysisResult result;
   result.status = orc::AnalysisResult::Status::Failed;
 
@@ -188,8 +189,10 @@ orc::AnalysisResult FrameCorruptionPresenter::runAnalysis(
   class ProgressWrapper : public orc::AnalysisProgress {
    public:
     ProgressWrapper(std::function<void(int, const std::string&)> callback,
-                    int base_progress)
-        : callback_(callback), base_progress_(base_progress) {}
+                    std::function<bool()> cancel_check, int base_progress)
+        : callback_(callback),
+          cancel_check_(std::move(cancel_check)),
+          base_progress_(base_progress) {}
 
     void setProgress(int percentage) override {
       last_progress_ = percentage;
@@ -212,7 +215,9 @@ orc::AnalysisResult FrameCorruptionPresenter::runAnalysis(
       setStatus(message);
     }
 
-    bool isCancelled() const override { return false; }
+    bool isCancelled() const override {
+      return cancel_check_ && cancel_check_();
+    }
 
     void reportPartialResult(const orc::AnalysisResult::ResultItem&) override {
       // Not used for this presenter
@@ -220,12 +225,13 @@ orc::AnalysisResult FrameCorruptionPresenter::runAnalysis(
 
    private:
     std::function<void(int, const std::string&)> callback_;
+    std::function<bool()> cancel_check_;
     int base_progress_;
     int last_progress_ = 0;
     std::string status_;
   };
 
-  ProgressWrapper progress(progress_callback, 30);
+  ProgressWrapper progress(progress_callback, cancel_check, 30);
 
   // Run the analysis tool
   orc::AnalysisResult core_result = tool->analyze(ctx, &progress);

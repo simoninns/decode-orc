@@ -13,7 +13,6 @@
 #include <orc/stage/stage.h>
 
 #include <algorithm>
-#include <atomic>
 
 #include "../../core/analysis/analysis_context.h"
 #include "../../core/analysis/analysis_progress.h"
@@ -32,7 +31,8 @@ DropoutEditorPresenter::DropoutEditorPresenter(void* project_handle)
 orc::AnalysisResult DropoutEditorPresenter::runAnalysis(
     NodeID node_id,
     const std::map<std::string, orc::ParameterValue>& parameters,
-    std::function<void(int, const std::string&)> progress_callback) {
+    std::function<void(int, const std::string&)> progress_callback,
+    std::function<bool()> cancel_check) {
   (void)parameters;  // Dropout editor has no parameters
 
   ORC_LOG_DEBUG("DropoutEditorPresenter::runAnalysis for node {}",
@@ -133,9 +133,11 @@ orc::AnalysisResult DropoutEditorPresenter::runAnalysis(
   // Create progress adapter
   class ProgressAdapter : public orc::AnalysisProgress {
    public:
-    explicit ProgressAdapter(
-        std::function<void(int, const std::string&)> callback)
-        : callback_(callback), cancelled_(false), current_percentage_(0) {}
+    ProgressAdapter(std::function<void(int, const std::string&)> callback,
+                    std::function<bool()> cancel_check)
+        : callback_(callback),
+          cancel_check_(std::move(cancel_check)),
+          current_percentage_(0) {}
 
     void setProgress(int percentage) override {
       current_percentage_ = percentage;
@@ -156,7 +158,9 @@ orc::AnalysisResult DropoutEditorPresenter::runAnalysis(
       setStatus(message);
     }
 
-    bool isCancelled() const override { return cancelled_; }
+    bool isCancelled() const override {
+      return cancel_check_ && cancel_check_();
+    }
 
     void reportPartialResult(const orc::AnalysisResult::ResultItem&) override {
       // Not used for dropout editor
@@ -164,12 +168,12 @@ orc::AnalysisResult DropoutEditorPresenter::runAnalysis(
 
    private:
     std::function<void(int, const std::string&)> callback_;
-    std::atomic<bool> cancelled_;
+    std::function<bool()> cancel_check_;
     int current_percentage_;
     std::string current_status_;
   };
 
-  ProgressAdapter progress_adapter(progress_callback);
+  ProgressAdapter progress_adapter(progress_callback, cancel_check);
 
   // Call the core tool
   if (progress_callback) {

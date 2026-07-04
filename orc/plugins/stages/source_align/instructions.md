@@ -18,7 +18,7 @@ Manual alignment override. Format: `INPUT_ID+OFFSET` entries separated by commas
 ## Tools
 
 ### Source Alignment Analysis
-Analyses all connected sources and determines the optimal per-input offset so that every source starts at the same disc position. Choose an alignment mode: `pad_for_alignment` prepends synthetic padding frames so all sources start from the earliest VBI frame available across all inputs (no frames are lost); `first_common_frame` trims all sources to the first VBI frame that exists in every input (may discard unique leading content). The tool writes the resulting offset map to `alignmentMap` automatically. Available for LaserDisc sources only. Invoke from the Stage Tools menu.
+Analyses all connected sources and determines the optimal per-input offset so that every source starts at the same disc position. Choose an alignment mode: `pad_for_alignment` prepends synthetic padding frames so all sources start from the earliest VBI frame available across all inputs (no frames are lost); `first_common_frame` trims all sources to the first VBI frame that exists in every input (may discard unique leading content). The tool writes the resulting offset map to `alignmentMap` automatically. The analysis can be cancelled at any time from the tool dialog. Available for LaserDisc sources only. Invoke from the Stage Tools menu.
 
 ## Status Indicator
 

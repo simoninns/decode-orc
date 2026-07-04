@@ -12,6 +12,19 @@ finish-args:
   # Home access covers typical capture/decode file locations; broader host
   # access is a Flathub-rejectable permission. Prefer portals longer-term.
   - --filesystem=home
+  # Quick Project must open sibling files next to the selected one
+  # (.tbc.db/.tbc.json metadata, .tbcy/.tbcc pairs). The file-chooser portal
+  # only grants the single picked file, so the mount point itself must be
+  # readable. TBC captures are large and commonly live on external or
+  # secondary drives mounted under these paths.
+  - --filesystem=/run/media
+  - --filesystem=/media
+  - --filesystem=/mnt
+  # GVFS FUSE mounts (GNOME file-manager smb://, sftp://, etc.) so network
+  # shares browsed via Nautilus are visible. KDE's kio-fuse uses a randomized
+  # runtime path that cannot be granted statically; KDE users should use a
+  # kernel cifs mount instead.
+  - --filesystem=xdg-run/gvfs
 
 modules:
   - name: nasm
@@ -54,7 +67,10 @@ modules:
       - --enable-libx264
       - --enable-libx265
       - --disable-doc
-      - --disable-programs
+      # Keep the ffmpeg CLI: the GUI runs "ffmpeg -encoders" to validate
+      # export presets (ffmpegpresetdialog). ffplay/ffprobe are not needed.
+      - --disable-ffplay
+      - --disable-ffprobe
       - --enable-pic
       - --disable-vulkan
     sources:

@@ -22,13 +22,28 @@ struct AudioSinkWriteResult {
   std::string error_message;
 };
 
+// Output sample-rate policy for the WAV file.
+//
+// Pipeline audio is frame-locked: PAL carries 44100 Hz (25 fps × 1764 pairs
+// per frame), NTSC/PAL-M carries 44100000/1001 Hz ≈ 44055.94 Hz (30000/1001
+// fps × 1470 pairs per frame). For PAL the locked rate equals the standard
+// rate, so both modes produce identical output.
+enum class AudioSinkSampleRateMode {
+  // Write the frame-locked samples unmodified; for NTSC/PAL-M the WAV header
+  // declares the locked rate (44056 Hz).
+  kLocked,
+  // Resample NTSC/PAL-M locked audio to free-running 44100 Hz.
+  kFreeRunning,
+};
+
 class IAudioSinkStageDeps {
  public:
   virtual ~IAudioSinkStageDeps() = default;
 
   virtual AudioSinkWriteResult write_audio_wav(
       const VideoFrameRepresentation* representation,
-      const std::string& output_path) = 0;
+      const std::string& output_path,
+      AudioSinkSampleRateMode sample_rate_mode) = 0;
 };
 }  // namespace orc
 

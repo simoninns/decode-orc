@@ -8,12 +8,22 @@ Add this sink in parallel with the LD Sink stage when your LaserDisc or tape sou
 
 ## What it does
 
-The stage reads 16-bit signed little-endian stereo PCM samples at 44,100 Hz from the VideoFieldRepresentation, which are populated by the upstream source stage from the `.pcm` sidecar file. It then wraps the samples in a standard RIFF WAV container and writes the result to the specified path. The audio is aligned to the processed field sequence, so any frame trimming or reordering performed upstream is reflected in the output.
+The stage reads 16-bit signed little-endian stereo PCM samples from the VideoFieldRepresentation, which are populated by the upstream source stage from the `.pcm` sidecar file. It then wraps the samples in a standard RIFF WAV container and writes the result to the specified path. The audio is aligned to the processed field sequence, so any frame trimming or reordering performed upstream is reflected in the output.
+
+The pipeline carries audio frame-locked to the video. For PAL (25 fps) the locked rate is exactly 44,100 Hz. For NTSC and PAL-M (30000/1001 fps) the locked rate is 44100000/1001 Hz ≈ 44,055.94 Hz (exactly 1470 stereo pairs per frame), and the `sample_rate_mode` parameter selects how that audio is exported.
 
 ## Parameters
 
-### output (string)
+### output_path (string)
 Path to the output WAV file. Required. The file will be created or overwritten at trigger time.
+
+### sample_rate_mode (string, NTSC/PAL-M projects only)
+Selects the output sample rate for NTSC/PAL-M audio:
+
+- `locked_44056` (default) — writes the frame-locked samples unmodified; the WAV header declares the NTSC frame-rate-matched rate of 44,056 Hz (nearest integer to 44100000/1001 Hz). No resampling is performed, so the samples remain bit-identical to the pipeline audio.
+- `free_running_44100` — resamples the audio (SoXR, HQ) to standard free-running 44,100 Hz for tools that expect the standard rate. Duration and A/V sync are preserved.
+
+The parameter is not shown for PAL projects, whose locked audio is already at 44,100 Hz; both modes would produce identical output.
 
 ## Notes
 

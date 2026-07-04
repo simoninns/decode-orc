@@ -25,6 +25,10 @@ namespace orc {
 
 class IAudioSinkStageDeps;
 
+// Allowed values for the sample_rate_mode parameter (NTSC/PAL-M projects).
+inline constexpr const char* kSampleRateModeLocked = "locked_44056";
+inline constexpr const char* kSampleRateModeFreeRunning = "free_running_44100";
+
 /**
  * @brief Analogue Audio Sink Stage
  *
@@ -39,13 +43,18 @@ class IAudioSinkStageDeps;
  * - Raw 16-bit signed integer PCM
  * - Little endian
  * - 2 channels (stereo)
- * - 44,100 Hz sample rate
+ * - PAL: 44,100 Hz; NTSC/PAL-M: frame-locked 44100000/1001 Hz ≈ 44,055.94 Hz
  *
  * This stage extracts the audio data from the VFR and writes it to a standard
- * WAV file with proper RIFF headers.
+ * WAV file with proper RIFF headers. For NTSC/PAL-M projects the
+ * sample_rate_mode parameter selects between writing the frame-locked samples
+ * unmodified (header rate 44,056 Hz) and resampling to standard free-running
+ * 44,100 Hz.
  *
  * Parameters:
  * - output_path: Output WAV file path
+ * - sample_rate_mode: locked_44056 (default) or free_running_44100
+ *   (NTSC/PAL-M projects only)
  */
 class AudioSinkStage : public DAGStage,
                        public ParameterizedStage,

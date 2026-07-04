@@ -52,7 +52,6 @@ std::vector<ArtifactPtr> AudioSinkStage::execute(
 
 std::vector<ParameterDescriptor> AudioSinkStage::get_parameter_descriptors(
     VideoSystem project_format, SourceType source_type) const {
-  (void)project_format;
   (void)source_type;
   std::vector<ParameterDescriptor> descriptors;
 
@@ -66,6 +65,30 @@ std::vector<ParameterDescriptor> AudioSinkStage::get_parameter_descriptors(
     desc.constraints.required = true;
     desc.constraints.default_value = std::string("");
     desc.file_extension_hint = ".wav";
+    descriptors.push_back(desc);
+  }
+
+  // sample_rate_mode parameter — only meaningful for NTSC/PAL-M, where the
+  // pipeline's frame-locked audio rate (44100000/1001 Hz ≈ 44055.94 Hz)
+  // differs from the standard free-running 44100 Hz. PAL locked audio is
+  // already at 44100 Hz, so the parameter is omitted for PAL projects.
+  if (project_format != VideoSystem::PAL) {
+    ParameterDescriptor desc;
+    desc.name = "sample_rate_mode";
+    desc.display_name = "Sample Rate Mode";
+    desc.description =
+        "Output sample rate for NTSC/PAL-M audio. " +
+        std::string(kSampleRateModeLocked) +
+        " writes the frame-locked samples unmodified with the WAV header "
+        "declaring the NTSC frame-rate-matched rate of 44,056 Hz. " +
+        std::string(kSampleRateModeFreeRunning) +
+        " resamples the audio to standard free-running 44,100 Hz. Ignored "
+        "for PAL sources, whose locked audio is already at 44,100 Hz.";
+    desc.type = ParameterType::STRING;
+    desc.constraints.required = false;
+    desc.constraints.default_value = std::string(kSampleRateModeLocked);
+    desc.constraints.allowed_strings.push_back(kSampleRateModeLocked);
+    desc.constraints.allowed_strings.push_back(kSampleRateModeFreeRunning);
     descriptors.push_back(desc);
   }
 
@@ -130,6 +153,23 @@ bool AudioSinkStage::trigger(
       throw std::runtime_error("output_path parameter is empty");
     }
 
+    // Optional sample-rate mode; defaults to frame-locked output.
+    AudioSinkSampleRateMode sample_rate_mode = AudioSinkSampleRateMode::kLocked;
+    const auto mode_it = parameters.find("sample_rate_mode");
+    if (mode_it != parameters.end()) {
+      if (!std::holds_alternative<std::string>(mode_it->second)) {
+        throw std::runtime_error("sample_rate_mode parameter must be a string");
+      }
+      const std::string& mode = std::get<std::string>(mode_it->second);
+      if (mode == kSampleRateModeFreeRunning) {
+        sample_rate_mode = AudioSinkSampleRateMode::kFreeRunning;
+      } else if (mode != kSampleRateModeLocked) {
+        throw std::runtime_error("sample_rate_mode must be '" +
+                                 std::string(kSampleRateModeLocked) + "' or '" +
+                                 std::string(kSampleRateModeFreeRunning) + "'");
+      }
+    }
+
     ORC_LOG_INFO("AudioSink: Writing audio to {}", output_path);
 
     std::shared_ptr<IAudioSinkStageDeps> deps = deps_override_;
@@ -140,7 +180,8 @@ bool AudioSinkStage::trigger(
       deps = deps_impl;
     }
 
-    const auto write_result = deps->write_audio_wav(vfr.get(), output_path);
+    const auto write_result =
+        deps->write_audio_wav(vfr.get(), output_path, sample_rate_mode);
     if (!write_result.success) {
       last_status_ = "Error: " + write_result.error_message;
       ORC_LOG_ERROR("AudioSink: {}", write_result.error_message);

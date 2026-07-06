@@ -81,7 +81,13 @@ namespace orc {
  * - chroma_phase: Chroma phase rotation in degrees (-180 to 180, default 0)
  * - encoder_preset/encoder_crf/encoder_bitrate/hardware_encoder/
  *   prores_profile/use_lossless_mode/apply_deinterlace: FFmpeg encoder options
+ * - display_aspect_ratio: Display aspect ratio metadata for playback (auto,
+ *   4:3, 16:9); FFmpeg mode only
+ * - video_filter: Custom FFmpeg video filter chain (same syntax as -vf,
+ *   e.g. "fieldmatch,decimate" for inverse telecine); FFmpeg mode only
  * - embed_audio: Embed analogue audio in output (MP4/MKV only, default: false)
+ * - audio_gain_db: Gain applied to embedded audio in dB (requires
+ *   embed_audio; 0 = unchanged)
  * - embed_closed_captions: Embed closed captions as mov_text (MP4/MOV only)
  * - embed_chapter_metadata: Write chapter markers from VBI data (MKV/MP4/MOV)
  */
@@ -228,6 +234,7 @@ class VideoSinkStage : public DAGStage,
   double adapt_threshold_;
   int output_padding_;
   bool embed_audio_;            // Embed analogue audio in output (MP4/MKV only)
+  double audio_gain_db_;        // Gain for embedded audio in dB (0 = unity)
   bool embed_closed_captions_;  // Embed closed captions in MP4 output (MP4
                                 // only, converted to mov_text)
   bool embed_chapter_metadata_;  // Write chapter markers from VBI data
@@ -243,6 +250,8 @@ class VideoSinkStage : public DAGStage,
       prores_profile_;      // "proxy", "lt", "standard", "hq", "4444", "4444xq"
   bool use_lossless_mode_;  // Enable lossless H.264/H.265/AV1 encoding
   bool apply_deinterlace_;  // Apply bwdif deinterlacing filter
+  std::string display_aspect_ratio_;  // "auto", "4:3", "16:9"
+  std::string video_filter_;  // Custom FFmpeg -vf filter chain ("" = none)
 
   // Status tracking
   std::string trigger_status_;

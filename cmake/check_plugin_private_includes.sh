@@ -121,8 +121,8 @@ PLATFORM_HEADERS=(
 THIRD_PARTY_PATTERNS=(
     "fmt/*" "spdlog/*"          # SDK logging surface
     "ezpwd/*"                   # efm_sink Reed-Solomon
-    "libavcodec/*" "libavformat/*" "libavutil/*" "libswscale/*"
-    "libswresample/*"           # ffmpeg video sink
+    "libavcodec/*" "libavfilter/*" "libavformat/*" "libavutil/*"
+    "libswscale/*" "libswresample/*"  # ffmpeg video sink
     "fftw3.h"                   # Transform PAL chroma decoder
     "sqlite3.h"                 # tbc_source / ld_sink / cvbs_source metadata
     "soxr.h"                    # tbc_source audio resampling

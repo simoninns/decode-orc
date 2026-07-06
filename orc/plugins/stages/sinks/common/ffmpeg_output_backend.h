@@ -21,9 +21,13 @@
 
 extern "C" {
 #include <libavcodec/avcodec.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersink.h>
+#include <libavfilter/buffersrc.h>
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 }
 
@@ -55,6 +59,16 @@ class FFmpegOutputBackend : public OutputBackend {
   AVPacket* packet_ = nullptr;
   SwsContext* sws_ctx_ = nullptr;
 
+  // Video filter graph (bwdif deinterlacing and/or user-supplied -vf chain).
+  // When active, the graph replaces the swscale conversion path: frames enter
+  // as YUV444P16LE and leave in the encoder's pixel format (libavfilter
+  // auto-inserts the conversion). buffersrc/buffersink are owned by the graph.
+  AVFilterGraph* filter_graph_ = nullptr;
+  AVFilterContext* buffersrc_ctx_ = nullptr;
+  AVFilterContext* buffersink_ctx_ = nullptr;
+  AVFrame* filtered_frame_ = nullptr;  // Reused for buffersink output
+  std::string video_filter_desc_;      // Combined chain; empty = passthrough
+
   // Audio structures
   AVCodecContext* audio_codec_ctx_ = nullptr;
   AVStream* audio_stream_ = nullptr;
@@ -66,6 +80,7 @@ class FFmpegOutputBackend : public OutputBackend {
   uint64_t num_fields_ = 0;
   uint64_t current_field_for_audio_ = 0;
   bool embed_audio_ = false;
+  double audio_gain_ = 1.0;  // Linear gain applied to embedded audio samples
   std::vector<int16_t>
       audio_buffer_;  // Persistent buffer for audio samples across frames
 
@@ -88,13 +103,20 @@ class FFmpegOutputBackend : public OutputBackend {
   std::string container_format_;
 
   // Video parameters
-  int width_ = 0;  // Output dimensions (may be padded)
+  int width_ = 0;  // Encoder input dimensions (active area padded to even)
   int height_ = 0;
   int src_width_ = 0;  // Source ComponentFrame dimensions (before padding)
   int src_height_ = 0;
   int active_width_ = 0;  // Active video region dimensions
   int active_height_ = 0;
-  AVRational time_base_;
+  AVRational time_base_;               // Source (pre-filter) frame timing
+  AVRational enc_time_base_ = {0, 1};  // Encoder/stream time base; differs
+                                       // from time_base_ when a filter chain
+                                       // changes the frame rate
+  AVRational requested_dar_ = {0, 1};  // Display aspect ratio override
+                                       // ({0,1} = auto/unspecified)
+  AVRational sample_aspect_ratio_ = {0, 1};  // Effective SAR stamped on
+                                             // output ({0,1} = unspecified)
   VideoSystem video_system_ = VideoSystem::PAL;
   double black_ire_ = 0.0;
   double white_ire_ = 0.0;
@@ -115,6 +137,15 @@ class FFmpegOutputBackend : public OutputBackend {
   // Helper methods
   bool setupEncoder(const std::string& codec_id,
                     const orc::SourceParameters& params);
+  // Build and configure the libavfilter graph from video_filter_desc_.
+  // Requires width_/height_/time_base_ and codec_ctx_->pix_fmt to be set.
+  bool setupFilterGraph();
+  void freeFilterGraph();
+  // Pull all currently available frames from the buffersink and encode them.
+  bool drainFilterGraph();
+  // Send one frame to the encoder and write the resulting packets.
+  // frame may be nullptr to flush the encoder.
+  bool encodeVideoFrame(AVFrame* frame);
   bool setupAudioEncoder();
   bool setupSubtitleEncoder();
   void extractClosedCaptionsFromObservations(

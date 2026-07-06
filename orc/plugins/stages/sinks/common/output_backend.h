@@ -108,6 +108,17 @@ class OutputBackend {
    * @return String describing the output format (for logging)
    */
   virtual std::string getFormatInfo() const = 0;
+
+  /**
+   * @brief Get a user-facing description of the last error
+   *
+   * @return Error message from the most recent failed operation, or an empty
+   *         string when no user-actionable detail is available
+   */
+  std::string getLastError() const { return last_error_; }
+
+ protected:
+  std::string last_error_;  ///< Set by backends on user-actionable failures
 };
 
 /**

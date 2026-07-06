@@ -79,10 +79,25 @@ FFmpeg mode only, `mov-prores` format. ProRes quality profile: `proxy`, `lt`, `s
 FFmpeg mode only. Enable mathematically lossless encoding (H.264/H.265/AV1 only, overrides CRF). Default: `false`.
 
 ### apply_deinterlace (bool)
-FFmpeg mode only. Apply bwdif deinterlacing filter for progressive web playback. Default: `false`.
+FFmpeg mode only. Apply the bwdif deinterlacing filter for progressive web playback. One frame is produced per field, so the output frame rate doubles (50 fps for PAL, 59.94 fps for NTSC). Default: `false`.
+
+### display_aspect_ratio (string)
+FFmpeg mode only. Display aspect ratio signalled to players. This is metadata only — the video is not rescaled; players stretch the picture at playback time. Values: `auto` (square pixels, no aspect metadata), `4:3` (standard-definition television), `16:9` (widescreen). Most SD LaserDisc and tape material should be played back at `4:3`. Default: `auto`.
+
+### video_filter (string)
+FFmpeg mode only. Custom FFmpeg video filter chain applied before encoding, using the same syntax as ffmpeg's `-vf` option. Examples:
+
+- `fieldmatch,decimate` — inverse telecine NTSC film content to 23.976 fps
+- `bwdif=mode=send_frame` — deinterlace without doubling the frame rate
+- `crop=692:554` — crop the output frame
+
+Filters may change the output dimensions and frame rate; the encoder follows the filter output automatically. Leave empty for no filtering (the default). An invalid filter string causes the export to fail with the FFmpeg error message in the trigger status.
 
 ### embed_audio (bool)
 FFmpeg mode only. Embed analogue audio from the source into the output file. Requires audio data to be present in the pipeline. Default: `false`.
+
+### audio_gain_db (double)
+FFmpeg mode only; available only when `embed_audio` is enabled. Gain applied to the embedded audio in decibels. `0` leaves the audio unchanged; positive values boost (6 dB roughly doubles the amplitude), negative values attenuate. Samples are clipped at full scale, so large boosts can distort. Range: -24 to 24. Default: `0`.
 
 ### embed_closed_captions (bool)
 FFmpeg mode only. Embed closed captions as mov_text subtitles. MP4/MOV output only; converts EIA-608 captions from VBI. Default: `false`.
@@ -102,6 +117,8 @@ Opens a preset helper dialog that lets you select common encoder configurations 
 - The `y4m` raw format adds a Y4M header to the file, making it directly readable by tools such as FFmpeg and rav1e without specifying the pixel format manually.
 - Closed caption embedding is only supported in MP4/MOV containers.
 - CRF and bitrate modes are mutually exclusive; set `encoder_bitrate` to a non-zero value to switch from CRF mode.
+- Video filtering (`apply_deinterlace` or `video_filter`) is not supported with hardware encoders that use GPU surfaces (`vaapi`, `qsv`, `videotoolbox`); the export automatically falls back to the software encoder in that case.
+- When a video filter chain is active, interlaced coding flags are not forced on the encoder; the field structure of the filter output determines how frames are flagged. Filters like `bwdif` and `fieldmatch,decimate` produce progressive frames.
 
 ## Status Indicator
 

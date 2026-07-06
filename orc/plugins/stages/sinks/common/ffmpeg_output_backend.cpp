@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <thread>
@@ -134,6 +135,13 @@ void FFmpegOutputBackend::cleanup() {
     src_frame_ = nullptr;
   }
 
+  if (filtered_frame_) {
+    av_frame_free(&filtered_frame_);
+    filtered_frame_ = nullptr;
+  }
+
+  freeFilterGraph();
+
   if (sws_ctx_) {
     sws_freeContext(sws_ctx_);
     sws_ctx_ = nullptr;
@@ -154,6 +162,8 @@ void FFmpegOutputBackend::cleanup() {
 }
 
 bool FFmpegOutputBackend::initialize(const Configuration& config) {
+  last_error_.clear();
+
   // Parse format string (e.g., "mp4-h264", "mkv-ffv1")
   auto it = config.options.find("format");
   if (it == config.options.end()) {
@@ -196,10 +206,80 @@ bool FFmpegOutputBackend::initialize(const Configuration& config) {
         (lossless_it->second == "true" || lossless_it->second == "1");
   }
 
+  // Build the video filter chain: optional bwdif deinterlacing followed by
+  // the user-supplied filter string (same syntax as FFmpeg's -vf option).
+  bool apply_deinterlace = false;
+  auto deint_it = config.options.find("apply_deinterlace");
+  if (deint_it != config.options.end()) {
+    apply_deinterlace = (deint_it->second == "true" || deint_it->second == "1");
+  }
+
+  std::string user_filter;
+  auto vf_it = config.options.find("video_filter");
+  if (vf_it != config.options.end()) {
+    user_filter = vf_it->second;
+    // Trim surrounding whitespace so "  " behaves like an empty filter.
+    const auto first = user_filter.find_first_not_of(" \t\r\n");
+    if (first == std::string::npos) {
+      user_filter.clear();
+    } else {
+      const auto last = user_filter.find_last_not_of(" \t\r\n");
+      user_filter = user_filter.substr(first, last - first + 1);
+    }
+  }
+
+  video_filter_desc_.clear();
+  if (apply_deinterlace) {
+    video_filter_desc_ = "bwdif";
+  }
+  if (!user_filter.empty()) {
+    if (!video_filter_desc_.empty()) {
+      video_filter_desc_ += ",";
+    }
+    video_filter_desc_ += user_filter;
+  }
+
+  // Parse the display aspect ratio override ("auto" or "W:H", e.g. "4:3").
+  requested_dar_ = {0, 1};
+  auto dar_it = config.options.find("display_aspect_ratio");
+  if (dar_it != config.options.end() && dar_it->second != "auto" &&
+      !dar_it->second.empty()) {
+    const std::string& dar_str = dar_it->second;
+    const size_t colon = dar_str.find(':');
+    int dar_num = 0;
+    int dar_den = 0;
+    if (colon != std::string::npos) {
+      dar_num = std::atoi(dar_str.substr(0, colon).c_str());
+      dar_den = std::atoi(dar_str.substr(colon + 1).c_str());
+    }
+    if (dar_num > 0 && dar_den > 0) {
+      requested_dar_ = {dar_num, dar_den};
+    } else {
+      ORC_LOG_WARN(
+          "FFmpegOutputBackend: Ignoring invalid display aspect ratio '{}' "
+          "(expected 'W:H', e.g. '4:3')",
+          dar_str);
+    }
+  }
+
   // Store encoder quality settings
   encoder_preset_ = config.encoder_preset;
   encoder_crf_ = config.encoder_crf;
   encoder_bitrate_ = config.encoder_bitrate;
+
+  // Parse the audio gain ("audio_gain_db", dB) into a linear factor.
+  audio_gain_ = 1.0;
+  auto gain_it = config.options.find("audio_gain_db");
+  if (gain_it != config.options.end() && !gain_it->second.empty()) {
+    const double gain_db = std::atof(gain_it->second.c_str());
+    if (gain_db != 0.0) {
+      audio_gain_ = std::pow(10.0, gain_db / 20.0);
+      ORC_LOG_INFO(
+          "FFmpegOutputBackend: Applying {} dB audio gain (linear factor "
+          "{:.4f})",
+          gain_db, audio_gain_);
+    }
+  }
 
   // Store audio/subtitle/chapter configuration
   embed_audio_ = config.embed_audio;
@@ -513,6 +593,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
 
   codec_ctx_->time_base = time_base_;
   codec_ctx_->framerate = av_inv_q(time_base_);
+  enc_time_base_ = time_base_;
 
   // Select pixel format based on what the encoder supports
   // Our source is YUV444P16LE, but most encoders don't support that
@@ -667,12 +748,17 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
       ORC_LOG_DEBUG("FFmpegOutputBackend: Using CRF mode: {}", encoder_crf_);
     }
 
-    // Add interlaced flag if not deinterlacing
-    // TODO(sdi): check for apply_deinterlace parameter
-    if (codec_id == "libx264") {
-      av_opt_set(codec_ctx_->priv_data, "x264opts", "interlaced=1", 0);
-    } else {
-      av_opt_set(codec_ctx_->priv_data, "x265-params", "interlace=true", 0);
+    // Configure interlaced coding only when the frames reach the encoder
+    // unfiltered. With bwdif deinterlacing the output is progressive, and
+    // with a custom filter chain the field structure of the output is
+    // unknown (e.g. fieldmatch,decimate produces progressive frames), so the
+    // per-frame flags from the filter output are used instead.
+    if (video_filter_desc_.empty()) {
+      if (codec_id == "libx264") {
+        av_opt_set(codec_ctx_->priv_data, "x264opts", "interlaced=1", 0);
+      } else {
+        av_opt_set(codec_ctx_->priv_data, "x265-params", "interlace=true", 0);
+      }
     }
   } else if (codec_id == "libsvtav1" || codec_id == "libaom-av1") {
     // AV1 encoder settings
@@ -767,6 +853,72 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
     }
   }
 
+  // Set up the video filter graph if a chain was requested. This must happen
+  // after all codec-specific pixel format adjustments (the buffersink is
+  // constrained to the final encoder pixel format) and before the codec is
+  // opened (filters may change dimensions, frame rate, and time base, e.g.
+  // fieldmatch,decimate or scale).
+  if (!video_filter_desc_.empty()) {
+    const AVPixFmtDescriptor* fmt_desc =
+        av_pix_fmt_desc_get(codec_ctx_->pix_fmt);
+    if (fmt_desc && (fmt_desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+      // GPU-surface encoders would need hwupload plumbing inside the graph;
+      // fail this candidate so the codec list falls back to a software
+      // encoder.
+      ORC_LOG_WARN(
+          "FFmpegOutputBackend: Video filters are not supported with the "
+          "hardware encoder '{}' (GPU surface pixel format); trying software "
+          "fallback",
+          codec_id);
+      avcodec_free_context(&codec_ctx_);
+      return false;
+    }
+
+    if (!setupFilterGraph()) {
+      avcodec_free_context(&codec_ctx_);
+      return false;
+    }
+
+    // Adopt the filter output geometry and timing for the encoder. Filters
+    // such as decimate change the frame rate; scale/crop change dimensions.
+    codec_ctx_->width = av_buffersink_get_w(buffersink_ctx_);
+    codec_ctx_->height = av_buffersink_get_h(buffersink_ctx_);
+    enc_time_base_ = av_buffersink_get_time_base(buffersink_ctx_);
+    codec_ctx_->time_base = enc_time_base_;
+    const AVRational out_rate = av_buffersink_get_frame_rate(buffersink_ctx_);
+    if (out_rate.num > 0 && out_rate.den > 0) {
+      codec_ctx_->framerate = out_rate;
+    }
+
+    ORC_LOG_INFO(
+        "FFmpegOutputBackend: Video filter chain '{}' active ({}x{} -> {}x{}, "
+        "output {}/{} fps)",
+        video_filter_desc_, width_, height_, codec_ctx_->width,
+        codec_ctx_->height, codec_ctx_->framerate.num,
+        codec_ctx_->framerate.den);
+  }
+
+  // Determine the sample aspect ratio to signal. An explicit display aspect
+  // ratio override wins; otherwise adopt whatever the filter chain produced
+  // (e.g. via setdar/setsar). {0,1} leaves the SAR unspecified as before.
+  sample_aspect_ratio_ = {0, 1};
+  if (requested_dar_.num > 0 && requested_dar_.den > 0) {
+    // SAR = DAR * height / width, e.g. DAR 4:3 on 928x576 -> SAR 96:203.
+    av_reduce(&sample_aspect_ratio_.num, &sample_aspect_ratio_.den,
+              static_cast<int64_t>(requested_dar_.num) * codec_ctx_->height,
+              static_cast<int64_t>(requested_dar_.den) * codec_ctx_->width,
+              static_cast<int64_t>(1024) * 1024);
+    ORC_LOG_INFO(
+        "FFmpegOutputBackend: Display aspect ratio {}:{} -> sample aspect "
+        "ratio {}:{} at {}x{}",
+        requested_dar_.num, requested_dar_.den, sample_aspect_ratio_.num,
+        sample_aspect_ratio_.den, codec_ctx_->width, codec_ctx_->height);
+  } else if (filter_graph_) {
+    sample_aspect_ratio_ =
+        av_buffersink_get_sample_aspect_ratio(buffersink_ctx_);
+  }
+  codec_ctx_->sample_aspect_ratio = sample_aspect_ratio_;
+
   // Color properties for SD systems.
   // PAL-M uses PAL-style decoding in the pipeline, but encoded SD signaling
   // should follow 525-line conventions (same family as NTSC for
@@ -815,6 +967,7 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
     av_strerror(ret, errbuf, sizeof(errbuf));
     ORC_LOG_ERROR("FFmpegOutputBackend: Failed to open codec: {}", errbuf);
     avcodec_free_context(&codec_ctx_);
+    freeFilterGraph();
     return false;
   }
 
@@ -823,12 +976,14 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
   if (!stream_) {
     ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create stream");
     avcodec_free_context(&codec_ctx_);
+    freeFilterGraph();
     return false;
   }
   stream_->id = static_cast<int>(format_ctx_->nb_streams) - 1;
-  stream_->time_base = time_base_;
+  stream_->time_base = enc_time_base_;
+  stream_->sample_aspect_ratio = sample_aspect_ratio_;
   // Rate not required for Matroska, but gives nice hints to players
-  stream_->avg_frame_rate = av_inv_q(time_base_);
+  stream_->avg_frame_rate = codec_ctx_->framerate;
   stream_->r_frame_rate = stream_->avg_frame_rate;
 
   // Copy codec parameters to stream
@@ -838,24 +993,34 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
     return false;
   }
 
-  // Allocate frame (destination - encoder's pixel format)
-  frame_ = av_frame_alloc();
-  if (!frame_) {
-    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate frame");
-    return false;
-  }
+  if (filter_graph_) {
+    // Filtered frames arrive ref-counted from the buffersink; only a shell
+    // frame is needed to receive them.
+    filtered_frame_ = av_frame_alloc();
+    if (!filtered_frame_) {
+      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate filtered frame");
+      return false;
+    }
+  } else {
+    // Allocate frame (destination - encoder's pixel format)
+    frame_ = av_frame_alloc();
+    if (!frame_) {
+      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate frame");
+      return false;
+    }
 
-  frame_->format = codec_ctx_->pix_fmt;
-  frame_->width = codec_ctx_->width;
-  frame_->height = codec_ctx_->height;
+    frame_->format = codec_ctx_->pix_fmt;
+    frame_->width = codec_ctx_->width;
+    frame_->height = codec_ctx_->height;
 
-  ret = av_frame_get_buffer(frame_, 0);
-  if (ret < 0) {
-    char errbuf[AV_ERROR_MAX_STRING_SIZE];
-    av_strerror(ret, errbuf, sizeof(errbuf));
-    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate frame buffers: {}",
-                  errbuf);
-    return false;
+    ret = av_frame_get_buffer(frame_, 0);
+    if (ret < 0) {
+      char errbuf[AV_ERROR_MAX_STRING_SIZE];
+      av_strerror(ret, errbuf, sizeof(errbuf));
+      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate frame buffers: {}",
+                    errbuf);
+      return false;
+    }
   }
 
   // Allocate source frame (YUV444P16LE from ComponentFrame)
@@ -879,41 +1044,45 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
     return false;
   }
 
-  // Initialize swscale context for pixel format conversion with proper color
-  // space handling
-  sws_ctx_ = sws_getContext(
-      width_, height_, AV_PIX_FMT_YUV444P16LE,  // Source
-      width_, height_, codec_ctx_->pix_fmt,     // Destination
-      SWS_LANCZOS, nullptr, nullptr, nullptr    // High quality scaling
-  );
-  if (!sws_ctx_) {
-    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create swscale context");
-    return false;
+  if (!filter_graph_) {
+    // Initialize swscale context for pixel format conversion with proper
+    // color space handling. With a filter graph active the conversion to the
+    // encoder pixel format happens inside the graph instead (the buffersink
+    // is constrained to the encoder format).
+    sws_ctx_ = sws_getContext(
+        width_, height_, AV_PIX_FMT_YUV444P16LE,  // Source
+        width_, height_, codec_ctx_->pix_fmt,     // Destination
+        SWS_LANCZOS, nullptr, nullptr, nullptr    // High quality scaling
+    );
+    if (!sws_ctx_) {
+      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create swscale context");
+      return false;
+    }
+
+    // Configure color space conversion
+    // ComponentFrame uses IRE scale with cvbs_blanking/cvbs_white range
+    // OutputWriter converts this to limited range Y'CbCr (16-235/240 for
+    // 8-bit, scaled to 16-bit) So our source is already in "video" range, not
+    // full range SWS_CS_ITU601 and SWS_CS_SMPTE170M are both defined as 5 in
+    // FFmpeg; they are equivalent for our purposes.
+    const int colorspace = SWS_CS_ITU601;
+
+    // Both source and destination are limited (broadcast) range
+    const int src_range = 0;  // Limited range (video levels)
+    const int dst_range = 0;  // Limited range (broadcast)
+
+    const int* coefficients = sws_getCoefficients(colorspace);
+
+    sws_setColorspaceDetails(sws_ctx_, coefficients, src_range,  // Source
+                             coefficients, dst_range,            // Destination
+                             0, 1 << 16, 1 << 16);
+
+    ORC_LOG_DEBUG(
+        "FFmpegOutputBackend: Configured color conversion: limited→limited "
+        "range, colorspace {}",
+        video_system_ == VideoSystem::PAL ? "BT.601 (PAL625)"
+                                          : "SMPTE170M (525-line)");
   }
-
-  // Configure color space conversion
-  // ComponentFrame uses IRE scale with cvbs_blanking/cvbs_white range
-  // OutputWriter converts this to limited range Y'CbCr (16-235/240 for 8-bit,
-  // scaled to 16-bit) So our source is already in "video" range, not full range
-  // SWS_CS_ITU601 and SWS_CS_SMPTE170M are both defined as 5 in FFmpeg;
-  // they are equivalent for our purposes.
-  const int colorspace = SWS_CS_ITU601;
-
-  // Both source and destination are limited (broadcast) range
-  const int src_range = 0;  // Limited range (video levels)
-  const int dst_range = 0;  // Limited range (broadcast)
-
-  const int* coefficients = sws_getCoefficients(colorspace);
-
-  sws_setColorspaceDetails(sws_ctx_, coefficients, src_range,  // Source
-                           coefficients, dst_range,            // Destination
-                           0, 1 << 16, 1 << 16);
-
-  ORC_LOG_DEBUG(
-      "FFmpegOutputBackend: Configured color conversion: limited→limited "
-      "range, colorspace {}",
-      video_system_ == VideoSystem::PAL ? "BT.601 (PAL625)"
-                                        : "SMPTE170M (525-line)");
 
   // Allocate packet
   packet_ = av_packet_alloc();
@@ -925,8 +1094,132 @@ bool FFmpegOutputBackend::setupEncoder(const std::string& codec_id,
   return true;
 }
 
+void FFmpegOutputBackend::freeFilterGraph() {
+  if (filter_graph_) {
+    avfilter_graph_free(&filter_graph_);
+  }
+  filter_graph_ = nullptr;
+  buffersrc_ctx_ = nullptr;   // Owned by the graph
+  buffersink_ctx_ = nullptr;  // Owned by the graph
+}
+
+bool FFmpegOutputBackend::setupFilterGraph() {
+  freeFilterGraph();
+
+  filter_graph_ = avfilter_graph_alloc();
+  if (!filter_graph_) {
+    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate filter graph");
+    return false;
+  }
+
+  const AVFilter* buffersrc = avfilter_get_by_name("buffer");
+  const AVFilter* buffersink = avfilter_get_by_name("buffersink");
+  if (!buffersrc || !buffersink) {
+    ORC_LOG_ERROR(
+        "FFmpegOutputBackend: buffer/buffersink filters unavailable in this "
+        "FFmpeg build");
+    freeFilterGraph();
+    return false;
+  }
+
+  // Describe the frames convertAndEncode() feeds in: padded active-area
+  // YUV444P16LE at the source frame rate, square pixels.
+  char src_args[256];
+  snprintf(src_args, sizeof(src_args),
+           "video_size=%dx%d:pix_fmt=%s:time_base=%d/%d:frame_rate=%d/%d:"
+           "pixel_aspect=0/1",
+           width_, height_, av_get_pix_fmt_name(AV_PIX_FMT_YUV444P16LE),
+           time_base_.num, time_base_.den, time_base_.den, time_base_.num);
+
+  int ret = avfilter_graph_create_filter(&buffersrc_ctx_, buffersrc, "in",
+                                         src_args, nullptr, filter_graph_);
+  if (ret < 0) {
+    char errbuf[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create buffer source: {}",
+                  errbuf);
+    freeFilterGraph();
+    return false;
+  }
+
+  ret = avfilter_graph_create_filter(&buffersink_ctx_, buffersink, "out",
+                                     nullptr, nullptr, filter_graph_);
+  if (ret < 0) {
+    char errbuf[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create buffer sink: {}",
+                  errbuf);
+    freeFilterGraph();
+    return false;
+  }
+
+  // Force the chain output to the encoder's pixel format by appending a
+  // format filter (portable across FFmpeg versions, unlike the buffersink
+  // "pix_fmts" option which was deprecated in FFmpeg 7.1).
+  const char* sink_fmt_name = av_get_pix_fmt_name(codec_ctx_->pix_fmt);
+  if (!sink_fmt_name) {
+    ORC_LOG_ERROR("FFmpegOutputBackend: Unknown encoder pixel format {}",
+                  static_cast<int>(codec_ctx_->pix_fmt));
+    freeFilterGraph();
+    return false;
+  }
+  const std::string full_desc = video_filter_desc_ + ",format=" + sink_fmt_name;
+
+  // Wire buffersrc -> user chain -> format -> buffersink. The chain uses the
+  // same textual syntax as FFmpeg's -vf option.
+  AVFilterInOut* outputs = avfilter_inout_alloc();
+  AVFilterInOut* inputs = avfilter_inout_alloc();
+  if (!outputs || !inputs) {
+    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate filter endpoints");
+    avfilter_inout_free(&outputs);
+    avfilter_inout_free(&inputs);
+    freeFilterGraph();
+    return false;
+  }
+
+  outputs->name = av_strdup("in");
+  outputs->filter_ctx = buffersrc_ctx_;
+  outputs->pad_idx = 0;
+  outputs->next = nullptr;
+
+  inputs->name = av_strdup("out");
+  inputs->filter_ctx = buffersink_ctx_;
+  inputs->pad_idx = 0;
+  inputs->next = nullptr;
+
+  ret = avfilter_graph_parse_ptr(filter_graph_, full_desc.c_str(), &inputs,
+                                 &outputs, nullptr);
+  avfilter_inout_free(&inputs);
+  avfilter_inout_free(&outputs);
+  if (ret < 0) {
+    char errbuf[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    ORC_LOG_ERROR("FFmpegOutputBackend: Invalid video filter '{}': {}",
+                  video_filter_desc_, errbuf);
+    last_error_ =
+        "Invalid video filter '" + video_filter_desc_ + "': " + errbuf;
+    freeFilterGraph();
+    return false;
+  }
+
+  ret = avfilter_graph_config(filter_graph_, nullptr);
+  if (ret < 0) {
+    char errbuf[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    ORC_LOG_ERROR(
+        "FFmpegOutputBackend: Video filter '{}' could not be configured: {}",
+        video_filter_desc_, errbuf);
+    last_error_ = "Video filter '" + video_filter_desc_ +
+                  "' could not be configured: " + errbuf;
+    freeFilterGraph();
+    return false;
+  }
+
+  return true;
+}
+
 bool FFmpegOutputBackend::writeFrame(const ::ComponentFrame& component_frame) {
-  if (!codec_ctx_ || !frame_) {
+  if (!codec_ctx_ || !src_frame_) {
     ORC_LOG_ERROR("FFmpegOutputBackend: Not initialized");
     return false;
   }
@@ -1074,6 +1367,40 @@ bool FFmpegOutputBackend::convertAndEncode(
     }
   }
 
+  // Stamp source timing and field structure. pts_ counts source frames in
+  // time_base_ units for both the direct and filtered paths.
+  src_frame_->pts = pts_++;
+
+  // Signal interlaced field order per-frame (required for correct H.264/H.265
+  // SEI Pic Timing, and for field-aware filters such as bwdif/fieldmatch)
+  src_frame_->flags |= AV_FRAME_FLAG_INTERLACED;
+  if (is_tff_) {
+    src_frame_->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
+  } else {
+    src_frame_->flags &= ~AV_FRAME_FLAG_TOP_FIELD_FIRST;
+  }
+
+  if (filter_graph_) {
+    // Tag colour properties so auto-inserted conversions inside the graph
+    // use the same BT.601 limited-range matrix as the swscale path.
+    src_frame_->colorspace = (video_system_ == VideoSystem::PAL)
+                                 ? AVCOL_SPC_BT470BG
+                                 : AVCOL_SPC_SMPTE170M;
+    src_frame_->color_range = AVCOL_RANGE_MPEG;
+
+    ret = av_buffersrc_add_frame_flags(buffersrc_ctx_, src_frame_,
+                                       AV_BUFFERSRC_FLAG_KEEP_REF);
+    if (ret < 0) {
+      char errbuf[AV_ERROR_MAX_STRING_SIZE];
+      av_strerror(ret, errbuf, sizeof(errbuf));
+      ORC_LOG_ERROR(
+          "FFmpegOutputBackend: Failed to feed frame to filter graph: {}",
+          errbuf);
+      return false;
+    }
+    return drainFilterGraph();
+  }
+
   // Make destination frame writable before sws_scale writes to it. With
   // FF_THREAD_FRAME enabled, avcodec_send_frame() takes an internal
   // av_frame_ref on frame_, so buf[0]->refcount becomes > 1. Without this call,
@@ -1101,11 +1428,9 @@ bool FFmpegOutputBackend::convertAndEncode(
     return false;
   }
 
-  // Set presentation timestamp
-  frame_->pts = pts_++;
-
-  // Signal interlaced field order per-frame (required for correct H.264/H.265
-  // SEI Pic Timing)
+  // Carry timing, aspect, and field structure over to the encoder frame
+  frame_->pts = src_frame_->pts;
+  frame_->sample_aspect_ratio = sample_aspect_ratio_;
   frame_->flags |= AV_FRAME_FLAG_INTERLACED;
   if (is_tff_) {
     frame_->flags |= AV_FRAME_FLAG_TOP_FIELD_FIRST;
@@ -1113,8 +1438,12 @@ bool FFmpegOutputBackend::convertAndEncode(
     frame_->flags &= ~AV_FRAME_FLAG_TOP_FIELD_FIRST;
   }
 
-  // Send frame to encoder
-  ret = avcodec_send_frame(codec_ctx_, frame_);
+  return encodeVideoFrame(frame_);
+}
+
+bool FFmpegOutputBackend::encodeVideoFrame(AVFrame* frame) {
+  // Send frame to encoder (nullptr flushes)
+  int ret = avcodec_send_frame(codec_ctx_, frame);
   if (ret < 0) {
     char errbuf[AV_ERROR_MAX_STRING_SIZE];
     av_strerror(ret, errbuf, sizeof(errbuf));
@@ -1151,13 +1480,59 @@ bool FFmpegOutputBackend::convertAndEncode(
     }
   }
 
-  frames_written_++;
+  if (frame) {
+    frames_written_++;
+  }
   return true;
+}
+
+bool FFmpegOutputBackend::drainFilterGraph() {
+  while (true) {
+    int ret = av_buffersink_get_frame(buffersink_ctx_, filtered_frame_);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+      // Filter needs more input (e.g. fieldmatch buffering) or has finished.
+      return true;
+    }
+    if (ret < 0) {
+      char errbuf[AV_ERROR_MAX_STRING_SIZE];
+      av_strerror(ret, errbuf, sizeof(errbuf));
+      ORC_LOG_ERROR(
+          "FFmpegOutputBackend: Error pulling frame from filter graph: {}",
+          errbuf);
+      return false;
+    }
+
+    // An explicit display aspect ratio override wins over whatever SAR the
+    // filters produced.
+    if (sample_aspect_ratio_.num > 0) {
+      filtered_frame_->sample_aspect_ratio = sample_aspect_ratio_;
+    }
+
+    const bool ok = encodeVideoFrame(filtered_frame_);
+    av_frame_unref(filtered_frame_);
+    if (!ok) {
+      return false;
+    }
+  }
 }
 
 bool FFmpegOutputBackend::finalize() {
   if (!codec_ctx_ || !format_ctx_) {
     return true;  // Already finalized
+  }
+
+  // Flush the video filter graph first so frames still buffered inside the
+  // filters (e.g. fieldmatch look-ahead) reach the encoder before it is
+  // flushed below.
+  if (filter_graph_) {
+    int flush_ret = av_buffersrc_add_frame_flags(buffersrc_ctx_, nullptr, 0);
+    if (flush_ret < 0) {
+      ORC_LOG_WARN("FFmpegOutputBackend: Error signalling filter graph EOF");
+    }
+    if (!drainFilterGraph()) {
+      ORC_LOG_WARN(
+          "FFmpegOutputBackend: Error draining filter graph during finalize");
+    }
   }
 
   // Flush video encoder
@@ -1419,6 +1794,16 @@ bool FFmpegOutputBackend::encodeAudioForFrame() {
         }
       }
       samples.resize(sample_count, 0);
+    }
+
+    // Apply the configured gain, clipping at full scale. Silence stays
+    // silence, so gain-adjusted padding is fine too.
+    if (audio_gain_ != 1.0) {
+      for (auto& sample : samples) {
+        const double scaled = static_cast<double>(sample) * audio_gain_;
+        sample = static_cast<int16_t>(
+            std::lround(std::clamp(scaled, -32768.0, 32767.0)));
+      }
     }
 
     audio_buffer_.insert(audio_buffer_.end(), samples.begin(), samples.end());

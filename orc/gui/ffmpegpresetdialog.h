@@ -12,6 +12,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QGroupBox>
 #include <QLabel>
 #include <QLineEdit>
@@ -93,7 +94,10 @@ class FFmpegPresetDialog : public ConfigDialogBase {
 
   // Options group
   QCheckBox* deinterlace_checkbox_;
+  QComboBox* aspect_ratio_combo_;
+  QLineEdit* video_filter_edit_;
   QCheckBox* embed_audio_checkbox_;
+  QDoubleSpinBox* audio_gain_spinbox_;  // Enabled only when embedding audio
   QCheckBox* embed_captions_checkbox_;
   QCheckBox* embed_chapters_checkbox_;
 

@@ -219,6 +219,7 @@ target_link_libraries(orc-core PUBLIC PNG::PNG)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET GLOBAL
     libavcodec
+    libavfilter
     libavformat
     libavutil
     libswscale
@@ -229,7 +230,7 @@ pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET GLOBAL
 if(NOT TARGET PkgConfig::FFMPEG)
     add_library(PkgConfig::FFMPEG INTERFACE IMPORTED GLOBAL)
     set(_ffmpeg_pc_libs "")
-    foreach(_ffmpeg_pc_target libavcodec libavformat libavutil libswscale)
+    foreach(_ffmpeg_pc_target libavcodec libavfilter libavformat libavutil libswscale)
         if(TARGET PkgConfig::${_ffmpeg_pc_target})
             list(APPEND _ffmpeg_pc_libs PkgConfig::${_ffmpeg_pc_target})
         endif()

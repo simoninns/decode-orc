@@ -195,6 +195,13 @@ FFmpegPresetDialog::FFmpegPresetDialog(const QString& project_path,
       "Include analogue audio tracks from the source (if available)");
   embed_audio_checkbox_->setChecked(false);
 
+  audio_gain_spinbox_ = add_double_spinbox(
+      options_layout, "Audio gain (dB):", -24.0, 24.0, 0.0, 1,
+      "Gain applied to the embedded audio in decibels. 0 = unchanged; "
+      "positive values boost (6 dB roughly doubles the amplitude), negative "
+      "values attenuate. Samples are clipped at full scale.");
+  audio_gain_spinbox_->setEnabled(false);  // Follows the embed audio option
+
   embed_captions_checkbox_ = add_checkbox(
       options_layout, "Embed closed captions",
       "Convert EIA-608 closed captions to subtitle track (MP4/MOV only)");
@@ -204,6 +211,23 @@ FFmpegPresetDialog::FFmpegPresetDialog(const QString& project_path,
       options_layout, "Embed chapter metadata",
       "Write chapter markers from VBI data to output file (MKV/MP4/MOV only)");
   embed_chapters_checkbox_->setChecked(false);
+
+  QStringList aspect_options;
+  aspect_options << "Auto (square pixels)" << "4:3 (SD television)"
+                 << "16:9 (widescreen)";
+  aspect_ratio_combo_ = add_combobox(
+      options_layout, "Display aspect ratio:", aspect_options,
+      "Display aspect ratio signalled to players. Metadata only - the video "
+      "is not rescaled. Most SD material should be played back at 4:3.");
+
+  video_filter_edit_ = new QLineEdit();
+  video_filter_edit_->setPlaceholderText("e.g. fieldmatch,decimate");
+  video_filter_edit_->setToolTip(
+      "Optional custom FFmpeg video filter chain applied before encoding, "
+      "using the same syntax as ffmpeg's -vf option. Examples: "
+      "fieldmatch,decimate (inverse telecine), crop=692:554. Leave empty for "
+      "no filtering. An invalid filter string causes the export to fail.");
+  options_layout->addRow("Custom video filter:", video_filter_edit_);
 
   // Advanced settings group
   auto* advanced_group = create_group("Advanced Settings (Optional)");
@@ -244,6 +268,8 @@ FFmpegPresetDialog::FFmpegPresetDialog(const QString& project_path,
           &FFmpegPresetDialog::on_hardware_encoder_changed);
   connect(deinterlace_checkbox_, &QCheckBox::checkStateChanged, this,
           &FFmpegPresetDialog::on_deinterlace_changed);
+  connect(embed_audio_checkbox_, &QCheckBox::toggled, audio_gain_spinbox_,
+          &QWidget::setEnabled);
 
   // Initialize with first category
   on_category_changed(0);
@@ -312,6 +338,18 @@ void FFmpegPresetDialog::apply_configuration() {
   // Set deinterlacing
   set_parameter("apply_deinterlace", deinterlace_checkbox_->isChecked());
 
+  // Set display aspect ratio (combo order matches these values)
+  static const char* kAspectValues[] = {"auto", "4:3", "16:9"};
+  int aspect_idx = aspect_ratio_combo_->currentIndex();
+  if (aspect_idx < 0 || aspect_idx > 2) {
+    aspect_idx = 0;
+  }
+  set_parameter("display_aspect_ratio", std::string(kAspectValues[aspect_idx]));
+
+  // Set custom video filter chain (empty clears any previous filter)
+  set_parameter("video_filter",
+                video_filter_edit_->text().trimmed().toStdString());
+
   // Set encoder preset
   std::string encoder_preset = preset.default_preset;
   if (quality_preset_combo_->currentIndex() > 0) {
@@ -335,6 +373,7 @@ void FFmpegPresetDialog::apply_configuration() {
 
   // Set options
   set_parameter("embed_audio", embed_audio_checkbox_->isChecked());
+  set_parameter("audio_gain_db", audio_gain_spinbox_->value());
   set_parameter("embed_closed_captions", embed_captions_checkbox_->isChecked());
   set_parameter("embed_chapter_metadata",
                 embed_chapters_checkbox_->isChecked());
@@ -420,6 +459,14 @@ void FFmpegPresetDialog::load_from_parameters(
       std::holds_alternative<bool>(audio_it->second)) {
     embed_audio_checkbox_->setChecked(std::get<bool>(audio_it->second));
   }
+  // Gain follows the embed audio option (checkbox signal handles later edits)
+  audio_gain_spinbox_->setEnabled(embed_audio_checkbox_->isChecked());
+
+  auto gain_it = params.find("audio_gain_db");
+  if (gain_it != params.end() &&
+      std::holds_alternative<double>(gain_it->second)) {
+    audio_gain_spinbox_->setValue(std::get<double>(gain_it->second));
+  }
 
   auto captions_it = params.find("embed_closed_captions");
   if (captions_it != params.end() &&
@@ -431,6 +478,35 @@ void FFmpegPresetDialog::load_from_parameters(
   if (chapters_it != params.end() &&
       std::holds_alternative<bool>(chapters_it->second)) {
     embed_chapters_checkbox_->setChecked(std::get<bool>(chapters_it->second));
+  }
+
+  // Load deinterlace option
+  auto deint_it = params.find("apply_deinterlace");
+  if (deint_it != params.end() &&
+      std::holds_alternative<bool>(deint_it->second)) {
+    deinterlace_checkbox_->setChecked(std::get<bool>(deint_it->second));
+  }
+
+  // Load display aspect ratio
+  auto aspect_it = params.find("display_aspect_ratio");
+  if (aspect_it != params.end() &&
+      std::holds_alternative<std::string>(aspect_it->second)) {
+    const std::string& aspect = std::get<std::string>(aspect_it->second);
+    if (aspect == "4:3") {
+      aspect_ratio_combo_->setCurrentIndex(1);
+    } else if (aspect == "16:9") {
+      aspect_ratio_combo_->setCurrentIndex(2);
+    } else {
+      aspect_ratio_combo_->setCurrentIndex(0);
+    }
+  }
+
+  // Load custom video filter
+  auto vf_it = params.find("video_filter");
+  if (vf_it != params.end() &&
+      std::holds_alternative<std::string>(vf_it->second)) {
+    video_filter_edit_->setText(
+        QString::fromStdString(std::get<std::string>(vf_it->second)));
   }
 
   // Load output filename

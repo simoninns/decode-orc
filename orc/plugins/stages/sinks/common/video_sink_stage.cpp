@@ -120,6 +120,7 @@ VideoSinkStage::VideoSinkStage()
       adapt_threshold_(1.0),
       output_padding_(8),
       embed_audio_(false),
+      audio_gain_db_(0.0),
       embed_closed_captions_(false),
       embed_chapter_metadata_(false),
       encoder_preset_("medium"),
@@ -129,7 +130,9 @@ VideoSinkStage::VideoSinkStage()
       hardware_encoder_("none"),
       prores_profile_("hq"),
       use_lossless_mode_(false),
-      apply_deinterlace_(false) {
+      apply_deinterlace_(false),
+      display_aspect_ratio_("auto"),
+      video_filter_("") {
   set_configuration_status(orc::ConfigurationStatus::Yellow);
 }
 
@@ -433,6 +436,40 @@ std::vector<ParameterDescriptor> VideoSinkStage::get_parameter_descriptors(
                "ffmpeg_format",
                {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}},
       ParameterDescriptor{
+          "display_aspect_ratio",
+          "Display Aspect Ratio",
+          "Display aspect ratio signalled to players (metadata only, no "
+          "rescaling):\n"
+          "  auto - square pixels (no aspect ratio metadata)\n"
+          "  4:3  - standard-definition television aspect\n"
+          "  16:9 - widescreen aspect",
+          ParameterType::STRING,
+          {{},
+           {},
+           std::string("auto"),
+           {"auto", "4:3", "16:9"},
+           false,
+           ParameterDependency{"output_mode", {"ffmpeg"}}}},
+      ParameterDescriptor{
+          "video_filter",
+          "Custom Video Filter",
+          "Custom FFmpeg video filter chain applied before encoding, using "
+          "the same syntax as ffmpeg's -vf option. Examples:\n"
+          "  fieldmatch,decimate - inverse telecine NTSC film content to "
+          "23.976 fps\n"
+          "  bwdif=mode=send_frame - deinterlace without doubling the frame "
+          "rate\n"
+          "  crop=692:554 - crop the output frame\n"
+          "Leave empty for no filtering. An invalid filter string causes the "
+          "export to fail with the FFmpeg error message.",
+          ParameterType::STRING,
+          {{},
+           {},
+           std::string(""),
+           {},
+           false,
+           ParameterDependency{"output_mode", {"ffmpeg"}}}},
+      ParameterDescriptor{
           "embed_audio",
           "Embed Analogue Audio",
           "Embed analogue audio in output file (requires audio in source, "
@@ -444,6 +481,20 @@ std::vector<ParameterDescriptor> VideoSinkStage::get_parameter_descriptors(
            {},
            false,
            ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
+      ParameterDescriptor{
+          "audio_gain_db",
+          "Audio Gain (dB)",
+          "Gain applied to the embedded audio in decibels. 0 = unchanged; "
+          "positive values boost (6 dB roughly doubles the amplitude), "
+          "negative values attenuate. Samples are clipped at full scale. "
+          "Range: -24 to 24",
+          ParameterType::DOUBLE,
+          {-24.0,
+           24.0,
+           0.0,
+           {},
+           false,
+           ParameterDependency{"embed_audio", {"true"}}}},
       ParameterDescriptor{
           "embed_closed_captions",
           "Embed Closed Captions",
@@ -612,12 +663,15 @@ std::map<std::string, ParameterValue> VideoSinkStage::get_parameters() const {
   params["encoder_crf"] = encoder_crf_;
   params["encoder_bitrate"] = encoder_bitrate_;
   params["embed_audio"] = embed_audio_;
+  params["audio_gain_db"] = audio_gain_db_;
   params["embed_closed_captions"] = embed_closed_captions_;
   params["embed_chapter_metadata"] = embed_chapter_metadata_;
   params["hardware_encoder"] = hardware_encoder_;
   params["prores_profile"] = prores_profile_;
   params["use_lossless_mode"] = use_lossless_mode_;
   params["apply_deinterlace"] = apply_deinterlace_;
+  params["display_aspect_ratio"] = display_aspect_ratio_;
+  params["video_filter"] = video_filter_;
   return params;
 }
 
@@ -665,6 +719,18 @@ bool VideoSinkStage::set_parameters(
         ORC_LOG_ERROR(
             "VideoSink: FFmpeg format '{}' is not a supported encoded format",
             format);
+        return false;
+      }
+    }
+
+    it = params.find("display_aspect_ratio");
+    if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
+      const auto& dar = std::get<std::string>(it->second);
+      if (dar != "auto" && dar != "4:3" && dar != "16:9") {
+        ORC_LOG_ERROR(
+            "VideoSink: Invalid display aspect ratio '{}' - must be auto, "
+            "4:3, or 16:9",
+            dar);
         return false;
       }
     }
@@ -868,6 +934,12 @@ bool VideoSinkStage::set_parameters(
         embed_audio_ =
             (str_val == "true" || str_val == "1" || str_val == "yes");
       }
+    } else if (key == "audio_gain_db") {
+      if (std::holds_alternative<double>(value)) {
+        audio_gain_db_ = std::get<double>(value);
+      } else if (std::holds_alternative<int>(value)) {
+        audio_gain_db_ = static_cast<double>(std::get<int>(value));
+      }
     } else if (key == "embed_closed_captions") {
       if (std::holds_alternative<bool>(value)) {
         embed_closed_captions_ = std::get<bool>(value);
@@ -907,6 +979,16 @@ bool VideoSinkStage::set_parameters(
         auto str_val = std::get<std::string>(value);
         apply_deinterlace_ =
             (str_val == "true" || str_val == "1" || str_val == "yes");
+      }
+    } else if (key == "display_aspect_ratio") {
+      if (std::holds_alternative<std::string>(value)) {
+        display_aspect_ratio_ = std::get<std::string>(value);
+      }
+    } else if (key == "video_filter") {
+      if (std::holds_alternative<std::string>(value)) {
+        // Validated by the FFmpeg backend when the export starts; an invalid
+        // chain fails the trigger with the FFmpeg error message.
+        video_filter_ = std::get<std::string>(value);
       }
     }
   }
@@ -1442,6 +1524,9 @@ bool VideoSinkStage::run_export_trigger(
       use_lossless_mode_ ? "true" : "false";
   backendConfig.options["apply_deinterlace"] =
       apply_deinterlace_ ? "true" : "false";
+  backendConfig.options["display_aspect_ratio"] = display_aspect_ratio_;
+  backendConfig.options["video_filter"] = video_filter_;
+  backendConfig.options["audio_gain_db"] = std::to_string(audio_gain_db_);
   backendConfig.observation_context = &observation_context;
 
   // Set field-equivalent range for audio, closed caption, and/or chapter
@@ -1481,6 +1566,12 @@ bool VideoSinkStage::run_export_trigger(
                   output_format_);
     trigger_status_ =
         "Error: Failed to initialize " + output_format_ + " output";
+    // Surface user-actionable backend detail (e.g. an invalid video filter
+    // string) in the trigger status shown by the GUI.
+    const std::string backend_error = backend->getLastError();
+    if (!backend_error.empty()) {
+      trigger_status_ += ": " + backend_error;
+    }
     trigger_in_progress_.store(false);
     return false;
   }

@@ -395,10 +395,19 @@ Applies the selected chroma decoder to convert the incoming TBC video stream to 
     - FFmpeg mode only. Enable mathematically lossless encoding (H.264/H.265/AV1 only, overrides CRF). Default: `false`.
 
 * `apply_deinterlace` (bool)
-    - FFmpeg mode only. Apply bwdif deinterlacing for progressive web playback. Default: `false`.
+    - FFmpeg mode only. Apply bwdif deinterlacing for progressive web playback. One frame is produced per field, so the output frame rate doubles (50 fps PAL, 59.94 fps NTSC). Default: `false`.
+
+* `display_aspect_ratio` (string)
+    - FFmpeg mode only. Display aspect ratio signalled to players. Metadata only — the video is not rescaled. Values: `auto` (square pixels), `4:3`, `16:9`. Most SD material should be played back at `4:3`. Default: `auto`.
+
+* `video_filter` (string)
+    - FFmpeg mode only. Custom FFmpeg video filter chain applied before encoding, using the same syntax as ffmpeg's `-vf` option (e.g. `fieldmatch,decimate` for inverse telecine, `crop=692:554`). Filters may change output dimensions and frame rate; the encoder follows the filter output automatically. An invalid filter string fails the export with the FFmpeg error message. Default: empty (no filtering).
 
 * `embed_audio` (bool)
     - FFmpeg mode only. Embed analogue audio into the output file. Requires audio in the pipeline. Default: `false`.
+
+* `audio_gain_db` (double)
+    - FFmpeg mode only; available only when `embed_audio` is enabled. Gain applied to the embedded audio in decibels. `0` = unchanged; positive boosts (6 dB roughly doubles the amplitude), negative attenuates. Samples are clipped at full scale. Range: -24 to 24. Default: `0`.
 
 * `embed_closed_captions` (bool)
     - FFmpeg mode only. Embed closed captions as mov_text subtitles. MP4/MOV output only. Default: `false`.
@@ -416,6 +425,8 @@ Applies the selected chroma decoder to convert the incoming TBC video stream to 
 * Raw output files can be very large; ensure sufficient disk space before triggering.
 * The `y4m` raw format is directly readable by tools such as FFmpeg and rav1e without specifying the pixel format manually.
 * CRF and bitrate modes are mutually exclusive; set `encoder_bitrate` to a non-zero value to switch from CRF mode.
+* Video filtering (`apply_deinterlace` or `video_filter`) is not supported with hardware encoders that use GPU surfaces (`vaapi`, `qsv`, `videotoolbox`); the export automatically falls back to the software encoder in that case.
+* When a video filter chain is active, interlaced coding flags are not forced on the encoder; the field structure of the filter output determines how frames are flagged.
 * Projects created with the earlier separate `raw_video_sink` and `ffmpeg_video_sink` stages are migrated to this stage automatically when loaded.
 
 ---

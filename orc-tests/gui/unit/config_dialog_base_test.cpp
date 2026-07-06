@@ -331,4 +331,101 @@ TEST(ConfigDialogBaseTest, FfmpegDialog_AppliesPresetAndOptionRules) {
   EXPECT_EQ(std::get<std::string>(params.at("output_path")), "exports/out.mp4");
 }
 
+TEST(ConfigDialogBaseTest, FfmpegDialog_RoundTripsAspectRatioAndVideoFilter) {
+  (void)ensureApplication();
+
+  FFmpegPresetDialog dialog;
+
+  auto* options_group = findGroupByTitle(dialog, "Export Options");
+  ASSERT_NE(options_group, nullptr);
+
+  auto* aspect_combo = qobject_cast<QComboBox*>(
+      fieldWidgetByRowLabel(*options_group, "Display aspect ratio:"));
+  auto* filter_edit = qobject_cast<QLineEdit*>(
+      fieldWidgetByRowLabel(*options_group, "Custom video filter:"));
+  ASSERT_NE(aspect_combo, nullptr);
+  ASSERT_NE(filter_edit, nullptr);
+
+  // Defaults: auto aspect, no filter
+  EXPECT_EQ(aspect_combo->currentIndex(), 0);
+  EXPECT_TRUE(filter_edit->text().isEmpty());
+
+  aspect_combo->setCurrentIndex(1);  // 4:3
+  filter_edit->setText("  fieldmatch,decimate  ");
+
+  clickOk(dialog);
+
+  const auto params = dialog.get_parameters();
+  ASSERT_TRUE(params.find("display_aspect_ratio") != params.end());
+  ASSERT_TRUE(params.find("video_filter") != params.end());
+  ASSERT_TRUE(
+      std::holds_alternative<std::string>(params.at("display_aspect_ratio")));
+  ASSERT_TRUE(std::holds_alternative<std::string>(params.at("video_filter")));
+  EXPECT_EQ(std::get<std::string>(params.at("display_aspect_ratio")), "4:3");
+  // Surrounding whitespace is trimmed on apply
+  EXPECT_EQ(std::get<std::string>(params.at("video_filter")),
+            "fieldmatch,decimate");
+
+  // Loading parameters back must restore the UI state
+  FFmpegPresetDialog reloaded;
+  reloaded.set_parameters(
+      {{"display_aspect_ratio", std::string("16:9")},
+       {"video_filter", std::string("bwdif=mode=send_frame")}});
+
+  auto* reloaded_options = findGroupByTitle(reloaded, "Export Options");
+  ASSERT_NE(reloaded_options, nullptr);
+  auto* reloaded_aspect = qobject_cast<QComboBox*>(
+      fieldWidgetByRowLabel(*reloaded_options, "Display aspect ratio:"));
+  auto* reloaded_filter = qobject_cast<QLineEdit*>(
+      fieldWidgetByRowLabel(*reloaded_options, "Custom video filter:"));
+  ASSERT_NE(reloaded_aspect, nullptr);
+  ASSERT_NE(reloaded_filter, nullptr);
+  EXPECT_EQ(reloaded_aspect->currentIndex(), 2);
+  EXPECT_EQ(reloaded_filter->text(), "bwdif=mode=send_frame");
+}
+
+TEST(ConfigDialogBaseTest, FfmpegDialog_AudioGainFollowsEmbedAudioOption) {
+  (void)ensureApplication();
+
+  FFmpegPresetDialog dialog;
+
+  auto* options_group = findGroupByTitle(dialog, "Export Options");
+  ASSERT_NE(options_group, nullptr);
+
+  auto* embed_audio = qobject_cast<QCheckBox*>(
+      fieldWidgetByRowLabel(*options_group, "Embed audio"));
+  auto* gain = qobject_cast<QDoubleSpinBox*>(
+      fieldWidgetByRowLabel(*options_group, "Audio gain (dB):"));
+  ASSERT_NE(embed_audio, nullptr);
+  ASSERT_NE(gain, nullptr);
+
+  // The gain control is only available when audio is embedded.
+  EXPECT_FALSE(gain->isEnabled());
+  embed_audio->setChecked(true);
+  EXPECT_TRUE(gain->isEnabled());
+  embed_audio->setChecked(false);
+  EXPECT_FALSE(gain->isEnabled());
+
+  // Apply and round-trip the value.
+  embed_audio->setChecked(true);
+  gain->setValue(6.0);
+  clickOk(dialog);
+
+  const auto params = dialog.get_parameters();
+  ASSERT_TRUE(params.find("audio_gain_db") != params.end());
+  ASSERT_TRUE(std::holds_alternative<double>(params.at("audio_gain_db")));
+  EXPECT_EQ(std::get<double>(params.at("audio_gain_db")), 6.0);
+
+  FFmpegPresetDialog reloaded;
+  reloaded.set_parameters({{"embed_audio", true}, {"audio_gain_db", -3.0}});
+
+  auto* reloaded_options = findGroupByTitle(reloaded, "Export Options");
+  ASSERT_NE(reloaded_options, nullptr);
+  auto* reloaded_gain = qobject_cast<QDoubleSpinBox*>(
+      fieldWidgetByRowLabel(*reloaded_options, "Audio gain (dB):"));
+  ASSERT_NE(reloaded_gain, nullptr);
+  EXPECT_TRUE(reloaded_gain->isEnabled());
+  EXPECT_EQ(reloaded_gain->value(), -3.0);
+}
+
 }  // namespace gui_unit_test

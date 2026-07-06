@@ -294,4 +294,134 @@ TEST(VideoSinkStageTest, StageTools_IncludeFfmpegPresetConfig) {
   ASSERT_EQ(tools.size(), 1U);
   EXPECT_EQ(tools.front().tool_id, "ffmpeg_preset_config");
 }
+
+TEST(VideoSinkStageTest, ParameterDescriptors_OfferDisplayAspectRatio) {
+  orc::VideoSinkStage stage;
+  auto descriptors = stage.get_parameter_descriptors(
+      orc::VideoSystem::NTSC, orc::SourceType::Composite);
+
+  const auto* aspect = find_parameter(descriptors, "display_aspect_ratio");
+  ASSERT_NE(aspect, nullptr);
+  const auto& allowed = aspect->constraints.allowed_strings;
+  ASSERT_EQ(allowed.size(), 3U);
+  EXPECT_TRUE(has_string(allowed, "auto"));
+  EXPECT_TRUE(has_string(allowed, "4:3"));
+  EXPECT_TRUE(has_string(allowed, "16:9"));
+
+  ASSERT_TRUE(aspect->constraints.default_value.has_value());
+  ASSERT_TRUE(
+      std::holds_alternative<std::string>(*aspect->constraints.default_value));
+  EXPECT_EQ(std::get<std::string>(*aspect->constraints.default_value), "auto");
+
+  ASSERT_TRUE(aspect->constraints.depends_on.has_value());
+  EXPECT_EQ(aspect->constraints.depends_on->parameter_name, "output_mode");
+}
+
+TEST(VideoSinkStageTest, ParameterDescriptors_OfferFreeTextVideoFilter) {
+  orc::VideoSinkStage stage;
+  auto descriptors = stage.get_parameter_descriptors(
+      orc::VideoSystem::NTSC, orc::SourceType::Composite);
+
+  const auto* filter = find_parameter(descriptors, "video_filter");
+  ASSERT_NE(filter, nullptr);
+  EXPECT_EQ(filter->type, orc::ParameterType::STRING);
+  EXPECT_TRUE(filter->constraints.allowed_strings.empty());
+
+  ASSERT_TRUE(filter->constraints.default_value.has_value());
+  ASSERT_TRUE(
+      std::holds_alternative<std::string>(*filter->constraints.default_value));
+  EXPECT_EQ(std::get<std::string>(*filter->constraints.default_value), "");
+
+  ASSERT_TRUE(filter->constraints.depends_on.has_value());
+  EXPECT_EQ(filter->constraints.depends_on->parameter_name, "output_mode");
+}
+
+TEST(VideoSinkStageTest, SetParameters_RejectsInvalidDisplayAspectRatio) {
+  orc::VideoSinkStage stage;
+
+  EXPECT_FALSE(
+      stage.set_parameters({{"display_aspect_ratio", std::string("2.35:1")}}));
+
+  // A rejected value must leave the stored parameter untouched.
+  const auto params = stage.get_parameters();
+  EXPECT_EQ(string_param(params, "display_aspect_ratio"), "auto");
+}
+
+TEST(VideoSinkStageTest, SetParameters_RoundTripsDisplayAspectRatio) {
+  orc::VideoSinkStage stage;
+
+  for (const auto* value : {"4:3", "16:9", "auto"}) {
+    ASSERT_TRUE(
+        stage.set_parameters({{"display_aspect_ratio", std::string(value)}}))
+        << value;
+    const auto params = stage.get_parameters();
+    EXPECT_EQ(string_param(params, "display_aspect_ratio"), value);
+  }
+}
+
+TEST(VideoSinkStageTest, SetParameters_RoundTripsVideoFilter) {
+  orc::VideoSinkStage stage;
+
+  ASSERT_TRUE(stage.set_parameters(
+      {{"video_filter", std::string("fieldmatch,decimate")}}));
+  auto params = stage.get_parameters();
+  EXPECT_EQ(string_param(params, "video_filter"), "fieldmatch,decimate");
+
+  // Clearing the filter must round-trip too.
+  ASSERT_TRUE(stage.set_parameters({{"video_filter", std::string("")}}));
+  params = stage.get_parameters();
+  EXPECT_EQ(string_param(params, "video_filter"), "");
+}
+
+TEST(VideoSinkStageTest, GetParameters_DefaultsForCustomFfmpegOptions) {
+  orc::VideoSinkStage stage;
+  const auto params = stage.get_parameters();
+
+  EXPECT_EQ(string_param(params, "display_aspect_ratio"), "auto");
+  EXPECT_EQ(string_param(params, "video_filter"), "");
+}
+
+TEST(VideoSinkStageTest, ParameterDescriptors_AudioGainRequiresEmbedAudio) {
+  orc::VideoSinkStage stage;
+  auto descriptors = stage.get_parameter_descriptors(
+      orc::VideoSystem::NTSC, orc::SourceType::Composite);
+
+  const auto* gain = find_parameter(descriptors, "audio_gain_db");
+  ASSERT_NE(gain, nullptr);
+  EXPECT_EQ(gain->type, orc::ParameterType::DOUBLE);
+
+  ASSERT_TRUE(gain->constraints.default_value.has_value());
+  ASSERT_TRUE(std::holds_alternative<double>(*gain->constraints.default_value));
+  EXPECT_EQ(std::get<double>(*gain->constraints.default_value), 0.0);
+
+  ASSERT_TRUE(gain->constraints.min_value.has_value());
+  EXPECT_EQ(std::get<double>(*gain->constraints.min_value), -24.0);
+  ASSERT_TRUE(gain->constraints.max_value.has_value());
+  EXPECT_EQ(std::get<double>(*gain->constraints.max_value), 24.0);
+
+  // Only meaningful when audio is embedded in the FFmpeg output.
+  ASSERT_TRUE(gain->constraints.depends_on.has_value());
+  EXPECT_EQ(gain->constraints.depends_on->parameter_name, "embed_audio");
+  ASSERT_EQ(gain->constraints.depends_on->required_values.size(), 1U);
+  EXPECT_EQ(gain->constraints.depends_on->required_values.front(), "true");
+}
+
+TEST(VideoSinkStageTest, SetParameters_RoundTripsAudioGain) {
+  orc::VideoSinkStage stage;
+
+  ASSERT_TRUE(stage.set_parameters({{"audio_gain_db", 6.0}}));
+  auto params = stage.get_parameters();
+  auto it = params.find("audio_gain_db");
+  ASSERT_NE(it, params.end());
+  ASSERT_TRUE(std::holds_alternative<double>(it->second));
+  EXPECT_EQ(std::get<double>(it->second), 6.0);
+
+  // Default is unity gain (0 dB).
+  orc::VideoSinkStage fresh;
+  params = fresh.get_parameters();
+  it = params.find("audio_gain_db");
+  ASSERT_NE(it, params.end());
+  ASSERT_TRUE(std::holds_alternative<double>(it->second));
+  EXPECT_EQ(std::get<double>(it->second), 0.0);
+}
 }  // namespace orc_unit_test

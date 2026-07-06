@@ -53,7 +53,7 @@ What Quick Project sets up for you:
 
 * Detects whether the capture is **PAL**, **NTSC**, or **PAL-M** from the metadata
 * Adds the appropriate **source stage** for the detected system and input type
-* Adds an **FFmpeg video sink** stage
+* Adds a **Video Sink** stage (FFmpeg output mode by default)
 * Creates a **connection** from the source stage to the sink stage
 * If found, automatically attaches optional files next to the capture:
 
@@ -62,7 +62,7 @@ What Quick Project sets up for you:
 
 After creating a quick project, you should usually:
 
-* Open **Stage Parameters** on the sink stage and select an FFmpeg preset/output settings
+* Open **Stage Parameters** on the Video Sink stage to set the output path and mode, or use its **FFmpeg Preset Config** stage tool to apply an export preset
 * Use **File → Save Project As…** to save the new project (quick projects start “unsaved”)
 
 #### Open Project…

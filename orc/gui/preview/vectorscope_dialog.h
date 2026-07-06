@@ -53,7 +53,7 @@ class AspectRatioLabel : public QLabel {
  * @brief Live vectorscope visualization for chroma decoder output
  *
  * This dialog displays U/V color components on a vectorscope for decoded
- * chroma output from a ChromaSinkStage. It's a live visualization tool that
+ * chroma output from a VideoSinkStage. It's a live visualization tool that
  * updates in real-time as the user navigates through fields.
  */
 class VectorscopeDialog : public QDialog {

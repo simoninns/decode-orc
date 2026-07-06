@@ -296,7 +296,8 @@ TEST(ConfigDialogBaseTest, FfmpegDialog_AppliesPresetAndOptionRules) {
 
   const auto params = dialog.get_parameters();
 
-  ASSERT_TRUE(params.find("output_format") != params.end());
+  ASSERT_TRUE(params.find("output_mode") != params.end());
+  ASSERT_TRUE(params.find("ffmpeg_format") != params.end());
   ASSERT_TRUE(params.find("hardware_encoder") != params.end());
   ASSERT_TRUE(params.find("apply_deinterlace") != params.end());
   ASSERT_TRUE(params.find("encoder_preset") != params.end());
@@ -306,7 +307,8 @@ TEST(ConfigDialogBaseTest, FfmpegDialog_AppliesPresetAndOptionRules) {
   ASSERT_TRUE(params.find("embed_closed_captions") != params.end());
   ASSERT_TRUE(params.find("output_path") != params.end());
 
-  ASSERT_TRUE(std::holds_alternative<std::string>(params.at("output_format")));
+  ASSERT_TRUE(std::holds_alternative<std::string>(params.at("output_mode")));
+  ASSERT_TRUE(std::holds_alternative<std::string>(params.at("ffmpeg_format")));
   ASSERT_TRUE(
       std::holds_alternative<std::string>(params.at("hardware_encoder")));
   ASSERT_TRUE(std::holds_alternative<bool>(params.at("apply_deinterlace")));
@@ -317,7 +319,8 @@ TEST(ConfigDialogBaseTest, FfmpegDialog_AppliesPresetAndOptionRules) {
   ASSERT_TRUE(std::holds_alternative<bool>(params.at("embed_closed_captions")));
   ASSERT_TRUE(std::holds_alternative<std::string>(params.at("output_path")));
 
-  EXPECT_EQ(std::get<std::string>(params.at("output_format")), "mp4-h264");
+  EXPECT_EQ(std::get<std::string>(params.at("output_mode")), "ffmpeg");
+  EXPECT_EQ(std::get<std::string>(params.at("ffmpeg_format")), "mp4-h264");
   EXPECT_EQ(std::get<std::string>(params.at("hardware_encoder")), "none");
   EXPECT_TRUE(std::get<bool>(params.at("apply_deinterlace")));
   EXPECT_EQ(std::get<std::string>(params.at("encoder_preset")), "veryslow");

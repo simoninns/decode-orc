@@ -1,5 +1,4 @@
-# Sink stage plugins: FFmpeg video sink and raw video sink.
-# Both share common stage implementations in common/
+# Sink stage plugin: Video sink (raw and FFmpeg-encoded output).
+# The stage implementation lives in common/
 add_subdirectory(common)
-add_subdirectory(ffmpeg_video_sink)
-add_subdirectory(raw_video_sink)
+add_subdirectory(video_sink)

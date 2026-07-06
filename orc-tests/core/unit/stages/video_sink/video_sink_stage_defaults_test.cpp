@@ -1,7 +1,7 @@
 /*
- * File:        chroma_sink_stage_defaults_test.cpp
+ * File:        video_sink_stage_defaults_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit test(s) for ChromaSinkStage parameter defaults
+ * Purpose:     Unit test(s) for VideoSinkStage parameter defaults
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -11,11 +11,11 @@
 
 #include <algorithm>
 
-#include "../../../../orc/plugins/stages/sinks/common/chroma_sink_stage.h"
+#include "../../../../orc/plugins/stages/sinks/common/video_sink_stage.h"
 
 namespace orc_unit_test {
-TEST(ChromaSinkStageDefaultsTest, Runtime_DefaultsEnableNtscPhaseCompensation) {
-  orc::ChromaSinkStage stage;
+TEST(VideoSinkStageDefaultsTest, Runtime_DefaultsEnableNtscPhaseCompensation) {
+  orc::VideoSinkStage stage;
   auto params = stage.get_parameters();
 
   auto it = params.find("ntsc_phase_comp");
@@ -24,9 +24,9 @@ TEST(ChromaSinkStageDefaultsTest, Runtime_DefaultsEnableNtscPhaseCompensation) {
   EXPECT_TRUE(std::get<bool>(it->second));
 }
 
-TEST(ChromaSinkStageDefaultsTest,
+TEST(VideoSinkStageDefaultsTest,
      Descriptor_DefaultsEnableNtscPhaseCompensationForNtscProjects) {
-  orc::ChromaSinkStage stage;
+  orc::VideoSinkStage stage;
   auto descriptors = stage.get_parameter_descriptors(orc::VideoSystem::NTSC,
                                                      orc::SourceType::YC);
 

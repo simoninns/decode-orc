@@ -23,7 +23,7 @@ namespace orc::presenters {
  * - Preparing configuration parameters for the tool
  * - Generating FFmpeg export parameters based on presets
  * - Formatting results for display
- * - Applying generated configuration to ffmpeg_video_sink stage
+ * - Applying generated configuration to video_sink stage
  *
  * The FFmpeg Preset tool provides convenient presets for video export
  * without requiring users to understand codec details, based on profiles
@@ -35,7 +35,7 @@ namespace orc::presenters {
  * - Hardware-accelerated encoding
  *
  * **Requirements:**
- * - Node must be a ffmpeg_video_sink stage
+ * - Node must be a video_sink stage
  * - Tool operates as instant configuration (no DAG execution needed)
  * - User selects presets via FFmpegPresetDialog
  *
@@ -55,7 +55,7 @@ class FFmpegPresetPresenter : public AnalysisToolPresenter {
    * @brief Run FFmpeg preset configuration
    *
    * This method:
-   * 1. Validates the node is a ffmpeg_video_sink stage
+   * 1. Validates the node is a video_sink stage
    * 2. Calls the core FFmpeg preset tool
    * 3. Returns configuration success
    *
@@ -64,7 +64,7 @@ class FFmpegPresetPresenter : public AnalysisToolPresenter {
    * directly in the GUI, but this presenter provides a clean interface
    * for the analysis tool system.
    *
-   * @param node_id The ffmpeg_video_sink node to configure
+   * @param node_id The video_sink node to configure
    * @param parameters User-selected parameters (handled by dialog)
    * @param progress_callback Optional progress updates (not used for instant
    * tool)
@@ -83,7 +83,7 @@ class FFmpegPresetPresenter : public AnalysisToolPresenter {
 
  private:
   /**
-   * @brief Validate that the node is a ffmpeg_video_sink stage
+   * @brief Validate that the node is a video_sink stage
    * @param node_id Node to validate
    * @param error_message Output parameter for error description
    * @return true if valid, false otherwise

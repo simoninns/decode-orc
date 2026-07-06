@@ -15,7 +15,7 @@
 #include <orc/stage/video_frame_representation.h>
 
 // Combines VideoFrameRepresentation with Artifact so the mock can be passed as
-// ArtifactPtr while the ChromaSinkStage dynamic_pointer_cast succeeds.
+// ArtifactPtr while the VideoSinkStage dynamic_pointer_cast succeeds.
 namespace orc_unit_test {
 
 class MockVideoFrameRepresentationArtifact

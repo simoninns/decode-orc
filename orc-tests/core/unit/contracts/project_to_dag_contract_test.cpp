@@ -196,15 +196,15 @@ std::string decoder_type_from_dag(const orc::DAG& dag, orc::NodeID node_id) {
 }  // namespace
 
 TEST(ProjectToDagFormatDefaultsTest,
-     Pal_ProjectGivesFFmpegSinkPalDecodeDefault) {
-  // Simulate a PAL project that has an ffmpeg_video_sink node with NO
+     Pal_ProjectGivesVideoSinkPalDecodeDefault) {
+  // Simulate a PAL project that has an video_sink node with NO
   // stored decoder_type (as would be the case for any project created
   // before the parameter was explicitly persisted).
   auto project = orc::project_io::create_empty_project(
       "pal-defaults", orc::VideoSystem::PAL, orc::SourceType::Composite);
 
   const auto sink_id =
-      orc::project_io::add_node(project, "ffmpeg_video_sink", 0.0, 0.0);
+      orc::project_io::add_node(project, "video_sink", 0.0, 0.0);
   // Deliberately set NO parameters on the node.
 
   const auto dag = orc::project_to_dag(project);
@@ -216,34 +216,18 @@ TEST(ProjectToDagFormatDefaultsTest,
 }
 
 TEST(ProjectToDagFormatDefaultsTest,
-     Ntsc_ProjectGivesFFmpegSinkNtscDecodeDefault) {
+     Ntsc_ProjectGivesVideoSinkNtscDecodeDefault) {
   auto project = orc::project_io::create_empty_project(
       "ntsc-defaults", orc::VideoSystem::NTSC, orc::SourceType::Composite);
 
   const auto sink_id =
-      orc::project_io::add_node(project, "ffmpeg_video_sink", 0.0, 0.0);
+      orc::project_io::add_node(project, "video_sink", 0.0, 0.0);
 
   const auto dag = orc::project_to_dag(project);
   ASSERT_NE(dag, nullptr);
 
   EXPECT_EQ(decoder_type_from_dag(*dag, sink_id), "ntsc2d")
       << "NTSC project with no stored decoder_type should default to 'ntsc2d'";
-}
-
-TEST(ProjectToDagFormatDefaultsTest,
-     Pal_ProjectGivesRawVideoSinkPalDecodeDefault) {
-  auto project = orc::project_io::create_empty_project(
-      "pal-raw-defaults", orc::VideoSystem::PAL, orc::SourceType::Composite);
-
-  const auto sink_id =
-      orc::project_io::add_node(project, "raw_video_sink", 0.0, 0.0);
-
-  const auto dag = orc::project_to_dag(project);
-  ASSERT_NE(dag, nullptr);
-
-  EXPECT_EQ(decoder_type_from_dag(*dag, sink_id), "pal2d")
-      << "PAL project with no stored decoder_type should default to 'pal2d' "
-         "for raw_video_sink";
 }
 
 TEST(ProjectToDagFormatDefaultsTest, Stored_DecoderTypeOverridesFormatDefault) {
@@ -253,7 +237,7 @@ TEST(ProjectToDagFormatDefaultsTest, Stored_DecoderTypeOverridesFormatDefault) {
       "pal-explicit", orc::VideoSystem::PAL, orc::SourceType::Composite);
 
   const auto sink_id =
-      orc::project_io::add_node(project, "ffmpeg_video_sink", 0.0, 0.0);
+      orc::project_io::add_node(project, "video_sink", 0.0, 0.0);
 
   std::map<std::string, orc::ParameterValue> stored;
   stored["decoder_type"] = std::string("mono");

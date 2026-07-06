@@ -26,12 +26,12 @@
 
 // Abstract base class for chroma decoders.
 //
-// ChromaSinkStage creates decoder instances and calls:
+// VideoSinkStage creates decoder instances and calls:
 // 1. configure() with video parameters
 // 2. getLookBehind()/getLookAhead() to determine field context needed
 // 3. decodeFrames() to decode fields into component frames
 //
-// For multi-threading, ChromaSinkStage creates multiple decoder instances
+// For multi-threading, VideoSinkStage creates multiple decoder instances
 // (one per worker thread), each operating independently.
 class Decoder {
  public:

@@ -1,7 +1,7 @@
 /*
- * File:        chroma_sink_stage_safety_test.cpp
+ * File:        video_sink_stage_safety_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit tests for chroma sink invalid metadata hardening
+ * Purpose:     Unit tests for video sink invalid metadata hardening
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -10,8 +10,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "../../../../orc/plugins/stages/sinks/common/ffmpeg_video_sink_stage.h"
-#include "../../../../orc/plugins/stages/sinks/common/raw_video_sink_stage.h"
+#include "../../../../orc/plugins/stages/sinks/common/video_sink_stage.h"
 #include "../../include/observation_context_interface_mock.h"
 #include "../../include/video_frame_representation_artifact_mock.h"
 
@@ -39,8 +38,8 @@ orc::SourceParameters make_too_narrow_pal_params() {
 }
 }  // namespace
 
-TEST(ChromaSinkStageSafetyTest, RawSinkTrigger_RejectsInvalidNtscGeometry) {
-  orc::RawVideoSinkStage stage;
+TEST(VideoSinkStageSafetyTest, RawModeTrigger_RejectsInvalidNtscGeometry) {
+  orc::VideoSinkStage stage;
   MockObservationContext observation_context;
   auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
@@ -51,7 +50,8 @@ TEST(ChromaSinkStageSafetyTest, RawSinkTrigger_RejectsInvalidNtscGeometry) {
       stage.trigger({vfr},
                     {{"output_path", std::string("ignored.y4m")},
                      {"decoder_type", std::string("ntsc2d")},
-                     {"output_format", std::string("y4m")}},
+                     {"output_mode", std::string("raw")},
+                     {"raw_format", std::string("y4m")}},
                     observation_context);
 
   EXPECT_FALSE(result);
@@ -60,8 +60,8 @@ TEST(ChromaSinkStageSafetyTest, RawSinkTrigger_RejectsInvalidNtscGeometry) {
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
-TEST(ChromaSinkStageSafetyTest, FfmpegSinkTrigger_RejectsInvalidPalGeometry) {
-  orc::FFmpegVideoSinkStage stage;
+TEST(VideoSinkStageSafetyTest, FfmpegModeTrigger_RejectsInvalidPalGeometry) {
+  orc::VideoSinkStage stage;
   MockObservationContext observation_context;
   auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
@@ -72,7 +72,8 @@ TEST(ChromaSinkStageSafetyTest, FfmpegSinkTrigger_RejectsInvalidPalGeometry) {
       stage.trigger({vfr},
                     {{"output_path", std::string("ignored.mp4")},
                      {"decoder_type", std::string("pal2d")},
-                     {"output_format", std::string("mp4-h264")}},
+                     {"output_mode", std::string("ffmpeg")},
+                     {"ffmpeg_format", std::string("mp4-h264")}},
                     observation_context);
 
   EXPECT_FALSE(result);

@@ -1,22 +1,23 @@
 /*
- * File:        chroma_sink_stage.h
+ * File:        video_sink_stage.h
  * Module:      orc-core
- * Purpose:     Chroma decoder sink stage
+ * Purpose:     Video sink stage (raw or FFmpeg-encoded output)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#ifndef ORC_CORE_CHROMA_SINK_STAGE_H
-#define ORC_CORE_CHROMA_SINK_STAGE_H
+#ifndef ORC_CORE_VIDEO_SINK_STAGE_H
+#define ORC_CORE_VIDEO_SINK_STAGE_H
 
 #if defined(ORC_GUI_BUILD)
 #error \
-    "GUI code cannot include core/stages/chroma_sink/chroma_sink_stage.h. Use VectorscopePresenter or RenderPresenter instead."
+    "GUI code cannot include sinks/common/video_sink_stage.h. Use VectorscopePresenter or RenderPresenter instead."
 #endif
 
 #include <orc/plugin/orc_stage_preview.h>
 #include <orc/plugin/orc_stage_runtime.h>
+#include <orc/plugin/orc_stage_tooling.h>
 #include <orc/stage/frame_id.h>
 #include <orc/stage/node_type.h>
 #include <orc/stage/orc_rendering.h>  // For PreviewImage definition
@@ -26,8 +27,10 @@
 
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -39,24 +42,22 @@ class MonoDecoder;
 class PalColour;
 class Comb;
 
-#include <memory>
-#include <string>
-#include <vector>
-
 namespace orc {
 
 /**
- * @brief Chroma Decoder Sink Stage
+ * @brief Video Sink Stage
  *
- * Decodes composite PAL or NTSC video into component RGB or YUV output.
- * This is a SINK stage - it has inputs but no outputs.
+ * Decodes composite PAL or NTSC video into component output and writes it to
+ * disk. This is a SINK stage - it has inputs but no outputs.
  *
  * When triggered, it reads all fields from its input and decodes them using
- * the selected chroma decoder, writing the result to an output file.
+ * the selected chroma decoder, writing the result to an output file. The
+ * output_mode parameter selects between two output paths:
  *
- * Optionally, can embed analogue audio into the output file (MP4/MKV formats
- * only) if the input contains PCM audio data (requires pcm_path set in source
- * stage).
+ * - "raw": Uncompressed raw file output (rgb, yuv, y4m via raw_format)
+ * - "ffmpeg": Encoded container output (mp4-h264, mkv-ffv1, ... via
+ *   ffmpeg_format) with optional embedded audio, closed captions, and chapter
+ *   metadata
  *
  * Supported Decoders:
  * - PAL: pal2d, transform2d, transform3d
@@ -66,25 +67,34 @@ namespace orc {
  * This sink supports preview - it decodes fields on-demand for GUI
  * visualization.
  *
+ * The FFmpeg Preset Config stage tool configures FFmpeg output; applying a
+ * preset switches output_mode to "ffmpeg".
+ *
  * Parameters:
  * - output_path: Output file path for video
  * - decoder_type: Which decoder to use (pal2d, ntsc2d, etc.)
- * - output_format: Output format (rgb, yuv, y4m, mp4-h264, mkv-ffv1)
+ * - output_mode: "raw" (uncompressed file) or "ffmpeg" (encoded container)
+ * - raw_format: Raw output format (rgb, yuv, y4m) when output_mode is "raw"
+ * - ffmpeg_format: Container/codec (mp4-h264, mkv-ffv1, ...) when output_mode
+ *   is "ffmpeg"
  * - chroma_gain: Chroma gain factor (0.0-10.0, default 1.0)
  * - chroma_phase: Chroma phase rotation in degrees (-180 to 180, default 0)
- * - start_frame: Optional start frame number
- * - length: Optional number of frames to process
- * - reverse_fields: Reverse field order (default: false)
+ * - encoder_preset/encoder_crf/encoder_bitrate/hardware_encoder/
+ *   prores_profile/use_lossless_mode/apply_deinterlace: FFmpeg encoder options
  * - embed_audio: Embed analogue audio in output (MP4/MKV only, default: false)
+ * - embed_closed_captions: Embed closed captions as mov_text (MP4/MOV only)
+ * - embed_chapter_metadata: Write chapter markers from VBI data (MKV/MP4/MOV)
  */
-class ChromaSinkStage : public DAGStage,
-                        public ParameterizedStage,
-                        public TriggerableStage,
-                        public IStagePreviewCapability,
-                        public IColourPreviewProvider {
+class VideoSinkStage : public DAGStage,
+                       public ParameterizedStage,
+                       public TriggerableStage,
+                       public IStagePreviewCapability,
+                       public IColourPreviewProvider,
+                       public StageToolProvider {
  public:
-  ChromaSinkStage();
-  ~ChromaSinkStage()
+  ORC_STAGE_INSTRUCTIONS_MD
+  VideoSinkStage();
+  ~VideoSinkStage()
       override;  // Need custom destructor for unique_ptr with incomplete types
 
   // DAGStage interface
@@ -107,7 +117,9 @@ class ChromaSinkStage : public DAGStage,
   bool set_parameters(
       const std::map<std::string, ParameterValue>& params) override;
 
-  // TriggerableStage interface
+  // TriggerableStage interface. Collects closed caption and VBI chapter
+  // observations first when producing FFmpeg output, then decodes and writes
+  // the output file.
   bool trigger(const std::vector<ArtifactPtr>& inputs,
                const std::map<std::string, ParameterValue>& parameters,
                IObservationContext& observation_context) override;
@@ -130,6 +142,14 @@ class ChromaSinkStage : public DAGStage,
   // IColourPreviewProvider interface
   std::optional<ColourFrameCarrier> get_colour_preview_carrier(
       uint64_t frame_index, PreviewNavigationHint hint) const override;
+
+  // StageToolProvider interface
+  std::vector<StageToolDescriptor> get_stage_tools() const override {
+    return {StageToolDescriptor{"ffmpeg_preset_config", "FFmpeg Preset Config",
+                                "Open FFmpeg preset helper dialog",
+                                StageToolKind::ConfigDialog, false,
+                                "decode-orc.stage-tools.ffmpeg-preset.v1"}};
+  }
 
  private:
   mutable std::mutex
@@ -192,7 +212,10 @@ class ChromaSinkStage : public DAGStage,
   // Current parameters
   std::string output_path_;
   std::string decoder_type_;
-  std::string output_format_;
+  std::string output_mode_;    // "raw" or "ffmpeg"
+  std::string raw_format_;     // rgb, yuv, y4m
+  std::string ffmpeg_format_;  // mp4-h264, mkv-ffv1, ...
+  std::string output_format_;  // Effective format derived from the above
   double chroma_gain_;
   double chroma_phase_;
   int threads_;
@@ -224,12 +247,16 @@ class ChromaSinkStage : public DAGStage,
   // Status tracking
   std::string trigger_status_;
   std::atomic<bool> trigger_in_progress_{false};
-
- protected:
   std::atomic<bool> cancel_requested_{false};
   TriggerProgressCallback progress_callback_;
 
- private:
+  // Decode the input and write the output file. Called by trigger() after
+  // any observation collection has completed.
+  bool run_export_trigger(
+      const std::vector<ArtifactPtr>& inputs,
+      const std::map<std::string, ParameterValue>& parameters,
+      IObservationContext& observation_context);
+
   std::unique_ptr<MonoDecoder> create_yc_mono_decoder(
       const orc::SourceParameters& videoParams) const;
 
@@ -270,4 +297,4 @@ class ChromaSinkStage : public DAGStage,
 
 }  // namespace orc
 
-#endif  // ORC_CORE_CHROMA_SINK_STAGE_H
+#endif  // ORC_CORE_VIDEO_SINK_STAGE_H

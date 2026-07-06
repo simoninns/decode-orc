@@ -170,8 +170,7 @@ TEST(StageRegistryContractTest, Migrated_StagesLoadFromRuntimePlugins) {
   EXPECT_TRUE(loaded_stage_names.count("stacker") > 0);
   EXPECT_TRUE(loaded_stage_names.count("AudioSink") > 0);
   EXPECT_TRUE(loaded_stage_names.count("CCSink") > 0);
-  EXPECT_TRUE(loaded_stage_names.count("raw_video_sink") > 0);
-  EXPECT_TRUE(loaded_stage_names.count("ffmpeg_video_sink") > 0);
+  EXPECT_TRUE(loaded_stage_names.count("video_sink") > 0);
   EXPECT_TRUE(loaded_stage_names.count("daphne_vbi_sink") > 0);
   EXPECT_TRUE(loaded_stage_names.count("ld_sink") > 0);
   EXPECT_TRUE(loaded_stage_names.count("CVBSSink") > 0);

@@ -1,18 +1,20 @@
 /*
- * File:        chroma_sink_stage.cpp
+ * File:        video_sink_stage.cpp
  * Module:      orc-core
- * Purpose:     Chroma decoder sink stage
+ * Purpose:     Video sink stage (raw or FFmpeg-encoded output)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "chroma_sink_stage.h"
+#include "video_sink_stage.h"
 
 #include <orc/stage/colour_preview_conversion.h>
 #include <orc/stage/cvbs_signal_constants.h>
 #include <orc/stage/frame_line_util.h>
 #include <orc/stage/logging.h>
+#include <orc/stage/observers/biphase_observer.h>
+#include <orc/stage/observers/closed_caption_observer.h>
 #include <orc/stage/preview_helpers.h>
 
 #include "decoders/comb.h"
@@ -87,16 +89,24 @@ bool apply_decoder_safe_video_parameters(
   return true;
 }
 
+bool is_raw_output_format(const std::string& format) {
+  return format == "rgb" || format == "yuv" || format == "y4m";
+}
+
+bool is_supported_output_format(const std::string& format) {
+  const auto formats = orc::OutputBackendFactory::getSupportedFormats();
+  return std::find(formats.begin(), formats.end(), format) != formats.end();
+}
+
 }  // namespace
 
-// NOTE: ChromaSinkStage is no longer registered as a stage.
-// It serves as a base class for RawVideoSinkStage and FFmpegVideoSinkStage.
-// Those are the stages users should use.
-
-ChromaSinkStage::ChromaSinkStage()
+VideoSinkStage::VideoSinkStage()
     : output_path_(""),
       decoder_type_("ntsc2d"),
-      output_format_("rgb"),
+      output_mode_("ffmpeg"),
+      raw_format_("rgb"),
+      ffmpeg_format_("mp4-h264"),
+      output_format_("mp4-h264"),
       chroma_gain_(1.0),
       chroma_phase_(0.0),
       threads_(0)  // 0 means auto-detect
@@ -123,9 +133,9 @@ ChromaSinkStage::ChromaSinkStage()
   set_configuration_status(orc::ConfigurationStatus::Yellow);
 }
 
-ChromaSinkStage::~ChromaSinkStage() {}
+VideoSinkStage::~VideoSinkStage() {}
 
-std::unique_ptr<MonoDecoder> ChromaSinkStage::create_yc_mono_decoder(
+std::unique_ptr<MonoDecoder> VideoSinkStage::create_yc_mono_decoder(
     const orc::SourceParameters& videoParams) const {
   MonoDecoder::MonoConfiguration config;
   config.yNRLevel = luma_nr_;
@@ -134,14 +144,14 @@ std::unique_ptr<MonoDecoder> ChromaSinkStage::create_yc_mono_decoder(
   return std::make_unique<MonoDecoder>(config);
 }
 
-NodeTypeInfo ChromaSinkStage::get_node_type_info() const {
-  // This should never be called since ChromaSinkStage is not registered.
-  // It's kept for compatibility as a base class.
+NodeTypeInfo VideoSinkStage::get_node_type_info() const {
   return NodeTypeInfo{
       NodeType::SINK,
-      "chroma_sink_base",
-      "Chroma Sink Base Class",
-      "Internal base class - use Raw Video Sink or FFmpeg Video Sink instead.",
+      "video_sink",
+      "Video Sink",
+      "Decodes composite video to a file. Output mode selects raw "
+      "(uncompressed RGB/YUV/Y4M) or FFmpeg (MP4/MKV/MOV/MXF with optional "
+      "audio and subtitles). Trigger to export.",
       1,  // min_inputs
       1,  // max_inputs
       0,  // min_outputs
@@ -151,7 +161,7 @@ NodeTypeInfo ChromaSinkStage::get_node_type_info() const {
       "Sink (Core)"};
 }
 
-std::vector<ArtifactPtr> ChromaSinkStage::execute(
+std::vector<ArtifactPtr> VideoSinkStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context [[maybe_unused]]) {
@@ -163,7 +173,7 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
     set_parameters(parameters);
   }
 
-  // ChromaSinkStage is primarily a video output sink and does not extract
+  // VideoSinkStage is primarily a video output sink and does not extract
   // observations. Observations are collected by the LD sink or dedicated
   // analysis stages. Cache input for preview rendering (thread-safe)
   if (!inputs.empty()) {
@@ -176,12 +186,12 @@ std::vector<ArtifactPtr> ChromaSinkStage::execute(
   // Sink stages don't produce outputs during normal execution
   // They are triggered manually to write data
   ORC_LOG_DEBUG(
-      "ChromaSink execute called on instance {} (cached input for preview)",
+      "VideoSink execute called on instance {} (cached input for preview)",
       static_cast<void*>(this));
   return {};  // No outputs
 }
 
-std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
+std::vector<ParameterDescriptor> VideoSinkStage::get_parameter_descriptors(
     VideoSystem project_format, SourceType source_type) const {
   // Determine available decoder types based on project video format
   std::vector<std::string> decoder_options;
@@ -211,11 +221,24 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
         "back to pal2d.";
   }
 
+  // FFmpeg (encoded) formats are the supported formats minus the raw ones.
+  std::vector<std::string> ffmpeg_formats;
+  for (const auto& fmt : OutputBackendFactory::getSupportedFormats()) {
+    if (!is_raw_output_format(fmt)) {
+      ffmpeg_formats.push_back(fmt);
+    }
+  }
+  // If FFmpeg is not compiled in, keep a placeholder so the UI stays usable.
+  if (ffmpeg_formats.empty()) {
+    ffmpeg_formats.push_back("mp4-h264");
+  }
+
   std::vector<ParameterDescriptor> params = {
       ParameterDescriptor{
           "output_path", "Output Path",
-          "Path to output file (RGB, YUV, or Y4M format based on "
-          "output_format)",
+          "Path to output file. Match the extension to the selected output "
+          "mode and format (e.g. .rgb/.yuv/.y4m for raw, .mp4/.mkv/.mov/.mxf "
+          "for FFmpeg output).",
           ParameterType::FILE_PATH,
           ParameterConstraints{std::nullopt,
                                std::nullopt,
@@ -223,7 +246,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
                                {},
                                false,
                                std::nullopt},
-          ".rgb|.yuv|.y4m|.mp4|.mkv"  // file_extension_hint - multiple options
+          ".mp4|.mkv|.mov|.mxf|.rgb|.yuv|.y4m"  // file_extension_hint
       },
       ParameterDescriptor{
           "decoder_type",
@@ -232,19 +255,64 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
           ParameterType::STRING,
           {{}, {}, decoder_default, decoder_options, false, std::nullopt}},
       ParameterDescriptor{
-          "output_format",
-          "Output Format",
-          "Output format:\n"
-          "  Raw: rgb (RGB48), yuv (YUV444P16), y4m (YUV444P16 with Y4M "
-          "headers)\n"
-          "  Encoded: mp4-h264, mkv-ffv1 (requires FFmpeg libraries)",
+          "output_mode",
+          "Output Mode",
+          "Select how the decoded video is written:\n"
+          "  ffmpeg - Encoded output via FFmpeg (MP4/MKV/MOV/MXF containers, "
+          "optional audio/captions/chapters)\n"
+          "  raw    - Uncompressed raw file output (RGB48, YUV444P16, Y4M)",
           ParameterType::STRING,
           {{},
            {},
-           std::string("rgb"),
-           OutputBackendFactory::getSupportedFormats(),
+           std::string("ffmpeg"),
+           {"ffmpeg", "raw"},
            false,
            std::nullopt}},
+      ParameterDescriptor{"raw_format",
+                          "Raw Format",
+                          "Raw output format:\n"
+                          "  rgb  - RGB48 (16-bit per channel, planar)\n"
+                          "  yuv  - YUV444P16 (16-bit per channel, planar)\n"
+                          "  y4m  - YUV444P16 with Y4M headers",
+                          ParameterType::STRING,
+                          {{},
+                           {},
+                           std::string("rgb"),
+                           {"rgb", "yuv", "y4m"},
+                           false,
+                           ParameterDependency{"output_mode", {"raw"}}}},
+      ParameterDescriptor{
+          "ffmpeg_format",
+          "FFmpeg Format",
+          "Output container and codec combination:\n"
+          "Lossless/Archive:\n"
+          "  mkv-ffv1 - FFV1 lossless codec in MKV container\n"
+          "Professional:\n"
+          "  mov-prores - ProRes codec (profile set via ProRes Profile "
+          "parameter)\n"
+          "Uncompressed:\n"
+          "  mov-v210 - 10-bit 4:2:2 uncompressed\n"
+          "  mov-v410 - 10-bit 4:4:4 uncompressed\n"
+          "Broadcast:\n"
+          "  mxf-mpeg2video - D10 (Sony IMX/XDCAM)\n"
+          "H.264 (universal compatibility):\n"
+          "  mp4-h264 - H.264 in MP4 container\n"
+          "  mov-h264 - H.264 in MOV container\n"
+          "H.265/HEVC (better compression):\n"
+          "  mp4-hevc - H.265/HEVC in MP4 container\n"
+          "  mov-hevc - H.265/HEVC in MOV container\n"
+          "AV1 (modern, efficient):\n"
+          "  mp4-av1 - AV1 codec in MP4 container\n"
+          "\n"
+          "Note: Hardware acceleration and lossless mode are set via separate "
+          "parameters",
+          ParameterType::STRING,
+          {{},
+           {},
+           std::string("mp4-h264"),
+           ffmpeg_formats,
+           false,
+           ParameterDependency{"output_mode", {"ffmpeg"}}}},
       ParameterDescriptor{"chroma_gain",
                           "Chroma Gain",
                           "Gain factor applied to chroma components (color "
@@ -286,7 +354,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            std::string("medium"),
            {"fast", "medium", "slow", "veryslow"},
            false,
-           ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}},
+           ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
       ParameterDescriptor{
           "encoder_crf",
           "Encoder CRF",
@@ -298,7 +366,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            18,
            {},
            false,
-           ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}},
+           ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
       ParameterDescriptor{
           "encoder_bitrate",
           "Encoder Bitrate",
@@ -310,7 +378,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            0,
            {},
            false,
-           ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}},
+           ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
       ParameterDescriptor{
           "hardware_encoder",
           "Hardware Encoder",
@@ -323,7 +391,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            {"none", "vaapi", "nvenc", "qsv", "amf", "videotoolbox"},
            false,
            ParameterDependency{
-               "output_format",
+               "ffmpeg_format",
                {"mp4-h264", "mp4-hevc", "mov-h264", "mov-hevc"}}}},
       ParameterDescriptor{
           "prores_profile",
@@ -336,7 +404,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            std::string("hq"),
            {"proxy", "lt", "standard", "hq", "4444", "4444xq"},
            false,
-           ParameterDependency{"output_format", {"mov-prores"}}}},
+           ParameterDependency{"ffmpeg_format", {"mov-prores"}}}},
       ParameterDescriptor{
           "use_lossless_mode",
           "Use Lossless Mode",
@@ -349,7 +417,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            {},
            false,
            ParameterDependency{
-               "output_format",
+               "ffmpeg_format",
                {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}},
       ParameterDescriptor{
           "apply_deinterlace",
@@ -362,7 +430,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            {},
            false,
            ParameterDependency{
-               "output_format",
+               "ffmpeg_format",
                {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}},
       ParameterDescriptor{
           "embed_audio",
@@ -375,7 +443,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            false,
            {},
            false,
-           ParameterDependency{"output_format", {"mp4-h264", "mkv-ffv1"}}}},
+           ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
       ParameterDescriptor{
           "embed_closed_captions",
           "Embed Closed Captions",
@@ -388,7 +456,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            {},
            false,
            ParameterDependency{
-               "output_format",
+               "ffmpeg_format",
                {"mp4-h264", "mp4-hevc", "mp4-av1", "mov-h264", "mov-hevc"}}}},
       ParameterDescriptor{
           "embed_chapter_metadata",
@@ -402,7 +470,7 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
            {},
            false,
            ParameterDependency{
-               "output_format",
+               "ffmpeg_format",
                {"mkv-ffv1", "mov-prores", "mov-v210", "mov-v410", "mp4-h264",
                 "mov-h264", "mp4-hevc", "mov-hevc", "mp4-av1"}}}}};
 
@@ -523,11 +591,13 @@ std::vector<ParameterDescriptor> ChromaSinkStage::get_parameter_descriptors(
   return params;
 }
 
-std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const {
+std::map<std::string, ParameterValue> VideoSinkStage::get_parameters() const {
   std::map<std::string, ParameterValue> params;
   params["output_path"] = output_path_;
   params["decoder_type"] = decoder_type_;
-  params["output_format"] = output_format_;
+  params["output_mode"] = output_mode_;
+  params["raw_format"] = raw_format_;
+  params["ffmpeg_format"] = ffmpeg_format_;
   params["chroma_gain"] = chroma_gain_;
   params["chroma_phase"] = chroma_phase_;
   params["luma_nr"] = luma_nr_;
@@ -551,9 +621,66 @@ std::map<std::string, ParameterValue> ChromaSinkStage::get_parameters() const {
   return params;
 }
 
-bool ChromaSinkStage::set_parameters(
+bool VideoSinkStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
   bool decoder_config_changed = false;
+
+  // Validate output mode/format selections before applying anything so an
+  // invalid request leaves the stage state untouched.
+  {
+    auto it = params.find("output_mode");
+    if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
+      const auto& mode = std::get<std::string>(it->second);
+      if (mode != "raw" && mode != "ffmpeg") {
+        ORC_LOG_ERROR(
+            "VideoSink: Invalid output mode '{}' - must be raw or ffmpeg",
+            mode);
+        return false;
+      }
+#ifndef HAVE_FFMPEG
+      if (mode == "ffmpeg") {
+        ORC_LOG_ERROR(
+            "VideoSink: FFmpeg support not compiled in, cannot use output "
+            "mode 'ffmpeg'");
+        return false;
+      }
+#endif
+    }
+
+    it = params.find("raw_format");
+    if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
+      const auto& format = std::get<std::string>(it->second);
+      if (!is_raw_output_format(format)) {
+        ORC_LOG_ERROR(
+            "VideoSink: Invalid raw format '{}' - must be rgb, yuv, or y4m",
+            format);
+        return false;
+      }
+    }
+
+    it = params.find("ffmpeg_format");
+    if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
+      const auto& format = std::get<std::string>(it->second);
+      if (is_raw_output_format(format) || !is_supported_output_format(format)) {
+        ORC_LOG_ERROR(
+            "VideoSink: FFmpeg format '{}' is not a supported encoded format",
+            format);
+        return false;
+      }
+    }
+
+    // Legacy key from projects saved before the raw and FFmpeg sinks were
+    // merged into the single Video Sink stage.
+    it = params.find("output_format");
+    if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
+      const auto& format = std::get<std::string>(it->second);
+      if (!is_raw_output_format(format) &&
+          !is_supported_output_format(format)) {
+        ORC_LOG_ERROR("VideoSink: Invalid output format '{}'", format);
+        return false;
+      }
+    }
+  }
 
   for (const auto& [key, value] : params) {
     if (key == "output_path") {
@@ -565,26 +692,48 @@ bool ChromaSinkStage::set_parameters(
         auto new_val = std::get<std::string>(value);
         if (new_val == "auto") {
           ORC_LOG_WARN(
-              "ChromaSink: decoder_type 'auto' is no longer supported (loaded "
+              "VideoSink: decoder_type 'auto' is no longer supported (loaded "
               "from old project). Migrating to 'ntsc2d'.");
           new_val = "ntsc2d";
         }
         if (new_val != decoder_type_) {
-          ORC_LOG_DEBUG("ChromaSink: decoder_type changed from '{}' to '{}'",
+          ORC_LOG_DEBUG("VideoSink: decoder_type changed from '{}' to '{}'",
                         decoder_type_, new_val);
           decoder_type_ = new_val;
           decoder_config_changed = true;
         }
       }
-    } else if (key == "output_format") {
+    } else if (key == "output_mode") {
       if (std::holds_alternative<std::string>(value)) {
-        output_format_ = std::get<std::string>(value);
+        output_mode_ = std::get<std::string>(value);
+      }
+    } else if (key == "raw_format") {
+      if (std::holds_alternative<std::string>(value)) {
+        raw_format_ = std::get<std::string>(value);
+      }
+    } else if (key == "ffmpeg_format") {
+      if (std::holds_alternative<std::string>(value)) {
+        ffmpeg_format_ = std::get<std::string>(value);
+      }
+    } else if (key == "output_format") {
+      // Legacy key (pre Video Sink merge): route to the matching mode/format
+      // pair. std::map iteration order means explicit output_mode/raw_format
+      // values (later keys) still override this inference.
+      if (std::holds_alternative<std::string>(value)) {
+        const auto& format = std::get<std::string>(value);
+        if (is_raw_output_format(format)) {
+          output_mode_ = "raw";
+          raw_format_ = format;
+        } else {
+          output_mode_ = "ffmpeg";
+          ffmpeg_format_ = format;
+        }
       }
     } else if (key == "chroma_gain") {
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != chroma_gain_) {
-          ORC_LOG_DEBUG("ChromaSink: chroma_gain changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: chroma_gain changed from {} to {}",
                         chroma_gain_, new_val);
           chroma_gain_ = new_val;
           decoder_config_changed = true;
@@ -594,7 +743,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != chroma_phase_) {
-          ORC_LOG_DEBUG("ChromaSink: chroma_phase changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: chroma_phase changed from {} to {}",
                         chroma_phase_, new_val);
           chroma_phase_ = new_val;
           decoder_config_changed = true;
@@ -604,7 +753,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != luma_nr_) {
-          ORC_LOG_DEBUG("ChromaSink: luma_nr changed from {} to {}", luma_nr_,
+          ORC_LOG_DEBUG("VideoSink: luma_nr changed from {} to {}", luma_nr_,
                         new_val);
           luma_nr_ = new_val;
           decoder_config_changed = true;
@@ -614,7 +763,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != chroma_nr_) {
-          ORC_LOG_DEBUG("ChromaSink: chroma_nr changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: chroma_nr changed from {} to {}",
                         chroma_nr_, new_val);
           chroma_nr_ = new_val;
           decoder_config_changed = true;
@@ -624,7 +773,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<bool>(value)) {
         auto new_val = std::get<bool>(value);
         if (new_val != ntsc_phase_comp_) {
-          ORC_LOG_DEBUG("ChromaSink: ntsc_phase_comp changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: ntsc_phase_comp changed from {} to {}",
                         ntsc_phase_comp_, new_val);
           ntsc_phase_comp_ = new_val;
           decoder_config_changed = true;
@@ -636,7 +785,7 @@ bool ChromaSinkStage::set_parameters(
             (str_val == "true" || str_val == "1" || str_val == "yes");
         if (new_val != ntsc_phase_comp_) {
           ORC_LOG_DEBUG(
-              "ChromaSink: ntsc_phase_comp changed from {} to {} (from string "
+              "VideoSink: ntsc_phase_comp changed from {} to {} (from string "
               "'{}')",
               ntsc_phase_comp_, new_val, str_val);
           ntsc_phase_comp_ = new_val;
@@ -647,7 +796,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != chroma_weight_) {
-          ORC_LOG_DEBUG("ChromaSink: chroma_weight changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: chroma_weight changed from {} to {}",
                         chroma_weight_, new_val);
           chroma_weight_ = new_val;
           decoder_config_changed = true;
@@ -657,7 +806,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != adapt_threshold_) {
-          ORC_LOG_DEBUG("ChromaSink: adapt_threshold changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: adapt_threshold changed from {} to {}",
                         adapt_threshold_, new_val);
           adapt_threshold_ = new_val;
           decoder_config_changed = true;
@@ -667,7 +816,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<bool>(value)) {
         auto new_val = std::get<bool>(value);
         if (new_val != simple_pal_) {
-          ORC_LOG_DEBUG("ChromaSink: simple_pal changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: simple_pal changed from {} to {}",
                         simple_pal_, new_val);
           simple_pal_ = new_val;
           decoder_config_changed = true;
@@ -679,7 +828,7 @@ bool ChromaSinkStage::set_parameters(
             (str_val == "true" || str_val == "1" || str_val == "yes");
         if (new_val != simple_pal_) {
           ORC_LOG_DEBUG(
-              "ChromaSink: simple_pal changed from {} to {} (from string '{}')",
+              "VideoSink: simple_pal changed from {} to {} (from string '{}')",
               simple_pal_, new_val, str_val);
           simple_pal_ = new_val;
           decoder_config_changed = true;
@@ -689,7 +838,7 @@ bool ChromaSinkStage::set_parameters(
       if (std::holds_alternative<double>(value)) {
         auto new_val = std::get<double>(value);
         if (new_val != transform_threshold_) {
-          ORC_LOG_DEBUG("ChromaSink: transform_threshold changed from {} to {}",
+          ORC_LOG_DEBUG("VideoSink: transform_threshold changed from {} to {}",
                         transform_threshold_, new_val);
           transform_threshold_ = new_val;
           decoder_config_changed = true;
@@ -762,10 +911,13 @@ bool ChromaSinkStage::set_parameters(
     }
   }
 
+  // Derive the effective output format from the selected mode.
+  output_format_ = (output_mode_ == "raw") ? raw_format_ : ffmpeg_format_;
+
   // Log if decoder configuration was changed
   if (decoder_config_changed) {
     ORC_LOG_DEBUG(
-        "ChromaSink: Decoder configuration changed - cached decoder will be "
+        "VideoSink: Decoder configuration changed - cached decoder will be "
         "recreated on next preview");
   }
 
@@ -775,14 +927,148 @@ bool ChromaSinkStage::set_parameters(
   return true;
 }
 
-bool ChromaSinkStage::trigger(
+bool VideoSinkStage::trigger(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
-    IObservationContext& observation_context [[maybe_unused]]) {
-  // ChromaSinkStage is a video output sink and does not require or populate
+    IObservationContext& observation_context) {
+  // Reset cancel flag at the start of each trigger so a previous cancellation
+  // (e.g. during CC collection) doesn't cause subsequent triggers to fail
+  // immediately.
+  cancel_requested_.store(false);
+
+  // Apply parameters up front so the effective output mode reflects this
+  // trigger request (run_export_trigger applies them again, harmless).
+  if (!set_parameters(parameters)) {
+    return false;
+  }
+
+  // Observation collection only applies to FFmpeg output; raw output cannot
+  // embed closed captions or chapter data.
+  const bool ffmpeg_output = (output_mode_ == "ffmpeg");
+
+  // Check if closed caption embedding is enabled in parameters
+  bool embed_cc = false;
+  auto cc_param = parameters.find("embed_closed_captions");
+  if (cc_param != parameters.end()) {
+    if (std::holds_alternative<bool>(cc_param->second)) {
+      embed_cc = std::get<bool>(cc_param->second);
+    } else if (std::holds_alternative<std::string>(cc_param->second)) {
+      std::string val = std::get<std::string>(cc_param->second);
+      embed_cc = (val == "true" || val == "1" || val == "yes");
+    }
+  }
+  embed_cc = embed_cc && ffmpeg_output;
+
+  // If closed caption embedding is enabled, instantiate ClosedCaptionObserver
+  // to populate the observation context before running the export
+  if (embed_cc) {
+    ORC_LOG_DEBUG(
+        "VideoSink: Closed caption embedding enabled, extracting CC "
+        "observations");
+
+    // Extract VideoFrameRepresentation from input
+    if (!inputs.empty()) {
+      auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
+      if (vfr) {
+        // Create and run ClosedCaptionObserver to populate observations
+        auto cc_observer = std::make_shared<ClosedCaptionObserver>();
+
+        auto frame_range = vfr->frame_range();
+        const size_t total_cc_frames = frame_range.count();
+
+        if (progress_callback_) {
+          progress_callback_(0, total_cc_frames,
+                             "Collecting closed caption data...");
+        }
+
+        size_t cc_frames_processed = 0;
+        for (FrameID frame_id = frame_range.first; frame_id <= frame_range.last;
+             ++frame_id) {
+          if (vfr->has_frame(frame_id)) {
+            cc_observer->process_frame(*vfr, frame_id, observation_context);
+          }
+          ++cc_frames_processed;
+          if (progress_callback_) {
+            progress_callback_(cc_frames_processed, total_cc_frames,
+                               "Collecting closed caption data...");
+          }
+          if (cancel_requested_.load()) {
+            ORC_LOG_WARN(
+                "VideoSink: Cancelled during closed caption collection");
+            return false;
+          }
+        }
+
+        ORC_LOG_DEBUG("VideoSink: CC observations extracted for {} frames",
+                      total_cc_frames);
+      }
+    }
+  }
+
+  // If chapter metadata embedding is enabled, run BiphaseObserver to populate
+  // VBI observations (including chapter_number) in the observation context.
+  // The pipeline does not guarantee a BiphaseObserver pass for FFmpeg exports.
+  bool embed_chapters = false;
+  auto ch_param = parameters.find("embed_chapter_metadata");
+  if (ch_param != parameters.end()) {
+    if (std::holds_alternative<bool>(ch_param->second)) {
+      embed_chapters = std::get<bool>(ch_param->second);
+    } else if (std::holds_alternative<std::string>(ch_param->second)) {
+      std::string val = std::get<std::string>(ch_param->second);
+      embed_chapters = (val == "true" || val == "1" || val == "yes");
+    }
+  }
+  embed_chapters = embed_chapters && ffmpeg_output;
+
+  if (embed_chapters) {
+    ORC_LOG_DEBUG(
+        "VideoSink: Chapter metadata enabled, extracting VBI observations");
+
+    if (!inputs.empty()) {
+      auto vfr = std::dynamic_pointer_cast<VideoFrameRepresentation>(inputs[0]);
+      if (vfr) {
+        BiphaseObserver biphase_observer;
+        auto frame_range = vfr->frame_range();
+        const size_t total_frames = frame_range.count();
+
+        if (progress_callback_) {
+          progress_callback_(0, total_frames, "Collecting VBI chapter data...");
+        }
+
+        size_t frames_processed = 0;
+        for (FrameID frame_id = frame_range.first; frame_id <= frame_range.last;
+             ++frame_id) {
+          if (vfr->has_frame(frame_id)) {
+            biphase_observer.process_frame(*vfr, frame_id, observation_context);
+          }
+          ++frames_processed;
+          if (progress_callback_) {
+            progress_callback_(frames_processed, total_frames,
+                               "Collecting VBI chapter data...");
+          }
+          if (cancel_requested_.load()) {
+            ORC_LOG_WARN("VideoSink: Cancelled during VBI chapter collection");
+            return false;
+          }
+        }
+
+        ORC_LOG_DEBUG("VideoSink: VBI observations extracted for {} frames",
+                      total_frames);
+      }
+    }
+  }
+
+  return run_export_trigger(inputs, parameters, observation_context);
+}
+
+bool VideoSinkStage::run_export_trigger(
+    const std::vector<ArtifactPtr>& inputs,
+    const std::map<std::string, ParameterValue>& parameters,
+    IObservationContext& observation_context) {
+  // VideoSinkStage is a video output sink and does not require or populate
   // observations. The LD sink and dedicated analysis stages handle observation
   // extraction.
-  ORC_LOG_DEBUG("ChromaSink: Trigger called - starting decode");
+  ORC_LOG_DEBUG("VideoSink: Trigger called - starting decode");
 
   // Mark trigger as in progress and reset cancel flag
   trigger_in_progress_.store(true);
@@ -793,7 +1079,7 @@ bool ChromaSinkStage::trigger(
 
   // Validate output path is set
   if (output_path_.empty()) {
-    ORC_LOG_ERROR("ChromaSink: No output path specified");
+    ORC_LOG_ERROR("VideoSink: No output path specified");
     trigger_status_ = "Error: No output path specified";
     trigger_in_progress_.store(false);
     return false;
@@ -801,7 +1087,7 @@ bool ChromaSinkStage::trigger(
 
   // 1. Extract VideoFrameRepresentation from input
   if (inputs.empty()) {
-    ORC_LOG_ERROR("ChromaSink: No input provided");
+    ORC_LOG_ERROR("VideoSink: No input provided");
     trigger_status_ = "Error: No input";
     trigger_in_progress_.store(false);
     return false;
@@ -810,7 +1096,7 @@ bool ChromaSinkStage::trigger(
   auto vfr =
       std::dynamic_pointer_cast<orc::VideoFrameRepresentation>(inputs[0]);
   if (!vfr) {
-    ORC_LOG_ERROR("ChromaSink: Input is not a VideoFrameRepresentation");
+    ORC_LOG_ERROR("VideoSink: Input is not a VideoFrameRepresentation");
     trigger_status_ = "Error: Invalid input type";
     trigger_in_progress_.store(false);
     return false;
@@ -819,7 +1105,7 @@ bool ChromaSinkStage::trigger(
   // 2. Get video parameters from VFR
   auto video_params_opt = vfr->get_video_parameters();
   if (!video_params_opt) {
-    ORC_LOG_ERROR("ChromaSink: Input has no video parameters");
+    ORC_LOG_ERROR("VideoSink: Input has no video parameters");
     trigger_status_ = "Error: No video parameters";
     trigger_in_progress_.store(false);
     return false;
@@ -828,7 +1114,7 @@ bool ChromaSinkStage::trigger(
   // 3. Use orc-core SourceParameters directly
   auto videoParams = *video_params_opt;  // Make a copy so we can modify it
 
-  ORC_LOG_DEBUG("ChromaSink: Video parameters from source metadata:");
+  ORC_LOG_DEBUG("VideoSink: Video parameters from source metadata:");
   ORC_LOG_DEBUG("  Horizontal active region: {} to {} ({} samples)",
                 videoParams.active_video_start, videoParams.active_video_end,
                 videoParams.active_video_end - videoParams.active_video_start);
@@ -845,7 +1131,7 @@ bool ChromaSinkStage::trigger(
     writerConfig.paddingAmount = output_padding_;
 
     ORC_LOG_DEBUG(
-        "ChromaSink: BEFORE padding adjustment: first_active_frame_line={}, "
+        "VideoSink: BEFORE padding adjustment: first_active_frame_line={}, "
         "last_active_frame_line={} (paddingAmount={})",
         videoParams.first_active_frame_line, videoParams.last_active_frame_line,
         writerConfig.paddingAmount);
@@ -856,7 +1142,7 @@ bool ChromaSinkStage::trigger(
     // videoParams now has adjusted activeVideoStart/End values
 
     ORC_LOG_DEBUG(
-        "ChromaSink: AFTER padding adjustment: first_active_frame_line={}, "
+        "VideoSink: AFTER padding adjustment: first_active_frame_line={}, "
         "last_active_frame_line={}",
         videoParams.first_active_frame_line,
         videoParams.last_active_frame_line);
@@ -868,7 +1154,7 @@ bool ChromaSinkStage::trigger(
   videoParams.active_area_cropping_applied = true;
 
   ORC_LOG_DEBUG(
-      "ChromaSink: Using active area from video parameters: {}x{}",
+      "VideoSink: Using active area from video parameters: {}x{}",
       videoParams.active_video_end - videoParams.active_video_start,
       videoParams.last_active_frame_line - videoParams.first_active_frame_line);
 
@@ -896,7 +1182,7 @@ bool ChromaSinkStage::trigger(
   const auto decoder_profile =
       decoder_video_profile_for_type(decoder_type_, videoParams.system);
   if (!apply_decoder_safe_video_parameters(videoParams, decoder_profile,
-                                           "ChromaSink trigger",
+                                           "VideoSink trigger",
                                            &parameter_error)) {
     trigger_status_ = "Error: Invalid video parameters - " + parameter_error;
     trigger_in_progress_.store(false);
@@ -909,7 +1195,7 @@ bool ChromaSinkStage::trigger(
     config.filterChroma = false;  // Mono decoder doesn't need comb filtering
     config.videoParameters = videoParams;
     monoDecoder = std::make_unique<MonoDecoder>(config);
-    ORC_LOG_DEBUG("ChromaSink: Using decoder: mono");
+    ORC_LOG_DEBUG("VideoSink: Using decoder: mono");
   } else if (usePalDecoder) {
     // Check if we're trying to use Transform PAL filters with YC sources
     bool isTransformFilter =
@@ -917,15 +1203,14 @@ bool ChromaSinkStage::trigger(
 
     if (is_yc_source && isTransformFilter) {
       ORC_LOG_ERROR(
-          "ChromaSink: Transform PAL filters (transform2d/transform3d) are not "
+          "VideoSink: Transform PAL filters (transform2d/transform3d) are not "
           "compatible with YC sources.");
       ORC_LOG_ERROR(
-          "ChromaSink: YC sources have already-separated Y and C channels and "
+          "VideoSink: YC sources have already-separated Y and C channels and "
           "do not need frequency-domain filtering.");
+      ORC_LOG_ERROR("VideoSink: Please use 'pal2d' or 'mono' decoder instead.");
       ORC_LOG_ERROR(
-          "ChromaSink: Please use 'pal2d' or 'mono' decoder instead.");
-      ORC_LOG_ERROR(
-          "ChromaSink: Falling back to 'pal2d' decoder for YC source.");
+          "VideoSink: Falling back to 'pal2d' decoder for YC source.");
       // Override to pal2d for YC sources
       decoder_type_ = "pal2d";
     }
@@ -957,7 +1242,7 @@ bool ChromaSinkStage::trigger(
 
     palDecoder = std::make_unique<PalColour>();
     palDecoder->updateConfiguration(videoParams, config);
-    ORC_LOG_DEBUG("ChromaSink: Using decoder: {} (PAL)", filterName);
+    ORC_LOG_DEBUG("VideoSink: Using decoder: {} (PAL)", filterName);
   } else if (useNtscDecoder) {
     Comb::Configuration config;
     config.chromaGain = chroma_gain_;
@@ -991,9 +1276,9 @@ bool ChromaSinkStage::trigger(
 
     ntscDecoder = std::make_unique<Comb>();
     ntscDecoder->updateConfiguration(videoParams, config);
-    ORC_LOG_DEBUG("ChromaSink: Using decoder: {} (NTSC)", decoderName);
+    ORC_LOG_DEBUG("VideoSink: Using decoder: {} (NTSC)", decoderName);
   } else {
-    ORC_LOG_ERROR("ChromaSink: Unknown decoder type: {}", decoder_type_);
+    ORC_LOG_ERROR("VideoSink: Unknown decoder type: {}", decoder_type_);
     trigger_status_ = "Error: Unknown decoder type";
     trigger_in_progress_.store(false);
     return false;
@@ -1002,7 +1287,7 @@ bool ChromaSinkStage::trigger(
   if (is_yc_source && !useMonoDecoder) {
     ycMonoDecoder = create_yc_mono_decoder(videoParams);
     ORC_LOG_DEBUG(
-        "ChromaSink: YC source dual-decode enabled (mono Y route + colour UV "
+        "VideoSink: YC source dual-decode enabled (mono Y route + colour UV "
         "route)");
   }
 
@@ -1017,7 +1302,7 @@ bool ChromaSinkStage::trigger(
   size_t end_frame = frame_range.last + 1;  // exclusive
 
   ORC_LOG_DEBUG(
-      "ChromaSink: Processing frames {} to {} (of {} in source, frame range "
+      "VideoSink: Processing frames {} to {} (of {} in source, frame range "
       "{}-{})",
       start_frame + 1, end_frame, total_source_frames, frame_range.first,
       frame_range.last);
@@ -1063,11 +1348,11 @@ bool ChromaSinkStage::trigger(
   int32_t lookAheadFrames = colourLookAheadFrames;
 
   ORC_LOG_DEBUG(
-      "ChromaSink: Decoder requires lookBehind={} frames, lookAhead={} frames",
+      "VideoSink: Decoder requires lookBehind={} frames, lookAhead={} frames",
       lookBehindFrames, lookAheadFrames);
   if (use_yc_dual_decode) {
     ORC_LOG_DEBUG(
-        "ChromaSink: YC dual decode lookaround is colour-route driven; Y-route "
+        "VideoSink: YC dual decode lookaround is colour-route driven; Y-route "
         "reuses the same extended range for alignment");
   }
 
@@ -1090,7 +1375,7 @@ bool ChromaSinkStage::trigger(
       static_cast<size_t>(extended_end_frame - extended_start_frame));
 
   ORC_LOG_DEBUG(
-      "ChromaSink: Preparing {} frame descriptors (frames {}-{}) for decode",
+      "VideoSink: Preparing {} frame descriptors (frames {}-{}) for decode",
       extended_end_frame - extended_start_frame, extended_start_frame + 1,
       extended_end_frame);
 
@@ -1102,7 +1387,7 @@ bool ChromaSinkStage::trigger(
 
     orc::FrameID fid = useBlankFrame ? 0 : static_cast<orc::FrameID>(frame);
     if (!useBlankFrame && !vfr->has_frame(fid)) {
-      ORC_LOG_WARN("ChromaSink: Skipping frame {} (not present in VFrameR)",
+      ORC_LOG_WARN("VideoSink: Skipping frame {} (not present in VFrameR)",
                    frame + 1);
       useBlankFrame = true;
     }
@@ -1127,13 +1412,13 @@ bool ChromaSinkStage::trigger(
   int32_t numOutputFrames = static_cast<int32_t>(end_frame - start_frame);
   int32_t numFrames = numOutputFrames;
 
-  ORC_LOG_DEBUG("ChromaSink: Will output {} frames from frame range {}-{}",
+  ORC_LOG_DEBUG("VideoSink: Will output {} frames from frame range {}-{}",
                 numOutputFrames, frame_range.first, frame_range.last);
 
   // Initialize output backend BEFORE decoding to enable streaming writes
   auto backend = OutputBackendFactory::create(output_format_);
   if (!backend) {
-    ORC_LOG_ERROR("ChromaSink: Unknown or unsupported output format: {}",
+    ORC_LOG_ERROR("VideoSink: Unknown or unsupported output format: {}",
                   output_format_);
     trigger_status_ = "Error: Unknown format '" + output_format_ + "'";
     trigger_in_progress_.store(false);
@@ -1170,7 +1455,7 @@ bool ChromaSinkStage::trigger(
     if (embed_audio_ && vfr && vfr->has_audio()) {
       backendConfig.vfr = vfr.get();
       ORC_LOG_DEBUG(
-          "ChromaSink: Audio embedding enabled (frames {} to {} = {} frames, "
+          "VideoSink: Audio embedding enabled (frames {} to {} = {} frames, "
           "{} field-equiv)",
           frame_range.first, frame_range.last, numOutputFrames,
           backendConfig.num_fields);
@@ -1178,21 +1463,21 @@ bool ChromaSinkStage::trigger(
 
     if (embed_closed_captions_) {
       ORC_LOG_DEBUG(
-          "ChromaSink: Closed caption embedding enabled (frames {} to {} = "
+          "VideoSink: Closed caption embedding enabled (frames {} to {} = "
           "{} frames)",
           frame_range.first, frame_range.last, numOutputFrames);
     }
 
     if (embed_chapter_metadata_) {
       ORC_LOG_DEBUG(
-          "ChromaSink: Chapter metadata embedding enabled (frames {} to {} = "
+          "VideoSink: Chapter metadata embedding enabled (frames {} to {} = "
           "{} frames)",
           frame_range.first, frame_range.last, numOutputFrames);
     }
   }
 
   if (!backend->initialize(backendConfig)) {
-    ORC_LOG_ERROR("ChromaSink: Failed to initialize {} output backend",
+    ORC_LOG_ERROR("VideoSink: Failed to initialize {} output backend",
                   output_format_);
     trigger_status_ =
         "Error: Failed to initialize " + output_format_ + " output";
@@ -1200,7 +1485,7 @@ bool ChromaSinkStage::trigger(
     return false;
   }
 
-  ORC_LOG_DEBUG("ChromaSink: Streaming {} frames to {}", numOutputFrames,
+  ORC_LOG_DEBUG("VideoSink: Streaming {} frames to {}", numOutputFrames,
                 backend->getFormatInfo());
 
   // Use vector of optional frames to track which have been written
@@ -1217,7 +1502,7 @@ bool ChromaSinkStage::trigger(
   // Don't use more threads than frames
   numThreads = std::min(numThreads, numFrames);
 
-  ORC_LOG_DEBUG("ChromaSink: Processing {} frames using {} worker threads",
+  ORC_LOG_DEBUG("VideoSink: Processing {} frames using {} worker threads",
                 numFrames, numThreads);
 
   // Start timing for performance measurement
@@ -1545,7 +1830,7 @@ bool ChromaSinkStage::trigger(
                outputFrames[nextFrameToWrite].has_value()) {
           if (!backend->writeFrame(*outputFrames[nextFrameToWrite])) {
             int32_t failedFrame = nextFrameToWrite.load();
-            ORC_LOG_ERROR("ChromaSink: Failed to write frame {}", failedFrame);
+            ORC_LOG_ERROR("VideoSink: Failed to write frame {}", failedFrame);
             abortFlag.store(true);
             break;
           }
@@ -1580,7 +1865,7 @@ bool ChromaSinkStage::trigger(
 
   // Check if cancelled or error
   if (cancel_requested_.load() || abortFlag.load()) {
-    ORC_LOG_WARN("ChromaSink: Decoding cancelled or failed");
+    ORC_LOG_WARN("VideoSink: Decoding cancelled or failed");
     backend->finalize();  // Try to close cleanly
     trigger_status_ =
         cancel_requested_.load() ? "Cancelled by user" : "Error during decode";
@@ -1594,7 +1879,7 @@ bool ChromaSinkStage::trigger(
   }
 
   if (!backend->finalize()) {
-    ORC_LOG_ERROR("ChromaSink: Failed to finalize output");
+    ORC_LOG_ERROR("VideoSink: Failed to finalize output");
     trigger_status_ = "Error: Failed to finalize output file";
     trigger_in_progress_.store(false);
     return false;
@@ -1609,10 +1894,10 @@ bool ChromaSinkStage::trigger(
   int32_t total_fields = numFrames * 2;
   [[maybe_unused]] double fields_per_second = total_fields / decode_seconds;
 
-  ORC_LOG_INFO("ChromaSink: Successfully wrote {} frames to: {}", numFrames,
+  ORC_LOG_INFO("VideoSink: Successfully wrote {} frames to: {}", numFrames,
                output_path_);
   ORC_LOG_DEBUG(
-      "ChromaSink: Performance - {:.2f} seconds, {:.2f} fps, {:.2f} fields/sec",
+      "VideoSink: Performance - {:.2f} seconds, {:.2f} fps, {:.2f} fields/sec",
       decode_seconds, fps, fields_per_second);
 
   trigger_status_ = "Decode complete: " + std::to_string(numFrames) +
@@ -1627,7 +1912,7 @@ bool ChromaSinkStage::trigger(
   return true;
 }
 
-std::string ChromaSinkStage::get_trigger_status() const {
+std::string VideoSinkStage::get_trigger_status() const {
   return trigger_status_;
 }
 
@@ -1636,7 +1921,7 @@ std::string ChromaSinkStage::get_trigger_status() const {
 //   [field1_line0 | field1_line1 | … | field2_line0 | …]
 // For PAL, frame-flat lines 312 and 624 carry 1137 samples (all other lines
 // carry 1135 samples).  EBU Tech. 3280-E §1.3.1.
-bool ChromaSinkStage::appendSourceFields(
+bool VideoSinkStage::appendSourceFields(
     const orc::VideoFrameRepresentation* vfr, orc::FrameID frame_id,
     const orc::SourceParameters& videoParams,
     std::deque<std::vector<int16_t>>& owned_buffers,
@@ -1649,7 +1934,7 @@ bool ChromaSinkStage::appendSourceFields(
   // so the decoder input must view sink-owned copies.
   std::vector<int16_t> composite = vfr->get_frame_copy(frame_id);
   if (composite.empty()) {
-    ORC_LOG_WARN("ChromaSink: Frame {} has no data in VFrameR", frame_id);
+    ORC_LOG_WARN("VideoSink: Frame {} has no data in VFrameR", frame_id);
     return false;
   }
   const size_t frame_samples = composite.size();
@@ -1681,7 +1966,7 @@ bool ChromaSinkStage::appendSourceFields(
   if (auto desc = vfr->get_frame_descriptor(frame_id)) {
     if (desc->colour_frame_index >= 0) {
       frame_phase_id = static_cast<int32_t>(desc->colour_frame_index);
-      ORC_LOG_TRACE("ChromaSink: Frame {} colour_frame_index={}", frame_id,
+      ORC_LOG_TRACE("VideoSink: Frame {} colour_frame_index={}", frame_id,
                     desc->colour_frame_index);
     }
   }
@@ -1695,7 +1980,7 @@ bool ChromaSinkStage::appendSourceFields(
   return true;
 }
 
-SourceField ChromaSinkStage::buildSourceField(
+SourceField VideoSinkStage::buildSourceField(
     const int16_t* frame_ptr, const int16_t* luma_ptr,
     const int16_t* chroma_ptr, bool is_yc,
     std::optional<int32_t> frame_phase_id, orc::FrameID frame_id,
@@ -1803,7 +2088,7 @@ SourceField ChromaSinkStage::buildSourceField(
   }
 
   ORC_LOG_TRACE(
-      "ChromaSink: Frame {} {} field: line_count={} samples_per_line={} "
+      "VideoSink: Frame {} {} field: line_count={} samples_per_line={} "
       "is_yc={} line_ptrs={}",
       frame_id, is_first_field ? "field1" : "field2", sf.line_count,
       sf.samples_per_line, sf.is_yc, sf.line_ptrs.size());
@@ -1812,7 +2097,7 @@ SourceField ChromaSinkStage::buildSourceField(
 }
 
 // Helper method: Write output frames to file
-bool ChromaSinkStage::writeOutputFile(
+bool VideoSinkStage::writeOutputFile(
     const std::string& output_path, const std::string& format,
     const std::vector<::ComponentFrame>& frames, const void* videoParamsPtr,
     const orc::VideoFrameRepresentation* vfr, uint64_t start_field_index,
@@ -1820,7 +2105,7 @@ bool ChromaSinkStage::writeOutputFile(
   const auto& videoParams =
       *static_cast<const orc::SourceParameters*>(videoParamsPtr);
   if (frames.empty()) {
-    ORC_LOG_ERROR("ChromaSink: No frames to write");
+    ORC_LOG_ERROR("VideoSink: No frames to write");
     error_message = "Error: No frames to write";
     return false;
   }
@@ -1828,10 +2113,10 @@ bool ChromaSinkStage::writeOutputFile(
   // Create appropriate output backend
   auto backend = OutputBackendFactory::create(format);
   if (!backend) {
-    ORC_LOG_ERROR("ChromaSink: Unknown or unsupported output format: {}",
+    ORC_LOG_ERROR("VideoSink: Unknown or unsupported output format: {}",
                   format);
     ORC_LOG_ERROR(
-        "ChromaSink: Available formats: rgb, yuv, y4m, mp4-h264, mp4-h265, "
+        "VideoSink: Available formats: rgb, yuv, y4m, mp4-h264, mp4-h265, "
         "mkv-ffv1");
     error_message = "Error: Unknown format '" + format +
                     "' - use rgb, yuv, y4m, or mp4-h264";
@@ -1857,16 +2142,15 @@ bool ChromaSinkStage::writeOutputFile(
     config.vfr = vfr;
     config.start_field_index = start_field_index;
     config.num_fields = num_fields;
-    ORC_LOG_DEBUG("ChromaSink: Audio embedding enabled for output");
+    ORC_LOG_DEBUG("VideoSink: Audio embedding enabled for output");
   } else if (embed_audio_) {
-    ORC_LOG_WARN(
-        "ChromaSink: Audio embedding requested but no audio available");
+    ORC_LOG_WARN("VideoSink: Audio embedding requested but no audio available");
   }
 
   // Initialize backend
   if (!backend->initialize(config)) {
-    ORC_LOG_ERROR("ChromaSink: Failed to initialize {} output backend", format);
-    ORC_LOG_ERROR("ChromaSink: Check log messages above for details");
+    ORC_LOG_ERROR("VideoSink: Failed to initialize {} output backend", format);
+    ORC_LOG_ERROR("VideoSink: Check log messages above for details");
 
     // Provide helpful error message based on format
     if (format.find("mp4-") == 0 || format.find("mkv-") == 0) {
@@ -1880,13 +2164,13 @@ bool ChromaSinkStage::writeOutputFile(
     return false;
   }
 
-  ORC_LOG_DEBUG("ChromaSink: Writing {} frames as {}", frames.size(),
+  ORC_LOG_DEBUG("VideoSink: Writing {} frames as {}", frames.size(),
                 backend->getFormatInfo());
 
   // Write all frames
   for (const auto& frame : frames) {
     if (!backend->writeFrame(frame)) {
-      ORC_LOG_ERROR("ChromaSink: Failed to write frame");
+      ORC_LOG_ERROR("VideoSink: Failed to write frame");
       backend->finalize();  // Try to close cleanly
       error_message = "Error: Failed to write frame data - check logs";
       return false;
@@ -1895,17 +2179,16 @@ bool ChromaSinkStage::writeOutputFile(
 
   // Finalize output
   if (!backend->finalize()) {
-    ORC_LOG_ERROR("ChromaSink: Failed to finalize output");
+    ORC_LOG_ERROR("VideoSink: Failed to finalize output");
     error_message = "Error: Failed to finalize output file - check logs";
     return false;
   }
 
-  ORC_LOG_DEBUG("ChromaSink: Wrote {} frames to {}", frames.size(),
-                output_path);
+  ORC_LOG_DEBUG("VideoSink: Wrote {} frames to {}", frames.size(), output_path);
   return true;
 }
 
-StagePreviewCapability ChromaSinkStage::get_preview_capability() const {
+StagePreviewCapability VideoSinkStage::get_preview_capability() const {
   StagePreviewCapability capability{};
 
   std::shared_ptr<const orc::VideoFrameRepresentation> local_input;
@@ -1972,10 +2255,10 @@ StagePreviewCapability ChromaSinkStage::get_preview_capability() const {
   return capability;
 }
 
-std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
+std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
     uint64_t index, PreviewNavigationHint hint [[maybe_unused]]) const {
   ORC_LOG_DEBUG(
-      "ChromaSink: get_colour_preview_carrier called on instance {} for frame "
+      "VideoSink: get_colour_preview_carrier called on instance {} for frame "
       "{}, has_cached_input={}",
       static_cast<const void*>(this), index, (cached_input_ != nullptr));
 
@@ -1999,7 +2282,7 @@ std::optional<ColourFrameCarrier> ChromaSinkStage::get_colour_preview_carrier(
   const auto preview_profile =
       decoder_video_profile_for_type(decoder_type_, safeVideoParams.system);
   if (!apply_decoder_safe_video_parameters(safeVideoParams, preview_profile,
-                                           "ChromaSink preview")) {
+                                           "VideoSink preview")) {
     return std::nullopt;
   }
 

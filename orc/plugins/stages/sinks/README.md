@@ -1,34 +1,29 @@
-## Video Sink Stages - Shared Implementation
+## Video Sink Stage - Shared Implementation
 
-This directory groups decode-orc's video sink stages and their shared implementations.
+This directory contains decode-orc's video sink stage and its shared implementation.
 
 ### Architecture
 
-The video sink stages follow a shared implementation pattern:
-
-- **`common/`** — Shared video sink implementations and utilities
-  - `chroma_sink_stage.h/cpp` — Base chroma sink stage implementation
-  - `ffmpeg_video_sink_stage.h/cpp` — FFmpeg-backed video file sink
-  - `raw_video_sink_stage.h/cpp` — Raw binary video file sink
+- **`common/`** — Video sink implementation and utilities
+  - `video_sink_stage.h/cpp` — The Video Sink stage: chroma decode engine plus raw/FFmpeg output
   - `output_backend.h/cpp` — Base output backend interface
   - `ffmpeg_output_backend.h/cpp` — FFmpeg output implementation
   - `raw_output_backend.h/cpp` — Raw binary output implementation
   - `video_parameter_safety.h` — Video parameter validation utilities
   - `decoders/` — Chroma decoder implementations
 
-- **`ffmpeg_video_sink/`** — FFmpeg video sink plugin (thin wrapper)
-  - Loads `FFmpegVideoSinkStage` from `common/`
+- **`video_sink/`** — Video sink plugin (thin wrapper)
+  - Loads `VideoSinkStage` from `common/`
   - Registers the stage with the plugin system
 
-- **`raw_video_sink/`** — Raw video sink plugin (thin wrapper)
-  - Loads `RawVideoSinkStage` from `common/`
-  - Registers the stage with the plugin system
+### Output Modes
 
-### Consumer Stages
+The single **video_sink** stage selects its output path via the `output_mode` parameter:
 
-Both video sink plugins consume the shared implementations:
-- **ffmpeg_video_sink** — Outputs video to FFmpeg-supported formats (MP4, etc.)
-- **raw_video_sink** — Outputs raw binary video data
+- **ffmpeg** — Encoded output to FFmpeg-supported containers (MP4, MKV, MOV, MXF) with optional embedded audio, closed captions, and chapter metadata
+- **raw** — Uncompressed raw binary output (RGB48, YUV444P16, Y4M)
+
+The legacy `raw_video_sink` and `ffmpeg_video_sink` stages were merged into this stage; projects referencing the old stage names are migrated on load.
 
 ### Plugin SDK Boundary
 

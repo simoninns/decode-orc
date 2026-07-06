@@ -109,7 +109,7 @@ TEST_F(RuntimeStageContractsTest, StageCreationFromRegistry_Succeeds) {
 }
 
 TEST_F(RuntimeStageContractsTest, RuntimePluginDiscovery_Succeeds) {
-  auto plugin_path = plugin_library_path("raw-video-sink");
+  auto plugin_path = plugin_library_path("video-sink");
   ASSERT_TRUE(std::filesystem::exists(plugin_path)) << plugin_path.string();
 
   std::vector<std::string> loaded_stage_names;
@@ -134,11 +134,11 @@ TEST_F(RuntimeStageContractsTest, RuntimePluginDiscovery_Succeeds) {
   ASSERT_TRUE(result.plugin.has_value());
   EXPECT_FALSE(loaded_stage_names.empty())
       << "Plugin should register at least one stage";
-  EXPECT_EQ(loaded_stage_names.front(), "raw_video_sink");
+  EXPECT_EQ(loaded_stage_names.front(), "video_sink");
 }
 
 TEST_F(RuntimeStageContractsTest, RuntimePluginMetadata_IsValid) {
-  auto plugin_path = plugin_library_path("raw-video-sink");
+  auto plugin_path = plugin_library_path("video-sink");
   ASSERT_TRUE(std::filesystem::exists(plugin_path));
 
   auto result = loader_.load_plugin(

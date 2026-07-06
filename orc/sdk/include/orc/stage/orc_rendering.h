@@ -79,7 +79,7 @@ struct PreviewRenderResult {
   uint64_t
       output_index;  ///< Which output was rendered (field N, frame N, etc.)
 
-  // Vectorscope data (if rendering from a ChromaSinkStage)
+  // Vectorscope data (if rendering from a VideoSinkStage)
   std::optional<VectorscopeData> vectorscope_data;
 
   bool is_valid() const { return success && image.is_valid(); }

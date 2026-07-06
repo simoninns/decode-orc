@@ -81,14 +81,9 @@ inline const std::vector<PublicStageSpec>& public_stage_specs() {
        }},
       {"mask_line", PublicStageFamily::Transform, true,
        [] { return orc::StageRegistry::instance().create_stage("mask_line"); }},
-      {"ffmpeg_video_sink", PublicStageFamily::Sink, true,
+      {"video_sink", PublicStageFamily::Sink, true,
        [] {
-         return orc::StageRegistry::instance().create_stage(
-             "ffmpeg_video_sink");
-       }},
-      {"raw_video_sink", PublicStageFamily::Sink, true,
-       [] {
-         return orc::StageRegistry::instance().create_stage("raw_video_sink");
+         return orc::StageRegistry::instance().create_stage("video_sink");
        }},
       {"daphne_vbi_sink", PublicStageFamily::Sink, true,
        [] {

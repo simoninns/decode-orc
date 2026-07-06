@@ -19,7 +19,9 @@
 #include <QStringList>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <functional>
 #include <limits>
+#include <set>
 
 #include "logging.h"
 
@@ -862,9 +864,46 @@ void StageParameterDialog::on_validate_and_update() {
 void StageParameterDialog::update_dependencies() {
   // Get current values of all parameters
   std::map<std::string, orc::ParameterValue> current_values;
+  std::map<std::string, const orc::ParameterDescriptor*> descriptors_by_name;
   for (const auto& desc : descriptors_) {
     current_values[desc.name] = get_widget_value(desc.name);
+    descriptors_by_name[desc.name] = &desc;
   }
+
+  // A parameter is active only when its own dependency is met AND the
+  // parameter it depends on is itself active (so e.g. encoder options keyed
+  // on ffmpeg_format deactivate together with ffmpeg_format when
+  // output_mode is "raw"). The visited set guards against dependency cycles.
+  std::function<bool(const orc::ParameterDescriptor&, std::set<std::string>&)>
+      is_active = [&](const orc::ParameterDescriptor& desc,
+                      std::set<std::string>& visited) -> bool {
+    if (!desc.constraints.depends_on.has_value()) {
+      return true;
+    }
+    if (!visited.insert(desc.name).second) {
+      return true;  // Cycle: treat as active rather than hiding everything
+    }
+
+    const auto& dep = *desc.constraints.depends_on;
+    auto it = current_values.find(dep.parameter_name);
+    if (it == current_values.end()) {
+      return false;
+    }
+
+    std::string current_val = orc::parameter_util::value_to_string(it->second);
+    bool satisfied =
+        std::find(dep.required_values.begin(), dep.required_values.end(),
+                  current_val) != dep.required_values.end();
+    if (!satisfied) {
+      return false;
+    }
+
+    auto parent_it = descriptors_by_name.find(dep.parameter_name);
+    if (parent_it == descriptors_by_name.end()) {
+      return true;
+    }
+    return is_active(*parent_it->second, visited);
+  };
 
   // Check each parameter's dependencies
   for (const auto& desc : descriptors_) {
@@ -873,20 +912,8 @@ void StageParameterDialog::update_dependencies() {
     }
 
     const auto& dep = *desc.constraints.depends_on;
-    bool should_enable = false;
-
-    // Find the value of the parameter we depend on
-    auto it = current_values.find(dep.parameter_name);
-    if (it != current_values.end()) {
-      // Convert current value to string for comparison
-      std::string current_val =
-          orc::parameter_util::value_to_string(it->second);
-
-      // Check if current value is in the list of required values
-      should_enable =
-          std::find(dep.required_values.begin(), dep.required_values.end(),
-                    current_val) != dep.required_values.end();
-    }
+    std::set<std::string> visited;
+    const bool should_enable = is_active(desc, visited);
 
     // Show/hide or enable/disable the widget and its label row
     auto widget_it = parameter_widgets_.find(desc.name);

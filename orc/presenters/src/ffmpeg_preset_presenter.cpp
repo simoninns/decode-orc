@@ -52,9 +52,9 @@ bool FFmpegPresetPresenter::validateNode(NodeID node_id,
   }
 
   if (!node_it->stage ||
-      node_it->stage->get_node_type_info().stage_name != "ffmpeg_video_sink") {
+      node_it->stage->get_node_type_info().stage_name != "video_sink") {
     error_message =
-        "FFmpeg Preset Configuration only applies to ffmpeg_video_sink stages";
+        "FFmpeg Preset Configuration only applies to video_sink stages";
     return false;
   }
 

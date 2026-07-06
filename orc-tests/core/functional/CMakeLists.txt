@@ -44,8 +44,7 @@ function(orc_add_core_functional_tests target labels)
             orc-stage-plugin-dropout-map
             orc-stage-plugin-source-align
             orc-stage-plugin-mask-line
-            orc-stage-plugin-raw-video-sink
-            orc-stage-plugin-ffmpeg-video-sink
+            orc-stage-plugin-video-sink
             orc-stage-plugin-daphne-vbi-sink
             orc-stage-plugin-audio-sink
             orc-stage-plugin-cc-sink

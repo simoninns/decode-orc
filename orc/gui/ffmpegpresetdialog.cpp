@@ -273,7 +273,10 @@ void FFmpegPresetDialog::apply_configuration() {
   }
 
   std::string format_string = preset.container + "-" + normalized_codec;
-  set_parameter("output_format", format_string);
+  // Applying an FFmpeg preset always selects FFmpeg output on the merged
+  // Video Sink stage, even if the node was previously in raw mode.
+  set_parameter("output_mode", std::string("ffmpeg"));
+  set_parameter("ffmpeg_format", format_string);
 
   // Set hardware encoder preference
   std::string hardware_encoder = "none";
@@ -348,7 +351,7 @@ void FFmpegPresetDialog::load_from_parameters(
   updating_ui_ = true;
 
   // Load output format and try to find matching preset
-  auto it = params.find("output_format");
+  auto it = params.find("ffmpeg_format");
   if (it != params.end() && std::holds_alternative<std::string>(it->second)) {
     const std::string& format = std::get<std::string>(it->second);
 

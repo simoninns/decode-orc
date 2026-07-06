@@ -35,8 +35,8 @@ std::filesystem::path plugin_library_path(const std::string& base_name) {
 
 }  // namespace
 
-TEST(StagePluginLoaderSmokeTest, loadsRawVideoSinkPluginFromBuiltLibrary) {
-  auto plugin_path = plugin_library_path("raw-video-sink");
+TEST(StagePluginLoaderSmokeTest, loadsVideoSinkPluginFromBuiltLibrary) {
+  auto plugin_path = plugin_library_path("video-sink");
   ASSERT_FALSE(plugin_path.empty());
   ASSERT_TRUE(std::filesystem::exists(plugin_path)) << plugin_path.string();
 
@@ -69,8 +69,8 @@ TEST(StagePluginLoaderSmokeTest, loadsRawVideoSinkPluginFromBuiltLibrary) {
   EXPECT_FALSE(loaded_stage_names.empty());
   EXPECT_EQ(loaded_stage_names.size(),
             result.plugin->registered_stage_names.size());
-  EXPECT_EQ(loaded_stage_names.front(), "raw_video_sink");
-  EXPECT_EQ(result.plugin->registered_stage_names.front(), "raw_video_sink");
+  EXPECT_EQ(loaded_stage_names.front(), "video_sink");
+  EXPECT_EQ(result.plugin->registered_stage_names.front(), "video_sink");
 }
 
 }  // namespace orc_unit_test

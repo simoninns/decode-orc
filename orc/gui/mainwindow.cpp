@@ -1492,11 +1492,11 @@ void MainWindow::quickProject(const QString& filename) {
       return;
     }
 
-    ORC_LOG_INFO("Adding FFmpeg video sink stage");
+    ORC_LOG_INFO("Adding video sink stage");
     orc::NodeID sink_node_id;
     try {
       sink_node_id = project_.presenter()->addNode(
-          "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
+          "video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
     } catch (const std::exception& e) {
       QMessageBox::critical(
           this, "Error", QString("Failed to add sink stage: %1").arg(e.what()));
@@ -1576,11 +1576,11 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
 
-      ORC_LOG_INFO("Adding FFmpeg video sink stage");
+      ORC_LOG_INFO("Adding video sink stage");
       orc::NodeID sink_node_id;
       try {
         sink_node_id = project_.presenter()->addNode(
-            "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
+            "video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
       } catch (const std::exception& e) {
         QMessageBox::critical(
             this, "Error",
@@ -1628,11 +1628,11 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
 
-      ORC_LOG_INFO("Adding FFmpeg video sink stage");
+      ORC_LOG_INFO("Adding video sink stage");
       orc::NodeID sink_node_id;
       try {
         sink_node_id = project_.presenter()->addNode(
-            "ffmpeg_video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
+            "video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
       } catch (const std::exception& e) {
         QMessageBox::critical(
             this, "Error",

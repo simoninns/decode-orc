@@ -61,8 +61,8 @@ bool FFmpegPresetAnalysisTool::canAnalyze(
 
 bool FFmpegPresetAnalysisTool::isApplicableToStage(
     const std::string& stage_name) const {
-  // This tool is applicable to ffmpeg_video_sink stages
-  return stage_name == "ffmpeg_video_sink";
+  // This tool is applicable to video_sink stages
+  return stage_name == "video_sink";
 }
 
 AnalysisResult FFmpegPresetAnalysisTool::analyze(const AnalysisContext& ctx,

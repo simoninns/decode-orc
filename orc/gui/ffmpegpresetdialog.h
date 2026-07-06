@@ -21,7 +21,7 @@
 #include "configdialogbase.h"
 
 /**
- * @brief Configuration dialog for FFmpeg Video Sink presets
+ * @brief Configuration dialog for Video Sink FFmpeg export presets
  *
  * This dialog provides a user-friendly interface for selecting video export
  * profiles without requiring users to understand codec details. Based on the
@@ -33,8 +33,9 @@
  * - Auto-configuration of codec parameters
  * - Profile descriptions with use-case guidance
  *
- * The dialog translates preset selections into the output_format and related
- * parameters expected by FFmpegVideoSinkStage.
+ * The dialog translates preset selections into the output_mode/ffmpeg_format
+ * and related parameters expected by VideoSinkStage. Applying a preset always
+ * selects FFmpeg output mode.
  */
 class FFmpegPresetDialog : public ConfigDialogBase {
   Q_OBJECT

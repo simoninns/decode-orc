@@ -1,14 +1,13 @@
 set(CHROMA_DECODER_SHARED_SOURCES
-    ${CMAKE_CURRENT_LIST_DIR}/../common/chroma_sink_stage.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../common/output_backend.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../common/raw_output_backend.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../common/ffmpeg_output_backend.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/../common/raw_video_sink_stage.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../common/video_sink_stage.cpp
 )
 
 orc_add_stage_plugin(
-    orc-stage-plugin-raw-video-sink
-    OUTPUT_NAME orc-stage-plugin-raw-video-sink
+    orc-stage-plugin-video-sink
+    OUTPUT_NAME orc-stage-plugin-video-sink
     PLUGIN_VERSION "${ORC_VERSION}"
     SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/plugin.cpp
@@ -21,8 +20,8 @@ orc_add_stage_plugin(
         PkgConfig::FFMPEG
 )
 
-target_compile_definitions(orc-stage-plugin-raw-video-sink PRIVATE HAVE_FFMPEG)
+target_compile_definitions(orc-stage-plugin-video-sink PRIVATE HAVE_FFMPEG)
 
-target_include_directories(orc-stage-plugin-raw-video-sink PRIVATE
+target_include_directories(orc-stage-plugin-video-sink PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/../common
 )

@@ -242,85 +242,6 @@ This stage accumulates EFM t-values from the incoming stream and runs the full E
 
 ---
 
-## FFmpeg Video Sink
-
-| | |
-|-|-|
-| **Stage id** | `ffmpeg_video_sink` |
-| **Stage name** | FFmpeg Video Sink |
-| **Connections** | 1 input → no outputs |
-| **Purpose** | Chroma-decode and encode the processed video to a compressed file (H.264/MP4 or FFV1/MKV) |
-
-**Use this stage when:**
-
-* You want a playable, distributable, or archival video file
-* You want optional embedded audio, closed captions, or chapter metadata
-
-**What it does**
-
-Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then encodes it using FFmpeg into the chosen container and codec. Optionally embeds analogue audio, closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data.
-
-**Parameters**
-
-* `output_path` (string)
-    - Output file path. Use `.mp4` for H.264 or `.mkv` for FFV1.
-    - Required.
-
-* `decoder_type` (string)
-    - Chroma decoder to apply. PAL: `pal2d`, `transform2d`, `transform3d`. NTSC: `ntsc1d`, `ntsc2d`, `ntsc3d`, `ntsc3dnoadapt`. Other: `mono`.
-
-* `output_format` (string)
-    - Container and codec. Values: `mp4-h264` (H.264 in MP4), `mkv-ffv1` (FFV1 lossless in MKV).
-
-* `chroma_gain` (double)
-    - Chroma gain multiplier applied before encoding. Range: 0.0–10.0. Default: 1.0.
-
-* `chroma_phase` (double)
-    - Chroma phase rotation in degrees. Range: -180 to 180. Default: 0.
-
-* `luma_nr` (int) / `chroma_nr` (int)
-    - Luma / chroma noise reduction levels. Higher values reduce noise at the cost of sharpness or chroma resolution.
-
-* `ntsc_phase_comp` (bool)
-    - Enable NTSC phase compensation. NTSC sources only.
-
-* `simple_pal` (bool)
-    - Enable simple PAL chroma decoding. PAL sources only.
-
-* `threads` (int)
-    - Number of worker threads. Default: auto (all available cores).
-
-* `output_padding` (int)
-    - Padding added for codec alignment requirements. Default: 8.
-
-* `encoder_preset` (string)
-    - Encoder speed/quality trade-off. Values: `fast`, `medium`, `slow`, `veryslow`.
-
-* `encoder_crf` (int)
-    - Constant Rate Factor for quality-based encoding. Range: 0–51 (lower = higher quality). Default: 18. Used when `encoder_bitrate` is 0.
-
-* `encoder_bitrate` (int)
-    - Target bitrate in bits per second. When non-zero, overrides CRF mode. Default: 0 (use CRF).
-
-* `embed_audio` (bool)
-    - Embed analogue audio into the output file. Requires audio in the pipeline. Default: `false`.
-
-* `embed_closed_captions` (bool)
-    - Embed closed captions as mov_text subtitles. MP4 output only. Default: `false`.
-
-* `embed_chapter_metadata` (bool)
-    - Write chapter markers derived from VBI data into the output file. Default: `false`.
-
-**Stage tools**
-
-* **FFmpeg Preset Config** — a preset helper dialog that applies well-tested decoder/encoder combinations for PAL or NTSC sources without setting each parameter manually.
-
-**Notes**
-
-* CRF and bitrate modes are mutually exclusive; set `encoder_bitrate` to a non-zero value to switch from CRF mode.
-* Uses the same chroma decoders as the Raw Video Sink.
-
----
 
 ## ld-decode Sink
 
@@ -394,59 +315,108 @@ This stage extracts raw EFM (Eight-to-Fourteen Modulation) t-values from the inc
 
 ---
 
-## Raw Video Sink
+## Video Sink
 
 | | |
 |-|-|
-| **Stage id** | `raw_video_sink` |
-| **Stage name** | Raw Video Sink |
+| **Stage id** | `video_sink` |
+| **Stage name** | Video Sink |
 | **Connections** | 1 input → no outputs |
-| **Purpose** | Chroma-decode the processed video and write uncompressed RGB/YUV/Y4M files |
+| **Purpose** | Chroma-decode the processed video and write it to a file, either FFmpeg-encoded (MP4/MKV/MOV/MXF) or uncompressed raw (RGB/YUV/Y4M) |
 
 **Use this stage when:**
 
-* You need an uncompressed output for external tools such as FFmpeg, VirtualDub, or image-processing scripts
-* You want direct integration with an image-processing pipeline
+* You want a playable, distributable, or archival video file (FFmpeg mode)
+* You want optional embedded audio, closed captions, or chapter metadata (FFmpeg mode)
+* You need an uncompressed output for external tools such as FFmpeg, VirtualDub, or image-processing scripts (raw mode)
 
 **What it does**
 
-Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the raw decoded frames to a file without compression. The output format determines the pixel layout and whether a Y4M header is prepended.
+Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode. In FFmpeg mode the video is encoded into the chosen container and codec, optionally embedding analogue audio, closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data. In raw mode the decoded frames are written to a file without compression; the raw format determines the pixel layout and whether a Y4M header is prepended.
 
 **Parameters**
 
 * `output_path` (string)
-    - Output file path. Use `.rgb`, `.yuv`, or `.y4m` to match the chosen format.
+    - Output file path. Match the extension to the selected mode and format: `.mp4`, `.mkv`, `.mov`, or `.mxf` for FFmpeg output; `.rgb`, `.yuv`, or `.y4m` for raw output.
     - Required.
 
 * `decoder_type` (string)
     - Chroma decoder to apply. PAL: `pal2d`, `transform2d`, `transform3d`. NTSC: `ntsc1d`, `ntsc2d`, `ntsc3d`, `ntsc3dnoadapt`. Other: `mono`.
 
-* `output_format` (string)
-    - Raw output format. Values: `rgb` (RGB48, 16-bit per channel), `yuv` (YUV444P16, planar), `y4m` (YUV444P16 with Y4M header).
+* `output_mode` (string)
+    - Output path selection. Values: `ffmpeg` (encoded output via FFmpeg), `raw` (uncompressed file output). Default: `ffmpeg`.
+
+* `raw_format` (string)
+    - Raw output format (raw mode only). Values: `rgb` (RGB48, 16-bit per channel), `yuv` (YUV444P16, planar), `y4m` (YUV444P16 with Y4M header). Default: `rgb`.
+
+* `ffmpeg_format` (string)
+    - Container and codec (FFmpeg mode only). Values include `mp4-h264`, `mkv-ffv1`, `mov-prores`, `mov-v210`, `mov-v410`, `mxf-mpeg2video`, `mov-h264`, `mp4-hevc`, `mov-hevc`, and `mp4-av1`. Default: `mp4-h264`.
 
 * `chroma_gain` (double) / `chroma_phase` (double)
     - Chroma gain multiplier (0.0–10.0, default 1.0) and phase rotation in degrees (-180 to 180, default 0).
 
-* `luma_nr` (int) / `chroma_nr` (int)
-    - Luma / chroma noise reduction levels.
+* `luma_nr` (double) / `chroma_nr` (double)
+    - Luma / chroma noise reduction levels. Higher values reduce noise at the cost of sharpness or chroma resolution.
 
 * `ntsc_phase_comp` (bool)
     - Enable NTSC phase compensation. NTSC sources only.
 
 * `simple_pal` (bool)
-    - Enable simple PAL chroma decoding. PAL sources only.
+    - Enable simple PAL chroma decoding (1D UV filter for Transform PAL). `transform2d`/`transform3d` decoders only.
 
-* `threads` (int)
-    - Number of worker threads. Default: auto (all available cores).
+* `transform_threshold` (double)
+    - Similarity threshold for the Transform PAL decoder. Higher = more transform filtering. Range: 0.0–1.0. Default: 0.4. `transform2d`/`transform3d` decoders only.
+
+* `chroma_weight` (double)
+    - Chroma weight for the NTSC 3D adaptive filter. Higher = prefer more 2D result. Range: 0.0–10.0. Default: 1.0. `ntsc3d`/`ntsc3dnoadapt` decoders only.
+
+* `adapt_threshold` (double)
+    - NTSC 3D adaptive filter threshold. Higher = prefer more 3D result. Range: 0.0–10.0. Default: 1.0. `ntsc3d` decoder only.
 
 * `output_padding` (int)
     - Alignment padding added to each output frame. Default: 8.
 
+* `encoder_preset` (string)
+    - FFmpeg mode only. Encoder speed/quality trade-off. Values: `fast`, `medium`, `slow`, `veryslow`.
+
+* `encoder_crf` (int)
+    - FFmpeg mode only. Constant Rate Factor for quality-based encoding. Range: 0–51 (lower = higher quality). Default: 18. Used when `encoder_bitrate` is 0.
+
+* `encoder_bitrate` (int)
+    - FFmpeg mode only. Target bitrate in bits per second. When non-zero, overrides CRF mode. Default: 0 (use CRF).
+
+* `hardware_encoder` (string)
+    - FFmpeg mode only. Hardware-accelerated encoding backend. Values: `none`, `vaapi`, `nvenc`, `qsv`, `amf`, `videotoolbox`. Default: `none`.
+
+* `prores_profile` (string)
+    - FFmpeg mode only, `mov-prores` format. ProRes quality profile: `proxy`, `lt`, `standard`, `hq`, `4444`, `4444xq`. Default: `hq`.
+
+* `use_lossless_mode` (bool)
+    - FFmpeg mode only. Enable mathematically lossless encoding (H.264/H.265/AV1 only, overrides CRF). Default: `false`.
+
+* `apply_deinterlace` (bool)
+    - FFmpeg mode only. Apply bwdif deinterlacing for progressive web playback. Default: `false`.
+
+* `embed_audio` (bool)
+    - FFmpeg mode only. Embed analogue audio into the output file. Requires audio in the pipeline. Default: `false`.
+
+* `embed_closed_captions` (bool)
+    - FFmpeg mode only. Embed closed captions as mov_text subtitles. MP4/MOV output only. Default: `false`.
+
+* `embed_chapter_metadata` (bool)
+    - FFmpeg mode only. Write chapter markers derived from VBI data into the output file. Default: `false`.
+
+**Stage tools**
+
+* **FFmpeg Preset Config** — a preset helper dialog that applies well-tested encoder combinations without setting each parameter manually. Applying a preset switches the stage to FFmpeg output mode.
+
 **Notes**
 
-* This sink does not support audio embedding — use the FFmpeg Video Sink if you need audio in the output.
+* Raw mode does not support audio, closed caption, or chapter embedding; those options apply to FFmpeg output only.
 * Raw output files can be very large; ensure sufficient disk space before triggering.
-* The `y4m` format is directly readable by tools such as FFmpeg and rav1e without specifying the pixel format manually.
+* The `y4m` raw format is directly readable by tools such as FFmpeg and rav1e without specifying the pixel format manually.
+* CRF and bitrate modes are mutually exclusive; set `encoder_bitrate` to a non-zero value to switch from CRF mode.
+* Projects created with the earlier separate `raw_video_sink` and `ffmpeg_video_sink` stages are migrated to this stage automatically when loaded.
 
 ---
 

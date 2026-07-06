@@ -15,7 +15,7 @@ The Quick Project feature provides the fastest way to get started with decoding 
     - Detect the video format based on the file metadata (`.tbc.db` for TBC, `.meta` for CVBS)
     - Create a new project
     - Configure the appropriate video system (PAL/NTSC/PAL-M) and source type
-    - Add a source stage and an FFmpeg video sink stage, connected together
+    - Add a source stage and a Video Sink stage, connected together
     - Select the source stage (with **View → Show Preview on Selection** enabled, the preview opens automatically)
 
 ### Loading a TBC from the Command Line

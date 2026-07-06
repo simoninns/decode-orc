@@ -593,6 +593,29 @@ Project load_project_from_yaml(const std::string& yaml_text,
       node.node_id = NodeID(node_yaml["id"].as<int32_t>(0));
       node.stage_name = node_yaml["stage"].as<std::string>("");
       node.display_name = node_yaml["display_name"].as<std::string>("");
+
+      // Migrate the legacy raw_video_sink and ffmpeg_video_sink stages to the
+      // merged video_sink stage. The old stage name determines the output
+      // mode; any stored output_format parameter is remapped further down
+      // once parameters are loaded.
+      std::string migrated_output_mode;
+      if (node.stage_name == "raw_video_sink") {
+        migrated_output_mode = "raw";
+      } else if (node.stage_name == "ffmpeg_video_sink") {
+        migrated_output_mode = "ffmpeg";
+      }
+      if (!migrated_output_mode.empty()) {
+        ORC_LOG_INFO(
+            "Migrating legacy stage '{}' (node {}) to 'video_sink' with "
+            "output_mode '{}'",
+            node.stage_name, node.node_id.to_string(), migrated_output_mode);
+        node.stage_name = "video_sink";
+        if (node.display_name == "Raw Video Sink" ||
+            node.display_name == "FFmpeg Video Sink") {
+          node.display_name = "Video Sink";
+        }
+        node.parameters["output_mode"] = migrated_output_mode;
+      }
       node.user_label = node_yaml["user_label"].as<std::string>(
           node.display_name);  // Default to display_name if not present
       node.x_position = node_yaml["x"].as<double>(0.0);
@@ -633,6 +656,21 @@ Project load_project_from_yaml(const std::string& yaml_text,
             std::string value = param_map["value"].as<std::string>();
             node.parameters[param_name] = value;
           }
+        }
+      }
+
+      // Legacy video sink migration: remap the stored output_format value to
+      // the mode-specific parameter of the merged video_sink stage.
+      if (!migrated_output_mode.empty()) {
+        auto fmt_it = node.parameters.find("output_format");
+        if (fmt_it != node.parameters.end()) {
+          if (std::holds_alternative<std::string>(fmt_it->second)) {
+            const std::string format_key = (migrated_output_mode == "raw")
+                                               ? "raw_format"
+                                               : "ffmpeg_format";
+            node.parameters[format_key] = fmt_it->second;
+          }
+          node.parameters.erase("output_format");
         }
       }
 

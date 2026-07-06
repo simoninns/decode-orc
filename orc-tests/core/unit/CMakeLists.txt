@@ -53,8 +53,7 @@ function(orc_add_core_unit_tests target labels)
                         orc-stage-plugin-dropout-map
                         orc-stage-plugin-source-align
                         orc-stage-plugin-mask-line
-                        orc-stage-plugin-raw-video-sink
-                        orc-stage-plugin-ffmpeg-video-sink
+                        orc-stage-plugin-video-sink
                         orc-stage-plugin-daphne-vbi-sink
                         orc-stage-plugin-audio-sink
                         orc-stage-plugin-cc-sink
@@ -111,17 +110,16 @@ orc_add_core_unit_tests(
         orc-core-unit-tests-sinks
         "unit;sinks"
 
-        stages/chroma_sink/componentframe_test.cpp
-        stages/chroma_sink/vectorscope_analysis_test.cpp
-        stages/chroma_sink/chroma_sink_stage_defaults_test.cpp
-        stages/chroma_sink/chroma_sink_stage_safety_test.cpp
-        stages/chroma_sink/comb_test.cpp
-        stages/chroma_sink/ffmpeg_video_sink_stage_test.cpp
-        stages/chroma_sink/monodecoder_test.cpp
-        stages/chroma_sink/ntsc_pal_decoder_wrapper_test.cpp
-        stages/chroma_sink/palcolour_test.cpp
-        stages/chroma_sink/raw_video_sink_stage_test.cpp
-        stages/chroma_sink/sourcefield_test.cpp
+        stages/video_sink/componentframe_test.cpp
+        stages/video_sink/vectorscope_analysis_test.cpp
+        stages/video_sink/video_sink_stage_defaults_test.cpp
+        stages/video_sink/video_sink_stage_safety_test.cpp
+        stages/video_sink/comb_test.cpp
+        stages/video_sink/video_sink_stage_test.cpp
+        stages/video_sink/monodecoder_test.cpp
+        stages/video_sink/ntsc_pal_decoder_wrapper_test.cpp
+        stages/video_sink/palcolour_test.cpp
+        stages/video_sink/sourcefield_test.cpp
         stages/daphne_vbi_sink/daphne_vbi_writer_util_test.cpp
         stages/daphne_vbi_sink/daphne_vbi_sink_stage_deps_test.cpp
         stages/daphne_vbi_sink/daphne_vbi_sink_stage_test.cpp

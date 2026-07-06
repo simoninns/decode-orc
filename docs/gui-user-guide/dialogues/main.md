@@ -113,7 +113,13 @@ Use this when your graph becomes messy after adding or moving stages.
 
 #### Plugin Manager…
 
-Opens the plugin manager, which lists the loaded stage plugins and their status.
+Opens the Plugin Manager, which lists the registered stage plugins (ID, path, version, source, and enabled state) and lets you add, remove, enable, and disable them.
+
+* **Add Plugin…** registers a new plugin, either from a local plugin file or from a GitHub releases URL. Remote plugins are downloaded automatically. Adding a plugin is your consent for it to run: plugin binaries execute as native code, so only add plugins from sources you trust.
+* **Remove** deletes the selected plugin from the registry (core plugins cannot be removed).
+* The **Enabled** checkbox shows whether a plugin will load at the next application start. For entries that were placed in the registry outside of Orc-GUI (for example, a hand-edited registry file), the checkbox appears unchecked until you enable them — ticking it marks the plugin as trusted and enables it.
+
+Registry changes take effect on the next application launch; the dialog offers a restart when you close it after making changes.
 
 ---
 

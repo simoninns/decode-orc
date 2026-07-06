@@ -34,15 +34,14 @@ static constexpr int COL_PATH = 1;
 static constexpr int COL_VERSION = 2;
 static constexpr int COL_SOURCE = 3;
 static constexpr int COL_ENABLED = 4;
-static constexpr int COL_TRUSTED = 5;
-static constexpr int NUM_COLS = 6;
+static constexpr int NUM_COLS = 5;
 static constexpr int ROW_REGISTRY_ENTRY_ROLE = Qt::UserRole + 1;
 static constexpr int ROW_IS_CORE_ROLE = Qt::UserRole + 2;
 static constexpr int ROW_PATH_ROLE = Qt::UserRole + 3;
 static constexpr int ROW_RELEASE_ASSET_URL_ROLE = Qt::UserRole + 4;
 
-static const QStringList COLUMN_HEADERS = {"ID",     "Path",    "Version",
-                                           "Source", "Enabled", "Trusted"};
+static const QStringList COLUMN_HEADERS = {"ID", "Path", "Version", "Source",
+                                           "Enabled"};
 
 PluginManagerDialog::PluginManagerDialog(QWidget* parent) : QDialog(parent) {
   setWindowTitle("Plugin Manager");
@@ -209,7 +208,6 @@ void PluginManagerDialog::buildUI() {
   header->setSectionResizeMode(COL_VERSION, QHeaderView::ResizeToContents);
   header->setSectionResizeMode(COL_SOURCE, QHeaderView::Stretch);
   header->setSectionResizeMode(COL_ENABLED, QHeaderView::ResizeToContents);
-  header->setSectionResizeMode(COL_TRUSTED, QHeaderView::ResizeToContents);
   QFont header_font = header->font();
   header_font.setBold(false);
   header->setFont(header_font);
@@ -313,8 +311,16 @@ void PluginManagerDialog::refresh() {
         e.is_core_plugin ? (Qt::ItemIsSelectable | Qt::ItemIsUserCheckable)
                          : (Qt::ItemIsSelectable | Qt::ItemIsUserCheckable |
                             Qt::ItemIsEnabled));
+    // The checkbox reflects whether the plugin will actually load at
+    // startup: the host only loads entries that are both enabled and
+    // trusted. Entries added through this dialog are trusted at add time,
+    // so the two states only diverge for entries that arrived from outside
+    // the application (e.g. a hand-edited registry file); checking the box
+    // grants trust as well as enabling.
     enabled_item->setCheckState(
-        (e.enabled || e.is_core_plugin) ? Qt::Checked : Qt::Unchecked);
+        (e.is_core_plugin || (e.enabled && e.trust_state == "trusted"))
+            ? Qt::Checked
+            : Qt::Unchecked);
     const std::string source =
         e.is_core_plugin
             ? std::string("Core")
@@ -324,21 +330,6 @@ void PluginManagerDialog::refresh() {
     table_->setItem(row, COL_SOURCE,
                     new QTableWidgetItem(QString::fromStdString(source)));
     table_->setItem(row, COL_ENABLED, enabled_item);
-
-    // Core plugins are implicitly trusted and cannot be changed; other
-    // registry entries expose an editable trust checkbox. Untrusted plugins
-    // are neither downloaded nor loaded at startup.
-    auto* trusted_item = new QTableWidgetItem();
-    trusted_item->setData(ROW_REGISTRY_ENTRY_ROLE, true);
-    trusted_item->setData(ROW_IS_CORE_ROLE, e.is_core_plugin);
-    trusted_item->setFlags(
-        e.is_core_plugin ? (Qt::ItemIsSelectable | Qt::ItemIsUserCheckable)
-                         : (Qt::ItemIsSelectable | Qt::ItemIsUserCheckable |
-                            Qt::ItemIsEnabled));
-    trusted_item->setCheckState((e.is_core_plugin || e.trust_state == "trusted")
-                                    ? Qt::Checked
-                                    : Qt::Unchecked);
-    table_->setItem(row, COL_TRUSTED, trusted_item);
 
     if (!display_id.empty()) {
       seen_ids.insert(display_id);
@@ -390,15 +381,6 @@ void PluginManagerDialog::refresh() {
     table_->setItem(row, COL_SOURCE,
                     new QTableWidgetItem(QString::fromStdString(source)));
     table_->setItem(row, COL_ENABLED, enabled_item);
-
-    // Loaded from a default/explicit search path this session: implicitly
-    // trusted, so the checkbox is shown checked and non-interactive.
-    auto* trusted_item = new QTableWidgetItem();
-    trusted_item->setData(ROW_REGISTRY_ENTRY_ROLE, false);
-    trusted_item->setData(ROW_IS_CORE_ROLE, plugin.is_core_plugin);
-    trusted_item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
-    trusted_item->setCheckState(Qt::Checked);
-    table_->setItem(row, COL_TRUSTED, trusted_item);
   }
 
   refreshing_table_ = false;
@@ -435,13 +417,7 @@ void PluginManagerDialog::onSelectionChanged() {
 }
 
 void PluginManagerDialog::onTableItemChanged(QTableWidgetItem* item) {
-  if (!item || refreshing_table_ ||
-      (item->column() != COL_ENABLED && item->column() != COL_TRUSTED)) {
-    return;
-  }
-
-  if (item->column() == COL_TRUSTED) {
-    onTrustedItemChanged(item);
+  if (!item || refreshing_table_ || item->column() != COL_ENABLED) {
     return;
   }
 
@@ -480,7 +456,10 @@ void PluginManagerDialog::onTableItemChanged(QTableWidgetItem* item) {
     entry_info.plugin_id = plugin_id.toStdString();
     entry_info.plugin_version = plugin_version.toStdString();
     entry_info.artifact_source = "local_path";
-    entry_info.trust_state = "untrusted";
+    // This plugin was already loaded from a search path this session, so it
+    // is implicitly trusted; materialize the registry entry as trusted so it
+    // keeps loading after restart.
+    entry_info.trust_state = "trusted";
     entry_info.enabled = true;
 
     const auto add_result =
@@ -514,53 +493,27 @@ void PluginManagerDialog::onTableItemChanged(QTableWidgetItem* item) {
     QMessageBox::warning(
         this, enabled ? "Enable Plugin Failed" : "Disable Plugin Failed",
         QString::fromStdString(result.error_message));
-  } else {
-    plugin_changes_made_ = true;
-  }
-
-  refresh();
-}
-
-void PluginManagerDialog::onTrustedItemChanged(QTableWidgetItem* item) {
-  const int row = item->row();
-  auto* id_item = table_->item(row, COL_ID);
-  if (!id_item) {
     refresh();
     return;
   }
 
-  const bool is_registry_entry =
-      id_item->data(ROW_REGISTRY_ENTRY_ROLE).toBool();
-  const bool is_core_plugin = id_item->data(ROW_IS_CORE_ROLE).toBool();
-  const QString plugin_id = id_item->text();
-  const bool trusted = (item->checkState() == Qt::Checked);
-
-  // Core plugins and session-loaded (non-registry) rows are implicitly
-  // trusted; their checkbox is not user-editable.
-  if (is_core_plugin || !is_registry_entry) {
-    refresh();
-    return;
+  // Enabling is the user's consent for the plugin to run, so it also grants
+  // trust. This is the GUI path for activating entries that arrived from
+  // outside the application (e.g. a hand-edited registry file), which
+  // default to untrusted. Disabling leaves the trust state unchanged.
+  if (enabled && !is_core_plugin) {
+    const auto trust_result =
+        orc::presenters::ProjectPresenter::setPluginRegistryEntryTrusted(
+            plugin_id.toStdString(), true);
+    if (!trust_result.success) {
+      QMessageBox::warning(this, "Enable Plugin Failed",
+                           QString::fromStdString(trust_result.error_message));
+      refresh();
+      return;
+    }
   }
 
-  if (plugin_id.isEmpty()) {
-    QMessageBox::warning(
-        this, "Update Plugin Failed",
-        "This plugin has no ID, so its trust state cannot be changed.");
-    refresh();
-    return;
-  }
-
-  const auto result =
-      orc::presenters::ProjectPresenter::setPluginRegistryEntryTrusted(
-          plugin_id.toStdString(), trusted);
-
-  if (!result.success) {
-    QMessageBox::warning(
-        this, trusted ? "Trust Plugin Failed" : "Untrust Plugin Failed",
-        QString::fromStdString(result.error_message));
-  } else {
-    plugin_changes_made_ = true;
-  }
+  plugin_changes_made_ = true;
 
   refresh();
 }
@@ -597,7 +550,8 @@ void PluginManagerDialog::onAddPlugin() {
     entry_info.artifact_source = "local_path";
     entry_info.path = path.toStdString();
     entry_info.enabled = true;
-    entry_info.trust_state = "untrusted";
+    // Selecting the binary is the user's explicit consent to run it.
+    entry_info.trust_state = "trusted";
 
     const auto result =
         orc::presenters::ProjectPresenter::addPluginRegistryEntry(entry_info);
@@ -616,7 +570,9 @@ void PluginManagerDialog::onAddPlugin() {
 
   QInputDialog url_dialog(this);
   url_dialog.setWindowTitle("Add Remote Plugin");
-  url_dialog.setLabelText("GitHub releases URL:");
+  url_dialog.setLabelText(
+      "GitHub releases URL:\n\nThe plugin binary will be downloaded and run "
+      "as native code. Only add plugins from sources you trust.");
   url_dialog.setInputMode(QInputDialog::TextInput);
   url_dialog.setTextEchoMode(QLineEdit::Normal);
   url_dialog.setTextValue(

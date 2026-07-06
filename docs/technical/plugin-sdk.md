@@ -539,11 +539,15 @@ Users register your plugin by adding an entry to their plugin registry YAML:
 ```
 
 The host downloads and caches the binary automatically the first time it
-starts with this entry present — but only once the user has marked the entry
-trusted (`orc-cli plugins trust <id>` or the GUI Plugin Manager's Trusted
-checkbox); entries with `trust_state: untrusted` are neither downloaded nor
-loaded. Publish the artifact's SHA-256 digest so users can record it in the
-optional `sha256` field: the host then verifies the download (and every
+starts with this entry present — but only once the entry is trusted;
+entries with `trust_state: untrusted` are neither downloaded nor loaded.
+Plugins added through the GUI Plugin Manager (or with
+`orc-cli plugins add --trusted`) are trusted at add time; entries supplied
+any other way — such as the hand-written snippet above — default to
+untrusted and must be activated by enabling them in the Plugin Manager or
+with `orc-cli plugins trust <id>`. Publish the artifact's SHA-256 digest
+so users can record it in the optional `sha256` field: the host then
+verifies the download (and every
 cache hit) against it and quarantines mismatching files. Without a `sha256`
 the plugin still loads, with a warning that its integrity was not verified.
 Plugin binaries are not code-signed; see the "Distribution integrity"

@@ -913,7 +913,11 @@ PluginRegistryMutationResult ProjectPresenter::addPluginFromReleasesUrl(
   entry_info.release_asset_name = resolved.release_asset_name;
   entry_info.target_platform = target_platform;
   entry_info.enabled = true;
-  entry_info.trust_state = "untrusted";
+  // Adding a plugin is the user's explicit consent to run it, so entries
+  // created through this flow are trusted immediately. The trust gate still
+  // guards entries that arrive from outside the application (hand-edited or
+  // copied registry files), which default to untrusted on load.
+  entry_info.trust_state = "trusted";
 
   auto add_result = addPluginRegistryEntry(entry_info);
   if (!add_result.success) {

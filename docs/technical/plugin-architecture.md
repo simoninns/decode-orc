@@ -17,9 +17,11 @@ registered through a common host runtime.
   diagnostic.
 - **Registry-based distribution:** Plugins are declared in a persistent YAML
   registry and can be fetched automatically from GitHub release assets at
-  startup. Non-core registry entries must be explicitly marked trusted
-  before they are downloaded or loaded, and downloaded artifacts are
-  verified against a recorded SHA-256 checksum (see
+  startup. Non-core registry entries must be marked trusted before they are
+  downloaded or loaded — entries added through the GUI or with
+  `orc-cli plugins add --trusted` are trusted at add time, while entries
+  that arrive from outside the application default to untrusted — and
+  downloaded artifacts are verified against a recorded SHA-256 checksum (see
   [Distribution integrity](#distribution-integrity)). Plugin binaries are
   **not** code-signed.
 
@@ -191,7 +193,7 @@ Each entry records:
 | `target_platform` | Optional platform hint for cache selection |
 | `local_dev_path` | Optional development override used before remote download |
 | `enabled` | Whether the plugin is loaded at startup |
-| `trust_state` | Trust level, enforced before loading: entries other than `trusted` are neither downloaded nor `dlopen`ed unless `is_core_plugin` is set. Change it with `orc-cli plugins trust <id>` / `untrust <id>` or the GUI Plugin Manager's Trusted checkbox |
+| `trust_state` | Trust level, enforced before loading: entries other than `trusted` are neither downloaded nor `dlopen`ed unless `is_core_plugin` is set. Adding a plugin through the GUI Plugin Manager grants trust immediately (adding is the consent step); entries that arrive from outside the application (e.g. a hand-edited registry file) default to `untrusted` and can be trusted by enabling them in the Plugin Manager or with `orc-cli plugins trust <id>` / `untrust <id>` |
 | `license_spdx` | SPDX license identifier |
 | `is_core_plugin` | Marks entries supplied by Decode-Orc itself; implicitly trusted |
 | `required_host_abi` | Expected host ABI version |

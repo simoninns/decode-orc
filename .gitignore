@@ -131,3 +131,6 @@ external/
 # User-specific project files
 user-projects/
 sw_tpg21_test_files/
+
+# Claude Code agent worktrees (nested checkouts, must not be tracked)
+.claude/worktrees/

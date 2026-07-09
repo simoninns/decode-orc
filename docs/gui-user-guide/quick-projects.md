@@ -15,8 +15,17 @@ The Quick Project feature provides the fastest way to get started with decoding 
     - Detect the video format based on the file metadata (`.tbc.db` for TBC, `.meta` for CVBS)
     - Create a new project
     - Configure the appropriate video system (PAL/NTSC/PAL-M) and source type
-    - Add a source stage and a Video Sink stage, connected together
+    - Build a pipeline appropriate to the decoder that produced the source (see [Pipeline layout](#pipeline-layout) below)
     - Select the source stage (with **View → Show Preview on Selection** enabled, the preview opens automatically)
+
+### Pipeline layout
+
+The stages a quick project creates depend on the decoder recorded in the source metadata:
+
+- **ld-decode sources** get a source stage, a **Dropout Correction** stage, and a **Video Sink** stage, connected in sequence (`source → dropout correction → video sink`). If the source has an EFM sidecar, an **EFM Decoder Sink** is also added and connected to the output of the Dropout Correction stage, so both the video sink and the EFM audio decode are fed from the corrected video.
+- **All other sources** (for example vhs-decode) get just a source stage and a **Video Sink** stage, connected together.
+
+The decoder is read from the source metadata: the `decoder` field of the `.tbc.db` (TBC) or `.meta` (CVBS) database. Older TBC captures with only legacy JSON (`.tbc.json`) metadata do not carry a reliable decoder identity and are always treated as non-ld-decode, so they receive the plain source → video sink pipeline.
 
 ### Loading a TBC from the Command Line
 

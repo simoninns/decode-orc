@@ -132,13 +132,23 @@ std::optional<orc::SourceParameters> ProjectPresenter::readVideoParameters(
     return std::nullopt;
   }
 
+  // Prefer reading the decoder identity alongside the video system.  Older
+  // metadata may lack the decoder column, in which case fall back to reading
+  // just the system so the quick-project path still works.
   sqlite3_stmt* stmt = nullptr;
-  rc = sqlite3_prepare_v2(db, "SELECT system FROM capture WHERE capture_id = 1",
-                          -1, &stmt, nullptr);
-  if (rc != SQLITE_OK) {
-    ORC_LOG_WARN("Failed to query video system from: {}", metadata_path);
-    sqlite3_close(db);
-    return std::nullopt;
+  rc = sqlite3_prepare_v2(
+      db, "SELECT system, decoder FROM capture WHERE capture_id = 1", -1, &stmt,
+      nullptr);
+  const bool has_decoder_column = (rc == SQLITE_OK);
+  if (!has_decoder_column) {
+    rc = sqlite3_prepare_v2(db,
+                            "SELECT system FROM capture WHERE capture_id = 1",
+                            -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+      ORC_LOG_WARN("Failed to query video system from: {}", metadata_path);
+      sqlite3_close(db);
+      return std::nullopt;
+    }
   }
 
   std::optional<orc::SourceParameters> result;
@@ -148,6 +158,11 @@ std::optional<orc::SourceParameters> ProjectPresenter::readVideoParameters(
     if (sys_text) {
       orc::SourceParameters sp;
       sp.system = orc::video_system_from_string(sys_text);
+      if (has_decoder_column) {
+        const char* dec_text =
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (dec_text) sp.decoder = dec_text;
+      }
       result = sp;
     }
   }
@@ -168,14 +183,23 @@ std::optional<orc::SourceParameters> ProjectPresenter::readCVBSVideoParameters(
     return std::nullopt;
   }
 
+  // Prefer reading the decoder identity alongside the preset.  Older CVBS
+  // metadata may lack the decoder column, in which case fall back to reading
+  // just the preset so the quick-project path still works.
   sqlite3_stmt* stmt = nullptr;
   rc = sqlite3_prepare_v2(
-      db, "SELECT preset FROM cvbs_file ORDER BY cvbs_file_id LIMIT 1", -1,
-      &stmt, nullptr);
-  if (rc != SQLITE_OK) {
-    ORC_LOG_WARN("Failed to query preset from CVBS metadata: {}", meta_path);
-    sqlite3_close(db);
-    return std::nullopt;
+      db, "SELECT preset, decoder FROM cvbs_file ORDER BY cvbs_file_id LIMIT 1",
+      -1, &stmt, nullptr);
+  const bool has_decoder_column = (rc == SQLITE_OK);
+  if (!has_decoder_column) {
+    rc = sqlite3_prepare_v2(
+        db, "SELECT preset FROM cvbs_file ORDER BY cvbs_file_id LIMIT 1", -1,
+        &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+      ORC_LOG_WARN("Failed to query preset from CVBS metadata: {}", meta_path);
+      sqlite3_close(db);
+      return std::nullopt;
+    }
   }
 
   std::optional<orc::SourceParameters> result;
@@ -185,6 +209,11 @@ std::optional<orc::SourceParameters> ProjectPresenter::readCVBSVideoParameters(
     if (preset_text) {
       orc::SourceParameters sp;
       sp.system = orc::video_system_from_string(preset_text);
+      if (has_decoder_column) {
+        const char* dec_text =
+            reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (dec_text) sp.decoder = dec_text;
+      }
       result = sp;
     }
   }

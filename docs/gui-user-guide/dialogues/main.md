@@ -53,8 +53,11 @@ What Quick Project sets up for you:
 
 * Detects whether the capture is **PAL**, **NTSC**, or **PAL-M** from the metadata
 * Adds the appropriate **source stage** for the detected system and input type
+* Reads the **decoder** recorded in the metadata and builds the pipeline to match:
+
+  * **ld-decode** sources get a **Dropout Correction** stage between the source and the **Video Sink** (`source → dropout correction → video sink`). When the source has an EFM sidecar, an **EFM Decoder Sink** is also added and fed from the Dropout Correction stage's output.
+  * **All other** sources (for example vhs-decode) are connected straight from the source stage to the **Video Sink** stage. Captures with only legacy JSON (`.tbc.json`) metadata carry no reliable decoder identity and are always treated as non-ld-decode.
 * Adds a **Video Sink** stage (FFmpeg output mode by default)
-* Creates a **connection** from the source stage to the sink stage
 * If found, automatically attaches optional files next to the capture:
 
   * `<base>.pcm`

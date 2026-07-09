@@ -1379,6 +1379,10 @@ void MainWindow::quickProject(const QString& filename) {
   QString db_path;  // TBC only: set when a .tbc.db SQLite sidecar is present
   orc::VideoSystem video_format = orc::VideoSystem::Unknown;
   std::string source_stage_name;
+  // When the source was produced by ld-decode the quick project inserts a
+  // dropout correction stage (and, if an EFM sidecar is present, an EFM audio
+  // sink) rather than wiring the source straight to the video sink.
+  bool is_ld_decode = false;
 
   if (!is_cvbs) {
     db_path = base_path + ".tbc.db";
@@ -1410,6 +1414,13 @@ void MainWindow::quickProject(const QString& filename) {
         }
         ORC_LOG_INFO("Read video system from legacy JSON: {}",
                      orc::video_system_to_string(video_format));
+        // Legacy JSON metadata predates reliable decoder identification and is
+        // not necessarily a laserdisc source, so never treat it as ld-decode;
+        // the source is wired straight to the video sink.
+        is_ld_decode = false;
+        ORC_LOG_INFO(
+            "Source metadata is legacy JSON; decoder cannot be determined: "
+            "ld-decode = false");
         db_path.clear();  // no .tbc.db available; stage will use legacy JSON
       } else {
         QMessageBox::warning(
@@ -1432,6 +1443,10 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
       video_format = video_params_opt->system;
+      is_ld_decode = (video_params_opt->decoder == "ld-decode");
+      const std::string& decoder = video_params_opt->decoder;
+      ORC_LOG_INFO("Source metadata reports decoder '{}': ld-decode = {}",
+                   decoder.empty() ? "unknown" : decoder, is_ld_decode);
     }
 
     ORC_LOG_INFO(
@@ -1464,6 +1479,12 @@ void MainWindow::quickProject(const QString& filename) {
       return;
     }
     video_format = cvbs_params_opt->system;
+    is_ld_decode = (cvbs_params_opt->decoder == "ld-decode");
+    {
+      const std::string& decoder = cvbs_params_opt->decoder;
+      ORC_LOG_INFO("CVBS source metadata reports decoder '{}': ld-decode = {}",
+                   decoder.empty() ? "unknown" : decoder, is_ld_decode);
+    }
 
     const std::string fmt_name =
         (video_format == orc::VideoSystem::NTSC    ? "NTSC"
@@ -1515,8 +1536,90 @@ void MainWindow::quickProject(const QString& filename) {
   const double grid_spacing_x = 225.0;
   const double grid_spacing_y = 125.0;
 
+  // Build the downstream chain fed by an already-created and configured source
+  // node.  For ld-decode sources a dropout correction stage is inserted before
+  // the video sink, and when the source carries an EFM sidecar an EFM audio
+  // sink is attached to the dropout corrector's output.  For any other decoder
+  // the source is wired straight to the video sink.  Returns true on success;
+  // on failure it shows an error dialog and returns false.
+  auto build_downstream = [&](orc::NodeID source_node_id, double base_x,
+                              double base_y, bool has_efm_sidecar) -> bool {
+    double x = base_x;
+    orc::NodeID video_upstream = source_node_id;  // node feeding the video sink
+
+    if (is_ld_decode) {
+      x += grid_spacing_x;
+      ORC_LOG_INFO("Adding dropout correction stage");
+      orc::NodeID doc_node_id;
+      try {
+        doc_node_id =
+            project_.presenter()->addNode("dropout_correct", x, base_y);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add dropout correction stage: %1")
+                .arg(e.what()));
+        return false;
+      }
+      try {
+        project_.presenter()->addEdge(source_node_id, doc_node_id);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to connect source to dropout correction stage: %1")
+                .arg(e.what()));
+        return false;
+      }
+      video_upstream = doc_node_id;
+    }
+
+    x += grid_spacing_x;
+    ORC_LOG_INFO("Adding video sink stage");
+    orc::NodeID sink_node_id;
+    try {
+      sink_node_id = project_.presenter()->addNode("video_sink", x, base_y);
+    } catch (const std::exception& e) {
+      QMessageBox::critical(
+          this, "Error", QString("Failed to add sink stage: %1").arg(e.what()));
+      return false;
+    }
+    try {
+      project_.presenter()->addEdge(video_upstream, sink_node_id);
+    } catch (const std::exception& e) {
+      QMessageBox::critical(
+          this, "Error", QString("Failed to connect stages: %1").arg(e.what()));
+      return false;
+    }
+
+    if (is_ld_decode && has_efm_sidecar) {
+      ORC_LOG_INFO("Adding EFM audio sink stage");
+      orc::NodeID efm_node_id;
+      try {
+        efm_node_id = project_.presenter()->addNode("EFMSink", x,
+                                                    base_y + grid_spacing_y);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to add EFM audio sink stage: %1").arg(e.what()));
+        return false;
+      }
+      try {
+        project_.presenter()->addEdge(video_upstream, efm_node_id);
+      } catch (const std::exception& e) {
+        QMessageBox::critical(
+            this, "Error",
+            QString("Failed to connect dropout correction stage to EFM audio "
+                    "sink: %1")
+                .arg(e.what()));
+        return false;
+      }
+    }
+
+    return true;
+  };
+
   if (!is_cvbs) {
-    // TBC path: single source stage → sink
+    // TBC path: source stage → (dropout correction for ld-decode) → sink
     ORC_LOG_INFO("Adding TBC source stage: {}", source_stage_name);
     orc::NodeID source_node_id;
     try {
@@ -1529,16 +1632,9 @@ void MainWindow::quickProject(const QString& filename) {
       return;
     }
 
-    ORC_LOG_INFO("Adding video sink stage");
-    orc::NodeID sink_node_id;
-    try {
-      sink_node_id = project_.presenter()->addNode(
-          "video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
-    } catch (const std::exception& e) {
-      QMessageBox::critical(
-          this, "Error", QString("Failed to add sink stage: %1").arg(e.what()));
-      return;
-    }
+    // TBC EFM sidecar is a raw .efm T-value file alongside the source.
+    const QString efm_path = base_path + ".efm";
+    const bool has_efm_sidecar = QFileInfo::exists(efm_path);
 
     std::map<std::string, orc::ParameterValue> source_params;
     if (source_type == orc::SourceType::Composite) {
@@ -1551,8 +1647,7 @@ void MainWindow::quickProject(const QString& filename) {
       if (QFileInfo::exists(pcm_path)) {
         source_params["pcm_path"] = pcm_path.toStdString();
       }
-      QString efm_path = base_path + ".efm";
-      if (QFileInfo::exists(efm_path)) {
+      if (has_efm_sidecar) {
         source_params["efm_path"] = efm_path.toStdString();
       }
     } else {
@@ -1571,8 +1666,7 @@ void MainWindow::quickProject(const QString& filename) {
       if (QFileInfo::exists(pcm_path)) {
         source_params["pcm_path"] = pcm_path.toStdString();
       }
-      QString efm_path = base_path + ".efm";
-      if (QFileInfo::exists(efm_path)) {
+      if (has_efm_sidecar) {
         source_params["efm_path"] = efm_path.toStdString();
       }
     }
@@ -1588,12 +1682,8 @@ void MainWindow::quickProject(const QString& filename) {
     }
     ORC_LOG_INFO("Source stage parameters set successfully");
 
-    ORC_LOG_INFO("Connecting source stage to sink stage");
-    try {
-      project_.presenter()->addEdge(source_node_id, sink_node_id);
-    } catch (const std::exception& e) {
-      QMessageBox::critical(
-          this, "Error", QString("Failed to connect stages: %1").arg(e.what()));
+    if (!build_downstream(source_node_id, grid_offset_x, grid_offset_y,
+                          has_efm_sidecar)) {
       return;
     }
   } else {
@@ -1613,18 +1703,6 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
 
-      ORC_LOG_INFO("Adding video sink stage");
-      orc::NodeID sink_node_id;
-      try {
-        sink_node_id = project_.presenter()->addNode(
-            "video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
-      } catch (const std::exception& e) {
-        QMessageBox::critical(
-            this, "Error",
-            QString("Failed to add sink stage: %1").arg(e.what()));
-        return;
-      }
-
       std::map<std::string, orc::ParameterValue> source_params;
       source_params["input_path"] = primary_file;
 
@@ -1639,13 +1717,12 @@ void MainWindow::quickProject(const QString& filename) {
       }
       ORC_LOG_INFO("CVBS source stage parameters set successfully");
 
-      ORC_LOG_INFO("Connecting CVBS source stage to sink stage");
-      try {
-        project_.presenter()->addEdge(source_node_id, sink_node_id);
-      } catch (const std::exception& e) {
-        QMessageBox::critical(
-            this, "Error",
-            QString("Failed to connect stages: %1").arg(e.what()));
+      // The CVBS source auto-loads its EFM sidecar from the .efm.meta index
+      // (plus .efm data) alongside the source file.
+      const bool has_efm_sidecar = QFileInfo::exists(base_path + ".efm.meta") &&
+                                   QFileInfo::exists(base_path + ".efm");
+      if (!build_downstream(source_node_id, grid_offset_x, grid_offset_y,
+                            has_efm_sidecar)) {
         return;
       }
     } else {
@@ -1665,18 +1742,6 @@ void MainWindow::quickProject(const QString& filename) {
         return;
       }
 
-      ORC_LOG_INFO("Adding video sink stage");
-      orc::NodeID sink_node_id;
-      try {
-        sink_node_id = project_.presenter()->addNode(
-            "video_sink", grid_offset_x + grid_spacing_x, grid_offset_y);
-      } catch (const std::exception& e) {
-        QMessageBox::critical(
-            this, "Error",
-            QString("Failed to add sink stage: %1").arg(e.what()));
-        return;
-      }
-
       std::map<std::string, orc::ParameterValue> yc_params;
       yc_params["y_path"] = y_file;
       yc_params["c_path"] = c_file;
@@ -1691,13 +1756,12 @@ void MainWindow::quickProject(const QString& filename) {
       }
       ORC_LOG_INFO("CVBS YC source stage parameters set successfully");
 
-      ORC_LOG_INFO("Connecting CVBS YC source stage to sink stage");
-      try {
-        project_.presenter()->addEdge(source_node_id, sink_node_id);
-      } catch (const std::exception& e) {
-        QMessageBox::critical(
-            this, "Error",
-            QString("Failed to connect stages: %1").arg(e.what()));
+      // The CVBS source derives its EFM sidecar from the Y file's base name;
+      // that resolves to <base>.efm.meta / <base>.efm alongside the source.
+      const bool has_efm_sidecar = QFileInfo::exists(base_path + ".efm.meta") &&
+                                   QFileInfo::exists(base_path + ".efm");
+      if (!build_downstream(source_node_id, grid_offset_x, grid_offset_y,
+                            has_efm_sidecar)) {
         return;
       }
     }

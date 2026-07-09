@@ -168,10 +168,13 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
         has_efm_(has_efm),
         has_ac3_(has_ac3),
         is_yc_(!c_path_.empty()) {
-    // Pre-compute per-frame audio offsets from field metadata, then resample
-    // for NTSC/PAL_M.
+    // Pre-compute per-frame audio and EFM offsets from field metadata (cheap,
+    // metadata-only, no disk I/O).  The NTSC/PAL_M audio resample is deferred
+    // to first audio access (see ensure_ntsc_palM_audio) so it never runs on
+    // the source-execute / preview hot path — doing it eagerly here read the
+    // whole PCM and ran a full SoXR HQ pass, stalling the render worker on long
+    // NTSC sources even though video preview never needs audio (issue #209).
     compute_audio_offsets();
-    compute_ntsc_palM_audio();
     compute_efm_offsets();
   }
 
@@ -342,6 +345,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
 
     if (video_params_.system != VideoSystem::PAL) {
       // NTSC/PAL_M: fixed 1470 stereo pairs per frame after resampling.
+      ensure_ntsc_palM_audio();
       if (idx < resampled_audio_frames_.size() &&
           !resampled_audio_frames_[idx].empty()) {
         return static_cast<uint32_t>(resampled_audio_frames_[idx].size() / 2);
@@ -360,6 +364,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
 
     if (video_params_.system != VideoSystem::PAL) {
       // NTSC/PAL_M: return pre-resampled block.
+      ensure_ntsc_palM_audio();
       if (idx < resampled_audio_frames_.size()) {
         return resampled_audio_frames_[idx];
       }
@@ -767,21 +772,30 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     audio_total_raw_pairs_ = cumulative;
   }
 
-  // NTSC/PAL_M only: read the entire raw PCM, resample to the frame-locked
-  // rate (44100000/1001 Hz), and cache per-frame 1470-pair blocks.
-  // PAL audio (44100 Hz = locked rate) bypasses this entirely.
-  void compute_ntsc_palM_audio() {
-    if (!has_audio_) return;
-    if (video_params_.system == VideoSystem::PAL) return;  // PAL: no resampling
+  // NTSC/PAL_M only: lazily read the entire raw PCM, resample to the
+  // frame-locked rate (44100000/1001 Hz), and cache per-frame 1470-pair
+  // blocks.  PAL audio (44100 Hz = locked rate) bypasses this entirely.
+  //
+  // Runs at most once, on the first audio access, rather than in the
+  // constructor: it reads the whole PCM (hundreds of MB for a feature-length
+  // disc) and runs a full SoXR HQ pass, so doing it eagerly stalled the render
+  // worker on every source execute of a long NTSC source — even for video
+  // preview, which never needs audio (issue #209).  Only the audio / video
+  // (with embedded audio) sinks reach this.  Thread-safe: audio accessors are
+  // const and may be called concurrently.
+  void ensure_ntsc_palM_audio() const {
+    std::call_once(ntsc_audio_once_, [this] {
+      if (!has_audio_) return;
+      if (video_params_.system == VideoSystem::PAL) return;  // no resampling
+      if (audio_total_raw_pairs_ == 0) return;
 
-    if (audio_total_raw_pairs_ == 0) return;
+      const std::vector<int16_t> raw =
+          deps_->read_audio_samples_at(pcm_path_, 0, audio_total_raw_pairs_);
+      if (raw.empty()) return;
 
-    const std::vector<int16_t> raw =
-        deps_->read_audio_samples_at(pcm_path_, 0, audio_total_raw_pairs_);
-    if (raw.empty()) return;
-
-    resampled_audio_frames_ =
-        NtscPalMAudioResampler::resample_and_segment(raw, frame_count());
+      resampled_audio_frames_ =
+          NtscPalMAudioResampler::resample_and_segment(raw, frame_count());
+    });
   }
 
   // Pre-compute cumulative per-frame EFM byte offsets from the per-field
@@ -844,7 +858,9 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   std::vector<size_t> efm_frame_byte_counts_;
 
   // NTSC/PAL_M: per-frame resampled audio blocks (1470 stereo pairs each).
-  std::vector<std::vector<int16_t>> resampled_audio_frames_;
+  // Populated lazily by ensure_ntsc_palM_audio() on first audio access.
+  mutable std::once_flag ntsc_audio_once_;
+  mutable std::vector<std::vector<int16_t>> resampled_audio_frames_;
 
   static constexpr size_t kFrameCacheSize = 150;
   mutable LRUCache<FrameID, CachedFrame> frame_cache_{kFrameCacheSize};

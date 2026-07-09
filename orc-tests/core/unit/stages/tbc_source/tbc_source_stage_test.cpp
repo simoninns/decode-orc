@@ -126,6 +126,33 @@ static std::vector<uint16_t> make_blanking_field(int32_t sample_count) {
                                static_cast<uint16_t>(16384));
 }
 
+// Build a minimal NTSC TBCVideoParams (audio on NTSC is resampled; PAL is not).
+static orc::TBCVideoParams make_ntsc_video_params(int32_t num_fields = 2) {
+  orc::TBCVideoParams tvp;
+  tvp.system = orc::VideoSystem::NTSC;
+  tvp.number_of_fields = num_fields;
+  tvp.field_width = orc::kNtscSamplesPerLine;                        // 910
+  tvp.field1_height = orc::kNtscField1Lines;                         // 263
+  tvp.field2_height = orc::kNtscFrameLines - orc::kNtscField1Lines;  // 262
+  tvp.blanking_16b = 16384;
+  tvp.white_16b = 54400;
+  return tvp;
+}
+
+// Build NTSC TBCFieldMeta entries, optionally carrying a per-field audio pair
+// count so the source exposes lockable audio.
+static std::vector<orc::TBCFieldMeta> make_ntsc_field_meta(
+    int32_t num_fields, int32_t audio_pairs_per_field) {
+  std::vector<orc::TBCFieldMeta> meta(static_cast<size_t>(num_fields));
+  for (int i = 0; i < num_fields; ++i) {
+    meta[static_cast<size_t>(i)].field_phase_id = (i % 4) + 1;
+    if (audio_pairs_per_field > 0) {
+      meta[static_cast<size_t>(i)].audio_sample_count = audio_pairs_per_field;
+    }
+  }
+  return meta;
+}
+
 // ===========================================================================
 // Parameter descriptor tests
 // ===========================================================================
@@ -589,6 +616,75 @@ TEST(TBCSourceStageTest, OutputVFR_NoEFM_WhenEfmFileButMetadataCountsAbsent) {
       dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
   ASSERT_NE(vfr, nullptr);
   EXPECT_FALSE(vfr->has_efm());
+}
+
+// ===========================================================================
+// NTSC/PAL_M audio resample is deferred (issue #209)
+// ===========================================================================
+
+// Building the source representation is the video-preview / getAvailableOutputs
+// hot path and never needs audio.  The NTSC/PAL_M resample reads the whole PCM
+// and runs a full SoXR pass, so doing it eagerly during execute() stalled the
+// render worker for minutes on long NTSC sources ("stuck on rendering").  It
+// must be deferred to the first audio access.
+TEST(TBCSourceStageTest, NtscAudio_ResampleDeferredUntilFirstAudioAccess) {
+  auto deps = std::make_shared<NiceMock<MockTBCSourceStageDeps>>();
+  orc::TBCSourceStage stage(deps);
+  orc::ObservationContext ctx;
+
+  constexpr int32_t kNumFields = 4;        // two frames
+  constexpr int32_t kPairsPerField = 735;  // ~NTSC audio pairs per field
+  constexpr size_t kTotalPairs =
+      static_cast<size_t>(kNumFields) * kPairsPerField;
+
+  ON_CALL(*deps, validate_input_file(_, _)).WillByDefault(Return(true));
+  ON_CALL(*deps, load_video_params(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return std::optional<orc::TBCVideoParams>{
+            make_ntsc_video_params(kNumFields)};
+      });
+  ON_CALL(*deps, load_all_field_meta(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return make_ntsc_field_meta(kNumFields, kPairsPerField);
+      });
+  ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(true));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+
+  // Building the representation must not read the PCM.
+  EXPECT_CALL(*deps, read_audio_samples_at(_, _, _)).Times(0);
+
+  const auto outputs =
+      stage.execute({},
+                    {{"input_path", std::string("/tmp/test.tbc")},
+                     {"pcm_path", std::string("/tmp/test.pcm")}},
+                    ctx);
+
+  ASSERT_EQ(outputs.size(), 1u);
+  auto* vfr =
+      dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
+  ASSERT_NE(vfr, nullptr);
+  // audio_locked() is a cheap flag query — it must not trigger the resample.
+  EXPECT_TRUE(vfr->audio_locked());
+
+  // The eager read would have fired by now; confirm it did not, then arm the
+  // expectation for the deferred, one-shot read.
+  ::testing::Mock::VerifyAndClearExpectations(deps.get());
+
+  // First audio access reads the entire PCM exactly once and resamples it.
+  EXPECT_CALL(*deps, read_audio_samples_at("/tmp/test.pcm", 0u, kTotalPairs))
+      .Times(1)
+      .WillOnce([](const std::string&, size_t, size_t count) {
+        return std::vector<int16_t>(count * 2, 0);
+      });
+
+  const auto samples0 = vfr->get_audio_samples(0);
+  EXPECT_FALSE(samples0.empty());
+
+  // A second access reuses the cached resample — no further PCM reads (the
+  // Times(1) expectation above would fail otherwise).
+  const auto samples1 = vfr->get_audio_samples(1);
+  EXPECT_FALSE(samples1.empty());
 }
 
 }  // namespace orc_unit_test

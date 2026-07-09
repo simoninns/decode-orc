@@ -14,6 +14,8 @@ Frame sizes after assembly: PAL frames contain 709,379 samples; NTSC frames cont
 
 For Y/C inputs the stage validates colour-frame phase alignment between the luma and chroma files at open time and rejects misaligned pairs. NTSC-J sources with a non-standard black level are detected automatically from the metadata and the remapping is adjusted accordingly. Associated audio (`.pcm`), EFM disc data (`.efm`), and AC3 RF (`.ac3sym`) sidecars are attached to each frame if the files are present alongside the primary TBC file.
 
+The raw `.efm` sidecar stores one byte per EFM T-value in field order; the stage locates each frame's T-values using the per-field T-value counts recorded in the `.tbc.db` metadata. (Unlike CVBS captures, TBC captures have no separate `.efm.meta` index — the counts in the video metadata are authoritative.) EFM is therefore exposed to downstream stages, such as the EFM Sink, only when both the `.efm` file exists and the metadata carries T-value counts.
+
 The display name shown in the pipeline is resolved at load time from the detected metadata, for example "PAL TBC Composite" or "NTSC TBC YC".
 
 ## Status Indicator

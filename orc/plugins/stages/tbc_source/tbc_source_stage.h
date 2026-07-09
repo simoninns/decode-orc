@@ -127,16 +127,18 @@ class ITBCSourceStageDeps {
       const std::string& pcm_path, size_t stereo_pair_offset,
       size_t stereo_pair_count) const = 0;
 
-  // EFM: returns true when both .efm binary and .efm.meta SQLite sidecars are
-  // present.
-  virtual bool has_efm_files(const std::string& efm_bin_path,
-                             const std::string& efm_meta_path) const = 0;
+  // EFM: returns true when the raw .efm T-value sidecar exists.  TBC captures
+  // store one byte per EFM T-value in the .efm file in field order; there is
+  // no .efm.meta index sidecar (that is a CVBS-only construct) — per-field
+  // T-value counts come from the TBC metadata (efm_t_values) instead.
+  virtual bool has_efm_file(const std::string& efm_bin_path) const = 0;
 
-  // Read and concatenate EFM t-values for two consecutive fields (forming one
-  // frame).  Returns nullopt when either sidecar is absent.
-  virtual std::optional<std::vector<uint8_t>> read_efm_for_frame(
-      const std::string& efm_bin_path, const std::string& efm_meta_path,
-      int32_t field_seq_no_a, int32_t field_seq_no_b) const = 0;
+  // Read efm_byte_count raw EFM T-value bytes starting at efm_byte_offset from
+  // the .efm sidecar.  Offsets/counts are computed by the caller from the
+  // per-field T-value counts.  Returns empty vector on error.
+  virtual std::vector<uint8_t> read_efm_bytes_at(
+      const std::string& efm_bin_path, size_t efm_byte_offset,
+      size_t efm_byte_count) const = 0;
 
   // AC3 RF symbols: same structure as EFM but for .ac3 / .ac3.meta.
   virtual bool has_ac3_files(const std::string& ac3_bin_path,

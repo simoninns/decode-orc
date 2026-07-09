@@ -150,9 +150,9 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
       std::shared_ptr<ITBCSourceStageDeps> deps,
       std::string tbc_path,  // composite .tbc (or Y .tbc for YC)
       std::string c_path,    // chroma .tbc for YC mode; empty for composite
-      std::string pcm_path, std::string efm_bin_path, std::string efm_meta_path,
-      std::string ac3_bin_path, std::string ac3_meta_path, bool has_audio,
-      bool has_efm, bool has_ac3, ArtifactID artifact_id, Provenance provenance)
+      std::string pcm_path, std::string efm_bin_path, std::string ac3_bin_path,
+      std::string ac3_meta_path, bool has_audio, bool has_efm, bool has_ac3,
+      ArtifactID artifact_id, Provenance provenance)
       : Artifact(std::move(artifact_id), std::move(provenance)),
         video_params_(std::move(video_params)),
         source_params_(std::move(source_params)),
@@ -162,7 +162,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
         c_path_(std::move(c_path)),
         pcm_path_(std::move(pcm_path)),
         efm_bin_path_(std::move(efm_bin_path)),
-        efm_meta_path_(std::move(efm_meta_path)),
         ac3_bin_path_(std::move(ac3_bin_path)),
         ac3_meta_path_(std::move(ac3_meta_path)),
         has_audio_(has_audio),
@@ -173,6 +172,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     // for NTSC/PAL_M.
     compute_audio_offsets();
     compute_ntsc_palM_audio();
+    compute_efm_offsets();
   }
 
   // --------------------------------------------------------------------------
@@ -368,13 +368,21 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // --------------------------------------------------------------------------
   bool has_efm() const override { return has_efm_; }
 
+  uint32_t get_efm_sample_count(FrameID id) const override {
+    if (!has_efm_) return 0;
+    const size_t idx = static_cast<size_t>(id);
+    if (idx >= efm_frame_byte_counts_.size()) return 0;
+    return static_cast<uint32_t>(efm_frame_byte_counts_[idx]);
+  }
+
   std::vector<uint8_t> get_efm_samples(FrameID id) const override {
     if (!has_efm_ || !has_frame(id)) return {};
-    const int32_t fld1 = static_cast<int32_t>(id) * 2;
-    const int32_t fld2 = fld1 + 1;
-    auto result =
-        deps_->read_efm_for_frame(efm_bin_path_, efm_meta_path_, fld1, fld2);
-    return result.value_or(std::vector<uint8_t>{});
+    const size_t idx = static_cast<size_t>(id);
+    if (idx >= efm_frame_offsets_.size()) return {};
+    const size_t byte_offset = efm_frame_offsets_[idx];
+    const size_t byte_count = efm_frame_byte_counts_[idx];
+    if (byte_count == 0) return {};
+    return deps_->read_efm_bytes_at(efm_bin_path_, byte_offset, byte_count);
   }
 
   // --------------------------------------------------------------------------
@@ -765,6 +773,40 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
         NtscPalMAudioResampler::resample_and_segment(raw, frame_count());
   }
 
+  // Pre-compute cumulative per-frame EFM byte offsets from the per-field
+  // T-value counts in the TBC metadata.  Each frame's EFM payload is the two
+  // constituent fields' T-values concatenated; the raw .efm sidecar stores one
+  // byte per T-value in field order, so a frame's byte offset is the running
+  // sum of all preceding fields' counts.  Mirrors compute_audio_offsets().
+  void compute_efm_offsets() {
+    if (!has_efm_) return;
+    const size_t fc = frame_count();
+    efm_frame_offsets_.resize(fc, 0);
+    efm_frame_byte_counts_.resize(fc, 0);
+
+    size_t cumulative = 0;
+    for (size_t frame_idx = 0; frame_idx < fc; ++frame_idx) {
+      const size_t fld1 = frame_idx * 2;
+      const size_t fld2 = fld1 + 1;
+
+      size_t bytes = 0;
+      if (fld1 < field_meta_.size()) {
+        if (const auto& cnt = field_meta_[fld1].efm_t_value_count) {
+          bytes += static_cast<size_t>(*cnt);
+        }
+      }
+      if (fld2 < field_meta_.size()) {
+        if (const auto& cnt = field_meta_[fld2].efm_t_value_count) {
+          bytes += static_cast<size_t>(*cnt);
+        }
+      }
+
+      efm_frame_offsets_[frame_idx] = cumulative;
+      efm_frame_byte_counts_[frame_idx] = bytes;
+      cumulative += bytes;
+    }
+  }
+
   TBCVideoParams video_params_;
   SourceParameters source_params_;
   std::vector<TBCFieldMeta> field_meta_;
@@ -773,7 +815,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   std::string c_path_;
   std::string pcm_path_;
   std::string efm_bin_path_;
-  std::string efm_meta_path_;
   std::string ac3_bin_path_;
   std::string ac3_meta_path_;
   bool has_audio_ = false;
@@ -785,6 +826,11 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   std::vector<size_t> audio_frame_offsets_;
   std::vector<size_t> audio_frame_pair_counts_;
   size_t audio_total_raw_pairs_ = 0;
+
+  // Pre-computed EFM layout (bytes) — cumulative offsets into the raw .efm
+  // sidecar, one entry per frame.
+  std::vector<size_t> efm_frame_offsets_;
+  std::vector<size_t> efm_frame_byte_counts_;
 
   // NTSC/PAL_M: per-frame resampled audio blocks (1470 stereo pairs each).
   std::vector<std::vector<int16_t>> resampled_audio_frames_;
@@ -1059,20 +1105,26 @@ class TBCSourceStageDeps final : public ITBCSourceStageDeps {
     return samples;
   }
 
-  bool has_efm_files(const std::string& efm_bin_path,
-                     const std::string& efm_meta_path) const override {
+  bool has_efm_file(const std::string& efm_bin_path) const override {
     namespace fs = std::filesystem;
     std::error_code ec;
-    return fs::exists(efm_bin_path, ec) && fs::exists(efm_meta_path, ec);
+    return fs::exists(efm_bin_path, ec) &&
+           fs::is_regular_file(efm_bin_path, ec);
   }
 
-  std::optional<std::vector<uint8_t>> read_efm_for_frame(
-      const std::string& /*efm_bin_path*/, const std::string& /*efm_meta_path*/,
-      int32_t /*field_seq_no_a*/, int32_t /*field_seq_no_b*/) const override {
-    // EFM reading from TBC is deferred; the TBC field-level EFM data is
-    // stored per-field in the existing metadata.  Full implementation uses
-    // the TBCAudioEFMHandler; returning empty for now to satisfy the interface.
-    return std::nullopt;
+  std::vector<uint8_t> read_efm_bytes_at(const std::string& efm_bin_path,
+                                         size_t efm_byte_offset,
+                                         size_t efm_byte_count) const override {
+    std::ifstream ifs(efm_bin_path, std::ios::binary);
+    if (!ifs.is_open()) return {};
+    ifs.seekg(static_cast<std::streamoff>(efm_byte_offset), std::ios::beg);
+    if (!ifs.good()) return {};
+    std::vector<uint8_t> bytes(efm_byte_count);
+    ifs.read(reinterpret_cast<char*>(bytes.data()),
+             static_cast<std::streamsize>(efm_byte_count));
+    const size_t bytes_read = static_cast<size_t>(ifs.gcount());
+    if (bytes_read < efm_byte_count) bytes.resize(bytes_read);
+    return bytes;
   }
 
   bool has_ac3_files(const std::string& ac3_bin_path,
@@ -1308,9 +1360,16 @@ std::vector<ArtifactPtr> TBCSourceStage::execute(
   const int32_t frame_count = tvp.number_of_fields / 2;
   const bool has_audio =
       !sc.pcm_path.empty() && deps_->has_audio_file(sc.pcm_path);
-  const std::string efm_meta = sc.efm_path.empty() ? "" : sc.efm_path + ".meta";
-  const bool has_efm =
-      !sc.efm_path.empty() && deps_->has_efm_files(sc.efm_path, efm_meta);
+  // TBC EFM: the raw .efm sidecar holds one byte per T-value; per-field
+  // T-value counts come from the TBC metadata (there is no .efm.meta index —
+  // that sidecar is CVBS-only).  EFM is available only when the .efm file
+  // exists and the metadata carries at least one field T-value count.
+  const bool metadata_has_efm = std::any_of(
+      field_meta.begin(), field_meta.end(), [](const TBCFieldMeta& fm) {
+        return fm.efm_t_value_count.has_value() && *fm.efm_t_value_count > 0;
+      });
+  const bool has_efm = !sc.efm_path.empty() &&
+                       deps_->has_efm_file(sc.efm_path) && metadata_has_efm;
   const std::string ac3_meta = sc.ac3_path.empty() ? "" : sc.ac3_path + ".meta";
   const bool has_ac3 =
       !sc.ac3_path.empty() && deps_->has_ac3_files(sc.ac3_path, ac3_meta);
@@ -1322,7 +1381,7 @@ std::vector<ArtifactPtr> TBCSourceStage::execute(
   auto repr = std::make_shared<TBCDecodedFrameRepresentation>(
       tvp, src_params, std::move(field_meta), deps_, tbc_path,
       is_yc ? c_path : std::string{}, has_audio ? sc.pcm_path : std::string{},
-      has_efm ? sc.efm_path : std::string{}, has_efm ? efm_meta : std::string{},
+      has_efm ? sc.efm_path : std::string{},
       has_ac3 ? sc.ac3_path : std::string{}, has_ac3 ? ac3_meta : std::string{},
       has_audio, has_efm, has_ac3, ArtifactID{}, Provenance{});
 

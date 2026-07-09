@@ -18,6 +18,7 @@
 #include <orc/stage/node_type.h>
 #include <orc/stage/observation_context.h>
 
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -72,15 +73,12 @@ class MockTBCSourceStageDeps : public orc::ITBCSourceStageDeps {
                size_t stereo_pair_count),
               (const, override));
 
-  MOCK_METHOD(bool, has_efm_files,
-              (const std::string& efm_bin_path,
-               const std::string& efm_meta_path),
+  MOCK_METHOD(bool, has_efm_file, (const std::string& efm_bin_path),
               (const, override));
 
-  MOCK_METHOD(std::optional<std::vector<uint8_t>>, read_efm_for_frame,
-              (const std::string& efm_bin_path,
-               const std::string& efm_meta_path, int32_t field_seq_no_a,
-               int32_t field_seq_no_b),
+  MOCK_METHOD(std::vector<uint8_t>, read_efm_bytes_at,
+              (const std::string& efm_bin_path, size_t efm_byte_offset,
+               size_t efm_byte_count),
               (const, override));
 
   MOCK_METHOD(bool, has_ac3_files,
@@ -276,7 +274,7 @@ TEST(TBCSourceStageTest, Execute_ThrowsUserDataErrorWhenMetadataFails) {
         return std::optional<orc::TBCVideoParams>{};
       });
   EXPECT_CALL(*deps, has_audio_file(_)).WillRepeatedly(Return(false));
-  EXPECT_CALL(*deps, has_efm_files(_, _)).WillRepeatedly(Return(false));
+  EXPECT_CALL(*deps, has_efm_file(_)).WillRepeatedly(Return(false));
   EXPECT_CALL(*deps, has_ac3_files(_, _)).WillRepeatedly(Return(false));
 
   EXPECT_THROW(
@@ -303,7 +301,7 @@ TEST(TBCSourceStageTest,
         return make_pal_field_meta(2);
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_efm_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
 
   const auto outputs =
@@ -328,7 +326,7 @@ TEST(TBCSourceStageTest, Execute_DisplayNameSetToPALTBCCompositeAfterLoad) {
         return make_pal_field_meta(2);
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_efm_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
 
   stage.execute({}, {{"input_path", std::string("/tmp/test.tbc")}}, ctx);
@@ -358,7 +356,7 @@ TEST(TBCSourceStageTest, OutputIsVFR_FrameCountIsFieldCountDividedByTwo) {
         return make_pal_field_meta(kNumFields);
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_efm_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
 
   const auto outputs =
@@ -393,7 +391,7 @@ TEST(TBCSourceStageTest, OutputVFR_GetFrameLazilyAssemblesFromMockedDeps) {
         return make_pal_field_meta(2);
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_efm_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
 
   // Expect read_field_samples for TBC fields 0 and 1 (frame 0).
@@ -482,6 +480,115 @@ TEST(TBCSourceStageStatusTest,
   params["c_path"] = std::string("/path/to/video_c.tbc");
   EXPECT_TRUE(stage.set_parameters(params));
   EXPECT_EQ(stage.get_configuration_status(), orc::ConfigurationStatus::Green);
+}
+
+// ===========================================================================
+// EFM sidecar loading (issue #210)
+// ===========================================================================
+
+// A TBC source with a raw .efm sidecar (no .efm.meta index — that is CVBS-only)
+// must expose EFM data.  Per-field T-value counts come from the TBC metadata;
+// the .efm file stores one byte per T-value in field order.
+TEST(TBCSourceStageTest, OutputVFR_ExposesEFM_WhenEfmFileAndMetadataCountsSet) {
+  auto deps = std::make_shared<NiceMock<MockTBCSourceStageDeps>>();
+  orc::TBCSourceStage stage(deps);
+  orc::ObservationContext ctx;
+
+  constexpr int32_t kNumFields = 4;  // two frames
+  // Per-field T-value counts: frame 0 = fields 0+1 = 10+5 = 15 bytes @ off 0;
+  //                           frame 1 = fields 2+3 = 8+3 = 11 bytes @ off 15.
+  const std::array<int32_t, 4> kCounts = {10, 5, 8, 3};
+
+  ON_CALL(*deps, validate_input_file(_, _)).WillByDefault(Return(true));
+  ON_CALL(*deps, load_video_params(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return std::optional<orc::TBCVideoParams>{
+            make_pal_video_params(kNumFields)};
+      });
+  ON_CALL(*deps, load_all_field_meta(_, _))
+      .WillByDefault([kCounts](const std::string&, std::string&) {
+        auto meta = make_pal_field_meta(kNumFields);
+        for (size_t i = 0; i < meta.size(); ++i) {
+          meta[i].efm_t_value_count = kCounts[i];
+        }
+        return meta;
+      });
+  ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(true));
+  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+
+  // Return a synthetic payload that encodes the requested (offset, count) so
+  // the test can assert both the byte range and the concatenation.
+  ON_CALL(*deps, read_efm_bytes_at(_, _, _))
+      .WillByDefault([](const std::string&, size_t offset, size_t count) {
+        std::vector<uint8_t> bytes(count);
+        for (size_t i = 0; i < count; ++i) {
+          bytes[i] = static_cast<uint8_t>((offset + i) & 0xFF);
+        }
+        return bytes;
+      });
+
+  const auto outputs =
+      stage.execute({},
+                    {{"input_path", std::string("/tmp/test.tbc")},
+                     {"efm_path", std::string("/tmp/test.efm")}},
+                    ctx);
+
+  ASSERT_EQ(outputs.size(), 1u);
+  const auto* vfr =
+      dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_efm());
+
+  // Per-frame T-value counts must be reported (EFM Sink sums these to size its
+  // buffer; a zero here is what regressed as "no EFM t-values found").
+  EXPECT_EQ(vfr->get_efm_sample_count(0), 15u);
+  EXPECT_EQ(vfr->get_efm_sample_count(1), 11u);
+
+  // Frame 0: 15 bytes starting at offset 0.
+  const auto frame0 = vfr->get_efm_samples(0);
+  ASSERT_EQ(frame0.size(), 15u);
+  EXPECT_EQ(frame0.front(), 0u);
+  EXPECT_EQ(frame0.back(), 14u);
+
+  // Frame 1: 11 bytes starting at offset 15 (sum of frame 0's field counts).
+  const auto frame1 = vfr->get_efm_samples(1);
+  ASSERT_EQ(frame1.size(), 11u);
+  EXPECT_EQ(frame1.front(), 15u);
+  EXPECT_EQ(frame1.back(), 25u);
+}
+
+// When the .efm file exists but the metadata carries no T-value counts, EFM is
+// unavailable — there is no way to index the raw stream without counts.
+TEST(TBCSourceStageTest, OutputVFR_NoEFM_WhenEfmFileButMetadataCountsAbsent) {
+  auto deps = std::make_shared<NiceMock<MockTBCSourceStageDeps>>();
+  orc::TBCSourceStage stage(deps);
+  orc::ObservationContext ctx;
+
+  ON_CALL(*deps, validate_input_file(_, _)).WillByDefault(Return(true));
+  ON_CALL(*deps, load_video_params(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return std::optional<orc::TBCVideoParams>{make_pal_video_params(2)};
+      });
+  ON_CALL(*deps, load_all_field_meta(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return make_pal_field_meta(2);  // no efm_t_value_count set
+      });
+  ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(true));
+  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+
+  const auto outputs =
+      stage.execute({},
+                    {{"input_path", std::string("/tmp/test.tbc")},
+                     {"efm_path", std::string("/tmp/test.efm")}},
+                    ctx);
+
+  ASSERT_EQ(outputs.size(), 1u);
+  const auto* vfr =
+      dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_FALSE(vfr->has_efm());
 }
 
 }  // namespace orc_unit_test

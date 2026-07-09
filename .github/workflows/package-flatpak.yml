@@ -89,15 +89,32 @@ jobs:
         shell: bash
         run: |
           mkdir -p flatpak-build flatpak-repo
-          
-          flatpak-builder \
-            --repo=flatpak-repo \
-            --force-clean \
-            --ccache \
-            --install-deps-from=flathub \
-            --default-branch=stable \
-            flatpak-build \
-            io.github.simoninns.decode-orc.yml
+
+          # Source downloads pull from third-party hosts (e.g. code.videolan.org
+          # for x264) that intermittently reset connections. Retry the build so a
+          # transient network failure does not fail the whole job; flatpak-builder
+          # caches successfully fetched sources under .flatpak-builder, so each
+          # retry only re-fetches what previously failed.
+          attempts=3
+          for attempt in $(seq 1 "$attempts"); do
+            echo "flatpak-builder attempt ${attempt}/${attempts}"
+            if flatpak-builder \
+              --repo=flatpak-repo \
+              --force-clean \
+              --ccache \
+              --install-deps-from=flathub \
+              --default-branch=stable \
+              flatpak-build \
+              io.github.simoninns.decode-orc.yml; then
+              exit 0
+            fi
+            if [[ "$attempt" -lt "$attempts" ]]; then
+              echo "flatpak-builder failed; retrying in 30s..." >&2
+              sleep 30
+            fi
+          done
+          echo "flatpak-builder failed after ${attempts} attempts" >&2
+          exit 1
 
       - name: Export Flatpak bundle
         shell: bash

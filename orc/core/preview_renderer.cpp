@@ -358,8 +358,23 @@ std::vector<PreviewOutputInfo> PreviewRenderer::get_available_outputs(
         return build_outputs_from_options(node_id, *node_it, options);
       }
 
+      // Fallback: stages that do not expose their own preview functionality
+      // (or whose capability is not yet valid) default to the SDK preview
+      // helper.  Render a pass-through preview from the VFR available at this
+      // node — for sink nodes the frame renderer transparently substitutes the
+      // upstream node's output, so no per-plugin boilerplate is required.
+      if (frame_renderer_) {
+        auto vfr_result = frame_renderer_->render_frame_at_node(
+            node_id, static_cast<FrameID>(0));
+        if (vfr_result.is_valid && vfr_result.representation) {
+          auto options = PreviewHelpers::get_standard_preview_options(
+              vfr_result.representation);
+          return build_outputs_from_options(node_id, *node_it, options);
+        }
+      }
+
       if (node_type == NodeType::SINK) {
-        ORC_LOG_DEBUG("Sink node '{}' does not support preview",
+        ORC_LOG_DEBUG("Sink node '{}' has no VFR available for preview",
                       node_id.to_string());
         return outputs;
       }
@@ -453,6 +468,22 @@ PreviewRenderResult PreviewRenderer::render_output(const NodeID& node_id,
         result.success = result.image.is_valid();
         if (result.success) render_dropouts(result.image);
         return result;
+      }
+
+      // Fallback: stages without their own preview functionality default to the
+      // SDK preview helper.  Render a pass-through preview from the VFR
+      // available at this node (for sink nodes the frame renderer substitutes
+      // the upstream node's output).
+      if (frame_renderer_) {
+        auto vfr_result = frame_renderer_->render_frame_at_node(
+            node_id, static_cast<FrameID>(0));
+        if (vfr_result.is_valid && vfr_result.representation) {
+          result.image = PreviewHelpers::render_standard_preview(
+              vfr_result.representation, option_id, index, hint);
+          result.success = result.image.is_valid();
+          if (result.success) render_dropouts(result.image);
+          return result;
+        }
       }
     }
   }

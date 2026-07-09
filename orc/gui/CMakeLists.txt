@@ -106,6 +106,8 @@ set(ORC_GUI_LIB_SOURCES
     plotwidget.cpp
     plotwidget.h
     theme_color_tokens.h
+    theme_controller.cpp
+    theme_controller.h
     theme_manager.cpp
     theme_manager.h
     

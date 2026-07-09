@@ -18,6 +18,7 @@
 #include <QPainter>
 #include <QPalette>
 #include <QPixmap>
+#include <QSettings>
 #include <QSplashScreen>
 #include <QStandardPaths>
 #include <QStyle>
@@ -30,9 +31,8 @@
 #include "crash_handler.h"
 #include "logging.h"
 #include "mainwindow.h"
-#include "plotwidget.h"
 #include "project_presenter.h"  // For initCoreLogging
-#include "theme_manager.h"
+#include "theme_controller.h"
 #include "version.h"
 
 namespace fs = std::filesystem;
@@ -111,93 +111,6 @@ std::shared_ptr<spdlog::logger> get_gui_logger() {
 void reset_gui_logger() { g_gui_logger.reset(); }
 
 }  // namespace orc
-
-// Apply dark or light palette to the application
-void applySystemTheme(QApplication& app, bool isDark) {
-  if (isDark) {
-    // Dark theme palette
-    QPalette darkPalette;
-
-    // Base colors
-    QColor darkGray(53, 53, 53);
-    QColor darkerGray(42, 42, 42);
-    QColor darkestGray(25, 25, 25);
-    QColor lightGray(200, 200, 200);
-    QColor blue(42, 130, 218);
-
-    darkPalette.setColor(QPalette::Window, darkGray);
-    darkPalette.setColor(QPalette::WindowText, Qt::white);
-    darkPalette.setColor(QPalette::Base, darkestGray);
-    darkPalette.setColor(QPalette::AlternateBase, darkGray);
-    darkPalette.setColor(QPalette::ToolTipBase, darkGray);
-    darkPalette.setColor(QPalette::ToolTipText, Qt::white);
-    darkPalette.setColor(QPalette::Text, Qt::white);
-    darkPalette.setColor(QPalette::Button, darkGray);
-    darkPalette.setColor(QPalette::ButtonText, Qt::white);
-    darkPalette.setColor(QPalette::BrightText, Qt::red);
-    darkPalette.setColor(QPalette::Link, blue);
-    darkPalette.setColor(QPalette::Highlight, blue);
-    darkPalette.setColor(QPalette::HighlightedText, Qt::black);
-
-    // Disabled colors
-    darkPalette.setColor(QPalette::Disabled, QPalette::WindowText,
-                         QColor(127, 127, 127));
-    darkPalette.setColor(QPalette::Disabled, QPalette::Text,
-                         QColor(127, 127, 127));
-    darkPalette.setColor(QPalette::Disabled, QPalette::ButtonText,
-                         QColor(127, 127, 127));
-    darkPalette.setColor(QPalette::Disabled, QPalette::Highlight,
-                         QColor(80, 80, 80));
-    darkPalette.setColor(QPalette::Disabled, QPalette::HighlightedText,
-                         QColor(127, 127, 127));
-
-    app.setPalette(darkPalette);
-  } else {
-    // Light theme: use Qt style palette
-    QPalette lightPalette = app.style()->standardPalette();
-    app.setPalette(lightPalette);
-  }
-
-  const QString disabled_menu_text_color =
-      isDark ? "rgb(127, 127, 127)" : "palette(mid)";
-
-  app.setStyleSheet(
-      QString("QMenuBar { background-color: palette(window); color: "
-              "palette(window-text); }"
-              "QMenuBar::item:selected { background-color: palette(highlight); "
-              "color: palette(highlighted-text); }"
-              "QMenuBar::item:disabled { color: %1; }"
-              "QMenu { background-color: palette(window); color: "
-              "palette(window-text); }"
-              "QMenu::item:selected { background-color: palette(highlight); "
-              "color: palette(highlighted-text); }"
-              "QMenu::item:disabled { color: %1; }"
-              "QMessageBox { background-color: palette(window); color: "
-              "palette(window-text); }"
-              "QMessageBox QLabel { color: palette(window-text); }"
-              "QMessageBox QPushButton { background-color: palette(button); "
-              "color: palette(button-text); border: 1px solid palette(mid); "
-              "padding: 4px 12px; border-radius: 3px; min-width: 60px; }"
-              "QMessageBox QPushButton:hover { background-color: "
-              "palette(highlight); color: palette(highlighted-text); }"
-              "QMessageBox QPushButton:pressed { background-color: "
-              "palette(dark); color: palette(button-text); }")
-          .arg(disabled_menu_text_color));
-}
-
-void applyResolvedTheme(QApplication& app,
-                        const ThemeManager::Resolution& resolution) {
-  app.setProperty("isDarkTheme", resolution.isDark);
-  app.setProperty("themeMode", ThemeManager::modeToString(resolution.mode));
-  applySystemTheme(app, resolution.isDark);
-
-  const auto widgets = app.allWidgets();
-  for (QWidget* widget : widgets) {
-    if (auto* plotWidget = qobject_cast<PlotWidget*>(widget)) {
-      plotWidget->updateTheme();
-    }
-  }
-}
 
 // Qt message handler that bridges to spdlog
 void qtMessageHandler(QtMsgType type, const QMessageLogContext& /*context*/,
@@ -316,50 +229,16 @@ int main(int argc, char* argv[]) {
           "ORC_STAGE_PLUGIN_PATHS ignored for this run");
     }
 
-    ThemeManager themeManager(parser.value(themeOption));
-    if (themeManager.hadInvalidMode()) {
-      ORC_LOG_WARN("Unknown --theme value '{}', falling back to auto",
-                   themeManager.invalidMode().toStdString());
+    // Resolve the initial theme mode: an explicit --theme flag wins for this
+    // run, otherwise fall back to the mode last chosen in the GUI (Tools >
+    // Themes), defaulting to auto. The ThemeController applies the theme,
+    // tracks OS colour-scheme changes in auto mode, and lets the GUI override
+    // the mode at runtime.
+    QString initialThemeMode = parser.value(themeOption);
+    if (!parser.isSet(themeOption)) {
+      initialThemeMode = QSettings().value("theme/mode", "auto").toString();
     }
-
-    ThemeManager::Resolution resolution = themeManager.resolve(app);
-    applyResolvedTheme(app, resolution);
-
-    ORC_LOG_INFO(
-        "Theme mode '{}' resolved to '{}' via {}",
-        themeManager.modeName().toStdString(),
-        ThemeManager::colorSchemeToString(resolution.scheme).toStdString(),
-        resolution.source.toStdString());
-    if (resolution.usedPaletteFallback) {
-      ORC_LOG_WARN(
-          "Theme auto-detection fell back to palette heuristic because Qt "
-          "reported unknown color scheme");
-    }
-
-    if (themeManager.shouldTrackSystemChanges() && app.styleHints()) {
-      QObject::connect(
-          app.styleHints(), &QStyleHints::colorSchemeChanged, &app,
-          [&app, &themeManager](Qt::ColorScheme newScheme) {
-            ThemeManager::Resolution updatedResolution =
-                themeManager.resolve(app);
-            applyResolvedTheme(app, updatedResolution);
-            ORC_LOG_INFO(
-                "OS color scheme changed to '{}'; applied '{}' via {}",
-                ThemeManager::colorSchemeToString(newScheme).toStdString(),
-                ThemeManager::colorSchemeToString(updatedResolution.scheme)
-                    .toStdString(),
-                updatedResolution.source.toStdString());
-            if (updatedResolution.usedPaletteFallback) {
-              ORC_LOG_WARN(
-                  "Runtime theme update used palette fallback because Qt "
-                  "reported unknown color scheme");
-            }
-          });
-
-      ORC_LOG_DEBUG("Runtime OS theme tracking enabled (auto mode)");
-    } else {
-      ORC_LOG_DEBUG("Runtime OS theme tracking disabled (forced theme mode)");
-    }
+    ThemeController themeController(app, initialThemeMode);
 
     // Initialize crash handler
     orc::CrashHandlerConfig crash_config;

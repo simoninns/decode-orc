@@ -32,6 +32,7 @@ one processing step; connections between nodes define the data flow.
 | Action | Description |
 |--------|-------------|
 | Plugin Manager... | Open the Plugin Manager to load, inspect, and manage runtime stage plugins. |
+| Themes | Choose the UI theme: Auto (follow the operating system), Dark, or Light. Overrides the `--theme` command-line option and is remembered between runs. |
 
 ## DAG Editor
 

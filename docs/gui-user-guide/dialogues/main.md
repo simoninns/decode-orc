@@ -121,6 +121,15 @@ Opens the Plugin Manager, which lists the registered stage plugins (ID, path, ve
 
 Registry changes take effect on the next application launch; the dialog offers a restart when you close it after making changes.
 
+#### Themes
+
+Chooses the user-interface theme, applied immediately:
+
+* **Auto** follows the operating system's light/dark setting and tracks changes to it while the application is running.
+* **Dark** and **Light** force the respective theme regardless of the OS setting.
+
+The choice overrides the `--theme` command-line option and is remembered between runs.
+
 ---
 
 ### Help Menu

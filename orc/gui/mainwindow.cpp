@@ -40,6 +40,8 @@
 #include "snranalysisdialog.h"
 #include "stage_help_dialog.h"
 #include "stageparameterdialog.h"
+#include "theme_controller.h"
+#include "theme_manager.h"
 #include "vbidialog.h"
 #include "version.h"
 #include "videoparameterobserverdialog.h"
@@ -52,6 +54,7 @@ class Project;
 class ObservationContext;
 }  // namespace orc
 
+#include <QActionGroup>
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -71,6 +74,7 @@ class ObservationContext;
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMoveEvent>
@@ -773,6 +777,39 @@ void MainWindow::setupMenus() {
     orc::PluginManagerDialog dlg(this);
     dlg.exec();
   });
+
+  // Themes submenu: overrides the --theme command-line option at runtime.
+  tools_menu->addSeparator();
+  auto* theme_menu = tools_menu->addMenu("&Themes");
+  auto* theme_group = new QActionGroup(this);
+  theme_group->setExclusive(true);
+
+  const struct {
+    const char* label;
+    ThemeManager::Mode mode;
+  } theme_items[] = {
+      {"&Auto", ThemeManager::Mode::Auto},
+      {"&Dark", ThemeManager::Mode::Dark},
+      {"&Light", ThemeManager::Mode::Light},
+  };
+
+  const ThemeManager::Mode current_mode =
+      ThemeController::instance() ? ThemeController::instance()->mode()
+                                  : ThemeManager::Mode::Auto;
+
+  for (const auto& item : theme_items) {
+    QAction* theme_action = theme_menu->addAction(item.label);
+    theme_action->setCheckable(true);
+    theme_action->setChecked(item.mode == current_mode);
+    theme_group->addAction(theme_action);
+
+    const ThemeManager::Mode mode = item.mode;
+    connect(theme_action, &QAction::triggered, this, [mode]() {
+      if (auto* controller = ThemeController::instance()) {
+        controller->setMode(mode);
+      }
+    });
+  }
 
   // Help menu
   auto* help_menu = menuBar()->addMenu("&Help");

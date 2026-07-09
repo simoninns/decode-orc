@@ -48,3 +48,7 @@ class ThemeManager {
   Mode mode_;
   QString invalidMode_;
 };
+
+// Enable ThemeManager::Mode to travel through QVariant and Qt signal/slot
+// connections (used by ThemeController::modeChanged).
+Q_DECLARE_METATYPE(ThemeManager::Mode)

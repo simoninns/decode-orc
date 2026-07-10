@@ -147,6 +147,7 @@ orc_add_core_unit_tests(
         contracts/project_to_dag_contract_test.cpp
         contracts/plugin_safe_call_test.cpp
         contracts/video_frame_representation_wrapper_contract_test.cpp
+        contracts/audio_track_contract_test.cpp
 )
 
 # ---------------------------------------------------------------------------

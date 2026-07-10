@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <orc/stage/audio_track.h>
 #include <orc/stage/dropout_run.h>
 #include <orc/stage/frame_descriptor.h>
 #include <orc/stage/frame_id.h>
@@ -147,21 +148,59 @@ class VideoFrameRepresentation {
   }
 
   // --------------------------------------------------------------------------
-  // Audio
+  // Audio tracks
   // --------------------------------------------------------------------------
+  // Up to kMaxAudioTracks stereo tracks, identified by index
+  // 0 … audio_track_count() - 1. Track order is stable through the DAG.
+  // Each track is either frame-locked (per-frame accessors) or free-running
+  // (stream accessors) as reported by its AudioTrackDescriptor — see
+  // audio_track.h.
 
-  virtual bool has_audio() const { return false; }
+  // Number of stereo audio tracks (0 = no audio). Max kMaxAudioTracks.
+  virtual size_t audio_track_count() const { return 0; }
 
-  // True when audio is sample-locked to video frames (frame-locked PCM).
-  // False when audio is a free-running WAV stream independent of frame timing.
-  virtual bool audio_locked() const { return false; }
+  // Convenience: true when at least one audio track is present.
+  bool has_audio() const { return audio_track_count() > 0; }
 
-  // Number of stereo int16_t pairs for the given frame.
-  // Meaningful only when audio_locked() is true; returns 0 otherwise.
-  virtual uint32_t get_audio_sample_count(FrameID /*id*/) const { return 0; }
+  // Descriptor for track |track|; nullopt when out of range.
+  virtual std::optional<AudioTrackDescriptor> get_audio_track_descriptor(
+      size_t /*track*/) const {
+    return std::nullopt;
+  }
 
-  // Interleaved stereo int16_t pairs (L, R, L, R, …) for the given frame.
-  virtual std::vector<int16_t> get_audio_samples(FrameID /*id*/) const {
+  // Frame-locked access. Meaningful only when the track's descriptor reports
+  // locked == true; free-running tracks return 0 / {}.
+
+  // Number of stereo int16_t pairs of track |track| for the given frame.
+  virtual uint32_t get_audio_sample_count(size_t /*track*/,
+                                          FrameID /*id*/) const {
+    return 0;
+  }
+
+  // Interleaved stereo int16_t pairs (L, R, L, R, …) of track |track| for the
+  // given frame.
+  virtual std::vector<int16_t> get_audio_samples(size_t /*track*/,
+                                                 FrameID /*id*/) const {
+    return {};
+  }
+
+  // Free-running (stream) access, in stereo pairs. Meaningful only when
+  // locked == false; locked tracks return 0 / {}. Pair 0 is synchronous with
+  // the first sample of this representation's first frame; use
+  // audio_stream_pair_offset() (audio_track.h) to map frame indices to
+  // stream positions.
+
+  // Total number of stereo pairs in track |track|'s stream.
+  virtual uint64_t get_audio_stream_pair_count(size_t /*track*/) const {
+    return 0;
+  }
+
+  // Interleaved stereo int16_t pairs [first_pair, first_pair + pair_count)
+  // of track |track|'s stream; short reads at end-of-stream return fewer
+  // pairs.
+  virtual std::vector<int16_t> get_audio_stream_samples(
+      size_t /*track*/, uint64_t /*first_pair*/,
+      uint32_t /*pair_count*/) const {
     return {};
   }
 
@@ -208,7 +247,11 @@ class VideoFrameRepresentation {
 //      get_frame, has_separate_channels, get_frame_luma, get_frame_chroma,
 //      get_dropout_hints, get_video_parameters, audio / EFM / AC3 accessors.
 //    A stage that remaps frame IDs MUST override every per-frame accessor in
-//    this group so IDs are translated on the way through.
+//    this group so IDs are translated on the way through. For audio that
+//    means the LOCKED per-frame accessors (get_audio_sample_count /
+//    get_audio_samples, per track); the free-running stream accessors
+//    (get_audio_stream_pair_count / get_audio_stream_samples) carry no frame
+//    IDs and forward untouched.
 //
 // 2. Derived accessors — implemented here in terms of this object's own
 //    virtual primitives, never forwarded:
@@ -285,18 +328,30 @@ class VideoFrameRepresentationWrapper : public VideoFrameRepresentation {
   std::optional<SourceParameters> get_video_parameters() const override {
     return source_ ? source_->get_video_parameters() : std::nullopt;
   }
-  // Audio
-  bool has_audio() const override {
-    return source_ ? source_->has_audio() : false;
+  // Audio tracks
+  size_t audio_track_count() const override {
+    return source_ ? source_->audio_track_count() : 0;
   }
-  bool audio_locked() const override {
-    return source_ ? source_->audio_locked() : false;
+  std::optional<AudioTrackDescriptor> get_audio_track_descriptor(
+      size_t track) const override {
+    return source_ ? source_->get_audio_track_descriptor(track) : std::nullopt;
   }
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    return source_ ? source_->get_audio_sample_count(id) : 0;
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override {
+    return source_ ? source_->get_audio_sample_count(track, id) : 0;
   }
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    return source_ ? source_->get_audio_samples(id) : std::vector<int16_t>{};
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override {
+    return source_ ? source_->get_audio_samples(track, id)
+                   : std::vector<int16_t>{};
+  }
+  uint64_t get_audio_stream_pair_count(size_t track) const override {
+    return source_ ? source_->get_audio_stream_pair_count(track) : 0;
+  }
+  std::vector<int16_t> get_audio_stream_samples(
+      size_t track, uint64_t first_pair, uint32_t pair_count) const override {
+    return source_ ? source_->get_audio_stream_samples(track, first_pair,
+                                                       pair_count)
+                   : std::vector<int16_t>{};
   }
 
   // EFM

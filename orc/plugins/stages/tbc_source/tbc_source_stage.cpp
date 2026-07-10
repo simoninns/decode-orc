@@ -9,6 +9,7 @@
 
 #include "tbc_source_stage.h"
 
+#include <orc/stage/audio_track.h>
 #include <orc/stage/cvbs_signal_constants.h>
 #include <orc/stage/dropout_util.h>
 #include <orc/stage/error_types.h>
@@ -333,14 +334,24 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // --------------------------------------------------------------------------
   // Audio
   // --------------------------------------------------------------------------
-  bool has_audio() const override { return has_audio_; }
-
-  // TBC audio is always frame-locked (the PCM file is segmented per-field in
+  // The PCM sidecar is served as a single frame-locked track (track 0); TBC
+  // audio is always frame-locked (the PCM file is segmented per-field in
   // ld-decode metadata).
-  bool audio_locked() const override { return has_audio_; }
+  size_t audio_track_count() const override { return has_audio_ ? 1 : 0; }
 
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    if (!has_audio_ || !has_frame(id)) return 0;
+  std::optional<AudioTrackDescriptor> get_audio_track_descriptor(
+      size_t track) const override {
+    if (!has_audio_ || track != 0) return std::nullopt;
+    AudioTrackDescriptor desc;
+    desc.name = "Analogue";
+    desc.origin = AudioTrackOrigin::ANALOGUE;
+    desc.locked = true;
+    desc.sample_rate = locked_audio_sample_rate(video_params_.system);
+    return desc;
+  }
+
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override {
+    if (track != 0 || !has_audio_ || !has_frame(id)) return 0;
     const size_t idx = static_cast<size_t>(id);
 
     if (video_params_.system != VideoSystem::PAL) {
@@ -358,8 +369,9 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     return static_cast<uint32_t>(audio_frame_pair_counts_[idx]);
   }
 
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    if (!has_audio_ || !has_frame(id)) return {};
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override {
+    if (track != 0 || !has_audio_ || !has_frame(id)) return {};
     const size_t idx = static_cast<size_t>(id);
 
     if (video_params_.system != VideoSystem::PAL) {

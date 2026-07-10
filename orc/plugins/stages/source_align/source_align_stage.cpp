@@ -123,13 +123,15 @@ class AlignedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
     return runs;
   }
 
-  // Per-frame audio / EFM / AC3 must follow the shifted frame IDs.
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    return source_ ? source_->get_audio_sample_count(id + offset_) : 0;
+  // Per-frame (locked) audio / EFM / AC3 must follow the shifted frame IDs;
+  // free-running stream accessors forward untouched via the wrapper base.
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override {
+    return source_ ? source_->get_audio_sample_count(track, id + offset_) : 0;
   }
 
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    return source_ ? source_->get_audio_samples(id + offset_)
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override {
+    return source_ ? source_->get_audio_samples(track, id + offset_)
                    : std::vector<int16_t>{};
   }
 
@@ -278,16 +280,18 @@ class PaddedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
     return runs;
   }
 
-  // Per-frame audio / EFM / AC3 must follow the shifted frame IDs; padding
-  // frames carry no audio, EFM, or AC3 data.
-  uint32_t get_audio_sample_count(FrameID id) const override {
+  // Per-frame (locked) audio / EFM / AC3 must follow the shifted frame IDs;
+  // padding frames carry no audio, EFM, or AC3 data. Free-running stream
+  // accessors forward untouched via the wrapper base.
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override {
     if (id < pad_count_ || !source_) return 0;
-    return source_->get_audio_sample_count(id - pad_count_);
+    return source_->get_audio_sample_count(track, id - pad_count_);
   }
 
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override {
     if (id < pad_count_ || !source_) return {};
-    return source_->get_audio_samples(id - pad_count_);
+    return source_->get_audio_samples(track, id - pad_count_);
   }
 
   uint32_t get_efm_sample_count(FrameID id) const override {

@@ -135,13 +135,19 @@ skipped with a logged diagnostic.
 Controls the binary ABI: the layout of `StagePluginDescriptor`, the entrypoint
 signatures, and the `register_stage` callback contract.
 
-**Current value:** `5`
+**Current value:** `6` (multi-track audio: the `VideoFrameRepresentation`
+single-track audio accessors were replaced by the track-indexed API declared
+in `<orc/stage/audio_track.h>` and
+`<orc/stage/video_frame_representation.h>`, changing the vtable layout — all
+plugins must be rebuilt)
 
 Bumped when any of the following change:
 - `StagePluginDescriptor` field order or alignment
 - Entrypoint function signatures
 - Callback calling convention
 - `IStageServices` gains or loses methods
+- The vtable layout of a contract type crossing the boundary (e.g.
+  `VideoFrameRepresentation`) changes
 
 ### `plugin_api_version`
 

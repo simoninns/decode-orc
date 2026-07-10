@@ -9,6 +9,7 @@
 
 #include "cvbs_source_stage.h"
 
+#include <orc/stage/audio_track.h>
 #include <orc/stage/cvbs_signal_constants.h>
 #include <orc/stage/error_types.h>
 #include <orc/stage/frame_line_util.h>
@@ -297,19 +298,36 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // --------------------------------------------------------------------------
   // Audio
   // --------------------------------------------------------------------------
-  bool has_audio() const override { return has_audio_; }
+  // The _audio_00.wav sidecar is served as a single track (track 0). Only
+  // frame-locked audio is currently readable; free-running sidecars are
+  // reported in the descriptor but the stream accessors are not yet
+  // implemented, so they return the base-class 0 / {}.
+  size_t audio_track_count() const override { return has_audio_ ? 1 : 0; }
 
-  bool audio_locked() const override {
-    return has_audio_ && audio_locked_flag_;
+  std::optional<AudioTrackDescriptor> get_audio_track_descriptor(
+      size_t track) const override {
+    if (!has_audio_ || track != 0) return std::nullopt;
+    AudioTrackDescriptor desc;
+    desc.name = "Track 00";
+    desc.origin = AudioTrackOrigin::UNKNOWN;
+    desc.locked = audio_locked_flag_;
+    desc.sample_rate = audio_locked_flag_ ? locked_audio_sample_rate(system_)
+                                          : kFreeRunningAudioRate;
+    return desc;
   }
 
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    if (!has_audio_ || !audio_locked_flag_ || !has_frame(id)) return 0;
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override {
+    if (track != 0 || !has_audio_ || !audio_locked_flag_ || !has_frame(id)) {
+      return 0;
+    }
     return audio_pairs_per_frame_;
   }
 
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    if (!has_audio_ || !audio_locked_flag_ || !has_frame(id)) return {};
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override {
+    if (track != 0 || !has_audio_ || !audio_locked_flag_ || !has_frame(id)) {
+      return {};
+    }
     const size_t pair_offset = static_cast<size_t>(id) * audio_pairs_per_frame_;
     return deps_->read_audio_samples_at(wav_path_, pair_offset,
                                         audio_pairs_per_frame_);

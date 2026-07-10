@@ -69,14 +69,20 @@ struct OrcPluginServices;
 ///        plugin's tag to equal the host's tag exactly, rejecting binaries
 ///        built with a different compiler family/major version, C++ standard
 ///        library, or (Windows) CRT flavour.
-inline constexpr uint32_t kStagePluginHostAbiVersion = 5;
+///   6 — Multi-track audio: VideoFrameRepresentation's single-track audio
+///        accessors (audio_locked, get_audio_sample_count(FrameID),
+///        get_audio_samples(FrameID)) are replaced by the track-indexed API
+///        (audio_track_count, get_audio_track_descriptor, per-track locked
+///        and free-running stream accessors — see orc/stage/audio_track.h).
+///        The vtable layout change requires all plugins to be rebuilt.
+inline constexpr uint32_t kStagePluginHostAbiVersion = 6;
 
 /// Preprocessor alias for kStagePluginHostAbiVersion.  Allows plugin code to
 /// use conditional compilation:
 ///   #if ORC_SDK_ABI_VERSION >= 4
 ///     // use VideoFrameRepresentation
 ///   #endif
-#define ORC_SDK_ABI_VERSION 5
+#define ORC_SDK_ABI_VERSION 6
 
 static_assert(kStagePluginHostAbiVersion == ORC_SDK_ABI_VERSION,
               "ORC_SDK_ABI_VERSION must be kept in sync with "

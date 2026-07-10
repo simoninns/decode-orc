@@ -1777,11 +1777,11 @@ bool FFmpegOutputBackend::encodeAudioForFrame() {
   // closed-caption extraction that still iterates per field.
   if (current_field_for_audio_ < start_field_index_ + num_fields_) {
     orc::FrameID frame_id = current_field_for_audio_ / 2;
-    auto samples = vfr_->get_audio_samples(frame_id);
+    auto samples = vfr_->get_audio_samples(0, frame_id);
 
     if (samples.empty()) {
       // No audio for this frame — generate silence to maintain A/V sync.
-      uint32_t sample_count = vfr_->get_audio_sample_count(frame_id);
+      uint32_t sample_count = vfr_->get_audio_sample_count(0, frame_id);
       if (sample_count == 0) {
         auto video_params = vfr_->get_video_parameters();
         if (video_params) {

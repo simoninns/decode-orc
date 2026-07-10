@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -78,11 +79,15 @@ class StackedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
   // Hints — after stacking only residual dropouts remain
   std::vector<DropoutRun> get_dropout_hints(FrameID id) const override;
 
-  // Audio — see design §11.4 and stacker parameter audio_locked semantics
-  bool has_audio() const override;
-  bool audio_locked() const override;
-  uint32_t get_audio_sample_count(FrameID id) const override;
-  std::vector<int16_t> get_audio_samples(FrameID id) const override;
+  // Audio — track count and descriptors come from the first source carrying
+  // audio; locked track 0 is stacked per the audio_stacking parameter (see
+  // design §11.4)
+  size_t audio_track_count() const override;
+  std::optional<AudioTrackDescriptor> get_audio_track_descriptor(
+      size_t track) const override;
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override;
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override;
 
   // EFM
   bool has_efm() const override;

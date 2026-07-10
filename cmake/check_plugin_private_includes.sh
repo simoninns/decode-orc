@@ -58,6 +58,7 @@ SDK_ALLOWLIST=(
     "orc/stage/artifact.h"
     "orc/stage/analysis_sink_results.h"
     # Frame / signal model
+    "orc/stage/audio_track.h"
     "orc/stage/video_frame_representation.h"
     "orc/stage/video_metadata_types.h"
     "orc/stage/frame_descriptor.h"

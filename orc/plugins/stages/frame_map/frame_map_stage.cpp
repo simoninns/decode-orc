@@ -221,19 +221,24 @@ std::vector<DropoutRun> FrameMappedRepresentation::get_dropout_hints(
   return runs;
 }
 
-uint32_t FrameMappedRepresentation::get_audio_sample_count(FrameID id) const {
+uint32_t FrameMappedRepresentation::get_audio_sample_count(size_t track,
+                                                           FrameID id) const {
   auto idx = resolve_index(id);
   if (!idx || is_padding(*idx)) return 0;
-  return source_ ? source_->get_audio_sample_count(frame_mapping_[*idx]) : 0;
+  return source_ ? source_->get_audio_sample_count(track, frame_mapping_[*idx])
+                 : 0;
 }
 
 std::vector<int16_t> FrameMappedRepresentation::get_audio_samples(
-    FrameID id) const {
+    size_t track, FrameID id) const {
   auto idx = resolve_index(id);
   if (!idx) return {};
   if (is_padding(*idx)) {
-    // Return a silence block matching the expected size from the source
+    // Padding frames get silence only for locked tracks; free-running tracks
+    // have no per-frame samples.
     if (!source_) return {};
+    const auto desc = source_->get_audio_track_descriptor(track);
+    if (!desc || !desc->locked) return {};
     auto params = source_->get_video_parameters();
     if (!params) return {};
     // PAL: 1764 stereo pairs (882 × 2 channels × 2 bytes); NTSC/PAL_M: 1470
@@ -244,7 +249,7 @@ std::vector<int16_t> FrameMappedRepresentation::get_audio_samples(
     }
     return silence_audio_;
   }
-  return source_ ? source_->get_audio_samples(frame_mapping_[*idx])
+  return source_ ? source_->get_audio_samples(track, frame_mapping_[*idx])
                  : std::vector<int16_t>{};
 }
 
@@ -568,12 +573,17 @@ std::vector<ArtifactPtr> FrameMapStage::execute(
   }
 
   // Emit free-running audio observation if applicable
-  if (source->has_audio() && !source->audio_locked() &&
-      (remove_duplicates_ || pad_gaps_)) {
-    ORC_LOG_WARN(
-        "FrameMapStage: audio is free-running (not frame-locked); frame "
-        "manipulation (remove_duplicates/pad_gaps) is applied to video only — "
-        "audio passes unchanged");
+  if (remove_duplicates_ || pad_gaps_) {
+    for (size_t track = 0; track < source->audio_track_count(); ++track) {
+      const auto desc = source->get_audio_track_descriptor(track);
+      if (desc && !desc->locked) {
+        ORC_LOG_WARN(
+            "FrameMapStage: audio track {} is free-running (not "
+            "frame-locked); frame manipulation (remove_duplicates/pad_gaps) "
+            "is applied to video only — the track passes unchanged",
+            track);
+      }
+    }
   }
 
   // Pass-through when no ranges and no processing requested

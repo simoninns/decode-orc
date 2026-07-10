@@ -86,16 +86,12 @@ class FrameMappedRepresentation : public VideoFrameRepresentationWrapper,
     return source_ ? source_->get_video_parameters() : std::nullopt;
   }
 
-  // Audio — pass locked audio in lockstep with frame mapping; free-running
-  // audio passes from source unchanged (no frame ID translation needed)
-  bool has_audio() const override {
-    return source_ ? source_->has_audio() : false;
-  }
-  bool audio_locked() const override {
-    return source_ ? source_->audio_locked() : false;
-  }
-  uint32_t get_audio_sample_count(FrameID id) const override;
-  std::vector<int16_t> get_audio_samples(FrameID id) const override;
+  // Audio — locked tracks remap in lockstep with the frame mapping;
+  // track count, descriptors, and free-running stream access forward from
+  // the source via the wrapper base (no frame ID translation needed)
+  uint32_t get_audio_sample_count(size_t track, FrameID id) const override;
+  std::vector<int16_t> get_audio_samples(size_t track,
+                                         FrameID id) const override;
 
   // EFM / AC3
   bool has_efm() const override { return source_ ? source_->has_efm() : false; }

@@ -98,15 +98,17 @@ AudioSinkWriteResult AudioSinkStageDeps::write_audio_wav(
     const VideoFrameRepresentation* representation,
     const std::string& output_path, AudioSinkSampleRateMode sample_rate_mode) {
   // Free-running audio is not accessible per-frame; only locked audio is
-  // available via get_audio_samples(FrameID).
-  if (!representation->audio_locked()) {
+  // available via get_audio_samples(track, FrameID). This sink currently
+  // writes track 0.
+  const auto track_desc = representation->get_audio_track_descriptor(0);
+  if (!track_desc || !track_desc->locked) {
     return {false, 0, "Audio is not locked to frames; cannot export"};
   }
 
   auto frame_rng = representation->frame_range();
   uint64_t total_samples = 0;
   for (FrameID fid = frame_rng.first; fid <= frame_rng.last; ++fid) {
-    total_samples += representation->get_audio_sample_count(fid);
+    total_samples += representation->get_audio_sample_count(0, fid);
   }
 
   if (total_samples == 0) {
@@ -168,7 +170,7 @@ AudioSinkWriteResult AudioSinkStageDeps::write_locked(
       return {false, 0, "Cancelled by user"};
     }
 
-    auto samples = representation->get_audio_samples(fid);
+    auto samples = representation->get_audio_samples(0, fid);
     if (!samples.empty()) {
       writer->write(samples);
       frames_written += samples.size() / 2;
@@ -207,7 +209,7 @@ AudioSinkWriteResult AudioSinkStageDeps::write_free_running(
       return {false, 0, "Cancelled by user"};
     }
 
-    auto samples = representation->get_audio_samples(fid);
+    auto samples = representation->get_audio_samples(0, fid);
     locked_stream.insert(locked_stream.end(), samples.begin(), samples.end());
 
     ++current_frame;

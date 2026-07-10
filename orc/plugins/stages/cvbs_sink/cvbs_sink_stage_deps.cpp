@@ -460,8 +460,9 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
   }
 
   // --- Extension streams (opened only when the input carries the data) ---
-  const bool write_audio =
-      representation->has_audio() && representation->audio_locked();
+  // This sink currently writes audio track 0 only, and only when locked.
+  const auto audio_track_desc = representation->get_audio_track_descriptor(0);
+  const bool write_audio = audio_track_desc && audio_track_desc->locked;
   const bool write_efm = representation->has_efm();
   const bool write_ac3 = representation->has_ac3_rf();
 
@@ -569,7 +570,7 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
     }
 
     if (write_audio) {
-      const auto audio = representation->get_audio_samples(fid);
+      const auto audio = representation->get_audio_samples(0, fid);
       if (!audio.empty()) {
         wav_out.write(
             reinterpret_cast<const char*>(audio.data()),

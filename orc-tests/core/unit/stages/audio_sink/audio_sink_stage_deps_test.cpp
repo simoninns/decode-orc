@@ -30,6 +30,17 @@ orc::SourceParameters make_system_params(orc::VideoSystem system) {
   return params;
 }
 
+// Track-0 descriptor for a frame-locked analogue track (the only kind the
+// audio sink currently writes).
+std::optional<orc::AudioTrackDescriptor> locked_track_descriptor() {
+  orc::AudioTrackDescriptor desc;
+  desc.name = "Analogue";
+  desc.origin = orc::AudioTrackOrigin::ANALOGUE;
+  desc.locked = true;
+  desc.sample_rate = {44100, 1};
+  return desc;
+}
+
 // Reads a little-endian uint32 at the given byte offset from the int16-word
 // stream the deps use to write the RIFF header.
 uint32_t header_u32_at(const std::vector<int16_t>& words, size_t byte_offset) {
@@ -87,17 +98,17 @@ class AudioSinkStageDeps : public ::testing::Test {
 
 TEST_F(AudioSinkStageDeps,
        WriteAudioWav_StreamsHeaderAndSamplesThroughInt16WriterService) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(locked_track_descriptor()));
   // Single-frame range with four locked stereo samples.
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 0))
       .Times(1)
       .WillOnce(Return(4));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 0))
       .Times(1)
       .WillOnce(Return(std::vector<int16_t>{1, -2, 3, -4}));
   // No video parameters available: treated as the standard 44100 Hz rate.
@@ -126,16 +137,16 @@ TEST_F(AudioSinkStageDeps,
 
 TEST_F(AudioSinkStageDeps,
        WriteAudioWav_LockedNtsc_DeclaresLockedRateAndPassesSamplesThrough) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(locked_track_descriptor()));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 0))
       .Times(1)
       .WillOnce(Return(4));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 0))
       .Times(1)
       .WillOnce(Return(std::vector<int16_t>{1, -2, 3, -4}));
   EXPECT_CALL(mockRepresentation_, get_video_parameters())
@@ -166,22 +177,22 @@ TEST_F(AudioSinkStageDeps,
   constexpr uint32_t kPairsPerFrame = 1470;
   std::vector<int16_t> frame_block(kPairsPerFrame * 2, 100);
 
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(locked_track_descriptor()));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 1}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 0))
       .Times(1)
       .WillOnce(Return(kPairsPerFrame));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(1))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 1))
       .Times(1)
       .WillOnce(Return(kPairsPerFrame));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 0))
       .Times(1)
       .WillOnce(Return(frame_block));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(1))
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 1))
       .Times(1)
       .WillOnce(Return(frame_block));
   EXPECT_CALL(mockRepresentation_, get_video_parameters())
@@ -214,16 +225,16 @@ TEST_F(AudioSinkStageDeps,
 
 TEST_F(AudioSinkStageDeps,
        WriteAudioWav_FreeRunningPal_IsPassthroughAtStandardRate) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(locked_track_descriptor()));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 0))
       .Times(1)
       .WillOnce(Return(4));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 0))
       .Times(1)
       .WillOnce(Return(std::vector<int16_t>{1, -2, 3, -4}));
   EXPECT_CALL(mockRepresentation_, get_video_parameters())
@@ -253,13 +264,13 @@ TEST_F(AudioSinkStageDeps,
   orc::AudioSinkStageDeps deps_without_services(nullptr);
   deps_without_services.init({}, &isProcessing_, &cancelRequested_);
 
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(locked_track_descriptor()));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 0))
       .Times(1)
       .WillOnce(Return(4));
 
@@ -272,13 +283,13 @@ TEST_F(AudioSinkStageDeps,
 }
 
 TEST_F(AudioSinkStageDeps, WriteAudioWav_Fails_WhenWriterCannotOpenFile) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(locked_track_descriptor()));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0, 0))
       .Times(1)
       .WillOnce(Return(4));
 

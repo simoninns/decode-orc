@@ -627,7 +627,9 @@ TEST(CVBSSourceManualEncodingTest, AudioIsFreeRunningWithoutMetadata) {
   auto vfr = execute_and_get_vfr(stage, p);
   ASSERT_NE(vfr, nullptr);
   EXPECT_TRUE(vfr->has_audio());
-  EXPECT_FALSE(vfr->audio_locked());
+  const auto desc = vfr->get_audio_track_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_FALSE(desc->locked);
 }
 
 TEST(CVBSSourceManualEncodingTest, EncodingChangeInvalidatesCache) {
@@ -1041,7 +1043,8 @@ TEST(CVBSSidecarAudioTest, NoAudioSidecar_HasAudioFalse) {
   auto vfr = execute_and_get_vfr(stage, kDefaultParams);
   ASSERT_NE(vfr, nullptr);
   EXPECT_FALSE(vfr->has_audio());
-  EXPECT_FALSE(vfr->audio_locked());
+  EXPECT_EQ(vfr->audio_track_count(), 0u);
+  EXPECT_FALSE(vfr->get_audio_track_descriptor(0).has_value());
 }
 
 TEST(CVBSSidecarAudioTest, AudioPresent_FreeRunning_HasAudioTrue_LockedFalse) {
@@ -1052,8 +1055,10 @@ TEST(CVBSSidecarAudioTest, AudioPresent_FreeRunning_HasAudioTrue_LockedFalse) {
   auto vfr = execute_and_get_vfr(stage, kDefaultParams);
   ASSERT_NE(vfr, nullptr);
   EXPECT_TRUE(vfr->has_audio());
-  EXPECT_FALSE(vfr->audio_locked());
-  EXPECT_TRUE(vfr->get_audio_samples(0).empty());
+  const auto desc = vfr->get_audio_track_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_FALSE(desc->locked);
+  EXPECT_TRUE(vfr->get_audio_samples(0, 0).empty());
 }
 
 TEST(CVBSSidecarAudioTest, AudioPresent_FrameLocked_ReturnsCorrectSamples) {
@@ -1066,9 +1071,11 @@ TEST(CVBSSidecarAudioTest, AudioPresent_FrameLocked_ReturnsCorrectSamples) {
   auto vfr = execute_and_get_vfr(stage, kDefaultParams);
   ASSERT_NE(vfr, nullptr);
   EXPECT_TRUE(vfr->has_audio());
-  EXPECT_TRUE(vfr->audio_locked());
-  EXPECT_EQ(vfr->get_audio_sample_count(0), 1764u);
-  auto samples = vfr->get_audio_samples(0);
+  const auto desc = vfr->get_audio_track_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_TRUE(desc->locked);
+  EXPECT_EQ(vfr->get_audio_sample_count(0, 0), 1764u);
+  auto samples = vfr->get_audio_samples(0, 0);
   ASSERT_EQ(samples.size(), 3528u);
   EXPECT_EQ(samples[0], int16_t{42});
 }

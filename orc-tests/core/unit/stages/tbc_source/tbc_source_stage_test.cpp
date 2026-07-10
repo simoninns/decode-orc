@@ -664,8 +664,12 @@ TEST(TBCSourceStageTest, NtscAudio_ResampleDeferredUntilFirstAudioAccess) {
   auto* vfr =
       dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
   ASSERT_NE(vfr, nullptr);
-  // audio_locked() is a cheap flag query — it must not trigger the resample.
-  EXPECT_TRUE(vfr->audio_locked());
+  // The track descriptor is a cheap metadata query — it must not trigger the
+  // resample.
+  const auto track_desc = vfr->get_audio_track_descriptor(0);
+  ASSERT_TRUE(track_desc.has_value());
+  EXPECT_TRUE(track_desc->locked);
+  EXPECT_EQ(track_desc->origin, orc::AudioTrackOrigin::ANALOGUE);
 
   // The eager read would have fired by now; confirm it did not, then arm the
   // expectation for the deferred, one-shot read.
@@ -678,12 +682,12 @@ TEST(TBCSourceStageTest, NtscAudio_ResampleDeferredUntilFirstAudioAccess) {
         return std::vector<int16_t>(count * 2, 0);
       });
 
-  const auto samples0 = vfr->get_audio_samples(0);
+  const auto samples0 = vfr->get_audio_samples(0, 0);
   EXPECT_FALSE(samples0.empty());
 
   // A second access reuses the cached resample — no further PCM reads (the
   // Times(1) expectation above would fail otherwise).
-  const auto samples1 = vfr->get_audio_samples(1);
+  const auto samples1 = vfr->get_audio_samples(0, 1);
   EXPECT_FALSE(samples1.empty());
 }
 

@@ -33,7 +33,7 @@ class AudioSinkStageDeps : public IAudioSinkStageDeps {
 
   AudioSinkWriteResult write_audio_wav(
       const VideoFrameRepresentation* representation,
-      const std::string& output_path,
+      const std::string& output_path, size_t track,
       AudioSinkSampleRateMode sample_rate_mode) override;
 
  private:
@@ -45,13 +45,20 @@ class AudioSinkStageDeps : public IAudioSinkStageDeps {
   // Streams the frame-locked samples to the WAV file unmodified, declaring
   // header_rate in the header.
   AudioSinkWriteResult write_locked(
-      const VideoFrameRepresentation* representation, FrameIDRange frame_rng,
-      IFileWriterInt16* writer, uint32_t header_rate, uint64_t total_samples);
+      const VideoFrameRepresentation* representation, size_t track,
+      FrameIDRange frame_rng, IFileWriterInt16* writer, uint32_t header_rate,
+      uint64_t total_samples);
 
   // Collects the frame-locked samples, resamples them from the NTSC/PAL-M
   // locked rate to free-running 44100 Hz, and writes the result.
-  AudioSinkWriteResult write_free_running(
-      const VideoFrameRepresentation* representation, FrameIDRange frame_rng,
+  AudioSinkWriteResult write_resampled_to_free_running(
+      const VideoFrameRepresentation* representation, size_t track,
+      FrameIDRange frame_rng, IFileWriterInt16* writer);
+
+  // Streams a free-running track verbatim at 44100 Hz via the stream
+  // accessors (no resampling).
+  AudioSinkWriteResult write_stream(
+      const VideoFrameRepresentation* representation, size_t track,
       IFileWriterInt16* writer);
 
   IStageServices* stage_services_{nullptr};

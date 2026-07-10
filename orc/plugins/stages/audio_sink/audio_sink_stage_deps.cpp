@@ -11,6 +11,7 @@
 
 #include <orc/stage/logging.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -96,19 +97,25 @@ std::vector<uint8_t> AudioSinkStageDeps::build_wav_header(
 
 AudioSinkWriteResult AudioSinkStageDeps::write_audio_wav(
     const VideoFrameRepresentation* representation,
-    const std::string& output_path, AudioSinkSampleRateMode sample_rate_mode) {
-  // Free-running audio is not accessible per-frame; only locked audio is
-  // available via get_audio_samples(track, FrameID). This sink currently
-  // writes track 0.
-  const auto track_desc = representation->get_audio_track_descriptor(0);
-  if (!track_desc || !track_desc->locked) {
-    return {false, 0, "Audio is not locked to frames; cannot export"};
+    const std::string& output_path, size_t track,
+    AudioSinkSampleRateMode sample_rate_mode) {
+  const auto track_desc = representation->get_audio_track_descriptor(track);
+  if (!track_desc) {
+    return {false, 0,
+            "Audio track " + std::to_string(track) +
+                " does not exist in the input (" +
+                std::to_string(representation->audio_track_count()) +
+                " track(s) available)"};
   }
 
   auto frame_rng = representation->frame_range();
   uint64_t total_samples = 0;
-  for (FrameID fid = frame_rng.first; fid <= frame_rng.last; ++fid) {
-    total_samples += representation->get_audio_sample_count(0, fid);
+  if (track_desc->locked) {
+    for (FrameID fid = frame_rng.first; fid <= frame_rng.last; ++fid) {
+      total_samples += representation->get_audio_sample_count(track, fid);
+    }
+  } else {
+    total_samples = representation->get_audio_stream_pair_count(track);
   }
 
   if (total_samples == 0) {
@@ -127,21 +134,29 @@ AudioSinkWriteResult AudioSinkStageDeps::write_audio_wav(
     return {false, 0, "Failed to open output file: " + output_path};
   }
 
+  if (!track_desc->locked) {
+    // Free-running tracks are already at 44100 Hz; the stream is written
+    // verbatim regardless of sample_rate_mode (nothing to resample).
+    return write_stream(representation, track, writer.get());
+  }
+
   const bool ntsc_rate = locked_rate_differs(representation);
 
   if (ntsc_rate && sample_rate_mode == AudioSinkSampleRateMode::kFreeRunning) {
-    return write_free_running(representation, frame_rng, writer.get());
+    return write_resampled_to_free_running(representation, track, frame_rng,
+                                           writer.get());
   }
 
   const uint32_t header_rate =
       ntsc_rate ? kNtscLockedHeaderRateHz : kStandardRateHz;
-  return write_locked(representation, frame_rng, writer.get(), header_rate,
-                      total_samples);
+  return write_locked(representation, track, frame_rng, writer.get(),
+                      header_rate, total_samples);
 }
 
 AudioSinkWriteResult AudioSinkStageDeps::write_locked(
-    const VideoFrameRepresentation* representation, FrameIDRange frame_rng,
-    IFileWriterInt16* writer, uint32_t header_rate, uint64_t total_samples) {
+    const VideoFrameRepresentation* representation, size_t track,
+    FrameIDRange frame_rng, IFileWriterInt16* writer, uint32_t header_rate,
+    uint64_t total_samples) {
   const uint64_t total_frames = frame_rng.count();
 
   {
@@ -170,7 +185,7 @@ AudioSinkWriteResult AudioSinkStageDeps::write_locked(
       return {false, 0, "Cancelled by user"};
     }
 
-    auto samples = representation->get_audio_samples(0, fid);
+    auto samples = representation->get_audio_samples(track, fid);
     if (!samples.empty()) {
       writer->write(samples);
       frames_written += samples.size() / 2;
@@ -190,9 +205,9 @@ AudioSinkWriteResult AudioSinkStageDeps::write_locked(
   return {true, frames_written, ""};
 }
 
-AudioSinkWriteResult AudioSinkStageDeps::write_free_running(
-    const VideoFrameRepresentation* representation, FrameIDRange frame_rng,
-    IFileWriterInt16* writer) {
+AudioSinkWriteResult AudioSinkStageDeps::write_resampled_to_free_running(
+    const VideoFrameRepresentation* representation, size_t track,
+    FrameIDRange frame_rng, IFileWriterInt16* writer) {
   const uint64_t total_frames = frame_rng.count();
 
   // Collect the frame-locked stream so a single SoXR pass produces the exact
@@ -209,7 +224,7 @@ AudioSinkWriteResult AudioSinkStageDeps::write_free_running(
       return {false, 0, "Cancelled by user"};
     }
 
-    auto samples = representation->get_audio_samples(0, fid);
+    auto samples = representation->get_audio_samples(track, fid);
     locked_stream.insert(locked_stream.end(), samples.begin(), samples.end());
 
     ++current_frame;
@@ -251,5 +266,60 @@ AudioSinkWriteResult AudioSinkStageDeps::write_free_running(
   ORC_LOG_DEBUG("AudioSinkDeps: Wrote {} resampled stereo pairs at 44100 Hz",
                 resampled_pairs);
   return {true, resampled_pairs, ""};
+}
+
+AudioSinkWriteResult AudioSinkStageDeps::write_stream(
+    const VideoFrameRepresentation* representation, size_t track,
+    IFileWriterInt16* writer) {
+  const uint64_t total_pairs =
+      representation->get_audio_stream_pair_count(track);
+
+  {
+    const uint16_t num_channels = 2;
+    const uint16_t bits_per_sample = 16;
+    const std::vector<uint8_t> header =
+        build_wav_header(clamp_to_uint32(total_pairs), kStandardRateHz,
+                         num_channels, bits_per_sample);
+    std::vector<int16_t> header_words(header.size() / 2);
+    std::memcpy(header_words.data(), header.data(), header.size());
+    writer->write(header_words);
+  }
+
+  // Stream in bounded chunks so long captures never materialise in RAM.
+  constexpr uint32_t kChunkPairs = 65536;
+  uint64_t pairs_written = 0;
+  while (pairs_written < total_pairs) {
+    if (cancel_requested_ && cancel_requested_->load()) {
+      writer->close();
+      if (is_processing_) {
+        is_processing_->store(false);
+      }
+      return {false, 0, "Cancelled by user"};
+    }
+
+    const uint32_t chunk = static_cast<uint32_t>(
+        std::min<uint64_t>(kChunkPairs, total_pairs - pairs_written));
+    const auto samples =
+        representation->get_audio_stream_samples(track, pairs_written, chunk);
+    if (samples.empty()) {
+      writer->close();
+      return {false, pairs_written,
+              "Failed to read free-running audio stream at pair " +
+                  std::to_string(pairs_written)};
+    }
+    writer->write(samples);
+    pairs_written += samples.size() / 2;
+
+    if (progress_callback_) {
+      progress_callback_(pairs_written, total_pairs,
+                         "Writing audio: " + std::to_string(pairs_written) +
+                             "/" + std::to_string(total_pairs) + " pairs");
+    }
+  }
+
+  writer->close();
+  ORC_LOG_DEBUG("AudioSinkDeps: Wrote {} free-running stereo pairs at 44100 Hz",
+                pairs_written);
+  return {true, pairs_written, ""};
 }
 }  // namespace orc

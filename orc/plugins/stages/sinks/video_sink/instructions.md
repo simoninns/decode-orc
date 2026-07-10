@@ -11,7 +11,7 @@ Use this sink at the end of your pipeline to export the decoded video.
 
 ## What it does
 
-Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode: encoded via FFmpeg into the chosen container and codec, or as raw decoded frames without compression. In FFmpeg mode it can optionally embed analogue audio, closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data.
+Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode: encoded via FFmpeg into the chosen container and codec, or as raw decoded frames without compression. In FFmpeg mode it can optionally embed pipeline audio tracks (up to 16, one output stream per track), closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data.
 
 ## Parameters
 
@@ -94,10 +94,15 @@ FFmpeg mode only. Custom FFmpeg video filter chain applied before encoding, usin
 Filters may change the output dimensions and frame rate; the encoder follows the filter output automatically. Leave empty for no filtering (the default). An invalid filter string causes the export to fail with the FFmpeg error message in the trigger status.
 
 ### embed_audio (bool)
-FFmpeg mode only. Embed analogue audio from the source into the output file. Requires audio data to be present in the pipeline. Default: `false`.
+FFmpeg mode only. Embed pipeline audio into the output file, one output audio stream per selected track. Requires audio data to be present in the pipeline. Default: `false`.
+
+### audio_tracks (string)
+FFmpeg mode only; available only when `embed_audio` is enabled. Selects which pipeline audio tracks to embed: `all` (default) embeds every track carried by the input; otherwise a comma-separated list of 0-based track indices, e.g. `0,2`. Track indices match the CVBS container's `_audio_NN.wav` numbering. Each output stream carries the track's name as its title metadata. The export fails if a listed track does not exist.
+
+Each stream is declared at the track's true sample rate and samples are never resampled: frame-locked PAL tracks and free-running tracks (including decoded EFM digital audio) are declared at 44,100 Hz, while frame-locked NTSC/PAL-M tracks are declared at 44,056 Hz (the nearest integer to the exact 44100000/1001 Hz locked rate, about 1.3 ppm of error — declaring 44,100 Hz would drift audibly by roughly 3.6 seconds per hour). Free-running tracks are fed by stream time rather than the video frame cursor, and are silence-padded or truncated to the video duration.
 
 ### audio_gain_db (double)
-FFmpeg mode only; available only when `embed_audio` is enabled. Gain applied to the embedded audio in decibels. `0` leaves the audio unchanged; positive values boost (6 dB roughly doubles the amplitude), negative values attenuate. Samples are clipped at full scale, so large boosts can distort. Range: -24 to 24. Default: `0`.
+FFmpeg mode only; available only when `embed_audio` is enabled. Gain applied uniformly to all embedded audio tracks in decibels. `0` leaves the audio unchanged; positive values boost (6 dB roughly doubles the amplitude), negative values attenuate. Samples are clipped at full scale, so large boosts can distort. Range: -24 to 24. Default: `0`.
 
 ### embed_closed_captions (bool)
 FFmpeg mode only. Embed closed captions as mov_text subtitles. MP4/MOV output only; converts EIA-608 captions from VBI. Default: `false`.

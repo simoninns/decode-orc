@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -380,8 +381,9 @@ void append_le32(std::vector<uint8_t>& out, uint32_t v) {
 // CVBS file format spec, Audio Data: frame-locked audio carries the integer
 // approximation of the preset rate in nSamplesPerSec (44100 for PAL, 44056
 // for NTSC/PAL_M); the authoritative rate is the preset-defined rational.
-std::vector<uint8_t> make_wav_header(VideoSystem system, uint32_t data_bytes) {
-  const uint32_t sample_rate = (system == VideoSystem::PAL) ? 44100u : 44056u;
+// Free-running audio is 44100 Hz with the header authoritative.
+std::vector<uint8_t> make_wav_header(uint32_t sample_rate,
+                                     uint32_t data_bytes) {
   constexpr uint16_t kChannels = 2;
   constexpr uint16_t kBitsPerSample = 16;
   constexpr uint16_t kBlockAlign = kChannels * kBitsPerSample / 8;
@@ -404,6 +406,13 @@ std::vector<uint8_t> make_wav_header(VideoSystem system, uint32_t data_bytes) {
   return header;
 }
 
+// <base>_audio_NN.wav path for a container track number (00–15).
+std::string audio_track_path(const std::string& base, size_t track_number) {
+  char suffix[16];
+  snprintf(suffix, sizeof(suffix), "_audio_%02zu.wav", track_number);
+  return base + suffix;
+}
+
 // Remove any output files from a previous run so a re-run never leaves a
 // stale sidecar describing data that is no longer being written.
 void remove_stale_outputs(const std::string& base) {
@@ -414,7 +423,9 @@ void remove_stale_outputs(const std::string& base) {
   for (const char* ext : kExtensions) {
     std::filesystem::remove(base + ext, ec);
   }
-  std::filesystem::remove(base + "_audio_00.wav", ec);
+  for (size_t track = 0; track < kMaxAudioTracks; ++track) {
+    std::filesystem::remove(audio_track_path(base, track), ec);
+  }
 }
 
 }  // namespace
@@ -501,24 +512,45 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
   }
 
   // --- Extension streams (opened only when the input carries the data) ---
-  // This sink currently writes audio track 0 only, and only when locked.
-  const auto audio_track_desc = representation->get_audio_track_descriptor(0);
-  const bool write_audio = audio_track_desc && audio_track_desc->locked;
+  // Every pipeline audio track is written to <base>_audio_NN.wav with NN =
+  // pipeline track index, both frame-locked and free-running.
+  struct AudioTrackOutput {
+    size_t track = 0;
+    AudioTrackDescriptor desc;
+    std::string path;
+    std::ofstream out;
+    uint32_t data_bytes = 0;
+  };
+  std::vector<AudioTrackOutput> locked_tracks;
+  std::vector<AudioTrackOutput> stream_tracks;
+  const size_t audio_track_count =
+      std::min(representation->audio_track_count(), kMaxAudioTracks);
+  for (size_t track = 0; track < audio_track_count; ++track) {
+    const auto desc = representation->get_audio_track_descriptor(track);
+    if (!desc) continue;
+    AudioTrackOutput output;
+    output.track = track;
+    output.desc = *desc;
+    output.path = audio_track_path(base, track);
+    (desc->locked ? locked_tracks : stream_tracks).push_back(std::move(output));
+  }
   const bool write_efm = representation->has_efm();
   const bool write_ac3 = representation->has_ac3_rf();
 
-  const std::string wav_path = base + "_audio_00.wav";
-  std::ofstream wav_out;
-  uint32_t audio_data_bytes = 0;
-  if (write_audio) {
-    wav_out.open(wav_path, std::ios::binary | std::ios::trunc);
-    if (!wav_out) {
-      return {false, 0, "Failed to open output file: " + wav_path};
+  // Locked audio is gathered frame by frame inside the frame loop, so the
+  // WAV data size is only known afterwards; open with a placeholder header
+  // and patch it once the loop completes. The integer header rate follows
+  // the video system (44100 PAL, 44056 NTSC/PAL_M).
+  const uint32_t locked_header_rate =
+      (system == VideoSystem::PAL) ? 44100u : 44056u;
+  for (AudioTrackOutput& track_out : locked_tracks) {
+    track_out.out.open(track_out.path, std::ios::binary | std::ios::trunc);
+    if (!track_out.out) {
+      return {false, 0, "Failed to open output file: " + track_out.path};
     }
-    // Placeholder header; sizes are patched after the frame loop.
-    const auto header = make_wav_header(system, 0);
-    wav_out.write(reinterpret_cast<const char*>(header.data()),
-                  static_cast<std::streamsize>(header.size()));
+    const auto header = make_wav_header(locked_header_rate, 0);
+    track_out.out.write(reinterpret_cast<const char*>(header.data()),
+                        static_cast<std::streamsize>(header.size()));
   }
 
   const std::string efm_path = base + ".efm";
@@ -610,13 +642,14 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
                                         run.sample_count, run.severity});
     }
 
-    if (write_audio) {
-      const auto audio = representation->get_audio_samples(0, fid);
+    for (AudioTrackOutput& track_out : locked_tracks) {
+      const auto audio =
+          representation->get_audio_samples(track_out.track, fid);
       if (!audio.empty()) {
-        wav_out.write(
+        track_out.out.write(
             reinterpret_cast<const char*>(audio.data()),
             static_cast<std::streamsize>(audio.size() * sizeof(int16_t)));
-        audio_data_bytes +=
+        track_out.data_bytes +=
             static_cast<uint32_t>(audio.size() * sizeof(int16_t));
       }
     }
@@ -662,29 +695,80 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
     return {false, 0, "No frames could be written"};
   }
 
-  // --- Finalise the WAV header with the real data size ---
-  if (write_audio) {
-    const auto header = make_wav_header(system, audio_data_bytes);
-    wav_out.seekp(0, std::ios::beg);
-    wav_out.write(reinterpret_cast<const char*>(header.data()),
-                  static_cast<std::streamsize>(header.size()));
-    wav_out.close();
-    if (!wav_out) {
-      return {false, frames_written, "Write error in " + wav_path};
+  // --- Finalise the locked WAV headers with the real data sizes ---
+  for (AudioTrackOutput& track_out : locked_tracks) {
+    const auto header =
+        make_wav_header(locked_header_rate, track_out.data_bytes);
+    track_out.out.seekp(0, std::ios::beg);
+    track_out.out.write(reinterpret_cast<const char*>(header.data()),
+                        static_cast<std::streamsize>(header.size()));
+    track_out.out.close();
+    if (!track_out.out) {
+      return {false, frames_written, "Write error in " + track_out.path};
+    }
+  }
+
+  // --- Write the free-running tracks (44100 Hz, header authoritative) ---
+  // The stream length is known up front, so the final header is written
+  // immediately and the payload streamed in bounded chunks.
+  for (AudioTrackOutput& track_out : stream_tracks) {
+    const uint64_t total_pairs =
+        representation->get_audio_stream_pair_count(track_out.track);
+    track_out.out.open(track_out.path, std::ios::binary | std::ios::trunc);
+    if (!track_out.out) {
+      return {false, frames_written,
+              "Failed to open output file: " + track_out.path};
+    }
+    track_out.data_bytes = static_cast<uint32_t>(std::min<uint64_t>(
+        total_pairs * 4, std::numeric_limits<uint32_t>::max()));
+    const auto header = make_wav_header(44100u, track_out.data_bytes);
+    track_out.out.write(reinterpret_cast<const char*>(header.data()),
+                        static_cast<std::streamsize>(header.size()));
+
+    constexpr uint32_t kChunkPairs = 65536;
+    uint64_t pairs_done = 0;
+    while (pairs_done < total_pairs) {
+      if (cancel_requested_ && cancel_requested_->load()) {
+        return {false, frames_written, "Cancelled by user"};
+      }
+      const uint32_t chunk = static_cast<uint32_t>(
+          std::min<uint64_t>(kChunkPairs, total_pairs - pairs_done));
+      const auto samples = representation->get_audio_stream_samples(
+          track_out.track, pairs_done, chunk);
+      if (samples.empty()) {
+        return {false, frames_written,
+                "Failed to read free-running audio track " +
+                    std::to_string(track_out.track) + " at pair " +
+                    std::to_string(pairs_done)};
+      }
+      track_out.out.write(
+          reinterpret_cast<const char*>(samples.data()),
+          static_cast<std::streamsize>(samples.size() * sizeof(int16_t)));
+      pairs_done += samples.size() / 2;
+    }
+    track_out.out.close();
+    if (!track_out.out) {
+      return {false, frames_written, "Write error in " + track_out.path};
     }
   }
 
   // --- Write the .meta core metadata ---
+  // One audio_track row per track file (CVBS file format spec v1.2.0), NN =
+  // pipeline track index.
   std::string err;
   std::vector<CVBSAudioTrackMetaRow> audio_track_rows;
-  if (write_audio) {
-    // This sink currently exports pipeline track 0 as container track 00.
-    CVBSAudioTrackMetaRow row;
-    row.track_number = 0;
-    row.description = audio_track_desc ? audio_track_desc->name : "";
-    row.locked = true;
-    audio_track_rows.push_back(std::move(row));
-  }
+  const auto append_track_rows =
+      [&audio_track_rows](const std::vector<AudioTrackOutput>& tracks) {
+        for (const AudioTrackOutput& track_out : tracks) {
+          CVBSAudioTrackMetaRow row;
+          row.track_number = static_cast<int32_t>(track_out.track);
+          row.description = track_out.desc.name;
+          row.locked = track_out.desc.locked;
+          audio_track_rows.push_back(std::move(row));
+        }
+      };
+  append_track_rows(locked_tracks);
+  append_track_rows(stream_tracks);
   if (!write_core_metadata(base + ".meta", system, config, frames_written,
                            black_level_override, has_nonstandard_values,
                            audio_track_rows, err)) {
@@ -707,10 +791,12 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
 
   ORC_LOG_INFO(
       "CVBSSinkDeps: Wrote {} frames ({} requested) to {} "
-      "(dropouts {}, audio {}, EFM {}, AC3 {})",
+      "(dropouts {}, audio tracks {} ({} locked, {} free-running), EFM {}, "
+      "AC3 {})",
       frames_written, total_frames, primary_path,
-      dropout_rows.empty() ? "no" : "yes", write_audio ? "yes" : "no",
-      write_efm ? "yes" : "no", write_ac3 ? "yes" : "no");
+      dropout_rows.empty() ? "no" : "yes", audio_track_rows.size(),
+      locked_tracks.size(), stream_tracks.size(), write_efm ? "yes" : "no",
+      write_ac3 ? "yes" : "no");
 
   return {true, frames_written,
           "Success: " + std::to_string(frames_written) + " frames written"};

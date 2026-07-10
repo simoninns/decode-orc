@@ -10,12 +10,15 @@
 #include "../../../../orc/plugins/stages/stacker/stacker_stage.h"
 
 #include <gtest/gtest.h>
+#include <orc/stage/observation_context.h>
 
 #include <algorithm>
 
+#include "../../include/video_frame_representation_artifact_mock.h"
 #include "../../mocks/mock_video_frame_representation.h"
 
 using ::testing::_;
+using ::testing::NiceMock;
 using ::testing::Return;
 
 namespace orc_unit_test {
@@ -305,6 +308,155 @@ TEST(StackerStageTest, StackedDropoutHints_CarryStackedFrameId) {
   for (const auto& run : hints) {
     EXPECT_EQ(run.frame_id, orc::FrameID{1});
   }
+}
+
+// ── Multi-track audio ────────────────────────────────────────────────────────
+
+namespace {
+
+// One-frame source scaffold for audio stacking tests: frame 0 present with
+// no colour-frame index (temporal alignment) and no dropouts by default.
+std::shared_ptr<NiceMock<MockVideoFrameRepresentation>>
+make_audio_stack_source() {
+  auto src = std::make_shared<NiceMock<MockVideoFrameRepresentation>>();
+  ON_CALL(*src, has_frame(orc::FrameID{0})).WillByDefault(Return(true));
+  orc::FrameDescriptor desc;
+  desc.frame_id = orc::FrameID{0};
+  desc.colour_frame_index = -1;
+  ON_CALL(*src, get_frame_descriptor(orc::FrameID{0}))
+      .WillByDefault(Return(desc));
+  ON_CALL(*src, frame_range()).WillByDefault(Return(orc::FrameIDRange{0u, 0u}));
+  ON_CALL(*src, frame_count()).WillByDefault(Return(1u));
+  return src;
+}
+
+const orc::AudioTrackDescriptor kLockedTrack{
+    "Locked", orc::AudioTrackOrigin::ANALOGUE, true,
+    orc::AudioSampleRate{44100, 1}};
+const orc::AudioTrackDescriptor kFreeRunningTrack{
+    "EFM digital audio", orc::AudioTrackOrigin::EFM, false,
+    orc::AudioSampleRate{44100, 1}};
+
+}  // namespace
+
+TEST(StackerStageTest, LockedTracks_StackPerTrackAcrossAllSources) {
+  orc::StackerStage stage;  // audio_stacking defaults to Mean
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  for (const auto& src : {src0, src1}) {
+    ON_CALL(*src, audio_track_count()).WillByDefault(Return(2u));
+    ON_CALL(*src, get_audio_track_descriptor(_))
+        .WillByDefault(Return(kLockedTrack));
+  }
+  ON_CALL(*src0, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int16_t>{0, 0}));
+  ON_CALL(*src1, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int16_t>{100, 100}));
+  ON_CALL(*src0, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int16_t>{10, 20}));
+  ON_CALL(*src1, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int16_t>{30, 40}));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  ASSERT_EQ(stacked.audio_track_count(), 2u);
+  // Every locked track common to all inputs is stacked — not just track 0.
+  EXPECT_EQ(stacked.get_audio_samples(0, orc::FrameID{0}),
+            (std::vector<int16_t>{50, 50}));
+  EXPECT_EQ(stacked.get_audio_samples(1, orc::FrameID{0}),
+            (std::vector<int16_t>{20, 30}));
+}
+
+TEST(StackerStageTest, LockedTrackNotInAllSources_PassesThroughFromBest) {
+  orc::StackerStage stage;
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  ON_CALL(*src0, audio_track_count()).WillByDefault(Return(2u));
+  ON_CALL(*src0, get_audio_track_descriptor(_))
+      .WillByDefault(Return(kLockedTrack));
+  ON_CALL(*src1, audio_track_count()).WillByDefault(Return(1u));
+  ON_CALL(*src1, get_audio_track_descriptor(0))
+      .WillByDefault(Return(kLockedTrack));
+  ON_CALL(*src0, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int16_t>{10, 20}));
+  // src1 has more dropouts, so src0 is the best source.
+  ON_CALL(*src1, get_dropout_hints(orc::FrameID{0}))
+      .WillByDefault(Return(
+          std::vector<orc::DropoutRun>{{orc::FrameID{0}, 0u, 10u, 128}}));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  // Track 1 exists only in src0: no combining, pass through from best.
+  EXPECT_EQ(stacked.get_audio_samples(1, orc::FrameID{0}),
+            (std::vector<int16_t>{10, 20}));
+}
+
+TEST(StackerStageTest, FreeRunningStreams_PassThroughFromReferenceSource) {
+  orc::StackerStage stage;
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  for (const auto& src : {src0, src1}) {
+    ON_CALL(*src, audio_track_count()).WillByDefault(Return(1u));
+    ON_CALL(*src, get_audio_track_descriptor(0))
+        .WillByDefault(Return(kFreeRunningTrack));
+  }
+  ON_CALL(*src0, get_audio_stream_pair_count(0)).WillByDefault(Return(500u));
+  ON_CALL(*src0, get_audio_stream_samples(0, 3, 2))
+      .WillByDefault(Return(std::vector<int16_t>{5, 5, 6, 6}));
+  ON_CALL(*src1, get_audio_stream_pair_count(0)).WillByDefault(Return(999u));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  // Never combined: the reference (first audio-carrying) source's stream
+  // passes through; other inputs' free-running tracks are discarded.
+  EXPECT_EQ(stacked.get_audio_stream_pair_count(0), 500u);
+  EXPECT_EQ(stacked.get_audio_stream_samples(0, 3, 2),
+            (std::vector<int16_t>{5, 5, 6, 6}));
+  // Free-running tracks answer the locked accessors with {}.
+  EXPECT_TRUE(stacked.get_audio_samples(0, orc::FrameID{0}).empty());
+}
+
+TEST(StackerStageTest, Execute_WarnsWhenFreeRunningTracksAreDiscarded) {
+  orc::StackerStage stage;
+  auto src0 =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  auto src1 =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  ON_CALL(*src0, audio_track_count()).WillByDefault(Return(1u));
+  ON_CALL(*src0, get_audio_track_descriptor(0))
+      .WillByDefault(Return(kLockedTrack));
+  ON_CALL(*src1, audio_track_count()).WillByDefault(Return(1u));
+  ON_CALL(*src1, get_audio_track_descriptor(0))
+      .WillByDefault(Return(kFreeRunningTrack));
+
+  orc::ObservationContext ctx;
+  stage.execute({src0, src1}, {}, ctx);
+
+  const auto warning =
+      ctx.get(orc::FieldID(0), "stacker", "free_running_tracks_discarded");
+  ASSERT_TRUE(warning.has_value());
+  EXPECT_NE(std::get<std::string>(*warning).find("input 1 track 0"),
+            std::string::npos);
+}
+
+TEST(StackerStageTest, Execute_NoWarningWhenAllTracksLocked) {
+  orc::StackerStage stage;
+  auto src0 =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  auto src1 =
+      std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  for (const auto& src : {src0, src1}) {
+    ON_CALL(*src, audio_track_count()).WillByDefault(Return(1u));
+    ON_CALL(*src, get_audio_track_descriptor(0))
+        .WillByDefault(Return(kLockedTrack));
+  }
+
+  orc::ObservationContext ctx;
+  stage.execute({src0, src1}, {}, ctx);
+
+  EXPECT_FALSE(
+      ctx.get(orc::FieldID(0), "stacker", "free_running_tracks_discarded")
+          .has_value());
 }
 
 }  // namespace orc_unit_test

@@ -27,6 +27,7 @@
 #include <limits>
 #include <thread>
 
+#include "audio_track_selection.h"
 #include "componentframe.h"
 
 namespace orc {
@@ -106,15 +107,15 @@ void FFmpegOutputBackend::cleanup() {
     audio_packet_ = nullptr;
   }
 
-  if (audio_frame_) {
-    av_frame_free(&audio_frame_);
-    audio_frame_ = nullptr;
+  for (AudioTrackEncoder& track : audio_encoders_) {
+    if (track.frame) {
+      av_frame_free(&track.frame);
+    }
+    if (track.codec_ctx) {
+      avcodec_free_context(&track.codec_ctx);
+    }
   }
-
-  if (audio_codec_ctx_) {
-    avcodec_free_context(&audio_codec_ctx_);
-    audio_codec_ctx_ = nullptr;
-  }
+  audio_encoders_.clear();
 
   // subtitle_codec_ctx_ is just a marker (non-null = enabled), not a real
   // context
@@ -290,6 +291,13 @@ bool FFmpegOutputBackend::initialize(const Configuration& config) {
   num_fields_ = config.num_fields;
   current_field_for_audio_ = start_field_index_;
   current_field_for_captions_ = start_field_index_;
+  rep_first_frame_ = vfr_ ? vfr_->frame_range().first : 0;
+
+  audio_tracks_option_ = "all";
+  auto tracks_it = config.options.find("audio_tracks");
+  if (tracks_it != config.options.end() && !tracks_it->second.empty()) {
+    audio_tracks_option_ = tracks_it->second;
+  }
 
   // Map user-friendly container names to FFmpeg format names
   std::string ffmpeg_format = container_format_;
@@ -418,11 +426,11 @@ bool FFmpegOutputBackend::initialize(const Configuration& config) {
     return false;
   }
 
-  // Setup audio encoder if requested
+  // Setup audio encoders if requested
   if (embed_audio_ && vfr_ && vfr_->has_audio()) {
-    ORC_LOG_DEBUG("FFmpegOutputBackend: Setting up audio encoder");
-    if (!setupAudioEncoder()) {
-      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup audio encoder");
+    ORC_LOG_DEBUG("FFmpegOutputBackend: Setting up audio encoders");
+    if (!setupAudioEncoders()) {
+      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to setup audio encoders");
       cleanup();
       return false;
     }
@@ -1554,70 +1562,51 @@ bool FFmpegOutputBackend::finalize() {
     av_packet_unref(packet_);
   }
 
-  // Flush audio encoder if present
-  if (audio_codec_ctx_) {
+  // Flush the audio encoders if present
+  for (AudioTrackEncoder& track : audio_encoders_) {
     // Encode any remaining audio in the buffer (pad with silence if needed)
-    int frame_size = audio_codec_ctx_->frame_size;
-    if (!audio_buffer_.empty()) {
-      ORC_LOG_DEBUG("FFmpegOutputBackend: Flushing {} remaining audio samples",
-                    audio_buffer_.size() / 2);
+    const int frame_size =
+        track.codec_ctx->frame_size > 0 ? track.codec_ctx->frame_size : 1024;
+    if (!track.buffer.empty()) {
+      ORC_LOG_DEBUG(
+          "FFmpegOutputBackend: Flushing {} remaining audio samples for "
+          "track {}",
+          track.buffer.size() / 2, track.track_index);
 
       // Pad buffer to frame_size if needed
-      while (audio_buffer_.size() < static_cast<size_t>(frame_size) * 2) {
-        audio_buffer_.push_back(0);  // Pad with silence
+      while (track.buffer.size() < static_cast<size_t>(frame_size) * 2) {
+        track.buffer.push_back(0);  // Pad with silence
       }
 
       // Encode the final frame
-      av_frame_make_writable(audio_frame_);
-      if (!fillAudioFrameFromInterleavedS16(audio_frame_,
-                                            audio_codec_ctx_->sample_fmt,
-                                            audio_buffer_, frame_size)) {
+      av_frame_make_writable(track.frame);
+      if (!fillAudioFrameFromInterleavedS16(track.frame,
+                                            track.codec_ctx->sample_fmt,
+                                            track.buffer, frame_size)) {
         ORC_LOG_ERROR(
             "FFmpegOutputBackend: Unsupported audio sample format {} during "
             "finalize",
-            static_cast<int>(audio_codec_ctx_->sample_fmt));
+            static_cast<int>(track.codec_ctx->sample_fmt));
         cleanup();
         return false;
       }
 
-      audio_frame_->pts = audio_pts_;
+      track.frame->pts = track.pts;
+      track.pts += frame_size;
 
-      ret = avcodec_send_frame(audio_codec_ctx_, audio_frame_);
-      if (ret >= 0) {
-        while (ret >= 0) {
-          ret = avcodec_receive_packet(audio_codec_ctx_, audio_packet_);
-          if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            break;
-          } else if (ret >= 0) {
-            av_packet_rescale_ts(audio_packet_, audio_codec_ctx_->time_base,
-                                 audio_stream_->time_base);
-            audio_packet_->stream_index = audio_stream_->index;
-            av_interleaved_write_frame(format_ctx_, audio_packet_);
-            av_packet_unref(audio_packet_);
-          }
-        }
+      if (!sendAudioFrame(track, track.frame)) {
+        ORC_LOG_WARN(
+            "FFmpegOutputBackend: Error encoding final audio frame for "
+            "track {}",
+            track.track_index);
       }
 
-      audio_buffer_.clear();
+      track.buffer.clear();
     }
 
     // Flush the audio encoder
-    ret = avcodec_send_frame(audio_codec_ctx_, nullptr);
-    if (ret < 0) {
+    if (!sendAudioFrame(track, nullptr)) {
       ORC_LOG_WARN("FFmpegOutputBackend: Error flushing audio encoder");
-    }
-
-    while (ret >= 0) {
-      ret = avcodec_receive_packet(audio_codec_ctx_, audio_packet_);
-      if (ret < 0) {
-        break;
-      }
-
-      av_packet_rescale_ts(audio_packet_, audio_codec_ctx_->time_base,
-                           audio_stream_->time_base);
-      audio_packet_->stream_index = audio_stream_->index;
-      av_interleaved_write_frame(format_ctx_, audio_packet_);
-      av_packet_unref(audio_packet_);
     }
   }
 
@@ -1639,10 +1628,70 @@ std::string FFmpegOutputBackend::getFormatInfo() const {
   return info;
 }
 
-bool FFmpegOutputBackend::setupAudioEncoder() {
+bool FFmpegOutputBackend::setupAudioEncoders() {
+  std::string selection_error;
+  const auto selection = parse_audio_track_selection(
+      audio_tracks_option_, vfr_->audio_track_count(), selection_error);
+  if (!selection) {
+    ORC_LOG_ERROR("FFmpegOutputBackend: {}", selection_error);
+    last_error_ = selection_error;
+    return false;
+  }
+
+  audio_encoders_.clear();
+  audio_encoders_.reserve(selection->size());
+  const uint64_t start_frame_offset =
+      (start_field_index_ / 2 >= rep_first_frame_)
+          ? start_field_index_ / 2 - rep_first_frame_
+          : 0;
+
+  for (const size_t track_index : *selection) {
+    const auto descriptor = vfr_->get_audio_track_descriptor(track_index);
+    if (!descriptor) {
+      ORC_LOG_ERROR("FFmpegOutputBackend: Audio track {} has no descriptor",
+                    track_index);
+      return false;
+    }
+
+    AudioTrackEncoder track;
+    track.track_index = track_index;
+    track.descriptor = *descriptor;
+    // Per-stream sample rate honesty: locked NTSC/PAL-M tracks are declared
+    // at 44056 Hz (nearest integer to 44100000/1001); locked PAL and
+    // free-running tracks at 44100 Hz. Samples are never resampled.
+    track.sample_rate = audio_track_declared_rate(*descriptor);
+
+    if (!descriptor->locked) {
+      // Free-running tracks feed from their own stream cursor. When the
+      // export starts at frame k > 0 of the representation, the read begins
+      // at audio_stream_pair_offset(k).
+      track.total_pairs = vfr_->get_audio_stream_pair_count(track_index);
+      track.next_pair = audio_stream_pair_offset(
+          start_frame_offset, descriptor->sample_rate, video_system_);
+    }
+
+    if (!setupAudioEncoderForTrack(track)) {
+      // The AVStream (if created) is owned by format_ctx_; free the rest.
+      if (track.frame) av_frame_free(&track.frame);
+      if (track.codec_ctx) avcodec_free_context(&track.codec_ctx);
+      return false;
+    }
+    audio_encoders_.push_back(std::move(track));
+  }
+
+  // Shared scratch packet for all audio streams.
+  audio_packet_ = av_packet_alloc();
+  if (!audio_packet_) {
+    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio packet");
+    return false;
+  }
+
+  return true;
+}
+
+bool FFmpegOutputBackend::setupAudioEncoderForTrack(AudioTrackEncoder& track) {
   // Determine audio codec based on video codec/container
   AVCodecID audio_codec_id;
-  int sample_rate = 44100;     // Source audio is 44.1kHz (from TBC/ld-decode)
   int64_t bit_rate = 256000;   // Default bitrate for AAC
   int compression_level = 12;  // For FLAC
 
@@ -1650,19 +1699,15 @@ bool FFmpegOutputBackend::setupAudioEncoder() {
   if (codec_name_ == "ffv1") {
     // FFV1 uses FLAC
     audio_codec_id = AV_CODEC_ID_FLAC;
-    sample_rate = 44100;  // Keep original 44.1kHz
   } else if (codec_name_.find("prores") != std::string::npos ||
              codec_name_.find("v210") != std::string::npos ||
              codec_name_.find("v410") != std::string::npos ||
              codec_name_.find("mpeg2video") != std::string::npos) {
     // ProRes, V210, V410, D10 use PCM S24LE
     audio_codec_id = AV_CODEC_ID_PCM_S24LE;
-    sample_rate = 44100;  // Keep original 44.1kHz
   } else {
-    // H.264, H.265, AV1 use AAC
+    // H.264, H.265, AV1 use AAC (lossy but performs no rate change)
     audio_codec_id = AV_CODEC_ID_AAC;
-    sample_rate = 44100;  // Keep original 44.1kHz
-    bit_rate = 256000;
   }
 
   // Find audio encoder
@@ -1675,44 +1720,48 @@ bool FFmpegOutputBackend::setupAudioEncoder() {
   }
 
   // Create audio stream
-  audio_stream_ = avformat_new_stream(format_ctx_, nullptr);
-  if (!audio_stream_) {
+  track.stream = avformat_new_stream(format_ctx_, nullptr);
+  if (!track.stream) {
     ORC_LOG_ERROR("FFmpegOutputBackend: Failed to create audio stream");
     return false;
   }
-  audio_stream_->id = static_cast<int>(format_ctx_->nb_streams) - 1;
+  track.stream->id = static_cast<int>(format_ctx_->nb_streams) - 1;
+  if (!track.descriptor.name.empty()) {
+    av_dict_set(&track.stream->metadata, "title", track.descriptor.name.c_str(),
+                0);
+  }
 
   // Allocate audio codec context
-  audio_codec_ctx_ = avcodec_alloc_context3(audio_codec);
-  if (!audio_codec_ctx_) {
+  track.codec_ctx = avcodec_alloc_context3(audio_codec);
+  if (!track.codec_ctx) {
     ORC_LOG_ERROR(
         "FFmpegOutputBackend: Failed to allocate audio codec context");
     return false;
   }
 
   // Configure audio encoder
-  audio_codec_ctx_->codec_id = audio_codec_id;
-  audio_codec_ctx_->codec_type = AVMEDIA_TYPE_AUDIO;
-  audio_codec_ctx_->sample_rate = sample_rate;
-  audio_codec_ctx_->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-  audio_codec_ctx_->time_base = {1, sample_rate};
+  track.codec_ctx->codec_id = audio_codec_id;
+  track.codec_ctx->codec_type = AVMEDIA_TYPE_AUDIO;
+  track.codec_ctx->sample_rate = track.sample_rate;
+  track.codec_ctx->ch_layout = AV_CHANNEL_LAYOUT_STEREO;
+  track.codec_ctx->time_base = {1, track.sample_rate};
 
   // Codec-specific settings
   if (audio_codec_id == AV_CODEC_ID_AAC) {
-    audio_codec_ctx_->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
-    audio_codec_ctx_->bit_rate = bit_rate;
+    track.codec_ctx->sample_fmt = AV_SAMPLE_FMT_FLTP;  // AAC uses planar float
+    track.codec_ctx->bit_rate = bit_rate;
   } else if (audio_codec_id == AV_CODEC_ID_FLAC) {
-    audio_codec_ctx_->sample_fmt =
+    track.codec_ctx->sample_fmt =
         AV_SAMPLE_FMT_S16;  // FLAC uses 16-bit samples
-    av_opt_set_int(audio_codec_ctx_->priv_data, "compression_level",
+    av_opt_set_int(track.codec_ctx->priv_data, "compression_level",
                    compression_level, 0);
   } else if (audio_codec_id == AV_CODEC_ID_PCM_S24LE) {
-    audio_codec_ctx_->sample_fmt =
+    track.codec_ctx->sample_fmt =
         AV_SAMPLE_FMT_S32;  // FFmpeg uses S32 for 24-bit PCM
   }
 
   // Open audio encoder
-  int ret = avcodec_open2(audio_codec_ctx_, audio_codec, nullptr);
+  int ret = avcodec_open2(track.codec_ctx, audio_codec, nullptr);
   if (ret < 0) {
     char errbuf[AV_ERROR_MAX_STRING_SIZE];
     av_strerror(ret, errbuf, sizeof(errbuf));
@@ -1722,164 +1771,199 @@ bool FFmpegOutputBackend::setupAudioEncoder() {
   }
 
   // Copy codec parameters to stream
-  ret = avcodec_parameters_from_context(audio_stream_->codecpar,
-                                        audio_codec_ctx_);
+  ret =
+      avcodec_parameters_from_context(track.stream->codecpar, track.codec_ctx);
   if (ret < 0) {
     ORC_LOG_ERROR("FFmpegOutputBackend: Failed to copy audio codec parameters");
     return false;
   }
 
-  audio_stream_->time_base = audio_codec_ctx_->time_base;
+  track.stream->time_base = track.codec_ctx->time_base;
 
   // Allocate audio frame
-  audio_frame_ = av_frame_alloc();
-  if (!audio_frame_) {
+  track.frame = av_frame_alloc();
+  if (!track.frame) {
     ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio frame");
     return false;
   }
 
-  audio_frame_->format = audio_codec_ctx_->sample_fmt;
-  audio_frame_->ch_layout = audio_codec_ctx_->ch_layout;
-  audio_frame_->sample_rate = audio_codec_ctx_->sample_rate;
-  audio_frame_->nb_samples =
-      audio_codec_ctx_->frame_size ? audio_codec_ctx_->frame_size : 1024;
+  track.frame->format = track.codec_ctx->sample_fmt;
+  track.frame->ch_layout = track.codec_ctx->ch_layout;
+  track.frame->sample_rate = track.codec_ctx->sample_rate;
+  track.frame->nb_samples =
+      track.codec_ctx->frame_size > 0 ? track.codec_ctx->frame_size : 1024;
 
-  ret = av_frame_get_buffer(audio_frame_, 0);
+  ret = av_frame_get_buffer(track.frame, 0);
   if (ret < 0) {
     ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio frame buffer");
     return false;
   }
 
-  // Allocate audio packet
-  audio_packet_ = av_packet_alloc();
-  if (!audio_packet_) {
-    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to allocate audio packet");
+  ORC_LOG_DEBUG(
+      "FFmpegOutputBackend: Audio encoder initialized for track {} '{}' "
+      "({} {} Hz stereo, {})",
+      track.track_index, track.descriptor.name, audio_codec->name,
+      track.sample_rate,
+      track.descriptor.locked ? "frame-locked" : "free-running");
+  return true;
+}
+
+std::vector<int16_t> FFmpegOutputBackend::gatherAudioForFrame(
+    AudioTrackEncoder& track, FrameID frame_id) {
+  if (track.descriptor.locked) {
+    auto samples = vfr_->get_audio_samples(track.track_index, frame_id);
+    if (samples.empty()) {
+      // No audio for this frame — generate silence to maintain A/V sync,
+      // sized from the track's declared rate (exact pairs per frame for
+      // locked tracks).
+      uint32_t sample_count =
+          vfr_->get_audio_sample_count(track.track_index, frame_id);
+      if (sample_count == 0) {
+        sample_count = locked_audio_pairs_per_frame(video_system_);
+      }
+      samples.resize(static_cast<size_t>(sample_count) * 2, 0);
+    }
+    return samples;
+  }
+
+  // Free-running track: consume this video frame's time window
+  // [offset(r), offset(r+1)) from the stream, where r is the frame index
+  // relative to the export start. Cumulative offsets keep the window
+  // boundaries exact (NTSC windows alternate 1471/1472 pairs).
+  const uint64_t start_frame_offset =
+      (start_field_index_ / 2 >= rep_first_frame_)
+          ? start_field_index_ / 2 - rep_first_frame_
+          : 0;
+  const uint64_t r = start_frame_offset + track.frames_fed;
+  const uint64_t window_end = audio_stream_pair_offset(
+      r + 1, track.descriptor.sample_rate, video_system_);
+  const uint64_t window_pairs =
+      (window_end > track.next_pair) ? window_end - track.next_pair : 0;
+  ++track.frames_fed;
+
+  std::vector<int16_t> samples;
+  samples.reserve(static_cast<size_t>(window_pairs) * 2);
+  if (track.next_pair < track.total_pairs && window_pairs > 0) {
+    const uint64_t available =
+        std::min<uint64_t>(window_pairs, track.total_pairs - track.next_pair);
+    samples = vfr_->get_audio_stream_samples(track.track_index, track.next_pair,
+                                             static_cast<uint32_t>(available));
+  }
+  // Silence-pad a short or exhausted stream to the video frame's window so
+  // the audio stream tracks the video duration.
+  samples.resize(static_cast<size_t>(window_pairs) * 2, 0);
+  track.next_pair += window_pairs;
+  return samples;
+}
+
+bool FFmpegOutputBackend::sendAudioFrame(AudioTrackEncoder& track,
+                                         AVFrame* frame) {
+  int ret = avcodec_send_frame(track.codec_ctx, frame);
+  if (ret < 0) {
+    char errbuf[AV_ERROR_MAX_STRING_SIZE];
+    av_strerror(ret, errbuf, sizeof(errbuf));
+    ORC_LOG_ERROR("FFmpegOutputBackend: Failed to send audio frame: {}",
+                  errbuf);
     return false;
   }
 
-  ORC_LOG_DEBUG(
-      "FFmpegOutputBackend: Audio encoder initialized ({} {}kHz stereo)",
-      audio_codec->name, sample_rate / 1000);
+  while (ret >= 0) {
+    ret = avcodec_receive_packet(track.codec_ctx, audio_packet_);
+    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+      break;
+    } else if (ret < 0) {
+      char errbuf[AV_ERROR_MAX_STRING_SIZE];
+      av_strerror(ret, errbuf, sizeof(errbuf));
+      ORC_LOG_ERROR("FFmpegOutputBackend: Error receiving audio packet: {}",
+                    errbuf);
+      return false;
+    }
+
+    av_packet_rescale_ts(audio_packet_, track.codec_ctx->time_base,
+                         track.stream->time_base);
+    audio_packet_->stream_index = track.stream->index;
+
+    ret = av_interleaved_write_frame(format_ctx_, audio_packet_);
+    av_packet_unref(audio_packet_);
+
+    if (ret < 0) {
+      char errbuf[AV_ERROR_MAX_STRING_SIZE];
+      av_strerror(ret, errbuf, sizeof(errbuf));
+      ORC_LOG_ERROR("FFmpegOutputBackend: Error writing audio packet: {}",
+                    errbuf);
+      return false;
+    }
+  }
+  return true;
+}
+
+bool FFmpegOutputBackend::encodeBufferedAudio(AudioTrackEncoder& track) {
+  const int frame_size =
+      track.codec_ctx->frame_size > 0 ? track.codec_ctx->frame_size : 1024;
+
+  // Encode audio in chunks of frame_size from the persistent buffer
+  while (track.buffer.size() >=
+         static_cast<size_t>(frame_size) * 2) {  // *2 for stereo interleaved
+    // Convert interleaved int16 PCM to the encoder's required sample format
+    av_frame_make_writable(track.frame);
+    if (!fillAudioFrameFromInterleavedS16(track.frame,
+                                          track.codec_ctx->sample_fmt,
+                                          track.buffer, frame_size)) {
+      ORC_LOG_ERROR("FFmpegOutputBackend: Unsupported audio sample format {}",
+                    static_cast<int>(track.codec_ctx->sample_fmt));
+      return false;
+    }
+
+    track.frame->pts = track.pts;
+    track.pts += frame_size;
+
+    if (!sendAudioFrame(track, track.frame)) {
+      return false;
+    }
+
+    // Remove the encoded samples from the buffer
+    track.buffer.erase(
+        track.buffer.begin(),
+        track.buffer.begin() + static_cast<ptrdiff_t>(frame_size) * 2);
+  }
+
   return true;
 }
 
 bool FFmpegOutputBackend::encodeAudioForFrame() {
-  if (!embed_audio_ || !vfr_ || !audio_codec_ctx_) {
+  if (!embed_audio_ || !vfr_ || audio_encoders_.empty()) {
     return true;  // No audio to encode
   }
-
-  int frame_size =
-      audio_codec_ctx_->frame_size;  // AAC typically uses 1024 samples
 
   // Collect audio samples for this video frame (one frame = two fields).
   // VFrameR provides audio per frame; advance current_field_for_audio_ by 2
   // so the field-based start/num_fields_ accounting stays consistent with the
   // closed-caption extraction that still iterates per field.
   if (current_field_for_audio_ < start_field_index_ + num_fields_) {
-    orc::FrameID frame_id = current_field_for_audio_ / 2;
-    auto samples = vfr_->get_audio_samples(0, frame_id);
+    const orc::FrameID frame_id = current_field_for_audio_ / 2;
 
-    if (samples.empty()) {
-      // No audio for this frame — generate silence to maintain A/V sync.
-      uint32_t sample_count = vfr_->get_audio_sample_count(0, frame_id);
-      if (sample_count == 0) {
-        auto video_params = vfr_->get_video_parameters();
-        if (video_params) {
-          // Estimate expected stereo int16 pairs per frame at 48 kHz.
-          double frame_rate =
-              (video_params->system == VideoSystem::PAL) ? 25.0 : 29.97;
-          sample_count =
-              static_cast<uint32_t>(std::lround(48000.0 / frame_rate));
-          sample_count *= 2;  // stereo (interleaved L/R pairs)
+    for (AudioTrackEncoder& track : audio_encoders_) {
+      auto samples = gatherAudioForFrame(track, frame_id);
+
+      // Apply the configured gain, clipping at full scale. Silence stays
+      // silence, so gain-adjusted padding is fine too.
+      if (audio_gain_ != 1.0) {
+        for (auto& sample : samples) {
+          const double scaled = static_cast<double>(sample) * audio_gain_;
+          sample = static_cast<int16_t>(
+              std::lround(std::clamp(scaled, -32768.0, 32767.0)));
         }
       }
-      samples.resize(sample_count, 0);
-    }
 
-    // Apply the configured gain, clipping at full scale. Silence stays
-    // silence, so gain-adjusted padding is fine too.
-    if (audio_gain_ != 1.0) {
-      for (auto& sample : samples) {
-        const double scaled = static_cast<double>(sample) * audio_gain_;
-        sample = static_cast<int16_t>(
-            std::lround(std::clamp(scaled, -32768.0, 32767.0)));
-      }
+      track.buffer.insert(track.buffer.end(), samples.begin(), samples.end());
     }
-
-    audio_buffer_.insert(audio_buffer_.end(), samples.begin(), samples.end());
     current_field_for_audio_ += 2;  // Advance by 2 fields (= 1 frame)
   }
 
-  ORC_LOG_DEBUG(
-      "FFmpegOutputBackend: Audio buffer now has {} int16 values ({} stereo "
-      "samples)",
-      audio_buffer_.size(), audio_buffer_.size() / 2);
-
-  // Encode audio in chunks of frame_size from the persistent buffer
-  while (audio_buffer_.size() >=
-         static_cast<size_t>(frame_size) * 2) {  // *2 for stereo interleaved
-    // Convert interleaved int16 PCM to the encoder's required sample format
-    av_frame_make_writable(audio_frame_);
-    if (!fillAudioFrameFromInterleavedS16(audio_frame_,
-                                          audio_codec_ctx_->sample_fmt,
-                                          audio_buffer_, frame_size)) {
-      ORC_LOG_ERROR("FFmpegOutputBackend: Unsupported audio sample format {}",
-                    static_cast<int>(audio_codec_ctx_->sample_fmt));
+  for (AudioTrackEncoder& track : audio_encoders_) {
+    if (!encodeBufferedAudio(track)) {
       return false;
     }
-
-    audio_frame_->pts = audio_pts_;
-    audio_pts_ += frame_size;
-
-    ORC_LOG_DEBUG(
-        "FFmpegOutputBackend: Encoding audio frame with {} samples, pts={}, "
-        "buffer_remaining={}",
-        frame_size, audio_frame_->pts, (audio_buffer_.size() / 2) - frame_size);
-
-    // Send frame to encoder
-    int ret = avcodec_send_frame(audio_codec_ctx_, audio_frame_);
-    if (ret < 0) {
-      char errbuf[AV_ERROR_MAX_STRING_SIZE];
-      av_strerror(ret, errbuf, sizeof(errbuf));
-      ORC_LOG_ERROR("FFmpegOutputBackend: Failed to send audio frame: {}",
-                    errbuf);
-      return false;
-    }
-
-    // Receive encoded packets
-    while (ret >= 0) {
-      ret = avcodec_receive_packet(audio_codec_ctx_, audio_packet_);
-      if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-        break;
-      } else if (ret < 0) {
-        char errbuf[AV_ERROR_MAX_STRING_SIZE];
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        ORC_LOG_ERROR("FFmpegOutputBackend: Error receiving audio packet: {}",
-                      errbuf);
-        return false;
-      }
-
-      // Rescale and write packet
-      av_packet_rescale_ts(audio_packet_, audio_codec_ctx_->time_base,
-                           audio_stream_->time_base);
-      audio_packet_->stream_index = audio_stream_->index;
-
-      ret = av_interleaved_write_frame(format_ctx_, audio_packet_);
-      av_packet_unref(audio_packet_);
-
-      if (ret < 0) {
-        char errbuf[AV_ERROR_MAX_STRING_SIZE];
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        ORC_LOG_ERROR("FFmpegOutputBackend: Error writing audio packet: {}",
-                      errbuf);
-        return false;
-      }
-    }
-
-    // Remove the encoded samples from the buffer
-    audio_buffer_.erase(
-        audio_buffer_.begin(),
-        audio_buffer_.begin() + static_cast<ptrdiff_t>(frame_size) * 2);
   }
 
   return true;

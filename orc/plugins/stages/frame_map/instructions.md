@@ -18,6 +18,8 @@ When `remove_duplicates` is enabled, the stage removes the second of any two con
 
 When `pad_gaps` is enabled, the stage inserts synthetic padding frames wherever a break in the `colour_frame_index` sequence is detected (indicating the player skipped). Padding frame content is determined by `pad_strategy`.
 
+Audio follows the mapping. Frame-locked audio tracks remap in lockstep with the video, per track; padding frames carry frame-locked silence. Free-running audio tracks remap in the time domain so they stay synchronised with the manipulated video: a contiguous mapping (head/tail trim, sub-range selection) produces an exact, sample-accurate slice of the stream, while a reordering, duplicating, or padded mapping stitches each output frame's nominal time window together. Stitched joins are not phase-continuous — the stage reports an observation naming the affected tracks and the number of discontinuities (audible clicks are possible; lock audio at the source for gapless stacking/reordering). Sample values and rates are never changed.
+
 ## Parameters
 
 ### ranges (string)

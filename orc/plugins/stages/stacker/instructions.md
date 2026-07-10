@@ -36,7 +36,9 @@ Disable differential dropout detection. When `true`, dropout status from individ
 When `true`, pixels that are in dropout across all sources are passed through unchanged rather than being replaced. Default: `false`.
 
 ### audio_stacking (string)
-Method used to combine audio samples from multiple sources. Values: `Disabled`, `Mean`, `Median`. Default: `Mean`. When `Disabled`, audio from the source with the fewest dropouts is used.
+Method used to combine frame-locked audio samples from multiple sources. Values: `Disabled`, `Mean`, `Median`. Default: `Mean`. When `Disabled`, audio from the source with the fewest dropouts is used. The method applies per track, to every locked track present in all inputs; locked tracks not common to all inputs pass through from the source with the fewest dropouts.
+
+Free-running audio tracks are never combined: independent captures share no sample clock, so sample-wise averaging would comb-filter the audio. Free-running tracks pass through from the first audio-carrying input unchanged, other inputs' free-running tracks are discarded, and the stage reports a warning observation listing what was discarded. To stack analogue audio, enable `lock_audio` at the sources so the tracks are frame-locked before stacking.
 
 ### efm_stacking (string)
 Method used to combine EFM t-values from multiple sources. Values: `Disabled`, `Mean`, `Median`. Default: `Mean`. When `Disabled`, EFM from the source with the fewest dropouts is used.

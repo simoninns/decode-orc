@@ -130,6 +130,7 @@ orc_add_core_unit_tests(
         stages/video_sink/video_sink_stage_safety_test.cpp
         stages/video_sink/comb_test.cpp
         stages/video_sink/video_sink_stage_test.cpp
+        stages/video_sink/audio_track_selection_test.cpp
         stages/video_sink/monodecoder_test.cpp
         stages/video_sink/ntsc_pal_decoder_wrapper_test.cpp
         stages/video_sink/palcolour_test.cpp

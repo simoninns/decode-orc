@@ -29,7 +29,7 @@ class MockAudioSinkStageDeps : public orc::IAudioSinkStageDeps {
  public:
   MOCK_METHOD(orc::AudioSinkWriteResult, write_audio_wav,
               (const orc::VideoFrameRepresentation* representation,
-               const std::string& output_path,
+               const std::string& output_path, size_t track,
                orc::AudioSinkSampleRateMode sample_rate_mode),
               (override));
 };
@@ -152,8 +152,9 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*vfr, audio_track_count()).WillOnce(Return(1));
-  // Without a sample_rate_mode parameter the stage defaults to locked output.
-  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav",
+  // Without track/sample_rate_mode parameters the stage defaults to track 0,
+  // locked output.
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 0,
                                      orc::AudioSinkSampleRateMode::kLocked))
       .WillOnce(Return(orc::AudioSinkWriteResult{true, 123, ""}));
 
@@ -173,7 +174,7 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
   EXPECT_CALL(*vfr, audio_track_count()).WillOnce(Return(1));
-  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav",
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 0,
                                      orc::AudioSinkSampleRateMode::kLocked))
       .WillOnce(Return(orc::AudioSinkWriteResult{false, 0, "disk full"}));
 
@@ -226,7 +227,7 @@ TEST(AudioSinkStageTest, Trigger_PassesFreeRunningModeToDeps) {
 
   EXPECT_CALL(*vfr, audio_track_count()).WillOnce(Return(1));
   EXPECT_CALL(*deps,
-              write_audio_wav(vfr.get(), "out.wav",
+              write_audio_wav(vfr.get(), "out.wav", 0,
                               orc::AudioSinkSampleRateMode::kFreeRunning))
       .WillOnce(Return(orc::AudioSinkWriteResult{true, 456, ""}));
 
@@ -238,6 +239,61 @@ TEST(AudioSinkStageTest, Trigger_PassesFreeRunningModeToDeps) {
 
   EXPECT_TRUE(result);
   EXPECT_EQ(stage.get_trigger_status(), "Success: 456 samples written");
+}
+
+TEST(AudioSinkStageTest, Descriptor_TrackDefaultsToZeroWithContainerRange) {
+  orc::AudioSinkStage stage;
+  const auto descriptors = stage.get_parameter_descriptors();
+
+  auto it = std::find_if(
+      descriptors.begin(), descriptors.end(),
+      [](const orc::ParameterDescriptor& d) { return d.name == "track"; });
+
+  ASSERT_NE(it, descriptors.end());
+  EXPECT_EQ(it->type, orc::ParameterType::INT32);
+  ASSERT_TRUE(it->constraints.default_value.has_value());
+  EXPECT_EQ(std::get<int32_t>(*it->constraints.default_value), 0);
+  ASSERT_TRUE(it->constraints.min_value.has_value());
+  EXPECT_EQ(std::get<int32_t>(*it->constraints.min_value), 0);
+  ASSERT_TRUE(it->constraints.max_value.has_value());
+  EXPECT_EQ(std::get<int32_t>(*it->constraints.max_value), 15);
+}
+
+TEST(AudioSinkStageTest, Trigger_PassesSelectedTrackToDeps) {
+  orc::AudioSinkStage stage;
+  auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
+  stage.set_deps_override(deps);
+  MockObservationContext observation_context;
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+
+  EXPECT_CALL(*vfr, audio_track_count()).WillOnce(Return(3));
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 2,
+                                     orc::AudioSinkSampleRateMode::kLocked))
+      .WillOnce(Return(orc::AudioSinkWriteResult{true, 99, ""}));
+
+  const bool result = stage.trigger({vfr},
+                                    {{"output_path", std::string("out.wav")},
+                                     {"track", static_cast<int32_t>(2)}},
+                                    observation_context);
+
+  EXPECT_TRUE(result);
+  EXPECT_EQ(stage.get_trigger_status(), "Success: 99 samples written");
+}
+
+TEST(AudioSinkStageTest, Trigger_FailsWhenTrackIsOutOfRange) {
+  orc::AudioSinkStage stage;
+  MockObservationContext observation_context;
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  EXPECT_CALL(*vfr, audio_track_count()).WillOnce(Return(1));
+
+  const bool result = stage.trigger({vfr},
+                                    {{"output_path", std::string("out.wav")},
+                                     {"track", static_cast<int32_t>(16)}},
+                                    observation_context);
+
+  EXPECT_FALSE(result);
+  EXPECT_EQ(stage.get_trigger_status(),
+            "Error: track parameter must be between 0 and 15");
 }
 
 TEST(AudioSinkStageTest, Trigger_FailsWhenSampleRateModeIsUnknown) {

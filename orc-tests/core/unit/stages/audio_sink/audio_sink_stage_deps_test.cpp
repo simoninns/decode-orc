@@ -30,13 +30,22 @@ orc::SourceParameters make_system_params(orc::VideoSystem system) {
   return params;
 }
 
-// Track-0 descriptor for a frame-locked analogue track (the only kind the
-// audio sink currently writes).
+// Descriptor for a frame-locked analogue track.
 std::optional<orc::AudioTrackDescriptor> locked_track_descriptor() {
   orc::AudioTrackDescriptor desc;
   desc.name = "Analogue";
   desc.origin = orc::AudioTrackOrigin::ANALOGUE;
   desc.locked = true;
+  desc.sample_rate = {44100, 1};
+  return desc;
+}
+
+// Descriptor for a free-running track (e.g. decoded EFM digital audio).
+std::optional<orc::AudioTrackDescriptor> free_running_track_descriptor() {
+  orc::AudioTrackDescriptor desc;
+  desc.name = "EFM digital audio";
+  desc.origin = orc::AudioTrackOrigin::EFM;
+  desc.locked = false;
   desc.sample_rate = {44100, 1};
   return desc;
 }
@@ -124,7 +133,7 @@ TEST_F(AudioSinkStageDeps,
   capture_writes(writes, 2);
 
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0,
                                  orc::AudioSinkSampleRateMode::kLocked);
 
   EXPECT_TRUE(result.success);
@@ -159,7 +168,7 @@ TEST_F(AudioSinkStageDeps,
   capture_writes(writes, 2);
 
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0,
                                  orc::AudioSinkSampleRateMode::kLocked);
 
   EXPECT_TRUE(result.success);
@@ -205,7 +214,7 @@ TEST_F(AudioSinkStageDeps,
   capture_writes(writes, 2);
 
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0,
                                  orc::AudioSinkSampleRateMode::kFreeRunning);
 
   EXPECT_TRUE(result.success);
@@ -249,7 +258,7 @@ TEST_F(AudioSinkStageDeps,
   // PAL locked audio is already 44100 Hz; free-running mode must not
   // resample.
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0,
                                  orc::AudioSinkSampleRateMode::kFreeRunning);
 
   EXPECT_TRUE(result.success);
@@ -257,6 +266,90 @@ TEST_F(AudioSinkStageDeps,
   ASSERT_EQ(writes.size(), 2U);
   EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 44100U);
   EXPECT_EQ(writes[1], (std::vector<int16_t>{1, -2, 3, -4}));
+}
+
+TEST_F(AudioSinkStageDeps,
+       WriteAudioWav_FreeRunningTrack_StreamsVerbatimAt44100) {
+  // Free-running tracks are served via the stream accessors and written
+  // verbatim; sample_rate_mode is ignored.
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(0))
+      .Times(1)
+      .WillOnce(Return(free_running_track_descriptor()));
+  EXPECT_CALL(mockRepresentation_, get_audio_stream_pair_count(0))
+      .Times(2)
+      .WillRepeatedly(Return(3));
+  EXPECT_CALL(mockRepresentation_, frame_range())
+      .Times(1)
+      .WillOnce(Return(orc::FrameIDRange{0, 0}));
+  EXPECT_CALL(mockRepresentation_, get_audio_stream_samples(0, 0, 3))
+      .Times(1)
+      .WillOnce(Return(std::vector<int16_t>{10, -10, 20, -20, 30, -30}));
+
+  expect_writer_created_and_opened();
+
+  std::vector<std::vector<int16_t>> writes;
+  capture_writes(writes, 2);
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0,
+                                 orc::AudioSinkSampleRateMode::kFreeRunning);
+
+  EXPECT_TRUE(result.success);
+  EXPECT_EQ(result.frames_written, 3U);
+  ASSERT_EQ(writes.size(), 2U);
+  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 44100U);
+  // Three stereo pairs = 12 bytes of payload declared in the header.
+  EXPECT_EQ(header_u32_at(writes[0], kWavDataSizeOffset), 12U);
+  EXPECT_EQ(writes[1], (std::vector<int16_t>{10, -10, 20, -20, 30, -30}));
+}
+
+TEST_F(AudioSinkStageDeps, WriteAudioWav_SelectedTrack_ReadsThatTrackOnly) {
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(1))
+      .Times(1)
+      .WillOnce(Return(locked_track_descriptor()));
+  EXPECT_CALL(mockRepresentation_, frame_range())
+      .Times(1)
+      .WillOnce(Return(orc::FrameIDRange{0, 0}));
+  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(1, 0))
+      .Times(1)
+      .WillOnce(Return(2));
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(1, 0))
+      .Times(1)
+      .WillOnce(Return(std::vector<int16_t>{7, -7}));
+  EXPECT_CALL(mockRepresentation_, get_video_parameters())
+      .Times(1)
+      .WillOnce(Return(std::nullopt));
+
+  expect_writer_created_and_opened();
+
+  std::vector<std::vector<int16_t>> writes;
+  capture_writes(writes, 2);
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 1,
+                                 orc::AudioSinkSampleRateMode::kLocked);
+
+  EXPECT_TRUE(result.success);
+  EXPECT_EQ(result.frames_written, 1U);
+  ASSERT_EQ(writes.size(), 2U);
+  EXPECT_EQ(writes[1], (std::vector<int16_t>{7, -7}));
+}
+
+TEST_F(AudioSinkStageDeps, WriteAudioWav_FailsWhenTrackDoesNotExist) {
+  EXPECT_CALL(mockRepresentation_, get_audio_track_descriptor(3))
+      .Times(1)
+      .WillOnce(Return(std::nullopt));
+  EXPECT_CALL(mockRepresentation_, audio_track_count())
+      .Times(1)
+      .WillOnce(Return(1));
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 3,
+                                 orc::AudioSinkSampleRateMode::kLocked);
+
+  EXPECT_FALSE(result.success);
+  EXPECT_EQ(result.error_message,
+            "Audio track 3 does not exist in the input (1 track(s) available)");
 }
 
 TEST_F(AudioSinkStageDeps,
@@ -275,7 +368,7 @@ TEST_F(AudioSinkStageDeps,
       .WillOnce(Return(4));
 
   const auto result = deps_without_services.write_audio_wav(
-      &mockRepresentation_, "out_path.wav",
+      &mockRepresentation_, "out_path.wav", 0,
       orc::AudioSinkSampleRateMode::kLocked);
 
   EXPECT_FALSE(result.success);
@@ -302,7 +395,7 @@ TEST_F(AudioSinkStageDeps, WriteAudioWav_Fails_WhenWriterCannotOpenFile) {
       .WillOnce(Return(false));
 
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0,
                                  orc::AudioSinkSampleRateMode::kLocked);
 
   EXPECT_FALSE(result.success);

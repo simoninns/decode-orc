@@ -14,6 +14,8 @@ function(orc_add_core_functional_tests target labels)
 
     add_executable(${target} ${ARGN})
     target_include_directories(${target} PRIVATE
+        ${CMAKE_SOURCE_DIR}/orc/plugins/stages/cvbs_sink
+        ${CMAKE_SOURCE_DIR}/orc/plugins/stages/cvbs_source
         ${CMAKE_SOURCE_DIR}/orc/plugins/stages/daphne_vbi_sink
         ${CMAKE_SOURCE_DIR}/orc/plugins/stages/ld_sink
         ${CMAKE_SOURCE_DIR}/orc/sdk/include
@@ -36,6 +38,7 @@ function(orc_add_core_functional_tests target labels)
             orc-stage-plugin-pal-comp-source
             orc-stage-plugin-pal-yc-source
             orc-stage-plugin-cvbs-source
+            orc-stage-plugin-cvbs-sink
             orc-stage-plugin-stacker
             orc-stage-plugin-field-invert
             orc-stage-plugin-field-map
@@ -77,6 +80,7 @@ orc_add_core_functional_tests(
 
     contracts/stage_plugin_loader_smoke_test.cpp
     contracts/runtime_stage_contracts_test.cpp
+    contracts/multi_track_audio_roundtrip_test.cpp
 )
 
 # Plugin isolation tests get a dedicated executable that deliberately does

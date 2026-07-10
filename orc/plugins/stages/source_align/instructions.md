@@ -10,6 +10,8 @@ Use Source Align whenever you connect more than one source to a Stacker stage an
 
 For CAV discs the stage reads the VBI frame number embedded in each field's vertical-blanking interval and finds the highest first-frame number across all inputs. Fields before that frame number are dropped from every input. For CLV discs the equivalent CLV timecode frame value is used. If `alignmentMap` is set, the automatic detection is skipped and the specified per-input offsets are applied directly. Each aligned input produces one output; the outputs are guaranteed to be frame-aligned with one another.
 
+Audio follows the alignment. Frame-locked tracks remap per frame: trimmed sources serve their audio from the shifted frame IDs, and padded sources carry frame-locked silence on the prepended padding frames. Free-running tracks shift in the time domain — trimming N leading frames trims the equivalent number of stream pairs, and padding prepends the equivalent silence — so every track stays in sync with the aligned video. Sample values and rates are never changed.
+
 ## Parameters
 
 ### alignmentMap (string)

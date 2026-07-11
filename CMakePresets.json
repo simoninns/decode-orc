@@ -222,6 +222,40 @@
         "value": "x64",
         "strategy": "external"
       }
+    },
+    {
+      "name": "windows-mingw-base",
+      "hidden": true,
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_APPLOCAL_DEPS": "OFF",
+        "EZPWD_INCLUDE_DIR": "${sourceDir}/../ezpwd-reed-solomon/c++"
+      }
+    },
+    {
+      "name": "windows-mingw-gui-debug",
+      "displayName": "Windows MinGW GUI Debug",
+      "description": "Build orc-gui + orc-cli with MinGW-w64/gcc (Debug). Unit tests are off by default here: running them straight from the raw build tree currently fails on MinGW (missing runtime DLLs at test-discovery time, see BUILD.md Troubleshooting) unless you install + collect dependencies first.",
+      "inherits": "windows-mingw-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_UNIT_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "windows-mingw-gui-release",
+      "displayName": "Windows MinGW GUI Release",
+      "description": "Build orc-gui + orc-cli with MinGW-w64/gcc (Release)",
+      "inherits": "windows-mingw-base",
+      "cacheVariables": {
+        "BUILD_GUI": "ON",
+        "BUILD_UNIT_TESTS": "OFF",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ],
   "buildPresets": [
@@ -318,6 +352,18 @@
       "name": "build-windows-gui-release-ninja",
       "displayName": "Build Windows GUI Release (Ninja)",
       "configurePreset": "windows-gui-release-ninja",
+      "jobs": 0
+    },
+    {
+      "name": "build-windows-mingw-gui-debug",
+      "displayName": "Build Windows MinGW GUI Debug",
+      "configurePreset": "windows-mingw-gui-debug",
+      "jobs": 0
+    },
+    {
+      "name": "build-windows-mingw-gui-release",
+      "displayName": "Build Windows MinGW GUI Release",
+      "configurePreset": "windows-mingw-gui-release",
       "jobs": 0
     },
     {

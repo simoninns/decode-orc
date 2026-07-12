@@ -538,6 +538,20 @@ class RenderPresenter {
    */
   std::optional<orc::SourceParameters> getVideoParameters(NodeID node_id);
 
+  /**
+   * @brief Audio channel-pair descriptor names present at a node's output
+   *
+   * Resolves the representation produced at @p node_id and returns one entry
+   * per audio channel pair — the pair's descriptor name, or an empty string
+   * when it has none. Used by the GUI to build the audio_channel_map target
+   * dropdown (index plus description) restricted to the pairs the node's input
+   * actually carries. The pair count is the returned vector's size.
+   *
+   * @param node_id Node whose output representation is inspected
+   * @return One name per channel pair; empty when no audio or unavailable
+   */
+  std::vector<std::string> getAudioChannelPairNames(NodeID node_id);
+
   // === Observations (for debugging) ===
 
   /**

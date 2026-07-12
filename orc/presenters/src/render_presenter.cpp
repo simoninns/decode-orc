@@ -961,6 +961,30 @@ std::optional<orc::SourceParameters> RenderPresenter::getVideoParameters(
   }
 }
 
+std::vector<std::string> RenderPresenter::getAudioChannelPairNames(
+    NodeID node_id) {
+  std::vector<std::string> names;
+  if (!impl_->preview_renderer_) {
+    return names;
+  }
+
+  try {
+    auto repr = impl_->preview_renderer_->get_representation_at_node(node_id);
+    if (!repr) {
+      return names;
+    }
+    const size_t count = repr->audio_channel_pair_count();
+    names.reserve(count);
+    for (size_t p = 0; p < count; ++p) {
+      auto desc = repr->get_audio_channel_pair_descriptor(p);
+      names.push_back(desc ? desc->name : std::string());
+    }
+  } catch (const std::exception&) {
+    names.clear();
+  }
+  return names;
+}
+
 ObservationData RenderPresenter::getObservations(NodeID node_id,
                                                  FieldID field_id) {
   ObservationData result{false, ""};

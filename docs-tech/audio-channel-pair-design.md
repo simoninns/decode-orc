@@ -240,11 +240,25 @@ after Phase 2, retained for import), efm_audio_decode, and audio_import:
 
 ### 3.5 audio_channel_map / audio_align
 
-- `audio_channel_map`: mechanical port to `int32_t` and pair-indexed
-  accessors; operations (`split_dual_mono`, `left_to_both`, `right_to_both`,
-  `swap_channels`) are unchanged; `split_dual_mono` enforces the 8-pair cap.
-  The zero-filled inactive channel produced by `left_to_both`/`right_to_both`
-  matches the spec's inactive-channel rule (SMPTE 272M §6.4).
+- `audio_channel_map`: `int32_t` pair-indexed accessors. The operation set is
+  SMPTE 272M §6.4-conformant (mono = chosen channel on the left, right zeroed;
+  never duplicated across both): `delete` (remove the pair; later pairs shift
+  down one index), `left_to_mono` / `right_to_mono` (extract a channel as mono
+  in place → `[L, 0]` / `[R, 0]`), and `copy_left_to_target` /
+  `copy_right_to_target` (read the source pair, write the mono channel to a
+  target pair — `new` appends, an existing index overwrites — source untouched;
+  the 8-pair cap is enforced on append). The earlier `split_dual_mono` /
+  `left_to_both` / `right_to_both` / `swap_channels` set is removed. To split a
+  dual-mono pair: `copy_left_to_target(new)`, `copy_right_to_target(new)`,
+  `delete` the original. `channel_pair` (source) and `target_pair` (with a
+  `new` entry, shown only for the copy ops via `depends_on`) are string
+  dropdowns; the GUI narrows both to the pairs present on the node's input
+  (`RenderPresenter::getAudioChannelPairNames`, carrying descriptions rendered
+  as "index - name"). A `set_description` bool ("Add description", shown for
+  every op except `delete`) gates a free-text `description` parameter (shown via
+  `depends_on set_description == "true"`): off keeps the produced pair's existing
+  name, on overrides it — this is how bilingual programmes get "English
+  language" / "French language" names.
 - `audio_align`: offsets convert at exactly 48 pairs/ms; window assembly
   uses cumulative `audio_pair_offset()` arithmetic instead of a constant
   per-frame stride (NTSC cadence). The free-running origin-shift path is

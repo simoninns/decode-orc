@@ -2397,6 +2397,58 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
   // Get current parameter values from the node
   auto current_values = project_.presenter()->getNodeParameters(node_id);
 
+  // audio_channel_map: restrict the channel-pair dropdown to the pairs the
+  // node's input actually carries. The stage descriptor lists all container
+  // slots; here we narrow it using the upstream node's audio pair count.
+  if (stage_name == "audio_channel_map") {
+    auto* core_project = project_.presenter()->getCoreProjectHandle();
+    if (core_project) {
+      orc::presenters::RenderPresenter render_presenter(core_project);
+      render_presenter.setDAG(project_.getDAG());
+
+      orc::NodeID input_source_node_id = node_id;
+      const auto edges = project_.presenter()->getEdges();
+      auto input_edge =
+          std::find_if(edges.begin(), edges.end(),
+                       [&node_id](const orc::presenters::EdgeInfo& edge) {
+                         return edge.target_node == node_id;
+                       });
+      if (input_edge != edges.end()) {
+        input_source_node_id = input_edge->source_node;
+      }
+
+      const auto pair_names =
+          render_presenter.getAudioChannelPairNames(input_source_node_id);
+      if (!pair_names.empty()) {
+        // Combo entry "value␟label": stored value is the bare index (or "new"),
+        // display adds the pair description when present, e.g. "0 - Analogue".
+        const char sep = StageParameterDialog::kComboValueLabelSeparator;
+        auto pair_entry = [&](size_t p) {
+          const std::string value = std::to_string(p);
+          std::string label = value;
+          if (!pair_names[p].empty()) label += " - " + pair_names[p];
+          return value + sep + label;
+        };
+
+        for (auto& desc : param_descriptors) {
+          if (desc.name == "channel_pair") {
+            desc.constraints.allowed_strings.clear();
+            for (size_t p = 0; p < pair_names.size(); ++p) {
+              desc.constraints.allowed_strings.push_back(pair_entry(p));
+            }
+          } else if (desc.name == "target_pair") {
+            desc.constraints.allowed_strings.clear();
+            desc.constraints.allowed_strings.push_back(
+                std::string("new") + sep + "New channel pair");
+            for (size_t p = 0; p < pair_names.size(); ++p) {
+              desc.constraints.allowed_strings.push_back(pair_entry(p));
+            }
+          }
+        }
+      }
+    }
+  }
+
   std::optional<std::map<std::string, orc::ParameterValue>> reset_values;
   if (stage_name == "video_params") {
     auto* core_project = project_.presenter()->getCoreProjectHandle();

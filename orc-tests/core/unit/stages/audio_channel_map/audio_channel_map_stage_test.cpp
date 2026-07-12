@@ -1,8 +1,8 @@
 /*
  * File:        audio_channel_map_stage_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit tests for AudioChannelMapStage (dual-mono split, mono
- *              fill, channel swap on synchronous channel pairs)
+ * Purpose:     Unit tests for AudioChannelMapStage (channel-pair delete,
+ *              in-place SMPTE 272M mono, and mono copy to a target pair)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -81,35 +81,145 @@ TEST(AudioChannelMapStageTest, Descriptors_DefaultsRoundTripThroughSetGet) {
 
   const auto* channel_pair = find_descriptor(descriptors, "channel_pair");
   const auto* operation = find_descriptor(descriptors, "operation");
+  const auto* target_pair = find_descriptor(descriptors, "target_pair");
   ASSERT_NE(channel_pair, nullptr);
   ASSERT_NE(operation, nullptr);
-  EXPECT_EQ(channel_pair->type, orc::ParameterType::INT32);
+  ASSERT_NE(target_pair, nullptr);
+
+  // channel_pair is a string dropdown of the possible container pair slots.
+  EXPECT_EQ(channel_pair->type, orc::ParameterType::STRING);
+  EXPECT_EQ(channel_pair->constraints.allowed_strings.size(),
+            orc::kMaxAudioChannelPairs);
+  EXPECT_EQ(std::get<std::string>(*channel_pair->constraints.default_value),
+            "0");
+
   EXPECT_EQ(operation->type, orc::ParameterType::STRING);
-  EXPECT_EQ(std::get<int32_t>(*channel_pair->constraints.default_value), 0);
-  EXPECT_EQ(std::get<int32_t>(*channel_pair->constraints.max_value),
-            static_cast<int32_t>(orc::kMaxAudioChannelPairs) - 1);
   EXPECT_EQ(std::get<std::string>(*operation->constraints.default_value),
-            "split_dual_mono");
-  EXPECT_EQ(operation->constraints.allowed_strings.size(), 4u);
+            "left_to_mono");
+  EXPECT_EQ(operation->constraints.allowed_strings.size(), 5u);
+
+  // target_pair offers "new" plus the slots, and is shown only for the copy
+  // ops.
+  EXPECT_EQ(target_pair->type, orc::ParameterType::STRING);
+  EXPECT_EQ(std::get<std::string>(*target_pair->constraints.default_value),
+            "new");
+  EXPECT_EQ(target_pair->constraints.allowed_strings.size(),
+            orc::kMaxAudioChannelPairs + 1);
+  ASSERT_TRUE(target_pair->constraints.depends_on.has_value());
+  EXPECT_EQ(target_pair->constraints.depends_on->parameter_name, "operation");
+  EXPECT_THAT(
+      target_pair->constraints.depends_on->required_values,
+      ::testing::ElementsAre("copy_left_to_target", "copy_right_to_target"));
+
+  // set_description is a bool gate hidden only for delete; description is
+  // free-form and shown only when set_description is true.
+  const auto* set_description = find_descriptor(descriptors, "set_description");
+  ASSERT_NE(set_description, nullptr);
+  EXPECT_EQ(set_description->type, orc::ParameterType::BOOL);
+  EXPECT_FALSE(std::get<bool>(*set_description->constraints.default_value));
+  ASSERT_TRUE(set_description->constraints.depends_on.has_value());
+  EXPECT_THAT(
+      set_description->constraints.depends_on->required_values,
+      ::testing::ElementsAre("left_to_mono", "right_to_mono",
+                             "copy_left_to_target", "copy_right_to_target"));
+
+  const auto* description = find_descriptor(descriptors, "description");
+  ASSERT_NE(description, nullptr);
+  EXPECT_EQ(description->type, orc::ParameterType::STRING);
+  EXPECT_TRUE(description->constraints.allowed_strings.empty());
+  ASSERT_TRUE(description->constraints.depends_on.has_value());
+  EXPECT_EQ(description->constraints.depends_on->parameter_name,
+            "set_description");
+  EXPECT_THAT(description->constraints.depends_on->required_values,
+              ::testing::ElementsAre("true"));
 
   auto params = stage.get_parameters();
-  EXPECT_EQ(std::get<int32_t>(params.at("channel_pair")), 0);
-  EXPECT_EQ(std::get<std::string>(params.at("operation")), "split_dual_mono");
+  EXPECT_EQ(std::get<std::string>(params.at("channel_pair")), "0");
+  EXPECT_EQ(std::get<std::string>(params.at("operation")), "left_to_mono");
+  EXPECT_EQ(std::get<std::string>(params.at("target_pair")), "new");
+  EXPECT_FALSE(std::get<bool>(params.at("set_description")));
+  EXPECT_EQ(std::get<std::string>(params.at("description")), "");
 
   EXPECT_TRUE(
-      stage.set_parameters({{"channel_pair", int32_t{3}},
-                            {"operation", std::string("swap_channels")}}));
+      stage.set_parameters({{"channel_pair", std::string("3")},
+                            {"operation", std::string("copy_right_to_target")},
+                            {"target_pair", std::string("2")},
+                            {"set_description", true},
+                            {"description", std::string("French language")}}));
   params = stage.get_parameters();
-  EXPECT_EQ(std::get<int32_t>(params.at("channel_pair")), 3);
-  EXPECT_EQ(std::get<std::string>(params.at("operation")), "swap_channels");
+  EXPECT_EQ(std::get<std::string>(params.at("channel_pair")), "3");
+  EXPECT_EQ(std::get<std::string>(params.at("operation")),
+            "copy_right_to_target");
+  EXPECT_EQ(std::get<std::string>(params.at("target_pair")), "2");
+  EXPECT_TRUE(std::get<bool>(params.at("set_description")));
+  EXPECT_EQ(std::get<std::string>(params.at("description")), "French language");
+}
+
+TEST(AudioChannelMapStageTest, Description_NamesTheResultPairWhenEnabled) {
+  // The bilingual workflow: copy the right channel to a new pair named "French
+  // language", then rename the source's left-mono to "English language".
+  {
+    orc::AudioChannelMapStage stage;
+    auto vfr = make_two_pair_source();
+    auto output = run(stage, vfr,
+                      {{"channel_pair", std::string("0")},
+                       {"operation", std::string("copy_right_to_target")},
+                       {"target_pair", std::string("new")},
+                       {"set_description", true},
+                       {"description", std::string("French language")}});
+    ASSERT_EQ(output->audio_channel_pair_count(), 3u);
+    const auto appended = output->get_audio_channel_pair_descriptor(2);
+    ASSERT_TRUE(appended.has_value());
+    EXPECT_EQ(appended->name, "French language");
+    EXPECT_EQ(appended->origin, orc::AudioOrigin::DERIVED);
+    EXPECT_EQ(output->get_audio_samples(2, orc::FrameID(0)),
+              (std::vector<int32_t>{200000, 0, 400000, 0}));
+  }
+  {
+    orc::AudioChannelMapStage stage;
+    auto vfr = make_two_pair_source();
+    auto output = run(stage, vfr,
+                      {{"channel_pair", std::string("0")},
+                       {"operation", std::string("left_to_mono")},
+                       {"set_description", true},
+                       {"description", std::string("English language")}});
+    const auto desc = output->get_audio_channel_pair_descriptor(0);
+    ASSERT_TRUE(desc.has_value());
+    EXPECT_EQ(desc->name, "English language");
+    EXPECT_EQ(desc->origin, orc::AudioOrigin::DERIVED);
+  }
+}
+
+TEST(AudioChannelMapStageTest, Description_KeepsExistingNameWhenDisabled) {
+  // With 'Add description' off, the result pair keeps the source's existing
+  // name (no override, no derived suffix).
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("left_to_mono")},
+                     {"set_description", false},
+                     {"description", std::string("ignored")}});
+  const auto desc = output->get_audio_channel_pair_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->name, "Analogue");
+  EXPECT_EQ(desc->origin, orc::AudioOrigin::DERIVED);
 }
 
 TEST(AudioChannelMapStageTest, SetParameters_RejectsInvalidValues) {
   orc::AudioChannelMapStage stage;
-  EXPECT_FALSE(stage.set_parameters({{"channel_pair", int32_t{-1}}}));
+  EXPECT_FALSE(stage.set_parameters({{"channel_pair", std::string("bogus")}}));
+  EXPECT_FALSE(stage.set_parameters({{"channel_pair", std::string("-1")}}));
   EXPECT_FALSE(stage.set_parameters(
-      {{"channel_pair", static_cast<int32_t>(orc::kMaxAudioChannelPairs)}}));
-  EXPECT_FALSE(stage.set_parameters({{"operation", std::string("bogus")}}));
+      {{"channel_pair",
+        std::to_string(static_cast<int>(orc::kMaxAudioChannelPairs))}}));
+  EXPECT_FALSE(stage.set_parameters({{"channel_pair", int32_t{1}}}));
+  EXPECT_FALSE(
+      stage.set_parameters({{"operation", std::string("swap_channels")}}));
+  EXPECT_FALSE(stage.set_parameters({{"target_pair", std::string("bogus")}}));
+  // "new" and valid indices are accepted.
+  EXPECT_TRUE(stage.set_parameters({{"target_pair", std::string("new")}}));
+  EXPECT_TRUE(stage.set_parameters({{"target_pair", std::string("1")}}));
 }
 
 TEST(AudioChannelMapStageTest, Execute_ThrowsOnMissingInput) {
@@ -118,105 +228,176 @@ TEST(AudioChannelMapStageTest, Execute_ThrowsOnMissingInput) {
   EXPECT_THROW(stage.execute({}, {}, ctx), orc::DAGExecutionError);
 }
 
-TEST(AudioChannelMapStageTest, Execute_ThrowsWhenChannelPairOutOfRange) {
+TEST(AudioChannelMapStageTest, Execute_ThrowsWhenSourcePairOutOfRange) {
   orc::AudioChannelMapStage stage;
   auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
   ON_CALL(*vfr, audio_channel_pair_count()).WillByDefault(Return(1u));
 
   orc::ObservationContext ctx;
-  EXPECT_THROW(stage.execute({vfr}, {{"channel_pair", int32_t{1}}}, ctx),
+  EXPECT_THROW(stage.execute({vfr}, {{"channel_pair", std::string("1")}}, ctx),
                orc::DAGExecutionError);
 }
 
-TEST(AudioChannelMapStageTest, Execute_ThrowsWhenSplitWouldExceedPairCap) {
+TEST(AudioChannelMapStageTest, LeftToMono_KeepsLeftAndSilencesRight) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("left_to_mono")}});
+
+  EXPECT_EQ(output->audio_channel_pair_count(), 2u);
+  const auto desc = output->get_audio_channel_pair_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->name, "Analogue");
+  EXPECT_EQ(desc->origin, orc::AudioOrigin::DERIVED);
+
+  EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)),
+            (std::vector<int32_t>{100000, 0, -300000, 0}));
+  EXPECT_EQ(output->get_audio_samples(1, orc::FrameID(0)),
+            (std::vector<int32_t>{5000, 6000, 7000, 8000}));
+}
+
+TEST(AudioChannelMapStageTest, RightToMono_MovesRightToLeftAndSilencesRight) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("right_to_mono")}});
+
+  EXPECT_EQ(output->audio_channel_pair_count(), 2u);
+  EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)),
+            (std::vector<int32_t>{200000, 0, 400000, 0}));
+  EXPECT_EQ(output->get_audio_samples(1, orc::FrameID(0)),
+            (std::vector<int32_t>{5000, 6000, 7000, 8000}));
+}
+
+TEST(AudioChannelMapStageTest, CopyLeftToNewTarget_AppendsMonoAndKeepsSource) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("copy_left_to_target")},
+                     {"target_pair", std::string("new")}});
+
+  // A new pair is appended; source and other pairs are untouched.
+  ASSERT_EQ(output->audio_channel_pair_count(), 3u);
+  EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)),
+            (std::vector<int32_t>{100000, 200000, -300000, 400000}));
+  EXPECT_EQ(output->get_audio_samples(1, orc::FrameID(0)),
+            (std::vector<int32_t>{5000, 6000, 7000, 8000}));
+  EXPECT_EQ(output->get_audio_samples(2, orc::FrameID(0)),
+            (std::vector<int32_t>{100000, 0, -300000, 0}));
+
+  const auto appended = output->get_audio_channel_pair_descriptor(2);
+  ASSERT_TRUE(appended.has_value());
+  EXPECT_EQ(appended->name, "Analogue");
+  EXPECT_EQ(appended->origin, orc::AudioOrigin::DERIVED);
+  // Source descriptor unchanged.
+  EXPECT_EQ(output->get_audio_channel_pair_descriptor(0)->name, "Analogue");
+}
+
+TEST(AudioChannelMapStageTest, CopyRightToNewTarget_AppendsRightChannelMono) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("copy_right_to_target")},
+                     {"target_pair", std::string("new")}});
+
+  ASSERT_EQ(output->audio_channel_pair_count(), 3u);
+  EXPECT_EQ(output->get_audio_samples(2, orc::FrameID(0)),
+            (std::vector<int32_t>{200000, 0, 400000, 0}));
+}
+
+TEST(AudioChannelMapStageTest, CopyLeftToExistingTarget_OverwritesTargetOnly) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("copy_left_to_target")},
+                     {"target_pair", std::string("1")}});
+
+  // No pair added; pair 1 becomes the source's left mono, source untouched.
+  ASSERT_EQ(output->audio_channel_pair_count(), 2u);
+  EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)),
+            (std::vector<int32_t>{100000, 200000, -300000, 400000}));
+  EXPECT_EQ(output->get_audio_samples(1, orc::FrameID(0)),
+            (std::vector<int32_t>{100000, 0, -300000, 0}));
+
+  const auto target = output->get_audio_channel_pair_descriptor(1);
+  ASSERT_TRUE(target.has_value());
+  EXPECT_EQ(target->name, "Analogue");
+  EXPECT_EQ(target->origin, orc::AudioOrigin::DERIVED);
+}
+
+TEST(AudioChannelMapStageTest, CopyToTarget_ThrowsWhenTargetOutOfRange) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  orc::ObservationContext ctx;
+  EXPECT_THROW(stage.execute({vfr},
+                             {{"channel_pair", std::string("0")},
+                              {"operation", std::string("copy_left_to_target")},
+                              {"target_pair", std::string("5")}},
+                             ctx),
+               orc::DAGExecutionError);
+}
+
+TEST(AudioChannelMapStageTest, CopyToNewTarget_ThrowsWhenPairCapExceeded) {
   orc::AudioChannelMapStage stage;
   auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
   ON_CALL(*vfr, audio_channel_pair_count())
       .WillByDefault(Return(orc::kMaxAudioChannelPairs));
 
   orc::ObservationContext ctx;
-  EXPECT_THROW(stage.execute(
-                   {vfr}, {{"operation", std::string("split_dual_mono")}}, ctx),
+  EXPECT_THROW(stage.execute({vfr},
+                             {{"channel_pair", std::string("0")},
+                              {"operation", std::string("copy_left_to_target")},
+                              {"target_pair", std::string("new")}},
+                             ctx),
                orc::DAGExecutionError);
 }
 
-TEST(AudioChannelMapStageTest, SplitDualMono_ReplacesInPlaceAndAppends) {
+TEST(AudioChannelMapStageTest, Delete_RemovesTargetAndShiftsLaterPairsDown) {
   orc::AudioChannelMapStage stage;
   auto vfr = make_two_pair_source();
   auto output = run(stage, vfr,
-                    {{"channel_pair", int32_t{0}},
-                     {"operation", std::string("split_dual_mono")}});
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("delete")}});
 
-  ASSERT_EQ(output->audio_channel_pair_count(), 3u);
-
-  // Target index becomes the left-channel mono pair, in place.
-  const auto left = output->get_audio_channel_pair_descriptor(0);
-  ASSERT_TRUE(left.has_value());
-  EXPECT_EQ(left->name, "Analogue (L)");
-  EXPECT_EQ(left->origin, orc::AudioOrigin::DERIVED);
-
-  // Non-targeted pair keeps its index and descriptor.
-  const auto other = output->get_audio_channel_pair_descriptor(1);
-  ASSERT_TRUE(other.has_value());
-  EXPECT_EQ(other->name, "EFM digital audio");
-  EXPECT_EQ(other->origin, orc::AudioOrigin::EFM);
-
-  // The right-channel mono pair is appended last.
-  const auto right = output->get_audio_channel_pair_descriptor(2);
-  ASSERT_TRUE(right.has_value());
-  EXPECT_EQ(right->name, "Analogue (R)");
-  EXPECT_EQ(right->origin, orc::AudioOrigin::DERIVED);
-
-  EXPECT_FALSE(output->get_audio_channel_pair_descriptor(3).has_value());
-
-  // Source pairs {L=100000,R=200000},{L=-300000,R=400000}: (L) carries L on
-  // both channels, (R) carries R on both channels; the appended pair mirrors
-  // the target's per-frame layout.
+  ASSERT_EQ(output->audio_channel_pair_count(), 1u);
+  const auto desc = output->get_audio_channel_pair_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->name, "EFM digital audio");
+  EXPECT_EQ(desc->origin, orc::AudioOrigin::EFM);
   EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)),
-            (std::vector<int32_t>{100000, 100000, -300000, -300000}));
-  EXPECT_EQ(output->get_audio_samples(2, orc::FrameID(0)),
-            (std::vector<int32_t>{200000, 200000, 400000, 400000}));
+            (std::vector<int32_t>{5000, 6000, 7000, 8000}));
+
+  EXPECT_TRUE(output->get_audio_samples(1, orc::FrameID(0)).empty());
+  EXPECT_FALSE(output->get_audio_channel_pair_descriptor(1).has_value());
+}
+
+TEST(AudioChannelMapStageTest, Delete_OfLaterPairKeepsEarlierPairIntact) {
+  orc::AudioChannelMapStage stage;
+  auto vfr = make_two_pair_source();
+  auto output = run(stage, vfr,
+                    {{"channel_pair", std::string("1")},
+                     {"operation", std::string("delete")}});
+
+  ASSERT_EQ(output->audio_channel_pair_count(), 1u);
+  EXPECT_EQ(output->get_audio_channel_pair_descriptor(0)->name, "Analogue");
+  EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)),
+            (std::vector<int32_t>{100000, 200000, -300000, 400000}));
 }
 
 TEST(AudioChannelMapStageTest, OutOfRangePair_ReturnsEmptyAndNullopt) {
   orc::AudioChannelMapStage stage;
   auto vfr = make_two_pair_source();
   auto output = run(stage, vfr,
-                    {{"channel_pair", int32_t{0}},
-                     {"operation", std::string("split_dual_mono")}});
+                    {{"channel_pair", std::string("0")},
+                     {"operation", std::string("left_to_mono")}});
 
-  // Split output carries pairs 0-2; pair 3 is out of range.
-  EXPECT_TRUE(output->get_audio_samples(3, orc::FrameID(0)).empty());
-  EXPECT_FALSE(output->get_audio_channel_pair_descriptor(3).has_value());
-}
-
-TEST(AudioChannelMapStageTest, InPlaceOperations_RemapChannels) {
-  const std::vector<std::pair<std::string, std::vector<int32_t>>> cases = {
-      {"left_to_both", {100000, 100000, -300000, -300000}},
-      {"right_to_both", {200000, 200000, 400000, 400000}},
-      {"swap_channels", {200000, 100000, 400000, -300000}},
-  };
-
-  for (const auto& [operation, expected] : cases) {
-    orc::AudioChannelMapStage stage;
-    auto vfr = make_two_pair_source();
-    auto output = run(stage, vfr,
-                      {{"channel_pair", int32_t{0}}, {"operation", operation}});
-
-    // In-place: no pair added, descriptor unchanged.
-    EXPECT_EQ(output->audio_channel_pair_count(), 2u) << operation;
-    const auto desc = output->get_audio_channel_pair_descriptor(0);
-    ASSERT_TRUE(desc.has_value()) << operation;
-    EXPECT_EQ(desc->name, "Analogue") << operation;
-    EXPECT_EQ(desc->origin, orc::AudioOrigin::ANALOGUE) << operation;
-
-    EXPECT_EQ(output->get_audio_samples(0, orc::FrameID(0)), expected)
-        << operation;
-    // Non-targeted pair untouched.
-    EXPECT_EQ(output->get_audio_samples(1, orc::FrameID(0)),
-              (std::vector<int32_t>{5000, 6000, 7000, 8000}))
-        << operation;
-  }
+  EXPECT_TRUE(output->get_audio_samples(2, orc::FrameID(0)).empty());
+  EXPECT_FALSE(output->get_audio_channel_pair_descriptor(2).has_value());
 }
 
 }  // namespace

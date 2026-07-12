@@ -181,6 +181,42 @@ TEST(StageParameterDialogTest,
   EXPECT_EQ(std::get<std::string>(values.at("enum_param")), "gamma");
 }
 
+TEST(StageParameterDialogTest, Combo_ShowsLabelWhileStoringBareValue) {
+  (void)ensureApplication();
+
+  const char sep = StageParameterDialog::kComboValueLabelSeparator;
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(
+      makeDescriptor("channel_pair", "Channel pair", orc::ParameterType::STRING,
+                     std::string("0"), std::nullopt, std::nullopt,
+                     {std::string("0") + sep + "0 - Analogue Audio",
+                      std::string("1") + sep + "1 - EFM digital audio"}));
+
+  std::map<std::string, orc::ParameterValue> current_values;
+  current_values["channel_pair"] = std::string("1");
+
+  StageParameterDialog dialog("audio_channel_map", "Audio Channel Map", "desc",
+                              descriptors, current_values);
+
+  auto* combo =
+      qobject_cast<QComboBox*>(widgetForDisplayName(dialog, "Channel pair"));
+  ASSERT_NE(combo, nullptr);
+
+  // Display carries the description; the stored value stays the bare index.
+  EXPECT_EQ(combo->itemText(0).toStdString(), "0 - Analogue Audio");
+  EXPECT_EQ(combo->itemText(1).toStdString(), "1 - EFM digital audio");
+  EXPECT_EQ(combo->currentText().toStdString(), "1 - EFM digital audio");
+
+  auto values = dialog.get_values();
+  ASSERT_TRUE(std::holds_alternative<std::string>(values.at("channel_pair")));
+  EXPECT_EQ(std::get<std::string>(values.at("channel_pair")), "1");
+
+  // Selecting the first entry returns its bare value, not the label.
+  combo->setCurrentIndex(0);
+  values = dialog.get_values();
+  EXPECT_EQ(std::get<std::string>(values.at("channel_pair")), "0");
+}
+
 TEST(StageParameterDialogTest,
      Numeric_EditorsRespectConfiguredBoundsAndClampStepping) {
   (void)ensureApplication();

@@ -22,8 +22,36 @@
 #include <functional>
 #include <limits>
 #include <set>
+#include <utility>
 
 #include "logging.h"
+
+namespace {
+
+// Splits an allowed_strings entry "value\x1flabel" into (value, label). With no
+// separator the whole entry serves as both the stored value and the label.
+std::pair<QString, QString> split_combo_item(const std::string& entry) {
+  const auto pos = entry.find(StageParameterDialog::kComboValueLabelSeparator);
+  if (pos == std::string::npos) {
+    const QString both = QString::fromStdString(entry);
+    return {both, both};
+  }
+  return {QString::fromStdString(entry.substr(0, pos)),
+          QString::fromStdString(entry.substr(pos + 1))};
+}
+
+// Selects the combo entry whose stored data equals |value|; falls back to
+// matching the visible text (for combos built without value/label separation).
+void select_combo_value(QComboBox* combo, const QString& value) {
+  const int idx = combo->findData(value);
+  if (idx >= 0) {
+    combo->setCurrentIndex(idx);
+  } else {
+    combo->setCurrentText(value);
+  }
+}
+
+}  // namespace
 
 StageParameterDialog::StageParameterDialog(
     const std::string& stage_name, const std::string& display_name,
@@ -191,13 +219,16 @@ void StageParameterDialog::build_ui(
 
       case orc::ParameterType::STRING: {
         if (!desc.constraints.allowed_strings.empty()) {
-          // Use combo box for constrained strings
+          // Use combo box for constrained strings. Each entry may carry a
+          // display label distinct from its stored value (see
+          // kComboValueLabelSeparator).
           auto* combo = new QComboBox();
           for (const auto& allowed : desc.constraints.allowed_strings) {
-            combo->addItem(QString::fromStdString(allowed));
+            const auto [item_value, item_label] = split_combo_item(allowed);
+            combo->addItem(item_label, item_value);
           }
-          combo->setCurrentText(
-              QString::fromStdString(std::get<std::string>(value)));
+          select_combo_value(
+              combo, QString::fromStdString(std::get<std::string>(value)));
           widget = combo;
         } else {
           // Use line edit for free-form strings. Indexed spec parameters are
@@ -585,8 +616,8 @@ void StageParameterDialog::set_widget_value(const std::string& param_name,
       break;
     case orc::ParameterType::STRING:
       if (auto* combo = qobject_cast<QComboBox*>(pw.widget)) {
-        combo->setCurrentText(
-            QString::fromStdString(std::get<std::string>(value)));
+        select_combo_value(
+            combo, QString::fromStdString(std::get<std::string>(value)));
       } else if (auto* edit = qobject_cast<QLineEdit*>(pw.widget)) {
         const std::string display_text =
             to_display_spec(param_name, std::get<std::string>(value));
@@ -628,7 +659,9 @@ orc::ParameterValue StageParameterDialog::get_widget_value(
       return static_cast<QCheckBox*>(pw.widget)->isChecked();
     case orc::ParameterType::STRING:
       if (auto* combo = qobject_cast<QComboBox*>(pw.widget)) {
-        return combo->currentText().toStdString();
+        const QVariant data = combo->currentData();
+        return data.isValid() ? data.toString().toStdString()
+                              : combo->currentText().toStdString();
       } else if (auto* edit = qobject_cast<QLineEdit*>(pw.widget)) {
         return from_display_spec(param_name, edit->text().toStdString());
       }

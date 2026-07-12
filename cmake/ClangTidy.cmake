@@ -25,6 +25,18 @@ if(MSVC)
     return()
 endif()
 
+# clang-tidy's own clang frontend does not know where MinGW-w64/gcc's
+# standard headers live (<cstdint>, <stdio.h>, <atomic>, ...) unless told
+# explicitly, and CMAKE_CXX_CLANG_TIDY does not forward that automatically.
+# Without it every MinGW build fails immediately on missing standard headers,
+# and any external dependency shipping its own permissive .clang-tidy (e.g.
+# QtNodes) additionally fails with "no checks enabled". Skipping mirrors the
+# existing MSVC exception above; static analysis still runs on Linux/macOS CI.
+if(MINGW)
+    message(STATUS "clang-tidy: skipped for MinGW toolchain (see cmake/ClangTidy.cmake)")
+    return()
+endif()
+
 find_program(CLANG_TIDY_EXECUTABLE
     NAMES
         clang-tidy

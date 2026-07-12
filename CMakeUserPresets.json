@@ -1,0 +1,31 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-mingw",
+      "displayName": "Windows MinGW (community, unofficial)",
+      "description": "Everything discovered manually while getting decode-orc to build with MinGW-w64/gcc instead of MSVC. Not an officially supported path — see docs/installation/source/windows-mingw-source.md for the two one-time setup steps this preset assumes (vcpkg bootstrapped with the mingw triplet, and ezpwd-reed-solomon cloned as a sibling directory).",
+      "generator": "MinGW Makefiles",
+      "binaryDir": "${sourceDir}/build-mingw",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-dynamic",
+        "VCPKG_APPLOCAL_DEPS": "OFF",
+        "BASH_EXECUTABLE": "C:/Program Files/Git/bin/bash.exe",
+        "BUILD_GUI": "ON",
+        "BUILD_UNIT_TESTS": "OFF",
+        "EZPWD_INCLUDE_DIR": "${sourceDir}/../ezpwd-reed-solomon/c++",
+        "CMAKE_PREFIX_PATH": "$env{VCPKG_ROOT}/installed/x64-mingw-dynamic/share"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-windows-mingw",
+      "displayName": "Build Windows MinGW",
+      "configurePreset": "windows-mingw",
+      "jobs": 0
+    }
+  ]
+}

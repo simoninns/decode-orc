@@ -29,6 +29,7 @@ class OrcGraphicsView : public QtNodes::GraphicsView {
   void wheelEvent(QWheelEvent* event) override;
   void showEvent(QShowEvent* event) override;
   void contextMenuEvent(QContextMenuEvent* event) override;
+  void mouseReleaseEvent(QMouseEvent* event) override;
 
  public:
   void setShowWelcomeMessage(bool show);
@@ -37,6 +38,13 @@ class OrcGraphicsView : public QtNodes::GraphicsView {
   void onDeleteSelectedObjects() override;
 
  private:
+  // Persist any node whose on-screen position no longer matches the position
+  // stored in the model. QtNodes moves nodes visually during a drag but never
+  // writes the new coordinates back to the graph model, so without this the
+  // project keeps stale positions and every node snaps back to its old spot
+  // the next time the scene is rebuilt (e.g. after editing parameters).
+  void commitDraggedNodePositions();
+
   bool show_welcome_message_{true};
   QString welcome_message_;
 };

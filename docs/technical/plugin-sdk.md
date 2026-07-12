@@ -535,7 +535,7 @@ Users register your plugin by adding an entry to their plugin registry YAML:
   release_tag:        v1.0.0
   release_asset_name: orc-plugin_my-stage_linux.so   # platform-specific
   target_platform:    linux
-  required_host_abi:  6
+  required_host_abi:  7
   enabled:            true
   trust_state:        untrusted
   license_spdx:       MIT

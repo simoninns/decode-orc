@@ -50,7 +50,7 @@ This stage reads AC3 RF samples from the incoming stream, decodes the RF-modulat
 | **Stage id** | `AudioSink` |
 | **Stage name** | Audio Sink |
 | **Connections** | 1 input → no outputs |
-| **Purpose** | Export analogue audio to a WAV file |
+| **Purpose** | Export any pipeline audio channel pair to a WAV file |
 
 **Use this stage when:**
 
@@ -60,7 +60,7 @@ This stage reads AC3 RF samples from the incoming stream, decodes the RF-modulat
 
 **What it does**
 
-This stage extracts one audio channel pair from the incoming stream and writes it to a standard WAV file. Audio remains synchronised to the processed video timeline, so any frame trimming or reordering performed upstream is reflected in the output.
+This stage extracts one audio channel pair from the incoming stream and writes it to a standard WAV file. The pair can be any channel pair carried by the pipeline — analogue capture audio, decoded EFM digital audio, an imported WAV, or a channel pair derived by a transform. Audio remains synchronised to the processed video timeline, so any frame trimming or reordering performed upstream is reflected in the output.
 
 The pipeline carries stereo audio channel pairs at exactly 48,000 Hz, frame-locked (synchronous) to the video for every system, following SMPTE 272M-1994. The WAV output is 24-bit signed little-endian PCM declaring 48,000 Hz; no resampling or bit-depth conversion is performed.
 
@@ -76,7 +76,7 @@ The pipeline carries stereo audio channel pairs at exactly 48,000 Hz, frame-lock
 
 **Notes**
 
-* This stage handles analogue audio only. Digital audio carried as EFM (CD-quality stereo) or AC3 RF (Dolby Digital) must be extracted with the EFM Decoder Sink or AC3 RF Sink stages respectively.
+* This stage writes whatever channel pair you select. Analogue capture audio arrives as channel pair 0 from the source; EFM digital audio (CD-quality stereo) becomes a channel pair when you add an **EFM Audio Decode** transform upstream, after which it can be written here like any other pair. For a bit-exact, un-resampled WAV of EFM audio use the EFM Decoder Sink instead; AC3 RF (Dolby Digital) is exported via the AC3 RF Sink.
 * Audio stacking or selection must be performed upstream (e.g. via `stacker`).
 
 ---
@@ -331,7 +331,7 @@ This stage extracts raw EFM (Eight-to-Fourteen Modulation) t-values from the inc
 
 **What it does**
 
-Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode. In FFmpeg mode the video is encoded into the chosen container and codec, optionally embedding analogue audio, closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data. In raw mode the decoded frames are written to a file without compression; the raw format determines the pixel layout and whether a Y4M header is prepended.
+Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode. In FFmpeg mode the video is encoded into the chosen container and codec, optionally embedding pipeline audio (up to 8 channel pairs, one output stream per pair), closed captions (as mov_text subtitles, MP4/MOV only), and chapter markers derived from VBI data. In raw mode the decoded frames are written to a file without compression; the raw format determines the pixel layout and whether a Y4M header is prepended.
 
 **Parameters**
 

@@ -11,7 +11,7 @@ Use this sink at the end of your pipeline to export the decoded video.
 
 ## What it does
 
-Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode: encoded via FFmpeg into the chosen container and codec, or as raw decoded frames without compression. In FFmpeg mode it can optionally embed pipeline audio channel pairs (up to 8, one output stream per channel pair), closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data.
+Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode: encoded via FFmpeg into the chosen container and codec, or as raw decoded frames without compression. In FFmpeg mode it can optionally embed pipeline audio channel pairs (up to 8, one output stream per channel pair), closed captions (as mov_text subtitles, MP4/MOV only), and chapter markers derived from VBI data.
 
 ## Parameters
 

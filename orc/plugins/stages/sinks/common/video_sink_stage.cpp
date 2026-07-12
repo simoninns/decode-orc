@@ -475,14 +475,16 @@ std::vector<ParameterDescriptor> VideoSinkStage::get_parameter_descriptors(
           "Embed Audio",
           "Embed the input's audio channel pairs in the output file, one "
           "output stream per pair, each titled with its channel pair name "
-          "(requires audio in source, MP4/MKV only)",
+          "(requires audio in source). The audio codec follows the container: "
+          "FLAC for FFV1, PCM S24LE for ProRes/V210/V410/D10, AAC for "
+          "H.264/H.265/AV1.",
           ParameterType::BOOL,
           {{},
            {},
            false,
            {},
            false,
-           ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
+           ParameterDependency{"ffmpeg_format", ffmpeg_formats}}},
       ParameterDescriptor{
           "audio_channel_pairs",
           "Audio Channel Pairs",

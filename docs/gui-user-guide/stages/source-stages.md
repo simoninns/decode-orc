@@ -34,22 +34,33 @@ This stage reads one or more TBC files, detects the video system and signal type
 
 All TBC level values are remapped from the ld-decode/vhs-decode internal 16-bit domain to the CVBS_U10_4FSC 10-bit domain. PAL frames have exactly 709,379 samples; NTSC frames have 477,750 samples; PAL-M frames have 477,225 samples.
 
-Associated audio (analogue `.pcm`), EFM disc data, and AC3 RF are attached automatically if present alongside the `.tbc` file.
+Associated audio (analogue `.pcm`), EFM disc data (`.efm`), and AC3 RF symbols (`.ac3sym`) are attached if present alongside the `.tbc` file. When a `.pcm` sidecar is present it becomes **audio channel pair 0** (named from `pcm_name`, default `Analogue`). The `.pcm` sidecar — raw signed 16-bit little-endian stereo PCM, nominally 44100 Hz as written by ld-decode — is always converted on ingest to the pipeline's only audio form: 48 kHz synchronous (frame-locked) 24-bit stereo per SMPTE 272M (widened to 24-bit and resampled with SoXR HQ). The conversion is deferred until audio is first read, so video-only preview never pays for it.
 
 **Composite variant user-facing inputs**
 
 * **TBC file** (`.tbc`)
 * Accompanying metadata database (`.tbc.db`)
-* PCM audio file (optional, auto-detected)
-* EFM data file (optional, auto-detected)
+* PCM audio file (`.pcm`, optional)
+* EFM data file (`.efm`, optional)
+* AC3 RF symbols file (`.ac3sym`, optional)
 
 **Y/C variant user-facing inputs**
 
 * **Luma (Y) file** (`.tbcy`)
 * **Chroma (C) file** (`.tbcc`)
 * Accompanying metadata database (auto-detected)
-* PCM audio file (optional, auto-detected)
-* EFM data file (optional, auto-detected)
+* PCM audio file (`.pcm`, optional)
+* EFM data file (`.efm`, optional)
+* AC3 RF symbols file (`.ac3sym`, optional)
+
+**Parameters**
+
+* `input_path` (file path) — Composite `.tbc` file. Composite captures only.
+* `y_path` / `c_path` (file paths) — Luma `.tbcy` and chroma `.tbcc` files. Y/C captures only; set together.
+* `pcm_path` (file path) — Analogue audio `.pcm` sidecar. Becomes channel pair 0, converted to 48 kHz frame-locked 24-bit stereo.
+* `pcm_name` (string) — Name for the analogue audio channel pair (shown in the CVBS container and as the Video Sink stream title). Empty uses `Analogue`.
+* `efm_path` (file path) — EFM t-value `.efm` sidecar.
+* `ac3rf_path` (file path) — AC3 RF symbols `.ac3sym` sidecar.
 
 **Notes**
 

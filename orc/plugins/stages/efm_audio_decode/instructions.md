@@ -28,6 +28,9 @@ Boolean, default `false`. Disable timecode verification during decode. Needed fo
 ### no_audio_concealment
 Boolean, default `false`. Disable interpolation-based audio error concealment; uncorrectable samples are left as decoded instead of being concealed.
 
+### pair_name
+String, default `EFM digital audio`. Human-readable name for the decoded EFM audio channel pair. It surfaces in the CVBS container and as the embedded stream title in the Video Sink. If left empty it falls back to `EFM digital audio`.
+
 ### report
 Boolean, default `false`. Enable to write a detailed decode statistics report (the same per-stage CIRC/error/timing statistics the EFM Decoder Sink writes) once the lazy decode runs. When enabled, set the report destination in **report_path**.
 
